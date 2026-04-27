@@ -92,7 +92,7 @@ Default Firecracker networking is `offline`.
 
 The controller uses a host-to-guest bridge for executor control. It does not enable NAT or arbitrary internet access by default.
 
-`scoped` networking remains disabled unless `enableScopedNetwork` is explicitly set in the controller config and the host-side network policy is audited. Live-target access still requires recorded program scope and an active network profile that permits it.
+`scoped` networking remains disabled unless `enableScopedNetwork` is explicitly set in the controller config and the host-side network policy is audited. When enabled, Beale passes the run's scoped domain/host/IP/service allowlist to the controller, the controller pins domain and host destinations to resolved IPv4 addresses, and host firewall/NAT rules fail closed to that allowlist. Live-target access still requires recorded program scope and an active network profile that permits it.
 
 ## Non-Goals
 

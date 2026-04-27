@@ -166,7 +166,7 @@ describe('Beale workbench skeleton', () => {
       organizationName: 'Example Org',
       descriptionMarkdown: 'Authorized open-ended vulnerability discovery on scoped assets.',
       rulesMarkdown: 'No out-of-scope network testing.',
-      networkProfile: 'scoped_public',
+      networkProfile: 'scoped',
       expiresAt: '2026-12-31',
       assets: [
         asset('in_scope', 'domain', 'api.example.test'),
@@ -178,7 +178,7 @@ describe('Beale workbench skeleton', () => {
 
     expect(snapshot.activeScope.version).toBe(2);
     expect(snapshot.activeScope.programName).toBe('Example Bug Bounty');
-    expect(snapshot.activeScope.networkProfile).toBe('scoped_public');
+    expect(snapshot.activeScope.networkProfile).toBe('scoped');
     expect(snapshot.activeScope.assets).toHaveLength(4);
     expect(snapshot.activeScope.assets.map((item) => item.value)).toContain('admin.example.test');
 

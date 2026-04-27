@@ -526,6 +526,14 @@ export class WorkspaceDatabase {
     return this.mapScope(row);
   }
 
+  public getScopeVersion(scopeVersionId: string): ProgramScopeVersion {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM program_scope_versions WHERE id = ?').get(scopeVersionId));
+    if (!row) {
+      throw new Error(`Program scope version not found: ${scopeVersionId}`);
+    }
+    return this.mapScope(row);
+  }
+
   public saveProgramScope(draft: ProgramScopeDraft): ProgramScopeVersion {
     const cleanedAssets = draft.assets
       .map((asset) => ({

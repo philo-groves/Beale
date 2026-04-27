@@ -51,7 +51,8 @@ export class VmctlExecutorProvider implements ExecutorProvider {
     return this.request('create_context', contextPayload(request.context, {
       imageRef: request.imageRef,
       snapshotRef: request.snapshotRef,
-      networkProfile: request.networkProfile
+      networkProfile: request.networkProfile,
+      networkPolicy: request.networkPolicy
     }));
   }
 

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -111,6 +111,52 @@ describe('VM executor alpha', () => {
     const detail = db.getRunDetail(context.run.id);
     expect(detail.policyEvents.some((event) => event.reason === 'Workspace metadata cannot be imported into the guest.')).toBe(true);
     expect(readFileSync(logPath, 'utf8')).not.toContain('import_workspace_material');
+    db.close();
+  });
+
+  it('passes scoped live-target allowlists to vmctl and records network policy', () => {
+    const { db, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(
+      db,
+      [
+        { direction: 'in_scope', kind: 'domain', value: 'live.example.test', sensitivity: 'public', attributes: { protocol: 'tcp', port: 443 } }
+      ],
+      'scoped'
+    );
+    const manager = new ExecutorManager(db);
+
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+    manager.executeGuestOperation(context, {
+      operationKind: 'shell',
+      command: ['sh', '-lc', 'curl -fsS https://live.example.test/health'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5000,
+      networkProfile: 'scoped',
+      expectedOutput: 'summary'
+    });
+
+    const detail = db.getRunDetail(context.run.id);
+    const networkEvent = detail.traceEvents.find((event) => event.type === 'network_event' && event.payload.decision === 'allow_scoped_network');
+    expect(networkEvent?.payload.liveTargetAllowed).toBe(true);
+    expect(networkEvent?.payload.allowedDestinationCount).toBe(1);
+    const vmctlLog = readFileSync(logPath, 'utf8');
+    expect(vmctlLog).toContain('live.example.test');
+    expect(vmctlLog).toContain('"networkPolicy"');
+    db.close();
+  });
+
+  it('fails closed when scoped networking has no live-target scope', () => {
+    const { db, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(db, undefined, 'scoped');
+    const manager = new ExecutorManager(db);
+
+    expect(() => manager.createContext(context, 'fixture-image', 'clean-fixture')).toThrow(/Scoped network profile requires/);
+    const detail = db.getRunDetail(context.run.id);
+    expect(detail.policyEvents.some((event) => event.reason === 'Scoped network profile requires at least one in-scope domain, host, IP range, or service.')).toBe(true);
+    expect(existsSync(logPath) ? readFileSync(logPath, 'utf8') : '').not.toContain('create_context');
     db.close();
   });
 
@@ -315,14 +361,14 @@ function openExecutorDb(): { db: WorkspaceDatabase; dir: string; targetFile: str
   return { db, dir, targetFile, logPath };
 }
 
-function createExecutorRun(db: WorkspaceDatabase, assets?: ScopeAssetInput[]): CreatedRunContext {
+function createExecutorRun(db: WorkspaceDatabase, assets?: ScopeAssetInput[], networkProfile = 'offline'): CreatedRunContext {
   if (assets) {
     db.saveProgramScope({
       programName: 'Executor Program',
       organizationName: 'Example Org',
       descriptionMarkdown: 'Scoped executor test.',
-      rulesMarkdown: 'Offline guest execution only.',
-      networkProfile: 'offline',
+      rulesMarkdown: networkProfile === 'offline' ? 'Offline guest execution only.' : 'Scoped guest networking only.',
+      networkProfile,
       expiresAt: null,
       assets
     });
@@ -335,7 +381,7 @@ function createExecutorRun(db: WorkspaceDatabase, assets?: ScopeAssetInput[]): C
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     attemptStrategy: 'single_path',
-    networkProfile: 'offline',
+    networkProfile,
     sandboxProfile: 'local_disposable_vm',
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'executor_alpha' },
     vmBackend: 'vmctl',

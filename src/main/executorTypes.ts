@@ -13,6 +13,26 @@ export interface GuestContextRequest {
   imageRef: string;
   snapshotRef: string;
   networkProfile: ExecutorNetworkProfile;
+  networkPolicy: GuestNetworkPolicy;
+}
+
+export interface GuestNetworkDestination {
+  kind: 'domain' | 'host' | 'ip_range' | 'service';
+  value: string;
+  protocol: string | null;
+  port: number | null;
+  sourceAssetId: string;
+  sensitivity: string;
+}
+
+export interface GuestNetworkPolicy {
+  profile: ExecutorNetworkProfile;
+  scopeVersionId: string;
+  allowedDestinations: GuestNetworkDestination[];
+  liveTargetAllowed: boolean;
+  userApprovalRequired: boolean;
+  failClosed: boolean;
+  enforcement: 'host_vm_controller';
 }
 
 export interface GuestImportSpec {
@@ -28,6 +48,7 @@ export interface GuestExecuteRequest {
   env?: Record<string, string>;
   timeoutMs: number;
   networkProfile: ExecutorNetworkProfile;
+  networkPolicy?: GuestNetworkPolicy;
   expectedOutput: 'summary' | 'artifact';
 }
 

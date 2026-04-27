@@ -64,6 +64,7 @@ async function doctor(configPath) {
     commandCheck('ssh'),
     commandCheck('scp'),
     commandCheck('ip'),
+    scopedNetworkCheck(config),
     commandCheck('setfacl'),
     commandCheck('sudo'),
     await kvmCheck(config),
@@ -313,6 +314,18 @@ function commandCheck(command) {
     : { name: command, ok: false, message: `${command} is required but was not found in PATH` };
 }
 
+function scopedNetworkCheck(config) {
+  if (!config.enableScopedNetwork) {
+    return { name: 'scoped_network', ok: true, message: 'scoped networking disabled by config' };
+  }
+  const checks = [commandCheck('iptables'), commandCheck('sysctl')];
+  const missing = checks.filter((check) => !check.ok);
+  if (missing.length > 0) {
+    return { name: 'scoped_network', ok: false, message: missing.map((check) => check.message).join('; ') };
+  }
+  return { name: 'scoped_network', ok: true, message: 'scoped networking firewall tools available' };
+}
+
 async function kvmCheck(config) {
   if (config.skipKvmCheck || config.useSudo || config.privilegedHelper) {
     return { name: 'kvm', ok: true, message: 'kvm access skipped by config' };
@@ -331,9 +344,16 @@ function tapCheck(config) {
   }
   if (config.privilegedHelper) {
     const result = spawnSync('sudo', ['-n', config.privilegedHelper, 'doctor'], { encoding: 'utf8' });
-    return result.status === 0
-      ? { name: 'tap', ok: true, message: 'privileged helper is available for TAP setup' }
-      : { name: 'tap', ok: false, message: `privileged helper is not available through passwordless sudo: ${(result.stderr || result.stdout).trim()}` };
+    if (result.status !== 0) {
+      return { name: 'tap', ok: false, message: `privileged helper is not available through passwordless sudo: ${(result.stderr || result.stdout).trim()}` };
+    }
+    if (config.enableScopedNetwork) {
+      const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+      if (scoped.status !== 0) {
+        return { name: 'tap', ok: false, message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}` };
+      }
+    }
+    return { name: 'tap', ok: true, message: 'privileged helper is available for TAP setup' };
   }
   if (config.useSudo) {
     const result = spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' });
@@ -380,6 +400,8 @@ ROOT_DIR=${shellQuote(resolve(rootDir))}
 FIRECRACKER_BIN=${shellQuote(firecrackerBin)}
 IP_BIN=/usr/sbin/ip
 CURL_BIN=/usr/bin/curl
+IPTABLES_BIN=/usr/sbin/iptables
+SYSCTL_BIN=/usr/sbin/sysctl
 
 fail() {
   echo "$1" >&2
@@ -402,6 +424,35 @@ tap_name() {
   case "$1" in
     bealefc[A-Za-z0-9_.-]*) printf '%s\\n' "$1" ;;
     *) fail "invalid Beale TAP name: $1" ;;
+  esac
+}
+
+chain_name() {
+  name="$(tap_name "$1")"
+  printf 'BEALE%s\\n' "$name" | cut -c 1-28
+}
+
+ipv4_or_cidr() {
+  case "$1" in
+    *[!0-9./]*) fail "invalid IPv4/CIDR: $1" ;;
+    */*) printf '%s\\n' "$1" ;;
+    *.*.*.*) printf '%s\\n' "$1" ;;
+    *) fail "invalid IPv4/CIDR: $1" ;;
+  esac
+}
+
+proto_value() {
+  case "$1" in
+    tcp|udp|any) printf '%s\\n' "$1" ;;
+    *) fail "invalid protocol: $1" ;;
+  esac
+}
+
+port_value() {
+  case "$1" in
+    any) printf '%s\\n' "$1" ;;
+    ''|*[!0-9]*) fail "invalid port: $1" ;;
+    *) [ "$1" -ge 1 ] && [ "$1" -le 65535 ] || fail "invalid port: $1"; printf '%s\\n' "$1" ;;
   esac
 }
 
@@ -434,6 +485,8 @@ case "$1" in
     [ -r /dev/kvm ] && [ -w /dev/kvm ] || fail "/dev/kvm is not readable and writable by root"
     [ -x "$IP_BIN" ] || fail "ip binary is missing"
     [ -x "$CURL_BIN" ] || fail "curl binary is missing"
+    [ -x "$IPTABLES_BIN" ] || fail "iptables binary is missing"
+    [ -x "$SYSCTL_BIN" ] || fail "sysctl binary is missing"
     ;;
   tap-delete)
     name="$(tap_name "$2")"
@@ -445,6 +498,49 @@ case "$1" in
     "$IP_BIN" tuntap add dev "$name" mode tap
     "$IP_BIN" addr add "$host_cidr" dev "$name"
     "$IP_BIN" link set dev "$name" up
+    ;;
+  scoped-network-cleanup)
+    name="$(tap_name "$2")"
+    guest_ip="$(ipv4_or_cidr "$3")"
+    chain="$(chain_name "$name")"
+    "$IPTABLES_BIN" -D FORWARD -i "$name" -j "$chain" 2>/dev/null || true
+    "$IPTABLES_BIN" -D FORWARD -o "$name" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    "$IPTABLES_BIN" -t nat -D POSTROUTING -s "$guest_ip/32" -j MASQUERADE 2>/dev/null || true
+    "$IPTABLES_BIN" -F "$chain" 2>/dev/null || true
+    "$IPTABLES_BIN" -X "$chain" 2>/dev/null || true
+    ;;
+  scoped-network-setup)
+    name="$(tap_name "$2")"
+    guest_ip="$(ipv4_or_cidr "$3")"
+    allow_spec="$4"
+    chain="$(chain_name "$name")"
+    "$0" scoped-network-cleanup "$name" "$guest_ip" || true
+    "$SYSCTL_BIN" -w net.ipv4.ip_forward=1 >/dev/null
+    "$IPTABLES_BIN" -N "$chain"
+    "$IPTABLES_BIN" -A FORWARD -i "$name" -j "$chain"
+    "$IPTABLES_BIN" -A FORWARD -o "$name" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    "$IPTABLES_BIN" -t nat -A POSTROUTING -s "$guest_ip/32" -j MASQUERADE
+    old_ifs="$IFS"
+    IFS=';'
+    for rule in $allow_spec; do
+      [ -n "$rule" ] || continue
+      IFS=','
+      set -- $rule
+      IFS="$old_ifs"
+      dest="$(ipv4_or_cidr "$1")"
+      proto="$(proto_value "$2")"
+      port="$(port_value "$3")"
+      if [ "$proto" = "any" ]; then
+        "$IPTABLES_BIN" -A "$chain" -d "$dest" -j ACCEPT
+      elif [ "$port" = "any" ]; then
+        "$IPTABLES_BIN" -A "$chain" -d "$dest" -p "$proto" -j ACCEPT
+      else
+        "$IPTABLES_BIN" -A "$chain" -d "$dest" -p "$proto" --dport "$port" -j ACCEPT
+      fi
+      IFS=';'
+    done
+    IFS="$old_ifs"
+    "$IPTABLES_BIN" -A "$chain" -j REJECT
     ;;
   start-firecracker)
     socket="$(under_root "$2")"

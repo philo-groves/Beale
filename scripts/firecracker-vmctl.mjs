@@ -3,6 +3,8 @@ import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync
 import { access } from 'node:fs/promises';
 import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -137,6 +139,7 @@ async function readinessChecks(config) {
     await commandCheck('ssh'),
     await commandCheck('scp'),
     await commandCheck('ip'),
+    await scopedNetworkCheck(config),
     privilegedHelperCheck(config),
     await kvmCheck(config),
     tapCheck(config)
@@ -148,12 +151,15 @@ async function createContext(config, payload) {
   const dir = contextDir(config, payload);
   mkdirSync(dir, { recursive: true });
   resetRootfs(config, dir);
+  const networkProfile = normalizeNetworkProfile(payload.networkProfile);
+  const networkPolicy = await validateNetworkPolicy(config, networkProfile, payload.networkPolicy);
   const state = {
     vmContextId: payload.vmContextId,
     runId: payload.runId,
     attemptId: payload.attemptId,
     snapshotRef: payload.snapshotRef ?? 'clean',
-    networkProfile: payload.networkProfile ?? 'offline',
+    networkProfile,
+    networkPolicy,
     imports: [],
     running: false,
     preserved: false
@@ -170,6 +176,12 @@ async function resetContextRootfs(config, payload) {
   resetRootfs(config, dir);
   const state = readState(dir, payload);
   state.snapshotRef = payload.snapshotRef ?? state.snapshotRef ?? 'clean';
+  if (payload.networkProfile || payload.networkPolicy) {
+    const networkProfile = normalizeNetworkProfile(payload.networkProfile ?? state.networkProfile);
+    state.networkProfile = networkProfile;
+    state.networkPolicy = await validateNetworkPolicy(config, networkProfile, payload.networkPolicy ?? state.networkPolicy);
+    state.scopedNetworkConfigured = false;
+  }
   state.imports = [];
   state.running = false;
   writeState(dir, state);
@@ -196,7 +208,13 @@ async function executeGuestOperation(config, payload) {
   if (!operation || !Array.isArray(operation.command) || operation.command.length === 0) {
     throw new Error('execute requires a non-empty operation.command array');
   }
-  validateNetworkProfile(config, operation.networkProfile);
+  const networkProfile = normalizeNetworkProfile(operation.networkProfile ?? payload.networkProfile);
+  const networkPolicy = await validateNetworkPolicy(config, networkProfile, operation.networkPolicy ?? payload.networkPolicy);
+  const state = readState(dir, payload);
+  state.networkProfile = networkProfile;
+  state.networkPolicy = networkPolicy;
+  state.scopedNetworkConfigured = false;
+  writeState(dir, state);
   await ensureStarted(config, dir, payload);
   await materializeImports(config, dir, payload);
 
@@ -212,9 +230,9 @@ async function executeGuestOperation(config, payload) {
   }
   const ended = Date.now();
   const status = result.status === 0 ? 'success' : result.timedOut ? 'timeout' : 'failure';
-  const state = readState(dir, payload);
-  state.contaminated = true;
-  writeState(dir, state);
+  const updatedState = readState(dir, payload);
+  updatedState.contaminated = true;
+  writeState(dir, updatedState);
   return {
     status,
     exitCode: result.status,
@@ -224,7 +242,12 @@ async function executeGuestOperation(config, payload) {
     durationMs: ended - started,
     stdoutSummary: result.stdout.slice(0, 4000),
     stderrSummary: result.stderr.slice(0, 4000),
-    structured: { backend: 'firecracker', networkProfile: operation.networkProfile ?? payload.networkProfile ?? 'offline' },
+    structured: {
+      backend: 'firecracker',
+      networkProfile,
+      allowedDestinations: networkPolicy.allowedDestinations,
+      resolvedDestinations: networkPolicy.resolvedDestinations
+    },
     candidateArtifacts: [],
     contaminated: true,
     error: status === 'success' ? null : result.stderr.slice(0, 1000)
@@ -271,9 +294,11 @@ function destroyContext(config, payload) {
 async function ensureStarted(config, dir, payload) {
   const state = readState(dir, payload);
   if (state.running && config.privilegedHelper && state.pidFile && existsSync(state.pidFile)) {
+    await ensureScopedNetworkConfigured(config, dir, payload);
     return;
   }
   if (state.running && state.pid && isProcessAlive(state.pid)) {
+    await ensureScopedNetworkConfigured(config, dir, payload);
     return;
   }
   setupTap(config, dir);
@@ -317,6 +342,7 @@ async function ensureStarted(config, dir, payload) {
   });
   apiPut(config, apiSocket, '/actions', { action_type: 'InstanceStart' });
   await waitForSsh(config);
+  await ensureScopedNetworkConfigured(config, dir, payload);
 }
 
 async function materializeImports(config, dir, payload) {
@@ -347,6 +373,82 @@ function setupTap(config, dir) {
   runHost(config, 'ip', ['link', 'set', 'dev', name, 'up']);
 }
 
+async function ensureScopedNetworkConfigured(config, dir, payload) {
+  const state = readState(dir, payload);
+  if (state.networkProfile !== 'scoped') return;
+  const policy = state.networkPolicy;
+  if (!policy?.resolvedDestinations?.length) {
+    throw new Error('Scoped network policy is missing resolved destinations.');
+  }
+  const fingerprint = JSON.stringify(policy.resolvedDestinations);
+  if (state.scopedNetworkConfigured === true && state.scopedNetworkFingerprint === fingerprint) {
+    return;
+  }
+  setupScopedNetwork(config, state);
+  configureScopedGuestNetwork(config, policy);
+  state.scopedNetworkConfigured = true;
+  state.scopedNetworkFingerprint = fingerprint;
+  writeState(dir, state);
+}
+
+function setupScopedNetwork(config, state) {
+  const name = tapName(config, state.vmContextId);
+  const allowSpec = networkAllowSpec(state.networkPolicy.resolvedDestinations);
+  if (config.privilegedHelper) {
+    privileged(config, ['scoped-network-setup', name, config.network.guestIp, allowSpec]);
+    return;
+  }
+  cleanupScopedNetwork(config, state, { allowFailure: true });
+  runHost(config, 'sysctl', ['-w', 'net.ipv4.ip_forward=1']);
+  const chain = firewallChainName(config, state.vmContextId);
+  runHost(config, 'iptables', ['-N', chain]);
+  runHost(config, 'iptables', ['-A', 'FORWARD', '-i', name, '-j', chain]);
+  runHost(config, 'iptables', ['-A', 'FORWARD', '-o', name, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT']);
+  runHost(config, 'iptables', ['-t', 'nat', '-A', 'POSTROUTING', '-s', `${config.network.guestIp}/32`, '-j', 'MASQUERADE']);
+  for (const destination of state.networkPolicy.resolvedDestinations) {
+    addFirewallAllowRule(config, chain, destination);
+  }
+  runHost(config, 'iptables', ['-A', chain, '-j', 'REJECT']);
+}
+
+function cleanupScopedNetwork(config, state, options = {}) {
+  if (!state.vmContextId) return;
+  const name = tapName(config, state.vmContextId);
+  if (config.privilegedHelper) {
+    privileged(config, ['scoped-network-cleanup', name, config.network.guestIp], options);
+    return;
+  }
+  const chain = firewallChainName(config, state.vmContextId);
+  runHost(config, 'iptables', ['-D', 'FORWARD', '-i', name, '-j', chain], options);
+  runHost(config, 'iptables', ['-D', 'FORWARD', '-o', name, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], options);
+  runHost(config, 'iptables', ['-t', 'nat', '-D', 'POSTROUTING', '-s', `${config.network.guestIp}/32`, '-j', 'MASQUERADE'], options);
+  runHost(config, 'iptables', ['-F', chain], options);
+  runHost(config, 'iptables', ['-X', chain], options);
+}
+
+function addFirewallAllowRule(config, chain, destination) {
+  const base = ['-A', chain, '-d', destination.ip];
+  if (destination.protocol && destination.port) {
+    runHost(config, 'iptables', [...base, '-p', destination.protocol, '--dport', String(destination.port), '-j', 'ACCEPT']);
+  } else if (destination.protocol) {
+    runHost(config, 'iptables', [...base, '-p', destination.protocol, '-j', 'ACCEPT']);
+  } else {
+    runHost(config, 'iptables', [...base, '-j', 'ACCEPT']);
+  }
+}
+
+function configureScopedGuestNetwork(config, policy) {
+  const hostEntries = policy.resolvedDestinations
+    .filter((destination) => destination.hostname)
+    .map((destination) => `${destination.ip} ${destination.hostname}`)
+    .join('\n');
+  const commands = [`ip route replace default via ${shellQuote(config.network.hostIp)} dev eth0`];
+  if (hostEntries) {
+    commands.push(`printf '%s\\n' ${shellQuote(hostEntries)} >> /etc/hosts`);
+  }
+  ssh(config, ['sh', '-lc', commands.join(' && ')], config.commandTimeoutMs);
+}
+
 function stopContext(config, dir) {
   if (!existsSync(dir)) return;
   const state = readState(dir, {});
@@ -364,6 +466,7 @@ function stopContext(config, dir) {
     }
   }
   if (state.vmContextId) {
+    cleanupScopedNetwork(config, state, { allowFailure: true });
     if (config.privilegedHelper) {
       privileged(config, ['tap-delete', tapName(config, state.vmContextId)], { allowFailure: true });
     } else {
@@ -483,11 +586,87 @@ async function requireReady(config) {
   }
 }
 
-function validateNetworkProfile(config, profile) {
-  const normalized = profile === 'scoped' ? 'scoped' : 'offline';
-  if (normalized === 'scoped' && !config.enableScopedNetwork) {
+function normalizeNetworkProfile(profile) {
+  return profile === 'scoped' ? 'scoped' : 'offline';
+}
+
+async function validateNetworkPolicy(config, profile, policy) {
+  if (profile === 'offline') {
+    return {
+      profile: 'offline',
+      allowedDestinations: [],
+      resolvedDestinations: [],
+      liveTargetAllowed: false,
+      failClosed: true
+    };
+  }
+  if (profile === 'scoped' && !config.enableScopedNetwork) {
     throw new Error('Firecracker scoped networking is not enabled in this controller config.');
   }
+  if (!policy || !Array.isArray(policy.allowedDestinations) || policy.allowedDestinations.length === 0) {
+    throw new Error('Scoped networking requires a non-empty networkPolicy.allowedDestinations allowlist.');
+  }
+  const allowedDestinations = policy.allowedDestinations.map(normalizeNetworkDestination).filter(Boolean);
+  if (allowedDestinations.length === 0) {
+    throw new Error('Scoped networking requires at least one valid allowed destination.');
+  }
+  const resolvedDestinations = await resolveAllowedDestinations(allowedDestinations);
+  if (resolvedDestinations.length === 0) {
+    throw new Error('Scoped networking could not resolve any allowed IPv4 destination.');
+  }
+  return {
+    profile,
+    scopeVersionId: typeof policy.scopeVersionId === 'string' ? policy.scopeVersionId : null,
+    allowedDestinations,
+    resolvedDestinations,
+    liveTargetAllowed: true,
+    userApprovalRequired: policy.userApprovalRequired !== false,
+    failClosed: true,
+    enforcement: 'firecracker_iptables'
+  };
+}
+
+function normalizeNetworkDestination(destination) {
+  if (!destination || typeof destination.value !== 'string') return null;
+  const value = destination.value.trim();
+  if (!value || value.includes('\0')) return null;
+  const kind = ['domain', 'host', 'ip_range', 'service'].includes(destination.kind) ? destination.kind : 'host';
+  const protocol = typeof destination.protocol === 'string' && ['tcp', 'udp'].includes(destination.protocol.toLowerCase()) ? destination.protocol.toLowerCase() : null;
+  const port = Number.isInteger(destination.port) && destination.port > 0 && destination.port <= 65535 ? destination.port : null;
+  return { kind, value, protocol, port };
+}
+
+async function resolveAllowedDestinations(destinations) {
+  const resolved = [];
+  for (const destination of destinations) {
+    const host = destinationHost(destination.value);
+    if (isIpv4Cidr(host) || isIP(host) === 4) {
+      resolved.push({ ...destination, ip: host, hostname: isIP(host) === 4 ? null : host });
+      continue;
+    }
+    const answers = await lookup(host, { all: true, verbatim: true });
+    const ipv4 = answers.filter((answer) => answer.family === 4).map((answer) => answer.address);
+    for (const address of [...new Set(ipv4)]) {
+      resolved.push({ ...destination, value: host, ip: address, hostname: host });
+    }
+  }
+  return resolved;
+}
+
+function destinationHost(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname;
+  } catch {
+    return value;
+  }
+}
+
+function isIpv4Cidr(value) {
+  const [address, prefix, extra] = String(value).split('/');
+  if (extra !== undefined || prefix === undefined) return false;
+  const prefixNumber = Number(prefix);
+  return isIP(address) === 4 && Number.isInteger(prefixNumber) && prefixNumber >= 0 && prefixNumber <= 32;
 }
 
 function validateImportSpec(spec) {
@@ -612,9 +791,20 @@ function privilegedHelperCheck(config) {
     return { name: 'privileged_helper', ok: false, message: `privileged helper missing: ${config.privilegedHelper}` };
   }
   const result = spawnSync('sudo', ['-n', config.privilegedHelper, 'doctor'], { encoding: 'utf8' });
-  return result.status === 0
-    ? { name: 'privileged_helper', ok: true, message: 'privileged helper: ok' }
-    : { name: 'privileged_helper', ok: false, message: `privileged helper failed: ${(result.stderr || result.stdout).trim()}` };
+  if (result.status !== 0) {
+    return { name: 'privileged_helper', ok: false, message: `privileged helper failed: ${(result.stderr || result.stdout).trim()}` };
+  }
+  if (config.enableScopedNetwork) {
+    const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+    if (scoped.status !== 0) {
+      return {
+        name: 'privileged_helper',
+        ok: false,
+        message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}`
+      };
+    }
+  }
+  return { name: 'privileged_helper', ok: true, message: 'privileged helper: ok' };
 }
 
 function resetRootfs(config, dir) {
@@ -664,6 +854,16 @@ function tapName(config, contextId) {
   return `${config.network.tapPrefix}${safeName(contextId).slice(-8)}`;
 }
 
+function firewallChainName(config, contextId) {
+  return `BEALE${tapName(config, contextId)}`.slice(0, 28);
+}
+
+function networkAllowSpec(destinations) {
+  return destinations
+    .map((destination) => [destination.ip, destination.protocol ?? 'any', destination.port ?? 'any'].join(','))
+    .join(';');
+}
+
 function safeName(value) {
   return String(value ?? 'context').replace(/[^A-Za-z0-9_.-]/g, '_');
 }
@@ -688,6 +888,19 @@ async function fileCheck(name, path, mode) {
   } catch {
     return { name, ok: false, message: `${name} missing or inaccessible: ${path}.` };
   }
+}
+
+async function scopedNetworkCheck(config) {
+  if (!config.enableScopedNetwork) {
+    return { name: 'scoped_network', ok: true, message: 'scoped network: disabled' };
+  }
+  const iptables = await commandCheck('iptables');
+  const sysctl = await commandCheck('sysctl');
+  const missing = [iptables, sysctl].filter((check) => !check.ok);
+  if (missing.length > 0) {
+    return { name: 'scoped_network', ok: false, message: missing.map((check) => check.message).join(' ') };
+  }
+  return { name: 'scoped_network', ok: true, message: 'scoped network: firewall tools available' };
 }
 
 async function commandCheck(command) {

@@ -70,6 +70,7 @@ const handlers = {
       structured: {
         fixture: true,
         operationKind: input.payload.operation.operationKind,
+        networkPolicy: input.payload.operation.networkPolicy ?? null,
         envKeys: Object.keys(input.payload.operation.env ?? {}).sort()
       },
       candidateArtifacts: [

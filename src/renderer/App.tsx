@@ -350,8 +350,9 @@ function ScopeEditor({
           Network
           <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
             <option value="offline">offline</option>
-            <option value="scoped_public">scoped_public</option>
+            <option value="scoped">scoped</option>
             <option value="host_research_only">host_research_only</option>
+            <option value="elevated">elevated</option>
           </select>
         </label>
         <label>
@@ -683,6 +684,12 @@ function HardeningPanel({
               {warning}
             </div>
           ))}
+        </div>
+      ) : null}
+      {snapshot.policyReview.allowedDestinations.length > 0 ? (
+        <div className="allowed-destinations">
+          <span>Allowed live destinations</span>
+          <strong>{snapshot.policyReview.allowedDestinations.join(', ')}</strong>
         </div>
       ) : null}
       {snapshot.workspace.lastWorkspaceBackup ? <div className="path-text">{snapshot.workspace.lastWorkspaceBackup.relativePath}</div> : null}

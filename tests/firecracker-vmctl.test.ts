@@ -24,6 +24,47 @@ describe('Firecracker vmctl controller', () => {
     expect(response.result.supports).toMatchObject({ clone: true, import: true, export: true, shell: true, python: true });
   });
 
+  it('reports scoped networking only when explicitly enabled and firewall tools are available', () => {
+    const { configPath, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true, enableScopedNetwork: true });
+    const response = vmctl(configPath, 'list_capabilities', {}, { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` });
+
+    expect(response.ok).toBe(true);
+    expect(response.result.available).toBe(true);
+    expect(response.result.supportedNetworkProfiles).toEqual(['offline', 'scoped']);
+  });
+
+  it('fails closed for scoped execution without an allowlist policy', () => {
+    const { configPath, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true, enableScopedNetwork: true });
+    const payload = {
+      vmContextId: 'vm_firecracker_scoped_policy_test',
+      runId: 'run_firecracker_scoped_policy_test',
+      attemptId: 'attempt_firecracker_scoped_policy_test',
+      scopeVersionId: 'scope_firecracker_scoped_policy_test',
+      snapshotRef: 'clean',
+      networkProfile: 'scoped'
+    };
+    const env = { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` };
+
+    const response = vmctl(
+      configPath,
+      'execute',
+      {
+        ...payload,
+        operation: {
+          command: ['true'],
+          cwd: '/',
+          env: {},
+          timeoutMs: 1000,
+          networkProfile: 'scoped'
+        }
+      },
+      env
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain('networkPolicy.allowedDestinations');
+  });
+
   it('fails closed when required Firecracker assets are missing', () => {
     const { configPath, rootfsPath } = fixtureConfig();
     rmSync(rootfsPath);
@@ -131,7 +172,7 @@ describe('Firecracker vmctl controller', () => {
   });
 });
 
-function fixtureConfig(options: { fakeRuntimeCommands?: boolean; fakeGuestExitCode?: number } = {}): { configPath: string; stateDir: string; rootfsPath: string; fakeBinDir: string; sshLogPath: string } {
+function fixtureConfig(options: { fakeRuntimeCommands?: boolean; fakeGuestExitCode?: number; enableScopedNetwork?: boolean } = {}): { configPath: string; stateDir: string; rootfsPath: string; fakeBinDir: string; sshLogPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-firecracker-vmctl-'));
   createdDirs.push(dir);
   const binDir = join(dir, 'bin');
@@ -175,6 +216,8 @@ done
     const fakeGuestExitCode = Number.isInteger(options.fakeGuestExitCode) ? options.fakeGuestExitCode : 0;
     writeExecutable(join(fakeBinDir, 'curl'), '#!/bin/sh\nexit 0\n');
     writeExecutable(join(fakeBinDir, 'ip'), '#!/bin/sh\nexit 0\n');
+    writeExecutable(join(fakeBinDir, 'iptables'), '#!/bin/sh\nexit 0\n');
+    writeExecutable(join(fakeBinDir, 'sysctl'), '#!/bin/sh\nexit 0\n');
     writeExecutable(join(fakeBinDir, 'scp'), '#!/bin/sh\nexit 0\n');
     writeExecutable(
       join(fakeBinDir, 'ssh'),
@@ -220,7 +263,7 @@ exit ${fakeGuestExitCode}
         runtimeDir: join(dir, 'run'),
         skipKvmCheck: true,
         skipTapCheck: true,
-        enableScopedNetwork: false,
+        enableScopedNetwork: Boolean(options.enableScopedNetwork),
         sshTimeoutMs: 10_000
       },
       null,

@@ -609,6 +609,26 @@ code {
   color: var(--green);
 }
 
+.allowed-destinations {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 8px;
+  display: grid;
+  gap: 3px;
+}
+
+.allowed-destinations span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.allowed-destinations strong {
+  overflow-wrap: anywhere;
+}
+
 .benchmark-results {
   display: grid;
   gap: 6px;

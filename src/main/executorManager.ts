@@ -2,12 +2,21 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { nowIso } from './database';
-import type { ExecutorNetworkProfile, ExecutorStatus, ScopeAsset } from '@shared/types';
-import type { ExecutorProvider, GuestExecuteRequest, GuestExecuteResult, GuestExportRequest, GuestImportSpec } from './executorTypes';
+import type { ExecutorNetworkProfile, ExecutorStatus, ProgramScopeVersion, ScopeAsset } from '@shared/types';
+import type {
+  ExecutorProvider,
+  GuestExecuteRequest,
+  GuestExecuteResult,
+  GuestExportRequest,
+  GuestImportSpec,
+  GuestNetworkDestination,
+  GuestNetworkPolicy
+} from './executorTypes';
 import { VmctlExecutorProvider } from './vmctlExecutor';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 const LOCAL_IMPORT_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
+const LIVE_NETWORK_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['domain', 'host', 'ip_range', 'service']);
 const GUEST_WORKSPACE_ROOT = '/workspace';
 const GUEST_METADATA_ROOT = `${GUEST_WORKSPACE_ROOT}/.beale`;
 const MAX_IMPORT_FILES = 10_000;
@@ -56,8 +65,9 @@ export class ExecutorManager {
     if (!status.supportedNetworkProfiles.includes(networkProfile)) {
       throw new Error(`Executor backend cannot enforce requested network profile: ${networkProfile}`);
     }
+    const networkPolicy = this.networkPolicyFor(context, networkProfile);
 
-    const result = this.provider.createContext({ context, imageRef, snapshotRef, networkProfile });
+    const result = this.provider.createContext({ context, imageRef, snapshotRef, networkProfile, networkPolicy });
     this.db.updateVmContext(context.vmContext.id, {
       backend: status.provider,
       imageId: imageRef,
@@ -70,7 +80,13 @@ export class ExecutorManager {
         hostDatabaseMounted: false,
         openAiCredentialsMounted: false,
         broadHostMount: false,
-        artifactAuthority: 'host'
+        artifactAuthority: 'host',
+        networkPolicy: {
+          profile: networkPolicy.profile,
+          allowedDestinationCount: networkPolicy.allowedDestinations.length,
+          liveTargetAllowed: networkPolicy.liveTargetAllowed,
+          failClosed: networkPolicy.failClosed
+        }
       }
     });
     this.recordVmEvent(context, 'VM executor created disposable guest context.', {
@@ -78,6 +94,9 @@ export class ExecutorManager {
       imageRef,
       snapshotRef,
       networkProfile,
+      allowedDestinations: networkPolicy.allowedDestinations,
+      liveTargetAllowed: networkPolicy.liveTargetAllowed,
+      userApprovalRequired: networkPolicy.userApprovalRequired,
       targetExecution: true,
       hostDatabaseMounted: false,
       openAiCredentialsMounted: false
@@ -151,11 +170,13 @@ export class ExecutorManager {
     if (!status.supports.python && request.operationKind === 'python') {
       throw new Error('Executor backend does not support guest Python execution.');
     }
+    const networkPolicy = this.networkPolicyFor(context, networkProfile);
 
     const sanitizedRequest: GuestExecuteRequest = {
       ...request,
       env: sanitizeEnv(request.env ?? {}),
-      networkProfile
+      networkProfile,
+      networkPolicy
     };
     const toolName = request.operationKind === 'python' ? 'python' : 'guest_shell';
     const toolCallId = this.db.createToolCall({
@@ -168,7 +189,9 @@ export class ExecutorManager {
         command: request.command,
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
-        networkProfile
+        networkProfile,
+        allowedDestinations: networkPolicy.allowedDestinations.map((destination) => destination.value),
+        liveTargetAllowed: networkPolicy.liveTargetAllowed
       },
       status: 'running',
       resultSummary: 'Guest operation scheduled through VM executor.',
@@ -186,12 +209,14 @@ export class ExecutorManager {
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
         networkProfile,
+        allowedDestinations: networkPolicy.allowedDestinations,
+        liveTargetAllowed: networkPolicy.liveTargetAllowed,
         hostExecution: false
       },
       toolCallId,
       vmContextId: context.vmContext.id
     });
-    this.recordNetworkEnforcement(context, toolCallId, networkProfile, status);
+    this.recordNetworkEnforcement(context, toolCallId, networkPolicy, status);
 
     const result = this.provider.execute(context, sanitizedRequest);
     if (result.contaminated) {
@@ -356,22 +381,57 @@ export class ExecutorManager {
     return vmContext?.state ?? context.vmContext.state;
   }
 
-  private recordNetworkEnforcement(context: CreatedRunContext, toolCallId: string, networkProfile: ExecutorNetworkProfile, status: ExecutorStatus): void {
+  private networkPolicyFor(context: CreatedRunContext, networkProfile: ExecutorNetworkProfile): GuestNetworkPolicy {
+    const scope = this.db.getScopeVersion(context.run.scopeVersionId);
+    const allowedDestinations = allowedNetworkDestinations(scope);
+    if (networkProfile === 'scoped' && allowedDestinations.length === 0) {
+      this.recordPolicyBlock(context, 'Scoped network profile requires at least one in-scope domain, host, IP range, or service.', {
+        networkProfile,
+        scopeVersionId: scope.id,
+        allowedDestinationCount: 0
+      });
+      throw new Error('Scoped network profile requires at least one in-scope domain, host, IP range, or service.');
+    }
+    if (networkProfile === 'elevated' && allowedDestinations.length === 0) {
+      this.recordPolicyBlock(context, 'Elevated network profile requires recorded live-target scope before execution.', {
+        networkProfile,
+        scopeVersionId: scope.id,
+        allowedDestinationCount: 0
+      });
+      throw new Error('Elevated network profile requires recorded live-target scope before execution.');
+    }
+    return {
+      profile: networkProfile,
+      scopeVersionId: scope.id,
+      allowedDestinations: networkProfile === 'offline' ? [] : allowedDestinations,
+      liveTargetAllowed: networkProfile !== 'offline' && allowedDestinations.length > 0,
+      userApprovalRequired: networkProfile !== 'offline',
+      failClosed: true,
+      enforcement: 'host_vm_controller'
+    };
+  }
+
+  private recordNetworkEnforcement(context: CreatedRunContext, toolCallId: string, networkPolicy: GuestNetworkPolicy, status: ExecutorStatus): void {
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
       type: 'network_event',
       source: 'policy',
-      summary: `VM network profile enforced: ${networkProfile}.`,
+      summary: `VM network profile enforced: ${networkPolicy.profile}.`,
       payload: {
-        networkProfile,
+        networkProfile: networkPolicy.profile,
         destinationHostname: null,
         resolvedIp: null,
         port: null,
         protocol: null,
-        decision: networkDecision(networkProfile),
-        policyRule: `${networkProfile}_executor_profile`,
-        enforcement: 'vm_controller',
+        allowedDestinations: networkPolicy.allowedDestinations,
+        allowedDestinationCount: networkPolicy.allowedDestinations.length,
+        liveTargetAllowed: networkPolicy.liveTargetAllowed,
+        userApprovalRequired: networkPolicy.userApprovalRequired,
+        failClosed: networkPolicy.failClosed,
+        decision: networkDecision(networkPolicy),
+        policyRule: `${networkPolicy.profile}_executor_profile`,
+        enforcement: networkPolicy.enforcement,
         backend: status.provider,
         hostExecution: false
       },
@@ -422,6 +482,50 @@ export function normalizeNetworkProfile(profile: string): 'offline' | 'scoped' |
 
 function isScopedLocalImportAsset(asset: ScopeAsset): boolean {
   return asset.direction === 'in_scope' && LOCAL_IMPORT_ASSET_KINDS.has(asset.kind) && isAbsolute(asset.value) && existsSync(asset.value) && !looksLikeUrl(asset.value);
+}
+
+function allowedNetworkDestinations(scope: ProgramScopeVersion): GuestNetworkDestination[] {
+  return scope.assets
+    .filter((asset) => asset.direction === 'in_scope' && LIVE_NETWORK_ASSET_KINDS.has(asset.kind))
+    .map(networkDestinationFromAsset)
+    .filter((destination): destination is GuestNetworkDestination => Boolean(destination));
+}
+
+function networkDestinationFromAsset(asset: ScopeAsset): GuestNetworkDestination | null {
+  const value = asset.value.trim();
+  if (!value) return null;
+  const parsed = parseNetworkAsset(value);
+  const attributes = asset.attributes ?? {};
+  return {
+    kind: asset.kind as GuestNetworkDestination['kind'],
+    value: parsed.value,
+    protocol: stringAttribute(attributes.protocol) ?? parsed.protocol,
+    port: numberAttribute(attributes.port) ?? parsed.port,
+    sourceAssetId: asset.id,
+    sensitivity: asset.sensitivity
+  };
+}
+
+function parseNetworkAsset(value: string): { value: string; protocol: string | null; port: number | null } {
+  try {
+    const parsed = new URL(value);
+    return {
+      value: parsed.hostname || value,
+      protocol: parsed.protocol ? parsed.protocol.replace(/:$/, '') : null,
+      port: parsed.port ? Number(parsed.port) : null
+    };
+  } catch {
+    return { value, protocol: null, port: null };
+  }
+}
+
+function stringAttribute(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function numberAttribute(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) return null;
+  return value;
 }
 
 function sanitizeEnv(env: Record<string, string>): Record<string, string> {
@@ -515,9 +619,9 @@ function looksLikeUrl(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
-function networkDecision(profile: ExecutorNetworkProfile): string {
-  if (profile === 'offline') return 'block_external_network';
-  if (profile === 'elevated') return 'allow_elevated_network';
+function networkDecision(policy: GuestNetworkPolicy): string {
+  if (policy.profile === 'offline') return 'block_external_network';
+  if (policy.profile === 'elevated') return 'allow_elevated_network';
   return 'allow_scoped_network';
 }
 
