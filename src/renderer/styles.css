@@ -87,6 +87,7 @@ button:disabled {
   cursor: not-allowed;
   color: #6d6d6d;
   background: #101010;
+  border-color: #202020;
 }
 
 .primary-button {
@@ -99,6 +100,12 @@ button:disabled {
 .primary-button:hover:not(:disabled) {
   background: #dcdcdc;
   border-color: #dcdcdc;
+}
+
+.primary-button:disabled {
+  color: #6d6d6d;
+  background: #101010;
+  border-color: #202020;
 }
 
 input,
@@ -114,6 +121,16 @@ select {
   outline: none;
 }
 
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  background-size: 14px;
+  padding-right: 28px;
+}
+
 textarea {
   resize: vertical;
   min-height: 72px;
@@ -125,6 +142,15 @@ textarea:focus,
 select:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+input[type='date'].date-input-empty::-webkit-datetime-edit {
+  color: transparent;
+}
+
+input[type='date'].date-input-empty:focus::-webkit-datetime-edit,
+input[type='date'].date-input-empty:active::-webkit-datetime-edit {
+  color: transparent;
 }
 
 label {
@@ -500,6 +526,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   overflow: hidden;
 }
 
+.modal-panel.wide-modal {
+  width: min(940px, calc(100vw - 36px));
+}
+
 .modal-header,
 .modal-footer {
   min-width: 0;
@@ -538,6 +568,153 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .modal-form {
   display: grid;
   gap: 10px;
+}
+
+.settings-layout {
+  min-width: 0;
+  min-height: 460px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.settings-sections {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.settings-sections button {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 0 10px;
+}
+
+.settings-sections button.active {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.settings-view {
+  min-width: 0;
+  min-height: 0;
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 14px;
+}
+
+.settings-page {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-page h3 {
+  font-size: 1rem;
+}
+
+.settings-page-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.provider-settings-page {
+  gap: 12px;
+}
+
+.provider-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border-radius: 8px;
+  background: #101010;
+  padding: 12px;
+}
+
+.provider-heading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.provider-heading h4 {
+  font-size: 0.98rem;
+}
+
+.provider-heading p,
+.provider-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  line-height: 1.36;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.provider-grid div {
+  min-width: 0;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 8px;
+}
+
+.provider-grid span,
+.provider-oauth-result span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.provider-grid strong {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.provider-detail.muted {
+  color: var(--muted);
+}
+
+.provider-oauth-result {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 10px;
+}
+
+.provider-oauth-result strong,
+.provider-oauth-result code,
+.provider-oauth-result pre {
+  overflow-wrap: anywhere;
+}
+
+.provider-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-actions .command-row {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .template-toggle-row {

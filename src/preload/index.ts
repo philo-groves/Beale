@@ -45,6 +45,12 @@ const api: BealeApi = {
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
   },
+  getOpenAiStatus() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getOpenAiStatus);
+  },
+  startOpenAiOAuth() {
+    return ipcRenderer.invoke(IPC_CHANNELS.startOpenAiOAuth);
+  },
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
   },

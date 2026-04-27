@@ -1,7 +1,13 @@
 import type { OpenAiTransport } from '@shared/types';
-import { OpenAiAuthService, resolveOpenAiTransport } from './openaiAuth';
+import { arch, platform, release } from 'node:os';
+import { OpenAiAuthService, type OpenAiCredential, resolveOpenAiTransport } from './openaiAuth';
 import type { OpenAiToolDefinition } from './openaiTools';
 import NodeWebSocket from 'ws';
+
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
+const CODEX_SSE_BETA_HEADER = 'responses=experimental';
+const CODEX_WEBSOCKET_BETA_HEADER = 'responses_websockets=2026-02-06';
 
 export interface ResponseInputMessage {
   type: 'message';
@@ -35,6 +41,16 @@ export interface OpenAiResponseCreateBody {
   previous_response_id?: string | null;
   metadata: Record<string, string>;
 }
+
+type OpenAiResponseWireBody = Omit<OpenAiResponseCreateBody, 'metadata' | 'reasoning'> & {
+  metadata?: Record<string, string>;
+  reasoning: {
+    effort: string;
+    summary?: string;
+  };
+  include?: string[];
+  prompt_cache_key?: string;
+};
 
 export interface StreamResponseInput {
   body: OpenAiResponseCreateBody;
@@ -81,11 +97,15 @@ export class OpenAiResponsesAdapter {
   public constructor(
     private readonly auth: OpenAiAuthService = new OpenAiAuthService(),
     private readonly fetchImpl: FetchLike = fetch,
-    baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-    private readonly webSocketImpl: WebSocketConstructorLike | null = NodeWebSocket as unknown as WebSocketConstructorLike
+    baseUrl = process.env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL,
+    private readonly webSocketImpl: WebSocketConstructorLike | null = NodeWebSocket as unknown as WebSocketConstructorLike,
+    codexBaseUrl = process.env.BEALE_OPENAI_CODEX_BASE_URL ?? DEFAULT_CODEX_BASE_URL
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.codexBaseUrl = codexBaseUrl.replace(/\/$/, '');
   }
+
+  private readonly codexBaseUrl: string;
 
   public getTransport(): OpenAiTransport {
     return resolveOpenAiTransport(this.webSocketImpl !== null) === 'websocket' ? 'websocket' : 'sse_http';
@@ -111,14 +131,11 @@ export class OpenAiResponsesAdapter {
 
   private async *streamSseResponse(input: StreamResponseInput): AsyncGenerator<OpenAiStreamEvent> {
     const credential = this.auth.getCredentialOrThrow();
-    const response = await this.fetchImpl(`${this.baseUrl}/responses`, {
+    const sessionId = input.body.metadata.beale_run_id;
+    const response = await this.fetchImpl(this.responsesHttpUrl(credential), {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${credential.token}`,
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream'
-      },
-      body: JSON.stringify(input.body),
+      headers: this.sseHeaders(credential, sessionId),
+      body: JSON.stringify(wireBodyForCredential(credential, input.body, sessionId)),
       signal: input.signal
     });
 
@@ -131,7 +148,9 @@ export class OpenAiResponsesAdapter {
       throw new Error('OpenAI Responses API returned an empty stream body.');
     }
 
-    yield* parseSseStream(response.body);
+    for await (const event of parseSseStream(response.body)) {
+      yield normalizeOpenAiStreamEvent(event);
+    }
   }
 
   private async *streamWebSocketResponse(input: StreamResponseInput): AsyncGenerator<OpenAiStreamEvent> {
@@ -141,9 +160,9 @@ export class OpenAiResponsesAdapter {
 
     const credential = this.auth.getCredentialOrThrow();
     const sessionKey = input.body.metadata.beale_run_id || 'default';
-    const session = this.getWebSocketSession(sessionKey, credential.token);
+    const session = this.getWebSocketSession(sessionKey, credential);
     try {
-      yield* session.stream(input.body, input.signal);
+      yield* session.stream(wireBodyForCredential(credential, input.body, sessionKey), input.signal);
     } finally {
       if (session.isClosed()) {
         this.webSocketSessions.delete(sessionKey);
@@ -164,19 +183,62 @@ export class OpenAiResponsesAdapter {
     this.webSocketSessions.clear();
   }
 
-  private responsesWebSocketUrl(): string {
-    const url = new URL(`${this.baseUrl}/responses`);
+  private responsesHttpUrl(credential: OpenAiCredential): string {
+    if (usesCodexBackend(credential)) return resolveCodexResponsesUrl(this.codexBaseUrl);
+    return `${this.baseUrl}/responses`;
+  }
+
+  private responsesWebSocketUrl(credential: OpenAiCredential): string {
+    const url = new URL(this.responsesHttpUrl(credential));
     if (url.protocol === 'https:') url.protocol = 'wss:';
     if (url.protocol === 'http:') url.protocol = 'ws:';
     return url.toString();
   }
 
-  private getWebSocketSession(sessionKey: string, token: string): OpenAiWebSocketSession {
+  private sseHeaders(credential: OpenAiCredential, sessionId?: string): Record<string, string> {
+    if (!usesCodexBackend(credential)) {
+      return {
+        Authorization: `Bearer ${credential.token}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream'
+      };
+    }
+
+    const accountId = requireCodexAccountId(credential);
+    return {
+      Authorization: `Bearer ${credential.token}`,
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'OpenAI-Beta': CODEX_SSE_BETA_HEADER,
+      'chatgpt-account-id': accountId,
+      originator: 'beale',
+      'User-Agent': bealeUserAgent(),
+      ...(sessionId ? { session_id: sessionId, 'x-client-request-id': sessionId } : {})
+    };
+  }
+
+  private webSocketHeaders(credential: OpenAiCredential, sessionKey: string): Record<string, string> {
+    if (!usesCodexBackend(credential)) {
+      return { Authorization: `Bearer ${credential.token}` };
+    }
+
+    return {
+      Authorization: `Bearer ${credential.token}`,
+      'OpenAI-Beta': CODEX_WEBSOCKET_BETA_HEADER,
+      'chatgpt-account-id': requireCodexAccountId(credential),
+      originator: 'beale',
+      'User-Agent': bealeUserAgent(),
+      session_id: sessionKey,
+      'x-client-request-id': sessionKey
+    };
+  }
+
+  private getWebSocketSession(sessionKey: string, credential: OpenAiCredential): OpenAiWebSocketSession {
     const existing = this.webSocketSessions.get(sessionKey);
     if (existing && !existing.isClosed()) {
       return existing;
     }
-    const session = new OpenAiWebSocketSession(this.responsesWebSocketUrl(), token, this.webSocketImpl as WebSocketConstructorLike);
+    const session = new OpenAiWebSocketSession(this.responsesWebSocketUrl(credential), this.webSocketHeaders(credential, sessionKey), this.webSocketImpl as WebSocketConstructorLike);
     this.webSocketSessions.set(sessionKey, session);
     return session;
   }
@@ -239,7 +301,7 @@ export function openAiErrorCode(error: unknown): string | null {
   return error instanceof OpenAiApiError ? error.code : null;
 }
 
-function toWebSocketRequest(body: OpenAiResponseCreateBody): Omit<OpenAiResponseCreateBody, 'stream'> & { type: 'response.create' } {
+function toWebSocketRequest(body: OpenAiResponseWireBody): Omit<OpenAiResponseWireBody, 'stream'> & { type: 'response.create' } {
   const { stream: _stream, ...request } = body;
   return {
     type: 'response.create',
@@ -275,11 +337,9 @@ class OpenAiWebSocketSession {
   private activeFinished = false;
   private activeAborted = false;
 
-  public constructor(url: string, token: string, webSocketImpl: WebSocketConstructorLike) {
+  public constructor(url: string, headers: Record<string, string>, webSocketImpl: WebSocketConstructorLike) {
     this.socket = new webSocketImpl(url, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      headers
     });
     this.openPromise = waitForWebSocketOpen(this.socket);
 
@@ -299,7 +359,7 @@ class OpenAiWebSocketSession {
     });
   }
 
-  public async *stream(body: OpenAiResponseCreateBody, signal?: AbortSignal): AsyncGenerator<OpenAiStreamEvent> {
+  public async *stream(body: OpenAiResponseWireBody, signal?: AbortSignal): AsyncGenerator<OpenAiStreamEvent> {
     if (this.closed) {
       throw new Error('OpenAI Responses WebSocket session is closed.');
     }
@@ -347,7 +407,8 @@ class OpenAiWebSocketSession {
   }
 
   private handleMessage(data: unknown): void {
-    const event = parseWebSocketEvent(data);
+    const parsed = parseWebSocketEvent(data);
+    const event = parsed ? normalizeOpenAiStreamEvent(parsed) : null;
     if (!event || !this.queue) return;
     this.queue.push(event);
     if (event.type === 'response.completed' || event.type === 'error') {
@@ -440,6 +501,56 @@ function openAiApiErrorFromBody(status: number, body: string): OpenAiApiError {
     // Fall through to the redacted body summary.
   }
   return new OpenAiApiError(`OpenAI Responses API request failed with ${status}: ${safeErrorBody(body)}`, null, status);
+}
+
+function normalizeOpenAiStreamEvent(event: OpenAiStreamEvent): OpenAiStreamEvent {
+  if (event.type === 'response.done' || event.type === 'response.incomplete') {
+    return { ...event, type: 'response.completed' };
+  }
+  if (event.type === 'response.failed') {
+    const response = event.response;
+    const error = response && typeof response === 'object' && !Array.isArray(response) ? (response as Record<string, unknown>).error : null;
+    return {
+      ...event,
+      type: 'error',
+      error: error ?? { message: 'OpenAI response failed.' }
+    };
+  }
+  return event;
+}
+
+function wireBodyForCredential(credential: OpenAiCredential, body: OpenAiResponseCreateBody, sessionId?: string): OpenAiResponseWireBody {
+  if (!usesCodexBackend(credential)) return body;
+  const { metadata: _metadata, ...wireBody } = body;
+  return {
+    ...wireBody,
+    reasoning: { ...body.reasoning, summary: 'auto' },
+    include: ['reasoning.encrypted_content'],
+    ...(sessionId ? { prompt_cache_key: sessionId } : {})
+  };
+}
+
+function usesCodexBackend(credential: OpenAiCredential): boolean {
+  return credential.source === 'codex_oauth_file' || Boolean(credential.accountId && credential.source !== 'api_key_env');
+}
+
+function requireCodexAccountId(credential: OpenAiCredential): string {
+  const accountId = credential.accountId?.trim();
+  if (!accountId) {
+    throw new Error('Codex OAuth session is missing a ChatGPT account id. Re-authenticate in Settings > Providers and retry.');
+  }
+  return accountId;
+}
+
+function resolveCodexResponsesUrl(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/+$/, '');
+  if (normalized.endsWith('/codex/responses')) return normalized;
+  if (normalized.endsWith('/codex')) return `${normalized}/responses`;
+  return `${normalized}/codex/responses`;
+}
+
+function bealeUserAgent(): string {
+  return `Beale/0.1 (${platform()} ${release()}; ${arch()})`;
 }
 
 function errorMessage(error: unknown): string {

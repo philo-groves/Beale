@@ -78,6 +78,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
+  ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
+  ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));

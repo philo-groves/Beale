@@ -44,7 +44,7 @@ export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_c
 
 export type RunEngineKind = 'fake' | 'openai_responses' | 'executor_alpha';
 
-export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'api_key_env' | 'not_configured';
+export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'codex_oauth_file' | 'api_key_env' | 'not_configured';
 
 export type OpenAiTransport = 'websocket' | 'sse_http';
 
@@ -288,6 +288,15 @@ export interface OpenAiAccountStatus {
   oauthCommandConfigured: boolean;
   codexCliAvailable: boolean;
   onboardingSteps: OpenAiOnboardingStep[];
+}
+
+export interface OpenAiOAuthStartResult {
+  started: boolean;
+  command: string;
+  detail: string;
+  verificationUri: string | null;
+  userCode: string | null;
+  instructions: string | null;
 }
 
 export interface StartRunInput {
@@ -732,6 +741,8 @@ export interface BealeApi {
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  getOpenAiStatus(): Promise<OpenAiAccountStatus>;
+  startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;

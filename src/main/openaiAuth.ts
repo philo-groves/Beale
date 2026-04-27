@@ -1,11 +1,15 @@
-import type { OpenAiAccountStatus, OpenAiAuthReadiness, OpenAiAuthSource, OpenAiOnboardingStep, OpenAiTransport } from '@shared/types';
-import { spawnSync } from 'node:child_process';
+import type { OpenAiAccountStatus, OpenAiAuthReadiness, OpenAiAuthSource, OpenAiOAuthStartResult, OpenAiOnboardingStep, OpenAiTransport } from '@shared/types';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 
 export interface OpenAiCredential {
   token: string;
   source: Exclude<OpenAiAuthSource, 'not_configured'>;
+  accountId?: string;
 }
 
 interface CachedCommandCredential {
@@ -25,15 +29,24 @@ interface CommandCredentialResult {
   error: string | null;
 }
 
+export interface OpenAiAuthServiceOptions {
+  codexAuthPath?: string | null;
+  codexCommand?: string;
+}
+
 export class OpenAiAuthService {
   private commandCredential: CachedCommandCredential | null = null;
+  private oauthLoginProcess: ChildProcessWithoutNullStreams | null = null;
+  private latestOAuthStart: OpenAiOAuthStartResult | null = null;
+
+  public constructor(private readonly options: OpenAiAuthServiceOptions = {}) {}
 
   public getStatus(): OpenAiAccountStatus {
     const probe = this.resolveCredential();
     const credential = probe.credential;
     const supportsWebSocket = true;
     const readiness = readinessFor(probe);
-    const codexCliAvailable = commandExists('codex');
+    const codexCliAvailable = commandExists(this.codexCommand());
     return {
       configured: credential !== null,
       source: credential?.source ?? 'not_configured',
@@ -70,6 +83,56 @@ export class OpenAiAuthService {
     this.commandCredential = null;
   }
 
+  public async startOAuthLogin(): Promise<OpenAiOAuthStartResult> {
+    const command = this.codexCommand();
+    const displayCommand = `${command} login --device-auth`;
+    if (!commandExists(command)) {
+      throw new Error('Codex CLI was not found on PATH. Install Codex or add it to PATH before authenticating with OpenAI.');
+    }
+    if (this.oauthLoginProcess && this.oauthLoginProcess.exitCode === null && !this.oauthLoginProcess.killed) {
+      return this.latestOAuthStart ?? {
+        started: false,
+        command: displayCommand,
+        detail: 'OpenAI OAuth login is already running.',
+        verificationUri: null,
+        userCode: null,
+        instructions: null
+      };
+    }
+
+    const child = spawn(command, ['login', '--device-auth'], {
+      env: minimalAuthCommandEnv(),
+      windowsHide: true
+    });
+    this.oauthLoginProcess = child;
+    child.once('exit', () => {
+      if (this.oauthLoginProcess === child) {
+        this.oauthLoginProcess = null;
+      }
+    });
+
+    const output = await collectInitialOAuthOutput(child);
+    const instructions = safeDisplayOutput(output);
+    const parsed = parseOAuthInstructions(instructions);
+    const result: OpenAiOAuthStartResult = {
+      started: true,
+      command: displayCommand,
+      detail: parsed.verificationUri
+        ? 'Complete the browser OAuth step, then refresh provider status.'
+        : 'Started Codex OAuth login. Complete sign-in, then refresh provider status.',
+      verificationUri: parsed.verificationUri,
+      userCode: parsed.userCode,
+      instructions: instructions || null
+    };
+    this.latestOAuthStart = result;
+    return result;
+  }
+
+  public dispose(): void {
+    this.oauthLoginProcess?.kill();
+    this.oauthLoginProcess = null;
+  }
+
   private resolveCredential(): CredentialProbe {
     const command = process.env.BEALE_OPENAI_AUTH_COMMAND?.trim();
     if (command) {
@@ -86,12 +149,17 @@ export class OpenAiAuthService {
 
     const oauthToken = process.env.BEALE_OPENAI_ACCESS_TOKEN?.trim();
     if (oauthToken) {
-      return { credential: { token: oauthToken, source: 'oauth_bearer_env' }, oauthCommandConfigured: false, commandError: null };
+      return { credential: credentialFromToken(oauthToken, 'oauth_bearer_env'), oauthCommandConfigured: false, commandError: null };
     }
 
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (apiKey) {
       return { credential: { token: apiKey, source: 'api_key_env' }, oauthCommandConfigured: false, commandError: null };
+    }
+
+    const codexCredential = this.getCodexAuthFileCredential();
+    if (codexCredential) {
+      return { credential: codexCredential, oauthCommandConfigured: false, commandError: null };
     }
 
     return { credential: null, oauthCommandConfigured: false, commandError: null };
@@ -122,13 +190,49 @@ export class OpenAiAuthService {
     }
 
     const refreshMs = positiveIntegerFromEnv('BEALE_OPENAI_AUTH_COMMAND_REFRESH_MS', 300_000);
-    const credential: OpenAiCredential = { token, source: 'oauth_command' };
+    const credential = credentialFromToken(token, 'oauth_command');
     this.commandCredential = {
       commandKey,
       credential,
       expiresAt: now + refreshMs
     };
     return { credential, error: null };
+  }
+
+  private getCodexAuthFileCredential(): OpenAiCredential | null {
+    const path = this.codexAuthPath();
+    if (!path || !existsSync(path)) return null;
+    try {
+      const root = recordFromUnknown(JSON.parse(readFileSync(path, 'utf8')));
+      const tokens = recordFromUnknown(root?.tokens);
+      const accessToken = stringField(tokens, 'access_token');
+      if (root && stringField(root, 'auth_mode') === 'chatgpt' && accessToken) {
+        const accountId =
+          stringField(tokens, 'account_id') ??
+          stringField(tokens, 'accountId') ??
+          stringField(tokens, 'chatgpt_account_id') ??
+          stringField(root, 'account_id') ??
+          stringField(root, 'accountId') ??
+          extractChatGptAccountId(accessToken) ??
+          undefined;
+        return accountId ? { token: accessToken, source: 'codex_oauth_file', accountId } : { token: accessToken, source: 'codex_oauth_file' };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private codexAuthPath(): string | null {
+    if (this.options.codexAuthPath !== undefined) return this.options.codexAuthPath;
+    const configuredPath = process.env.BEALE_OPENAI_CODEX_AUTH_FILE?.trim();
+    if (configuredPath) return configuredPath;
+    if ((process.env.NODE_ENV === 'test' || process.env.VITEST_WORKER_ID) && process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE !== '1') return null;
+    return join(homedir(), '.codex', 'auth.json');
+  }
+
+  private codexCommand(): string {
+    return this.options.codexCommand?.trim() || 'codex';
   }
 }
 
@@ -167,7 +271,7 @@ function positiveIntegerFromEnv(name: string, fallback: number): number {
 }
 
 function readinessFor(probe: CredentialProbe): OpenAiAuthReadiness {
-  if (probe.credential?.source === 'oauth_command' || probe.credential?.source === 'oauth_bearer_env') return 'oauth_ready';
+  if (probe.credential?.source === 'oauth_command' || probe.credential?.source === 'oauth_bearer_env' || probe.credential?.source === 'codex_oauth_file') return 'oauth_ready';
   if (probe.credential?.source === 'api_key_env') return 'development_fallback';
   if (probe.oauthCommandConfigured) return 'oauth_command_failed';
   return 'not_configured';
@@ -176,6 +280,7 @@ function readinessFor(probe: CredentialProbe): OpenAiAuthReadiness {
 function labelFor(source: Exclude<OpenAiAuthSource, 'not_configured'> | null, readiness: OpenAiAuthReadiness): string {
   if (source === 'oauth_command') return 'OAuth command token configured';
   if (source === 'oauth_bearer_env') return 'OAuth bearer token configured';
+  if (source === 'codex_oauth_file') return 'Codex OAuth session configured';
   if (source === 'api_key_env') return 'API key development fallback configured';
   if (readiness === 'oauth_command_failed') return 'OAuth command needs attention';
   return 'OpenAI OAuth not configured';
@@ -185,7 +290,7 @@ function credentialHintFor(readiness: OpenAiAuthReadiness): string {
   if (readiness === 'oauth_ready') return 'Credential is available only to the trusted host process.';
   if (readiness === 'development_fallback') return 'Development fallback is active. OAuth remains the first-release path.';
   if (readiness === 'oauth_command_failed') return 'The configured OAuth command did not produce a usable bearer token.';
-  return 'Run codex login, then set BEALE_OPENAI_AUTH_COMMAND for an OAuth token command. BEALE_OPENAI_ACCESS_TOKEN and OPENAI_API_KEY remain development fallbacks.';
+  return 'Authenticate through Codex OAuth. Beale reads the resulting host-side session without exposing tokens to the renderer or guest VMs.';
 }
 
 function statusDetailFor(probe: CredentialProbe, readiness: OpenAiAuthReadiness, codexCliAvailable: boolean): string {
@@ -199,7 +304,7 @@ function userActionFor(readiness: OpenAiAuthReadiness): string | null {
   if (readiness === 'oauth_ready') return null;
   if (readiness === 'development_fallback') return 'Finish OAuth setup before treating this workspace as release-ready.';
   if (readiness === 'oauth_command_failed') return 'Refresh after completing browser sign-in or repairing the token command.';
-  return 'Complete OAuth sign-in and configure a host-side token command.';
+  return 'Authenticate with OpenAI in Settings > Providers.';
 }
 
 function setupCommandFor(readiness: OpenAiAuthReadiness): string | null {
@@ -219,8 +324,8 @@ function onboardingStepsFor(probe: CredentialProbe, readiness: OpenAiAuthReadine
     {
       id: 'host_credential_bridge',
       label: 'Host credential bridge',
-      status: credential?.source === 'oauth_command' || credential?.source === 'oauth_bearer_env' ? 'complete' : readiness === 'development_fallback' ? 'warning' : probe.oauthCommandConfigured ? 'current' : 'blocked',
-      detail: credential?.source === 'oauth_command' || credential?.source === 'oauth_bearer_env'
+      status: credential?.source === 'oauth_command' || credential?.source === 'oauth_bearer_env' || credential?.source === 'codex_oauth_file' ? 'complete' : readiness === 'development_fallback' ? 'warning' : probe.oauthCommandConfigured ? 'current' : 'blocked',
+      detail: credential?.source === 'oauth_command' || credential?.source === 'oauth_bearer_env' || credential?.source === 'codex_oauth_file'
         ? 'Beale can resolve a bearer token on the trusted host.'
         : readiness === 'development_fallback'
           ? 'A fallback credential is present; OAuth should replace it for v1 use.'
@@ -255,6 +360,81 @@ function commandExists(command: string): boolean {
   return !result.error && result.status === 0;
 }
 
+async function collectInitialOAuthOutput(child: ChildProcessWithoutNullStreams): Promise<string> {
+  let output = '';
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(output);
+    };
+    const fail = (message: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(message));
+    };
+    const append = (chunk: Buffer): void => {
+      output += chunk.toString('utf8');
+      const parsed = parseOAuthInstructions(output);
+      if (parsed.verificationUri && parsed.userCode) {
+        finish();
+      }
+    };
+    const timer = setTimeout(finish, 2500);
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    child.once('error', (error) => fail(error.message));
+    child.once('exit', (code) => {
+      if (code === 0) {
+        finish();
+        return;
+      }
+      fail(safeCommandFailure(output || `status ${code}`));
+    });
+  });
+}
+
+function parseOAuthInstructions(output: string): Pick<OpenAiOAuthStartResult, 'verificationUri' | 'userCode'> {
+  const verificationUri = output.match(/https?:\/\/[^\s)]+/i)?.[0] ?? null;
+  const userCode = output.match(/\b[A-Z0-9]{4,8}-[A-Z0-9]{4,8}\b/i)?.[0].toUpperCase() ?? null;
+  return { verificationUri, userCode };
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function stringField(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function extractChatGptAccountId(token: string): string | null {
+  const payload = decodeJwtPayload(token);
+  const authClaim = recordFromUnknown(payload?.['https://api.openai.com/auth']);
+  return stringField(authClaim, 'chatgpt_account_id');
+}
+
+function credentialFromToken(token: string, source: Exclude<OpenAiAuthSource, 'not_configured'>): OpenAiCredential {
+  const accountId = extractChatGptAccountId(token);
+  return accountId ? { token, source, accountId } : { token, source };
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const payload = parts[1] ?? '';
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    return recordFromUnknown(JSON.parse(Buffer.from(base64, 'base64').toString('utf8')));
+  } catch {
+    return null;
+  }
+}
+
 function minimalAuthCommandEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of [
@@ -274,7 +454,13 @@ function minimalAuthCommandEnv(): NodeJS.ProcessEnv {
     'XDG_CONFIG_HOME',
     'XDG_DATA_HOME',
     'XDG_RUNTIME_DIR',
-    'DBUS_SESSION_BUS_ADDRESS'
+    'DBUS_SESSION_BUS_ADDRESS',
+    'DISPLAY',
+    'WAYLAND_DISPLAY',
+    'BROWSER',
+    'WSL_INTEROP',
+    'WSL_DISTRO_NAME',
+    'XAUTHORITY'
   ]) {
     const value = process.env[key];
     if (value && !SECRET_ENV_PATTERN.test(key)) {
@@ -294,4 +480,14 @@ function safeCommandFailure(value: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ...redacted')
     .replace(/\b[A-Za-z0-9._%+-]+:[A-Za-z0-9._%+-]+@/g, '...redacted@')
     .slice(0, 240);
+}
+
+function safeDisplayOutput(value: string): string {
+  return value
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .replace(/sk-[A-Za-z0-9_-]+/g, 'sk-...redacted')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ...redacted')
+    .replace(/\b[A-Za-z0-9._%+-]+:[A-Za-z0-9._%+-]+@/g, '...redacted@')
+    .trim()
+    .slice(0, 1000);
 }

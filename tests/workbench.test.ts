@@ -111,6 +111,7 @@ describe('Beale workbench skeleton', () => {
 
   it('looks up HackerOne program metadata and imports public structured scope', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-hackerone-import-review';
+    const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       programRegistryDirectory: tempWorkspace(),
       hackerOneFetch: async (_url, init) => {
@@ -153,6 +154,28 @@ describe('Beale workbench skeleton', () => {
           }),
           { status: 200, headers: { 'content-type': 'application/json' } }
         );
+      },
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        modelRequests.push(request);
+        expect(request.model).toBe('gpt-5.5');
+        expect(request.tools).toEqual([]);
+        expect(request.reasoning).toEqual({ effort: 'medium' });
+        expect(JSON.stringify(request)).toContain('github.com');
+        expect(JSON.stringify(request)).toContain('Third-party services');
+        const review = {
+          programName: 'GitHub',
+          organizationName: 'GitHub',
+          scopeMarkdown: '## Scope\n- In scope: github.com\n- Out of scope: Third-party services',
+          rulesMarkdown: '## Rules\nStay in scope. Verify the current HackerOne page before live testing.'
+        };
+        return new Response(
+          sse(
+            event('response.output_text.done', { type: 'response.output_text.done', text: JSON.stringify(review) }) +
+              event('response.completed', { type: 'response.completed', response: { id: 'resp_hackerone_import' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        );
       }
     });
 
@@ -162,10 +185,15 @@ describe('Beale workbench skeleton', () => {
       sourceUrl: 'https://hackerone.com/github',
       programName: 'GitHub',
       organizationName: 'GitHub',
+      descriptionMarkdown: 'Authorized research under the GitHub Security Bounty program on HackerOne.',
       networkProfile: 'scoped',
       importedScopeCount: 2
     });
-    expect(lookup.rulesMarkdown).toContain('# GitHub policy');
+    expect(modelRequests).toHaveLength(1);
+    expect(JSON.stringify(modelRequests[0])).not.toContain('descriptionMarkdown');
+    expect(lookup.rulesMarkdown).toContain('## Scope');
+    expect(lookup.rulesMarkdown).toContain('## Rules');
+    expect(lookup.rulesMarkdown).not.toContain('# GitHub policy');
     expect(lookup.assets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'github.com', sensitivity: 'public' }),
@@ -212,6 +240,27 @@ describe('Beale workbench skeleton', () => {
       })
     ).toThrow(/Authenticate with OpenAI first/);
 
+    service.close();
+  });
+
+  it('reports missing Responses API scope clearly during HackerOne model review', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-without-responses-write';
+    const service = new WorkspaceService(() => undefined, {
+      programRegistryDirectory: tempWorkspace(),
+      hackerOneFetch: async () => hackerOneProgramResponse(),
+      openAiFetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'You have insufficient permissions for this operation. Missing scopes: api.responses.write.',
+              code: 'insufficient_permissions'
+            }
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+    });
+
+    await expect(service.lookupHackerOneProgram('github')).rejects.toThrow(/Responses API write scope.*BEALE_OPENAI_ACCESS_TOKEN.*OPENAI_API_KEY/);
     service.close();
   });
 
@@ -835,6 +884,37 @@ function tempWorkspace(): string {
   return dir;
 }
 
+function hackerOneProgramResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      data: {
+        team: {
+          handle: 'github',
+          name: 'GitHub',
+          url: 'https://hackerone.com/github',
+          policy: '# GitHub policy\nStay in scope.',
+          submission_state: 'open',
+          structured_scopes: {
+            total_count: 1,
+            nodes: [
+              {
+                asset_type: 'URL',
+                asset_identifier: 'github.com',
+                instruction: 'Main application.',
+                eligible_for_bounty: true,
+                eligible_for_submission: true,
+                max_severity: 'critical',
+                url: 'https://hackerone.com/github/asset/1'
+              }
+            ]
+          }
+        }
+      }
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
+}
+
 function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, value: string) {
   return {
     direction,
@@ -843,6 +923,19 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
     sensitivity: 'internal',
     attributes: {}
   };
+}
+
+function event(name: string, data: Record<string, unknown>): string {
+  return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function sse(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    }
+  });
 }
 
 function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {

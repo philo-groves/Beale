@@ -52,6 +52,7 @@ import type {
   HypothesisRecord,
   HostEnvironment,
   OpenAiAccountStatus,
+  OpenAiOAuthStartResult,
   PriorityFactorInput,
   ProgramOnboardingDefaults,
   ProgramOnboardingInput,
@@ -97,6 +98,69 @@ interface ProgramOnboardingFormState {
 }
 
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
+type SettingsSection = 'general' | 'providers';
+
+const APPLE_PROGRAM_DESCRIPTION =
+  'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
+
+const APPLE_SCOPE_AND_RULES = [
+  '## Source of truth',
+  'Verify current Apple Security Bounty scope, categories, guidelines, Target Flags, and submission requirements before testing or submitting.',
+  '',
+  '- Categories: https://security.apple.com/bounty/categories/',
+  '- Guidelines: https://security.apple.com/bounty/guidelines/',
+  '- Target Flags: https://security.apple.com/bounty/target-flags/',
+  '',
+  '## Authorized scope',
+  '- Product research must affect the latest publicly available version, including beta versions, of iOS, iPadOS, macOS, tvOS, visionOS, or watchOS with standard configuration on publicly available Apple hardware or a Security Research Device.',
+  '- Services research must relate to a web server or service owned by Apple or an Apple subsidiary.',
+  '- Bounty categories include product exploit chains, Apple-designed radio proximity attacks, unauthorized physical device access, app and browser sandbox issues, macOS-only issues, Private Cloud Compute, and eligible Apple services issues such as iCloud data access, remote code execution, unrestricted file system or database access, logic flaws bypassing security controls, client/server code execution, sensitive data exposure, and domain or subdomain takeover.',
+  '',
+  '## Evidence and reporting requirements',
+  '- Provide a complete and actionable report with observed behavior, expected behavior, the security or privacy mechanism bypassed, and attacker impact.',
+  '- Include a reliable exploit or proof of concept, plus concise numbered reproduction steps.',
+  '- For zero-click, one-click, or multi-exploit issues, submit the full chain as one report with everything needed to execute it and a nondestructive payload when needed.',
+  '- Include crash logs, sysdiagnose output, or video demonstrations when applicable.',
+  '- Use Target Flags when they apply to the category or reward level. For kernel or user-level privilege escalation, include a Commpage Target Flag PoC and crash log. For TCC database modification, use the `tccutil flag check` and `tccutil flag reset` workflow to confirm impact.',
+  '',
+  '## Boundaries',
+  '- Do not publicly disclose before Apple releases an update with a security advisory or otherwise completes investigation.',
+  '- Do not submit reports about third-party hardware, software, or services to Apple.',
+  '- Do not rely on theoretical, unvalidated, incomplete, or AI-discovered claims without reproducible validation.',
+  '- Do not brute force Target Flags.'
+].join('\n');
+
+const MSRC_PROGRAM_DESCRIPTION =
+  'Authorized research under Microsoft Security Response Center bounty programs for eligible Microsoft cloud, endpoint, on-premises, developer, AI, identity, and service vulnerabilities described by MSRC.';
+
+const MSRC_SCOPE_AND_RULES = [
+  '## Source of truth',
+  'Verify current Microsoft bounty scope, rules of engagement, coordinated vulnerability disclosure requirements, safe harbor, bounty guidelines, and individual program rules before testing or submitting.',
+  '',
+  '- Bounty overview: https://www.microsoft.com/en-us/msrc/bounty',
+  '- Cloud programs: https://www.microsoft.com/en-us/msrc/bounty-programs#cloud',
+  '- Endpoint and on-prem programs: https://www.microsoft.com/en-us/msrc/bounty-programs#endpoints',
+  '- Researcher Portal: https://msrc.microsoft.com/report/vulnerability',
+  '',
+  '## Authorized scope',
+  '- Cloud bounty programs include Microsoft Identity, Microsoft Azure, Microsoft Copilot, Xbox Live network and services, Azure DevOps Services, Dynamics 365 and Power Platform, Microsoft Defender for Endpoint APIs, Microsoft 365 including Office 365, .NET Core and ASP.NET Core, and selected Microsoft-owned open-source repositories.',
+  '- Endpoint and on-prem bounty programs include Microsoft Hyper-V, Windows Insider Preview, Microsoft Applications and On-Premises Servers, Microsoft Edge Chromium channels, and Microsoft 365 Insider.',
+  '- Zero Day Quest focuses on high-impact vulnerabilities in Azure, Copilot, Dynamics 365 and Power Platform, Microsoft Identity, and Microsoft 365 bounty programs, subject to the applicable bounty program and event terms.',
+  '- Always confirm the specific product, service, build, tenant, account type, and test asset are in scope on the individual bounty program page before live testing.',
+  '',
+  '## Evidence and reporting requirements',
+  '- Submit privately through the MSRC Researcher Portal under Coordinated Vulnerability Disclosure.',
+  '- Provide clear reproduction steps, proof-of-concept code when safe, detailed technical analysis, affected assets, expected and observed behavior, security impact, prerequisites, and remediation-relevant details.',
+  '- Prioritize new, unique vulnerabilities with meaningful real-world customer security impact.',
+  '- Include enough detail for Microsoft to validate, triage, reproduce, and fix the issue quickly.',
+  '',
+  '## Boundaries',
+  '- Follow Microsoft Security Testing Rules of Engagement and the rules on the applicable individual bounty program page.',
+  '- Do not access, modify, exfiltrate, disclose, or share customer data.',
+  '- Do not disrupt Microsoft services, compromise uptime, degrade availability, or harm other customers or infrastructure.',
+  '- If unauthorized or sensitive data is encountered, stop immediately, notify MSRC with details, delete the data, and acknowledge this in the report.',
+  '- Do not publicly disclose before Microsoft has had time to remediate under CVD.'
+].join('\n');
 
 const defaultRunInput: StartRunInput = {
   runEngine: 'fake',
@@ -119,7 +183,12 @@ export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
+  const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
+  const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ tone: 'error' | 'info'; text: string } | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +197,12 @@ export function App(): JSX.Element {
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     setSnapshot(next);
+    if (next) {
+      setOpenAiStatus(next.openAi);
+      if (next.openAi.readiness === 'oauth_ready') {
+        setStatusMessage(null);
+      }
+    }
     setSelectedRunId((current) => selectRunId(current, next));
   }, []);
 
@@ -165,6 +240,11 @@ export function App(): JSX.Element {
     window.beale
       .getProgramRegistry()
       .then(setProgramRegistry)
+      .catch((caught: unknown) => setError(errorMessage(caught)));
+
+    window.beale
+      .getOpenAiStatus()
+      .then(setOpenAiStatus)
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
     const unsubscribeSnapshot = window.beale.onSnapshot(applySnapshot);
@@ -212,6 +292,39 @@ export function App(): JSX.Element {
     },
     [loadProgramRegistry]
   );
+
+  const refreshOpenAiProvider = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      if (snapshot) {
+        const next = await window.beale.refreshOpenAiStatus();
+        applySnapshot(next);
+      } else {
+        setOpenAiStatus(await window.beale.getOpenAiStatus());
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, snapshot]);
+
+  const startOpenAiOAuth = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.beale.startOpenAiOAuth();
+      setOpenAiOAuthResult(result);
+      setStatusMessage({ tone: 'info', text: result.detail });
+      setOpenAiStatus(await window.beale.getOpenAiStatus());
+    } catch (caught) {
+      setStatusMessage({ tone: 'error', text: errorMessage(caught) });
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   const startDefaultRun = (): void => {
     if (!snapshot) return;
@@ -305,7 +418,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app-shell" style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
-      <TopBar />
+      <TopBar onOpenSettings={() => setSettingsOpen(true)} />
       <aside className="sidebar">
         <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={startDefaultRun}>
           <Play size={15} />
@@ -341,13 +454,7 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workspace-page" />
       </main>
-      <StatusBar
-        hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
-        message={{
-          tone: 'error',
-          text: 'Not authenticated with OpenAI. Authenticate by going to Settings > Providers.'
-        }}
-      />
+      <StatusBar hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment} message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)} />
       {programDraft ? (
         <ProgramOnboardingModal
           busy={busy}
@@ -357,6 +464,18 @@ export function App(): JSX.Element {
           onLookupHackerOne={lookupHackerOneProgram}
           onTemplate={applyOnboardingTemplate}
           onSubmit={submitProgramOnboarding}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <SettingsModal
+          section={settingsSection}
+          openAiOAuthResult={openAiOAuthResult}
+          openAiStatus={snapshot?.openAi ?? openAiStatus}
+          busy={busy}
+          onChangeSection={setSettingsSection}
+          onClose={() => setSettingsOpen(false)}
+          onRefreshOpenAi={refreshOpenAiProvider}
+          onStartOpenAiOAuth={startOpenAiOAuth}
         />
       ) : null}
     </div>
@@ -369,7 +488,7 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
-function TopBar(): JSX.Element {
+function TopBar({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
   return (
     <header className="top-bar">
       <nav className="window-menu" aria-label="Application menu">
@@ -390,7 +509,7 @@ function TopBar(): JSX.Element {
         <button type="button" title="Export">
           <Upload size={16} />
         </button>
-        <button type="button" title="Settings">
+        <button type="button" title="Settings" onClick={onOpenSettings}>
           <Settings size={16} />
         </button>
         <button type="button" title="More">
@@ -428,16 +547,18 @@ function Modal({
   title,
   children,
   footer,
-  onClose
+  onClose,
+  wide = false
 }: {
   title: string;
   children: ReactNode;
   footer: ReactNode;
   onClose: () => void;
+  wide?: boolean;
 }): JSX.Element {
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <section className={`modal-panel ${wide ? 'wide-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <header className="modal-header">
           <h2 id="modal-title">{title}</h2>
           <button type="button" title="Close" onClick={onClose}>
@@ -446,6 +567,154 @@ function Modal({
         </header>
         <div className="modal-body">{children}</div>
         <footer className="modal-footer">{footer}</footer>
+      </section>
+    </div>
+  );
+}
+
+function SettingsModal({
+  section,
+  openAiStatus,
+  openAiOAuthResult,
+  busy,
+  onChangeSection,
+  onClose,
+  onRefreshOpenAi,
+  onStartOpenAiOAuth
+}: {
+  section: SettingsSection;
+  openAiStatus: OpenAiAccountStatus | null;
+  openAiOAuthResult: OpenAiOAuthStartResult | null;
+  busy: boolean;
+  onChangeSection: (section: SettingsSection) => void;
+  onClose: () => void;
+  onRefreshOpenAi: () => Promise<void>;
+  onStartOpenAiOAuth: () => Promise<void>;
+}): JSX.Element {
+  return (
+    <Modal
+      title="Settings"
+      wide
+      onClose={onClose}
+      footer={
+        <button type="button" onClick={onClose}>
+          Done
+        </button>
+      }
+    >
+      <div className="settings-layout">
+        <nav className="settings-sections" aria-label="Settings sections">
+          {(['general', 'providers'] as SettingsSection[]).map((item) => (
+            <button type="button" className={section === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
+              {settingsSectionLabel(item)}
+            </button>
+          ))}
+        </nav>
+        <section className="settings-view">
+          {section === 'general' ? (
+            <div className="settings-page">
+              <h3>General</h3>
+            </div>
+          ) : (
+            <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
+          )}
+        </section>
+      </div>
+    </Modal>
+  );
+}
+
+function ProvidersSettingsView({
+  openAiStatus,
+  openAiOAuthResult,
+  busy,
+  onRefreshOpenAi,
+  onStartOpenAiOAuth
+}: {
+  openAiStatus: OpenAiAccountStatus | null;
+  openAiOAuthResult: OpenAiOAuthStartResult | null;
+  busy: boolean;
+  onRefreshOpenAi: () => Promise<void>;
+  onStartOpenAiOAuth: () => Promise<void>;
+}): JSX.Element {
+  const readiness = openAiStatus?.readiness ?? 'not_configured';
+  const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
+  const authenticate = (): void => {
+    void onStartOpenAiOAuth();
+  };
+  const refresh = (): void => {
+    void onRefreshOpenAi();
+  };
+
+  return (
+    <div className="settings-page provider-settings-page">
+      <div className="settings-page-header">
+        <h3>Providers</h3>
+        <button type="button" title="Refresh OpenAI provider status" disabled={busy} onClick={refresh}>
+          <RefreshCw size={15} />
+          Refresh
+        </button>
+      </div>
+      <section className={`provider-card readiness-${stateClass(readiness)}`}>
+        <div className="provider-heading">
+          <div className="status-icon">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <h4>OpenAI</h4>
+            <p>{openAiStatus?.label ?? 'Checking provider status'}</p>
+          </div>
+          <StatusPill status={readiness} />
+        </div>
+
+        <div className="provider-grid">
+          <div>
+            <span>Source</span>
+            <strong>{openAiStatus?.source ?? 'unknown'}</strong>
+          </div>
+          <div>
+            <span>Transport</span>
+            <strong>{openAiStatus?.preferredTransport ?? 'sse_http'}</strong>
+          </div>
+          <div>
+            <span>Model</span>
+            <strong>{openAiStatus?.defaultModel ?? 'gpt-5.5'}</strong>
+          </div>
+          <div>
+            <span>Boundary</span>
+            <strong>{openAiStatus?.credentialsHostOnly ? 'host only' : 'review'}</strong>
+          </div>
+        </div>
+
+        <p className="provider-detail">{openAiStatus?.statusDetail ?? 'OpenAI status has not loaded yet.'}</p>
+        {openAiStatus?.credentialHint ? <p className="provider-detail muted">{openAiStatus.credentialHint}</p> : null}
+
+        {openAiOAuthResult ? (
+          <div className="provider-oauth-result">
+            <strong>{openAiOAuthResult.detail}</strong>
+            {openAiOAuthResult.verificationUri ? <code>{openAiOAuthResult.verificationUri}</code> : null}
+            {openAiOAuthResult.userCode ? (
+              <div>
+                <span>Code</span>
+                <code>{openAiOAuthResult.userCode}</code>
+              </div>
+            ) : null}
+            {openAiOAuthResult.instructions && !openAiOAuthResult.verificationUri ? <pre>{openAiOAuthResult.instructions}</pre> : null}
+          </div>
+        ) : null}
+
+        <div className="provider-actions">
+          <button className="primary-button" type="button" disabled={busy || openAiStatus?.codexCliAvailable === false} onClick={authenticate}>
+            <KeyRound size={15} />
+            {authenticateLabel}
+          </button>
+          {openAiStatus?.setupCommand ? (
+            <div className="command-row">
+              <Terminal size={15} />
+              <code>{openAiStatus.setupCommand}</code>
+            </div>
+          ) : null}
+        </div>
       </section>
     </div>
   );
@@ -493,8 +762,8 @@ function ProgramOnboardingModal({
           <button type="button" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-          <button className="primary-button" type="submit" form="program-onboarding-form" disabled={busy || !canSubmit}>
-            Create Program
+          <button className="primary-button" type="submit" form="program-onboarding-form" disabled={busy || lookupBusy || !canSubmit}>
+            {lookupBusy ? 'Importing Program...' : 'Create Program'}
           </button>
         </>
       }
@@ -530,7 +799,7 @@ function ProgramOnboardingModal({
               <input value={hackerOneIdentifier} placeholder="github" onChange={(event) => setHackerOneIdentifier(event.target.value)} />
             </label>
             <button type="button" disabled={busy || lookupBusy || !hackerOneIdentifier.trim()} onClick={lookupHackerOne}>
-              Look Up
+              {lookupBusy ? 'Loading...' : 'Look Up'}
             </button>
             {lookupError ? <div className="error-box">{lookupError}</div> : null}
           </div>
@@ -561,7 +830,7 @@ function ProgramOnboardingModal({
           </label>
           <label>
             Authorization expires (empty = never)
-            <input type="date" value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
+            <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
           </label>
         </div>
         <label>
@@ -636,7 +905,7 @@ function ScopeEditor({
         </label>
         <label>
           Authorization expires (empty = never)
-          <input type="date" value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
+          <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
         </label>
       </div>
 
@@ -1876,6 +2145,14 @@ function openAiStatusLabel(status: OpenAiAccountStatus): string {
   }
 }
 
+function openAiFooterMessage(status: OpenAiAccountStatus | null): { tone: 'error' | 'info'; text: string } | null {
+  if (!status || status.readiness === 'oauth_ready') return null;
+  return {
+    tone: 'error',
+    text: 'Not authenticated with OpenAI. Authenticate by going to Settings > Providers.'
+  };
+}
+
 function StatusPill({ status }: { status: string }): JSX.Element {
   return <span className={`status-pill status-${status}`}>{status}</span>;
 }
@@ -1957,6 +2234,15 @@ function templateLabel(templateKind: ProgramTemplateKind): string {
   }
 }
 
+function settingsSectionLabel(section: SettingsSection): string {
+  switch (section) {
+    case 'general':
+      return 'General';
+    case 'providers':
+      return 'Providers';
+  }
+}
+
 function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: ProgramTemplateKind): ProgramOnboardingFormState {
   if (templateKind === 'manual' || templateKind === 'hackerone') {
     return { ...form, templateKind };
@@ -1967,8 +2253,8 @@ function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: Pr
       templateKind,
       programName: 'Apple Security Bounty',
       organizationName: 'Apple',
-      descriptionMarkdown: 'Authorized research under the Apple Security Bounty program.',
-      rulesMarkdown: 'Template for Apple Security Bounty. Verify the current program scope and rules before testing: https://security.apple.com/bounty/',
+      descriptionMarkdown: APPLE_PROGRAM_DESCRIPTION,
+      rulesMarkdown: APPLE_SCOPE_AND_RULES,
       networkProfile: 'scoped',
       expiresAt: '',
       assets: []
@@ -1979,8 +2265,8 @@ function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: Pr
     templateKind,
     programName: 'Microsoft Security Response Center',
     organizationName: 'Microsoft',
-    descriptionMarkdown: 'Authorized research under Microsoft Security Response Center bounty programs.',
-    rulesMarkdown: 'Template for MSRC bounty programs. Verify the current scope and rules before testing: https://www.microsoft.com/msrc/bounty',
+    descriptionMarkdown: MSRC_PROGRAM_DESCRIPTION,
+    rulesMarkdown: MSRC_SCOPE_AND_RULES,
     networkProfile: 'scoped',
     expiresAt: '',
     assets: []
@@ -2029,6 +2315,10 @@ function formToScopeDraft(form: ScopeFormState): ProgramScopeDraft {
 function optionalDateOrNever(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function emptyDateClass(value: string): string | undefined {
+  return value.trim() ? undefined : 'date-input-empty';
 }
 
 function linesFor(scope: ProgramScopeVersion, direction: ScopeAssetDirection, kind: ScopeAssetKind): string {

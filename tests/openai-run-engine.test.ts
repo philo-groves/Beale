@@ -17,6 +17,8 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_AUTH_ARGS_JSON;
   delete process.env.BEALE_OPENAI_AUTH_COMMAND_REFRESH_MS;
   delete process.env.BEALE_OPENAI_AUTH_COMMAND_TIMEOUT_MS;
+  delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
+  delete process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_TRANSPORT;
   delete process.env.OPENAI_API_KEY;
   for (const dir of createdDirs.splice(0)) {
@@ -68,8 +70,77 @@ describe('OpenAI Responses run engine', () => {
     expect(readFileSync(envDump, 'utf8')).not.toContain('sk-development-fallback-for-test');
   });
 
+  it('resolves Codex OAuth auth file credentials without exposing tokens in status', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-codex-auth-'));
+    createdDirs.push(dir);
+    const authPath = join(dir, 'auth.json');
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: fakeCodexAccessToken('chatgpt-account-for-test'),
+          refresh_token: 'codex-refresh-token-for-test'
+        }
+      })
+    );
+
+    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
+    expect(auth.getCredential()).toEqual({
+      token: fakeCodexAccessToken('chatgpt-account-for-test'),
+      source: 'codex_oauth_file',
+      accountId: 'chatgpt-account-for-test'
+    });
+    const status = auth.getStatus();
+    expect(status.source).toBe('codex_oauth_file');
+    expect(status.readiness).toBe('oauth_ready');
+    expect(status.credentialsHostOnly).toBe(true);
+    expect(JSON.stringify(status)).not.toContain(fakeCodexAccessToken('chatgpt-account-for-test'));
+    expect(JSON.stringify(status)).not.toContain('codex-refresh-token-for-test');
+  });
+
+  it('prefers explicit API key fallback over auto-detected Codex OAuth file credentials', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-codex-auth-with-api-key-'));
+    createdDirs.push(dir);
+    const authPath = join(dir, 'auth.json');
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: 'codex-oauth-token-for-test'
+        }
+      })
+    );
+    process.env.OPENAI_API_KEY = 'sk-explicit-api-key-for-test';
+
+    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
+    expect(auth.getCredential()).toEqual({ token: 'sk-explicit-api-key-for-test', source: 'api_key_env' });
+    expect(auth.getStatus().source).toBe('api_key_env');
+  });
+
+  it('starts Codex OAuth device login and returns browser instructions', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-codex-login-'));
+    createdDirs.push(dir);
+    const codex = join(dir, 'codex');
+    writeFileSync(
+      codex,
+      '#!/bin/sh\nif [ "$1" = "login" ] && [ "$2" = "--device-auth" ]; then\n  printf "Open https://auth.openai.com/codex/device\\nCode: ABCD-EFGH\\n"\n  exit 0\nfi\nexit 2\n',
+      { mode: 0o700 }
+    );
+
+    const auth = new OpenAiAuthService({ codexAuthPath: null, codexCommand: codex });
+    const result = await auth.startOAuthLogin();
+    expect(result.started).toBe(true);
+    expect(result.command).toBe(`${codex} login --device-auth`);
+    expect(result.verificationUri).toBe('https://auth.openai.com/codex/device');
+    expect(result.userCode).toBe('ABCD-EFGH');
+    expect(JSON.stringify(result)).not.toMatch(/access[_-]?token|refresh[_-]?token|Bearer /i);
+    auth.dispose();
+  });
+
   it('reports OAuth onboarding and command failures without exposing tokens', () => {
-    let auth = new OpenAiAuthService();
+    let auth = new OpenAiAuthService({ codexAuthPath: null });
     const missing = auth.getStatus();
     expect(missing.readiness).toBe('not_configured');
     expect(missing.setupCommand).toBe('codex login');
@@ -81,7 +152,7 @@ describe('OpenAI Responses run engine', () => {
     writeFileSync(failingCommand, '#!/bin/sh\nprintf "Bearer oauth-failure-secret\\n" >&2\nexit 1\n', { mode: 0o700 });
     process.env.BEALE_OPENAI_AUTH_COMMAND = failingCommand;
 
-    auth = new OpenAiAuthService();
+    auth = new OpenAiAuthService({ codexAuthPath: null });
     const failed = auth.getStatus();
     expect(failed.readiness).toBe('oauth_command_failed');
     expect(failed.oauthCommandConfigured).toBe(true);
@@ -172,6 +243,65 @@ describe('OpenAI Responses run engine', () => {
     expect(sockets).toHaveLength(1);
     expect((JSON.parse(sent[1]) as Record<string, unknown>).previous_response_id).toBe('resp_ws_1');
     adapter.closeWebSocketSession('run_ws');
+  });
+
+  it('routes Codex OAuth sessions through the ChatGPT Codex Responses backend', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-codex-backend-'));
+    createdDirs.push(dir);
+    const authPath = join(dir, 'auth.json');
+    const token = fakeCodexAccessToken('codex-account-123');
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: token
+        }
+      })
+    );
+
+    const seen: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      seen.push({
+        url,
+        headers: new Headers(init.headers),
+        body: JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>
+      });
+      return new Response(
+        sse(event('response.output_text.done', { type: 'response.output_text.done', text: 'done' }) + event('response.done', { type: 'response.done', response: { id: 'resp_codex' } })),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    };
+
+    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1', null, 'https://chatgpt.test/backend-api');
+    const body = adapter.buildRequest({
+      model: 'gpt-5.5',
+      instructions: 'Return done.',
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'test' }] }],
+      tools: [],
+      reasoning: { effort: 'low' },
+      text: { verbosity: 'low' },
+      metadata: { beale_run_id: 'run_codex_backend' }
+    });
+
+    const events = [];
+    for await (const streamEvent of adapter.streamResponse({ body })) {
+      events.push(streamEvent.type);
+    }
+
+    expect(seen[0].url).toBe('https://chatgpt.test/backend-api/codex/responses');
+    expect(seen[0].headers.get('Authorization')).toBe(`Bearer ${token}`);
+    expect(seen[0].headers.get('chatgpt-account-id')).toBe('codex-account-123');
+    expect(seen[0].headers.get('originator')).toBe('beale');
+    expect(seen[0].headers.get('OpenAI-Beta')).toBe('responses=experimental');
+    expect(seen[0].headers.get('session_id')).toBe('run_codex_backend');
+    expect(seen[0].body.model).toBe('gpt-5.5');
+    expect(seen[0].body.metadata).toBeUndefined();
+    expect(seen[0].body.prompt_cache_key).toBe('run_codex_backend');
+    expect(seen[0].body.include).toEqual(['reasoning.encrypted_content']);
+    expect(seen[0].body.reasoning).toEqual({ effort: 'low', summary: 'auto' });
+    expect(events).toEqual(['response.output_text.done', 'response.completed']);
   });
 
   it('constructs a host-only Responses request and routes model tool calls through Beale policy', async () => {
@@ -396,6 +526,18 @@ function previousResponseMissingEvents(): string {
 
 function event(name: string, data: Record<string, unknown>): string {
   return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function fakeCodexAccessToken(accountId: string): string {
+  return [
+    base64UrlJson({ alg: 'none', typ: 'JWT' }),
+    base64UrlJson({ 'https://api.openai.com/auth': { chatgpt_account_id: accountId } }),
+    'signature'
+  ].join('.');
+}
+
+function base64UrlJson(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
 function sse(text: string): ReadableStream<Uint8Array> {
