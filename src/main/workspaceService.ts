@@ -183,6 +183,19 @@ export class WorkspaceService {
     return this.open(path, true);
   }
 
+  public openLastProgramIfAvailable(): WorkspaceSnapshot | null {
+    const program = this.getProgramRegistry().getLastKnownProgram();
+    if (!program || !isExistingWorkspace(program.workspacePath)) {
+      return null;
+    }
+
+    try {
+      return this.open(program.workspacePath, false);
+    } catch {
+      return null;
+    }
+  }
+
   public getProgramRegistryState(): ProgramRegistryState {
     return this.getProgramRegistry().getState();
   }
@@ -1894,6 +1907,14 @@ function fileTimestamp(iso: string): string {
 
 function sanitizeFileSegment(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'run';
+}
+
+function isExistingWorkspace(path: string): boolean {
+  try {
+    return statSync(path).isDirectory() && existsSync(join(path, '.beale', 'beale.sqlite'));
+  } catch {
+    return false;
+  }
 }
 
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {

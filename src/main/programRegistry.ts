@@ -64,8 +64,30 @@ export class ProgramRegistry {
     return row ? this.mapProgram(row) : null;
   }
 
+  public getLastKnownProgram(): ProgramRegistryEntry | null {
+    const metaProgramId = this.getMeta('last_program_id');
+    if (metaProgramId) {
+      const program = this.getProgram(metaProgramId);
+      if (program) return program;
+    }
+
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM programs
+           WHERE last_opened_at IS NOT NULL
+           ORDER BY last_opened_at DESC, updated_at DESC
+           LIMIT 1`
+        )
+        .get()
+    );
+    return row ? this.mapProgram(row) : null;
+  }
+
   public syncWorkspace(snapshot: WorkspaceSnapshot): void {
     const program = this.upsertProgramFromSnapshot(snapshot);
+    this.rememberLastKnownProgram(program);
     const now = nowIso();
     for (const row of snapshot.runs) {
       this.upsertResearchSession(program.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, now);
@@ -128,11 +150,31 @@ export class ProgramRegistry {
   }
 
   private listPrograms(): ProgramRegistryEntry[] {
-    return rows(this.db.prepare('SELECT * FROM programs ORDER BY updated_at DESC').all()).map((row) => this.mapProgram(row));
+    return rows(this.db.prepare('SELECT * FROM programs ORDER BY created_at DESC, id DESC').all()).map((row) => this.mapProgram(row));
   }
 
   private listResearchSessions(limit = 200): ResearchSessionSummary[] {
     return rows(this.db.prepare('SELECT * FROM research_sessions ORDER BY updated_at DESC LIMIT ?').all(limit)).map((row) => this.mapResearchSession(row));
+  }
+
+  private getMeta(key: string): string | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT value FROM registry_meta WHERE key = ?').get(key));
+    return row ? text(row, 'value') : null;
+  }
+
+  private setMeta(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO registry_meta (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      )
+      .run(key, value, nowIso());
+  }
+
+  private rememberLastKnownProgram(program: ProgramRegistryEntry): void {
+    this.setMeta('last_program_id', program.id);
+    this.setMeta('last_workspace_path', program.workspacePath);
   }
 
   private upsertProgramFromSnapshot(snapshot: WorkspaceSnapshot): ProgramRegistryEntry {

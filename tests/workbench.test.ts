@@ -109,6 +109,79 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('keeps program sidebar order stable when programs are opened', () => {
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    service.createProgram({
+      workspacePath: firstWorkspace,
+      programName: 'First Program',
+      organizationName: '',
+      descriptionMarkdown: 'First persisted program.',
+      rulesMarkdown: 'First rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.createProgram({
+      workspacePath: secondWorkspace,
+      programName: 'Second Program',
+      organizationName: '',
+      descriptionMarkdown: 'Second persisted program.',
+      rulesMarkdown: 'Second rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+
+    const initialOrder = service.getProgramRegistryState().programs.map((program) => program.id);
+    const firstProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'First Program');
+    expect(firstProgram).toBeTruthy();
+    service.openProgram(firstProgram?.id ?? '');
+    expect(service.getProgramRegistryState().programs.map((program) => program.id)).toEqual(initialOrder);
+    service.close();
+  });
+
+  it('reopens the last known program and skips missing workspaces gracefully', () => {
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    service.createProgram({
+      workspacePath: firstWorkspace,
+      programName: 'First Program',
+      organizationName: '',
+      descriptionMarkdown: 'First persisted program.',
+      rulesMarkdown: 'First rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.createProgram({
+      workspacePath: secondWorkspace,
+      programName: 'Second Program',
+      organizationName: '',
+      descriptionMarkdown: 'Second persisted program.',
+      rulesMarkdown: 'Second rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.dispose();
+
+    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const restored = reopened.openLastProgramIfAvailable();
+    expect(restored?.activeScope.programName).toBe('Second Program');
+    expect(reopened.getSnapshot()?.workspace.workspacePath).toBe(secondWorkspace);
+    reopened.dispose();
+
+    rmSync(secondWorkspace, { recursive: true, force: true });
+    const missing = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    expect(missing.openLastProgramIfAvailable()).toBeNull();
+    expect(missing.getSnapshot()).toBeNull();
+    expect(missing.getProgramRegistryState().programs.some((program) => program.workspacePath === secondWorkspace)).toBe(true);
+    missing.dispose();
+  });
+
   it('looks up HackerOne program metadata and imports public structured scope', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-hackerone-import-review';
     const modelRequests: Record<string, unknown>[] = [];
