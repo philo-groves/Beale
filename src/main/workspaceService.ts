@@ -1,5 +1,6 @@
-import { mkdirSync, statSync } from 'node:fs';
+import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
 import { WorkspaceDatabase } from './database';
 import { OpenAiResponsesAdapter } from './openaiAdapter';
@@ -9,6 +10,9 @@ import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import type {
   FakeScenario,
+  FindingRecord,
+  HypothesisRecord,
+  PriorityFactorInput,
   ProgramScopeDraft,
   RunDetail,
   StartRunInput,
@@ -180,7 +184,7 @@ export class WorkspaceService {
           behaviorPreserved: 'not_applicable',
           diagnosticsClean: 'inconclusive',
           regressionTests: 'not_run',
-          result: { rerun: true, note: action.note ?? '', fake: true }
+          result: { manualRerun: true, note: action.note ?? '' }
         });
         db.appendTraceEvent({
           runId: action.runId,
@@ -204,6 +208,161 @@ export class WorkspaceService {
           payload: { artifactId: action.artifactId, evidenceId, note: action.note ?? '' },
           artifactId: action.artifactId
         });
+        break;
+      }
+      case 'promote_hypothesis': {
+        const detail = db.getRunDetail(action.runId);
+        const hypothesis = requireHypothesis(detail, action.hypothesisId);
+        const passingVerifier = latestVerifierForHypothesis(detail, hypothesis.id, 'pass');
+        const finding = db.createFinding({
+          runId: action.runId,
+          hypothesisId: hypothesis.id,
+          state: passingVerifier ? 'verified' : 'needs_evidence',
+          title: hypothesis.title,
+          summaryMarkdown: `${hypothesis.descriptionMarkdown}\n\nPromoted by user for finding triage.`,
+          affectedAssets: { component: hypothesis.component, scopeConfidence: hypothesis.scopeConfidence },
+          affectedVersions: { status: 'unknown' },
+          impactMarkdown: hypothesis.impact,
+          priorityScore: hypothesis.priorityScore,
+          verifiedByVerifierRunId: passingVerifier?.id ?? null
+        });
+        db.updateHypothesisReview(hypothesis.id, { state: passingVerifier ? 'verified' : 'promoted' });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'finding_event',
+          source: 'user',
+          summary: passingVerifier ? 'Hypothesis promoted to verifier-backed finding.' : 'Hypothesis promoted to finding needing evidence.',
+          payload: {
+            hypothesisId: hypothesis.id,
+            findingId: finding.id,
+            findingState: finding.state,
+            verifierRunId: passingVerifier?.id ?? null,
+            note: action.note ?? ''
+          },
+          vmContextId: attempt?.vmContextId ?? null
+        });
+        break;
+      }
+      case 'merge_hypotheses': {
+        const detail = db.getRunDetail(action.runId);
+        requireHypothesis(detail, action.sourceHypothesisId);
+        requireHypothesis(detail, action.targetHypothesisId);
+        db.updateHypothesisReview(action.sourceHypothesisId, { state: 'duplicate' });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'hypothesis_event',
+          source: 'user',
+          summary: 'Duplicate hypothesis merged by user.',
+          payload: {
+            sourceHypothesisId: action.sourceHypothesisId,
+            targetHypothesisId: action.targetHypothesisId,
+            reversible: true,
+            note: action.note ?? ''
+          }
+        });
+        break;
+      }
+      case 'adjust_priority': {
+        const factors = priorityFactorsFromInput(action.factors);
+        const labels = priorityFactorLabels(factors);
+        const priorityScore = scorePriority(factors);
+        db.updateHypothesisReview(action.hypothesisId, {
+          priorityScore,
+          attackerReachability: labels.attackerReachability,
+          impact: labels.impact,
+          evidenceConfidence: labels.evidenceConfidence,
+          exploitPracticality: labels.exploitPracticality,
+          scopeConfidence: labels.scopeConfidence
+        });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'hypothesis_event',
+          source: 'user',
+          summary: 'Hypothesis priority factors adjusted by user.',
+          payload: {
+            hypothesisId: action.hypothesisId,
+            priorityScore,
+            factors: action.factors,
+            note: action.note ?? ''
+          }
+        });
+        break;
+      }
+      case 'request_reproduction': {
+        const detail = db.getRunDetail(action.runId);
+        const hypothesis = requireHypothesis(detail, action.hypothesisId);
+        const contract = createReproductionContract(db, action.runId, hypothesis, attempt?.vmContextId ?? null, action.note ?? '');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'verifier_result',
+          source: 'user',
+          summary: 'Reproduction verifier contract requested for hypothesis.',
+          payload: {
+            contractId: contract.id,
+            hypothesisId: hypothesis.id,
+            mode: contract.mode,
+            status: contract.status,
+            note: action.note ?? ''
+          },
+          vmContextId: attempt?.vmContextId ?? null
+        });
+        break;
+      }
+      case 'request_patch_validation': {
+        const detail = db.getRunDetail(action.runId);
+        const hypothesis = action.hypothesisId ? requireHypothesis(detail, action.hypothesisId) : null;
+        const finding = action.findingId ? requireFinding(detail, action.findingId) : null;
+        const contract = createPatchValidationContract(db, action.runId, hypothesis, finding, attempt?.vmContextId ?? null, action.note ?? '');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'verifier_result',
+          source: 'user',
+          summary: 'Patch validation verifier contract requested.',
+          payload: {
+            contractId: contract.id,
+            hypothesisId: hypothesis?.id ?? null,
+            findingId: finding?.id ?? null,
+            mode: contract.mode,
+            status: contract.status,
+            note: action.note ?? ''
+          },
+          vmContextId: attempt?.vmContextId ?? null
+        });
+        break;
+      }
+      case 'mark_finding_false_positive': {
+        requireFinding(db.getRunDetail(action.runId), action.findingId);
+        db.updateFindingState(action.findingId, 'false_positive');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'finding_event',
+          source: 'user',
+          summary: 'Finding marked false positive by user.',
+          payload: { findingId: action.findingId, note: action.note ?? '' }
+        });
+        break;
+      }
+      case 'mark_finding_out_of_scope': {
+        requireFinding(db.getRunDetail(action.runId), action.findingId);
+        db.updateFindingState(action.findingId, 'out_of_scope');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'finding_event',
+          source: 'user',
+          summary: 'Finding marked out of scope by user.',
+          payload: { findingId: action.findingId, note: action.note ?? '' }
+        });
+        break;
+      }
+      case 'export_evidence_bundle': {
+        this.exportEvidenceBundle(action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
         break;
       }
       case 'mark_artifact_sensitive': {
@@ -358,10 +517,216 @@ export class WorkspaceService {
   private emitChange(): void {
     this.onChange();
   }
+
+  private exportEvidenceBundle(runId: string, findingId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
+    const db = this.requireDb();
+    if (!this.workspacePath) throw new Error('No Beale workspace is open');
+    const detail = db.getRunDetail(runId);
+    const finding = findingId ? requireFinding(detail, findingId) : detail.findings[0] ?? null;
+    const markdown = buildEvidenceBundleMarkdown(detail, finding, note);
+    const exportDir = join(this.workspacePath, '.beale', 'exports');
+    mkdirSync(exportDir, { recursive: true });
+    const fileName = `${sanitizeFileSegment(detail.run.title)}-${finding ? sanitizeFileSegment(finding.id) : 'run'}-evidence.md`;
+    const relativePath = join('.beale', 'exports', fileName).replace(/\\/g, '/');
+    writeFileSync(join(this.workspacePath, relativePath), markdown);
+    const artifact = db.createArtifact({
+      kind: 'evidence_bundle_export',
+      mimeType: 'text/markdown',
+      sensitivity: 'internal',
+      modelVisible: false,
+      source: 'report',
+      metadata: {
+        name: fileName,
+        findingId: finding?.id ?? null,
+        exportRelativePath: relativePath,
+        disclosureDraft: true
+      },
+      content: markdown
+    });
+    const exportId = db.createExportRecord({
+      runId,
+      findingId: finding?.id ?? null,
+      kind: 'evidence_bundle',
+      relativePath,
+      redactionPolicy: { modelVisible: false, redactionApplied: false, userReviewRequired: true },
+      includedArtifacts: { artifactIds: detail.artifacts.map((item) => item.id), bundleArtifactId: artifact.id }
+    });
+    const event = db.appendTraceEvent({
+      runId,
+      attemptId,
+      type: 'artifact_created',
+      source: 'system',
+      summary: 'Evidence bundle export created.',
+      payload: {
+        artifactId: artifact.id,
+        exportId,
+        relativePath,
+        findingId: finding?.id ?? null,
+        note
+      },
+      artifactId: artifact.id,
+      vmContextId,
+      modelVisible: false
+    });
+    db.setArtifactProvenance(artifact.id, event.id);
+  }
 }
 
 export function startRunForTest(service: WorkspaceService, input: StartRunInput): WorkspaceSnapshot {
   return service.startRun(input, 'complete');
+}
+
+function priorityFactorsFromInput(input: PriorityFactorInput): PriorityFactors {
+  return {
+    attackerReachability: input.attackerReachability,
+    impact: input.impact,
+    evidenceConfidence: input.evidenceConfidence,
+    exploitPracticality: input.exploitPracticality,
+    scopeConfidence: input.scopeConfidence
+  };
+}
+
+function createReproductionContract(db: WorkspaceDatabase, runId: string, hypothesis: HypothesisRecord, vmContextId: string | null, note: string) {
+  return db.createVerifierContract({
+    runId,
+    hypothesisId: hypothesis.id,
+    mode: 'reproduction',
+    status: 'draft_requested',
+    targetStates: {
+      baseline: { vmContextId, label: 'current scoped target state' }
+    },
+    setupStepsMarkdown: 'Prepare the scoped target inside the disposable VM. Do not mount host credentials or .beale/beale.sqlite.',
+    triggerStepsMarkdown: note || `Develop and run the smallest trigger that can confirm or falsify: ${hypothesis.title}.`,
+    expectedObservations: {
+      hypothesisId: hypothesis.id,
+      expectedSecurityFailure: hypothesis.descriptionMarkdown,
+      requiredEvidence: 'tool trace, artifact, or verifier output'
+    },
+    invariants: {
+      hostDatabaseMounted: false,
+      openAiCredentialsMounted: false,
+      scopeMustAllowTarget: true
+    },
+    artifactsToCollect: {
+      poc: true,
+      logs: true,
+      debuggerContext: hypothesis.bugClass.includes('memory') || hypothesis.bugClass.includes('crash'),
+      evidenceBundle: true
+    },
+    passCriteria: {
+      reproducedReliably: true,
+      expectedObservationTraceBacked: true,
+      artifactBacked: true
+    }
+  });
+}
+
+function createPatchValidationContract(
+  db: WorkspaceDatabase,
+  runId: string,
+  hypothesis: HypothesisRecord | null,
+  finding: FindingRecord | null,
+  vmContextId: string | null,
+  note: string
+) {
+  return db.createVerifierContract({
+    runId,
+    hypothesisId: hypothesis?.id ?? finding?.hypothesisId ?? null,
+    findingId: finding?.id ?? null,
+    mode: 'patch_validation',
+    status: 'draft_requested',
+    targetStates: {
+      baseline: { vmContextId, expected: 'vulnerable behavior reproduces' },
+      candidate_patch: { vmContextId: null, expected: 'vulnerable behavior is blocked' }
+    },
+    setupStepsMarkdown: 'Prepare baseline and candidate patch states in disposable VM contexts.',
+    triggerStepsMarkdown: note || 'Replay the reproduced PoC or regression check against baseline and candidate patch states.',
+    expectedObservations: {
+      baseline: 'issue reproduces',
+      candidatePatch: 'issue no longer reproduces',
+      behaviorPreserved: 'relevant smoke or regression behavior still passes'
+    },
+    invariants: {
+      hostDatabaseMounted: false,
+      openAiCredentialsMounted: false,
+      relevantBehaviorPreserved: true
+    },
+    artifactsToCollect: {
+      patch: true,
+      beforeAfterLogs: true,
+      verifierOutput: true
+    },
+    passCriteria: {
+      blockedIssue: 'yes',
+      behaviorPreserved: 'yes',
+      regressionTests: ['pass', 'not_run_with_justification']
+    }
+  });
+}
+
+function requireHypothesis(detail: RunDetail, hypothesisId: string): HypothesisRecord {
+  const hypothesis = detail.hypotheses.find((item) => item.id === hypothesisId);
+  if (!hypothesis) throw new Error(`Hypothesis not found: ${hypothesisId}`);
+  return hypothesis;
+}
+
+function requireFinding(detail: RunDetail, findingId: string): FindingRecord {
+  const finding = detail.findings.find((item) => item.id === findingId);
+  if (!finding) throw new Error(`Finding not found: ${findingId}`);
+  return finding;
+}
+
+function latestVerifierForHypothesis(detail: RunDetail, hypothesisId: string, status: string) {
+  const contractIds = new Set(detail.verifierContracts.filter((contract) => contract.hypothesisId === hypothesisId).map((contract) => contract.id));
+  return [...detail.verifierRuns].reverse().find((run) => contractIds.has(run.contractId) && run.status === status) ?? null;
+}
+
+function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {
+  const verified = finding?.verifiedByVerifierRunId ? `Verifier run: ${finding.verifiedByVerifierRunId}` : 'Verifier run: none';
+  const artifacts = detail.artifacts
+    .map((artifact) => `- ${artifact.id}: ${artifact.kind}, sha256=${artifact.sha256}, source=${artifact.source}, path=${artifact.relativePath}`)
+    .join('\n');
+  const verifierRuns = detail.verifierRuns
+    .map((run) => `- ${run.id}: ${run.status}, blocked_issue=${run.blockedIssue}, contract=${run.contractId}`)
+    .join('\n');
+  const traceRefs = detail.traceEvents
+    .filter((event) => ['tool', 'executor', 'verifier'].includes(event.source) || event.artifactId)
+    .slice(-25)
+    .map((event) => `- #${event.sequence} ${event.source}/${event.type}: ${event.summary}${event.artifactId ? ` artifact=${event.artifactId}` : ''}`)
+    .join('\n');
+
+  return [
+    `# Evidence Bundle: ${detail.run.title}`,
+    '',
+    '## Disclosure Draft',
+    finding ? `Finding: ${finding.title}` : 'Finding: run-level evidence bundle',
+    finding ? `State: ${finding.state}` : `Run status: ${detail.run.status}`,
+    finding ? `Priority: ${finding.priorityScore.toFixed(2)}` : '',
+    verified,
+    note ? `Reviewer note: ${note}` : '',
+    '',
+    '## Summary',
+    finding?.summaryMarkdown ?? detail.run.summary,
+    '',
+    '## Impact',
+    finding?.impactMarkdown ?? 'Impact not promoted to a finding yet.',
+    '',
+    '## Artifacts',
+    artifacts || 'No artifacts recorded.',
+    '',
+    '## Verifier Runs',
+    verifierRuns || 'No verifier runs recorded.',
+    '',
+    '## Trace References',
+    traceRefs || 'No tool, executor, verifier, or artifact trace references recorded.',
+    '',
+    '## Review Notes',
+    'Generated by Beale as a candidate evidence bundle. User review is required before disclosure.'
+  ].join('\n');
+}
+
+function sanitizeFileSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'run';
 }
 
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {

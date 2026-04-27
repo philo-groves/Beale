@@ -7,24 +7,31 @@ import {
   CheckCircle2,
   Database,
   EyeOff,
+  FileArchive,
   FileText,
   FolderOpen,
   FolderPlus,
   GitFork,
+  GitMerge,
   Network,
+  PackageCheck,
   Pause,
   Play,
   RotateCw,
   Save,
   Search,
   ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
   Square,
   XCircle
 } from 'lucide-react';
 import type {
   ArtifactRecord,
   FakeScenario,
+  FindingRecord,
   HypothesisRecord,
+  PriorityFactorInput,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
@@ -174,8 +181,8 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workbench-header">
           <div>
-            <p className="eyebrow">Milestone 3</p>
-            <h2>VM Executor Alpha</h2>
+            <p className="eyebrow">Milestone 5</p>
+            <h2>Open-Ended Discovery Alpha</h2>
           </div>
           <div className="header-stats">
             <Stat label="Runs" value={String(snapshot.runs.length)} />
@@ -544,6 +551,7 @@ function RunDetailView({
   const [forkInstruction, setForkInstruction] = useState('');
   const firstArtifact = detail?.artifacts[0];
   const firstHypothesis = detail?.hypotheses[0];
+  const firstFinding = detail?.findings[0];
   const firstVerifier = detail?.verifierContracts[0];
 
   const steer = (action: Parameters<typeof window.beale.steerRun>[0]): void => {
@@ -610,6 +618,11 @@ function RunDetailView({
         <HypothesisPanel
           hypotheses={detail.hypotheses}
           disabled={busy}
+          onPromote={(hypothesis) => steer({ type: 'promote_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
+          onReproduce={(hypothesis) => steer({ type: 'request_reproduction', runId: detail.run.id, hypothesisId: hypothesis.id })}
+          onPatchValidation={(hypothesis) => steer({ type: 'request_patch_validation', runId: detail.run.id, hypothesisId: hypothesis.id })}
+          onAdjustPriority={(hypothesis) => steer({ type: 'adjust_priority', runId: detail.run.id, hypothesisId: hypothesis.id, factors: bumpedPriorityFactors(hypothesis) })}
+          onMerge={(source, target) => steer({ type: 'merge_hypotheses', runId: detail.run.id, sourceHypothesisId: source.id, targetHypothesisId: target.id })}
           onDismiss={(hypothesis) => steer({ type: 'dismiss_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
           onOutOfScope={(hypothesis) => steer({ type: 'mark_hypothesis_out_of_scope', runId: detail.run.id, hypothesisId: hypothesis.id })}
         />
@@ -625,7 +638,13 @@ function RunDetailView({
           onRerun={(contractId) => steer({ type: 'rerun_verifier', runId: detail.run.id, verifierContractId: contractId })}
         />
         <ModelSessionPanel detail={detail} />
-        <FindingPanel detail={detail} />
+        <FindingPanel
+          detail={detail}
+          disabled={busy}
+          onPatchValidation={(finding) => steer({ type: 'request_patch_validation', runId: detail.run.id, findingId: finding.id })}
+          onFalsePositive={(finding) => steer({ type: 'mark_finding_false_positive', runId: detail.run.id, findingId: finding.id })}
+          onOutOfScope={(finding) => steer({ type: 'mark_finding_out_of_scope', runId: detail.run.id, findingId: finding.id })}
+        />
         <VmPolicyPanel detail={detail} />
       </div>
 
@@ -645,6 +664,14 @@ function RunDetailView({
         <button type="button" disabled={busy || !firstHypothesis} onClick={() => firstHypothesis && steer({ type: 'dismiss_hypothesis', runId: detail.run.id, hypothesisId: firstHypothesis.id })}>
           <XCircle size={15} />
           Dismiss Hypothesis
+        </button>
+        <button type="button" disabled={busy || !firstHypothesis} onClick={() => firstHypothesis && steer({ type: 'request_reproduction', runId: detail.run.id, hypothesisId: firstHypothesis.id })}>
+          <ShieldCheck size={15} />
+          Reproduce
+        </button>
+        <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'export_evidence_bundle', runId: detail.run.id, findingId: firstFinding.id })}>
+          <FileArchive size={15} />
+          Export Evidence
         </button>
         <button type="button" disabled={busy || !firstHypothesis} onClick={() => firstHypothesis && steer({ type: 'mark_hypothesis_out_of_scope', runId: detail.run.id, hypothesisId: firstHypothesis.id })}>
           <Ban size={15} />
@@ -683,14 +710,25 @@ function TracePanel({ events }: { events: TraceEventRecord[] }): JSX.Element {
 function HypothesisPanel({
   hypotheses,
   disabled,
+  onPromote,
+  onReproduce,
+  onPatchValidation,
+  onAdjustPriority,
+  onMerge,
   onDismiss,
   onOutOfScope
 }: {
   hypotheses: HypothesisRecord[];
   disabled: boolean;
+  onPromote: (hypothesis: HypothesisRecord) => void;
+  onReproduce: (hypothesis: HypothesisRecord) => void;
+  onPatchValidation: (hypothesis: HypothesisRecord) => void;
+  onAdjustPriority: (hypothesis: HypothesisRecord) => void;
+  onMerge: (source: HypothesisRecord, target: HypothesisRecord) => void;
   onDismiss: (hypothesis: HypothesisRecord) => void;
   onOutOfScope: (hypothesis: HypothesisRecord) => void;
 }): JSX.Element {
+  const mergeTarget = hypotheses[0] ?? null;
   return (
     <section className="detail-section">
       <div className="section-title">
@@ -699,12 +737,33 @@ function HypothesisPanel({
       </div>
       {hypotheses.length === 0 ? <div className="empty-state">No hypotheses.</div> : null}
       {hypotheses.map((hypothesis) => (
-        <div className="entity-row" key={hypothesis.id}>
+        <div className={`entity-row state-${stateClass(hypothesis.state)}`} key={hypothesis.id}>
           <div>
             <strong>{hypothesis.title}</strong>
-            <p>{hypothesis.state} · {hypothesis.bugClass} · {hypothesis.component}</p>
+            <p>{hypothesis.state} · priority {hypothesis.priorityScore.toFixed(2)} · {hypothesis.bugClass} · {hypothesis.component}</p>
+            <p>{hypothesis.evidenceConfidence} · {hypothesis.scopeConfidence}</p>
           </div>
           <div className="entity-actions">
+            <button type="button" title="Promote hypothesis" disabled={disabled} onClick={() => onPromote(hypothesis)}>
+              <ShieldCheck size={14} />
+            </button>
+            <button type="button" title="Request reproduction" disabled={disabled} onClick={() => onReproduce(hypothesis)}>
+              <CheckCircle2 size={14} />
+            </button>
+            <button type="button" title="Request patch validation" disabled={disabled} onClick={() => onPatchValidation(hypothesis)}>
+              <PackageCheck size={14} />
+            </button>
+            <button type="button" title="Adjust priority" disabled={disabled} onClick={() => onAdjustPriority(hypothesis)}>
+              <SlidersHorizontal size={14} />
+            </button>
+            <button
+              type="button"
+              title="Merge into top hypothesis"
+              disabled={disabled || !mergeTarget || mergeTarget.id === hypothesis.id}
+              onClick={() => mergeTarget && onMerge(hypothesis, mergeTarget)}
+            >
+              <GitMerge size={14} />
+            </button>
             <button type="button" title="Dismiss hypothesis" disabled={disabled} onClick={() => onDismiss(hypothesis)}>
               <XCircle size={14} />
             </button>
@@ -792,7 +851,19 @@ function VerifierPanel({
   );
 }
 
-function FindingPanel({ detail }: { detail: RunDetail }): JSX.Element {
+function FindingPanel({
+  detail,
+  disabled,
+  onPatchValidation,
+  onFalsePositive,
+  onOutOfScope
+}: {
+  detail: RunDetail;
+  disabled: boolean;
+  onPatchValidation: (finding: FindingRecord) => void;
+  onFalsePositive: (finding: FindingRecord) => void;
+  onOutOfScope: (finding: FindingRecord) => void;
+}): JSX.Element {
   return (
     <section className="detail-section">
       <div className="section-title">
@@ -801,10 +872,24 @@ function FindingPanel({ detail }: { detail: RunDetail }): JSX.Element {
       </div>
       {detail.findings.length === 0 ? <div className="empty-state">No findings.</div> : null}
       {detail.findings.map((finding) => (
-        <div className="entity-row" key={finding.id}>
+        <div className={`entity-row state-${stateClass(finding.state)} ${finding.verifiedByVerifierRunId ? 'verified-finding' : ''}`} key={finding.id}>
           <div>
             <strong>{finding.title}</strong>
-            <p>{finding.state} · priority {finding.priorityScore.toFixed(2)}</p>
+            <p>
+              {finding.state} · priority {finding.priorityScore.toFixed(2)}
+              {finding.verifiedByVerifierRunId ? ` · verifier ${finding.verifiedByVerifierRunId.slice(0, 12)}` : ''}
+            </p>
+          </div>
+          <div className="entity-actions">
+            <button type="button" title="Request patch validation" disabled={disabled} onClick={() => onPatchValidation(finding)}>
+              <PackageCheck size={14} />
+            </button>
+            <button type="button" title="Mark false positive" disabled={disabled} onClick={() => onFalsePositive(finding)}>
+              <XCircle size={14} />
+            </button>
+            <button type="button" title="Mark finding out of scope" disabled={disabled} onClick={() => onOutOfScope(finding)}>
+              <Ban size={14} />
+            </button>
           </div>
         </div>
       ))}
@@ -876,6 +961,30 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'wa
 
 function StatusPill({ status }: { status: string }): JSX.Element {
   return <span className={`status-pill status-${status}`}>{status}</span>;
+}
+
+function bumpedPriorityFactors(hypothesis: HypothesisRecord): PriorityFactorInput {
+  return {
+    attackerReachability: factorFromText(hypothesis.attackerReachability),
+    impact: factorFromText(hypothesis.impact),
+    evidenceConfidence: Math.min(4, factorFromText(hypothesis.evidenceConfidence) + 1),
+    exploitPracticality: factorFromText(hypothesis.exploitPracticality),
+    scopeConfidence: factorFromText(hypothesis.scopeConfidence)
+  };
+}
+
+function factorFromText(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isFinite(parsed)) return Math.max(0, Math.min(4, parsed));
+  const lower = value.toLowerCase();
+  if (lower.includes('verifier') || lower.includes('verified')) return 3;
+  if (lower.includes('dynamic') || lower.includes('reproduced')) return 2;
+  if (lower.includes('out_of_scope') || lower.includes('out-of-scope')) return 0;
+  return 1;
+}
+
+function stateClass(state: string): string {
+  return state.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
 }
 
 function scopeToForm(scope: ProgramScopeVersion): ScopeFormState {

@@ -137,6 +137,21 @@ export interface CreateToolCallInput {
   vmContextId?: string | null;
 }
 
+export interface CreateAttemptInput {
+  runId: string;
+  parentAttemptId?: string | null;
+  status?: AttemptStatus;
+  shortState: string;
+  strategyRole: string;
+  vmBackend?: string;
+  vmImageId?: string;
+  vmSnapshotId?: string;
+  vmState?: string;
+  vmMetadata?: Record<string, unknown>;
+  cost?: Record<string, unknown>;
+  tokenUsage?: Record<string, unknown>;
+}
+
 export interface CreateModelSessionInput {
   runId: string;
   provider: string;
@@ -162,6 +177,15 @@ export interface StartRunRecordInput {
   vmSnapshotId?: string;
   vmState?: string;
   vmMetadata?: Record<string, unknown>;
+}
+
+export interface CreateExportInput {
+  runId: string;
+  findingId?: string | null;
+  kind: string;
+  relativePath: string;
+  redactionPolicy?: Record<string, unknown>;
+  includedArtifacts?: Record<string, unknown>;
 }
 
 export interface CreatedRunContext {
@@ -441,6 +465,60 @@ export class WorkspaceDatabase {
     return session;
   }
 
+  public createAttempt(input: CreateAttemptInput): AttemptRecord {
+    const run = this.getRun(input.runId);
+    if (!run) throw new Error(`Run not found: ${input.runId}`);
+    const vmContextId = createId('vm');
+    const attemptId = createId('attempt');
+    const createdAt = nowIso();
+    const vmState = input.vmState ?? 'working';
+    this.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO vm_contexts (
+            id, backend, image_id, snapshot_id, state, network_profile, scope_version_id,
+            created_at, destroyed_at, metadata_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          vmContextId,
+          input.vmBackend ?? 'fake_vm',
+          input.vmImageId ?? 'fake-beale-toolchain',
+          input.vmSnapshotId ?? 'clean-snapshot-simulated',
+          vmState,
+          run.networkProfile,
+          run.scopeVersionId,
+          createdAt,
+          vmState === 'destroyed' ? createdAt : null,
+          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
+        );
+      this.db
+        .prepare(
+          `INSERT INTO attempts (
+            id, run_id, parent_attempt_id, status, short_state, seed, strategy_role, vm_context_id,
+            cost_json, token_usage_json, started_at, ended_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          attemptId,
+          input.runId,
+          input.parentAttemptId ?? null,
+          input.status ?? 'active',
+          input.shortState,
+          randomUUID(),
+          input.strategyRole,
+          vmContextId,
+          toJson(input.cost ?? { simulatedUsd: 0, label: 'simulated $0.00' }),
+          toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, simulated: true }),
+          createdAt,
+          input.status === 'completed' || input.status === 'failed' || input.status === 'stopped' ? createdAt : null
+        );
+    });
+    const attempt = this.getAttempt(attemptId);
+    if (!attempt) throw new Error('Failed to create attempt');
+    return attempt;
+  }
+
   public updateModelSessionByRun(runId: string, patch: { previousResponseId?: string | null; status?: string; metadata?: Record<string, unknown> }): void {
     const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId));
     if (!existing) return;
@@ -625,6 +703,46 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE hypotheses SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), hypothesisId);
   }
 
+  public updateHypothesisReview(
+    hypothesisId: string,
+    patch: {
+      state?: string;
+      priorityScore?: number;
+      attackerReachability?: string;
+      impact?: string;
+      evidenceConfidence?: string;
+      exploitPracticality?: string;
+      scopeConfidence?: string;
+    }
+  ): void {
+    const existing = this.getHypothesis(hypothesisId);
+    if (!existing) throw new Error(`Hypothesis not found: ${hypothesisId}`);
+    this.db
+      .prepare(
+        `UPDATE hypotheses
+         SET state = ?,
+             priority_score = ?,
+             attacker_reachability = ?,
+             impact = ?,
+             evidence_confidence = ?,
+             exploit_practicality = ?,
+             scope_confidence = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        patch.state ?? existing.state,
+        patch.priorityScore ?? existing.priorityScore,
+        patch.attackerReachability ?? existing.attackerReachability,
+        patch.impact ?? existing.impact,
+        patch.evidenceConfidence ?? existing.evidenceConfidence,
+        patch.exploitPracticality ?? existing.exploitPracticality,
+        patch.scopeConfidence ?? existing.scopeConfidence,
+        nowIso(),
+        hypothesisId
+      );
+  }
+
   public createArtifact(input: CreateArtifactInput): ArtifactRecord {
     const id = createId('artifact');
     const buffer = typeof input.content === 'string' ? Buffer.from(input.content) : input.content;
@@ -778,6 +896,32 @@ export class WorkspaceDatabase {
     const finding = this.getFinding(id);
     if (!finding) throw new Error('Failed to create finding');
     return finding;
+  }
+
+  public updateFindingState(findingId: string, state: string): void {
+    this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
+  }
+
+  public createExportRecord(input: CreateExportInput): string {
+    const id = createId('export');
+    this.db
+      .prepare(
+        `INSERT INTO exports (
+          id, run_id, finding_id, kind, relative_path, redaction_policy_json,
+          included_artifacts_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.runId,
+        input.findingId ?? null,
+        input.kind,
+        input.relativePath,
+        toJson(input.redactionPolicy),
+        toJson(input.includedArtifacts),
+        nowIso()
+      );
+    return id;
   }
 
   public createApproval(input: CreateApprovalInput): ApprovalRecord {

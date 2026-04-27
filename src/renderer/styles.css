@@ -575,12 +575,34 @@ pre {
 .entity-row {
   min-height: 58px;
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 9px;
   background: #fffefa;
+}
+
+.entity-row.state-verified,
+.entity-row.verified-finding {
+  border-color: #8bc4aa;
+  background: var(--green-soft);
+}
+
+.entity-row.state-needs_evidence,
+.entity-row.state-needs-evidence,
+.entity-row.state-inconclusive {
+  border-color: #e3c287;
+  background: var(--amber-soft);
+}
+
+.entity-row.state-false_positive,
+.entity-row.state-out_of_scope,
+.entity-row.state-dismissed,
+.entity-row.state-duplicate {
+  border-color: #d9b1aa;
+  background: var(--red-soft);
 }
 
 .policy-entity {
@@ -590,8 +612,11 @@ pre {
 
 .entity-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
   align-items: flex-start;
+  max-width: 112px;
 }
 
 .entity-actions button {

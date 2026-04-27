@@ -1,4 +1,5 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
+import { defaultHypothesisFactors, priorityFactorLabels, scorePriority, verifiedFindingFactors } from './discoveryScoring';
 import type { FakeScenario, StartRunInput } from '@shared/types';
 
 type ScenarioStep = (context: CreatedRunContext) => void;
@@ -194,6 +195,42 @@ function recordModel(context: CreatedRunContext, summary: string, payload: Recor
   });
 }
 
+function recordAdaptivePortfolioBranches(context: CreatedRunContext): void {
+  const db = contextDb(context);
+  const branches = [
+    { role: 'parser_memory_safety', state: 'Cheap parser and crash-surface orientation completed.' },
+    { role: 'authorization_review', state: 'Cheap authorization and tenant-boundary orientation completed.' }
+  ];
+  for (const branch of branches) {
+    const attempt = db.createAttempt({
+      runId: context.run.id,
+      parentAttemptId: context.attempt.id,
+      status: 'completed',
+      shortState: branch.state,
+      strategyRole: branch.role,
+      vmState: 'destroyed',
+      vmMetadata: {
+        executor: 'simulated',
+        targetExecution: false,
+        adaptivePortfolioBranch: true
+      }
+    });
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: attempt.id,
+      type: 'user_note',
+      source: 'system',
+      summary: `Adaptive portfolio branch recorded: ${branch.role}.`,
+      payload: {
+        strategy: 'adaptive_portfolio',
+        parentAttemptId: context.attempt.id,
+        branchRole: branch.role
+      },
+      vmContextId: attempt.vmContextId
+    });
+  }
+}
+
 function recordTool(
   context: CreatedRunContext,
   toolName: string,
@@ -279,6 +316,8 @@ function recordArtifact(
 
 function recordHypothesis(context: CreatedRunContext, title: string, component: string, bugClass: string, description: string): string {
   const db = contextDb(context);
+  const factors = defaultHypothesisFactors(hypothesisKind(bugClass));
+  const labels = priorityFactorLabels(factors);
   const hypothesis = db.createHypothesis({
     runId: context.run.id,
     state: 'needs_evidence',
@@ -286,12 +325,12 @@ function recordHypothesis(context: CreatedRunContext, title: string, component: 
     descriptionMarkdown: description,
     component,
     bugClass,
-    priorityScore: 0.72,
-    attackerReachability: 'scoped_local_or_authenticated',
-    impact: 'potential authorization or memory safety impact',
-    evidenceConfidence: 'preliminary',
-    exploitPracticality: 'unknown',
-    scopeConfidence: 'in_scope'
+    priorityScore: scorePriority(factors),
+    attackerReachability: labels.attackerReachability,
+    impact: labels.impact,
+    evidenceConfidence: labels.evidenceConfidence,
+    exploitPracticality: labels.exploitPracticality,
+    scopeConfidence: labels.scopeConfidence
   });
   const event = db.appendTraceEvent({
     runId: context.run.id,
@@ -321,7 +360,7 @@ function recordVerifier(
     runId: context.run.id,
     hypothesisId,
     mode: 'reproduction',
-    status: 'approved_fake',
+    status: 'approved',
     targetStates: { vmContextId: context.vmContext.id },
     setupStepsMarkdown: 'Use simulated target state from the fake executor.',
     triggerStepsMarkdown: 'Replay the deterministic fake trigger.',
@@ -464,7 +503,7 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         affectedAssets: { component: 'chunk decoder' },
         affectedVersions: { fixture: 'fake' },
         impactMarkdown: 'Potential denial of service or memory safety issue pending real VM execution.',
-        priorityScore: 0.64
+        priorityScore: scorePriority(defaultHypothesisFactors('memory_corruption'))
       });
       contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash input from fake debugger.', hypothesisId);
     },
@@ -575,7 +614,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
         affectedAssets: { component: 'tenant export' },
         affectedVersions: { fixture: 'fake' },
         impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fake fixture.',
-        priorityScore: 0.91,
+        priorityScore: scorePriority(verifiedFindingFactors('authorization')),
         verifiedByVerifierRunId: verifierRunId
       });
       contextDb(context).appendTraceEvent({
@@ -601,6 +640,13 @@ function verifiedFindingSteps(): ScenarioStep[] {
 
 function adaptivePortfolioSteps(): ScenarioStep[] {
   return [
+    (context) => {
+      recordAdaptivePortfolioBranches(context);
+      recordModel(context, 'Adaptive portfolio started with independent parser and authorization branches.', {
+        strategy: 'adaptive_portfolio',
+        branchCount: 2
+      });
+    },
     ...memoryCorruptionSteps().slice(0, 2),
     (context) => {
       recordModel(context, 'Model split the portfolio between parser crash reproduction and authorization review.', {
@@ -638,6 +684,14 @@ function adaptivePortfolioSteps(): ScenarioStep[] {
       finishRun(context, 'completed', 'Verified finding F-2; collecting disclosure artifacts.', 'Verified finding F-2; collecting disclosure artifacts.');
     }
   ];
+}
+
+function hypothesisKind(bugClass: string): 'authorization' | 'memory_corruption' | 'policy' | 'generic' {
+  const lower = bugClass.toLowerCase();
+  if (lower.includes('auth')) return 'authorization';
+  if (lower.includes('memory') || lower.includes('crash') || lower.includes('corruption')) return 'memory_corruption';
+  if (lower.includes('policy') || lower.includes('scope')) return 'policy';
+  return 'generic';
 }
 
 function contextDb(context: CreatedRunContext): WorkspaceDatabase {

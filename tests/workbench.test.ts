@@ -93,7 +93,11 @@ describe('Beale workbench skeleton', () => {
     expect(detail.artifacts.length).toBeGreaterThan(0);
     expect(detail.verifierRuns.some((run) => run.status === 'pass')).toBe(true);
     expect(detail.findings.some((finding) => finding.state === 'verified')).toBe(true);
+    expect(detail.attempts.length).toBeGreaterThan(1);
+    expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('parser_memory_safety');
+    expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('authorization_review');
     expect(detail.vmContexts[0].backend).toBe('fake_vm');
+    expect(snapshot.runs[0].attemptCount).toBeGreaterThan(1);
     expect(snapshot.runs[0].engine).toBe('fake');
 
     const workspacePath = snapshot.workspace.workspacePath;
@@ -144,6 +148,52 @@ describe('Beale workbench skeleton', () => {
     expect(updated.hypotheses.find((item) => item.id === hypothesis.id)?.state).toBe('dismissed');
     expect(updated.traceEvents.some((event) => event.summary === 'Artifact marked sensitive and hidden from model context.')).toBe(true);
     expect(updated.traceEvents.some((event) => event.summary === 'Hypothesis dismissed by user.')).toBe(true);
+    service.close();
+  });
+
+  it('supports discovery steering, verifier contracts, priority scoring, finding states, and evidence export', () => {
+    const service = openService();
+    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = snapshot.runs[0].run.id;
+    let detail = service.getRunDetail(runId);
+    const hypothesis = detail.hypotheses[0];
+
+    service.steerRun({
+      type: 'adjust_priority',
+      runId,
+      hypothesisId: hypothesis.id,
+      factors: {
+        attackerReachability: 2,
+        impact: 3,
+        evidenceConfidence: 2,
+        exploitPracticality: 2,
+        scopeConfidence: 3
+      }
+    });
+    service.steerRun({ type: 'request_reproduction', runId, hypothesisId: hypothesis.id });
+    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
+
+    detail = service.getRunDetail(runId);
+    const promoted = detail.hypotheses.find((item) => item.id === hypothesis.id);
+    const finding = detail.findings.find((item) => item.hypothesisId === hypothesis.id);
+    expect(promoted?.priorityScore).toBe(20);
+    expect(promoted?.state).toBe('promoted');
+    expect(finding?.state).toBe('needs_evidence');
+    expect(detail.verifierContracts.some((contract) => contract.mode === 'reproduction' && contract.hypothesisId === hypothesis.id)).toBe(true);
+
+    service.steerRun({ type: 'request_patch_validation', runId, findingId: finding?.id });
+    service.steerRun({ type: 'mark_finding_false_positive', runId, findingId: finding?.id ?? '' });
+    service.steerRun({ type: 'mark_finding_out_of_scope', runId, findingId: finding?.id ?? '' });
+    service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding?.id });
+
+    detail = service.getRunDetail(runId);
+    const exported = detail.artifacts.find((artifact) => artifact.kind === 'evidence_bundle_export');
+    expect(detail.findings.find((item) => item.id === finding?.id)?.state).toBe('out_of_scope');
+    expect(detail.verifierContracts.some((contract) => contract.mode === 'patch_validation' && contract.findingId === finding?.id)).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked false positive by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(true);
+    expect(exported?.modelVisible).toBe(false);
+    expect(existsSync(join(snapshot.workspace.workspacePath, String(exported?.metadata.exportRelativePath)))).toBe(true);
     service.close();
   });
 });

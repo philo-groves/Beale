@@ -367,6 +367,14 @@ export interface WorkspacePickerResult {
   path: string | null;
 }
 
+export interface PriorityFactorInput {
+  attackerReachability: number;
+  impact: number;
+  evidenceConfidence: number;
+  exploitPracticality: number;
+  scopeConfidence: number;
+}
+
 export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
   | { type: 'resume'; runId: string; note?: string }
@@ -375,6 +383,14 @@ export type SteeringAction =
   | { type: 'rerun_verifier'; runId: string; verifierContractId: string; note?: string }
   | { type: 'promote_artifact'; runId: string; artifactId: string; note?: string }
   | { type: 'mark_artifact_sensitive'; runId: string; artifactId: string; note?: string }
+  | { type: 'promote_hypothesis'; runId: string; hypothesisId: string; note?: string }
+  | { type: 'merge_hypotheses'; runId: string; sourceHypothesisId: string; targetHypothesisId: string; note?: string }
+  | { type: 'adjust_priority'; runId: string; hypothesisId: string; factors: PriorityFactorInput; note?: string }
+  | { type: 'request_reproduction'; runId: string; hypothesisId: string; note?: string }
+  | { type: 'request_patch_validation'; runId: string; hypothesisId?: string; findingId?: string; note?: string }
+  | { type: 'mark_finding_false_positive'; runId: string; findingId: string; note?: string }
+  | { type: 'mark_finding_out_of_scope'; runId: string; findingId: string; note?: string }
+  | { type: 'export_evidence_bundle'; runId: string; findingId?: string; note?: string }
   | { type: 'dismiss_hypothesis'; runId: string; hypothesisId: string; note?: string }
   | { type: 'mark_hypothesis_out_of_scope'; runId: string; hypothesisId: string; note?: string };
 
