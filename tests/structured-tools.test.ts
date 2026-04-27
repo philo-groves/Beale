@@ -99,8 +99,12 @@ describe('structured research tools', () => {
       input_path: ''
     });
     expect(debuggerResult.status).toBe('success');
+    expect(debuggerResult.artifact_id).toBeTruthy();
     expect(debuggerResult.payload.wrapper).toBe('gdb_batch_probe');
     expect(debuggerResult.payload.hostExecution).toBe(false);
+    expect((debuggerResult.payload.debugger as { signal: string }).signal).toBe('SIGSEGV');
+    expect((debuggerResult.payload.debugger as { frames: string[] }).frames.length).toBeGreaterThan(0);
+    expect((debuggerResult.payload.debugger as { registersCaptured: boolean }).registersCaptured).toBe(true);
 
     const verifier = callTool(router, context, 'verifier', {
       hypothesis: 'structured tool VM verifier',

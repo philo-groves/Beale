@@ -69,12 +69,10 @@ export function runVerifierContract(
   try {
     executor.createContext(context, imageRef, snapshotRef);
     contextCreated = true;
-    if (status.supports.clone) {
-      executor.cloneContext(context, snapshotRef);
-    }
+    executor.cloneContext(context, snapshotRef);
 
     const importSpec = firstScopedImport(db);
-    if (importSpec && status.supports.import) {
+    if (importSpec) {
       executor.importWorkspaceMaterial(context, {
         hostPath: importSpec.hostPath,
         guestPath: '/workspace/target',
@@ -83,7 +81,10 @@ export function runVerifierContract(
     }
 
     const result = executor.executeGuestOperation(context, verifierRequest(context, spec));
-    if (spec.artifactPath && status.supports.export) {
+    if (spec.artifactPath) {
+      if (!status.supports.export) {
+        throw new Error('Executor backend does not support guest artifact export.');
+      }
       exportedArtifactId = executor.exportArtifact(context, {
         guestPath: spec.artifactPath,
         kind: 'verifier_output',

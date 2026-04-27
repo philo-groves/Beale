@@ -47,6 +47,17 @@ const handlers = {
     return { imported: true, guestPath: input.payload.import.guestPath, mode: input.payload.import.mode };
   },
   execute() {
+    const debugOperation = input.payload.operation.env?.BEALE_DEBUG_OPERATION;
+    const stdoutSummary = debugOperation
+      ? [
+          'GNU gdb fixture',
+          'Program received signal SIGSEGV, Segmentation fault.',
+          '#0  0x0000000000401137 in crash ()',
+          '#1  0x000000000040114a in main ()',
+          'rax            0x0                 0',
+          'rip            0x401137            0x401137 <crash+7>'
+        ].join('\n')
+      : 'fixture guest stdout';
     return {
       status: 'success',
       exitCode: 0,
@@ -54,7 +65,7 @@ const handlers = {
       startedAt: now,
       endedAt: now,
       durationMs: 7,
-      stdoutSummary: 'fixture guest stdout',
+      stdoutSummary,
       stderrSummary: '',
       structured: {
         fixture: true,

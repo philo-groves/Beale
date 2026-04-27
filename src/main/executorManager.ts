@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { nowIso } from './database';
@@ -8,6 +8,26 @@ import { VmctlExecutorProvider } from './vmctlExecutor';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 const LOCAL_IMPORT_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
+const GUEST_WORKSPACE_ROOT = '/workspace';
+const GUEST_METADATA_ROOT = `${GUEST_WORKSPACE_ROOT}/.beale`;
+const MAX_IMPORT_FILES = 10_000;
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+const MAX_IMPORT_DEPTH = 64;
+
+interface ImportTreeSummary {
+  kind: 'file' | 'directory';
+  fileCount: number;
+  directoryCount: number;
+  sizeBytes: number;
+  maxBytes: number;
+  maxFiles: number;
+}
+
+interface ValidatedGuestImport {
+  spec: GuestImportSpec;
+  summary: ImportTreeSummary;
+  requestedHostPath: string;
+}
 
 export class ExecutorManager {
   public constructor(
@@ -72,9 +92,18 @@ export class ExecutorManager {
 
   public cloneContext(context: CreatedRunContext, snapshotRef: string): void {
     const status = this.requireAvailable();
-    if (!status.supports.clone) {
+    if (!status.supports.clone || !status.supports.snapshots) {
       this.recordPolicyBlock(context, 'Executor backend does not support clean snapshot clone.', { snapshotRef, provider: status.provider });
       throw new Error('Executor backend does not support clean snapshot clone.');
+    }
+    const currentState = this.currentVmState(context);
+    if (currentState !== 'clean') {
+      this.recordPolicyBlock(context, 'Clean snapshot clone requires a clean VM context.', {
+        snapshotRef,
+        provider: status.provider,
+        currentState
+      });
+      throw new Error(`Clean snapshot clone requires a clean VM context; current state is ${currentState}.`);
     }
     const result = this.provider.cloneContext(context, snapshotRef);
     this.db.updateVmContext(context.vmContext.id, { snapshotId: snapshotRef, state: 'clean', metadata: { clonedFromSnapshot: snapshotRef, providerResult: result } });
@@ -82,13 +111,27 @@ export class ExecutorManager {
   }
 
   public importWorkspaceMaterial(context: CreatedRunContext, spec: GuestImportSpec): void {
-    this.validateImport(context, spec);
-    const result = this.provider.importWorkspaceMaterial(context, spec);
-    this.db.updateVmContext(context.vmContext.id, { state: 'working', metadata: { lastImportGuestPath: spec.guestPath } });
+    const status = this.requireAvailable();
+    if (!status.supports.import) {
+      this.recordPolicyBlock(context, 'Executor backend does not support scoped target import.', { provider: status.provider, guestPath: spec.guestPath });
+      throw new Error('Executor backend does not support scoped target import.');
+    }
+    const validated = this.validateImport(context, spec);
+    const result = this.provider.importWorkspaceMaterial(context, validated.spec);
+    this.db.updateVmContext(context.vmContext.id, {
+      state: 'working',
+      metadata: {
+        lastImportGuestPath: validated.spec.guestPath,
+        lastImportHostPath: validated.spec.hostPath,
+        lastImportSummary: validated.summary
+      }
+    });
     this.recordVmEvent(context, 'Scoped target material imported into guest.', {
-      hostPath: spec.hostPath,
-      guestPath: spec.guestPath,
-      mode: spec.mode,
+      hostPath: validated.spec.hostPath,
+      requestedHostPath: validated.requestedHostPath,
+      guestPath: validated.spec.guestPath,
+      mode: validated.spec.mode,
+      importSummary: validated.summary,
       providerResult: result,
       hostDatabaseMounted: false,
       openAiCredentialsMounted: false
@@ -242,36 +285,75 @@ export class ExecutorManager {
     return status;
   }
 
-  private validateImport(context: CreatedRunContext, spec: GuestImportSpec): void {
+  private validateImport(context: CreatedRunContext, spec: GuestImportSpec): ValidatedGuestImport {
     if (!isAbsolute(spec.hostPath)) {
       this.recordPolicyBlock(context, 'Import path must be absolute.', { hostPath: spec.hostPath });
       throw new Error('Import path must be absolute.');
+    }
+    const guestPath = normalizeGuestWorkspacePath(spec.guestPath);
+    if (!guestPath) {
+      this.recordPolicyBlock(context, 'Import guest path must stay inside /workspace and outside .beale.', { guestPath: spec.guestPath });
+      throw new Error('Import guest path must stay inside /workspace and outside .beale.');
     }
     const resolved = resolve(spec.hostPath);
     if (!existsSync(resolved)) {
       this.recordPolicyBlock(context, 'Import path does not exist.', { hostPath: resolved });
       throw new Error(`Import path does not exist: ${resolved}`);
     }
-    if (pathContainsSegment(resolved, '.beale')) {
+    const rootLstat = lstatSync(resolved);
+    if (rootLstat.isSymbolicLink()) {
+      this.recordPolicyBlock(context, 'Import path cannot be a symbolic link.', { hostPath: resolved });
+      throw new Error('Import path cannot be a symbolic link.');
+    }
+    const realHostPath = realpathSync(resolved);
+    if (pathContainsSegment(resolved, '.beale') || pathContainsSegment(realHostPath, '.beale')) {
       this.recordPolicyBlock(context, 'Workspace metadata cannot be imported into the guest.', { hostPath: resolved });
       throw new Error('Workspace metadata cannot be imported into the guest.');
     }
-    if (!this.isPathInScope(resolved)) {
-      this.recordPolicyBlock(context, 'Import path is outside the active program scope.', { hostPath: resolved });
-      throw new Error(`Import path is outside the active program scope: ${resolved}`);
+    if (!this.isPathInScope(realHostPath)) {
+      this.recordPolicyBlock(context, 'Import path is outside the active program scope.', { hostPath: realHostPath, requestedHostPath: resolved });
+      throw new Error(`Import path is outside the active program scope: ${realHostPath}`);
     }
-    const stat = statSync(resolved);
+    const stat = statSync(realHostPath);
     if (!stat.isFile() && !stat.isDirectory()) {
-      this.recordPolicyBlock(context, 'Import path must be a file or directory.', { hostPath: resolved });
+      this.recordPolicyBlock(context, 'Import path must be a file or directory.', { hostPath: realHostPath });
       throw new Error('Import path must be a file or directory.');
     }
+    let summary: ImportTreeSummary;
+    try {
+      summary = scanImportTree(realHostPath);
+    } catch (error) {
+      this.recordPolicyBlock(context, 'Import tree failed safety validation.', {
+        hostPath: realHostPath,
+        requestedHostPath: resolved,
+        reason: errorMessage(error)
+      });
+      throw error;
+    }
+    return {
+      spec: {
+        ...spec,
+        hostPath: realHostPath,
+        guestPath
+      },
+      summary,
+      requestedHostPath: resolved
+    };
   }
 
   private isPathInScope(resolvedPath: string): boolean {
     const scope = this.db.getActiveScope();
     return scope.assets
       .filter(isScopedLocalImportAsset)
-      .some((asset) => isWithinPath(resolvedPath, resolve(asset.value)));
+      .some((asset) => {
+        const scopePath = safeRealpath(resolve(asset.value));
+        return scopePath ? isWithinPath(resolvedPath, scopePath) : false;
+      });
+  }
+
+  private currentVmState(context: CreatedRunContext): string {
+    const vmContext = this.db.getRunDetail(context.run.id).vmContexts.find((candidate) => candidate.id === context.vmContext.id);
+    return vmContext?.state ?? context.vmContext.state;
   }
 
   private recordNetworkEnforcement(context: CreatedRunContext, toolCallId: string, networkProfile: ExecutorNetworkProfile, status: ExecutorStatus): void {
@@ -357,6 +439,74 @@ function isWithinPath(candidate: string, parent: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
+function normalizeGuestWorkspacePath(path: string): string | null {
+  if (!path || path.includes('\0') || !path.startsWith('/')) return null;
+  const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+  if (normalized === GUEST_WORKSPACE_ROOT) return null;
+  if (!isGuestWorkspacePath(normalized)) return null;
+  if (normalized === GUEST_METADATA_ROOT || normalized.startsWith(`${GUEST_METADATA_ROOT}/`)) return null;
+  if (normalized.split('/').includes('..')) return null;
+  return normalized;
+}
+
+function isGuestWorkspacePath(path: string): boolean {
+  return path === GUEST_WORKSPACE_ROOT || path.startsWith(`${GUEST_WORKSPACE_ROOT}/`);
+}
+
+function scanImportTree(rootPath: string): ImportTreeSummary {
+  const root = visitImportTree(rootPath, 0, { fileCount: 0, directoryCount: 0, sizeBytes: 0 });
+  const stat = statSync(rootPath);
+  return {
+    kind: stat.isDirectory() ? 'directory' : 'file',
+    fileCount: root.fileCount,
+    directoryCount: root.directoryCount,
+    sizeBytes: root.sizeBytes,
+    maxBytes: MAX_IMPORT_BYTES,
+    maxFiles: MAX_IMPORT_FILES
+  };
+}
+
+function visitImportTree(path: string, depth: number, summary: { fileCount: number; directoryCount: number; sizeBytes: number }): { fileCount: number; directoryCount: number; sizeBytes: number } {
+  if (depth > MAX_IMPORT_DEPTH) {
+    throw new Error(`Import tree exceeds maximum depth of ${MAX_IMPORT_DEPTH}.`);
+  }
+  const lstat = lstatSync(path);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Import tree cannot contain symbolic links: ${path}`);
+  }
+  const real = realpathSync(path);
+  if (pathContainsSegment(path, '.beale') || pathContainsSegment(real, '.beale')) {
+    throw new Error(`Import tree cannot contain workspace metadata: ${path}`);
+  }
+  if (lstat.isFile()) {
+    summary.fileCount += 1;
+    summary.sizeBytes += lstat.size;
+    if (summary.fileCount > MAX_IMPORT_FILES) {
+      throw new Error(`Import tree exceeds maximum file count of ${MAX_IMPORT_FILES}.`);
+    }
+    if (summary.sizeBytes > MAX_IMPORT_BYTES) {
+      throw new Error(`Import tree exceeds maximum size of ${MAX_IMPORT_BYTES} bytes.`);
+    }
+    return summary;
+  }
+  if (!lstat.isDirectory()) {
+    throw new Error(`Import tree can only contain files and directories: ${path}`);
+  }
+  summary.directoryCount += 1;
+  for (const entry of readdirSync(path)) {
+    visitImportTree(resolve(path, entry), depth + 1, summary);
+  }
+  return summary;
+}
+
+function safeRealpath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
 function pathContainsSegment(path: string, segment: string): boolean {
   return path.split(/[\\/]+/).includes(segment);
 }
@@ -369,4 +519,8 @@ function networkDecision(profile: ExecutorNetworkProfile): string {
   if (profile === 'offline') return 'block_external_network';
   if (profile === 'elevated') return 'allow_elevated_network';
   return 'allow_scoped_network';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
 }

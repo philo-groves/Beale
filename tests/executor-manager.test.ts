@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -114,6 +114,39 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
+  it('blocks guest import destinations outside /workspace before reaching the VM controller', () => {
+    const { db, targetFile, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(db);
+    const manager = new ExecutorManager(db);
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+
+    expect(() => manager.importWorkspaceMaterial(context, { hostPath: targetFile, guestPath: '/etc/target.txt', mode: 'read_only' })).toThrow(/\/workspace/);
+
+    const detail = db.getRunDetail(context.run.id);
+    expect(detail.policyEvents.some((event) => event.reason === 'Import guest path must stay inside /workspace and outside .beale.')).toBe(true);
+    expect(readFileSync(logPath, 'utf8')).not.toContain('import_workspace_material');
+    db.close();
+  });
+
+  it.skipIf(process.platform === 'win32')('blocks symlinks inside scoped import trees before reaching the VM controller', () => {
+    const { db, dir, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(db);
+    const manager = new ExecutorManager(db);
+    const outsideSecret = join(dir, 'outside-secret.txt');
+    writeFileSync(outsideSecret, 'host secret outside active scope\n');
+    symlinkSync(outsideSecret, join(dir, 'target', 'leak.txt'));
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+
+    expect(() => manager.importWorkspaceMaterial(context, { hostPath: join(dir, 'target'), guestPath: '/workspace/target', mode: 'read_only' })).toThrow(/symbolic link/);
+
+    const detail = db.getRunDetail(context.run.id);
+    expect(detail.policyEvents.some((event) => event.reason === 'Import tree failed safety validation.')).toBe(true);
+    expect(readFileSync(logPath, 'utf8')).not.toContain('import_workspace_material');
+    db.close();
+  });
+
   it('allows scoped local binary assets to be imported into the guest', () => {
     const { db, targetFile, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
@@ -126,6 +159,31 @@ describe('VM executor alpha', () => {
     const detail = db.getRunDetail(context.run.id);
     expect(detail.traceEvents.some((event) => event.summary === 'Scoped target material imported into guest.')).toBe(true);
     expect(readVmctlActions(logPath)).toContain('import_workspace_material');
+    db.close();
+  });
+
+  it('blocks clean clone once the VM context is contaminated', () => {
+    const { db, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(db);
+    const manager = new ExecutorManager(db);
+
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+    manager.cloneContext(context, 'clean-fixture');
+    manager.executeGuestOperation(context, {
+      operationKind: 'shell',
+      command: ['sh', '-lc', 'echo contaminated'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5000,
+      networkProfile: 'offline',
+      expectedOutput: 'summary'
+    });
+
+    expect(() => manager.cloneContext(context, 'clean-fixture')).toThrow(/clean VM context/);
+    const detail = db.getRunDetail(context.run.id);
+    expect(detail.policyEvents.some((event) => event.reason === 'Clean snapshot clone requires a clean VM context.')).toBe(true);
+    expect(readVmctlActions(logPath).filter((action) => action === 'clone_context')).toHaveLength(1);
     db.close();
   });
 

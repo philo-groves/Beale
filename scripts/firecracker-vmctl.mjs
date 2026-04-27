@@ -1,11 +1,16 @@
 #!/usr/bin/env node
-import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { access } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const GUEST_WORKSPACE_ROOT = '/workspace';
+const GUEST_METADATA_ROOT = `${GUEST_WORKSPACE_ROOT}/.beale`;
+const MAX_IMPORT_FILES = 10_000;
+const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
+const MAX_IMPORT_DEPTH = 64;
 
 main().catch((error) => {
   respond(false, undefined, error instanceof Error ? error.message : String(error));
@@ -178,12 +183,10 @@ function queueImport(config, payload) {
   if (!spec?.hostPath || !spec?.guestPath) {
     throw new Error('import_workspace_material requires import.hostPath and import.guestPath');
   }
-  if (!existsSync(spec.hostPath)) {
-    throw new Error(`Import source does not exist: ${spec.hostPath}`);
-  }
-  state.imports = [...(state.imports ?? []), spec];
+  const validated = validateImportSpec(spec);
+  state.imports = [...(state.imports ?? []), validated.spec];
   writeState(dir, state);
-  return { queued: true, guestPath: spec.guestPath, mode: spec.mode ?? 'read_only' };
+  return { queued: true, guestPath: validated.spec.guestPath, mode: validated.spec.mode, importSummary: validated.summary };
 }
 
 async function executeGuestOperation(config, payload) {
@@ -203,7 +206,10 @@ async function executeGuestOperation(config, payload) {
   const remoteScript = `/tmp/beale-operation-${Date.now()}.sh`;
   writeFileSync(localScript, script, { mode: 0o700 });
   scpToGuest(config, localScript, remoteScript);
-  const result = ssh(config, ['sh', remoteScript], Number(operation.timeoutMs ?? config.commandTimeoutMs));
+  const result = ssh(config, ['sh', remoteScript], Number(operation.timeoutMs ?? config.commandTimeoutMs), { allowFailure: true });
+  if (!result.timedOut && (result.error || result.status === 255)) {
+    throw new Error(`Guest SSH operation failed: ${(result.stderr || result.error || `status ${result.status}`).slice(0, 800)}`);
+  }
   const ended = Date.now();
   const status = result.status === 0 ? 'success' : result.timedOut ? 'timeout' : 'failure';
   const state = readState(dir, payload);
@@ -319,6 +325,9 @@ async function materializeImports(config, dir, payload) {
   for (const spec of state.imports ?? []) {
     ssh(config, ['mkdir', '-p', dirname(spec.guestPath)], config.commandTimeoutMs);
     scpToGuest(config, spec.hostPath, spec.guestPath);
+    if (spec.mode !== 'copy') {
+      ssh(config, ['chmod', '-R', 'a-w', spec.guestPath], config.commandTimeoutMs);
+    }
   }
   state.importsMaterialized = true;
   writeState(dir, state);
@@ -479,6 +488,101 @@ function validateNetworkProfile(config, profile) {
   if (normalized === 'scoped' && !config.enableScopedNetwork) {
     throw new Error('Firecracker scoped networking is not enabled in this controller config.');
   }
+}
+
+function validateImportSpec(spec) {
+  if (!isAbsolute(spec.hostPath)) {
+    throw new Error('Import source path must be absolute.');
+  }
+  const guestPath = normalizeGuestWorkspacePath(spec.guestPath);
+  if (!guestPath) {
+    throw new Error('Import guest path must stay inside /workspace and outside .beale.');
+  }
+  if (!existsSync(spec.hostPath)) {
+    throw new Error(`Import source does not exist: ${spec.hostPath}`);
+  }
+  const hostPath = resolve(spec.hostPath);
+  const rootLstat = lstatSync(hostPath);
+  if (rootLstat.isSymbolicLink()) {
+    throw new Error(`Import source cannot be a symbolic link: ${hostPath}`);
+  }
+  const hostRealPath = realpathSync(hostPath);
+  if (pathContainsSegment(hostPath, '.beale') || pathContainsSegment(hostRealPath, '.beale')) {
+    throw new Error('Workspace metadata cannot be imported into the guest.');
+  }
+  const stat = statSync(hostRealPath);
+  if (!stat.isFile() && !stat.isDirectory()) {
+    throw new Error('Import source must be a file or directory.');
+  }
+  const summary = scanImportTree(hostRealPath);
+  return {
+    spec: {
+      hostPath: hostRealPath,
+      guestPath,
+      mode: spec.mode === 'copy' ? 'copy' : 'read_only'
+    },
+    summary
+  };
+}
+
+function normalizeGuestWorkspacePath(path) {
+  if (typeof path !== 'string' || !path || path.includes('\0') || !path.startsWith('/')) return null;
+  const normalized = posix.normalize(path);
+  if (normalized === GUEST_WORKSPACE_ROOT) return null;
+  if (normalized !== GUEST_WORKSPACE_ROOT && !normalized.startsWith(`${GUEST_WORKSPACE_ROOT}/`)) return null;
+  if (normalized === GUEST_METADATA_ROOT || normalized.startsWith(`${GUEST_METADATA_ROOT}/`)) return null;
+  if (normalized.split('/').includes('..')) return null;
+  return normalized;
+}
+
+function scanImportTree(rootPath) {
+  const summary = { fileCount: 0, directoryCount: 0, sizeBytes: 0 };
+  visitImportTree(rootPath, 0, summary);
+  const stat = statSync(rootPath);
+  return {
+    kind: stat.isDirectory() ? 'directory' : 'file',
+    fileCount: summary.fileCount,
+    directoryCount: summary.directoryCount,
+    sizeBytes: summary.sizeBytes,
+    maxBytes: MAX_IMPORT_BYTES,
+    maxFiles: MAX_IMPORT_FILES
+  };
+}
+
+function visitImportTree(path, depth, summary) {
+  if (depth > MAX_IMPORT_DEPTH) {
+    throw new Error(`Import tree exceeds maximum depth of ${MAX_IMPORT_DEPTH}.`);
+  }
+  const lstat = lstatSync(path);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Import tree cannot contain symbolic links: ${path}`);
+  }
+  const real = realpathSync(path);
+  if (pathContainsSegment(path, '.beale') || pathContainsSegment(real, '.beale')) {
+    throw new Error(`Import tree cannot contain workspace metadata: ${path}`);
+  }
+  if (lstat.isFile()) {
+    summary.fileCount += 1;
+    summary.sizeBytes += lstat.size;
+    if (summary.fileCount > MAX_IMPORT_FILES) {
+      throw new Error(`Import tree exceeds maximum file count of ${MAX_IMPORT_FILES}.`);
+    }
+    if (summary.sizeBytes > MAX_IMPORT_BYTES) {
+      throw new Error(`Import tree exceeds maximum size of ${MAX_IMPORT_BYTES} bytes.`);
+    }
+    return;
+  }
+  if (!lstat.isDirectory()) {
+    throw new Error(`Import tree can only contain files and directories: ${path}`);
+  }
+  summary.directoryCount += 1;
+  for (const entry of readdirSync(path)) {
+    visitImportTree(resolve(path, entry), depth + 1, summary);
+  }
+}
+
+function pathContainsSegment(path, segment) {
+  return path.split(/[\\/]+/).includes(segment);
 }
 
 function tapCheck(config) {

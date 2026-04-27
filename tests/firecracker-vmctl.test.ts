@@ -91,9 +91,47 @@ describe('Firecracker vmctl controller', () => {
       vmctl(configPath, 'destroy', payload, env);
     }
   });
+
+  it('returns non-zero guest exits as execution results instead of protocol errors', () => {
+    const { configPath, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true, fakeGuestExitCode: 7 });
+    const payload = {
+      vmContextId: 'vm_firecracker_guest_failure_test',
+      runId: 'run_firecracker_guest_failure_test',
+      attemptId: 'attempt_firecracker_guest_failure_test',
+      scopeVersionId: 'scope_firecracker_guest_failure_test',
+      snapshotRef: 'clean',
+      networkProfile: 'offline'
+    };
+    const env = { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` };
+
+    expect(vmctl(configPath, 'create_context', payload, env).result.state).toBe('clean');
+    const response = vmctl(
+      configPath,
+      'execute',
+      {
+        ...payload,
+        operation: {
+          command: ['sh', '-lc', 'exit 7'],
+          cwd: '/',
+          env: {},
+          timeoutMs: 1000,
+          networkProfile: 'offline'
+        }
+      },
+      env
+    );
+
+    try {
+      expect(response.ok).toBe(true);
+      expect(response.result.status).toBe('failure');
+      expect(response.result.exitCode).toBe(7);
+    } finally {
+      vmctl(configPath, 'destroy', payload, env);
+    }
+  });
 });
 
-function fixtureConfig(options: { fakeRuntimeCommands?: boolean } = {}): { configPath: string; stateDir: string; rootfsPath: string; fakeBinDir: string; sshLogPath: string } {
+function fixtureConfig(options: { fakeRuntimeCommands?: boolean; fakeGuestExitCode?: number } = {}): { configPath: string; stateDir: string; rootfsPath: string; fakeBinDir: string; sshLogPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-firecracker-vmctl-'));
   createdDirs.push(dir);
   const binDir = join(dir, 'bin');
@@ -134,6 +172,7 @@ done
       : '#!/bin/sh\nexit 0\n'
   );
   if (options.fakeRuntimeCommands) {
+    const fakeGuestExitCode = Number.isInteger(options.fakeGuestExitCode) ? options.fakeGuestExitCode : 0;
     writeExecutable(join(fakeBinDir, 'curl'), '#!/bin/sh\nexit 0\n');
     writeExecutable(join(fakeBinDir, 'ip'), '#!/bin/sh\nexit 0\n');
     writeExecutable(join(fakeBinDir, 'scp'), '#!/bin/sh\nexit 0\n');
@@ -153,7 +192,14 @@ if [ "$count" -eq 1 ]; then
   printf '%s\\n' 'ssh fixture connection timed out' >&2
   exit 255
 fi
-exit 0
+last_arg=""
+for arg do
+  last_arg="$arg"
+done
+if [ "$last_arg" = "true" ]; then
+  exit 0
+fi
+exit ${fakeGuestExitCode}
 `
     );
   }

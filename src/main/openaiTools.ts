@@ -46,6 +46,16 @@ interface GuestToolResult {
   importedHostPath: string | null;
 }
 
+interface DebuggerSummary {
+  gdbAvailable: boolean;
+  crashed: boolean;
+  signal: string | null;
+  frames: string[];
+  registersCaptured: boolean;
+  unavailableReason: string | null;
+  targetMissing: boolean;
+}
+
 const TOOL_NAMES = ['search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -401,24 +411,34 @@ export class BealeToolRouter {
     const operation = stringValue(args.operation, 'gdb_probe');
     const target = stringValue(args.target, '/workspace/target');
     const inputPath = stringValue(args.input_path, '').trim();
+    const transcriptPath = '/tmp/beale-debugger-transcript.txt';
     const shellCommand = [
       'set -eu',
+      'transcript="${BEALE_DEBUGGER_TRANSCRIPT:-/tmp/beale-debugger-transcript.txt}"',
       'operation="${BEALE_DEBUG_OPERATION:-gdb_probe}"',
       'target="${BEALE_DEBUG_TARGET:-/workspace/target}"',
       'input_path="${BEALE_DEBUG_INPUT_PATH:-}"',
-      'if command -v gdb >/dev/null 2>&1; then',
-      '  if [ "$operation" = "crash_summary" ] || [ "$operation" = "run" ]; then',
-      '    if [ -n "$input_path" ]; then',
-      '      gdb --batch -ex run -ex bt -ex "info registers" --args "$target" "$input_path" 2>&1 | sed -n "1,160p"',
-      '    else',
-      '      gdb --batch -ex run -ex bt -ex "info registers" --args "$target" 2>&1 | sed -n "1,160p"',
-      '    fi',
+      ': > "$transcript"',
+      'if ! command -v gdb >/dev/null 2>&1; then',
+      '  echo "BEALE_DEBUGGER_GDB_UNAVAILABLE gdb unavailable in guest image" | tee -a "$transcript"',
+      '  exit 127',
+      'fi',
+      'if [ ! -e "$target" ]; then',
+      '  echo "BEALE_DEBUGGER_TARGET_MISSING $target" | tee -a "$transcript"',
+      '  exit 2',
+      'fi',
+      'status=0',
+      'if [ "$operation" = "crash_summary" ] || [ "$operation" = "run" ]; then',
+      '  if [ -n "$input_path" ]; then',
+      '    gdb --batch -ex "set pagination off" -ex run -ex bt -ex "info registers" --args "$target" "$input_path" > "$transcript" 2>&1 || status=$?',
       '  else',
-      '    gdb --batch -ex "file $target" -ex "info files" 2>&1 | sed -n "1,80p"',
+      '    gdb --batch -ex "set pagination off" -ex run -ex bt -ex "info registers" --args "$target" > "$transcript" 2>&1 || status=$?',
       '  fi',
       'else',
-      '  echo "gdb unavailable in guest image"',
-      'fi'
+      '  gdb --batch -ex "set pagination off" -ex "file $target" -ex "info files" > "$transcript" 2>&1 || status=$?',
+      'fi',
+      'sed -n "1,200p" "$transcript"',
+      'exit "$status"'
     ].join('\n');
 
     const execution = this.executeInDisposableGuest(context, {
@@ -428,16 +448,21 @@ export class BealeToolRouter {
       env: {
         BEALE_DEBUG_OPERATION: operation,
         BEALE_DEBUG_TARGET: target,
-        BEALE_DEBUG_INPUT_PATH: inputPath
+        BEALE_DEBUG_INPUT_PATH: inputPath,
+        BEALE_DEBUGGER_TRANSCRIPT: transcriptPath
       },
       timeoutMs: 30_000,
       networkProfile: normalizeNetworkProfile(context.run.networkProfile),
       expectedOutput: 'summary'
-    }, null);
+    }, transcriptPath);
+
+    const debuggerSummary = parseDebuggerSummary(execution.result.stdoutSummary, execution.result.stderrSummary, execution.result.exitCode);
+    const wrapperSucceeded = execution.result.status === 'success' && debuggerSummary.gdbAvailable;
 
     return {
-      status: execution.result.status === 'success' ? 'success' : 'error',
+      status: wrapperSucceeded ? 'success' : 'error',
       summary: `Debugger wrapper operation finished with ${execution.result.status}.`,
+      artifactId: execution.artifactId ?? undefined,
       payload: {
         observationBacked: true,
         simulated: false,
@@ -451,6 +476,8 @@ export class BealeToolRouter {
         stdoutSummary: execution.result.stdoutSummary,
         stderrSummary: execution.result.stderrSummary,
         structured: execution.result.structured,
+        debugger: debuggerSummary,
+        exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
         networkProfile: normalizeNetworkProfile(context.run.networkProfile)
       }
@@ -639,10 +666,8 @@ export class BealeToolRouter {
     try {
       this.executor.createContext(context, 'beale-default-toolchain', 'clean');
       contextCreated = true;
-      if (status.supports.clone) {
-        this.executor.cloneContext(context, 'clean');
-      }
-      if (importSpec && status.supports.import) {
+      this.executor.cloneContext(context, 'clean');
+      if (importSpec) {
         this.executor.importWorkspaceMaterial(context, {
           hostPath: importSpec.hostPath,
           guestPath: '/workspace/target',
@@ -650,8 +675,11 @@ export class BealeToolRouter {
         });
       }
       const result = this.executor.executeGuestOperation(context, request);
+      if (artifactPath && !status.supports.export) {
+        throw new Error('Executor backend does not support guest artifact export.');
+      }
       const artifactId =
-        artifactPath && status.supports.export
+        artifactPath
           ? this.executor.exportArtifact(context, {
               guestPath: artifactPath,
               kind: request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output',
@@ -952,6 +980,30 @@ function selectLineRange(lines: string[], symbol: string): { start: number; end:
 
 function trimSnippet(value: string): string {
   return value.trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function parseDebuggerSummary(stdout: string, stderr: string, exitCode: number | null): DebuggerSummary {
+  const transcript = `${stdout}\n${stderr}`;
+  const unavailable = transcript.includes('BEALE_DEBUGGER_GDB_UNAVAILABLE') || /gdb unavailable/i.test(transcript);
+  const targetMissing = transcript.includes('BEALE_DEBUGGER_TARGET_MISSING');
+  const signal = transcript.match(/Program received signal\s+(SIG[A-Z0-9_]+)/)?.[1] ?? null;
+  const frames = transcript
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^#\d+\s+/.test(line))
+    .slice(0, 24);
+  const registersCaptured = /^\s*(?:rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|rip|eax|ebx|ecx|edx|eip|pc|sp|lr)\s+/im.test(transcript);
+  const unavailableReason = unavailable ? 'gdb_unavailable_in_guest' : exitCode === 127 ? 'debugger_command_not_found' : targetMissing ? 'target_missing' : null;
+
+  return {
+    gdbAvailable: !unavailable && exitCode !== 127,
+    crashed: Boolean(signal),
+    signal,
+    frames,
+    registersCaptured,
+    unavailableReason,
+    targetMissing
+  };
 }
 
 function safeStat(path: string): ReturnType<typeof statSync> | null {
