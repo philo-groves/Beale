@@ -12,6 +12,7 @@ import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { redactForModelText, redactJsonForModel } from './redaction';
+import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
   BenchmarkRunInput,
   FakeScenario,
@@ -210,7 +211,7 @@ export class WorkspaceService {
       }
       case 'rerun_verifier': {
         const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
-        runVerifierContract(db, action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
+        runVerifierContract(db, this.requireExecutorManager(), action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
         break;
       }
       case 'promote_artifact': {
@@ -821,60 +822,6 @@ function requireExport(detail: RunDetail, exportId: string) {
   return exportRecord;
 }
 
-function runVerifierContract(
-  db: WorkspaceDatabase,
-  runId: string,
-  contract: VerifierContractRecord,
-  attemptId: string | null,
-  vmContextId: string | null,
-  note: string
-): void {
-  const issues = verifierContractIssues(contract);
-  const status = issues.length > 0 ? 'error' : 'inconclusive';
-  const verifierRun = db.createVerifierRun({
-    contractId: contract.id,
-    runId,
-    attemptId,
-    vmContextId,
-    status,
-    blockedIssue: issues.length > 0 ? 'error' : 'inconclusive',
-    behaviorPreserved: 'not_applicable',
-    diagnosticsClean: issues.length > 0 ? 'fail' : 'inconclusive',
-    regressionTests: 'not_run',
-    result: {
-      manualRerun: true,
-      note: redactForModelText(note),
-      error: issues.length > 0 ? issues.join('; ') : null,
-      userReviewRequired: true
-    }
-  });
-  db.appendTraceEvent({
-    runId,
-    attemptId,
-    type: 'verifier_result',
-    source: 'verifier',
-    summary: issues.length > 0 ? 'Verifier rerun failed before execution.' : 'Verifier rerun recorded as inconclusive.',
-    payload: {
-      verifierRunId: verifierRun.id,
-      contractId: contract.id,
-      status,
-      issues,
-      userReviewRequired: true
-    },
-    vmContextId,
-    modelVisible: false
-  });
-}
-
-function verifierContractIssues(contract: VerifierContractRecord): string[] {
-  const issues: string[] = [];
-  if (!contract.setupStepsMarkdown.trim()) issues.push('missing setup steps');
-  if (!contract.triggerStepsMarkdown.trim()) issues.push('missing trigger steps');
-  if (Object.keys(contract.expectedObservations).length === 0) issues.push('missing expected observations');
-  if (Object.keys(contract.passCriteria).length === 0) issues.push('missing pass criteria');
-  return issues;
-}
-
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {
   const redacted = redactJsonForModel(value);
   return redacted && typeof redacted === 'object' && !Array.isArray(redacted) ? (redacted as Record<string, unknown>) : {};
@@ -882,7 +829,9 @@ function redactObject(value: Record<string, unknown>): Record<string, unknown> {
 
 function latestVerifierForHypothesis(detail: RunDetail, hypothesisId: string, status: string) {
   const contractIds = new Set(detail.verifierContracts.filter((contract) => contract.hypothesisId === hypothesisId).map((contract) => contract.id));
-  return [...detail.verifierRuns].reverse().find((run) => contractIds.has(run.contractId) && run.status === status) ?? null;
+  return [...detail.verifierRuns]
+    .reverse()
+    .find((run) => contractIds.has(run.contractId) && run.status === status && (status !== 'pass' || isRealVerifierPass(run))) ?? null;
 }
 
 function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {

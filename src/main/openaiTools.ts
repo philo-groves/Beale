@@ -5,6 +5,7 @@ import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
+import { runVerifierContract } from './verifierRunner';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import type { ScopeAsset, TraceEventType, TraceSource } from '@shared/types';
 
@@ -86,7 +87,10 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       hypothesis: stringProp('Hypothesis or finding identifier'),
       expectation: stringProp('Expected observation'),
       artifact_id: stringProp('Artifact id that backs the expectation; use an empty string when not available'),
-      trace_event_id: stringProp('Trace event id that backs the expectation; use an empty string when not available')
+      trace_event_id: stringProp('Trace event id that backs the expectation; use an empty string when not available'),
+      verifier_script: stringProp('Shell script to execute inside the disposable guest VM; use an empty string to only declare the contract'),
+      artifact_path: stringProp('Guest artifact path to export after verifier execution; use an empty string when not needed'),
+      expected_stdout: stringProp('Substring expected in verifier stdout for pass; use an empty string when not needed')
     })
   ];
 }
@@ -506,12 +510,13 @@ export class BealeToolRouter {
   private recordVerifier(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
     const artifactId = stringValue(args.artifact_id, '').trim();
     const traceEventId = stringValue(args.trace_event_id, '').trim();
+    const verifierScript = stringValue(args.verifier_script, '').trim();
+    const verifierArtifactPath = stringValue(args.artifact_path, '').trim();
+    const expectedStdout = stringValue(args.expected_stdout, '').trim();
     const detail = this.db.getRunDetail(context.run.id);
     const referencedArtifact = artifactId ? detail.artifacts.find((artifact) => artifact.id === artifactId) ?? null : null;
     const referencedTrace = traceEventId ? detail.traceEvents.find((event) => event.id === traceEventId) ?? null : null;
     const hasEvidenceReference = Boolean(referencedArtifact || referencedTrace);
-    const status = 'inconclusive';
-    const blockedIssue = hasEvidenceReference ? 'requires_reproduction_contract_execution' : 'missing_trace_or_artifact_reference';
 
     const contract = this.db.createVerifierContract({
       runId: context.run.id,
@@ -533,13 +538,50 @@ export class BealeToolRouter {
       },
       artifactsToCollect: {
         artifactId: referencedArtifact?.id ?? null,
-        traceEventId: referencedTrace?.id ?? null
+        traceEventId: referencedTrace?.id ?? null,
+        verifierOutput: verifierArtifactPath || null
       },
       passCriteria: {
         requiresObservedBehavior: true,
-        requiresTraceOrArtifactReference: true
+        requiresTraceOrArtifactReference: true,
+        verifier: verifierScript
+          ? {
+              operationKind: 'shell',
+              script: verifierScript,
+              expectedExitCode: 0,
+              expectedStdoutIncludes: expectedStdout,
+              artifactPath: verifierArtifactPath,
+              timeoutMs: 30_000
+            }
+          : null
       }
     });
+
+    if (verifierScript) {
+      const outcome = runVerifierContract(this.db, this.executor, context.run.id, contract, context.attempt.id, context.vmContext.id, 'OpenAI verifier tool execution.');
+      return {
+        status: outcome.verifierRun.status === 'error' ? 'error' : 'success',
+        summary: `Verifier contract executed with ${outcome.verifierRun.status}; finding promotion remains gated by real pass results.`,
+        traceEventId: outcome.traceEventId,
+        artifactId: outcome.artifactId ?? undefined,
+        eventType: 'verifier_result',
+        source: 'verifier',
+        payload: {
+          observationBacked: outcome.verifierRun.status !== 'error',
+          simulated: false,
+          verifierRunId: outcome.verifierRun.id,
+          contractId: contract.id,
+          status: outcome.verifierRun.status,
+          realExecution: outcome.verifierRun.result.realExecution === true,
+          vmExecution: outcome.verifierRun.result.vmExecution === true,
+          promotedFinding: false,
+          artifactId: outcome.artifactId
+        }
+      };
+    }
+
+    const status = 'inconclusive';
+    const blockedIssue = hasEvidenceReference ? 'requires_reproduction_contract_execution' : 'missing_trace_or_artifact_reference';
     const verifierRun = this.db.createVerifierRun({
       contractId: contract.id,
       runId: context.run.id,
@@ -552,6 +594,8 @@ export class BealeToolRouter {
       regressionTests: 'not_run',
       result: {
         observationBacked: true,
+        realExecution: false,
+        vmExecution: false,
         artifactId: referencedArtifact?.id ?? null,
         traceEventId: referencedTrace?.id ?? null,
         evidenceReferencePresent: hasEvidenceReference,

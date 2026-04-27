@@ -62,7 +62,10 @@ describe('structured research tools', () => {
       hypothesis: 'candidate parser issue',
       expectation: 'candidate input should reproduce the observed condition',
       artifact_id: artifact.artifact_id,
-      trace_event_id: artifact.trace_event_id
+      trace_event_id: artifact.trace_event_id,
+      verifier_script: '',
+      artifact_path: '',
+      expected_stdout: ''
     });
     expect(verifier.status).toBe('success');
     expect(verifier.payload.status).toBe('inconclusive');
@@ -99,18 +102,32 @@ describe('structured research tools', () => {
     expect(debuggerResult.payload.wrapper).toBe('gdb_batch_probe');
     expect(debuggerResult.payload.hostExecution).toBe(false);
 
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: 'structured tool VM verifier',
+      expectation: 'VM verifier should observe fixture stdout',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: 'echo verifier-ok',
+      artifact_path: '/tmp/beale-output.txt',
+      expected_stdout: 'fixture guest stdout'
+    });
+    expect(verifier.status).toBe('success');
+    expect(verifier.payload.status).toBe('pass');
+    expect(verifier.payload.realExecution).toBe(true);
+    expect(verifier.artifact_id).toBeTruthy();
+
     const actions = readVmctlEntries(logPath).map((entry) => entry.input.action);
     expect(actions).toContain('create_context');
     expect(actions).toContain('clone_context');
     expect(actions).toContain('import_workspace_material');
-    expect(actions.filter((action) => action === 'execute')).toHaveLength(2);
+    expect(actions.filter((action) => action === 'execute')).toHaveLength(3);
     expect(actions).toContain('export_artifact');
-    expect(actions.filter((action) => action === 'destroy')).toHaveLength(2);
+    expect(actions.filter((action) => action === 'destroy')).toHaveLength(3);
 
     const operations = readVmctlEntries(logPath)
       .filter((entry) => entry.input.action === 'execute' && entry.input.payload.operation)
       .map((entry) => entry.input.payload.operation?.operationKind);
-    expect(operations).toEqual(['python', 'shell']);
+    expect(operations).toEqual(['python', 'shell', 'shell']);
     db.close();
   });
 });

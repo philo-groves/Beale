@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,6 +12,9 @@ const createdDirs: string[] = [];
 
 afterEach(() => {
   delete process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT;
+  delete process.env.BEALE_VMCTL_COMMAND;
+  delete process.env.BEALE_VMCTL_ARGS_JSON;
+  delete process.env.BEALE_VMCTL_TIMEOUT_MS;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -208,7 +211,8 @@ describe('Beale workbench skeleton', () => {
     expect(detail.hypotheses.length).toBeGreaterThan(0);
     expect(detail.artifacts.length).toBeGreaterThan(0);
     expect(detail.verifierRuns.some((run) => run.status === 'pass')).toBe(true);
-    expect(detail.findings.some((finding) => finding.state === 'verified')).toBe(true);
+    expect(detail.findings.some((finding) => finding.state === 'verified')).toBe(false);
+    expect(detail.findings.some((finding) => finding.state === 'needs_evidence')).toBe(true);
     expect(detail.attempts.length).toBeGreaterThan(1);
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('parser_memory_safety');
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('authorization_review');
@@ -397,6 +401,135 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('executes verifier contracts in the VM before allowing verified findings', () => {
+    const dir = tempWorkspace();
+    const artifactRoot = join(dir, '.beale', 'artifacts');
+    const targetDir = join(dir, 'target');
+    const logPath = join(dir, 'vmctl.log');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    db.saveProgramScope({
+      programName: 'Verifier Program',
+      organizationName: 'Example Org',
+      descriptionMarkdown: 'Scoped verifier target.',
+      rulesMarkdown: 'Offline VM verifier only.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'path', targetDir)]
+    });
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Verifier execution run',
+      promptMarkdown: '# Verifier execution run',
+      mode: 'open_discovery',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'local_disposable_vm',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+    });
+    const hypothesis = db.createHypothesis({
+      runId: context.run.id,
+      state: 'candidate',
+      title: 'Verifier-backed issue',
+      descriptionMarkdown: 'A real verifier should decide this hypothesis.',
+      component: 'verifier fixture',
+      bugClass: 'authorization',
+      priorityScore: 0.5,
+      attackerReachability: 'local',
+      impact: 'medium',
+      evidenceConfidence: 'tool-backed',
+      exploitPracticality: 'reproducible',
+      scopeConfidence: 'in_scope'
+    });
+    const simulatedRun = db.createVerifierRun({
+      contractId: db
+        .createVerifierContract({
+          runId: context.run.id,
+          hypothesisId: hypothesis.id,
+          mode: 'reproduction',
+          status: 'approved',
+          setupStepsMarkdown: 'Simulated setup.',
+          triggerStepsMarkdown: 'Simulated trigger.',
+          expectedObservations: { simulated: true },
+          invariants: { noHostExecution: true },
+          artifactsToCollect: { trace: true },
+          passCriteria: { simulated: true }
+        })
+        .id,
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      vmContextId: context.vmContext.id,
+      status: 'pass',
+      blockedIssue: 'yes',
+      behaviorPreserved: 'not_applicable',
+      diagnosticsClean: 'yes',
+      regressionTests: 'not_run',
+      result: { simulated: true }
+    });
+    expect(() =>
+      db.createFinding({
+        runId: context.run.id,
+        hypothesisId: hypothesis.id,
+        state: 'verified',
+        title: 'Blocked simulated finding',
+        summaryMarkdown: 'This should not become authoritative.',
+        impactMarkdown: 'Simulated only.',
+        priorityScore: 0.5,
+        verifiedByVerifierRunId: simulatedRun.id
+      })
+    ).toThrow(/passing real verifier/);
+
+    const contract = db.createVerifierContract({
+      runId: context.run.id,
+      hypothesisId: hypothesis.id,
+      mode: 'reproduction',
+      status: 'approved',
+      setupStepsMarkdown: 'Import scoped target into the disposable VM.',
+      triggerStepsMarkdown: 'Run the verifier script inside the disposable VM.',
+      expectedObservations: { stdout: 'fixture guest stdout' },
+      invariants: { hostDatabaseMounted: false, openAiCredentialsMounted: false },
+      artifactsToCollect: { verifierOutput: '/tmp/beale-output.txt' },
+      passCriteria: {
+        verifier: {
+          operationKind: 'shell',
+          script: 'echo verifier-ok',
+          expectedExitCode: 0,
+          expectedStdoutIncludes: 'fixture guest stdout',
+          artifactPath: '/tmp/beale-output.txt',
+          timeoutMs: 30_000
+        }
+      }
+    });
+    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared executable verifier contract.');
+    db.updateRunStatus(context.run.id, 'completed', 'Prepared executable verifier contract.');
+    db.close();
+
+    configureVmctlFixture(logPath);
+    const service = new WorkspaceService();
+    service.openWorkspace(dir);
+    service.steerRun({ type: 'rerun_verifier', runId: context.run.id, verifierContractId: contract.id, note: 'run real verifier' });
+    let detail = service.getRunDetail(context.run.id);
+    const realVerifierRun = detail.verifierRuns.at(-1);
+    expect(realVerifierRun?.status).toBe('pass');
+    expect(realVerifierRun?.result.realExecution).toBe(true);
+    expect(realVerifierRun?.result.vmExecution).toBe(true);
+    expect(detail.artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable VM with pass.')).toBe(true);
+
+    service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: hypothesis.id });
+    detail = service.getRunDetail(context.run.id);
+    const finding = detail.findings.at(-1);
+    expect(finding?.state).toBe('verified');
+    expect(finding?.verifiedByVerifierRunId).toBe(realVerifierRun?.id);
+    expect(readVmctlActions(logPath)).toEqual(expect.arrayContaining(['create_context', 'clone_context', 'import_workspace_material', 'execute', 'export_artifact', 'destroy']));
+    service.close();
+  });
+
   it('keeps authoritative state clean when evidence export fails before publish', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_logic_bug'));
@@ -484,6 +617,17 @@ function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
     },
     fakeScenario
   };
+}
+
+function configureVmctlFixture(logPath: string): void {
+  process.env.BEALE_VMCTL_COMMAND = process.execPath;
+  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath]);
+}
+
+function readVmctlActions(logPath: string): string[] {
+  const content = readFileSync(logPath, 'utf8').trim();
+  if (!content) return [];
+  return content.split('\n').map((line) => (JSON.parse(line) as { input: { action: string } }).input.action);
 }
 
 function sequence(length: number): number[] {

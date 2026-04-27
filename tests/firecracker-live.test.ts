@@ -83,9 +83,24 @@ describe.skipIf(process.env.BEALE_FIRECRACKER_LIVE_TEST !== '1')('Firecracker li
       expect(debuggerResult.status).toBe('success');
       expect(debuggerResult.payload.hostExecution).toBe(false);
 
+      const verifier = callTool(router, context, 'verifier', {
+        hypothesis: 'live firecracker verifier smoke',
+        expectation: 'verifier observes a VM-created marker',
+        artifact_id: '',
+        trace_event_id: '',
+        verifier_script: 'printf "BEALE_VERIFY_OK\\n" > /tmp/beale-verifier.txt; cat /tmp/beale-verifier.txt',
+        artifact_path: '/tmp/beale-verifier.txt',
+        expected_stdout: 'BEALE_VERIFY_OK'
+      });
+      expect(verifier.status).toBe('success');
+      expect(verifier.payload.status).toBe('pass');
+      expect(verifier.payload.realExecution).toBe(true);
+      expect(verifier.artifact_id).toBeTruthy();
+
       const detail = db.getRunDetail(context.run.id);
       expect(detail.traceEvents.some((event) => event.summary === 'Guest python operation finished with success.')).toBe(true);
       expect(detail.traceEvents.some((event) => event.summary === 'Debugger wrapper operation finished with success.')).toBe(true);
+      expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable VM with pass.')).toBe(true);
       expect(detail.vmContexts[0].backend).toBe('vmctl');
       expect(detail.vmContexts[0].state).toBe('destroyed');
     } finally {

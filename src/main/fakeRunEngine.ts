@@ -386,7 +386,7 @@ function recordVerifier(
     behaviorPreserved: 'not_applicable',
     diagnosticsClean: status === 'pass' ? 'yes' : 'inconclusive',
     regressionTests: 'not_run',
-    result
+    result: { realExecution: false, vmExecution: false, simulated: true, ...result }
   });
   db.appendTraceEvent({
     runId: context.run.id,
@@ -608,23 +608,22 @@ function verifiedFindingSteps(): ScenarioStep[] {
       contextDb(context).createFinding({
         runId: context.run.id,
         hypothesisId,
-        state: 'verified',
+        state: 'needs_evidence',
         title: 'Tenant export authorization bypass',
-        summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass.',
+        summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass, but a real VM verifier is required before verification.',
         affectedAssets: { component: 'tenant export' },
         affectedVersions: { fixture: 'fake' },
         impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fake fixture.',
-        priorityScore: scorePriority(verifiedFindingFactors('authorization')),
-        verifiedByVerifierRunId: verifierRunId
+        priorityScore: scorePriority(verifiedFindingFactors('authorization'))
       });
       contextDb(context).appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
         type: 'finding_event',
         source: 'system',
-        summary: 'Verified finding F-2 recorded with verifier-backed evidence.',
+        summary: 'Simulated finding recorded; real VM verifier required for verified state.',
         payload: {
-          state: 'verified',
+          state: 'needs_evidence',
           verifierRunId,
           artifactId
         },
@@ -633,7 +632,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
       });
     },
     (context) => {
-      finishRun(context, 'completed', 'Verified finding F-2; collecting disclosure artifacts.', 'Verified finding F-2; collecting disclosure artifacts.');
+      finishRun(context, 'completed', 'Simulated finding F-2 collected; real verifier still required.', 'Simulated finding F-2 collected; real verifier still required.');
     }
   ];
 }

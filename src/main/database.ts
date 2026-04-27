@@ -266,6 +266,10 @@ function parseStringArray(value: SqlPrimitive | undefined): string[] {
   return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
+  return run.status === 'pass' && run.result.realExecution === true && run.result.vmExecution === true;
+}
+
 function text(row: SqlRow, key: string): string {
   const value = row[key];
   return typeof value === 'string' ? value : String(value ?? '');
@@ -1080,6 +1084,9 @@ export class WorkspaceDatabase {
   }
 
   public createFinding(input: CreateFindingInput): FindingRecord {
+    if (input.state === 'verified') {
+      this.assertVerifierRunCanVerify(input.verifiedByVerifierRunId ?? null, input.runId);
+    }
     const id = createId('finding');
     const createdAt = nowIso();
     this.db
@@ -1111,7 +1118,22 @@ export class WorkspaceDatabase {
   }
 
   public updateFindingState(findingId: string, state: string): void {
+    if (state === 'verified') {
+      throw new Error('Use verifyFindingWithVerifierRun to mark a finding verified.');
+    }
     this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
+  }
+
+  public verifyFindingWithVerifierRun(findingId: string, verifierRunId: string): FindingRecord {
+    const finding = this.getFinding(findingId);
+    if (!finding) throw new Error(`Finding not found: ${findingId}`);
+    this.assertVerifierRunCanVerify(verifierRunId, finding.runId);
+    this.db
+      .prepare('UPDATE findings SET state = ?, verified_by_verifier_run_id = ?, updated_at = ? WHERE id = ?')
+      .run('verified', verifierRunId, nowIso(), findingId);
+    const updated = this.getFinding(findingId);
+    if (!updated) throw new Error(`Finding not found after verification update: ${findingId}`);
+    return updated;
   }
 
   public createExportRecord(input: CreateExportInput): string {
@@ -1418,6 +1440,16 @@ export class WorkspaceDatabase {
   public getFirstVerifierContract(runId: string): VerifierContractRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC LIMIT 1').get(runId));
     return row ? this.mapVerifierContract(row) : null;
+  }
+
+  private assertVerifierRunCanVerify(verifierRunId: string | null, runId: string): void {
+    if (!verifierRunId) {
+      throw new Error('Verified findings require a passing real verifier run.');
+    }
+    const verifierRun = this.getVerifierRun(verifierRunId);
+    if (!verifierRun || verifierRun.runId !== runId || !verifierRunIsRealPass(verifierRun)) {
+      throw new Error('Verified findings require a passing real verifier run.');
+    }
   }
 
   private applyMigrations(): void {
