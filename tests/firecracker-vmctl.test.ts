@@ -53,15 +53,55 @@ describe('Firecracker vmctl controller', () => {
     expect(vmctl(configPath, 'clone_context', basePayload).result.reset).toBe(true);
     expect(readFileSync(contextRootfs, 'utf8')).toBe('base rootfs');
   });
+
+  it('retries guest SSH readiness before executing an operation', () => {
+    const { configPath, fakeBinDir, sshLogPath } = fixtureConfig({ fakeRuntimeCommands: true });
+    const payload = {
+      vmContextId: 'vm_firecracker_retry_test',
+      runId: 'run_firecracker_retry_test',
+      attemptId: 'attempt_firecracker_retry_test',
+      scopeVersionId: 'scope_firecracker_retry_test',
+      snapshotRef: 'clean',
+      networkProfile: 'offline'
+    };
+    const env = { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` };
+
+    expect(vmctl(configPath, 'create_context', payload, env).result.state).toBe('clean');
+    const response = vmctl(
+      configPath,
+      'execute',
+      {
+        ...payload,
+        operation: {
+          command: ['true'],
+          cwd: '/',
+          env: {},
+          timeoutMs: 1000,
+          networkProfile: 'offline'
+        }
+      },
+      env
+    );
+
+    try {
+      expect(response.result.status).toBe('success');
+      const sshCalls = readFileSync(sshLogPath, 'utf8').trim().split('\n');
+      expect(sshCalls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      vmctl(configPath, 'destroy', payload, env);
+    }
+  });
 });
 
-function fixtureConfig(): { configPath: string; stateDir: string; rootfsPath: string } {
+function fixtureConfig(options: { fakeRuntimeCommands?: boolean } = {}): { configPath: string; stateDir: string; rootfsPath: string; fakeBinDir: string; sshLogPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-firecracker-vmctl-'));
   createdDirs.push(dir);
   const binDir = join(dir, 'bin');
+  const fakeBinDir = join(dir, 'fake-bin');
   const imageDir = join(dir, 'images');
   const stateDir = join(dir, 'state');
   mkdirSync(binDir, { recursive: true });
+  mkdirSync(fakeBinDir, { recursive: true });
   mkdirSync(imageDir, { recursive: true });
   mkdirSync(stateDir, { recursive: true });
 
@@ -69,8 +109,54 @@ function fixtureConfig(): { configPath: string; stateDir: string; rootfsPath: st
   const kernelPath = join(imageDir, 'vmlinux');
   const rootfsPath = join(imageDir, 'rootfs.ext4');
   const sshKey = join(dir, 'id_rsa');
-  writeFileSync(firecrackerBin, '#!/bin/sh\nexit 0\n');
-  chmodSync(firecrackerBin, 0o755);
+  const sshLogPath = join(dir, 'ssh.log');
+  writeExecutable(
+    firecrackerBin,
+    options.fakeRuntimeCommands
+      ? `#!/bin/sh
+sock=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --api-sock)
+      shift
+      sock="$1"
+      ;;
+  esac
+  shift
+done
+: > "$sock"
+trap 'exit 0' TERM INT
+while :; do
+  sleep 1 &
+  wait "$!"
+done
+`
+      : '#!/bin/sh\nexit 0\n'
+  );
+  if (options.fakeRuntimeCommands) {
+    writeExecutable(join(fakeBinDir, 'curl'), '#!/bin/sh\nexit 0\n');
+    writeExecutable(join(fakeBinDir, 'ip'), '#!/bin/sh\nexit 0\n');
+    writeExecutable(join(fakeBinDir, 'scp'), '#!/bin/sh\nexit 0\n');
+    writeExecutable(
+      join(fakeBinDir, 'ssh'),
+      `#!/bin/sh
+count_file=${shellQuote(join(dir, 'ssh-count'))}
+log_file=${shellQuote(sshLogPath)}
+count=0
+if [ -f "$count_file" ]; then
+  count=$(cat "$count_file")
+fi
+count=$((count + 1))
+printf '%s\\n' "$count" > "$count_file"
+printf '%s\\n' "$*" >> "$log_file"
+if [ "$count" -eq 1 ]; then
+  printf '%s\\n' 'ssh fixture connection timed out' >&2
+  exit 255
+fi
+exit 0
+`
+    );
+  }
   writeFileSync(kernelPath, 'kernel');
   writeFileSync(rootfsPath, 'base rootfs');
   writeFileSync(sshKey, 'private key fixture');
@@ -88,19 +174,35 @@ function fixtureConfig(): { configPath: string; stateDir: string; rootfsPath: st
         runtimeDir: join(dir, 'run'),
         skipKvmCheck: true,
         skipTapCheck: true,
-        enableScopedNetwork: false
+        enableScopedNetwork: false,
+        sshTimeoutMs: 10_000
       },
       null,
       2
     )}\n`
   );
-  return { configPath, stateDir, rootfsPath };
+  return { configPath, stateDir, rootfsPath, fakeBinDir, sshLogPath };
 }
 
-function vmctl(configPath: string, action: string, payload: Record<string, unknown>): { ok: boolean; result: Record<string, unknown>; error?: string } {
+function vmctl(
+  configPath: string,
+  action: string,
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env
+): { ok: boolean; result: Record<string, unknown>; error?: string } {
   const output = execFileSync(process.execPath, [join(process.cwd(), 'scripts/firecracker-vmctl.mjs'), '--config', configPath], {
     input: JSON.stringify({ protocolVersion: 1, action, payload }),
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env
   });
   return JSON.parse(output);
+}
+
+function writeExecutable(path: string, content: string): void {
+  writeFileSync(path, content);
+  chmodSync(path, 0o755);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }

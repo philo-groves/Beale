@@ -32,9 +32,32 @@ describe.skipIf(!runLiveDocker)('live Docker benchmark runner', () => {
     expect(result.benchmark.latestResults.every((item) => item.isolationPassed)).toBe(true);
     expect(result.benchmark.latestResults.every((item) => item.graderReport.graderLocation === 'host_only')).toBe(true);
     expect(result.benchmark.latestResults.every((item) => item.graderReport.dockerCommand === 'docker')).toBe(true);
+    expect(result.benchmark.latestResults.every((item) => item.metrics.modelProxyCalled === true)).toBe(true);
+    expect(result.benchmark.latestResults.every((item) => typeof item.metrics.modelProxyRequests === 'number' && item.metrics.modelProxyRequests > 0)).toBe(true);
     expect(result.benchmark.isolationSummary.normalVmArchitectureChanged).toBe(false);
     service.close();
   });
+
+  it('runs the CyberGym-compatible parser fixture through Docker and host-side grading', async () => {
+    const service = new WorkspaceService();
+    service.createWorkspace(tempWorkspace());
+
+    const result = await service.runBenchmarkSuite({
+      suiteKind: 'cybergym_compat',
+      harnessName: 'live-cybergym-fixture',
+      dockerImage: process.env.BEALE_BENCHMARK_DOCKER_IMAGE ?? 'node:22-alpine'
+    });
+    const fixtureResult = result.benchmark.latestResults.find((item) => item.taskId === 'cybergym-l1-parser-off-by-one');
+
+    expect(result.benchmark.latestRun?.identity.totalCount).toBe(10);
+    expect(fixtureResult?.status).toBe('pass');
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).passed).toBe(true);
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).vulnerableObservation).toBe('crash');
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).fixedObservation).toBe('parsed');
+    expect(fixtureResult?.metrics.modelProxyCalled).toBe(true);
+    expect(JSON.stringify(fixtureResult?.agentOutput)).not.toContain('fixedSource');
+    service.close();
+  }, 30_000);
 });
 
 function tempWorkspace(): string {

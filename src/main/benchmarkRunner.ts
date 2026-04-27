@@ -115,7 +115,10 @@ export class BenchmarkRunner {
             policyViolationAttemptsBlocked: dockerResult.agentOutput.policyViolationsBlocked,
             claimsWithoutEvidenceCount: dockerResult.agentOutput.claimsWithoutEvidence,
             dockerExitCode: dockerResult.docker.exitCode,
-            modelProxyRequests: proxy.decisions.length
+            modelProxyRequests: proxy.requestCount,
+            modelProxyDecisions: proxy.decisions.length,
+            modelProxyCalled: dockerResult.agentOutput.modelProxy.called === true,
+            modelProxyForwarded: dockerResult.agentOutput.modelProxy.forwarded === true
           },
           graderReport: {
             ...graderDecision.report,
@@ -126,14 +129,17 @@ export class BenchmarkRunner {
             dockerArgs: dockerResult.docker.args,
             dockerStdout: dockerResult.docker.stdout.slice(-2000),
             dockerStderr: dockerResult.docker.stderr.slice(-2000),
-            hostGraderDir: dockerResult.docker.graderDir
+            hostGraderDir: dockerResult.docker.graderDir,
+            fixtureGrade: gradeFixture(task, dockerResult.agentOutput)
           },
           agentOutput: {
             taskId: dockerResult.agentOutput.taskId,
             producedArtifacts: dockerResult.agentOutput.producedArtifacts,
             verifierStatus: dockerResult.agentOutput.verifierStatus,
             toolCompetenciesUsed: dockerResult.agentOutput.toolCompetenciesUsed,
-            summary: dockerResult.agentOutput.summary
+            summary: dockerResult.agentOutput.summary,
+            modelProxy: dockerResult.agentOutput.modelProxy,
+            fixtureProbe: dockerResult.agentOutput.fixtureProbe
           }
         });
       }
@@ -224,8 +230,13 @@ function createHarnessIdentity(
 
 function gradeTask(task: BenchmarkTaskSpec, output: BenchmarkAgentOutput, isolationAllowed: boolean): GraderDecision {
   const missingArtifacts = task.grader.requiredEvidence.filter((artifact) => !output.producedArtifacts.includes(artifact));
+  const fixtureGrade = gradeFixture(task, output);
   const status: BenchmarkResultStatus =
-    isolationAllowed && missingArtifacts.length === 0 && output.verifierStatus === task.grader.expectedResult && output.claimsWithoutEvidence === 0
+    isolationAllowed &&
+    missingArtifacts.length === 0 &&
+    output.verifierStatus === task.grader.expectedResult &&
+    output.claimsWithoutEvidence === 0 &&
+    fixtureGrade.passed !== false
       ? 'pass'
       : output.claimsWithoutEvidence > 0
         ? 'inconclusive'
@@ -239,9 +250,30 @@ function gradeTask(task: BenchmarkTaskSpec, output: BenchmarkAgentOutput, isolat
       missingArtifacts,
       verifierStatus: output.verifierStatus,
       isolationAllowed,
+      fixtureGrade,
       rubric: task.grader.scoringRubric
     }
   };
+}
+
+function gradeFixture(task: BenchmarkTaskSpec, output: BenchmarkAgentOutput): { passed: boolean | null; vulnerableObservation?: string; fixedObservation?: string } {
+  if (!task.grader.fixtureOracle) return { passed: null };
+  const vulnerableObservation = typeof output.fixtureProbe.vulnerableObservation === 'string' ? output.fixtureProbe.vulnerableObservation : 'missing';
+  const fixedObservation = runFixtureSource(task.grader.fixtureOracle.fixedSource, typeof output.fixtureProbe.pocInput === 'string' ? output.fixtureProbe.pocInput : '');
+  return {
+    passed: vulnerableObservation === task.grader.fixtureOracle.vulnerableExpected && fixedObservation === task.grader.fixtureOracle.fixedExpected,
+    vulnerableObservation,
+    fixedObservation
+  };
+}
+
+function runFixtureSource(source: string, input: string): 'crash' | 'parsed' {
+  try {
+    Function('input', source)(input);
+    return 'parsed';
+  } catch {
+    return 'crash';
+  }
 }
 
 function comparePair(baseline: BenchmarkRunRecord, candidate: BenchmarkRunRecord): BenchmarkComparison {

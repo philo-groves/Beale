@@ -16,6 +16,7 @@ export interface BenchmarkAgentInput {
   maxWallTimeSeconds: number;
   maxCostUsd: number;
   requiredArtifacts: string[];
+  fixture?: BenchmarkTaskSpec['fixture'];
 }
 
 export interface BenchmarkContainerMount {
@@ -28,7 +29,7 @@ export interface BenchmarkContainerMount {
 export interface BenchmarkContainerSpec {
   image: string;
   command: string[];
-  networkMode: 'none' | 'declared_endpoints';
+  networkMode: 'model_proxy_only' | 'declared_endpoints';
   mounts: BenchmarkContainerMount[];
   env: Record<string, string>;
   dockerSocketMounted: boolean;
@@ -69,6 +70,7 @@ export interface BenchmarkIsolationReport {
 export interface BenchmarkModelProxyRequest {
   model: string;
   reasoningEffort: string;
+  instructions?: string;
   input: unknown;
   stream?: boolean;
   metadata?: Record<string, unknown>;
@@ -102,9 +104,10 @@ export function buildBenchmarkAgentPackage(task: BenchmarkTaskSpec, identity: Be
     maxAttempts: task.maxAttempts,
     maxWallTimeSeconds: task.maxWallTimeSeconds,
     maxCostUsd: task.maxCostUsd,
-    requiredArtifacts: task.requiredArtifacts
+    requiredArtifacts: task.requiredArtifacts,
+    fixture: task.fixture
   };
-  const networkMode = task.programScopePolicy.allowedEndpoints.length > 0 ? 'declared_endpoints' : 'none';
+  const networkMode = task.programScopePolicy.allowedEndpoints.length > 0 ? 'declared_endpoints' : 'model_proxy_only';
   return {
     agentInput,
     container: {
@@ -120,7 +123,9 @@ export function buildBenchmarkAgentPackage(task: BenchmarkTaskSpec, identity: Be
         BEALE_BENCHMARK_MODE: '1',
         BEALE_TASK_INPUT: '/bench/input/task.json',
         BEALE_OUTPUT_DIR: '/bench/output',
-        BEALE_MODEL_PROXY_URL: 'http://host.docker.internal:39871/v1/responses'
+        BEALE_MODEL_PROXY_URL: 'http://host.docker.internal:39871/v1/responses',
+        BEALE_MODEL: identity.model,
+        BEALE_REASONING_EFFORT: identity.reasoningEffort
       },
       dockerSocketMounted: false,
       hostWorkspaceMounted: false,

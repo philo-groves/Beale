@@ -14,6 +14,8 @@ export interface BenchmarkAgentOutput {
   policyViolationsBlocked: number;
   claimsWithoutEvidence: number;
   summary: string;
+  modelProxy: Record<string, unknown>;
+  fixtureProbe: Record<string, unknown>;
 }
 
 export interface BenchmarkDockerTaskInput {
@@ -84,7 +86,7 @@ export async function runBenchmarkDockerTask(input: BenchmarkDockerTaskInput): P
     'run',
     '--rm',
     '--network',
-    agentPackage.container.networkMode === 'none' ? 'none' : 'bridge',
+    'bridge',
     ...dockerUserArgs(),
     '--add-host',
     'host.docker.internal:host-gateway',
@@ -125,7 +127,9 @@ function parseAgentOutput(value: unknown): BenchmarkAgentOutput {
     toolCompetenciesUsed: stringArray(record.toolCompetenciesUsed),
     policyViolationsBlocked: numberValue(record.policyViolationsBlocked),
     claimsWithoutEvidence: numberValue(record.claimsWithoutEvidence),
-    summary: stringValue(record.summary)
+    summary: stringValue(record.summary),
+    modelProxy: recordValue(record.modelProxy),
+    fixtureProbe: recordValue(record.fixtureProbe)
   };
 }
 
@@ -174,4 +178,8 @@ function numberValue(value: unknown): number {
 
 function benchmarkStatus(value: unknown): BenchmarkResultStatus {
   return value === 'pass' || value === 'fail' || value === 'inconclusive' ? value : 'inconclusive';
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

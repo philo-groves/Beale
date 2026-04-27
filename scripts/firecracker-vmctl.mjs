@@ -373,8 +373,8 @@ function apiPut(config, socket, path, body) {
   runHost(config, 'curl', ['-fsS', '-X', 'PUT', '--unix-socket', socket, '--data', JSON.stringify(body), `http://localhost${path}`]);
 }
 
-function ssh(config, command, timeoutMs) {
-  return run('ssh', sshBaseArgs(config).concat(command.map(String)), { timeoutMs });
+function ssh(config, command, timeoutMs, options = {}) {
+  return run('ssh', sshBaseArgs(config).concat(command.map(String)), { ...options, timeoutMs });
 }
 
 function scpToGuest(config, source, destination) {
@@ -418,12 +418,14 @@ function scpBaseArgs(config) {
 
 async function waitForSsh(config) {
   const deadline = Date.now() + config.sshTimeoutMs;
+  let lastError = '';
   while (Date.now() < deadline) {
-    const result = ssh(config, ['true'], 3000);
+    const result = ssh(config, ['true'], 3000, { allowFailure: true });
     if (result.status === 0) return;
+    lastError = result.stderr || result.error || `status ${result.status}`;
     await sleep(500);
   }
-  throw new Error(`Timed out waiting for Firecracker guest SSH at ${config.network.guestIp}`);
+  throw new Error(`Timed out waiting for Firecracker guest SSH at ${config.network.guestIp}: ${lastError.slice(0, 500)}`);
 }
 
 async function waitForPath(path, timeoutMs) {
@@ -459,6 +461,7 @@ function run(command, args, options = {}) {
     signal: result.signal,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
+    error: result.error?.message ?? '',
     timedOut
   };
 }

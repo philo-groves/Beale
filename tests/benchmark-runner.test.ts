@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { assertBenchmarkIsolation, buildBenchmarkAgentPackage, validateModelProxyRequest } from '../src/main/benchmarkIsolation';
 import { startBenchmarkModelProxy } from '../src/main/benchmarkProxy';
 import { getBenchmarkSuite, listBenchmarkSuites } from '../src/main/benchmarkSuite';
+import { OpenAiResponsesAdapter, type FetchLike } from '../src/main/openaiAdapter';
+import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { WorkspaceService } from '../src/main/workspaceService';
 import type { BenchmarkHarnessIdentity } from '@shared/types';
 
 const createdDirs: string[] = [];
 
 afterEach(() => {
+  delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -82,6 +85,52 @@ describe('benchmark and calibration runner', () => {
     }
   });
 
+  it('forwards benchmark proxy requests through the host OpenAI adapter when credentials are configured', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'host-token-for-benchmark-test';
+    const requests: Array<{ body: Record<string, unknown>; authorization: string | null }> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const headers = init.headers as Record<string, string>;
+      requests.push({
+        body: JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>,
+        authorization: headers.Authorization ?? null
+      });
+      return new Response(
+        sse(
+          'event: response.output_text.done\ndata: {"type":"response.output_text.done","response_id":"resp_proxy","text":"forwarded ok"}\n\n' +
+            'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_proxy","usage":{"total_tokens":7}}}\n\n'
+        ),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    };
+    const adapter = new OpenAiResponsesAdapter(new OpenAiAuthService(), fetchImpl, 'https://api.openai.test/v1', null);
+    const proxy = await startBenchmarkModelProxy({
+      hostOnly: true,
+      allowedModel: 'gpt-5.5',
+      allowedReasoningEffort: 'xhigh',
+      maxInputBytes: 10_000,
+      maxOutputTokens: 1024,
+      secretLogging: false,
+      adapter,
+      allowOfflineFallback: false
+    });
+    try {
+      const response = await fetch(proxy.hostEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-5.5', reasoningEffort: 'xhigh', input: { taskId: 'proxy-forward' } })
+      });
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(response.status).toBe(200);
+      expect(body.forwarded).toBe(true);
+      expect(body.output_text).toBe('forwarded ok');
+      expect(body.credentialExposedToAgent).toBe(false);
+      expect(requests[0].authorization).toBe('Bearer host-token-for-benchmark-test');
+      expect((requests[0].body.reasoning as Record<string, unknown>).effort).toBe('xhigh');
+    } finally {
+      await proxy.close();
+    }
+  });
+
   it('records Docker benchmark results and compares same-model different-harness runs on a stable sample', async () => {
     const dockerCommand = fakeDockerCommand();
     const service = new WorkspaceService(undefined, { benchmarkDockerCommand: dockerCommand });
@@ -115,6 +164,8 @@ describe('benchmark and calibration runner', () => {
     expect(candidate.benchmark.latestResults.find((result) => result.taskId === 'smoke-artifact-capture')?.status).toBe('inconclusive');
     expect(String(candidate.benchmark.latestResults[0]?.graderReport.dockerCommand)).toBe(dockerCommand);
     expect(candidate.benchmark.latestResults[0]?.graderReport.graderLocation).toBe('host_only');
+    expect(candidate.benchmark.latestResults[0]?.metrics.modelProxyCalled).toBe(true);
+    expect(candidate.benchmark.latestResults[0]?.metrics.modelProxyRequests).toBeGreaterThan(0);
     expect(JSON.stringify(candidate.benchmark.latestResults[0]?.graderReport)).not.toContain('groundTruthRef');
     expect(comparison.compatible).toBe(true);
     expect(comparison.baselineHarness).toBe('baseline-harness');
@@ -133,6 +184,21 @@ describe('benchmark and calibration runner', () => {
     expect(snapshot.benchmark.latestRun?.identity.passCount).toBe(10);
     expect(snapshot.benchmark.latestResults.every((result) => result.isolationPassed)).toBe(true);
     expect(JSON.stringify(snapshot.benchmark.latestResults.map((result) => result.agentOutput))).not.toContain('groundTruthRef');
+    service.close();
+  });
+
+  it('runs the CyberGym-compatible pre/post fixture with host-side fixed-state grading', async () => {
+    const dockerCommand = fakeDockerCommand();
+    const service = new WorkspaceService(undefined, { benchmarkDockerCommand: dockerCommand });
+    service.createWorkspace(tempWorkspace());
+    const snapshot = await service.runBenchmarkSuite({ suiteKind: 'cybergym_compat', harnessName: 'fixture-harness', dockerImage: 'fake-node-image' });
+    const fixtureResult = snapshot.benchmark.latestResults.find((result) => result.taskId === 'cybergym-l1-parser-off-by-one');
+
+    expect(fixtureResult?.status).toBe('pass');
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).passed).toBe(true);
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).vulnerableObservation).toBe('crash');
+    expect((fixtureResult?.graderReport.fixtureGrade as Record<string, unknown>).fixedObservation).toBe('parsed');
+    expect(JSON.stringify(fixtureResult?.agentOutput)).not.toContain('fixedSource');
     service.close();
   });
 });
@@ -179,6 +245,8 @@ const task = JSON.parse(readFileSync(join(inputDir, 'task.json'), 'utf8'));
 const requiredArtifacts = Array.isArray(task.requiredArtifacts) ? task.requiredArtifacts : [];
 const forceFail = env.BEALE_BENCHMARK_FORCE_FAIL === '1';
 const producedArtifacts = forceFail ? requiredArtifacts.slice(0, Math.max(0, requiredArtifacts.length - 1)) : requiredArtifacts;
+const modelProxy = await callProxy(env, task);
+const fixtureProbe = task.fixture?.kind === 'cybergym_pre_post' ? runFixtureProbe(task.fixture) : null;
 mkdirSync(join(outputDir, 'artifacts'), { recursive: true });
 for (const artifact of producedArtifacts) {
   writeFileSync(join(outputDir, 'artifacts', String(artifact).replace(/[^a-z0-9._-]+/gi, '-') + '.txt'), 'artifact');
@@ -190,13 +258,55 @@ writeFileSync(join(outputDir, 'result.json'), JSON.stringify({
   toolCompetenciesUsed: task.expectedToolCompetencies,
   policyViolationsBlocked: task.mode === 'safety' || String(task.taskId).startsWith('safety-') ? 1 : 0,
   claimsWithoutEvidence: forceFail ? 1 : 0,
-  summary: forceFail ? 'fake docker omitted evidence' : 'fake docker produced evidence'
+  summary: forceFail ? 'fake docker omitted evidence' : 'fake docker produced evidence',
+  modelProxy,
+  fixtureProbe
 }, null, 2));
 console.log('fake docker completed ' + task.taskId);
+
+async function callProxy(env, task) {
+  if (!env.BEALE_MODEL_PROXY_URL) return { called: false, forwarded: false };
+  try {
+    const endpoint = String(env.BEALE_MODEL_PROXY_URL).replace('host.docker.internal', '127.0.0.1');
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: env.BEALE_MODEL,
+        reasoningEffort: env.BEALE_REASONING_EFFORT,
+        input: { taskId: task.taskId, requiredArtifacts: task.requiredArtifacts },
+        metadata: { taskId: task.taskId }
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    return { called: true, status: response.status, forwarded: body.forwarded === true, credentialExposedToAgent: body.credentialExposedToAgent === true };
+  } catch (error) {
+    return { called: true, forwarded: false, credentialExposedToAgent: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function runFixtureProbe(fixture) {
+  const pocInput = String(fixture.pocInput ?? '');
+  try {
+    const result = Function('input', fixture.vulnerableSource)(pocInput);
+    return { kind: fixture.kind, pocInput, vulnerableObservation: 'parsed', vulnerableResult: String(result) };
+  } catch (error) {
+    return { kind: fixture.kind, pocInput, vulnerableObservation: 'crash', vulnerableError: error instanceof Error ? error.message : String(error) };
+  }
+}
 `
   );
   chmodSync(path, 0o755);
   return path;
+}
+
+function sse(text: string): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    }
+  });
 }
 
 function harnessIdentity(taskSubsetId: string, taskIds: string[]): BenchmarkHarnessIdentity {
