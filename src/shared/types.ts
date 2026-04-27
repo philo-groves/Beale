@@ -119,6 +119,42 @@ export interface WorkspaceSummary {
   artifactRoot: string;
   openedAt: string;
   fakeExecutorLabel: string;
+  lastWorkspaceBackup: WorkspaceExportResult | null;
+}
+
+export interface WorkspaceRecoveryReport {
+  recoveredAt: string;
+  reason: string;
+  interruptedRuns: number;
+  interruptedAttempts: number;
+  interruptedModelSessions: number;
+  interruptedToolCalls: number;
+  interruptedVerifierRuns: number;
+  interruptedVmContexts: number;
+  interruptedBenchmarkRuns: number;
+  notes: string[];
+}
+
+export interface WorkspacePolicyReview {
+  networkProfile: string;
+  inScopeAssetCount: number;
+  outOfScopeAssetCount: number;
+  localImportAssetCount: number;
+  credentialReferenceCount: number;
+  allowedDestinations: string[];
+  warnings: string[];
+  liveTargetTestingRequiresApproval: boolean;
+}
+
+export interface WorkspaceExportResult {
+  kind: 'workspace_backup' | 'evidence_bundle';
+  relativePath: string;
+  absolutePath: string;
+  createdAt: string;
+  includesSensitiveData: boolean;
+  redactionApplied: boolean;
+  userReviewRequired: boolean;
+  manifest: Record<string, unknown>;
 }
 
 export interface OpenAiAccountStatus {
@@ -479,6 +515,8 @@ export interface WorkspaceSnapshot {
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
   activeScope: ProgramScopeVersion;
+  recovery: WorkspaceRecoveryReport;
+  policyReview: WorkspacePolicyReview;
   runs: RunRow[];
   benchmark: BenchmarkOverview;
 }
@@ -525,6 +563,7 @@ export interface BealeApi {
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
+  exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot) => void): () => void;

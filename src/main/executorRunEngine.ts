@@ -125,6 +125,14 @@ export class ExecutorRunEngine {
         try {
           this.executor.destroyContext(context);
         } catch (destroyError) {
+          this.db.updateVmContext(context.vmContext.id, {
+            state: 'recovery_pending',
+            metadata: {
+              recoveryRequired: true,
+              destroyFailed: true,
+              destroyError: errorMessage(destroyError)
+            }
+          });
           this.db.appendTraceEvent({
             runId: context.run.id,
             attemptId: context.attempt.id,

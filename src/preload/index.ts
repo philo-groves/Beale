@@ -32,6 +32,9 @@ const api: BealeApi = {
   runBenchmarkSuite(input: BenchmarkRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.runBenchmarkSuite, input);
   },
+  exportWorkspaceBackup(note?: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
+  },
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
   },

@@ -337,6 +337,7 @@ pre {
 
 .scope-panel,
 .start-panel,
+.hardening-panel,
 .benchmark-panel,
 .tracker-panel,
 .detail-panel {
@@ -380,13 +381,15 @@ pre {
   flex: 1 1 150px;
 }
 
-.benchmark-grid {
+.benchmark-grid,
+.hardening-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.benchmark-grid div {
+.benchmark-grid div,
+.hardening-grid div {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -394,17 +397,24 @@ pre {
   padding: 8px;
 }
 
-.benchmark-grid span {
+.benchmark-grid span,
+.hardening-grid span {
   display: block;
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 800;
 }
 
-.benchmark-grid strong {
+.benchmark-grid strong,
+.hardening-grid strong {
   display: block;
   margin-top: 2px;
   overflow-wrap: anywhere;
+}
+
+.review-list {
+  display: grid;
+  gap: 6px;
 }
 
 .benchmark-results {

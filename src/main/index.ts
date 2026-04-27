@@ -57,6 +57,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
   ipcMain.handle(IPC_CHANNELS.runBenchmarkSuite, (_event, input: BenchmarkRunInput) => workspaceService.runBenchmarkSuite(input));
+  ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) => workspaceService.getRunDetail(runId));
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) => workspaceService.steerRun(action));
 }

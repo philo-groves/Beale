@@ -1,5 +1,7 @@
-import { mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
 import { WorkspaceDatabase } from './database';
@@ -9,6 +11,7 @@ import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
+import { redactForModelText } from './redaction';
 import type {
   BenchmarkRunInput,
   FakeScenario,
@@ -16,9 +19,13 @@ import type {
   HypothesisRecord,
   PriorityFactorInput,
   ProgramScopeDraft,
+  ProgramScopeVersion,
   RunDetail,
   StartRunInput,
   SteeringAction,
+  WorkspaceExportResult,
+  WorkspacePolicyReview,
+  WorkspaceRecoveryReport,
   WorkspaceSnapshot,
   WorkspaceSummary
 } from '@shared/types';
@@ -39,6 +46,7 @@ export class WorkspaceService {
   private readonly openAiAuth = new OpenAiAuthService();
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
+  private lastRecovery: WorkspaceRecoveryReport | null = null;
 
   public constructor(
     private readonly onChange: () => void = () => undefined,
@@ -62,6 +70,8 @@ export class WorkspaceService {
       openAi: this.openAiAuth.getStatus(),
       executor: this.requireExecutorManager().getStatus(),
       activeScope: this.db.getActiveScope(),
+      recovery: this.lastRecovery ?? emptyRecoveryReport(this.openedAt),
+      policyReview: buildPolicyReview(this.db.getActiveScope()),
       runs: this.db.listRunRows(),
       benchmark: this.requireBenchmarkRunner().getOverview()
     };
@@ -89,6 +99,13 @@ export class WorkspaceService {
 
   public async runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot> {
     await this.requireBenchmarkRunner().runSuite(input);
+    this.emitChange();
+    return this.requireSnapshot();
+  }
+
+  public exportWorkspaceBackup(note = ''): WorkspaceSnapshot {
+    const result = this.createWorkspaceBackup(note);
+    this.requireDb().recordWorkspaceBackup(result);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -442,6 +459,7 @@ export class WorkspaceService {
     this.benchmarkRunner = null;
     this.workspacePath = null;
     this.openedAt = null;
+    this.lastRecovery = null;
   }
 
   private open(path: string, create: boolean): WorkspaceSnapshot {
@@ -466,6 +484,7 @@ export class WorkspaceService {
     this.openedAt = new Date().toISOString();
     this.db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     this.db.initialize();
+    this.lastRecovery = this.db.recoverInterruptedState('workspace_open');
     this.engine = new FakeRunEngine(this.db, this.onChange);
     this.executorManager = new ExecutorManager(this.db);
     this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, this.onChange);
@@ -536,7 +555,8 @@ export class WorkspaceService {
       databasePath: db.getDatabasePath(),
       artifactRoot: db.getArtifactRoot(),
       openedAt: this.openedAt,
-      fakeExecutorLabel: FAKE_EXECUTOR_LABEL
+      fakeExecutorLabel: FAKE_EXECUTOR_LABEL,
+      lastWorkspaceBackup: db.getLastWorkspaceBackup()
     };
   }
 
@@ -554,7 +574,7 @@ export class WorkspaceService {
     mkdirSync(exportDir, { recursive: true });
     const fileName = `${sanitizeFileSegment(detail.run.title)}-${finding ? sanitizeFileSegment(finding.id) : 'run'}-evidence.md`;
     const relativePath = join('.beale', 'exports', fileName).replace(/\\/g, '/');
-    writeFileSync(join(this.workspacePath, relativePath), markdown);
+    writeFileAtomic(join(this.workspacePath, relativePath), markdown);
     const artifact = db.createArtifact({
       kind: 'evidence_bundle_export',
       mimeType: 'text/markdown',
@@ -565,7 +585,13 @@ export class WorkspaceService {
         name: fileName,
         findingId: finding?.id ?? null,
         exportRelativePath: relativePath,
-        disclosureDraft: true
+        disclosureDraft: true,
+        redactionReview: {
+          redactionApplied: true,
+          userReviewRequired: true,
+          modelVisible: false,
+          obviousSecretPatternsRedacted: true
+        }
       },
       content: markdown
     });
@@ -574,7 +600,7 @@ export class WorkspaceService {
       findingId: finding?.id ?? null,
       kind: 'evidence_bundle',
       relativePath,
-      redactionPolicy: { modelVisible: false, redactionApplied: false, userReviewRequired: true },
+      redactionPolicy: { modelVisible: false, redactionApplied: true, userReviewRequired: true, obviousSecretPatternsRedacted: true },
       includedArtifacts: { artifactIds: detail.artifacts.map((item) => item.id), bundleArtifactId: artifact.id }
     });
     const event = db.appendTraceEvent({
@@ -595,6 +621,55 @@ export class WorkspaceService {
       modelVisible: false
     });
     db.setArtifactProvenance(artifact.id, event.id);
+  }
+
+  private createWorkspaceBackup(note: string): WorkspaceExportResult {
+    const db = this.requireDb();
+    if (!this.workspacePath) throw new Error('No Beale workspace is open');
+    db.checkpoint();
+    const createdAt = new Date().toISOString();
+    const exportDir = join(this.workspacePath, '.beale', 'exports');
+    mkdirSync(exportDir, { recursive: true });
+    const fileName = `${sanitizeFileSegment(this.getWorkspaceSummary().workspaceId)}-workspace-backup-${fileTimestamp(createdAt)}.tar.gz`;
+    const relativePath = join('.beale', 'exports', fileName).replace(/\\/g, '/');
+    const absolutePath = join(this.workspacePath, relativePath);
+    const tempArchivePath = `${absolutePath}.tmp`;
+    const stageRoot = mkdtempSync(join(tmpdir(), 'beale-workspace-backup-'));
+    const stageWorkspace = join(stageRoot, 'workspace');
+    try {
+      cpSync(this.workspacePath, stageWorkspace, {
+        recursive: true,
+        filter: (source) => shouldIncludeInWorkspaceBackup(this.workspacePath ?? '', source)
+      });
+      const manifest = {
+        kind: 'workspace_backup',
+        product: 'Beale',
+        workspaceId: db.getWorkspaceId(),
+        createdAt,
+        note: redactForModelText(note),
+        includesSensitiveData: true,
+        redactionApplied: false,
+        userReviewRequired: true,
+        databasePath: '.beale/beale.sqlite',
+        excludedTransientPaths: ['.beale/firecracker/state', '.beale/firecracker/run', '.beale/exports/*-workspace-backup-*.tar.gz']
+      };
+      writeFileSync(join(stageRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+      writeTarGzArchive(stageRoot, tempArchivePath);
+      renameSync(tempArchivePath, absolutePath);
+      return {
+        kind: 'workspace_backup',
+        relativePath,
+        absolutePath,
+        createdAt,
+        includesSensitiveData: true,
+        redactionApplied: false,
+        userReviewRequired: true,
+        manifest
+      };
+    } finally {
+      rmSync(tempArchivePath, { force: true });
+      rmSync(stageRoot, { recursive: true, force: true });
+    }
   }
 }
 
@@ -718,24 +793,24 @@ function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord |
   const traceRefs = detail.traceEvents
     .filter((event) => ['tool', 'executor', 'verifier'].includes(event.source) || event.artifactId)
     .slice(-25)
-    .map((event) => `- #${event.sequence} ${event.source}/${event.type}: ${event.summary}${event.artifactId ? ` artifact=${event.artifactId}` : ''}`)
+    .map((event) => `- #${event.sequence} ${event.source}/${event.type}: ${redactForModelText(event.summary)}${event.artifactId ? ` artifact=${event.artifactId}` : ''}`)
     .join('\n');
 
   return [
-    `# Evidence Bundle: ${detail.run.title}`,
+    `# Evidence Bundle: ${redactForModelText(detail.run.title)}`,
     '',
     '## Disclosure Draft',
-    finding ? `Finding: ${finding.title}` : 'Finding: run-level evidence bundle',
+    finding ? `Finding: ${redactForModelText(finding.title)}` : 'Finding: run-level evidence bundle',
     finding ? `State: ${finding.state}` : `Run status: ${detail.run.status}`,
     finding ? `Priority: ${finding.priorityScore.toFixed(2)}` : '',
     verified,
-    note ? `Reviewer note: ${note}` : '',
+    note ? `Reviewer note: ${redactForModelText(note)}` : '',
     '',
     '## Summary',
-    finding?.summaryMarkdown ?? detail.run.summary,
+    redactForModelText(finding?.summaryMarkdown ?? detail.run.summary),
     '',
     '## Impact',
-    finding?.impactMarkdown ?? 'Impact not promoted to a finding yet.',
+    redactForModelText(finding?.impactMarkdown ?? 'Impact not promoted to a finding yet.'),
     '',
     '## Artifacts',
     artifacts || 'No artifacts recorded.',
@@ -746,9 +821,162 @@ function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord |
     '## Trace References',
     traceRefs || 'No tool, executor, verifier, or artifact trace references recorded.',
     '',
+    '## Redaction Review',
+    'Obvious secret patterns were redacted before writing this export.',
+    'The bundle may still contain sensitive vulnerability details and requires user review before disclosure.',
+    '',
     '## Review Notes',
     'Generated by Beale as a candidate evidence bundle. User review is required before disclosure.'
   ].join('\n');
+}
+
+function emptyRecoveryReport(openedAt: string | null): WorkspaceRecoveryReport {
+  return {
+    recoveredAt: openedAt ?? new Date().toISOString(),
+    reason: 'workspace_open',
+    interruptedRuns: 0,
+    interruptedAttempts: 0,
+    interruptedModelSessions: 0,
+    interruptedToolCalls: 0,
+    interruptedVerifierRuns: 0,
+    interruptedVmContexts: 0,
+    interruptedBenchmarkRuns: 0,
+    notes: ['No interrupted authoritative state found.']
+  };
+}
+
+function buildPolicyReview(scope: ProgramScopeVersion): WorkspacePolicyReview {
+  const inScope = scope.assets.filter((asset) => asset.direction === 'in_scope');
+  const outOfScope = scope.assets.filter((asset) => asset.direction === 'out_of_scope');
+  const localImportAssetCount = inScope.filter((asset) => ['path', 'repo', 'binary', 'documentation', 'other'].includes(asset.kind)).length;
+  const credentialReferenceCount = inScope.filter((asset) => asset.kind === 'credential_ref' || asset.kind === 'account').length;
+  const allowedDestinations = inScope
+    .filter((asset) => ['domain', 'host', 'ip_range', 'service'].includes(asset.kind))
+    .map((asset) => asset.value);
+  const warnings: string[] = [];
+  if (inScope.length === 0) warnings.push('No in-scope assets are recorded.');
+  if (scope.networkProfile !== 'offline' && allowedDestinations.length === 0) {
+    warnings.push('Network profile is not offline, but no scoped network destinations are recorded.');
+  }
+  if (credentialReferenceCount > 0) warnings.push('Credential references require explicit host-side approval before injection.');
+  if (outOfScope.length === 0) warnings.push('No explicit out-of-scope assets are recorded.');
+  return {
+    networkProfile: scope.networkProfile,
+    inScopeAssetCount: inScope.length,
+    outOfScopeAssetCount: outOfScope.length,
+    localImportAssetCount,
+    credentialReferenceCount,
+    allowedDestinations,
+    warnings,
+    liveTargetTestingRequiresApproval: scope.networkProfile !== 'offline'
+  };
+}
+
+function writeFileAtomic(path: string, content: string): void {
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tempPath, content, { flag: 'wx' });
+  renameSync(tempPath, path);
+}
+
+function writeTarGzArchive(sourceRoot: string, destinationPath: string): void {
+  const chunks: Buffer[] = [];
+  for (const absolutePath of listArchiveEntries(sourceRoot)) {
+    const rel = `./${relative(sourceRoot, absolutePath).replace(/\\/g, '/')}`;
+    const stat = lstatSync(absolutePath);
+    if (stat.isDirectory()) {
+      chunks.push(tarHeader(rel.endsWith('/') ? rel : `${rel}/`, 0, stat.mode, stat.mtime, '5'));
+    } else if (stat.isSymbolicLink()) {
+      chunks.push(tarHeader(rel, 0, stat.mode, stat.mtime, '2', readlinkSync(absolutePath)));
+    } else if (stat.isFile()) {
+      const content = readFileSync(absolutePath);
+      chunks.push(tarHeader(rel, content.byteLength, stat.mode, stat.mtime, '0'));
+      chunks.push(content);
+      chunks.push(Buffer.alloc(tarPadding(content.byteLength)));
+    }
+  }
+  chunks.push(Buffer.alloc(1024));
+  writeFileSync(destinationPath, gzipSync(Buffer.concat(chunks)), { flag: 'wx' });
+}
+
+function listArchiveEntries(root: string): string[] {
+  const entries: string[] = [];
+  function visit(dir: string): void {
+    for (const name of readdirSync(dir).sort()) {
+      const absolutePath = join(dir, name);
+      entries.push(absolutePath);
+      if (lstatSync(absolutePath).isDirectory()) visit(absolutePath);
+    }
+  }
+  visit(root);
+  return entries;
+}
+
+function tarHeader(name: string, size: number, mode: number, mtime: Date, typeflag: '0' | '2' | '5', linkname = ''): Buffer {
+  const header = Buffer.alloc(512, 0);
+  const splitName = splitTarName(name);
+  writeAscii(header, splitName.name, 0, 100);
+  writeOctal(header, mode & 0o7777, 100, 8);
+  writeOctal(header, 0, 108, 8);
+  writeOctal(header, 0, 116, 8);
+  writeOctal(header, size, 124, 12);
+  writeOctal(header, Math.floor(mtime.getTime() / 1000), 136, 12);
+  header.fill(0x20, 148, 156);
+  writeAscii(header, typeflag, 156, 1);
+  writeAscii(header, linkname, 157, 100);
+  writeAscii(header, 'ustar', 257, 6);
+  writeAscii(header, '00', 263, 2);
+  writeAscii(header, 'beale', 265, 32);
+  writeAscii(header, 'beale', 297, 32);
+  writeAscii(header, splitName.prefix, 345, 155);
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  const encoded = checksum.toString(8).padStart(6, '0');
+  writeAscii(header, encoded, 148, 6);
+  header[154] = 0;
+  header[155] = 0x20;
+  return header;
+}
+
+function splitTarName(path: string): { name: string; prefix: string } {
+  const normalized = path.replace(/\\/g, '/');
+  if (Buffer.byteLength(normalized) <= 100) return { name: normalized, prefix: '' };
+  for (let index = normalized.lastIndexOf('/'); index > 0; index = normalized.lastIndexOf('/', index - 1)) {
+    const prefix = normalized.slice(0, index);
+    const name = normalized.slice(index + 1);
+    if (Buffer.byteLength(name) <= 100 && Buffer.byteLength(prefix) <= 155) {
+      return { name, prefix };
+    }
+  }
+  throw new Error(`Path is too long for ustar workspace backup: ${normalized}`);
+}
+
+function writeAscii(buffer: Buffer, value: string, offset: number, length: number): void {
+  buffer.write(value.slice(0, length), offset, length, 'utf8');
+}
+
+function writeOctal(buffer: Buffer, value: number, offset: number, length: number): void {
+  const encoded = value.toString(8).padStart(length - 1, '0').slice(0, length - 1);
+  writeAscii(buffer, encoded, offset, length - 1);
+}
+
+function tarPadding(size: number): number {
+  const remainder = size % 512;
+  return remainder === 0 ? 0 : 512 - remainder;
+}
+
+function shouldIncludeInWorkspaceBackup(workspacePath: string, source: string): boolean {
+  if (!workspacePath) return false;
+  if (!existsSync(source)) return false;
+  const rel = relative(workspacePath, source).replace(/\\/g, '/');
+  if (!rel) return true;
+  if (rel === '.beale/firecracker/state' || rel.startsWith('.beale/firecracker/state/')) return false;
+  if (rel === '.beale/firecracker/run' || rel.startsWith('.beale/firecracker/run/')) return false;
+  if (/^\.beale\/exports\/.+-workspace-backup-\d{8}t\d{6}z\.tar\.gz(?:\.tmp)?$/i.test(rel)) return false;
+  return true;
+}
+
+function fileTimestamp(iso: string): string {
+  return iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').toLowerCase();
 }
 
 function sanitizeFileSegment(value: string): string {

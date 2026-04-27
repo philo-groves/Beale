@@ -3,6 +3,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
 const logPath = process.argv[2];
+const failActions = new Set((process.argv[3] ?? '').split(',').map((item) => item.trim()).filter(Boolean));
 if (logPath) {
   appendFileSync(logPath, `${JSON.stringify({ input, env: process.env })}\n`);
 }
@@ -98,6 +99,10 @@ const handlers = {
 const handler = handlers[input.action];
 if (!handler) {
   console.log(JSON.stringify({ ok: false, error: `unsupported action: ${input.action}` }));
+  process.exit(0);
+}
+if (failActions.has(input.action)) {
+  console.log(JSON.stringify({ ok: false, error: `fixture forced ${input.action} failure` }));
   process.exit(0);
 }
 

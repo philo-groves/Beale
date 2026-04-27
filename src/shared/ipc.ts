@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   saveProgramScope: 'beale:save-program-scope',
   startRun: 'beale:start-run',
   runBenchmarkSuite: 'beale:run-benchmark-suite',
+  exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
   steerRun: 'beale:steer-run',
   snapshotUpdated: 'beale:snapshot-updated'

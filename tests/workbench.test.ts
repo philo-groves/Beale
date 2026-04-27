@@ -1,6 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScopeAssetKind, StartRunInput } from '@shared/types';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
@@ -34,6 +36,47 @@ describe('Beale workbench skeleton', () => {
     expect(reopened.workspace.workspaceId).toBe(workspaceId);
     expect(reopened.activeScope.version).toBe(1);
     service.close();
+  });
+
+  it('upgrades an older migration marker into the current workspace schema', () => {
+    const dir = tempWorkspace();
+    mkdirSync(join(dir, '.beale', 'artifacts', 'sha256'), { recursive: true });
+    const raw = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
+    raw.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations (version, name, applied_at)
+      VALUES (1, 'old_fixture_schema', '2026-01-01T00:00:00.000Z');
+    `);
+    raw.close();
+
+    const service = new WorkspaceService();
+    const snapshot = service.openWorkspace(dir);
+    expect(snapshot.activeScope.programName).toBe('Untitled Program');
+    expect(snapshot.recovery.interruptedRuns).toBe(0);
+    service.close();
+  });
+
+  it('recovers interrupted active state on workspace reopen', () => {
+    const service = openService();
+    const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const runId = snapshot.runs[0].run.id;
+    const workspacePath = snapshot.workspace.workspacePath;
+    service.close();
+
+    const reopened = new WorkspaceService();
+    const recovered = reopened.openWorkspace(workspacePath);
+    const detail = reopened.getRunDetail(runId);
+
+    expect(recovered.recovery.interruptedRuns).toBe(1);
+    expect(recovered.runs[0].run.status).toBe('paused');
+    expect(detail.attempts[0].status).toBe('paused');
+    expect(detail.vmContexts[0].state).toBe('recovery_pending');
+    expect(detail.traceEvents.some((event) => event.summary === 'Workspace recovery paused interrupted run after app restart.')).toBe(true);
+    reopened.close();
   });
 
   it('persists scope edits as a new active version with typed assets', () => {
@@ -184,7 +227,7 @@ describe('Beale workbench skeleton', () => {
     service.steerRun({ type: 'request_patch_validation', runId, findingId: finding?.id });
     service.steerRun({ type: 'mark_finding_false_positive', runId, findingId: finding?.id ?? '' });
     service.steerRun({ type: 'mark_finding_out_of_scope', runId, findingId: finding?.id ?? '' });
-    service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding?.id });
+    service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding?.id, note: 'api_key=supersecretvalue12345' });
 
     detail = service.getRunDetail(runId);
     const exported = detail.artifacts.find((artifact) => artifact.kind === 'evidence_bundle_export');
@@ -193,7 +236,37 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked false positive by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(true);
     expect(exported?.modelVisible).toBe(false);
-    expect(existsSync(join(snapshot.workspace.workspacePath, String(exported?.metadata.exportRelativePath)))).toBe(true);
+    const exportedPath = join(snapshot.workspace.workspacePath, String(exported?.metadata.exportRelativePath));
+    expect(existsSync(exportedPath)).toBe(true);
+    expect(readFileSync(exportedPath, 'utf8')).toContain('api_key=...redacted');
+    expect(readFileSync(exportedPath, 'utf8')).not.toContain('supersecretvalue12345');
+    service.close();
+  });
+
+  it('exports a checkpointed workspace backup archive with a review manifest', () => {
+    const service = openService();
+    service.saveProgramScope({
+      programName: 'Backup Program',
+      organizationName: 'Example Org',
+      descriptionMarkdown: 'Scoped backup test.',
+      rulesMarkdown: 'Offline only.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'path', '/tmp/backup-target')]
+    });
+
+    const snapshot = service.exportWorkspaceBackup('secret=workspacebackupsecret12345');
+    const backup = snapshot.workspace.lastWorkspaceBackup;
+    expect(backup).toBeTruthy();
+    expect(backup?.includesSensitiveData).toBe(true);
+    expect(backup?.userReviewRequired).toBe(true);
+    expect(String(backup?.manifest.note)).toContain('secret=...redacted');
+    expect(String(backup?.manifest.note)).not.toContain('workspacebackupsecret12345');
+    expect(existsSync(String(backup?.absolutePath))).toBe(true);
+
+    const listing = execFileSync('tar', ['-tzf', String(backup?.absolutePath)], { encoding: 'utf8' });
+    expect(listing).toContain('./manifest.json');
+    expect(listing).toContain('./workspace/.beale/beale.sqlite');
     service.close();
   });
 });

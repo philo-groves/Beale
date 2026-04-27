@@ -184,12 +184,17 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workbench-header">
           <div>
-            <p className="eyebrow">Milestone 6</p>
-            <h2>Benchmark and Calibration</h2>
+            <p className="eyebrow">Milestone 7</p>
+            <h2>Beta Hardening</h2>
           </div>
           <div className="header-stats">
             <Stat label="Runs" value={String(snapshot.runs.length)} />
             <Stat label="Scope Assets" value={String(snapshot.activeScope.assets.length)} />
+            <Stat
+              label="Recovery"
+              value={snapshot.recovery.interruptedRuns + snapshot.recovery.interruptedVmContexts > 0 ? 'Review' : 'Clean'}
+              tone={snapshot.recovery.interruptedRuns + snapshot.recovery.interruptedVmContexts > 0 ? 'warning' : undefined}
+            />
             <Stat label="Benchmarks" value={snapshot.benchmark.latestRun ? `${snapshot.benchmark.latestRun.identity.passCount}/${snapshot.benchmark.latestRun.identity.totalCount}` : 'None'} />
             <Stat label="OpenAI" value={snapshot.openAi.configured ? 'Ready' : 'Missing'} tone={snapshot.openAi.configured ? undefined : 'warning'} />
             <Stat label="Executor" value={snapshot.executor.available ? snapshot.executor.provider : 'Unavailable'} tone={snapshot.executor.available ? undefined : 'warning'} />
@@ -200,6 +205,7 @@ export function App(): JSX.Element {
           <ScopeEditor snapshot={snapshot} busy={busy} runAction={runAction} />
           <section className="center-column">
             <StartRunForm snapshot={snapshot} busy={busy} runAction={runAction} onStarted={setSelectedRunId} />
+            <HardeningPanel snapshot={snapshot} busy={busy} runAction={runAction} />
             <BenchmarkPanel benchmark={snapshot.benchmark} busy={busy} runAction={runAction} />
             <RunTracker runs={snapshot.runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
           </section>
@@ -485,6 +491,72 @@ function StartRunForm({
           <input type="number" min={1} value={input.budget.maxAttempts} onChange={(event) => updateBudget('maxAttempts', Number(event.target.value))} />
         </label>
       </div>
+    </section>
+  );
+}
+
+function HardeningPanel({
+  snapshot,
+  busy,
+  runAction
+}: {
+  snapshot: WorkspaceSnapshot;
+  busy: boolean;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+}): JSX.Element {
+  const interruptedTotal =
+    snapshot.recovery.interruptedRuns +
+    snapshot.recovery.interruptedAttempts +
+    snapshot.recovery.interruptedModelSessions +
+    snapshot.recovery.interruptedToolCalls +
+    snapshot.recovery.interruptedVerifierRuns +
+    snapshot.recovery.interruptedVmContexts +
+    snapshot.recovery.interruptedBenchmarkRuns;
+  const backup = (): void => {
+    void runAction(() => window.beale.exportWorkspaceBackup('Manual workspace backup from beta hardening panel.'));
+  };
+
+  return (
+    <section className="panel hardening-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Hardening</p>
+          <h3>Recovery and Review</h3>
+        </div>
+        <button type="button" disabled={busy} onClick={backup} title="Export workspace backup">
+          <FileArchive size={16} />
+          Backup
+        </button>
+      </div>
+      <div className="hardening-grid">
+        <div>
+          <span>Recovery</span>
+          <strong>{interruptedTotal > 0 ? `${interruptedTotal} item${interruptedTotal === 1 ? '' : 's'}` : 'clean'}</strong>
+        </div>
+        <div>
+          <span>VM review</span>
+          <strong>{snapshot.recovery.interruptedVmContexts}</strong>
+        </div>
+        <div>
+          <span>Network</span>
+          <strong>{snapshot.policyReview.networkProfile}</strong>
+        </div>
+        <div>
+          <span>Backup</span>
+          <strong>{snapshot.workspace.lastWorkspaceBackup ? 'ready' : 'none'}</strong>
+        </div>
+      </div>
+      {snapshot.policyReview.warnings.length > 0 ? (
+        <div className="review-list">
+          {snapshot.policyReview.warnings.map((warning) => (
+            <div className="policy-line" key={warning}>
+              <ShieldAlert size={15} />
+              {warning}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {snapshot.workspace.lastWorkspaceBackup ? <div className="path-text">{snapshot.workspace.lastWorkspaceBackup.relativePath}</div> : null}
     </section>
   );
 }

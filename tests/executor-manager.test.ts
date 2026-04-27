@@ -175,11 +175,43 @@ describe('VM executor alpha', () => {
     expect(readVmctlActions(logPath).filter((action) => action === 'execute')).toHaveLength(2);
     service.close();
   });
+
+  it('marks VM contexts for recovery review when run failure cleanup also fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-executor-service-failure-'));
+    createdDirs.push(dir);
+    const targetDir = join(dir, 'target');
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, 'target.txt'), 'service target material\n');
+    const logPath = join(dir, 'vmctl.log');
+    configureVmctlFixture(logPath, 'execute,destroy');
+
+    const service = new WorkspaceService();
+    service.createWorkspace(dir);
+    service.saveProgramScope({
+      programName: 'Executor Failure Program',
+      organizationName: 'Example Org',
+      descriptionMarkdown: 'Executor alpha failure path.',
+      rulesMarkdown: 'Offline guest execution only.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [{ direction: 'in_scope', kind: 'path', value: targetDir, sensitivity: 'internal', attributes: {} }]
+    });
+
+    const snapshot = service.startRun({ ...runInput(), runEngine: 'executor_alpha' });
+    const detail = service.getRunDetail(snapshot.runs[0].run.id);
+
+    expect(detail.run.status).toBe('failed');
+    expect(detail.vmContexts[0].state).toBe('recovery_pending');
+    expect(detail.vmContexts[0].metadata.recoveryRequired).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'VM executor alpha failed to destroy guest after run failure.')).toBe(true);
+    expect(readVmctlActions(logPath)).toContain('destroy');
+    service.close();
+  });
 });
 
-function configureVmctlFixture(logPath: string): void {
+function configureVmctlFixture(logPath: string, failActions = ''): void {
   process.env.BEALE_VMCTL_COMMAND = process.execPath;
-  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath]);
+  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions]);
 }
 
 function readVmctlActions(logPath: string): string[] {

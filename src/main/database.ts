@@ -31,7 +31,9 @@ import type {
   TraceSource,
   VerifierContractRecord,
   VerifierRunRecord,
-  VmContextRecord
+  VmContextRecord,
+  WorkspaceExportResult,
+  WorkspaceRecoveryReport
 } from '@shared/types';
 
 type SqlPrimitive = string | number | bigint | null;
@@ -320,6 +322,10 @@ export class WorkspaceDatabase {
     this.ensureDefaultScope();
   }
 
+  public checkpoint(): void {
+    this.db.exec('PRAGMA wal_checkpoint(FULL);');
+  }
+
   public close(): void {
     this.db.close();
   }
@@ -334,6 +340,169 @@ export class WorkspaceDatabase {
 
   public getArtifactRoot(): string {
     return this.artifactRoot;
+  }
+
+  public getLastWorkspaceBackup(): WorkspaceExportResult | null {
+    const value = this.getMetaValue('last_workspace_backup_json');
+    if (!value) return null;
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as WorkspaceExportResult;
+    }
+    return null;
+  }
+
+  public recordWorkspaceBackup(result: WorkspaceExportResult): void {
+    this.setMetaValue('last_workspace_backup_json', JSON.stringify(result), result.createdAt);
+  }
+
+  public recoverInterruptedState(reason = 'workspace_open'): WorkspaceRecoveryReport {
+    const recoveredAt = nowIso();
+    const interruptedRunRows = rows(this.db.prepare("SELECT id FROM runs WHERE status IN ('queued', 'active')").all());
+    const interruptedAttemptRows = rows(this.db.prepare("SELECT id, run_id, vm_context_id FROM attempts WHERE status IN ('queued', 'active')").all());
+    const interruptedModelRows = rows(this.db.prepare("SELECT id, metadata_json, status FROM model_sessions WHERE status IN ('active', 'running')").all());
+    const interruptedToolRows = rows(this.db.prepare("SELECT id, result_json FROM tool_calls WHERE status = 'running'").all());
+    const interruptedVerifierRows = rows(this.db.prepare("SELECT id, result_json, status FROM verifier_runs WHERE status IN ('queued', 'running')").all());
+    const interruptedVmRows = rows(
+      this.db
+        .prepare(
+          `SELECT DISTINCT v.* FROM vm_contexts v
+           JOIN attempts a ON a.vm_context_id = v.id
+           JOIN runs r ON r.id = a.run_id
+           WHERE v.destroyed_at IS NULL
+             AND v.state NOT IN ('destroyed', 'preserved', 'recovery_pending')
+             AND (r.status IN ('queued', 'active') OR a.status IN ('queued', 'active'))`
+        )
+        .all()
+    );
+    const interruptedBenchmarkRows = rows(this.db.prepare("SELECT id, metadata_json FROM benchmark_runs WHERE status = 'running'").all());
+
+    const report: WorkspaceRecoveryReport = {
+      recoveredAt,
+      reason,
+      interruptedRuns: interruptedRunRows.length,
+      interruptedAttempts: interruptedAttemptRows.length,
+      interruptedModelSessions: interruptedModelRows.length,
+      interruptedToolCalls: interruptedToolRows.length,
+      interruptedVerifierRuns: interruptedVerifierRows.length,
+      interruptedVmContexts: interruptedVmRows.length,
+      interruptedBenchmarkRuns: interruptedBenchmarkRows.length,
+      notes: []
+    };
+
+    const total =
+      report.interruptedRuns +
+      report.interruptedAttempts +
+      report.interruptedModelSessions +
+      report.interruptedToolCalls +
+      report.interruptedVerifierRuns +
+      report.interruptedVmContexts +
+      report.interruptedBenchmarkRuns;
+    if (total === 0) {
+      report.notes.push('No interrupted authoritative state found.');
+      this.setMetaValue('last_recovery_json', JSON.stringify(report), recoveredAt);
+      return report;
+    }
+
+    report.notes.push('Interrupted active work was paused or marked for review on workspace open.');
+    if (report.interruptedVmContexts > 0) {
+      report.notes.push('VM contexts that were not known destroyed were marked recovery_pending for user review.');
+    }
+    if (report.interruptedBenchmarkRuns > 0) {
+      report.notes.push('Running benchmark records were marked failed because Docker agent state cannot be resumed safely.');
+    }
+
+    this.transaction(() => {
+      for (const row of interruptedRunRows) {
+        this.db
+          .prepare('UPDATE runs SET status = ?, summary = ? WHERE id = ?')
+          .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
+      }
+      for (const row of interruptedAttemptRows) {
+        this.db
+          .prepare('UPDATE attempts SET status = ?, short_state = ? WHERE id = ?')
+          .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
+      }
+      for (const row of interruptedModelRows) {
+        const metadata = {
+          ...parseJson(row.metadata_json),
+          interruptedByRecovery: true,
+          previousStatus: text(row, 'status'),
+          recoveredAt,
+          reason
+        };
+        this.db
+          .prepare('UPDATE model_sessions SET status = ?, metadata_json = ?, updated_at = ? WHERE id = ?')
+          .run('paused_recovered', toJson(metadata), recoveredAt, text(row, 'id'));
+      }
+      for (const row of interruptedToolRows) {
+        const result = {
+          ...parseJson(row.result_json),
+          interruptedByRecovery: true,
+          recoveredAt,
+          reason
+        };
+        this.db
+          .prepare('UPDATE tool_calls SET status = ?, result_summary = ?, result_json = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+          .run('interrupted', 'Interrupted by workspace recovery before a final tool result was recorded.', toJson(result), recoveredAt, text(row, 'id'));
+      }
+      for (const row of interruptedVerifierRows) {
+        const result = {
+          ...parseJson(row.result_json),
+          interruptedByRecovery: true,
+          previousStatus: text(row, 'status'),
+          recoveredAt,
+          reason
+        };
+        this.db
+          .prepare('UPDATE verifier_runs SET status = ?, result_json = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+          .run('error', toJson(result), recoveredAt, text(row, 'id'));
+      }
+      for (const row of interruptedVmRows) {
+        const metadata = {
+          ...parseJson(row.metadata_json),
+          recoveryRequired: true,
+          recoveredAt,
+          previousState: text(row, 'state'),
+          reason
+        };
+        this.db.prepare('UPDATE vm_contexts SET state = ?, metadata_json = ? WHERE id = ?').run('recovery_pending', toJson(metadata), text(row, 'id'));
+      }
+      for (const row of interruptedBenchmarkRows) {
+        const metadata = {
+          ...parseJson(row.metadata_json),
+          interruptedByRecovery: true,
+          recoveredAt,
+          reason
+        };
+        this.db
+          .prepare('UPDATE benchmark_runs SET status = ?, metadata_json = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
+          .run('failed', toJson(metadata), recoveredAt, text(row, 'id'));
+      }
+
+      for (const row of interruptedRunRows) {
+        const runId = text(row, 'id');
+        const attempt = interruptedAttemptRows.find((attemptRow) => text(attemptRow, 'run_id') === runId);
+        this.appendTraceEvent({
+          runId,
+          attemptId: attempt ? text(attempt, 'id') : null,
+          type: 'vm_event',
+          source: 'system',
+          summary: 'Workspace recovery paused interrupted run after app restart.',
+          payload: {
+            recoveredAt,
+            reason,
+            authoritativeStatePreserved: true,
+            userReviewRequired: true
+          },
+          vmContextId: attempt ? nullableText(attempt, 'vm_context_id') : null,
+          modelVisible: false
+        });
+      }
+      this.setMetaValue('last_recovery_json', JSON.stringify(report), recoveredAt);
+    });
+
+    return report;
   }
 
   public getActiveScope(): ProgramScopeVersion {
@@ -1276,6 +1445,16 @@ export class WorkspaceDatabase {
   private getMetaValue(key: string): string | null {
     const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(key));
     return row ? text(row, 'value') : null;
+  }
+
+  private setMetaValue(key: string, value: string, updatedAt = nowIso()): void {
+    this.db
+      .prepare(
+        `INSERT INTO workspace_meta (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      )
+      .run(key, value, updatedAt);
   }
 
   private insertScopeAsset(scopeVersionId: string, asset: ScopeAssetInput, createdAt: string): void {
