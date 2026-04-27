@@ -10,6 +10,7 @@ import {
 import { OpenAiAuthService } from './openaiAuth';
 import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
+import type { ExecutorManager } from './executorManager';
 import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput } from '@shared/types';
 
 export interface OpenAiRunHandle {
@@ -32,6 +33,7 @@ export class OpenAiRunEngine {
     private readonly db: WorkspaceDatabase,
     private readonly auth: OpenAiAuthService,
     private readonly adapter: OpenAiResponsesAdapter,
+    private readonly executor: ExecutorManager | null = null,
     private readonly onChange: () => void = () => undefined
   ) {}
 
@@ -227,7 +229,7 @@ export class OpenAiRunEngine {
   }
 
   private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
-    const router = new BealeToolRouter(this.db);
+    const router = new BealeToolRouter(this.db, this.executor);
     const scope = this.db.getActiveScope();
     let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
     let previousResponseId: string | null = state?.previousResponseId ?? null;

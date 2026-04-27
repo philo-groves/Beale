@@ -290,8 +290,8 @@ export class WorkspaceService {
     this.db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     this.db.initialize();
     this.engine = new FakeRunEngine(this.db, this.onChange);
-    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.onChange);
     this.executorManager = new ExecutorManager(this.db);
+    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, this.onChange);
     this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, this.onChange);
     this.emitChange();
     return this.requireSnapshot();

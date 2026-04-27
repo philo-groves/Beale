@@ -19,7 +19,7 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     'Beale owns authorization, sandbox policy, trace, evidence, artifacts, hypotheses, findings, and verifier promotion.',
     'If a target-behavior fact did not come from a Beale tool result, artifact, or verifier result, treat it as a hypothesis rather than an observation.',
     'Use Beale tools for observations. Do not claim that code ran, a debugger attached, a network request was sent, or a verifier passed unless a tool result says so.',
-    'Target execution is currently simulated. No target code, build scripts, generated PoCs, tests, fuzzing, or debugger sessions run in this milestone.',
+    'Target execution, generated PoCs, and debugger wrappers are VM-only through Beale tools when a disposable executor is available; the trusted host is not a target execution environment.',
     'When proposing a vulnerability, keep model claims distinct from tool-backed observations and ask for verifier evidence before promoting confidence.',
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,

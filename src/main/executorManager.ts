@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { nowIso } from './database';
 import type { ExecutorNetworkProfile, ExecutorStatus, ScopeAsset } from '@shared/types';
-import type { ExecutorProvider, GuestExecuteRequest, GuestExportRequest, GuestImportSpec } from './executorTypes';
+import type { ExecutorProvider, GuestExecuteRequest, GuestExecuteResult, GuestExportRequest, GuestImportSpec } from './executorTypes';
 import { VmctlExecutorProvider } from './vmctlExecutor';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
@@ -94,7 +94,7 @@ export class ExecutorManager {
     });
   }
 
-  public executeGuestOperation(context: CreatedRunContext, request: GuestExecuteRequest): void {
+  public executeGuestOperation(context: CreatedRunContext, request: GuestExecuteRequest): GuestExecuteResult {
     const status = this.requireAvailable();
     const networkProfile = normalizeNetworkProfile(request.networkProfile);
     if (!status.supportedNetworkProfiles.includes(networkProfile)) {
@@ -176,6 +176,7 @@ export class ExecutorManager {
       vmContextId: context.vmContext.id
     });
     this.db.linkToolCallTrace(toolCallId, resultEvent.id);
+    return result;
   }
 
   public exportArtifact(context: CreatedRunContext, request: GuestExportRequest): string {
