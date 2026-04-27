@@ -1,0 +1,455 @@
+# SQLite Schema
+
+Status: draft schema direction, 2026-04-27.
+
+## Decision
+
+Beale should start with a simple normalized SQLite schema that preserves the core research graph:
+
+```text
+workspace scope
+  -> runs
+  -> attempts
+  -> trace events
+  -> observations
+  -> evidence
+  -> hypotheses
+  -> findings
+  -> verifier contracts and results
+  -> artifacts
+```
+
+The first schema should be explicit and queryable. It should avoid opaque document-only storage for core state, while still allowing JSON columns for versioned metadata that is not yet stable.
+
+## Database Rules
+
+- One SQLite database per workspace.
+- No global cross-workspace database.
+- Enable foreign keys.
+- Use WAL mode for normal app operation.
+- Store timestamps as UTC ISO-8601 text or integer epoch milliseconds consistently.
+- Use stable text IDs for user-visible entities.
+- Keep large binary payloads out of SQLite.
+- Store artifact metadata in SQLite and artifact bytes in the content-addressed artifact store.
+- Treat trace as append-oriented.
+- Apply migrations with explicit schema versions.
+
+## ID Strategy
+
+Use stable text IDs for entities that appear in the UI or reports:
+
+- `run_...`
+- `attempt_...`
+- `trace_...`
+- `artifact_...`
+- `hyp_...`
+- `finding_...`
+- `verifier_...`
+- `approval_...`
+- `vm_...`
+
+The exact generator can be ULID, UUIDv7, or another sortable unique ID. The important properties are stable references, low collision risk, and good ordering behavior.
+
+## Core Tables
+
+### `workspace_meta`
+
+Purpose:
+
+- Store workspace-local metadata and schema version.
+
+Fields:
+
+- `key`
+- `value`
+- `updated_at`
+
+Required keys:
+
+- `schema_version`
+- `workspace_id`
+- `created_at`
+
+### `program_scope_versions`
+
+Purpose:
+
+- Store versioned authorization and scope state.
+
+Fields:
+
+- `id`
+- `version`
+- `status`
+- `program_name`
+- `organization_name`
+- `description_markdown`
+- `network_policy_json`
+- `rules_markdown`
+- `active_from`
+- `expires_at`
+- `created_at`
+- `created_by`
+
+Every run should reference the active scope version used at run start.
+
+### `scope_assets`
+
+Purpose:
+
+- Store in-scope and out-of-scope assets.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `direction`: `in_scope` or `out_of_scope`
+- `kind`: `domain`, `host`, `ip_range`, `repo`, `binary`, `path`, `account`, `credential_ref`, `service`, `documentation`, `other`
+- `value`
+- `attributes_json`
+- `sensitivity`
+- `created_at`
+
+### `runs`
+
+Purpose:
+
+- Store top-level research run state.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `mode`: `open_discovery`, `targeted_reproduction`, `patch_validation`, `variant_analysis`, `benchmark`, `safety`
+- `status`: `queued`, `active`, `paused`, `blocked`, `completed`, `failed`, `stopped`
+- `title`
+- `prompt_markdown`
+- `model`
+- `reasoning_effort`
+- `attempt_strategy`
+- `network_profile`
+- `sandbox_profile`
+- `budget_json`
+- `summary`
+- `created_at`
+- `started_at`
+- `ended_at`
+
+### `attempts`
+
+Purpose:
+
+- Store individual trajectories within a run.
+
+Fields:
+
+- `id`
+- `run_id`
+- `parent_attempt_id`
+- `status`
+- `short_state`
+- `seed`
+- `strategy_role`
+- `vm_context_id`
+- `cost_json`
+- `token_usage_json`
+- `started_at`
+- `ended_at`
+
+Attempts are the unit for forks, promotion, pause, and comparison.
+
+### `trace_events`
+
+Purpose:
+
+- Store append-oriented run history.
+
+Fields:
+
+- `id`
+- `run_id`
+- `attempt_id`
+- `sequence`
+- `type`
+- `source`: `user`, `model`, `tool`, `executor`, `verifier`, `policy`, `system`
+- `summary`
+- `payload_json`
+- `sensitivity`
+- `model_visible`
+- `created_at`
+- `vm_context_id`
+- `artifact_id`
+- `tool_call_id`
+- `approval_id`
+
+Important event types:
+
+- `user_scope`
+- `user_note`
+- `model_message`
+- `tool_call`
+- `tool_result`
+- `artifact_created`
+- `vm_event`
+- `approval_event`
+- `hypothesis_event`
+- `verifier_result`
+- `finding_event`
+- `network_event`
+
+### `tool_calls`
+
+Purpose:
+
+- Store structured tool request and result metadata.
+
+Fields:
+
+- `id`
+- `run_id`
+- `attempt_id`
+- `tool_name`
+- `tool_version`
+- `input_json`
+- `status`
+- `result_summary`
+- `result_json`
+- `started_at`
+- `ended_at`
+- `policy_decision_id`
+- `vm_context_id`
+- `trace_event_id`
+
+Large stdout, stderr, debugger transcripts, and generated files should become artifacts.
+
+### `vm_contexts`
+
+Purpose:
+
+- Store executor context and sandbox lifecycle state.
+
+Fields:
+
+- `id`
+- `backend`
+- `image_id`
+- `snapshot_id`
+- `state`: `clean`, `working`, `contaminated`, `preserved`, `destroyed`
+- `network_profile`
+- `scope_version_id`
+- `created_at`
+- `destroyed_at`
+- `metadata_json`
+
+### `artifacts`
+
+Purpose:
+
+- Store artifact metadata.
+
+Fields:
+
+- `id`
+- `sha256`
+- `relative_path`
+- `kind`
+- `size_bytes`
+- `mime_type`
+- `sensitivity`
+- `model_visible`
+- `provenance_trace_event_id`
+- `source`: `user_import`, `vm_export`, `verifier`, `report`, `benchmark`
+- `metadata_json`
+- `created_at`
+
+The file path should point into `.beale/artifacts/sha256/...`.
+
+### `hypotheses`
+
+Purpose:
+
+- Store candidate vulnerability theories.
+
+Fields:
+
+- `id`
+- `run_id`
+- `parent_hypothesis_id`
+- `state`: `hypothesis`, `needs_evidence`, `reproduced`, `dismissed`, `out_of_scope`, `duplicate`
+- `title`
+- `description_markdown`
+- `component`
+- `bug_class`
+- `priority_score`
+- `attacker_reachability`
+- `impact`
+- `evidence_confidence`
+- `exploit_practicality`
+- `scope_confidence`
+- `created_trace_event_id`
+- `created_at`
+- `updated_at`
+
+### `evidence`
+
+Purpose:
+
+- Link observations and artifacts into reusable evidence objects.
+
+Fields:
+
+- `id`
+- `run_id`
+- `hypothesis_id`
+- `finding_id`
+- `kind`
+- `summary`
+- `observation_trace_event_id`
+- `artifact_id`
+- `verifier_run_id`
+- `created_at`
+
+Evidence should not point only to model messages.
+
+### `findings`
+
+Purpose:
+
+- Store promoted vulnerability findings.
+
+Fields:
+
+- `id`
+- `run_id`
+- `hypothesis_id`
+- `state`: `needs_evidence`, `reproduced`, `verified`, `patched`, `dismissed`, `out_of_scope`
+- `title`
+- `summary_markdown`
+- `affected_assets_json`
+- `affected_versions_json`
+- `impact_markdown`
+- `priority_score`
+- `verified_by_verifier_run_id`
+- `created_at`
+- `updated_at`
+
+### `verifier_contracts`
+
+Purpose:
+
+- Store rerunnable verifier definitions.
+
+Fields:
+
+- `id`
+- `run_id`
+- `hypothesis_id`
+- `finding_id`
+- `mode`
+- `status`
+- `target_states_json`
+- `setup_steps_markdown`
+- `trigger_steps_markdown`
+- `expected_observations_json`
+- `invariants_json`
+- `artifacts_to_collect_json`
+- `pass_criteria_json`
+- `created_at`
+- `updated_at`
+
+### `verifier_runs`
+
+Purpose:
+
+- Store verifier execution results.
+
+Fields:
+
+- `id`
+- `contract_id`
+- `run_id`
+- `attempt_id`
+- `vm_context_id`
+- `status`: `queued`, `running`, `pass`, `fail`, `inconclusive`, `error`
+- `blocked_issue`: `yes`, `no`, `inconclusive`, `not_applicable`
+- `behavior_preserved`: `yes`, `no`, `inconclusive`, `not_applicable`
+- `diagnostics_clean`: `yes`, `no`, `inconclusive`, `not_applicable`
+- `regression_tests`: `pass`, `fail`, `not_run`, `inconclusive`
+- `result_json`
+- `started_at`
+- `ended_at`
+
+### `approvals`
+
+Purpose:
+
+- Store user approvals, denials, and policy blocks.
+
+Fields:
+
+- `id`
+- `run_id`
+- `attempt_id`
+- `request_kind`
+- `requested_action_json`
+- `decision`: `approved`, `denied`, `blocked`
+- `reason`
+- `scope_amendment_id`
+- `created_at`
+- `decided_at`
+
+### `exports`
+
+Purpose:
+
+- Store report and bundle export metadata.
+
+Fields:
+
+- `id`
+- `run_id`
+- `finding_id`
+- `kind`
+- `relative_path`
+- `redaction_policy_json`
+- `included_artifacts_json`
+- `created_at`
+
+## Search Tables
+
+Required early:
+
+- Indexes over run status, attempt status, trace sequence, artifact hash, hypothesis state, finding state, verifier status, and scope asset kind/value.
+- SQLite FTS over selected summaries, notes, hypotheses, findings, report drafts, and tool-output summaries.
+
+Optional later:
+
+- Workspace-local semantic index.
+
+Semantic search must not cross workspace boundaries.
+
+## Migration Strategy
+
+Use a migration table:
+
+```text
+schema_migrations
+  version
+  name
+  applied_at
+```
+
+Rules:
+
+- Migrations are append-only.
+- Released migrations are immutable.
+- Migration tests should create old schemas and upgrade them.
+- Failed migrations must leave a recoverable database or a backup copy.
+
+## Schema Details to Finalize
+
+- Exact ID format.
+- Exact JSON validation mechanism.
+- Whether to split model messages into a separate table or keep them as trace events plus payload.
+- Whether to store FTS content directly or via external-content FTS tables.
+- How much report drafting state belongs in SQLite versus generated Markdown artifacts.
