@@ -8,8 +8,10 @@ import { BealeToolRouter } from '../src/main/openaiTools';
 import { WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
+let callSequence = 0;
 
 afterEach(() => {
+  callSequence = 0;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -101,7 +103,7 @@ interface ToolOutput {
 function callTool(router: BealeToolRouter, context: CreatedRunContext, name: string, args: Record<string, unknown>): ToolOutput {
   return JSON.parse(
     router.execute(context, {
-      callId: `call_${name}`,
+      callId: `call_${name}_${(callSequence += 1)}`,
       name,
       argumentsJson: JSON.stringify(args)
     }).output

@@ -8,11 +8,13 @@ import { BealeToolRouter } from '../src/main/openaiTools';
 
 const createdDirs: string[] = [];
 const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS'];
+let callSequence = 0;
 
 afterEach(() => {
   for (const key of ENV_KEYS) {
     delete process.env[key];
   }
+  callSequence = 0;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -124,7 +126,7 @@ interface ToolOutput {
 function callTool(router: BealeToolRouter, context: CreatedRunContext, name: string, args: Record<string, unknown>): ToolOutput {
   return JSON.parse(
     router.execute(context, {
-      callId: `call_${name}_${Math.random().toString(16).slice(2)}`,
+      callId: `call_${name}_${(callSequence += 1)}`,
       name,
       argumentsJson: JSON.stringify(args)
     }).output

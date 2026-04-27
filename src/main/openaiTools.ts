@@ -39,7 +39,7 @@ interface ScopedFile {
   assetKind: ScopeAsset['kind'];
 }
 
-interface GuestToolExecution {
+interface GuestToolResult {
   result: GuestExecuteResult;
   artifactId: string | null;
   importedHostPath: string | null;
@@ -61,21 +61,21 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
   return [
     tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, notes, and artifact summaries. Does not access live networks.', {
       query: stringProp('Search query'),
-      target: stringProp('Optional scoped target, path, artifact id, or component hint')
+      target: stringProp('Scoped target, path, artifact id, or component hint; use an empty string when not needed')
     }),
     tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings.', {
       path: stringProp('Scoped file path or artifact id'),
-      symbol: stringProp('Optional symbol or text anchor')
+      symbol: stringProp('Symbol or text anchor; use an empty string when not needed')
     }),
     tool('python', 'Run a small Python analysis operation inside the disposable guest VM. No host execution.', {
       task: stringProp('Analysis task'),
       script: stringProp('Python script to run in the guest VM'),
-      artifact_path: stringProp('Optional guest path to export as an artifact after execution')
+      artifact_path: stringProp('Guest path to export as an artifact after execution; use an empty string when not needed')
     }),
     tool('debugger', 'Run a wrapper-first debugger observation inside the disposable guest VM.', {
       operation: stringProp('Debugger operation, such as crash_summary or gdb_probe'),
       target: stringProp('Target executable path inside the guest'),
-      input_path: stringProp('Optional guest input path for crash reproduction')
+      input_path: stringProp('Guest input path for crash reproduction; use an empty string when not needed')
     }),
     tool('artifact', 'Preserve generated research output or evidence metadata in the content-addressed artifact store.', {
       name: stringProp('Artifact name'),
@@ -85,8 +85,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
       hypothesis: stringProp('Hypothesis or finding identifier'),
       expectation: stringProp('Expected observation'),
-      artifact_id: stringProp('Optional artifact id that backs the expectation'),
-      trace_event_id: stringProp('Optional trace event id that backs the expectation')
+      artifact_id: stringProp('Artifact id that backs the expectation; use an empty string when not available'),
+      trace_event_id: stringProp('Trace event id that backs the expectation; use an empty string when not available')
     })
   ];
 }
@@ -120,25 +120,29 @@ export class BealeToolRouter {
       return this.recordError(context, call, args, `Unknown Beale tool requested: ${call.name}`);
     }
 
+    const toolName = call.name;
     const destination = extractDestination(args);
     if (destination && !this.destinationAllowed(destination)) {
-      return this.recordPolicyBlock(context, call, args, destination);
+      return this.recordToolPolicyBlock(context, call, args, `Blocked out-of-scope tool destination: ${destination}`, {
+        destination
+      });
     }
+    const policy = this.toolPolicy(toolName);
 
     const toolCallId = this.db.createToolCall({
       runId: context.run.id,
       attemptId: context.attempt.id,
-      toolName: call.name,
+      toolName,
       toolVersion: 'structured-tools-v1',
       input: {
         openaiCallId: call.callId,
         responseItemId: call.responseItemId ?? null,
         arguments: args,
-        policy: this.toolPolicy(call.name)
+        policy
       },
       status: 'completed',
-      resultSummary: `Structured ${call.name} call accepted by Beale tool router.`,
-      result: { toolName: call.name, normalizedInTrace: true },
+      resultSummary: `Structured ${toolName} call accepted by Beale tool router.`,
+      result: { toolName, normalizedInTrace: true },
       vmContextId: context.vmContext.id
     });
 
@@ -147,12 +151,12 @@ export class BealeToolRouter {
       attemptId: context.attempt.id,
       type: 'tool_call',
       source: 'model',
-      summary: `OpenAI requested Beale tool: ${call.name}.`,
+      summary: `OpenAI requested Beale tool: ${toolName}.`,
       payload: {
         openaiCallId: call.callId,
         responseItemId: call.responseItemId ?? null,
         arguments: args,
-        policy: this.toolPolicy(call.name)
+        policy
       },
       toolCallId,
       vmContextId: context.vmContext.id
@@ -160,11 +164,11 @@ export class BealeToolRouter {
 
     let result: ToolResult;
     try {
-      result = this.dispatch(context, call, args);
+      result = this.dispatch(context, toolName, call, args);
     } catch (error) {
       result = {
         status: 'error',
-        summary: `${call.name} failed: ${errorMessage(error)}`,
+        summary: `${toolName} failed: ${errorMessage(error)}`,
         payload: {
           observationBacked: false,
           error: errorMessage(error)
@@ -195,26 +199,24 @@ export class BealeToolRouter {
     return { ...result, traceEventId: event.id };
   }
 
-  private dispatch(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
-    switch (call.name) {
+  private dispatch(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
+    switch (toolName) {
       case 'search':
-        return this.search(context, args);
+        return this.searchScopedMaterial(context, args);
       case 'code_browser':
-        return this.codeBrowser(context, call, args);
+        return this.browseCode(context, call, args);
       case 'python':
-        return this.python(context, call, args);
+        return this.runPython(context, call, args);
       case 'debugger':
-        return this.debugger(context, call, args);
+        return this.runDebuggerWrapper(context, call, args);
       case 'artifact':
-        return this.artifact(args);
+        return this.preserveArtifact(args);
       case 'verifier':
-        return this.verifier(context, args);
-      default:
-        return this.recordError(context, call, args, `Unknown Beale tool requested: ${call.name}`);
+        return this.recordVerifier(context, args);
     }
   }
 
-  private search(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+  private searchScopedMaterial(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
     const query = stringValue(args.query, '').trim();
     const targetHint = stringValue(args.target, '').trim();
     if (!query) {
@@ -271,7 +273,7 @@ export class BealeToolRouter {
     };
   }
 
-  private codeBrowser(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
+  private browseCode(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
     const requestedPath = stringValue(args.path, '').trim();
     const symbol = stringValue(args.symbol, '').trim();
     if (!requestedPath) {
@@ -285,7 +287,7 @@ export class BealeToolRouter {
     const artifactTarget = this.artifactReadTarget(context, requestedPath);
     const filePath = artifactTarget?.path ?? resolve(requestedPath);
     if (!artifactTarget && !this.isScopedLocalPath(filePath)) {
-      return this.recordLocalPolicyBlock(context, call, args, 'Path is outside the active program scope.', {
+      return this.recordToolPolicyBlock(context, call, args, 'Path is outside the active program scope.', {
         path: requestedPath,
         reason: 'path_outside_active_scope'
       });
@@ -329,7 +331,7 @@ export class BealeToolRouter {
     };
   }
 
-  private python(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
+  private runPython(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
     const script = stringValue(args.script, '').trim();
     if (!script) {
       return {
@@ -340,7 +342,7 @@ export class BealeToolRouter {
     }
     const unavailable = this.executorUnavailable();
     if (unavailable) {
-      return this.recordLocalPolicyBlock(context, call, args, unavailable, {
+      return this.recordToolPolicyBlock(context, call, args, unavailable, {
         reason: 'vm_executor_unavailable',
         hostExecution: false
       });
@@ -384,10 +386,10 @@ export class BealeToolRouter {
     };
   }
 
-  private debugger(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
+  private runDebuggerWrapper(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
     const unavailable = this.executorUnavailable();
     if (unavailable) {
-      return this.recordLocalPolicyBlock(context, call, args, unavailable, {
+      return this.recordToolPolicyBlock(context, call, args, unavailable, {
         reason: 'vm_executor_unavailable',
         hostExecution: false
       });
@@ -451,7 +453,7 @@ export class BealeToolRouter {
     };
   }
 
-  private artifact(args: Record<string, unknown>): ToolResult {
+  private preserveArtifact(args: Record<string, unknown>): ToolResult {
     const name = stringValue(args.name, 'beale-artifact.txt');
     const content = stringValue(args.content, '');
     const kind = stringValue(args.kind, 'model_generated_artifact');
@@ -501,7 +503,7 @@ export class BealeToolRouter {
     };
   }
 
-  private verifier(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+  private recordVerifier(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
     const artifactId = stringValue(args.artifact_id, '').trim();
     const traceEventId = stringValue(args.trace_event_id, '').trim();
     const detail = this.db.getRunDetail(context.run.id);
@@ -578,7 +580,7 @@ export class BealeToolRouter {
     };
   }
 
-  private executeInDisposableGuest(context: CreatedRunContext, request: GuestExecuteRequest, artifactPath: string | null): GuestToolExecution {
+  private executeInDisposableGuest(context: CreatedRunContext, request: GuestExecuteRequest, artifactPath: string | null): GuestToolResult {
     if (!this.executor) {
       throw new Error('VM executor is not available to the OpenAI tool router.');
     }
@@ -727,47 +729,7 @@ export class BealeToolRouter {
     return status.available ? null : (status.reason ?? 'VM executor is not available.');
   }
 
-  private recordPolicyBlock(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>, destination: string): ToolResult {
-    const approval = this.db.createApproval({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      requestKind: 'tool_call',
-      requestedAction: {
-        toolName: call.name,
-        openaiCallId: call.callId,
-        arguments: args
-      },
-      decision: 'blocked',
-      reason: `Blocked out-of-scope tool destination: ${destination}`
-    });
-    const event = this.db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'approval_event',
-      source: 'policy',
-      summary: `Policy blocked OpenAI tool call: ${call.name}.`,
-      payload: {
-        decision: 'blocked',
-        destination,
-        arguments: args
-      },
-      approvalId: approval.id,
-      vmContextId: context.vmContext.id
-    });
-    return {
-      status: 'policy_blocked',
-      summary: `Policy blocked ${call.name} for out-of-scope destination.`,
-      traceEventId: event.id,
-      payload: {
-        observationBacked: false,
-        blocked: true,
-        destination,
-        approvalId: approval.id
-      }
-    };
-  }
-
-  private recordLocalPolicyBlock(
+  private recordToolPolicyBlock(
     context: CreatedRunContext,
     call: OpenAiFunctionCall,
     args: Record<string, unknown>,
@@ -804,7 +766,7 @@ export class BealeToolRouter {
     });
     return {
       status: 'policy_blocked',
-      summary: `Policy blocked ${call.name}: ${reason}`,
+      summary: reason.startsWith('Blocked ') ? reason : `Policy blocked ${call.name}: ${reason}`,
       traceEventId: event.id,
       payload: {
         observationBacked: false,
@@ -916,16 +878,20 @@ function looksTextual(buffer: Buffer): boolean {
 function extractPrintableStrings(buffer: Buffer): string {
   const parts: string[] = [];
   let current = '';
+  let emittedChars = 0;
   for (const byte of buffer) {
     if (byte >= 32 && byte <= 126) {
       current += String.fromCharCode(byte);
       continue;
     }
-    if (current.length >= 4) parts.push(current);
+    if (current.length >= 4) {
+      parts.push(current);
+      emittedChars += current.length + 1;
+    }
     current = '';
-    if (parts.join('\n').length > MAX_EXCERPT_CHARS) break;
+    if (emittedChars > MAX_EXCERPT_CHARS) break;
   }
-  if (current.length >= 4) parts.push(current);
+  if (current.length >= 4 && emittedChars <= MAX_EXCERPT_CHARS) parts.push(current);
   return parts.join('\n').slice(0, MAX_EXCERPT_CHARS);
 }
 
