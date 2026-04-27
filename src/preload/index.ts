@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   BenchmarkRunInput,
+  HostEnvironment,
   ProgramScopeDraft,
   StartRunInput,
   SteeringAction,
@@ -22,6 +23,9 @@ const api: BealeApi = {
   },
   getSnapshot() {
     return ipcRenderer.invoke(IPC_CHANNELS.getSnapshot);
+  },
+  getHostEnvironment(): Promise<HostEnvironment> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
   },
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
@@ -44,8 +48,8 @@ const api: BealeApi = {
   steerRun(action: SteeringAction) {
     return ipcRenderer.invoke(IPC_CHANNELS.steerRun, action);
   },
-  onSnapshot(listener: (snapshot: WorkspaceSnapshot) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot): void => listener(snapshot);
+  onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot | null): void => listener(snapshot);
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.snapshotUpdated, wrapped);
   }

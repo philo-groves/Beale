@@ -1,5 +1,5 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { release, tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
@@ -28,6 +28,7 @@ import type {
   VerifierContractRecord,
   VmContextRecord,
   WorkspaceExportResult,
+  HostEnvironment,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
   WorkspaceSnapshot,
@@ -36,6 +37,28 @@ import type {
 
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
+
+export function getHostEnvironment(): HostEnvironment {
+  const platform = hostPlatform(process.platform);
+  const kernelRelease = platform === 'linux' ? release().toLowerCase() : '';
+  const procVersion = platform === 'linux' ? safeReadText('/proc/version').toLowerCase() : '';
+  const explicitWslName = process.env.WSL_DISTRO_NAME?.trim() || null;
+  const isWsl =
+    platform === 'linux' &&
+    Boolean(
+      explicitWslName ||
+        process.env.WSL_INTEROP ||
+        kernelRelease.includes('microsoft') ||
+        kernelRelease.includes('wsl') ||
+        procVersion.includes('microsoft') ||
+        procVersion.includes('wsl')
+    );
+  return {
+    platform,
+    isWsl,
+    remoteName: isWsl ? explicitWslName ?? linuxDistributionName() ?? 'WSL' : null
+  };
+}
 
 export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
@@ -799,7 +822,8 @@ export class WorkspaceService {
       artifactRoot: db.getArtifactRoot(),
       openedAt: this.openedAt,
       fakeExecutorLabel: FAKE_EXECUTOR_LABEL,
-      lastWorkspaceBackup: db.getLastWorkspaceBackup()
+      lastWorkspaceBackup: db.getLastWorkspaceBackup(),
+      hostEnvironment: getHostEnvironment()
     };
   }
 
@@ -1396,6 +1420,26 @@ function shouldIncludeInWorkspaceBackup(workspacePath: string, source: string): 
   if (rel === '.beale/firecracker/run' || rel.startsWith('.beale/firecracker/run/')) return false;
   if (/^\.beale\/exports\/.+-workspace-backup-\d{8}t\d{6}z\.tar\.gz(?:\.tmp)?$/i.test(rel)) return false;
   return true;
+}
+
+function hostPlatform(value: NodeJS.Platform): HostEnvironment['platform'] {
+  if (value === 'linux' || value === 'win32' || value === 'darwin') return value;
+  return 'other';
+}
+
+function linuxDistributionName(): string | null {
+  const osRelease = safeReadText('/etc/os-release');
+  const nameMatch = /^NAME=(.+)$/m.exec(osRelease);
+  if (!nameMatch) return null;
+  return nameMatch[1]?.replace(/^"|"$/g, '').trim() || null;
+}
+
+function safeReadText(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 function fileTimestamp(iso: string): string {

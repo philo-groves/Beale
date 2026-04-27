@@ -145,6 +145,13 @@ export interface WorkspaceSummary {
   openedAt: string;
   fakeExecutorLabel: string;
   lastWorkspaceBackup: WorkspaceExportResult | null;
+  hostEnvironment: HostEnvironment;
+}
+
+export interface HostEnvironment {
+  platform: 'linux' | 'win32' | 'darwin' | 'other';
+  isWsl: boolean;
+  remoteName: string | null;
 }
 
 export interface WorkspaceRecoveryReport {
@@ -639,6 +646,7 @@ export interface BealeApi {
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
+  getHostEnvironment(): Promise<HostEnvironment>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
@@ -646,5 +654,5 @@ export interface BealeApi {
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
-  onSnapshot(listener: (snapshot: WorkspaceSnapshot) => void): () => void;
+  onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
 }

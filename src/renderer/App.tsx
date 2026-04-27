@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive,
   Ban,
@@ -7,20 +8,20 @@ import {
   CheckCircle2,
   ClipboardCheck,
   ClipboardX,
-  Database,
   Edit3,
   EyeOff,
   FileArchive,
   FileJson,
   FileOutput,
   FileText,
-  FolderOpen,
   FolderPlus,
   Gauge,
   GitFork,
   GitMerge,
   KeyRound,
   LockKeyhole,
+  Monitor,
+  MoreVertical,
   Network,
   PackageCheck,
   Pause,
@@ -30,12 +31,14 @@ import {
   RotateCw,
   Save,
   Search,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Square,
   Terminal,
   Trash2,
+  Upload,
   XCircle
 } from 'lucide-react';
 import type {
@@ -46,6 +49,7 @@ import type {
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
+  HostEnvironment,
   OpenAiAccountStatus,
   PriorityFactorInput,
   ProgramScopeDraft,
@@ -93,18 +97,18 @@ const defaultRunInput: StartRunInput = {
 
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
+  const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(292);
 
   const loadSnapshot = useCallback(async () => {
     const next = await window.beale.getSnapshot();
     setSnapshot(next);
-    if (next?.runs[0] && !selectedRunId) {
-      setSelectedRunId(next.runs[0].run.id);
-    }
-  }, [selectedRunId]);
+    setSelectedRunId((current) => selectRunId(current, next));
+  }, []);
 
   const loadRunDetail = useCallback(async (runId: string | null) => {
     if (!runId) {
@@ -117,16 +121,21 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     window.beale
+      .getHostEnvironment()
+      .then(setHostEnvironment)
+      .catch((caught: unknown) => setError(errorMessage(caught)));
+
+    window.beale
       .getSnapshot()
       .then((initial) => {
         setSnapshot(initial);
-        if (initial?.runs[0]) setSelectedRunId(initial.runs[0].run.id);
+        setSelectedRunId((current) => selectRunId(current, initial));
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
     return window.beale.onSnapshot((next) => {
       setSnapshot(next);
-      setSelectedRunId((current) => current ?? next.runs[0]?.run.id ?? null);
+      setSelectedRunId((current) => selectRunId(current, next));
     });
   }, []);
 
@@ -151,146 +160,130 @@ export function App(): JSX.Element {
     [loadSnapshot]
   );
 
-  if (!snapshot) {
-    return <WorkspaceGate busy={busy} error={error} runAction={runAction} />;
-  }
+  const startDefaultRun = (): void => {
+    if (!snapshot) return;
+    void runAction(async () => {
+      const next = await window.beale.startRun({
+        ...defaultRunInput,
+        networkProfile: snapshot.activeScope.networkProfile
+      });
+      const latestRunId = next.runs[0]?.run.id;
+      if (latestRunId) setSelectedRunId(latestRunId);
+      return next;
+    });
+  };
+
+  const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const target = event.currentTarget;
+    target.setPointerCapture(pointerId);
+    document.body.classList.add('is-resizing-sidebar');
+
+    const handlePointerMove = (moveEvent: PointerEvent): void => {
+      setSidebarWidth(Math.max(240, Math.min(420, startWidth + moveEvent.clientX - startX)));
+    };
+    const handlePointerUp = (): void => {
+      document.body.classList.remove('is-resizing-sidebar');
+      target.releasePointerCapture(pointerId);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+  };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+      <TopBar />
       <aside className="sidebar">
-        <div className="brand-block">
-          <div className="brand-mark">B</div>
-          <div>
-            <h1>Beale</h1>
-            <p>Research workbench</p>
+        <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={startDefaultRun}>
+          <Play size={15} />
+          <span>New Research</span>
+        </button>
+        <div className="sidebar-section program-list">
+          <div className="section-row">
+            <div className="meta-label">Programs</div>
+            <button type="button" title="Create program">
+              <FolderPlus size={15} />
+            </button>
           </div>
-        </div>
-        <div className="workspace-meta">
-          <div className="meta-label">Workspace</div>
-          <div className="path-text">{snapshot.workspace.workspacePath}</div>
-          <div className="meta-row">
-            <Database size={15} />
-            <span>.beale/beale.sqlite</span>
-          </div>
-          <div className="meta-row warning">
-            <ShieldAlert size={15} />
-            <span>{snapshot.workspace.fakeExecutorLabel}</span>
-          </div>
-          <div className={`meta-row ${snapshot.openAi.readiness === 'oauth_ready' ? '' : 'warning'}`}>
-            <Network size={15} />
-            <span>{snapshot.openAi.label}</span>
-          </div>
-          <div className={`meta-row ${snapshot.executor.available ? '' : 'warning'}`}>
-            <ShieldAlert size={15} />
-            <span>{snapshot.executor.label}</span>
-          </div>
-        </div>
-        <div className="sidebar-section">
-          <div className="meta-label">Active Scope</div>
-          <strong>{snapshot.activeScope.programName}</strong>
-          <span>Version {snapshot.activeScope.version}</span>
-          <span>{snapshot.activeScope.networkProfile}</span>
+          {snapshot ? (
+            <button type="button" className="program-item active">
+              <Terminal size={15} />
+              <span>{snapshot.activeScope.programName}</span>
+            </button>
+          ) : null}
         </div>
         {error ? <div className="error-box">{error}</div> : null}
+        <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize} />
       </aside>
 
       <main className="workbench">
-        <div className="workbench-header">
-          <div>
-            <p className="eyebrow">Milestone 7</p>
-            <h2>Beta Hardening</h2>
-          </div>
-          <div className="header-stats">
-            <Stat label="Runs" value={String(snapshot.runs.length)} />
-            <Stat label="Scope Assets" value={String(snapshot.activeScope.assets.length)} />
-            <Stat
-              label="Recovery"
-              value={snapshot.recovery.interruptedRuns + snapshot.recovery.interruptedVmContexts > 0 ? 'Review' : 'Clean'}
-              tone={snapshot.recovery.interruptedRuns + snapshot.recovery.interruptedVmContexts > 0 ? 'warning' : undefined}
-            />
-            <Stat label="Benchmarks" value={snapshot.benchmark.latestRun ? `${snapshot.benchmark.latestRun.identity.passCount}/${snapshot.benchmark.latestRun.identity.totalCount}` : 'None'} />
-            <Stat label="OpenAI" value={openAiStatusLabel(snapshot.openAi)} tone={snapshot.openAi.readiness === 'oauth_ready' ? undefined : 'warning'} />
-            <Stat label="Executor" value={snapshot.executor.available ? snapshot.executor.provider : 'Unavailable'} tone={snapshot.executor.available ? undefined : 'warning'} />
-          </div>
-        </div>
-
-        <div className="workspace-grid">
-          <ScopeEditor snapshot={snapshot} busy={busy} runAction={runAction} />
-          <section className="center-column">
-            <OpenAiAccountPanel snapshot={snapshot} busy={busy} runAction={runAction} />
-            <StartRunForm snapshot={snapshot} busy={busy} runAction={runAction} onStarted={setSelectedRunId} />
-            <HardeningPanel snapshot={snapshot} busy={busy} runAction={runAction} />
-            <BenchmarkPanel benchmark={snapshot.benchmark} busy={busy} runAction={runAction} />
-            <RunTracker runs={snapshot.runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
-          </section>
-          <RunDetailView detail={runDetail} busy={busy} runAction={runAction} />
-        </div>
+        <div className="workspace-page" />
       </main>
+      <StatusBar hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment} />
     </div>
   );
 }
 
-function WorkspaceGate({
-  busy,
-  error,
-  runAction
-}: {
-  busy: boolean;
-  error: string | null;
-  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
-}): JSX.Element {
-  const [path, setPath] = useState('');
+function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null): string | null {
+  if (!snapshot) return null;
+  if (current && snapshot.runs.some(({ run }) => run.id === current)) return current;
+  return snapshot.runs[0]?.run.id ?? null;
+}
 
-  const choose = (mode: 'open' | 'create'): void => {
-    void runAction(async () => {
-      const result = await window.beale.selectWorkspace(mode);
-      if (result.canceled || !result.path) return null;
-      return mode === 'create' ? window.beale.createWorkspace(result.path) : window.beale.openWorkspace(result.path);
-    });
-  };
-
-  const openManual = (mode: 'open' | 'create'): void => {
-    if (!path.trim()) return;
-    void runAction(() => (mode === 'create' ? window.beale.createWorkspace(path.trim()) : window.beale.openWorkspace(path.trim())));
-  };
-
+function TopBar(): JSX.Element {
   return (
-    <div className="workspace-gate">
-      <div className="gate-panel">
-        <div className="brand-block">
-          <div className="brand-mark">B</div>
-          <div>
-            <h1>Beale</h1>
-            <p>Authorized vulnerability research workbench</p>
-          </div>
-        </div>
-        <div className="gate-actions">
-          <button className="primary-button" type="button" disabled={busy} onClick={() => choose('create')}>
-            <FolderPlus size={17} />
-            Create Workspace
-          </button>
-          <button type="button" disabled={busy} onClick={() => choose('open')}>
-            <FolderOpen size={17} />
-            Open Workspace
-          </button>
-        </div>
-        <label className="field-label" htmlFor="workspace-path">
-          Workspace path
-        </label>
-        <div className="inline-form">
-          <input id="workspace-path" value={path} onChange={(event) => setPath(event.target.value)} placeholder="/path/to/program-workspace" />
-          <button type="button" disabled={busy || !path.trim()} onClick={() => openManual('open')}>
-            <FolderOpen size={16} />
-            Open
-          </button>
-          <button type="button" disabled={busy || !path.trim()} onClick={() => openManual('create')}>
-            <FolderPlus size={16} />
-            Create
-          </button>
-        </div>
-        {error ? <div className="error-box">{error}</div> : null}
+    <header className="top-bar">
+      <nav className="window-menu" aria-label="Application menu">
+        <button type="button">File</button>
+        <button type="button">Edit</button>
+        <button type="button">View</button>
+        <button type="button">Window</button>
+      </nav>
+      <div className="top-command">
+        <button type="button" className="command-button" title="Open command palette">
+          <Search size={15} />
+          <span>Search or Command</span>
+          <kbd>Ctrl+O Search</kbd>
+          <kbd>Ctrl+K Commands</kbd>
+        </button>
       </div>
-    </div>
+      <div className="top-actions">
+        <button type="button" title="Export">
+          <Upload size={16} />
+        </button>
+        <button type="button" title="Settings">
+          <Settings size={16} />
+        </button>
+        <button type="button" title="More">
+          <MoreVertical size={17} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function StatusBar({ hostEnvironment }: { hostEnvironment: HostEnvironment | null }): JSX.Element {
+  const isWsl = hostEnvironment?.isWsl ?? false;
+  const remoteLabel = isWsl ? `WSL: ${hostEnvironment?.remoteName ?? 'WSL'}` : null;
+  return (
+    <footer className="status-bar">
+      <button type="button" className={`remote-window-button ${isWsl ? 'is-wsl' : ''}`} title={remoteLabel ?? 'Open Remote Window'}>
+        <Monitor size={15} />
+        {remoteLabel ? <span>{remoteLabel}</span> : null}
+      </button>
+      <div className="status-brand">
+        <span>Beale</span>
+        <strong>v0.1.0 dev</strong>
+      </div>
+    </footer>
   );
 }
 
@@ -563,48 +556,57 @@ function StartRunForm({
           </select>
         </label>
         <label>
-          Strategy
-          <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-            <option value="adaptive_portfolio">adaptive_portfolio</option>
-            <option value="single_path">single_path</option>
-            <option value="reproduction_first">reproduction_first</option>
-          </select>
-        </label>
-        <label>
-          Fake scenario
-          <select value={input.fakeScenario} onChange={(event) => update('fakeScenario', event.target.value as FakeScenario)}>
-            <option value="adaptive_portfolio">adaptive_portfolio</option>
-            <option value="source_logic_bug">source_logic_bug</option>
-            <option value="memory_corruption">memory_corruption</option>
-            <option value="policy_block">policy_block</option>
-            <option value="verified_finding">verified_finding</option>
-          </select>
-        </label>
-        <label>
-          Model
-          <input value={input.model} onChange={(event) => update('model', event.target.value)} />
-        </label>
-        <label>
-          Reasoning
-          <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
-        </label>
-        <label>
-          Network
-          <input value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)} />
-        </label>
-        <label>
-          Sandbox
-          <input value={input.sandboxProfile} onChange={(event) => update('sandboxProfile', event.target.value)} />
-        </label>
-        <label>
-          Minutes
-          <input type="number" min={1} value={input.budget.maxMinutes} onChange={(event) => updateBudget('maxMinutes', Number(event.target.value))} />
-        </label>
-        <label>
           Attempts
           <input type="number" min={1} value={input.budget.maxAttempts} onChange={(event) => updateBudget('maxAttempts', Number(event.target.value))} />
         </label>
+        <label>
+          Budget USD
+          <input type="number" min={0} value={input.budget.maxCostUsd} onChange={(event) => updateBudget('maxCostUsd', Number(event.target.value))} />
+        </label>
       </div>
+      <details className="advanced-run-options">
+        <summary>Run settings</summary>
+        <div className="form-grid">
+          <label>
+            Minutes
+            <input type="number" min={1} value={input.budget.maxMinutes} onChange={(event) => updateBudget('maxMinutes', Number(event.target.value))} />
+          </label>
+          <label>
+            Strategy
+            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
+              <option value="adaptive_portfolio">adaptive_portfolio</option>
+              <option value="single_path">single_path</option>
+              <option value="reproduction_first">reproduction_first</option>
+            </select>
+          </label>
+          <label>
+            Fake scenario
+            <select value={input.fakeScenario} onChange={(event) => update('fakeScenario', event.target.value as FakeScenario)}>
+              <option value="adaptive_portfolio">adaptive_portfolio</option>
+              <option value="source_logic_bug">source_logic_bug</option>
+              <option value="memory_corruption">memory_corruption</option>
+              <option value="policy_block">policy_block</option>
+              <option value="verified_finding">verified_finding</option>
+            </select>
+          </label>
+          <label>
+            Model
+            <input value={input.model} onChange={(event) => update('model', event.target.value)} />
+          </label>
+          <label>
+            Reasoning
+            <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
+          </label>
+          <label>
+            Network
+            <input value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)} />
+          </label>
+          <label>
+            Sandbox
+            <input value={input.sandboxProfile} onChange={(event) => update('sandboxProfile', event.target.value)} />
+          </label>
+        </div>
+      </details>
     </section>
   );
 }
@@ -792,13 +794,17 @@ function RunTracker({
     <section className="panel tracker-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Tracker</p>
+          <p className="eyebrow">Mission Control</p>
           <h3>Runs</h3>
         </div>
+        <div className="run-total">{runs.length}</div>
       </div>
       <div className="run-list">
         {runs.length === 0 ? (
-          <div className="empty-state">No runs yet.</div>
+          <div className="empty-state calm-empty">
+            <strong>No active runs</strong>
+            <span>Start a run from the command bar when you are ready.</span>
+          </div>
         ) : (
           runs.map((row) => (
             <button
@@ -863,7 +869,10 @@ function RunDetailView({
             <h3>Run Detail</h3>
           </div>
         </div>
-        <div className="empty-state">Select a run.</div>
+        <div className="empty-state calm-empty">
+          <strong>No run selected</strong>
+          <span>Trace, artifacts, and verifier output will appear here.</span>
+        </div>
       </section>
     );
   }
@@ -938,65 +947,6 @@ function RunDetailView({
 
       <div className="detail-grid">
         <TracePanel events={detail.traceEvents} />
-        <HypothesisPanel
-          hypotheses={detail.hypotheses}
-          disabled={busy}
-          onPromote={(hypothesis) => steer({ type: 'promote_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
-          onReproduce={(hypothesis) => steer({ type: 'request_reproduction', runId: detail.run.id, hypothesisId: hypothesis.id })}
-          onPatchValidation={(hypothesis) => steer({ type: 'request_patch_validation', runId: detail.run.id, hypothesisId: hypothesis.id })}
-          onAdjustPriority={(hypothesis) => steer({ type: 'adjust_priority', runId: detail.run.id, hypothesisId: hypothesis.id, factors: bumpedPriorityFactors(hypothesis) })}
-          onMerge={(source, target) => steer({ type: 'merge_hypotheses', runId: detail.run.id, sourceHypothesisId: source.id, targetHypothesisId: target.id })}
-          onDismiss={(hypothesis) => steer({ type: 'dismiss_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
-          onOutOfScope={(hypothesis) => steer({ type: 'mark_hypothesis_out_of_scope', runId: detail.run.id, hypothesisId: hypothesis.id })}
-        />
-        <ArtifactPanel
-          artifacts={detail.artifacts}
-          disabled={busy}
-          onPromote={(artifact) => steer({ type: 'promote_artifact', runId: detail.run.id, artifactId: artifact.id })}
-          onSensitive={(artifact) => steer({ type: 'mark_artifact_sensitive', runId: detail.run.id, artifactId: artifact.id })}
-        />
-        <VerifierPanel
-          detail={detail}
-          disabled={busy}
-          onRerun={(contractId) => steer({ type: 'rerun_verifier', runId: detail.run.id, verifierContractId: contractId })}
-          onEdit={(contractId, triggerStepsMarkdown) =>
-            steer({ type: 'edit_verifier_contract', runId: detail.run.id, verifierContractId: contractId, patch: { triggerStepsMarkdown } })
-          }
-          onReview={(contractId, decision) => steer({ type: 'review_verifier_contract', runId: detail.run.id, verifierContractId: contractId, decision })}
-        />
-        <ModelSessionPanel detail={detail} />
-        <FindingPanel
-          detail={detail}
-          disabled={busy}
-          onPatchValidation={(finding) => steer({ type: 'request_patch_validation', runId: detail.run.id, findingId: finding.id })}
-          onFalsePositive={(finding) => steer({ type: 'mark_finding_false_positive', runId: detail.run.id, findingId: finding.id })}
-          onOutOfScope={(finding) => steer({ type: 'mark_finding_out_of_scope', runId: detail.run.id, findingId: finding.id })}
-          onDisclosureReady={(finding) => steer({ type: 'mark_disclosure_ready', runId: detail.run.id, findingId: finding.id })}
-          onNeedsEvidence={(finding) => steer({ type: 'mark_needs_more_evidence', runId: detail.run.id, findingId: finding.id })}
-          onFindingBundle={(finding) => steer({ type: 'export_finding_bundle', runId: detail.run.id, findingId: finding.id })}
-          onReportDraft={(finding) => steer({ type: 'generate_report_draft', runId: detail.run.id, findingId: finding.id })}
-        />
-        <ExportPanel
-          exports={detail.exports}
-          disabled={busy}
-          onReview={(exportRecord, decision) => steer({ type: 'review_export', runId: detail.run.id, exportId: exportRecord.id, decision })}
-        />
-        <VmPolicyPanel
-          detail={detail}
-          disabled={busy}
-          onReview={(requestKind, decision, requestedAction) =>
-            steer({
-              type: 'review_policy_request',
-              runId: detail.run.id,
-              requestKind,
-              decision,
-              requestedAction,
-              note: `${decision} ${requestKind}`
-            })
-          }
-          onPreserve={(vmContextId) => steer({ type: 'preserve_vm', runId: detail.run.id, vmContextId, reason: 'Preserve VM for local review.' })}
-          onDestroy={(vmContextId) => steer({ type: 'destroy_vm', runId: detail.run.id, vmContextId, reason: 'Destroy VM after review.' })}
-        />
       </div>
 
       <div className="quick-actions">
@@ -1050,6 +1000,124 @@ function RunDetailView({
         </button>
       </div>
     </section>
+  );
+}
+
+function RunInspector({
+  detail,
+  busy,
+  runAction
+}: {
+  detail: RunDetail | null;
+  busy: boolean;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+}): JSX.Element {
+  const steer = (action: Parameters<typeof window.beale.steerRun>[0]): void => {
+    void runAction(() => window.beale.steerRun(action));
+  };
+
+  if (!detail) {
+    return (
+      <section className="panel inspector-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Inspector</p>
+            <h3>Run Context</h3>
+          </div>
+        </div>
+        <div className="empty-state calm-empty">
+          <strong>No context loaded</strong>
+          <span>Hypotheses, evidence, and verifier state will dock here.</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="panel inspector-summary">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Inspector</p>
+            <h3>{detail.run.status === 'active' ? 'Active Run' : 'Run Context'}</h3>
+          </div>
+          <StatusPill status={detail.run.status} />
+        </div>
+        <div className="inspector-metrics">
+          <div>
+            <span>Attempts</span>
+            <strong>{detail.attempts.length}</strong>
+          </div>
+          <div>
+            <span>Evidence</span>
+            <strong>{detail.artifacts.length}</strong>
+          </div>
+          <div>
+            <span>Verifiers</span>
+            <strong>{detail.verifierRuns.length}/{detail.verifierContracts.length}</strong>
+          </div>
+        </div>
+      </section>
+      <HypothesisPanel
+        hypotheses={detail.hypotheses}
+        disabled={busy}
+        onPromote={(hypothesis) => steer({ type: 'promote_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
+        onReproduce={(hypothesis) => steer({ type: 'request_reproduction', runId: detail.run.id, hypothesisId: hypothesis.id })}
+        onPatchValidation={(hypothesis) => steer({ type: 'request_patch_validation', runId: detail.run.id, hypothesisId: hypothesis.id })}
+        onAdjustPriority={(hypothesis) => steer({ type: 'adjust_priority', runId: detail.run.id, hypothesisId: hypothesis.id, factors: bumpedPriorityFactors(hypothesis) })}
+        onMerge={(source, target) => steer({ type: 'merge_hypotheses', runId: detail.run.id, sourceHypothesisId: source.id, targetHypothesisId: target.id })}
+        onDismiss={(hypothesis) => steer({ type: 'dismiss_hypothesis', runId: detail.run.id, hypothesisId: hypothesis.id })}
+        onOutOfScope={(hypothesis) => steer({ type: 'mark_hypothesis_out_of_scope', runId: detail.run.id, hypothesisId: hypothesis.id })}
+      />
+      <FindingPanel
+        detail={detail}
+        disabled={busy}
+        onPatchValidation={(finding) => steer({ type: 'request_patch_validation', runId: detail.run.id, findingId: finding.id })}
+        onFalsePositive={(finding) => steer({ type: 'mark_finding_false_positive', runId: detail.run.id, findingId: finding.id })}
+        onOutOfScope={(finding) => steer({ type: 'mark_finding_out_of_scope', runId: detail.run.id, findingId: finding.id })}
+        onDisclosureReady={(finding) => steer({ type: 'mark_disclosure_ready', runId: detail.run.id, findingId: finding.id })}
+        onNeedsEvidence={(finding) => steer({ type: 'mark_needs_more_evidence', runId: detail.run.id, findingId: finding.id })}
+        onFindingBundle={(finding) => steer({ type: 'export_finding_bundle', runId: detail.run.id, findingId: finding.id })}
+        onReportDraft={(finding) => steer({ type: 'generate_report_draft', runId: detail.run.id, findingId: finding.id })}
+      />
+      <VerifierPanel
+        detail={detail}
+        disabled={busy}
+        onRerun={(contractId) => steer({ type: 'rerun_verifier', runId: detail.run.id, verifierContractId: contractId })}
+        onEdit={(contractId, triggerStepsMarkdown) =>
+          steer({ type: 'edit_verifier_contract', runId: detail.run.id, verifierContractId: contractId, patch: { triggerStepsMarkdown } })
+        }
+        onReview={(contractId, decision) => steer({ type: 'review_verifier_contract', runId: detail.run.id, verifierContractId: contractId, decision })}
+      />
+      <ArtifactPanel
+        artifacts={detail.artifacts}
+        disabled={busy}
+        onPromote={(artifact) => steer({ type: 'promote_artifact', runId: detail.run.id, artifactId: artifact.id })}
+        onSensitive={(artifact) => steer({ type: 'mark_artifact_sensitive', runId: detail.run.id, artifactId: artifact.id })}
+      />
+      <ExportPanel
+        exports={detail.exports}
+        disabled={busy}
+        onReview={(exportRecord, decision) => steer({ type: 'review_export', runId: detail.run.id, exportId: exportRecord.id, decision })}
+      />
+      <VmPolicyPanel
+        detail={detail}
+        disabled={busy}
+        onReview={(requestKind, decision, requestedAction) =>
+          steer({
+            type: 'review_policy_request',
+            runId: detail.run.id,
+            requestKind,
+            decision,
+            requestedAction,
+            note: `${decision} ${requestKind}`
+          })
+        }
+        onPreserve={(vmContextId) => steer({ type: 'preserve_vm', runId: detail.run.id, vmContextId, reason: 'Preserve VM for local review.' })}
+        onDestroy={(vmContextId) => steer({ type: 'destroy_vm', runId: detail.run.id, vmContextId, reason: 'Destroy VM after review.' })}
+      />
+      <ModelSessionPanel detail={detail} />
+    </>
   );
 }
 

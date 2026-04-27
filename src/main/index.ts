@@ -1,8 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type { BenchmarkRunInput, ProgramScopeDraft, StartRunInput, SteeringAction, WorkspacePickerMode } from '@shared/types';
-import { WorkspaceService } from './workspaceService';
+import { getHostEnvironment, WorkspaceService } from './workspaceService';
 
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
@@ -15,7 +15,8 @@ function createWindow(): void {
     minWidth: 1120,
     minHeight: 760,
     title: 'Beale',
-    backgroundColor: '#f6f4ef',
+    backgroundColor: '#050505',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -23,6 +24,7 @@ function createWindow(): void {
       sandbox: false
     }
   });
+  mainWindow.setMenuBarVisibility(false);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -33,7 +35,6 @@ function createWindow(): void {
 
 function broadcastSnapshot(): void {
   const snapshot = workspaceService.getSnapshot();
-  if (!snapshot) return;
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
   }
@@ -54,6 +55,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());
+  ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
@@ -64,6 +66,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   workspaceService = new WorkspaceService(broadcastSnapshot);
   registerIpc();
   createWindow();
