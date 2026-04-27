@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ScopeAssetKind, StartRunInput } from '@shared/types';
+import { WorkspaceDatabase } from '../src/main/database';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
@@ -58,6 +59,77 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.activeScope.programName).toBe('Untitled Program');
     expect(snapshot.recovery.interruptedRuns).toBe(0);
     service.close();
+  });
+
+  it('migrates schema v3 export records to export review state', () => {
+    const dir = tempWorkspace();
+    const artifactRoot = join(dir, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    const raw = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
+    raw.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations (version, name, applied_at)
+      VALUES (3, 'initial_workbench_schema', '2026-01-01T00:00:00.000Z');
+
+      CREATE TABLE workspace_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE program_scope_versions (
+        id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+        program_name TEXT NOT NULL,
+        organization_name TEXT NOT NULL,
+        description_markdown TEXT NOT NULL,
+        network_policy_json TEXT NOT NULL,
+        rules_markdown TEXT NOT NULL,
+        active_from TEXT NOT NULL,
+        expires_at TEXT,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL
+      );
+
+      CREATE TABLE scope_assets (
+        id TEXT PRIMARY KEY,
+        scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+        direction TEXT NOT NULL CHECK (direction IN ('in_scope', 'out_of_scope')),
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        attributes_json TEXT NOT NULL,
+        sensitivity TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE exports (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        finding_id TEXT,
+        kind TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        redaction_policy_json TEXT NOT NULL,
+        included_artifacts_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    raw.close();
+
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    db.close();
+
+    const migrated = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
+    const columns = (migrated.prepare('PRAGMA table_info(exports)').all() as Array<{ name: string }>).map((row) => row.name);
+    const migration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 4').get();
+    migrated.close();
+    expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
+    expect(migration).toBeTruthy();
   });
 
   it('recovers interrupted active state on workspace reopen', () => {
@@ -231,15 +303,26 @@ describe('Beale workbench skeleton', () => {
 
     detail = service.getRunDetail(runId);
     const exported = detail.artifacts.find((artifact) => artifact.kind === 'evidence_bundle_export');
+    const exportRecord = detail.exports.find((item) => item.kind === 'evidence_bundle');
     expect(detail.findings.find((item) => item.id === finding?.id)?.state).toBe('out_of_scope');
     expect(detail.verifierContracts.some((contract) => contract.mode === 'patch_validation' && contract.findingId === finding?.id)).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked false positive by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(true);
     expect(exported?.modelVisible).toBe(false);
+    expect(exportRecord?.status).toBe('pending_review');
     const exportedPath = join(snapshot.workspace.workspacePath, String(exported?.metadata.exportRelativePath));
     expect(existsSync(exportedPath)).toBe(true);
     expect(readFileSync(exportedPath, 'utf8')).toContain('api_key=...redacted');
     expect(readFileSync(exportedPath, 'utf8')).not.toContain('supersecretvalue12345');
+
+    service.steerRun({ type: 'review_export', runId, exportId: exportRecord?.id ?? '', decision: 'approved', note: 'token=reviewsecret12345' });
+    detail = service.getRunDetail(runId);
+    const reviewed = detail.exports.find((item) => item.id === exportRecord?.id);
+    expect(reviewed?.status).toBe('approved');
+    expect(reviewed?.reviewDecision).toBe('approved');
+    expect(reviewed?.reviewNote).toContain('token=...redacted');
+    expect(reviewed?.reviewNote).not.toContain('reviewsecret12345');
+    expect(detail.traceEvents.some((event) => event.summary === 'Export review recorded: approved.')).toBe(true);
     service.close();
   });
 

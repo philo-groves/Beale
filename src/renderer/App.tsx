@@ -31,6 +31,7 @@ import type {
   ArtifactRecord,
   BenchmarkOverview,
   BenchmarkSuiteKind,
+  ExportRecord,
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
@@ -804,6 +805,11 @@ function RunDetailView({
           onFalsePositive={(finding) => steer({ type: 'mark_finding_false_positive', runId: detail.run.id, findingId: finding.id })}
           onOutOfScope={(finding) => steer({ type: 'mark_finding_out_of_scope', runId: detail.run.id, findingId: finding.id })}
         />
+        <ExportPanel
+          exports={detail.exports}
+          disabled={busy}
+          onReview={(exportRecord, decision) => steer({ type: 'review_export', runId: detail.run.id, exportId: exportRecord.id, decision })}
+        />
         <VmPolicyPanel detail={detail} />
       </div>
 
@@ -1056,6 +1062,48 @@ function FindingPanel({
   );
 }
 
+function ExportPanel({
+  exports,
+  disabled,
+  onReview
+}: {
+  exports: ExportRecord[];
+  disabled: boolean;
+  onReview: (exportRecord: ExportRecord, decision: 'approved' | 'needs_more_evidence' | 'rejected') => void;
+}): JSX.Element {
+  return (
+    <section className="detail-section">
+      <div className="section-title">
+        <FileArchive size={16} />
+        <h4>Exports</h4>
+      </div>
+      {exports.length === 0 ? <div className="empty-state">No exports.</div> : null}
+      {exports.map((exportRecord) => (
+        <div className={`entity-row state-${stateClass(exportRecord.status)}`} key={exportRecord.id}>
+          <div>
+            <strong>{exportRecord.kind}</strong>
+            <p>
+              {exportRecord.status} · {exportRecord.relativePath}
+              {exportRecord.reviewedAt ? ` · reviewed ${shortDate(exportRecord.reviewedAt)}` : ''}
+            </p>
+          </div>
+          <div className="entity-actions">
+            <button type="button" title="Approve export" disabled={disabled} onClick={() => onReview(exportRecord, 'approved')}>
+              <CheckCircle2 size={14} />
+            </button>
+            <button type="button" title="Needs more evidence" disabled={disabled} onClick={() => onReview(exportRecord, 'needs_more_evidence')}>
+              <ShieldAlert size={14} />
+            </button>
+            <button type="button" title="Reject export" disabled={disabled} onClick={() => onReview(exportRecord, 'rejected')}>
+              <XCircle size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function ModelSessionPanel({ detail }: { detail: RunDetail }): JSX.Element {
   return (
     <section className="detail-section">
@@ -1149,6 +1197,10 @@ function stateClass(state: string): string {
 function formatPercent(value: number): string {
   const sign = value > 0 ? '+' : '';
   return `${sign}${Math.round(value * 100)}%`;
+}
+
+function shortDate(value: string): string {
+  return value.slice(0, 10);
 }
 
 function scopeToForm(scope: ProgramScopeVersion): ScopeFormState {

@@ -13,6 +13,8 @@ import type {
   BenchmarkSuiteKind,
   BenchmarkTaskMode,
   BenchmarkTaskResultRecord,
+  ExportRecord,
+  ExportReviewDecision,
   FindingRecord,
   HypothesisRecord,
   ModelSessionRecord,
@@ -194,6 +196,7 @@ export interface CreateExportInput {
   relativePath: string;
   redactionPolicy?: Record<string, unknown>;
   includedArtifacts?: Record<string, unknown>;
+  status?: ExportRecord['status'];
 }
 
 export interface CreateBenchmarkRunInput {
@@ -228,7 +231,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -1117,8 +1120,8 @@ export class WorkspaceDatabase {
       .prepare(
         `INSERT INTO exports (
           id, run_id, finding_id, kind, relative_path, redaction_policy_json,
-          included_artifacts_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -1128,9 +1131,30 @@ export class WorkspaceDatabase {
         input.relativePath,
         toJson(input.redactionPolicy),
         toJson(input.includedArtifacts),
-        nowIso()
+        input.status ?? 'pending_review',
+        null,
+        null,
+        nowIso(),
+        null
       );
     return id;
+  }
+
+  public updateExportReview(exportId: string, decision: ExportReviewDecision, note: string): ExportRecord {
+    const reviewedAt = nowIso();
+    this.db
+      .prepare(
+        `UPDATE exports
+         SET status = ?,
+             review_decision = ?,
+             review_note = ?,
+             reviewed_at = ?
+         WHERE id = ?`
+      )
+      .run(decision, decision, note, reviewedAt, exportId);
+    const exportRecord = this.getExportRecord(exportId);
+    if (!exportRecord) throw new Error(`Export not found: ${exportId}`);
+    return exportRecord;
   }
 
   public createBenchmarkRun(input: CreateBenchmarkRunInput): BenchmarkRunRecord {
@@ -1357,7 +1381,8 @@ export class WorkspaceDatabase {
           .all(runId, runId)
       ).map((row) => this.mapVmContext(row)),
       modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
-      policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row))
+      policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
+      exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
     };
   }
 
@@ -1405,14 +1430,39 @@ export class WorkspaceDatabase {
     `);
 
     const current = rowOrUndefined(this.db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get());
-    if (numberValue(current ?? { version: 0 }, 'version') >= SCHEMA_VERSION) {
+    const currentVersion = numberValue(current ?? { version: 0 }, 'version');
+    if (currentVersion >= SCHEMA_VERSION) {
       return;
     }
 
     this.transaction(() => {
-      this.db.exec(SCHEMA_SQL);
-      this.db.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(SCHEMA_VERSION, 'initial_workbench_schema', nowIso());
+      if (currentVersion < 3) {
+        this.db.exec(SCHEMA_SQL);
+        this.insertMigration(3, 'initial_workbench_schema');
+      }
+      if (currentVersion < 4) {
+        this.applyExportReviewMigration();
+        this.insertMigration(4, 'export_review_hardening');
+      }
     });
+  }
+
+  private insertMigration(version: number, name: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(version, name, nowIso());
+  }
+
+  private applyExportReviewMigration(): void {
+    this.addColumnIfMissing('exports', 'status', "status TEXT NOT NULL DEFAULT 'pending_review'");
+    this.addColumnIfMissing('exports', 'review_decision', 'review_decision TEXT');
+    this.addColumnIfMissing('exports', 'review_note', 'review_note TEXT');
+    this.addColumnIfMissing('exports', 'reviewed_at', 'reviewed_at TEXT');
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const columns = new Set(rows(this.db.prepare(`PRAGMA table_info(${table})`).all()).map((row) => text(row, 'name')));
+    if (!columns.has(column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
+    }
   }
 
   private ensureWorkspaceMeta(): void {
@@ -1537,6 +1587,11 @@ export class WorkspaceDatabase {
   private getBenchmarkTaskResult(resultId: string): BenchmarkTaskResultRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM benchmark_task_results WHERE id = ?').get(resultId));
     return row ? this.mapBenchmarkTaskResult(row) : null;
+  }
+
+  private getExportRecord(exportId: string): ExportRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM exports WHERE id = ?').get(exportId));
+    return row ? this.mapExport(row) : null;
   }
 
   private mapScope(row: SqlRow): ProgramScopeVersion {
@@ -1749,6 +1804,23 @@ export class WorkspaceDatabase {
       scopeAmendmentId: nullableText(row, 'scope_amendment_id'),
       createdAt: text(row, 'created_at'),
       decidedAt: nullableText(row, 'decided_at')
+    };
+  }
+
+  private mapExport(row: SqlRow): ExportRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      findingId: nullableText(row, 'finding_id'),
+      kind: text(row, 'kind'),
+      relativePath: text(row, 'relative_path'),
+      status: text(row, 'status') as ExportRecord['status'],
+      reviewDecision: nullableText(row, 'review_decision') as ExportReviewDecision | null,
+      reviewNote: nullableText(row, 'review_note'),
+      redactionPolicy: parseJson(row.redaction_policy_json),
+      includedArtifacts: parseJson(row.included_artifacts_json),
+      createdAt: text(row, 'created_at'),
+      reviewedAt: nullableText(row, 'reviewed_at')
     };
   }
 
@@ -2078,7 +2150,11 @@ CREATE TABLE IF NOT EXISTS exports (
   relative_path TEXT NOT NULL,
   redaction_policy_json TEXT NOT NULL,
   included_artifacts_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  status TEXT NOT NULL DEFAULT 'pending_review',
+  review_decision TEXT,
+  review_note TEXT,
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS benchmark_runs (

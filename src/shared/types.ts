@@ -361,6 +361,23 @@ export interface ApprovalRecord {
   decidedAt: string | null;
 }
 
+export type ExportReviewDecision = 'approved' | 'needs_more_evidence' | 'rejected';
+
+export interface ExportRecord {
+  id: string;
+  runId: string;
+  findingId: string | null;
+  kind: string;
+  relativePath: string;
+  status: 'pending_review' | ExportReviewDecision;
+  reviewDecision: ExportReviewDecision | null;
+  reviewNote: string | null;
+  redactionPolicy: Record<string, unknown>;
+  includedArtifacts: Record<string, unknown>;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
 export interface RunRow {
   run: RunRecord;
   attemptCount: number;
@@ -386,6 +403,7 @@ export interface RunDetail {
   vmContexts: VmContextRecord[];
   modelSessions: ModelSessionRecord[];
   policyEvents: ApprovalRecord[];
+  exports: ExportRecord[];
 }
 
 export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';
@@ -552,6 +570,7 @@ export type SteeringAction =
   | { type: 'mark_finding_false_positive'; runId: string; findingId: string; note?: string }
   | { type: 'mark_finding_out_of_scope'; runId: string; findingId: string; note?: string }
   | { type: 'export_evidence_bundle'; runId: string; findingId?: string; note?: string }
+  | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
   | { type: 'dismiss_hypothesis'; runId: string; hypothesisId: string; note?: string }
   | { type: 'mark_hypothesis_out_of_scope'; runId: string; hypothesisId: string; note?: string };
 

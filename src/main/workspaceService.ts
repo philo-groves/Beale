@@ -399,6 +399,27 @@ export class WorkspaceService {
         this.exportEvidenceBundle(action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
         break;
       }
+      case 'review_export': {
+        requireExport(db.getRunDetail(action.runId), action.exportId);
+        const exportRecord = db.updateExportReview(action.exportId, action.decision, redactForModelText(action.note ?? ''));
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'artifact_created',
+          source: 'user',
+          summary: `Export review recorded: ${action.decision}.`,
+          payload: {
+            exportId: exportRecord.id,
+            relativePath: exportRecord.relativePath,
+            decision: action.decision,
+            note: redactForModelText(action.note ?? ''),
+            userReviewRequired: action.decision !== 'approved'
+          },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
+        break;
+      }
       case 'mark_artifact_sensitive': {
         db.markArtifactSensitive(action.artifactId);
         db.appendTraceEvent({
@@ -775,6 +796,12 @@ function requireFinding(detail: RunDetail, findingId: string): FindingRecord {
   const finding = detail.findings.find((item) => item.id === findingId);
   if (!finding) throw new Error(`Finding not found: ${findingId}`);
   return finding;
+}
+
+function requireExport(detail: RunDetail, exportId: string) {
+  const exportRecord = detail.exports.find((item) => item.id === exportId);
+  if (!exportRecord) throw new Error(`Export not found: ${exportId}`);
+  return exportRecord;
 }
 
 function latestVerifierForHypothesis(detail: RunDetail, hypothesisId: string, status: string) {
