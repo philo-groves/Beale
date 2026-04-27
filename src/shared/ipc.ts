@@ -1,5 +1,10 @@
 export const IPC_CHANNELS = {
   selectWorkspace: 'beale:select-workspace',
+  selectProgramDirectory: 'beale:select-program-directory',
+  getProgramRegistry: 'beale:get-program-registry',
+  lookupHackerOneProgram: 'beale:lookup-hackerone-program',
+  createProgram: 'beale:create-program',
+  openProgram: 'beale:open-program',
   openWorkspace: 'beale:open-workspace',
   createWorkspace: 'beale:create-workspace',
   getSnapshot: 'beale:get-snapshot',
@@ -11,5 +16,6 @@ export const IPC_CHANNELS = {
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
   steerRun: 'beale:steer-run',
+  programRegistryUpdated: 'beale:program-registry-updated',
   snapshotUpdated: 'beale:snapshot-updated'
 } as const;

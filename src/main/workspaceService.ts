@@ -11,6 +11,7 @@ import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
+import { ProgramRegistry } from './programRegistry';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
@@ -18,11 +19,16 @@ import type {
   BenchmarkRunInput,
   FakeScenario,
   FindingRecord,
+  HackerOneProgramLookupResult,
   HypothesisRecord,
   PriorityFactorInput,
+  ProgramDirectorySelection,
+  ProgramOnboardingInput,
+  ProgramRegistryState,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
+  ScopeAssetInput,
   StartRunInput,
   SteeringAction,
   VerifierContractRecord,
@@ -37,6 +43,59 @@ import type {
 
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
+
+const HACKERONE_PROGRAM_QUERY = `
+  query BealeProgram($handle: String!) {
+    team(handle: $handle) {
+      handle
+      name
+      url
+      policy
+      submission_state
+      structured_scopes(first: 100) {
+        total_count
+        nodes {
+          asset_type
+          asset_identifier
+          instruction
+          eligible_for_bounty
+          eligible_for_submission
+          max_severity
+          url
+        }
+      }
+    }
+  }
+`;
+
+interface HackerOneGraphqlResponse {
+  data?: {
+    team?: HackerOneTeam | null;
+  };
+  errors?: Array<{ message: string }>;
+}
+
+interface HackerOneTeam {
+  handle: string;
+  name: string;
+  url: string;
+  policy: string | null;
+  submission_state: string | null;
+  structured_scopes?: {
+    total_count?: number | null;
+    nodes?: HackerOneScopeNode[];
+  } | null;
+}
+
+interface HackerOneScopeNode {
+  asset_type: string | null;
+  asset_identifier: string | null;
+  instruction: string | null;
+  eligible_for_bounty: boolean | null;
+  eligible_for_submission: boolean | null;
+  max_severity: string | null;
+  url: string | null;
+}
 
 export function getHostEnvironment(): HostEnvironment {
   const platform = hostPlatform(process.platform);
@@ -62,6 +121,8 @@ export function getHostEnvironment(): HostEnvironment {
 
 export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
+  programRegistryDirectory?: string;
+  hackerOneFetch?: typeof fetch;
 }
 
 export class WorkspaceService {
@@ -72,6 +133,7 @@ export class WorkspaceService {
   private executorRunEngine: ExecutorRunEngine | null = null;
   private benchmarkRunner: BenchmarkRunner | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
+  private programRegistry: ProgramRegistry | null = null;
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
   private lastRecovery: WorkspaceRecoveryReport | null = null;
@@ -87,6 +149,96 @@ export class WorkspaceService {
 
   public createWorkspace(path: string): WorkspaceSnapshot {
     return this.open(path, true);
+  }
+
+  public getProgramRegistryState(): ProgramRegistryState {
+    return this.getProgramRegistry().getState();
+  }
+
+  public inspectProgramDirectory(path: string): ProgramDirectorySelection {
+    return this.getProgramRegistry().inspectDirectory(path);
+  }
+
+  public async lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
+    requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
+    const handle = normalizeHackerOneIdentifier(identifier);
+    if (!handle) {
+      throw new Error('HackerOne program identifier is required.');
+    }
+
+    const response = await (this.options.hackerOneFetch ?? fetch)('https://hackerone.com/graphql', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'user-agent': 'Beale/0.1 local program onboarding'
+      },
+      body: JSON.stringify({
+        query: HACKERONE_PROGRAM_QUERY,
+        variables: { handle }
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`HackerOne lookup failed with HTTP ${response.status}.`);
+    }
+
+    const payload = (await response.json()) as HackerOneGraphqlResponse;
+    if (payload.errors?.length) {
+      throw new Error(payload.errors.map((error) => error.message).join('; '));
+    }
+    const team = payload.data?.team;
+    if (!team) {
+      throw new Error(`HackerOne program not found: ${handle}`);
+    }
+
+    const scopeNodes = team.structured_scopes?.nodes ?? [];
+    const assets = scopeNodes.map(hackerOneScopeToAsset).filter((asset): asset is NonNullable<ReturnType<typeof hackerOneScopeToAsset>> => Boolean(asset));
+    const sourceUrl = team.url || `https://hackerone.com/${team.handle}`;
+    return {
+      handle: team.handle,
+      sourceUrl,
+      programName: team.name,
+      organizationName: team.name,
+      descriptionMarkdown: [`HackerOne program: ${team.name}`, sourceUrl, team.submission_state ? `Submission state: ${team.submission_state}` : ''].filter(Boolean).join('\n'),
+      rulesMarkdown: buildHackerOneRulesMarkdown(team.policy, sourceUrl, scopeNodes.length, team.structured_scopes?.total_count ?? scopeNodes.length),
+      networkProfile: assets.some((asset) => asset.direction === 'in_scope') ? 'scoped' : 'offline',
+      expiresAt: null,
+      assets,
+      importedScopeCount: assets.length
+    };
+  }
+
+  public createProgram(input: ProgramOnboardingInput): WorkspaceSnapshot {
+    this.getProgramRegistry();
+    if (hasHackerOneImportedAssets(input.assets)) {
+      requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
+    }
+    const workspacePath = resolve(input.workspacePath);
+    const programName = input.programName.trim();
+    if (!programName) {
+      throw new Error('Program name is required.');
+    }
+
+    this.open(workspacePath, true, false);
+    this.requireDb().saveProgramScope({
+      programName,
+      organizationName: input.organizationName.trim(),
+      descriptionMarkdown: input.descriptionMarkdown.trim(),
+      rulesMarkdown: input.rulesMarkdown.trim(),
+      networkProfile: input.networkProfile.trim() || 'offline',
+      expiresAt: optionalDateOrNever(input.expiresAt),
+      assets: input.assets ?? []
+    });
+    this.emitChange();
+    return this.requireSnapshot();
+  }
+
+  public openProgram(programId: string): WorkspaceSnapshot {
+    const program = this.getProgramRegistry().getProgram(programId);
+    if (!program) {
+      throw new Error(`Program not found: ${programId}`);
+    }
+    return this.open(program.workspacePath, false);
   }
 
   public getSnapshot(): WorkspaceSnapshot | null {
@@ -728,7 +880,13 @@ export class WorkspaceService {
     this.lastRecovery = null;
   }
 
-  private open(path: string, create: boolean): WorkspaceSnapshot {
+  public dispose(): void {
+    this.close();
+    this.programRegistry?.close();
+    this.programRegistry = null;
+  }
+
+  private open(path: string, create: boolean, emitChange = true): WorkspaceSnapshot {
     const workspacePath = resolve(path);
     if (create) {
       mkdirSync(workspacePath, { recursive: true });
@@ -751,13 +909,28 @@ export class WorkspaceService {
     this.db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     this.db.initialize();
     this.lastRecovery = this.db.recoverInterruptedState('workspace_open');
-    this.engine = new FakeRunEngine(this.db, this.onChange);
+    this.engine = new FakeRunEngine(this.db, () => this.emitChange());
     this.executorManager = new ExecutorManager(this.db);
-    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, this.onChange);
-    this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, this.onChange);
+    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, () => this.emitChange());
+    this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, () => this.emitChange());
     this.benchmarkRunner = new BenchmarkRunner(this.db, workspacePath, this.options.benchmarkDockerCommand);
-    this.emitChange();
+    if (emitChange) this.emitChange();
     return this.requireSnapshot();
+  }
+
+  private getProgramRegistry(): ProgramRegistry {
+    if (!this.programRegistry) {
+      this.programRegistry = new ProgramRegistry(this.options.programRegistryDirectory);
+    }
+    return this.programRegistry;
+  }
+
+  private syncProgramRegistry(): void {
+    if (!this.programRegistry) return;
+    const snapshot = this.getSnapshot();
+    if (snapshot) {
+      this.programRegistry.syncWorkspace(snapshot);
+    }
   }
 
   private requireDb(): WorkspaceDatabase {
@@ -828,6 +1001,7 @@ export class WorkspaceService {
   }
 
   private emitChange(): void {
+    this.syncProgramRegistry();
     this.onChange();
   }
 
@@ -1440,6 +1614,68 @@ function safeReadText(path: string): string {
   } catch {
     return '';
   }
+}
+
+function optionalDateOrNever(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function requireOpenAiAuthenticationForHackerOneImport(auth: OpenAiAuthService): void {
+  if (auth.getStatus().configured) return;
+  throw new Error('Authenticate with OpenAI first before looking up or importing HackerOne program information.');
+}
+
+function hasHackerOneImportedAssets(assets: ScopeAssetInput[] | undefined): boolean {
+  return (assets ?? []).some((asset) => asset.attributes?.source === 'hackerone');
+}
+
+function normalizeHackerOneIdentifier(identifier: string): string {
+  return identifier
+    .trim()
+    .replace(/^https?:\/\/(?:www\.)?hackerone\.com\//i, '')
+    .replace(/^@/, '')
+    .split(/[/?#]/, 1)[0]
+    .trim();
+}
+
+function hackerOneScopeToAsset(scope: HackerOneScopeNode): ScopeAssetInput | null {
+  const value = scope.asset_identifier?.trim();
+  if (!value) return null;
+  const assetType = scope.asset_type?.trim() ?? 'OTHER';
+  return {
+    direction: scope.eligible_for_submission === false ? 'out_of_scope' : 'in_scope',
+    kind: hackerOneAssetKind(assetType, value),
+    value,
+    sensitivity: 'public',
+    attributes: {
+      source: 'hackerone',
+      assetType,
+      instruction: scope.instruction ?? '',
+      eligibleForBounty: scope.eligible_for_bounty,
+      eligibleForSubmission: scope.eligible_for_submission,
+      maxSeverity: scope.max_severity,
+      url: scope.url
+    }
+  };
+}
+
+function hackerOneAssetKind(assetType: string, value: string): ScopeAssetInput['kind'] {
+  const normalized = assetType.toUpperCase();
+  if (normalized.includes('SOURCE')) return 'repo';
+  if (normalized.includes('EXECUTABLE') || normalized.includes('BINARY')) return 'binary';
+  if (normalized.includes('IP') || /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(value)) return 'ip_range';
+  if (normalized.includes('URL') || normalized.includes('DOMAIN') || value.includes('*') || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)) return 'domain';
+  return 'other';
+}
+
+function buildHackerOneRulesMarkdown(policy: string | null, sourceUrl: string, importedCount: number, totalCount: number): string {
+  const header = [
+    `Imported from HackerOne: ${sourceUrl}`,
+    `${importedCount} structured scope asset${importedCount === 1 ? '' : 's'} imported${totalCount > importedCount ? ` from the first ${importedCount} of ${totalCount} public scope entries` : ''}.`,
+    'Verify current HackerOne scope before testing.'
+  ].join('\n');
+  return policy?.trim() ? `${header}\n\n${policy.trim()}` : header;
 }
 
 function fileTimestamp(iso: string): string {

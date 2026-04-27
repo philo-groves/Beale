@@ -15,6 +15,10 @@ afterEach(() => {
   delete process.env.BEALE_VMCTL_COMMAND;
   delete process.env.BEALE_VMCTL_ARGS_JSON;
   delete process.env.BEALE_VMCTL_TIMEOUT_MS;
+  delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
+  delete process.env.BEALE_OPENAI_AUTH_COMMAND;
+  delete process.env.BEALE_OPENAI_AUTH_ARGS_JSON;
+  delete process.env.OPENAI_API_KEY;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -43,6 +47,171 @@ describe('Beale workbench skeleton', () => {
     const reopened = service.openWorkspace(dir);
     expect(reopened.workspace.workspaceId).toBe(workspaceId);
     expect(reopened.activeScope.version).toBe(1);
+    service.close();
+  });
+
+  it('onboards programs into the global registry and mirrors run summaries', () => {
+    const workspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    expect(service.getProgramRegistryState().programs).toHaveLength(0);
+    const inspection = service.inspectProgramDirectory(workspace);
+    expect(inspection.requiresOnboarding).toBe(true);
+    expect(inspection.defaults?.workspacePath).toBe(workspace);
+    expect(existsSync(join(workspace, '.beale'))).toBe(false);
+
+    const snapshot = service.createProgram({
+      workspacePath: workspace,
+      programName: 'Acme Bug Bounty',
+      organizationName: '',
+      descriptionMarkdown: 'Authorized parser research.',
+      rulesMarkdown: 'Stay inside recorded scope.',
+      networkProfile: 'offline',
+      expiresAt: '   '
+    });
+    expect(snapshot.activeScope.programName).toBe('Acme Bug Bounty');
+    expect(snapshot.activeScope.organizationName).toBe('');
+    expect(snapshot.activeScope.expiresAt).toBeNull();
+    expect(existsSync(join(workspace, '.beale', 'beale.sqlite'))).toBe(true);
+
+    const registered = service.getProgramRegistryState();
+    expect(registered.registryPath).toBe(join(registryDir, 'registry.sqlite'));
+    expect(registered.programs).toHaveLength(1);
+    expect(registered.programs[0]).toMatchObject({
+      workspacePath: workspace,
+      programName: 'Acme Bug Bounty',
+      organizationName: '',
+      runCount: 0
+    });
+    expect(service.inspectProgramDirectory(workspace).knownProgram?.id).toBe(registered.programs[0].id);
+
+    const runSnapshot = service.startRun(runInput('verified_finding'), 'complete');
+    const latestRun = runSnapshot.runs[0]?.run;
+    expect(latestRun).toBeTruthy();
+    const withRun = service.getProgramRegistryState();
+    expect(withRun.programs[0].runCount).toBe(1);
+    expect(withRun.researchSessions[0]).toMatchObject({
+      programId: withRun.programs[0].id,
+      workspacePath: workspace,
+      runId: latestRun?.id,
+      title: latestRun?.title,
+      status: latestRun?.status,
+      runEngine: 'fake'
+    });
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const persisted = reopened.getProgramRegistryState();
+    expect(persisted.programs[0].programName).toBe('Acme Bug Bounty');
+    expect(persisted.researchSessions[0].runId).toBe(latestRun?.id);
+    expect(reopened.openProgram(persisted.programs[0].id).activeScope.programName).toBe('Acme Bug Bounty');
+    reopened.close();
+  });
+
+  it('looks up HackerOne program metadata and imports public structured scope', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-hackerone-import-review';
+    const service = new WorkspaceService(() => undefined, {
+      programRegistryDirectory: tempWorkspace(),
+      hackerOneFetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { variables: { handle: string } };
+        expect(body.variables.handle).toBe('github');
+        return new Response(
+          JSON.stringify({
+            data: {
+              team: {
+                handle: 'github',
+                name: 'GitHub',
+                url: 'https://hackerone.com/github',
+                policy: '# GitHub policy\nStay in scope.',
+                submission_state: 'open',
+                structured_scopes: {
+                  total_count: 2,
+                  nodes: [
+                    {
+                      asset_type: 'URL',
+                      asset_identifier: 'github.com',
+                      instruction: 'Main application.',
+                      eligible_for_bounty: true,
+                      eligible_for_submission: true,
+                      max_severity: 'critical',
+                      url: 'https://hackerone.com/github/asset/1'
+                    },
+                    {
+                      asset_type: 'OTHER',
+                      asset_identifier: 'Third-party services',
+                      instruction: 'Not accepted.',
+                      eligible_for_bounty: false,
+                      eligible_for_submission: false,
+                      max_severity: null,
+                      url: 'https://hackerone.com/github/asset/2'
+                    }
+                  ]
+                }
+              }
+            }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+    });
+
+    const lookup = await service.lookupHackerOneProgram('https://hackerone.com/github');
+    expect(lookup).toMatchObject({
+      handle: 'github',
+      sourceUrl: 'https://hackerone.com/github',
+      programName: 'GitHub',
+      organizationName: 'GitHub',
+      networkProfile: 'scoped',
+      importedScopeCount: 2
+    });
+    expect(lookup.rulesMarkdown).toContain('# GitHub policy');
+    expect(lookup.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'github.com', sensitivity: 'public' }),
+        expect.objectContaining({ direction: 'out_of_scope', kind: 'other', value: 'Third-party services', sensitivity: 'public' })
+      ])
+    );
+
+    service.close();
+  });
+
+  it('requires OpenAI authentication before HackerOne lookup or import', async () => {
+    delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
+    delete process.env.BEALE_OPENAI_AUTH_COMMAND;
+    delete process.env.OPENAI_API_KEY;
+    let requestedHackerOne = false;
+    const service = new WorkspaceService(() => undefined, {
+      programRegistryDirectory: tempWorkspace(),
+      hackerOneFetch: async () => {
+        requestedHackerOne = true;
+        return new Response('{}', { status: 200 });
+      }
+    });
+
+    await expect(service.lookupHackerOneProgram('github')).rejects.toThrow(/Authenticate with OpenAI first/);
+    expect(requestedHackerOne).toBe(false);
+    expect(() =>
+      service.createProgram({
+        workspacePath: tempWorkspace(),
+        programName: 'GitHub',
+        organizationName: 'GitHub',
+        descriptionMarkdown: '',
+        rulesMarkdown: '',
+        networkProfile: 'scoped',
+        expiresAt: null,
+        assets: [
+          {
+            direction: 'in_scope',
+            kind: 'domain',
+            value: 'github.com',
+            sensitivity: 'public',
+            attributes: { source: 'hackerone' }
+          }
+        ]
+      })
+    ).toThrow(/Authenticate with OpenAI first/);
+
     service.close();
   });
 

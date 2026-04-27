@@ -282,6 +282,11 @@ function nullableText(row: SqlRow, key: string): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function optionalDateOrNever(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function numberValue(row: SqlRow, key: string): number {
   const value = row[key];
   if (typeof value === 'number') return value;
@@ -566,7 +571,7 @@ export class WorkspaceDatabase {
           toJson(jsonFromScopeDraft({ ...draft, assets: cleanedAssets })),
           draft.rulesMarkdown.trim(),
           createdAt,
-          draft.expiresAt || null,
+          optionalDateOrNever(draft.expiresAt),
           createdAt,
           'local_user'
         );

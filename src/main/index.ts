@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { BenchmarkRunInput, ProgramScopeDraft, StartRunInput, SteeringAction, WorkspacePickerMode } from '@shared/types';
+import type { BenchmarkRunInput, ProgramOnboardingInput, ProgramScopeDraft, StartRunInput, SteeringAction, WorkspacePickerMode } from '@shared/types';
 import { getHostEnvironment, WorkspaceService } from './workspaceService';
 
 let mainWindow: BrowserWindow | null = null;
@@ -35,8 +35,10 @@ function createWindow(): void {
 
 function broadcastSnapshot(): void {
   const snapshot = workspaceService.getSnapshot();
+  const programRegistry = workspaceService.getProgramRegistryState();
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
+    window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
   }
 }
 
@@ -52,6 +54,26 @@ function registerIpc(): void {
     };
   });
 
+  ipcMain.handle(IPC_CHANNELS.selectProgramDirectory, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Add Beale program',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    const path = result.filePaths[0] ?? null;
+    return result.canceled || !path
+      ? {
+          canceled: true,
+          path: null,
+          knownProgram: null,
+          requiresOnboarding: false,
+          defaults: null
+        }
+      : workspaceService.inspectProgramDirectory(path);
+  });
+  ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => workspaceService.getProgramRegistryState());
+  ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
+  ipcMain.handle(IPC_CHANNELS.createProgram, (_event, input: ProgramOnboardingInput) => workspaceService.createProgram(input));
+  ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) => workspaceService.openProgram(programId));
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());
@@ -88,5 +110,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  workspaceService?.close();
+  workspaceService?.dispose();
 });

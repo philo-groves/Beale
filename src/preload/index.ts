@@ -4,6 +4,9 @@ import type {
   BealeApi,
   BenchmarkRunInput,
   HostEnvironment,
+  HackerOneProgramLookupResult,
+  ProgramOnboardingInput,
+  ProgramRegistryState,
   ProgramScopeDraft,
   StartRunInput,
   SteeringAction,
@@ -14,6 +17,21 @@ import type {
 const api: BealeApi = {
   selectWorkspace(mode: WorkspacePickerMode) {
     return ipcRenderer.invoke(IPC_CHANNELS.selectWorkspace, mode);
+  },
+  selectProgramDirectory() {
+    return ipcRenderer.invoke(IPC_CHANNELS.selectProgramDirectory);
+  },
+  getProgramRegistry() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProgramRegistry);
+  },
+  lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneProgram, identifier);
+  },
+  createProgram(input: ProgramOnboardingInput) {
+    return ipcRenderer.invoke(IPC_CHANNELS.createProgram, input);
+  },
+  openProgram(programId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openProgram, programId);
   },
   openWorkspace(path: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, path);
@@ -52,6 +70,11 @@ const api: BealeApi = {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot | null): void => listener(snapshot);
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.snapshotUpdated, wrapped);
+  },
+  onProgramRegistry(listener: (state: ProgramRegistryState) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: ProgramRegistryState): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.programRegistryUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.programRegistryUpdated, wrapped);
   }
 };
 

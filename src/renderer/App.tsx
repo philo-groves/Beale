@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive,
   Ban,
+  Bell,
   Bug,
   CheckCircle2,
   ClipboardCheck,
@@ -52,11 +53,16 @@ import type {
   HostEnvironment,
   OpenAiAccountStatus,
   PriorityFactorInput,
+  ProgramOnboardingDefaults,
+  ProgramOnboardingInput,
+  ProgramRegistryEntry,
+  ProgramRegistryState,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
   RunRow,
   ScopeAssetDirection,
+  ScopeAssetInput,
   ScopeAssetKind,
   StartRunInput,
   TraceEventRecord,
@@ -78,6 +84,20 @@ interface ScopeFormState {
   outOfScope: string;
 }
 
+interface ProgramOnboardingFormState {
+  templateKind: ProgramTemplateKind;
+  workspacePath: string;
+  programName: string;
+  organizationName: string;
+  descriptionMarkdown: string;
+  rulesMarkdown: string;
+  networkProfile: string;
+  expiresAt: string;
+  assets: ScopeAssetInput[];
+}
+
+type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
+
 const defaultRunInput: StartRunInput = {
   runEngine: 'fake',
   promptMarkdown: '# Open discovery\nMap the scoped target, identify promising attack surfaces, and collect verifier-backed evidence where possible.',
@@ -97,17 +117,27 @@ const defaultRunInput: StartRunInput = {
 
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
+  const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
+  const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(292);
 
-  const loadSnapshot = useCallback(async () => {
-    const next = await window.beale.getSnapshot();
+  const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     setSnapshot(next);
     setSelectedRunId((current) => selectRunId(current, next));
+  }, []);
+
+  const loadSnapshot = useCallback(async () => {
+    const next = await window.beale.getSnapshot();
+    applySnapshot(next);
+  }, [applySnapshot]);
+
+  const loadProgramRegistry = useCallback(async () => {
+    setProgramRegistry(await window.beale.getProgramRegistry());
   }, []);
 
   const loadRunDetail = useCallback(async (runId: string | null) => {
@@ -128,16 +158,22 @@ export function App(): JSX.Element {
     window.beale
       .getSnapshot()
       .then((initial) => {
-        setSnapshot(initial);
-        setSelectedRunId((current) => selectRunId(current, initial));
+        applySnapshot(initial);
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
-    return window.beale.onSnapshot((next) => {
-      setSnapshot(next);
-      setSelectedRunId((current) => selectRunId(current, next));
-    });
-  }, []);
+    window.beale
+      .getProgramRegistry()
+      .then(setProgramRegistry)
+      .catch((caught: unknown) => setError(errorMessage(caught)));
+
+    const unsubscribeSnapshot = window.beale.onSnapshot(applySnapshot);
+    const unsubscribeProgramRegistry = window.beale.onProgramRegistry(setProgramRegistry);
+    return () => {
+      unsubscribeSnapshot();
+      unsubscribeProgramRegistry();
+    };
+  }, [applySnapshot]);
 
   useEffect(() => {
     loadRunDetail(selectedRunId).catch((caught: unknown) => setError(errorMessage(caught)));
@@ -149,15 +185,32 @@ export function App(): JSX.Element {
       setError(null);
       try {
         const next = await action();
-        if (next) setSnapshot(next);
+        if (next) applySnapshot(next);
         await loadSnapshot();
+        await loadProgramRegistry();
       } catch (caught) {
         setError(errorMessage(caught));
       } finally {
         setBusy(false);
       }
     },
-    [loadSnapshot]
+    [applySnapshot, loadProgramRegistry, loadSnapshot]
+  );
+
+  const runProgramAction = useCallback(
+    async (action: () => Promise<void>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await action();
+        await loadProgramRegistry();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadProgramRegistry]
   );
 
   const startDefaultRun = (): void => {
@@ -171,6 +224,58 @@ export function App(): JSX.Element {
       if (latestRunId) setSelectedRunId(latestRunId);
       return next;
     });
+  };
+
+  const addProgram = (): void => {
+    void runProgramAction(async () => {
+      const selection = await window.beale.selectProgramDirectory();
+      if (selection.canceled) return;
+      if (selection.knownProgram) {
+        applySnapshot(await window.beale.openProgram(selection.knownProgram.id));
+        return;
+      }
+      if (selection.defaults) {
+        setProgramDraft(onboardingFormFromDefaults(selection.defaults));
+      }
+    });
+  };
+
+  const openRegisteredProgram = (program: ProgramRegistryEntry): void => {
+    void runProgramAction(async () => {
+      applySnapshot(await window.beale.openProgram(program.id));
+    });
+  };
+
+  const submitProgramOnboarding = (): void => {
+    if (!programDraft) return;
+    void runProgramAction(async () => {
+      const next = await window.beale.createProgram(onboardingInputFromForm(programDraft));
+      setProgramDraft(null);
+      applySnapshot(next);
+    });
+  };
+
+  const applyOnboardingTemplate = (templateKind: ProgramTemplateKind): void => {
+    setProgramDraft((current) => (current ? applyProgramTemplate(current, templateKind) : current));
+  };
+
+  const lookupHackerOneProgram = async (identifier: string): Promise<void> => {
+    const lookup = await window.beale.lookupHackerOneProgram(identifier);
+    setProgramDraft((current) =>
+      current
+        ? {
+            ...current,
+            templateKind: 'hackerone',
+            programName: lookup.programName,
+            organizationName: lookup.organizationName,
+            descriptionMarkdown: lookup.descriptionMarkdown,
+            rulesMarkdown: lookup.rulesMarkdown,
+            networkProfile: lookup.networkProfile,
+            expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
+            assets: lookup.assets
+          }
+        : current
+    );
   };
 
   const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -209,12 +314,21 @@ export function App(): JSX.Element {
         <div className="sidebar-section program-list">
           <div className="section-row">
             <div className="meta-label">Programs</div>
-            <button type="button" title="Create program">
+            <button type="button" title="Add program" disabled={busy} onClick={addProgram}>
               <FolderPlus size={15} />
             </button>
           </div>
-          {snapshot ? (
-            <button type="button" className="program-item active">
+          {(programRegistry?.programs ?? []).map((program) => {
+            const active = snapshot?.workspace.workspacePath === program.workspacePath;
+            return (
+              <button type="button" className={`program-item ${active ? 'active' : ''}`} title={program.workspacePath} key={program.id} onClick={() => openRegisteredProgram(program)}>
+                <Terminal size={15} />
+                <span>{program.programName}</span>
+              </button>
+            );
+          })}
+          {!programRegistry && snapshot ? (
+            <button type="button" className="program-item active" title={snapshot.workspace.workspacePath}>
               <Terminal size={15} />
               <span>{snapshot.activeScope.programName}</span>
             </button>
@@ -227,7 +341,24 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workspace-page" />
       </main>
-      <StatusBar hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment} />
+      <StatusBar
+        hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
+        message={{
+          tone: 'error',
+          text: 'Not authenticated with OpenAI. Authenticate by going to Settings > Providers.'
+        }}
+      />
+      {programDraft ? (
+        <ProgramOnboardingModal
+          busy={busy}
+          form={programDraft}
+          onCancel={() => setProgramDraft(null)}
+          onChange={setProgramDraft}
+          onLookupHackerOne={lookupHackerOneProgram}
+          onTemplate={applyOnboardingTemplate}
+          onSubmit={submitProgramOnboarding}
+        />
+      ) : null}
     </div>
   );
 }
@@ -270,7 +401,13 @@ function TopBar(): JSX.Element {
   );
 }
 
-function StatusBar({ hostEnvironment }: { hostEnvironment: HostEnvironment | null }): JSX.Element {
+function StatusBar({
+  hostEnvironment,
+  message
+}: {
+  hostEnvironment: HostEnvironment | null;
+  message: { tone: 'error' | 'info'; text: string } | null;
+}): JSX.Element {
   const isWsl = hostEnvironment?.isWsl ?? false;
   const remoteLabel = isWsl ? `WSL: ${hostEnvironment?.remoteName ?? 'WSL'}` : null;
   return (
@@ -279,11 +416,160 @@ function StatusBar({ hostEnvironment }: { hostEnvironment: HostEnvironment | nul
         <Monitor size={15} />
         {remoteLabel ? <span>{remoteLabel}</span> : null}
       </button>
-      <div className="status-brand">
-        <span>Beale</span>
-        <strong>v0.1.0 dev</strong>
-      </div>
+      <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>
+      <button type="button" className="notification-button" title="Notifications">
+        <Bell size={15} />
+      </button>
     </footer>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  footer,
+  onClose
+}: {
+  title: string;
+  children: ReactNode;
+  footer: ReactNode;
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <header className="modal-header">
+          <h2 id="modal-title">{title}</h2>
+          <button type="button" title="Close" onClick={onClose}>
+            <XCircle size={16} />
+          </button>
+        </header>
+        <div className="modal-body">{children}</div>
+        <footer className="modal-footer">{footer}</footer>
+      </section>
+    </div>
+  );
+}
+
+function ProgramOnboardingModal({
+  form,
+  busy,
+  onChange,
+  onCancel,
+  onLookupHackerOne,
+  onTemplate,
+  onSubmit
+}: {
+  form: ProgramOnboardingFormState;
+  busy: boolean;
+  onChange: (next: ProgramOnboardingFormState) => void;
+  onCancel: () => void;
+  onLookupHackerOne: (identifier: string) => Promise<void>;
+  onTemplate: (templateKind: ProgramTemplateKind) => void;
+  onSubmit: () => void;
+}): JSX.Element {
+  const [hackerOneIdentifier, setHackerOneIdentifier] = useState('');
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const update = (key: keyof ProgramOnboardingFormState, value: string): void => {
+    onChange({ ...form, [key]: value });
+  };
+  const canSubmit = form.programName.trim().length > 0;
+  const lookupHackerOne = (): void => {
+    if (!hackerOneIdentifier.trim()) return;
+    setLookupBusy(true);
+    setLookupError(null);
+    onLookupHackerOne(hackerOneIdentifier)
+      .catch((caught: unknown) => setLookupError(errorMessage(caught)))
+      .finally(() => setLookupBusy(false));
+  };
+
+  return (
+    <Modal
+      title="New Program"
+      onClose={onCancel}
+      footer={
+        <>
+          <button type="button" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="primary-button" type="submit" form="program-onboarding-form" disabled={busy || !canSubmit}>
+            Create Program
+          </button>
+        </>
+      }
+    >
+      <form
+        id="program-onboarding-form"
+        className="modal-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canSubmit) onSubmit();
+        }}
+      >
+        <label>
+          Workspace directory
+          <input value={form.workspacePath} readOnly />
+        </label>
+        <div className="template-toggle-row" role="group" aria-label="Program template">
+          {(['manual', 'hackerone', 'apple', 'msrc'] as ProgramTemplateKind[]).map((templateKind) => (
+            <button
+              type="button"
+              className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
+              key={templateKind}
+              onClick={() => onTemplate(templateKind)}
+            >
+              {templateLabel(templateKind)}
+            </button>
+          ))}
+        </div>
+        {form.templateKind === 'hackerone' ? (
+          <div className="hackerone-lookup">
+            <label>
+              Program Identifier
+              <input value={hackerOneIdentifier} placeholder="github" onChange={(event) => setHackerOneIdentifier(event.target.value)} />
+            </label>
+            <button type="button" disabled={busy || lookupBusy || !hackerOneIdentifier.trim()} onClick={lookupHackerOne}>
+              Look Up
+            </button>
+            {lookupError ? <div className="error-box">{lookupError}</div> : null}
+          </div>
+        ) : null}
+        <div className="form-grid">
+          <label>
+            Program name
+            <input value={form.programName} onChange={(event) => update('programName', event.target.value)} autoFocus />
+          </label>
+          <label>
+            Organization (optional)
+            <input value={form.organizationName} onChange={(event) => update('organizationName', event.target.value)} />
+          </label>
+        </div>
+        <label>
+          Description
+          <textarea rows={3} value={form.descriptionMarkdown} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
+        </label>
+        <div className="form-grid">
+          <label>
+            Network
+            <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
+              <option value="offline">offline</option>
+              <option value="scoped">scoped</option>
+              <option value="host_research_only">host_research_only</option>
+              <option value="elevated">elevated</option>
+            </select>
+          </label>
+          <label>
+            Authorization expires (empty = never)
+            <input type="date" value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
+          </label>
+        </div>
+        <label>
+          Scope and Rules
+          <textarea rows={3} value={form.rulesMarkdown} onChange={(event) => update('rulesMarkdown', event.target.value)} />
+        </label>
+      </form>
+    </Modal>
   );
 }
 
@@ -330,7 +616,7 @@ function ScopeEditor({
           <input value={form.programName} onChange={(event) => update('programName', event.target.value)} />
         </label>
         <label>
-          Organization
+          Organization (optional)
           <input value={form.organizationName} onChange={(event) => update('organizationName', event.target.value)} />
         </label>
       </div>
@@ -349,7 +635,7 @@ function ScopeEditor({
           </select>
         </label>
         <label>
-          Review date
+          Authorization expires (empty = never)
           <input type="date" value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
         </label>
       </div>
@@ -381,7 +667,7 @@ function ScopeEditor({
         </label>
       </div>
       <label>
-        Rules
+        Scope and Rules
         <textarea rows={4} value={form.rulesMarkdown} onChange={(event) => update('rulesMarkdown', event.target.value)} />
       </label>
     </section>
@@ -1631,6 +1917,76 @@ function shortDate(value: string): string {
   return value.slice(0, 10);
 }
 
+function onboardingFormFromDefaults(defaults: ProgramOnboardingDefaults): ProgramOnboardingFormState {
+  return {
+    templateKind: 'manual',
+    workspacePath: defaults.workspacePath,
+    programName: defaults.programName,
+    organizationName: defaults.organizationName,
+    descriptionMarkdown: defaults.descriptionMarkdown,
+    rulesMarkdown: defaults.rulesMarkdown,
+    networkProfile: defaults.networkProfile,
+    expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
+    assets: defaults.assets
+  };
+}
+
+function onboardingInputFromForm(form: ProgramOnboardingFormState): ProgramOnboardingInput {
+  return {
+    workspacePath: form.workspacePath,
+    programName: form.programName,
+    organizationName: form.organizationName,
+    descriptionMarkdown: form.descriptionMarkdown,
+    rulesMarkdown: form.rulesMarkdown,
+    networkProfile: form.networkProfile,
+    expiresAt: optionalDateOrNever(form.expiresAt),
+    assets: form.assets
+  };
+}
+
+function templateLabel(templateKind: ProgramTemplateKind): string {
+  switch (templateKind) {
+    case 'manual':
+      return 'Manual';
+    case 'hackerone':
+      return 'HackerOne';
+    case 'apple':
+      return 'Apple';
+    case 'msrc':
+      return 'MSRC';
+  }
+}
+
+function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: ProgramTemplateKind): ProgramOnboardingFormState {
+  if (templateKind === 'manual' || templateKind === 'hackerone') {
+    return { ...form, templateKind };
+  }
+  if (templateKind === 'apple') {
+    return {
+      ...form,
+      templateKind,
+      programName: 'Apple Security Bounty',
+      organizationName: 'Apple',
+      descriptionMarkdown: 'Authorized research under the Apple Security Bounty program.',
+      rulesMarkdown: 'Template for Apple Security Bounty. Verify the current program scope and rules before testing: https://security.apple.com/bounty/',
+      networkProfile: 'scoped',
+      expiresAt: '',
+      assets: []
+    };
+  }
+  return {
+    ...form,
+    templateKind,
+    programName: 'Microsoft Security Response Center',
+    organizationName: 'Microsoft',
+    descriptionMarkdown: 'Authorized research under Microsoft Security Response Center bounty programs.',
+    rulesMarkdown: 'Template for MSRC bounty programs. Verify the current scope and rules before testing: https://www.microsoft.com/msrc/bounty',
+    networkProfile: 'scoped',
+    expiresAt: '',
+    assets: []
+  };
+}
+
 function scopeToForm(scope: ProgramScopeVersion): ScopeFormState {
   return {
     programName: scope.programName,
@@ -1658,7 +2014,7 @@ function formToScopeDraft(form: ScopeFormState): ProgramScopeDraft {
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
     networkProfile: form.networkProfile,
-    expiresAt: form.expiresAt || null,
+    expiresAt: optionalDateOrNever(form.expiresAt),
     assets: [
       ...assetsFromLines(form.domains, 'in_scope', 'domain'),
       ...assetsFromLines(form.repositories, 'in_scope', 'repo'),
@@ -1668,6 +2024,11 @@ function formToScopeDraft(form: ScopeFormState): ProgramScopeDraft {
       ...assetsFromLines(form.outOfScope, 'out_of_scope', 'other')
     ]
   };
+}
+
+function optionalDateOrNever(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function linesFor(scope: ProgramScopeVersion, direction: ScopeAssetDirection, kind: ScopeAssetKind): string {

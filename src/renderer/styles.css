@@ -440,11 +440,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: transparent;
   color: #c8c8c8;
   padding: 7px 8px;
+  text-align: left;
 }
 
 .program-item span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .program-item.active {
@@ -475,6 +477,97 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   min-height: 0;
   background: var(--panel);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 18px;
+}
+
+.modal-panel {
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101010;
+  overflow: hidden;
+}
+
+.modal-header,
+.modal-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+}
+
+.modal-header h2 {
+  font-size: 0.98rem;
+}
+
+.modal-header button {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+}
+
+.modal-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 10px;
+}
+
+.modal-footer {
+  justify-content: flex-end;
+  background: #0b0b0b;
+}
+
+.modal-form {
+  display: grid;
+  gap: 10px;
+}
+
+.template-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.template-toggle {
+  min-width: 0;
+  border-color: transparent;
+  background: #181818;
+  color: var(--muted-strong);
+  padding: 0 8px;
+}
+
+.template-toggle.active {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.hackerone-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.hackerone-lookup .error-box {
+  grid-column: 1 / -1;
 }
 
 .center-column {
@@ -1211,14 +1304,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-column: 1 / -1;
   grid-row: 3;
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   background: var(--chrome);
-  padding: 0 18px 0 0;
+  padding: 0;
 }
 
 .remote-window-button {
+  justify-self: start;
   align-self: stretch;
   height: 100%;
   min-height: 100%;
@@ -1248,27 +1342,37 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: var(--panel-strong);
 }
 
-.status-bar div {
+.status-message {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.status-bar span {
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.status-bar strong {
-  min-width: 0;
-  color: #d7d7d7;
-  font-size: 0.78rem;
+  grid-column: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding: 0 12px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.status-message.tone-error {
+  color: var(--red);
+}
+
+.notification-button {
+  grid-column: 3;
+  width: 34px;
+  height: 30px;
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 0;
+  margin-right: 8px;
+}
+
+.notification-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
 }
 
 .stat {
@@ -1365,8 +1469,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   .openai-grid,
   .benchmark-grid,
   .hardening-grid,
-  .inspector-metrics,
-  .status-bar {
+  .inspector-metrics {
     grid-template-columns: 1fr;
   }
 

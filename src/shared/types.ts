@@ -154,6 +154,86 @@ export interface HostEnvironment {
   remoteName: string | null;
 }
 
+export interface ProgramRegistryEntry {
+  id: string;
+  workspacePath: string;
+  workspaceId: string | null;
+  programName: string;
+  organizationName: string;
+  descriptionMarkdown: string;
+  rulesMarkdown: string;
+  networkProfile: string;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string | null;
+  runCount: number;
+  lastRunAt: string | null;
+}
+
+export interface ResearchSessionSummary {
+  id: string;
+  programId: string | null;
+  workspacePath: string;
+  workspaceId: string | null;
+  runId: string;
+  title: string;
+  status: RunStatus;
+  runEngine: RunEngineKind;
+  mode: string;
+  summary: string;
+  model: string;
+  reasoningEffort: string;
+  networkProfile: string;
+  sandboxProfile: string;
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ProgramRegistryState {
+  registryPath: string;
+  programs: ProgramRegistryEntry[];
+  researchSessions: ResearchSessionSummary[];
+}
+
+export interface ProgramOnboardingDefaults {
+  workspacePath: string;
+  programName: string;
+  organizationName: string;
+  descriptionMarkdown: string;
+  rulesMarkdown: string;
+  networkProfile: string;
+  expiresAt: string | null;
+  assets: ScopeAssetInput[];
+}
+
+export interface ProgramOnboardingInput extends Omit<ProgramOnboardingDefaults, 'assets'> {
+  assets?: ScopeAssetInput[];
+}
+
+export interface HackerOneProgramLookupResult {
+  handle: string;
+  sourceUrl: string;
+  programName: string;
+  organizationName: string;
+  descriptionMarkdown: string;
+  rulesMarkdown: string;
+  networkProfile: string;
+  expiresAt: string | null;
+  assets: ScopeAssetInput[];
+  importedScopeCount: number;
+}
+
+export interface ProgramDirectorySelection {
+  canceled: boolean;
+  path: string | null;
+  knownProgram: ProgramRegistryEntry | null;
+  requiresOnboarding: boolean;
+  defaults: ProgramOnboardingDefaults | null;
+}
+
 export interface WorkspaceRecoveryReport {
   recoveredAt: string;
   reason: string;
@@ -643,6 +723,11 @@ export type SteeringAction =
 
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
+  selectProgramDirectory(): Promise<ProgramDirectorySelection>;
+  getProgramRegistry(): Promise<ProgramRegistryState>;
+  lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
+  createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
+  openProgram(programId: string): Promise<WorkspaceSnapshot>;
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
@@ -655,4 +740,5 @@ export interface BealeApi {
   getRunDetail(runId: string): Promise<RunDetail>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
+  onProgramRegistry(listener: (state: ProgramRegistryState) => void): () => void;
 }
