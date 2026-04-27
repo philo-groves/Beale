@@ -417,6 +417,36 @@ pre {
   gap: 6px;
 }
 
+.backend-list {
+  display: grid;
+  gap: 6px;
+}
+
+.backend-row {
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 6px 8px;
+}
+
+.backend-row span,
+.backend-row strong {
+  overflow-wrap: anywhere;
+}
+
+.backend-row strong {
+  color: var(--muted);
+}
+
+.backend-row.available strong {
+  color: var(--green);
+}
+
 .benchmark-results {
   display: grid;
   gap: 6px;

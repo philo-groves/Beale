@@ -11,7 +11,7 @@ import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
-import { redactForModelText } from './redaction';
+import { redactForModelText, redactJsonForModel } from './redaction';
 import type {
   BenchmarkRunInput,
   FakeScenario,
@@ -23,6 +23,7 @@ import type {
   RunDetail,
   StartRunInput,
   SteeringAction,
+  VerifierContractRecord,
   WorkspaceExportResult,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -208,27 +209,8 @@ export class WorkspaceService {
         break;
       }
       case 'rerun_verifier': {
-        const verifierRun = db.createVerifierRun({
-          contractId: action.verifierContractId,
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          vmContextId: attempt?.vmContextId ?? null,
-          status: 'inconclusive',
-          blockedIssue: 'inconclusive',
-          behaviorPreserved: 'not_applicable',
-          diagnosticsClean: 'inconclusive',
-          regressionTests: 'not_run',
-          result: { manualRerun: true, note: action.note ?? '' }
-        });
-        db.appendTraceEvent({
-          runId: action.runId,
-          attemptId: attempt?.id ?? null,
-          type: 'verifier_result',
-          source: 'verifier',
-          summary: 'Verifier rerun placeholder recorded as inconclusive.',
-          payload: { verifierRunId: verifierRun.id, contractId: action.verifierContractId, status: 'inconclusive' },
-          vmContextId: attempt?.vmContextId ?? null
-        });
+        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
+        runVerifierContract(db, action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
         break;
       }
       case 'promote_artifact': {
@@ -415,6 +397,35 @@ export class WorkspaceService {
             note: redactForModelText(action.note ?? ''),
             userReviewRequired: action.decision !== 'approved'
           },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
+        break;
+      }
+      case 'review_policy_request': {
+        const approval = db.createApproval({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          requestKind: action.requestKind,
+          requestedAction: redactObject(action.requestedAction),
+          decision: action.decision,
+          reason: redactForModelText(action.note ?? `${action.decision} ${action.requestKind}`)
+        });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'approval_event',
+          source: 'policy',
+          summary: `Policy request ${action.decision}: ${action.requestKind}.`,
+          payload: {
+            approvalId: approval.id,
+            requestKind: action.requestKind,
+            decision: action.decision,
+            requestedAction: redactObject(action.requestedAction),
+            note: redactForModelText(action.note ?? ''),
+            scopedApproval: true
+          },
+          approvalId: approval.id,
           vmContextId: attempt?.vmContextId ?? null,
           modelVisible: false
         });
@@ -798,10 +809,75 @@ function requireFinding(detail: RunDetail, findingId: string): FindingRecord {
   return finding;
 }
 
+function requireVerifierContract(detail: RunDetail, verifierContractId: string): VerifierContractRecord {
+  const contract = detail.verifierContracts.find((item) => item.id === verifierContractId);
+  if (!contract) throw new Error(`Verifier contract not found: ${verifierContractId}`);
+  return contract;
+}
+
 function requireExport(detail: RunDetail, exportId: string) {
   const exportRecord = detail.exports.find((item) => item.id === exportId);
   if (!exportRecord) throw new Error(`Export not found: ${exportId}`);
   return exportRecord;
+}
+
+function runVerifierContract(
+  db: WorkspaceDatabase,
+  runId: string,
+  contract: VerifierContractRecord,
+  attemptId: string | null,
+  vmContextId: string | null,
+  note: string
+): void {
+  const issues = verifierContractIssues(contract);
+  const status = issues.length > 0 ? 'error' : 'inconclusive';
+  const verifierRun = db.createVerifierRun({
+    contractId: contract.id,
+    runId,
+    attemptId,
+    vmContextId,
+    status,
+    blockedIssue: issues.length > 0 ? 'error' : 'inconclusive',
+    behaviorPreserved: 'not_applicable',
+    diagnosticsClean: issues.length > 0 ? 'fail' : 'inconclusive',
+    regressionTests: 'not_run',
+    result: {
+      manualRerun: true,
+      note: redactForModelText(note),
+      error: issues.length > 0 ? issues.join('; ') : null,
+      userReviewRequired: true
+    }
+  });
+  db.appendTraceEvent({
+    runId,
+    attemptId,
+    type: 'verifier_result',
+    source: 'verifier',
+    summary: issues.length > 0 ? 'Verifier rerun failed before execution.' : 'Verifier rerun recorded as inconclusive.',
+    payload: {
+      verifierRunId: verifierRun.id,
+      contractId: contract.id,
+      status,
+      issues,
+      userReviewRequired: true
+    },
+    vmContextId,
+    modelVisible: false
+  });
+}
+
+function verifierContractIssues(contract: VerifierContractRecord): string[] {
+  const issues: string[] = [];
+  if (!contract.setupStepsMarkdown.trim()) issues.push('missing setup steps');
+  if (!contract.triggerStepsMarkdown.trim()) issues.push('missing trigger steps');
+  if (Object.keys(contract.expectedObservations).length === 0) issues.push('missing expected observations');
+  if (Object.keys(contract.passCriteria).length === 0) issues.push('missing pass criteria');
+  return issues;
+}
+
+function redactObject(value: Record<string, unknown>): Record<string, unknown> {
+  const redacted = redactJsonForModel(value);
+  return redacted && typeof redacted === 'object' && !Array.isArray(redacted) ? (redacted as Record<string, unknown>) : {};
 }
 
 function latestVerifierForHypothesis(detail: RunDetail, hypothesisId: string, status: string) {
@@ -895,13 +971,19 @@ function buildPolicyReview(scope: ProgramScopeVersion): WorkspacePolicyReview {
     credentialReferenceCount,
     allowedDestinations,
     warnings,
-    liveTargetTestingRequiresApproval: scope.networkProfile !== 'offline'
+    liveTargetAllowed: scope.networkProfile !== 'offline' && allowedDestinations.length > 0,
+    liveTargetTestingRequiresApproval: scope.networkProfile !== 'offline',
+    credentialInjectionRequiresApproval: credentialReferenceCount > 0
   };
 }
 
 function writeFileAtomic(path: string, content: string): void {
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tempPath, content, { flag: 'wx' });
+  if (process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT === 'before_rename') {
+    rmSync(tempPath, { force: true });
+    throw new Error('Injected atomic export failure before rename.');
+  }
   renameSync(tempPath, path);
 }
 

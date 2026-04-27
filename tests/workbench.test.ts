@@ -11,6 +11,7 @@ import { startRunForTest, WorkspaceService } from '../src/main/workspaceService'
 const createdDirs: string[] = [];
 
 afterEach(() => {
+  delete process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -323,6 +324,96 @@ describe('Beale workbench skeleton', () => {
     expect(reviewed?.reviewNote).toContain('token=...redacted');
     expect(reviewed?.reviewNote).not.toContain('reviewsecret12345');
     expect(detail.traceEvents.some((event) => event.summary === 'Export review recorded: approved.')).toBe(true);
+    service.close();
+  });
+
+  it('records scoped policy approval decisions with redacted request data', () => {
+    const service = openService();
+    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = snapshot.runs[0].run.id;
+
+    service.steerRun({
+      type: 'review_policy_request',
+      runId,
+      requestKind: 'network_profile_change',
+      decision: 'approved',
+      requestedAction: {
+        networkProfile: 'elevated',
+        destinationPattern: 'api.example.test',
+        api_key: 'policysecret12345'
+      },
+      note: 'token=policytokensecret12345'
+    });
+
+    const detail = service.getRunDetail(runId);
+    const approval = detail.policyEvents.find((event) => event.requestKind === 'network_profile_change');
+    expect(approval?.decision).toBe('approved');
+    expect(approval?.reason).toContain('token=...redacted');
+    expect(approval?.requestedAction.api_key).toBe('...redacted');
+    expect(detail.traceEvents.some((event) => event.summary === 'Policy request approved: network_profile_change.')).toBe(true);
+    service.close();
+  });
+
+  it('records verifier rerun failures without corrupting run state', () => {
+    const dir = tempWorkspace();
+    const artifactRoot = join(dir, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Verifier failure run',
+      promptMarkdown: '# Verifier failure run',
+      mode: 'open_discovery',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'local_disposable_vm',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+    });
+    const contract = db.createVerifierContract({
+      runId: context.run.id,
+      mode: 'reproduction',
+      status: 'draft_requested',
+      setupStepsMarkdown: '',
+      triggerStepsMarkdown: '',
+      expectedObservations: {},
+      invariants: { hostDatabaseMounted: false },
+      artifactsToCollect: {},
+      passCriteria: {}
+    });
+    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared incomplete verifier contract.');
+    db.updateRunStatus(context.run.id, 'completed', 'Prepared incomplete verifier contract.');
+    db.close();
+
+    const service = new WorkspaceService();
+    service.openWorkspace(dir);
+    service.steerRun({ type: 'rerun_verifier', runId: context.run.id, verifierContractId: contract.id, note: 'rerun incomplete verifier' });
+    const detail = service.getRunDetail(context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(detail.verifierRuns.at(-1)?.status).toBe('error');
+    expect(detail.traceEvents.some((event) => event.summary === 'Verifier rerun failed before execution.')).toBe(true);
+    service.close();
+  });
+
+  it('keeps authoritative state clean when evidence export fails before publish', () => {
+    const service = openService();
+    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = snapshot.runs[0].run.id;
+    let detail = service.getRunDetail(runId);
+    const hypothesis = detail.hypotheses[0];
+    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
+    detail = service.getRunDetail(runId);
+    const finding = detail.findings[0];
+
+    process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT = 'before_rename';
+    expect(() => service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding.id })).toThrow(/Injected atomic export failure/);
+
+    detail = service.getRunDetail(runId);
+    expect(detail.exports).toHaveLength(0);
+    expect(detail.artifacts.some((artifact) => artifact.kind === 'evidence_bundle_export')).toBe(false);
+    expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(false);
     service.close();
   });
 

@@ -546,6 +546,22 @@ function HardeningPanel({
           <span>Backup</span>
           <strong>{snapshot.workspace.lastWorkspaceBackup ? 'ready' : 'none'}</strong>
         </div>
+        <div>
+          <span>Live target</span>
+          <strong>{snapshot.policyReview.liveTargetAllowed ? 'scoped' : 'blocked'}</strong>
+        </div>
+        <div>
+          <span>Credential approval</span>
+          <strong>{snapshot.policyReview.credentialInjectionRequiresApproval ? 'required' : 'none'}</strong>
+        </div>
+      </div>
+      <div className="backend-list">
+        {snapshot.executor.backends.map((backend) => (
+          <div className={`backend-row ${backend.available ? 'available' : ''}`} key={backend.kind}>
+            <span>{backend.label}</span>
+            <strong>{backend.available ? 'available' : backend.configured ? 'configured' : backend.recommended ? 'recommended' : 'later'}</strong>
+          </div>
+        ))}
       </div>
       {snapshot.policyReview.warnings.length > 0 ? (
         <div className="review-list">
@@ -810,7 +826,20 @@ function RunDetailView({
           disabled={busy}
           onReview={(exportRecord, decision) => steer({ type: 'review_export', runId: detail.run.id, exportId: exportRecord.id, decision })}
         />
-        <VmPolicyPanel detail={detail} />
+        <VmPolicyPanel
+          detail={detail}
+          disabled={busy}
+          onReview={(requestKind, decision, requestedAction) =>
+            steer({
+              type: 'review_policy_request',
+              runId: detail.run.id,
+              requestKind,
+              decision,
+              requestedAction,
+              note: `${decision} ${requestKind}`
+            })
+          }
+        />
       </div>
 
       <div className="quick-actions">
@@ -1126,7 +1155,19 @@ function ModelSessionPanel({ detail }: { detail: RunDetail }): JSX.Element {
   );
 }
 
-function VmPolicyPanel({ detail }: { detail: RunDetail }): JSX.Element {
+function VmPolicyPanel({
+  detail,
+  disabled,
+  onReview
+}: {
+  detail: RunDetail;
+  disabled: boolean;
+  onReview: (
+    requestKind: 'network_profile_change' | 'credential_injection' | 'host_action' | 'scope_change',
+    decision: 'approved' | 'denied',
+    requestedAction: Record<string, unknown>
+  ) => void;
+}): JSX.Element {
   return (
     <section className="detail-section">
       <div className="section-title">
@@ -1144,6 +1185,30 @@ function VmPolicyPanel({ detail }: { detail: RunDetail }): JSX.Element {
           </div>
         </div>
       ))}
+      <div className="entity-row policy-entity">
+        <div>
+          <strong>Policy controls</strong>
+          <p>Network, credential, host action, and scope approval decisions are recorded as trace-backed approvals.</p>
+        </div>
+        <div className="entity-actions">
+          <button
+            type="button"
+            title="Approve scoped network profile"
+            disabled={disabled}
+            onClick={() => onReview('network_profile_change', 'approved', { networkProfile: detail.run.networkProfile, runId: detail.run.id })}
+          >
+            <ShieldCheck size={14} />
+          </button>
+          <button
+            type="button"
+            title="Deny credential injection"
+            disabled={disabled}
+            onClick={() => onReview('credential_injection', 'denied', { runId: detail.run.id, credentialsHostOnly: true })}
+          >
+            <Ban size={14} />
+          </button>
+        </div>
+      </div>
       {detail.policyEvents.map((policy) => (
         <div className="entity-row policy-entity" key={policy.id}>
           <div>

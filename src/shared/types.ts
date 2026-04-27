@@ -52,6 +52,18 @@ export type ExecutorProviderKind = 'fake' | 'vmctl';
 
 export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
 
+export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'custom_vmctl';
+
+export interface ExecutorBackendStatus {
+  kind: ExecutorBackendKind;
+  label: string;
+  platform: 'linux' | 'win32' | 'darwin' | 'any';
+  configured: boolean;
+  available: boolean;
+  recommended: boolean;
+  reason: string | null;
+}
+
 export interface ExecutorStatus {
   provider: ExecutorProviderKind;
   configured: boolean;
@@ -69,6 +81,7 @@ export interface ExecutorStatus {
     python: boolean;
     debugger: boolean;
   };
+  backends: ExecutorBackendStatus[];
 }
 
 export interface ScopeAssetInput {
@@ -143,7 +156,9 @@ export interface WorkspacePolicyReview {
   credentialReferenceCount: number;
   allowedDestinations: string[];
   warnings: string[];
+  liveTargetAllowed: boolean;
   liveTargetTestingRequiresApproval: boolean;
+  credentialInjectionRequiresApproval: boolean;
 }
 
 export interface WorkspaceExportResult {
@@ -363,6 +378,9 @@ export interface ApprovalRecord {
 
 export type ExportReviewDecision = 'approved' | 'needs_more_evidence' | 'rejected';
 
+export type PolicyReviewRequestKind = 'network_profile_change' | 'credential_injection' | 'host_action' | 'scope_change';
+export type PolicyReviewDecision = 'approved' | 'denied';
+
 export interface ExportRecord {
   id: string;
   runId: string;
@@ -571,6 +589,7 @@ export type SteeringAction =
   | { type: 'mark_finding_out_of_scope'; runId: string; findingId: string; note?: string }
   | { type: 'export_evidence_bundle'; runId: string; findingId?: string; note?: string }
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
+  | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string }
   | { type: 'dismiss_hypothesis'; runId: string; hypothesisId: string; note?: string }
   | { type: 'mark_hypothesis_out_of_scope'; runId: string; hypothesisId: string; note?: string };
 

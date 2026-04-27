@@ -25,7 +25,8 @@ export class ExecutorManager {
       reason: status.reason,
       targetExecution: status.targetExecution,
       supportedNetworkProfiles: status.supportedNetworkProfiles,
-      supports: status.supports
+      supports: status.supports,
+      backends: status.backends
     };
   }
 

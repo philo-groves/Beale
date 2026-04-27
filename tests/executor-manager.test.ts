@@ -8,7 +8,7 @@ import { WorkspaceService } from '../src/main/workspaceService';
 import type { ScopeAssetInput } from '../src/shared/types';
 
 const createdDirs: string[] = [];
-const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'OPENAI_API_KEY', 'BEALE_OPENAI_ACCESS_TOKEN'];
+const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'BEALE_VM_BACKEND', 'OPENAI_API_KEY', 'BEALE_OPENAI_ACCESS_TOKEN'];
 
 afterEach(() => {
   for (const key of ENV_KEYS) {
@@ -32,6 +32,8 @@ describe('VM executor alpha', () => {
     expect(status.available).toBe(true);
     expect(status.targetExecution).toBe(true);
     expect(status.supportedNetworkProfiles).toEqual(['offline', 'scoped']);
+    expect(status.backends.map((backend) => backend.kind)).toEqual(['firecracker', 'hyperv', 'tart', 'custom_vmctl']);
+    expect(status.backends.find((backend) => backend.kind === 'firecracker')?.configured).toBe(true);
 
     manager.createContext(context, 'fixture-image', 'clean-fixture');
     manager.restoreSnapshot(context, 'clean-fixture');
@@ -135,6 +137,7 @@ describe('VM executor alpha', () => {
     expect(status.available).toBe(false);
     expect(status.targetExecution).toBe(false);
     expect(status.reason).toContain('BEALE_VMCTL_COMMAND');
+    expect(status.backends.find((backend) => backend.kind === 'hyperv')?.available).toBe(false);
     db.close();
   });
 

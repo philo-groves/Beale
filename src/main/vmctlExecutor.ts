@@ -164,8 +164,77 @@ function defaultCapabilities(available: boolean): ExecutorCapabilities {
       shell: true,
       python: true,
       debugger: false
-    }
+    },
+    backends: backendStatuses(available)
   };
+}
+
+function backendStatuses(vmctlAvailable: boolean): ExecutorCapabilities['backends'] {
+  const configuredBackend = (process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase();
+  const hasVmctl = Boolean(process.env.BEALE_VMCTL_COMMAND?.trim());
+  return [
+    {
+      kind: 'firecracker',
+      label: 'Firecracker microVM',
+      platform: 'linux',
+      configured: configuredBackend === 'firecracker' || hasVmctl,
+      available: process.platform === 'linux' && hasVmctl && vmctlAvailable,
+      recommended: process.platform === 'linux',
+      reason:
+        process.platform === 'linux'
+          ? hasVmctl
+            ? vmctlAvailable
+              ? null
+              : 'Configured vmctl command is not currently available.'
+            : 'Set BEALE_VMCTL_COMMAND to the Firecracker vmctl controller.'
+          : 'Firecracker is supported on Linux hosts.'
+    },
+    {
+      kind: 'hyperv',
+      label: 'Hyper-V local VM',
+      platform: 'win32',
+      configured: configuredBackend === 'hyperv',
+      available: process.platform === 'win32' && configuredBackend === 'hyperv' && hasVmctl && vmctlAvailable,
+      recommended: process.platform === 'win32',
+      reason:
+        process.platform === 'win32'
+          ? configuredBackend === 'hyperv'
+            ? hasVmctl
+              ? vmctlAvailable
+                ? null
+                : 'Configured Hyper-V vmctl command is not currently available.'
+              : 'Set BEALE_VMCTL_COMMAND to a Hyper-V vmctl controller.'
+            : 'Set BEALE_VM_BACKEND=hyperv and configure a Hyper-V vmctl controller.'
+          : 'Hyper-V backend is for Windows hosts.'
+    },
+    {
+      kind: 'tart',
+      label: 'Tart local VM',
+      platform: 'darwin',
+      configured: configuredBackend === 'tart',
+      available: process.platform === 'darwin' && configuredBackend === 'tart' && hasVmctl && vmctlAvailable,
+      recommended: process.platform === 'darwin',
+      reason:
+        process.platform === 'darwin'
+          ? configuredBackend === 'tart'
+            ? hasVmctl
+              ? vmctlAvailable
+                ? null
+                : 'Configured Tart vmctl command is not currently available.'
+              : 'Set BEALE_VMCTL_COMMAND to a Tart vmctl controller.'
+            : 'Set BEALE_VM_BACKEND=tart and configure a Tart vmctl controller.'
+          : 'Tart backend is for macOS hosts.'
+    },
+    {
+      kind: 'custom_vmctl',
+      label: 'Custom vmctl controller',
+      platform: 'any',
+      configured: hasVmctl && configuredBackend !== 'firecracker' && configuredBackend !== 'hyperv' && configuredBackend !== 'tart',
+      available: hasVmctl && vmctlAvailable,
+      recommended: false,
+      reason: hasVmctl ? (vmctlAvailable ? null : 'Configured vmctl command is not currently available.') : 'Set BEALE_VMCTL_COMMAND to a compatible controller.'
+    }
+  ];
 }
 
 function minimalControllerEnv(): NodeJS.ProcessEnv {
