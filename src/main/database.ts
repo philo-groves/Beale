@@ -439,17 +439,20 @@ export class WorkspaceDatabase {
   public updateModelSessionByRun(runId: string, patch: { previousResponseId?: string | null; status?: string; metadata?: Record<string, unknown> }): void {
     const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId));
     if (!existing) return;
+    const nextPreviousResponseId = Object.prototype.hasOwnProperty.call(patch, 'previousResponseId')
+      ? patch.previousResponseId ?? null
+      : nullableText(existing, 'previous_response_id');
     const metadata = patch.metadata ? { ...parseJson(existing.metadata_json), ...patch.metadata } : parseJson(existing.metadata_json);
     this.db
       .prepare(
         `UPDATE model_sessions
-         SET previous_response_id = COALESCE(?, previous_response_id),
+         SET previous_response_id = ?,
              status = COALESCE(?, status),
              metadata_json = ?,
              updated_at = ?
          WHERE id = ?`
       )
-      .run(patch.previousResponseId ?? null, patch.status ?? null, toJson(metadata), nowIso(), text(existing, 'id'));
+      .run(nextPreviousResponseId, patch.status ?? null, toJson(metadata), nowIso(), text(existing, 'id'));
   }
 
   public appendTraceEvent(input: AppendTraceInput): TraceEventRecord {

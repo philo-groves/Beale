@@ -44,7 +44,7 @@ export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_c
 
 export type RunEngineKind = 'fake' | 'openai_responses';
 
-export type OpenAiAuthSource = 'oauth_bearer_env' | 'api_key_env' | 'not_configured';
+export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'api_key_env' | 'not_configured';
 
 export type OpenAiTransport = 'websocket' | 'sse_http';
 

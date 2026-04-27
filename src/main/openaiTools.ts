@@ -1,5 +1,6 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { FunctionCallOutputItem } from './openaiAdapter';
+import { redactJsonForModel } from './redaction';
 
 export interface OpenAiToolDefinition {
   type: 'function';
@@ -66,13 +67,13 @@ export class BealeToolRouter {
     return {
       type: 'function_call_output',
       call_id: call.callId,
-      output: JSON.stringify({
+      output: JSON.stringify(redactJsonForModel({
         status: result.status,
         summary: result.summary,
         trace_event_id: result.traceEventId,
         artifact_id: result.artifactId,
         payload: result.payload
-      })
+      }))
     };
   }
 

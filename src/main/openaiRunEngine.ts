@@ -1,9 +1,16 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import { OpenAiResponsesAdapter, type FunctionCallOutputItem, type OpenAiStreamEvent, type ResponseInputItem } from './openaiAdapter';
+import {
+  OpenAiResponsesAdapter,
+  openAiApiErrorFromEvent,
+  openAiErrorCode,
+  type FunctionCallOutputItem,
+  type OpenAiStreamEvent,
+  type ResponseInputItem
+} from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import { buildInitialOpenAiInput, buildOpenAiInstructions } from './openaiContext';
+import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
-import type { OpenAiTransport, StartRunInput } from '@shared/types';
+import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput } from '@shared/types';
 
 export interface OpenAiRunHandle {
   context: CreatedRunContext;
@@ -11,6 +18,12 @@ export interface OpenAiRunHandle {
 }
 
 const MAX_OPENAI_TOOL_TURNS = 4;
+
+interface RunLoopState {
+  responseInput: ResponseInputItem[];
+  previousResponseId: string | null;
+  replayMode: 'initial' | 'previous_response' | 'pending_input' | 'compacted_replay';
+}
 
 export class OpenAiRunEngine {
   private readonly controllers = new Map<string, AbortController>();
@@ -39,7 +52,7 @@ export class OpenAiRunEngine {
 
     const status = this.auth.getStatus();
     const requestedTransport = this.adapter.getTransport();
-    const transport: OpenAiTransport = 'sse_http';
+    const transport: OpenAiTransport = requestedTransport;
     this.db.createModelSession({
       runId: context.run.id,
       provider: 'openai',
@@ -110,6 +123,92 @@ export class OpenAiRunEngine {
     return { context, completion };
   }
 
+  public resumeRun(runId: string): OpenAiRunHandle | null {
+    const detail = this.db.getRunDetail(runId);
+    if (detail.run.budget.runEngine !== 'openai_responses') {
+      return null;
+    }
+    const attempt = detail.attempts[0];
+    if (!attempt) {
+      throw new Error(`OpenAI run has no attempt to resume: ${runId}`);
+    }
+    const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
+    if (!vmContext) {
+      throw new Error(`OpenAI run has no VM context to resume: ${runId}`);
+    }
+
+    const context: CreatedRunContext = { run: detail.run, attempt, vmContext };
+    const input = startInputFromRun(detail.run);
+    const status = this.auth.getStatus();
+    const latestSession = detail.modelSessions.at(-1);
+    if (!latestSession) {
+      this.db.createModelSession({
+        runId,
+        provider: 'openai',
+        transport: this.adapter.getTransport(),
+        status: status.configured ? 'active' : 'blocked_auth',
+        metadata: { resumedWithoutPriorSession: true }
+      });
+    }
+
+    this.db.updateAttemptState(attempt.id, 'active', 'Resuming OpenAI Responses run.');
+    this.db.updateRunStatus(runId, 'active', 'Resuming OpenAI Responses run.');
+
+    if (!status.configured) {
+      this.db.updateAttemptState(attempt.id, 'blocked', 'Blocked: OpenAI host credential is not configured.');
+      this.db.updateRunStatus(runId, 'blocked', 'Blocked: OpenAI host credential is not configured.');
+      this.db.updateModelSessionByRun(runId, { status: 'blocked_auth' });
+      this.db.appendTraceEvent({
+        runId,
+        attemptId: attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'OpenAI run resume blocked because no host credential is configured.',
+        payload: {
+          credentialHint: status.credentialHint,
+          credentialsHostOnly: true
+        }
+      });
+      this.onChange();
+      return { context, completion: Promise.resolve() };
+    }
+
+    const resumeState = buildResumeState(detail.modelSessions.at(-1), detail);
+    this.db.updateModelSessionByRun(runId, {
+      status: 'active',
+      metadata: {
+        resumeRequested: true,
+        replayMode: resumeState.replayMode,
+        pendingInput: resumeState.responseInput,
+        runtimeTransport: this.adapter.getTransport()
+      }
+    });
+    this.db.appendTraceEvent({
+      runId,
+      attemptId: attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary:
+        resumeState.replayMode === 'compacted_replay'
+          ? 'OpenAI run resumed from compacted Beale replay context.'
+          : 'OpenAI run resumed from persisted Responses state.',
+      payload: {
+        replayMode: resumeState.replayMode,
+        previousResponseId: resumeState.previousResponseId,
+        credentialsHostOnly: true
+      },
+      vmContextId: vmContext.id
+    });
+
+    const controller = new AbortController();
+    this.controllers.set(runId, controller);
+    const completion = this.runLoop(context, input, controller, resumeState).finally(() => {
+      this.controllers.delete(runId);
+      this.onChange();
+    });
+    return { context, completion };
+  }
+
   public pause(runId: string): void {
     this.controllers.get(runId)?.abort();
     this.controllers.delete(runId);
@@ -124,16 +223,27 @@ export class OpenAiRunEngine {
       controller.abort();
     }
     this.controllers.clear();
+    this.adapter.closeAllWebSocketSessions();
   }
 
-  private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController): Promise<void> {
+  private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
     const router = new BealeToolRouter(this.db);
     const scope = this.db.getActiveScope();
-    let responseInput: ResponseInputItem[] = buildInitialOpenAiInput(input);
-    let previousResponseId: string | null = null;
+    let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
+    let previousResponseId: string | null = state?.previousResponseId ?? null;
+    let replayMode = state?.replayMode ?? 'initial';
+    let replayedAfterMissingPrevious = replayMode === 'compacted_replay';
 
     try {
       for (let turn = 0; turn < MAX_OPENAI_TOOL_TURNS; turn += 1) {
+        this.db.updateModelSessionByRun(context.run.id, {
+          status: 'active',
+          metadata: {
+            pendingInput: responseInput,
+            replayMode,
+            turn: turn + 1
+          }
+        });
         const body = this.adapter.buildRequest({
           model: input.model,
           instructions: buildOpenAiInstructions(scope, input),
@@ -161,51 +271,106 @@ export class OpenAiRunEngine {
             toolCount: body.tools.length,
             previousResponseId,
             store: body.store,
-            stream: body.stream
+            stream: body.stream,
+            transport: this.adapter.getTransport(),
+            replayMode
           },
           vmContextId: context.vmContext.id
         });
         this.onChange();
 
         const functionCalls: OpenAiFunctionCall[] = [];
-        for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
-          this.handleStreamEvent(context, event, functionCalls);
-          const eventResponseId = responseIdFromEvent(event);
-          if (eventResponseId) {
-            previousResponseId = eventResponseId;
-            this.db.updateModelSessionByRun(context.run.id, {
-              previousResponseId,
-              metadata: { lastResponseId: previousResponseId, lastEventType: event.type }
-            });
+        try {
+          for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
+            this.handleStreamEvent(context, event, functionCalls);
+            const eventResponseId = responseIdFromEvent(event);
+            if (eventResponseId) {
+              if (event.type === 'response.completed') {
+                previousResponseId = eventResponseId;
+                this.db.updateModelSessionByRun(context.run.id, {
+                  previousResponseId,
+                  metadata: { lastResponseId: eventResponseId, lastEventType: event.type }
+                });
+              } else {
+                this.db.updateModelSessionByRun(context.run.id, {
+                  metadata: { lastResponseId: eventResponseId, lastEventType: event.type }
+                });
+              }
+            }
+            this.onChange();
           }
-          this.onChange();
+        } catch (error) {
+          if (openAiErrorCode(error) === 'previous_response_not_found' && previousResponseId && !replayedAfterMissingPrevious) {
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'system',
+              summary: 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.',
+              payload: {
+                previousResponseId,
+                replayMode: 'compacted_replay',
+                store: body.store
+              },
+              vmContextId: context.vmContext.id
+            });
+            responseInput = buildCompactedReplayOpenAiInput(this.db.getRunDetail(context.run.id));
+            previousResponseId = null;
+            replayMode = 'compacted_replay';
+            replayedAfterMissingPrevious = true;
+            this.db.updateModelSessionByRun(context.run.id, {
+              previousResponseId: null,
+              metadata: {
+                pendingInput: responseInput,
+                replayMode,
+                previousResponseRecovery: 'compacted_replay'
+              }
+            });
+            continue;
+          }
+          throw error;
         }
 
         if (functionCalls.length === 0) {
           this.db.updateAttemptState(context.attempt.id, 'completed', 'OpenAI run completed without additional tool requests.');
           this.db.updateRunStatus(context.run.id, 'completed', 'OpenAI run completed.');
-          this.db.updateModelSessionByRun(context.run.id, { status: 'completed', metadata: { completed: true } });
+          this.db.updateModelSessionByRun(context.run.id, { status: 'completed', metadata: { completed: true, pendingInput: [] } });
           this.db.updateVmState(context.vmContext.id, 'destroyed');
+          this.adapter.closeWebSocketSession(context.run.id);
           return;
         }
 
         const toolOutputs: FunctionCallOutputItem[] = functionCalls.map((call) => router.execute(context, call));
         responseInput = toolOutputs;
+        replayMode = 'previous_response';
+        this.db.updateModelSessionByRun(context.run.id, {
+          metadata: {
+            pendingInput: responseInput,
+            pendingToolOutputCount: toolOutputs.length,
+            replayMode
+          }
+        });
       }
 
       this.db.updateAttemptState(context.attempt.id, 'paused', 'Paused after OpenAI tool-turn budget was reached.');
       this.db.updateRunStatus(context.run.id, 'paused', 'Paused after OpenAI tool-turn budget was reached.');
-      this.db.updateModelSessionByRun(context.run.id, { status: 'paused_tool_budget', metadata: { maxToolTurns: MAX_OPENAI_TOOL_TURNS } });
+      this.db.updateModelSessionByRun(context.run.id, {
+        status: 'paused_tool_budget',
+        metadata: { maxToolTurns: MAX_OPENAI_TOOL_TURNS, pendingInput: responseInput, replayMode }
+      });
+      this.adapter.closeWebSocketSession(context.run.id);
     } catch (error) {
       if (controller.signal.aborted) {
         this.db.updateAttemptState(context.attempt.id, 'paused', 'Paused by user steering.');
         this.db.updateRunStatus(context.run.id, 'paused', 'Paused by user steering.');
         this.db.updateModelSessionByRun(context.run.id, { status: 'paused' });
+        this.adapter.closeWebSocketSession(context.run.id);
         return;
       }
       this.db.updateAttemptState(context.attempt.id, 'failed', 'OpenAI Responses run failed.');
       this.db.updateRunStatus(context.run.id, 'failed', 'OpenAI Responses run failed.');
       this.db.updateModelSessionByRun(context.run.id, { status: 'failed', metadata: { error: errorMessage(error) } });
+      this.adapter.closeWebSocketSession(context.run.id);
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
@@ -298,7 +463,7 @@ export class OpenAiRunEngine {
         });
         break;
       case 'error':
-        throw new Error(errorMessage(event.error ?? event));
+        throw openAiApiErrorFromEvent(event);
       default:
         break;
     }
@@ -312,6 +477,88 @@ function deriveRunTitle(promptMarkdown: string): string {
     .find((line) => line.length > 0);
   if (!firstLine) return 'OpenAI discovery run';
   return firstLine.replace(/^#+\s*/, '').slice(0, 80);
+}
+
+function buildResumeState(session: ModelSessionRecord | undefined, detail: RunDetail): RunLoopState {
+  const pendingInput = responseInputFromMetadata(session?.metadata.pendingInput);
+  if (pendingInput) {
+    return {
+      responseInput: pendingInput,
+      previousResponseId: session?.previousResponseId ?? null,
+      replayMode: 'pending_input'
+    };
+  }
+  if (session?.previousResponseId) {
+    return {
+      responseInput: buildResumeOpenAiInput(detail),
+      previousResponseId: session.previousResponseId,
+      replayMode: 'previous_response'
+    };
+  }
+  return {
+    responseInput: buildCompactedReplayOpenAiInput(detail),
+    previousResponseId: null,
+    replayMode: 'compacted_replay'
+  };
+}
+
+function responseInputFromMetadata(value: unknown): ResponseInputItem[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return value.every(isResponseInputItem) ? value : null;
+}
+
+function isResponseInputItem(value: unknown): value is ResponseInputItem {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === 'function_call_output') {
+    return typeof record.call_id === 'string' && typeof record.output === 'string';
+  }
+  if (record.type !== 'message') return false;
+  if (record.role !== 'user' && record.role !== 'developer' && record.role !== 'system') return false;
+  if (!Array.isArray(record.content)) return false;
+  return record.content.every((part) => {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) return false;
+    const content = part as Record<string, unknown>;
+    return content.type === 'input_text' && typeof content.text === 'string';
+  });
+}
+
+function startInputFromRun(run: RunRecord): StartRunInput {
+  return {
+    runEngine: 'openai_responses',
+    promptMarkdown: run.promptMarkdown,
+    mode: run.mode,
+    attemptStrategy: run.attemptStrategy,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    networkProfile: run.networkProfile,
+    sandboxProfile: run.sandboxProfile,
+    budget: {
+      maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 30),
+      maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 1),
+      maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
+    },
+    fakeScenario: fakeScenarioFromBudget(run.budget)
+  };
+}
+
+function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {
+  const value = budget[key];
+  return typeof value === 'number' ? value : fallback;
+}
+
+function fakeScenarioFromBudget(budget: Record<string, unknown>): FakeScenario {
+  const value = budget.fakeScenario;
+  if (
+    value === 'adaptive_portfolio' ||
+    value === 'source_logic_bug' ||
+    value === 'memory_corruption' ||
+    value === 'policy_block' ||
+    value === 'verified_finding'
+  ) {
+    return value;
+  }
+  return 'adaptive_portfolio';
 }
 
 function responseIdFromEvent(event: OpenAiStreamEvent): string | null {

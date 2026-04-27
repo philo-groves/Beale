@@ -9,17 +9,21 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:plan": "vitest run tests/plan-conformance.test.ts",
+    "test:openai:live": "BEALE_LIVE_OPENAI_TEST=1 vitest run tests/openai-live.test.ts",
     "build": "npm run typecheck && electron-vite build"
   },
   "dependencies": {
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.4",
     "electron": "^41.3.0",
     "electron-vite": "^5.0.0",

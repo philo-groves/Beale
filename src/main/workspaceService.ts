@@ -106,17 +106,7 @@ export class WorkspaceService {
           payload: { note: action.note ?? '' }
         });
         if (run.budget.runEngine === 'openai_responses') {
-          db.appendTraceEvent({
-            runId: action.runId,
-            attemptId: attempt?.id ?? null,
-            type: 'model_message',
-            source: 'system',
-            summary: 'OpenAI run resume recorded; continuation will be implemented with persisted response state.',
-            payload: {
-              runEngine: 'openai_responses',
-              previousResponseState: 'recorded_in_model_sessions'
-            }
-          });
+          this.requireOpenAiEngine().resumeRun(action.runId);
         } else {
           engine.resume(action.runId);
         }

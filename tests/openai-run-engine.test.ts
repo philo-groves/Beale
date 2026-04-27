@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
-import { OpenAiResponsesAdapter, parseSseEvent, parseSseStream, type FetchLike } from '../src/main/openaiAdapter';
+import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput } from '../src/main/openaiContext';
+import { OpenAiResponsesAdapter, parseSseEvent, parseSseStream, type FetchLike, type WebSocketConstructorLike, type WebSocketLike } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { OpenAiRunEngine } from '../src/main/openaiRunEngine';
 import type { StartRunInput } from '../src/shared/types';
@@ -12,6 +13,12 @@ const createdDirs: string[] = [];
 
 afterEach(() => {
   delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
+  delete process.env.BEALE_OPENAI_AUTH_COMMAND;
+  delete process.env.BEALE_OPENAI_AUTH_ARGS_JSON;
+  delete process.env.BEALE_OPENAI_AUTH_COMMAND_REFRESH_MS;
+  delete process.env.BEALE_OPENAI_AUTH_COMMAND_TIMEOUT_MS;
+  delete process.env.BEALE_OPENAI_TRANSPORT;
+  delete process.env.OPENAI_API_KEY;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -41,6 +48,104 @@ describe('OpenAI Responses run engine', () => {
       events.push(event.type);
     }
     expect(events).toEqual(['response.created', 'response.completed']);
+  });
+
+  it('resolves an OAuth command token before API key fallback', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'beale-openai-auth-'));
+    createdDirs.push(dir);
+    const tokenCommand = join(dir, 'token.sh');
+    writeFileSync(tokenCommand, '#!/bin/sh\nprintf "Bearer oauth-command-token\\n"\n', { mode: 0o700 });
+    process.env.BEALE_OPENAI_AUTH_COMMAND = tokenCommand;
+    process.env.OPENAI_API_KEY = 'sk-development-fallback-for-test';
+
+    const auth = new OpenAiAuthService();
+    expect(auth.getCredential()).toEqual({ token: 'oauth-command-token', source: 'oauth_command' });
+    expect(auth.getStatus().source).toBe('oauth_command');
+  });
+
+  it('redacts secrets from model input and compacted replay context', () => {
+    const input = {
+      ...openAiInput(),
+      promptMarkdown: '# Secret prompt\napi_key=sk-1234567890abcdef password=hunter2 Bearer abcdefghijklmnopqrstuvwxyz'
+    };
+    const initial = buildInitialOpenAiInput(input);
+    const initialText = initial[0].content[0].text;
+    expect(initialText).toContain('api_key=...redacted');
+    expect(initialText).toContain('password=...redacted');
+    expect(initialText).toContain('Bearer ...redacted');
+    expect(initialText).not.toContain('hunter2');
+
+    const { db } = openDb();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Replay test',
+      promptMarkdown: input.promptMarkdown,
+      mode: input.mode,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      attemptStrategy: input.attemptStrategy,
+      networkProfile: input.networkProfile,
+      sandboxProfile: input.sandboxProfile,
+      budget: { ...input.budget, runEngine: 'openai_responses' }
+    });
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Tool returned token=supersecret',
+      payload: { access_token: 'secret-token-value', nested: { password: 'secret-password' } }
+    });
+    const replay = buildCompactedReplayOpenAiInput(db.getRunDetail(context.run.id));
+    const replayText = replay[0].content[0].text;
+    expect(replayText).toContain('token=...redacted');
+    expect(replayText).toContain('"access_token":"...redacted"');
+    expect(replayText).not.toContain('secret-password');
+    db.close();
+  });
+
+  it('streams Responses events over WebSocket transport with host authorization', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    process.env.BEALE_OPENAI_TRANSPORT = 'websocket';
+    const sent: string[] = [];
+    const sockets: FakeWebSocket[] = [];
+    const WebSocketCtor = fakeWebSocketConstructor(sockets, sent);
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, async () => new Response('', { status: 500 }), 'https://api.openai.test/v1', WebSocketCtor);
+    const body = adapter.buildRequest({
+      model: 'gpt-5.5',
+      instructions: 'Return a smoke response.',
+      input: buildInitialOpenAiInput(openAiInput()),
+      tools: [],
+      reasoning: { effort: 'low' },
+      text: { verbosity: 'low' },
+      metadata: { beale_test: 'websocket', beale_run_id: 'run_ws' }
+    });
+
+    const events = [];
+    for await (const event of adapter.streamResponse({ body })) {
+      events.push(event.type);
+    }
+
+    expect(events).toEqual(['response.created', 'response.completed']);
+    expect(sockets[0].url).toBe('wss://api.openai.test/v1/responses');
+    expect(sockets[0].options.headers.Authorization).toBe('Bearer oauth-token-for-test');
+    const request = JSON.parse(sent[0]) as Record<string, unknown>;
+    expect(request.type).toBe('response.create');
+    expect(request.stream).toBeUndefined();
+    expect(request.store).toBe(false);
+
+    const followup = {
+      ...body,
+      previous_response_id: 'resp_ws_1',
+      input: [{ type: 'function_call_output' as const, call_id: 'call_ws_1', output: '{"ok":true}' }]
+    };
+    for await (const _event of adapter.streamResponse({ body: followup })) {
+      // Drain the second response to prove the same socket can continue a run.
+    }
+    expect(sockets).toHaveLength(1);
+    expect((JSON.parse(sent[1]) as Record<string, unknown>).previous_response_id).toBe('resp_ws_1');
+    adapter.closeWebSocketSession('run_ws');
   });
 
   it('constructs a host-only Responses request and routes model tool calls through Beale policy', async () => {
@@ -99,6 +204,74 @@ describe('OpenAI Responses run engine', () => {
     expect(dir).toContain('beale-openai-test-');
   });
 
+  it('replays compacted context when previous_response_id cannot be recovered', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: unknown[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        return new Response(sse(toolCallEvents('resp_1', 'call_1')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      if (requests.length === 2) {
+        return new Response(sse(previousResponseMissingEvents()), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return new Response(sse(finalResponseEvents('resp_3')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.')).toBe(true);
+    expect((requests[1] as Record<string, unknown>).previous_response_id).toBe('resp_1');
+    expect((requests[2] as Record<string, unknown>).previous_response_id).toBeNull();
+    expect(JSON.stringify((requests[2] as Record<string, unknown>).input)).toContain('Compacted Beale Run Replay');
+    db.close();
+  });
+
+  it('resumes a paused OpenAI run from persisted pending tool output', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: unknown[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length <= 4) {
+        return new Response(sse(toolCallEvents(`resp_${requests.length}`, `call_${requests.length}`)), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' }
+        });
+      }
+      return new Response(sse(finalResponseEvents('resp_5')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    let detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('paused');
+    expect(detail.modelSessions[0].previousResponseId).toBe('resp_4');
+    expect(JSON.stringify(detail.modelSessions[0].metadata.pendingInput)).toContain('function_call_output');
+
+    const resumed = engine.resumeRun(handle.context.run.id);
+    await resumed?.completion;
+    detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect((requests[4] as Record<string, unknown>).previous_response_id).toBe('resp_4');
+    expect(JSON.stringify((requests[4] as Record<string, unknown>).input)).toContain('function_call_output');
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI run resumed from persisted Responses state.')).toBe(true);
+    db.close();
+  });
+
   it('blocks OpenAI runs before API calls when no host credential is configured', async () => {
     delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
     delete process.env.OPENAI_API_KEY;
@@ -152,32 +325,46 @@ function openAiInput(): StartRunInput {
   };
 }
 
-function toolCallEvents(): string {
+function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
   return [
-    event('response.created', { type: 'response.created', response: { id: 'resp_1' } }),
-    event('response.output_text.delta', { type: 'response.output_text.delta', response_id: 'resp_1', delta: 'Checking scope.' }),
-    event('response.output_text.done', { type: 'response.output_text.done', response_id: 'resp_1', text: 'I will search scoped metadata first.' }),
+    event('response.created', { type: 'response.created', response: { id: responseId } }),
+    event('response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, delta: 'Checking scope.' }),
+    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, text: 'I will search scoped metadata first.' }),
     event('response.output_item.done', {
       type: 'response.output_item.done',
-      response_id: 'resp_1',
+      response_id: responseId,
       item: {
         type: 'function_call',
         id: 'fc_1',
-        call_id: 'call_1',
+        call_id: callId,
         name: 'search',
         arguments: '{"query":"authorization boundary","target":"local"}',
         status: 'completed'
       }
     }),
-    event('response.completed', { type: 'response.completed', response: { id: 'resp_1', usage: { total_tokens: 42 } } })
+    event('response.completed', { type: 'response.completed', response: { id: responseId, usage: { total_tokens: 42 } } })
   ].join('');
 }
 
-function finalResponseEvents(): string {
+function finalResponseEvents(responseId = 'resp_2'): string {
   return [
-    event('response.created', { type: 'response.created', response: { id: 'resp_2' } }),
-    event('response.output_text.done', { type: 'response.output_text.done', response_id: 'resp_2', text: 'No verified finding yet.' }),
-    event('response.completed', { type: 'response.completed', response: { id: 'resp_2', usage: { total_tokens: 24 } } })
+    event('response.created', { type: 'response.created', response: { id: responseId } }),
+    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, text: 'No verified finding yet.' }),
+    event('response.completed', { type: 'response.completed', response: { id: responseId, usage: { total_tokens: 24 } } })
+  ].join('');
+}
+
+function previousResponseMissingEvents(): string {
+  return [
+    event('error', {
+      type: 'error',
+      status: 400,
+      error: {
+        code: 'previous_response_not_found',
+        message: "Previous response with id 'resp_1' not found.",
+        param: 'previous_response_id'
+      }
+    })
   ].join('');
 }
 
@@ -192,4 +379,66 @@ function sse(text: string): ReadableStream<Uint8Array> {
       controller.close();
     }
   });
+}
+
+function fakeWebSocketConstructor(sockets: FakeWebSocket[], sent: string[]): WebSocketConstructorLike {
+  return class TestWebSocket extends FakeWebSocket {
+    public constructor(url: string, options: { headers: Record<string, string> }) {
+      super(url, options, sockets, sent);
+    }
+  };
+}
+
+class FakeWebSocket implements WebSocketLike {
+  private readonly openListeners: Array<() => void> = [];
+  private readonly messageListeners: Array<(data: unknown) => void> = [];
+  private readonly errorListeners: Array<(error: Error) => void> = [];
+  private readonly closeListeners: Array<(code: number, reason: Buffer) => void> = [];
+
+  public constructor(
+    public readonly url: string,
+    public readonly options: { headers: Record<string, string> },
+    sockets: FakeWebSocket[],
+    private readonly sent: string[]
+  ) {
+    sockets.push(this);
+    queueMicrotask(() => this.openListeners.forEach((listener) => listener()));
+  }
+
+  public on(event: 'open', listener: () => void): WebSocketLike;
+  public on(event: 'message', listener: (data: unknown) => void): WebSocketLike;
+  public on(event: 'error', listener: (error: Error) => void): WebSocketLike;
+  public on(event: 'close', listener: (code: number, reason: Buffer) => void): WebSocketLike;
+  public on(
+    event: 'open' | 'message' | 'error' | 'close',
+    listener: (() => void) | ((data: unknown) => void) | ((error: Error) => void) | ((code: number, reason: Buffer) => void)
+  ): WebSocketLike {
+    switch (event) {
+      case 'open':
+        this.openListeners.push(listener as () => void);
+        break;
+      case 'message':
+        this.messageListeners.push(listener as (data: unknown) => void);
+        break;
+      case 'error':
+        this.errorListeners.push(listener as (error: Error) => void);
+        break;
+      case 'close':
+        this.closeListeners.push(listener as (code: number, reason: Buffer) => void);
+        break;
+    }
+    return this;
+  }
+
+  public send(data: string): void {
+    this.sent.push(data);
+    queueMicrotask(() => {
+      this.messageListeners.forEach((listener) => listener(JSON.stringify({ type: 'response.created', response: { id: 'resp_ws_1' } })));
+      this.messageListeners.forEach((listener) => listener(JSON.stringify({ type: 'response.completed', response: { id: 'resp_ws_1' } })));
+    });
+  }
+
+  public close(): void {
+    this.closeListeners.forEach((listener) => listener(1000, Buffer.alloc(0)));
+  }
 }
