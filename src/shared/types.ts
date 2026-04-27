@@ -400,6 +400,17 @@ export type ExportReviewDecision = 'approved' | 'needs_more_evidence' | 'rejecte
 export type PolicyReviewRequestKind = 'network_profile_change' | 'credential_injection' | 'host_action' | 'scope_change';
 export type PolicyReviewDecision = 'approved' | 'denied';
 
+export type VerifierContractReviewDecision = 'approved' | 'rejected';
+
+export interface VerifierContractEditInput {
+  setupStepsMarkdown?: string;
+  triggerStepsMarkdown?: string;
+  expectedObservations?: Record<string, unknown>;
+  invariants?: Record<string, unknown>;
+  artifactsToCollect?: Record<string, unknown>;
+  passCriteria?: Record<string, unknown>;
+}
+
 export interface ExportRecord {
   id: string;
   runId: string;
@@ -596,7 +607,11 @@ export type SteeringAction =
   | { type: 'resume'; runId: string; note?: string }
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'fork'; runId: string; instruction: string }
+  | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
+  | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }
   | { type: 'rerun_verifier'; runId: string; verifierContractId: string; note?: string }
+  | { type: 'edit_verifier_contract'; runId: string; verifierContractId: string; patch: VerifierContractEditInput; note?: string }
+  | { type: 'review_verifier_contract'; runId: string; verifierContractId: string; decision: VerifierContractReviewDecision; note?: string }
   | { type: 'promote_artifact'; runId: string; artifactId: string; note?: string }
   | { type: 'mark_artifact_sensitive'; runId: string; artifactId: string; note?: string }
   | { type: 'promote_hypothesis'; runId: string; hypothesisId: string; note?: string }
@@ -606,9 +621,16 @@ export type SteeringAction =
   | { type: 'request_patch_validation'; runId: string; hypothesisId?: string; findingId?: string; note?: string }
   | { type: 'mark_finding_false_positive'; runId: string; findingId: string; note?: string }
   | { type: 'mark_finding_out_of_scope'; runId: string; findingId: string; note?: string }
+  | { type: 'mark_disclosure_ready'; runId: string; findingId: string; note?: string }
+  | { type: 'mark_needs_more_evidence'; runId: string; findingId: string; note?: string }
   | { type: 'export_evidence_bundle'; runId: string; findingId?: string; note?: string }
+  | { type: 'export_finding_bundle'; runId: string; findingId?: string; note?: string }
+  | { type: 'export_redacted_trace'; runId: string; findingId?: string; note?: string }
+  | { type: 'generate_report_draft'; runId: string; findingId?: string; note?: string }
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
   | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string }
+  | { type: 'preserve_vm'; runId: string; vmContextId?: string; reason?: string }
+  | { type: 'destroy_vm'; runId: string; vmContextId?: string; reason?: string }
   | { type: 'dismiss_hypothesis'; runId: string; hypothesisId: string; note?: string }
   | { type: 'mark_hypothesis_out_of_scope'; runId: string; hypothesisId: string; note?: string };
 

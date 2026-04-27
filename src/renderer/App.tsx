@@ -5,9 +5,14 @@ import {
   Ban,
   Bug,
   CheckCircle2,
+  ClipboardCheck,
+  ClipboardX,
   Database,
+  Edit3,
   EyeOff,
   FileArchive,
+  FileJson,
+  FileOutput,
   FileText,
   FolderOpen,
   FolderPlus,
@@ -21,6 +26,7 @@ import {
   Pause,
   Play,
   RefreshCw,
+  RotateCcw,
   RotateCw,
   Save,
   Search,
@@ -29,6 +35,7 @@ import {
   SlidersHorizontal,
   Square,
   Terminal,
+  Trash2,
   XCircle
 } from 'lucide-react';
 import type {
@@ -834,6 +841,7 @@ function RunDetailView({
   const firstHypothesis = detail?.hypotheses[0];
   const firstFinding = detail?.findings[0];
   const firstVerifier = detail?.verifierContracts[0];
+  const firstVmContext = detail?.vmContexts[0];
 
   const steer = (action: Parameters<typeof window.beale.steerRun>[0]): void => {
     void runAction(() => window.beale.steerRun(action));
@@ -876,6 +884,33 @@ function RunDetailView({
           <Square size={15} />
           Stop
         </button>
+        <button
+          type="button"
+          title="Restart from selected VM snapshot"
+          disabled={busy || !firstVmContext}
+          onClick={() => firstVmContext && steer({ type: 'restart_from_snapshot', runId: detail.run.id, snapshotRef: firstVmContext.snapshotId || 'clean' })}
+        >
+          <RotateCcw size={15} />
+          Restart
+        </button>
+        <button
+          type="button"
+          title="Extend run budget"
+          disabled={busy}
+          onClick={() =>
+            steer({
+              type: 'update_run_budget',
+              runId: detail.run.id,
+              budgetPatch: {
+                maxMinutes: budgetNumber(detail.run.budget.maxMinutes, 45) + 15,
+                maxAttempts: budgetNumber(detail.run.budget.maxAttempts, 1)
+              }
+            })
+          }
+        >
+          <Gauge size={15} />
+          Budget
+        </button>
       </div>
 
       <div className="fork-row">
@@ -917,6 +952,10 @@ function RunDetailView({
           detail={detail}
           disabled={busy}
           onRerun={(contractId) => steer({ type: 'rerun_verifier', runId: detail.run.id, verifierContractId: contractId })}
+          onEdit={(contractId, triggerStepsMarkdown) =>
+            steer({ type: 'edit_verifier_contract', runId: detail.run.id, verifierContractId: contractId, patch: { triggerStepsMarkdown } })
+          }
+          onReview={(contractId, decision) => steer({ type: 'review_verifier_contract', runId: detail.run.id, verifierContractId: contractId, decision })}
         />
         <ModelSessionPanel detail={detail} />
         <FindingPanel
@@ -925,6 +964,10 @@ function RunDetailView({
           onPatchValidation={(finding) => steer({ type: 'request_patch_validation', runId: detail.run.id, findingId: finding.id })}
           onFalsePositive={(finding) => steer({ type: 'mark_finding_false_positive', runId: detail.run.id, findingId: finding.id })}
           onOutOfScope={(finding) => steer({ type: 'mark_finding_out_of_scope', runId: detail.run.id, findingId: finding.id })}
+          onDisclosureReady={(finding) => steer({ type: 'mark_disclosure_ready', runId: detail.run.id, findingId: finding.id })}
+          onNeedsEvidence={(finding) => steer({ type: 'mark_needs_more_evidence', runId: detail.run.id, findingId: finding.id })}
+          onFindingBundle={(finding) => steer({ type: 'export_finding_bundle', runId: detail.run.id, findingId: finding.id })}
+          onReportDraft={(finding) => steer({ type: 'generate_report_draft', runId: detail.run.id, findingId: finding.id })}
         />
         <ExportPanel
           exports={detail.exports}
@@ -944,6 +987,8 @@ function RunDetailView({
               note: `${decision} ${requestKind}`
             })
           }
+          onPreserve={(vmContextId) => steer({ type: 'preserve_vm', runId: detail.run.id, vmContextId, reason: 'Preserve VM for local review.' })}
+          onDestroy={(vmContextId) => steer({ type: 'destroy_vm', runId: detail.run.id, vmContextId, reason: 'Destroy VM after review.' })}
         />
       </div>
 
@@ -971,6 +1016,26 @@ function RunDetailView({
         <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'export_evidence_bundle', runId: detail.run.id, findingId: firstFinding.id })}>
           <FileArchive size={15} />
           Export Evidence
+        </button>
+        <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'export_finding_bundle', runId: detail.run.id, findingId: firstFinding.id })}>
+          <FileOutput size={15} />
+          Finding Bundle
+        </button>
+        <button type="button" disabled={busy} onClick={() => steer({ type: 'export_redacted_trace', runId: detail.run.id, findingId: firstFinding?.id })}>
+          <FileJson size={15} />
+          Redacted Trace
+        </button>
+        <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'generate_report_draft', runId: detail.run.id, findingId: firstFinding.id })}>
+          <FileText size={15} />
+          Report Draft
+        </button>
+        <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'mark_disclosure_ready', runId: detail.run.id, findingId: firstFinding.id })}>
+          <ClipboardCheck size={15} />
+          Disclosure Ready
+        </button>
+        <button type="button" disabled={busy || !firstFinding} onClick={() => firstFinding && steer({ type: 'mark_needs_more_evidence', runId: detail.run.id, findingId: firstFinding.id })}>
+          <ShieldAlert size={15} />
+          Needs Evidence
         </button>
         <button type="button" disabled={busy || !firstHypothesis} onClick={() => firstHypothesis && steer({ type: 'mark_hypothesis_out_of_scope', runId: detail.run.id, hypothesisId: firstHypothesis.id })}>
           <Ban size={15} />
@@ -1117,12 +1182,17 @@ function ArtifactPanel({
 function VerifierPanel({
   detail,
   disabled,
-  onRerun
+  onRerun,
+  onEdit,
+  onReview
 }: {
   detail: RunDetail;
   disabled: boolean;
   onRerun: (contractId: string) => void;
+  onEdit: (contractId: string, triggerStepsMarkdown: string) => void;
+  onReview: (contractId: string, decision: 'approved' | 'rejected') => void;
 }): JSX.Element {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   return (
     <section className="detail-section">
       <div className="section-title">
@@ -1132,13 +1202,29 @@ function VerifierPanel({
       {detail.verifierContracts.length === 0 ? <div className="empty-state">No verifiers.</div> : null}
       {detail.verifierContracts.map((contract) => {
         const latest = [...detail.verifierRuns].reverse().find((run) => run.contractId === contract.id);
+        const draft = drafts[contract.id] ?? contract.triggerStepsMarkdown;
         return (
-          <div className="entity-row" key={contract.id}>
-            <div>
+          <div className="entity-row verifier-row" key={contract.id}>
+            <div className="entity-main">
               <strong>{contract.mode}</strong>
               <p>{latest?.status ?? contract.status} · {contract.id}</p>
+              <textarea
+                className="verifier-edit"
+                rows={3}
+                value={draft}
+                onChange={(event) => setDrafts((current) => ({ ...current, [contract.id]: event.target.value }))}
+              />
             </div>
             <div className="entity-actions">
+              <button type="button" title="Edit verifier trigger" disabled={disabled || !draft.trim()} onClick={() => onEdit(contract.id, draft)}>
+                <Edit3 size={14} />
+              </button>
+              <button type="button" title="Approve verifier contract" disabled={disabled} onClick={() => onReview(contract.id, 'approved')}>
+                <ClipboardCheck size={14} />
+              </button>
+              <button type="button" title="Reject verifier contract" disabled={disabled} onClick={() => onReview(contract.id, 'rejected')}>
+                <ClipboardX size={14} />
+              </button>
               <button type="button" title="Rerun verifier" disabled={disabled} onClick={() => onRerun(contract.id)}>
                 <RotateCw size={14} />
               </button>
@@ -1155,13 +1241,21 @@ function FindingPanel({
   disabled,
   onPatchValidation,
   onFalsePositive,
-  onOutOfScope
+  onOutOfScope,
+  onDisclosureReady,
+  onNeedsEvidence,
+  onFindingBundle,
+  onReportDraft
 }: {
   detail: RunDetail;
   disabled: boolean;
   onPatchValidation: (finding: FindingRecord) => void;
   onFalsePositive: (finding: FindingRecord) => void;
   onOutOfScope: (finding: FindingRecord) => void;
+  onDisclosureReady: (finding: FindingRecord) => void;
+  onNeedsEvidence: (finding: FindingRecord) => void;
+  onFindingBundle: (finding: FindingRecord) => void;
+  onReportDraft: (finding: FindingRecord) => void;
 }): JSX.Element {
   return (
     <section className="detail-section">
@@ -1182,6 +1276,18 @@ function FindingPanel({
           <div className="entity-actions">
             <button type="button" title="Request patch validation" disabled={disabled} onClick={() => onPatchValidation(finding)}>
               <PackageCheck size={14} />
+            </button>
+            <button type="button" title="Mark disclosure ready" disabled={disabled} onClick={() => onDisclosureReady(finding)}>
+              <ClipboardCheck size={14} />
+            </button>
+            <button type="button" title="Mark needs more evidence" disabled={disabled} onClick={() => onNeedsEvidence(finding)}>
+              <ShieldAlert size={14} />
+            </button>
+            <button type="button" title="Export finding bundle" disabled={disabled} onClick={() => onFindingBundle(finding)}>
+              <FileOutput size={14} />
+            </button>
+            <button type="button" title="Generate report draft" disabled={disabled} onClick={() => onReportDraft(finding)}>
+              <FileText size={14} />
             </button>
             <button type="button" title="Mark false positive" disabled={disabled} onClick={() => onFalsePositive(finding)}>
               <XCircle size={14} />
@@ -1263,7 +1369,9 @@ function ModelSessionPanel({ detail }: { detail: RunDetail }): JSX.Element {
 function VmPolicyPanel({
   detail,
   disabled,
-  onReview
+  onReview,
+  onPreserve,
+  onDestroy
 }: {
   detail: RunDetail;
   disabled: boolean;
@@ -1272,6 +1380,8 @@ function VmPolicyPanel({
     decision: 'approved' | 'denied',
     requestedAction: Record<string, unknown>
   ) => void;
+  onPreserve: (vmContextId: string) => void;
+  onDestroy: (vmContextId: string) => void;
 }): JSX.Element {
   return (
     <section className="detail-section">
@@ -1287,6 +1397,14 @@ function VmPolicyPanel({
               {vm.state} · {vm.networkProfile}
               {typeof vm.metadata.targetExecution === 'boolean' ? ` · target execution ${vm.metadata.targetExecution ? 'enabled' : 'simulated'}` : ''}
             </p>
+          </div>
+          <div className="entity-actions">
+            <button type="button" title="Preserve VM" disabled={disabled || vm.state === 'destroyed' || vm.state === 'preserved'} onClick={() => onPreserve(vm.id)}>
+              <Save size={14} />
+            </button>
+            <button type="button" title="Destroy VM" disabled={disabled || vm.state === 'destroyed'} onClick={() => onDestroy(vm.id)}>
+              <Trash2 size={14} />
+            </button>
           </div>
         </div>
       ))}
@@ -1306,11 +1424,59 @@ function VmPolicyPanel({
           </button>
           <button
             type="button"
+            title="Deny scoped network profile"
+            disabled={disabled}
+            onClick={() => onReview('network_profile_change', 'denied', { networkProfile: detail.run.networkProfile, runId: detail.run.id })}
+          >
+            <Ban size={14} />
+          </button>
+          <button
+            type="button"
+            title="Approve credential injection"
+            disabled={disabled}
+            onClick={() => onReview('credential_injection', 'approved', { runId: detail.run.id, credentialsHostOnly: true })}
+          >
+            <KeyRound size={14} />
+          </button>
+          <button
+            type="button"
             title="Deny credential injection"
             disabled={disabled}
             onClick={() => onReview('credential_injection', 'denied', { runId: detail.run.id, credentialsHostOnly: true })}
           >
             <Ban size={14} />
+          </button>
+          <button
+            type="button"
+            title="Approve host action"
+            disabled={disabled}
+            onClick={() => onReview('host_action', 'approved', { runId: detail.run.id, hostAction: 'user_reviewed' })}
+          >
+            <Terminal size={14} />
+          </button>
+          <button
+            type="button"
+            title="Deny host action"
+            disabled={disabled}
+            onClick={() => onReview('host_action', 'denied', { runId: detail.run.id, hostAction: 'user_reviewed' })}
+          >
+            <XCircle size={14} />
+          </button>
+          <button
+            type="button"
+            title="Approve scope change"
+            disabled={disabled}
+            onClick={() => onReview('scope_change', 'approved', { runId: detail.run.id, scopeVersionId: detail.run.scopeVersionId })}
+          >
+            <ClipboardCheck size={14} />
+          </button>
+          <button
+            type="button"
+            title="Deny scope change"
+            disabled={disabled}
+            onClick={() => onReview('scope_change', 'denied', { runId: detail.run.id, scopeVersionId: detail.run.scopeVersionId })}
+          >
+            <ClipboardX size={14} />
           </button>
         </div>
       </div>
@@ -1371,6 +1537,10 @@ function factorFromText(value: string): number {
   if (lower.includes('dynamic') || lower.includes('reproduced')) return 2;
   if (lower.includes('out_of_scope') || lower.includes('out-of-scope')) return 0;
   return 1;
+}
+
+function budgetNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function stateClass(state: string): string {

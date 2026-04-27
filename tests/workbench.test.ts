@@ -334,6 +334,79 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('supports remaining steering and disclosure export controls', () => {
+    const service = openService();
+    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = snapshot.runs[0].run.id;
+    let detail = service.getRunDetail(runId);
+    const hypothesis = detail.hypotheses[0];
+
+    service.steerRun({ type: 'request_reproduction', runId, hypothesisId: hypothesis.id });
+    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
+    detail = service.getRunDetail(runId);
+    const contract = detail.verifierContracts.find((item) => item.mode === 'reproduction' && item.hypothesisId === hypothesis.id);
+    const finding = detail.findings.find((item) => item.hypothesisId === hypothesis.id);
+    expect(contract).toBeTruthy();
+    expect(finding).toBeTruthy();
+
+    service.steerRun({ type: 'update_run_budget', runId, budgetPatch: { maxMinutes: 60, maxAttempts: 3, maxCostUsd: 12 }, note: 'budget updated' });
+    service.steerRun({ type: 'restart_from_snapshot', runId, snapshotRef: 'clean-user-review', note: 'token=restartsecret12345' });
+    service.steerRun({
+      type: 'edit_verifier_contract',
+      runId,
+      verifierContractId: contract?.id ?? '',
+      patch: {
+        triggerStepsMarkdown: 'Run the edited verifier trigger inside the disposable VM.',
+        expectedObservations: { stdout: 'edited verifier output' }
+      }
+    });
+    service.steerRun({ type: 'review_verifier_contract', runId, verifierContractId: contract?.id ?? '', decision: 'approved', note: 'secret=approvesecret12345' });
+    service.steerRun({ type: 'mark_disclosure_ready', runId, findingId: finding?.id ?? '', note: 'ready for report draft' });
+    service.steerRun({ type: 'mark_needs_more_evidence', runId, findingId: finding?.id ?? '', note: 'api_key=evidencesecret12345' });
+    service.steerRun({ type: 'export_finding_bundle', runId, findingId: finding?.id, note: 'token=findingsecret12345' });
+    service.steerRun({ type: 'export_redacted_trace', runId, findingId: finding?.id, note: 'api_key=tracesecret12345' });
+    service.steerRun({ type: 'generate_report_draft', runId, findingId: finding?.id, note: 'password=reportsecret12345' });
+    service.steerRun({ type: 'preserve_vm', runId, reason: 'Preserve VM for review.' });
+    service.steerRun({ type: 'destroy_vm', runId, reason: 'Destroy VM after review.' });
+
+    detail = service.getRunDetail(runId);
+    const updatedContract = detail.verifierContracts.find((item) => item.id === contract?.id);
+    const updatedFinding = detail.findings.find((item) => item.id === finding?.id);
+    const exportKinds = detail.exports.map((item) => item.kind);
+    expect(detail.run.budget.maxMinutes).toBe(60);
+    expect(detail.run.budget.maxAttempts).toBe(3);
+    expect(detail.run.budget.maxCostUsd).toBe(12);
+    expect(detail.vmContexts[0].snapshotId).toBe('clean-user-review');
+    expect(detail.vmContexts[0].state).toBe('destroyed');
+    expect(updatedContract?.status).toBe('approved');
+    expect(updatedContract?.triggerStepsMarkdown).toContain('edited verifier trigger');
+    expect(updatedFinding?.state).toBe('needs_evidence');
+    expect(exportKinds).toEqual(expect.arrayContaining(['finding_bundle', 'redacted_trace', 'report_draft']));
+    expect(detail.traceEvents.some((event) => event.summary === 'Run budget updated by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Run restarted from VM snapshot by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract approved by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked disclosure ready by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked as needing more evidence by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Finding bundle export created.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Redacted trace export created.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Report draft export created.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'VM context preserved by explicit request.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'VM context destroyed.')).toBe(true);
+
+    for (const exportRecord of detail.exports.filter((item) => ['finding_bundle', 'redacted_trace', 'report_draft'].includes(item.kind))) {
+      const exportPath = join(snapshot.workspace.workspacePath, exportRecord.relativePath);
+      const content = readFileSync(exportPath, 'utf8');
+      expect(existsSync(exportPath)).toBe(true);
+      expect(content).toContain('...redacted');
+      expect(content).not.toContain('findingsecret12345');
+      expect(content).not.toContain('tracesecret12345');
+      expect(content).not.toContain('reportsecret12345');
+      expect(content).not.toContain('evidencesecret12345');
+      expect(content).not.toContain('restartsecret12345');
+    }
+    service.close();
+  });
+
   it('records scoped policy approval decisions with redacted request data', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_logic_bug'));

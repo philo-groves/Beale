@@ -14,6 +14,7 @@ import { BenchmarkRunner } from './benchmarkRunner';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
+  AttemptRecord,
   BenchmarkRunInput,
   FakeScenario,
   FindingRecord,
@@ -25,6 +26,7 @@ import type {
   StartRunInput,
   SteeringAction,
   VerifierContractRecord,
+  VmContextRecord,
   WorkspaceExportResult,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -33,6 +35,7 @@ import type {
 } from '@shared/types';
 
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
+type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
 
 export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
@@ -215,9 +218,110 @@ export class WorkspaceService {
         }
         break;
       }
+      case 'restart_from_snapshot': {
+        const detail = db.getRunDetail(action.runId);
+        const vmContext = selectVmContext(detail, attempt, undefined);
+        const snapshotRef = action.snapshotRef?.trim() || vmContext.snapshotId || 'clean';
+        const previousState = vmContext.state;
+        if (shouldUseRealVmProvider(vmContext)) {
+          const executor = this.requireExecutorManager();
+          if (executor.getStatus().available && attempt) {
+            executor.revertContext({ run, attempt, vmContext }, snapshotRef);
+          } else {
+            db.updateVmContext(vmContext.id, {
+              snapshotId: snapshotRef,
+              state: 'clean',
+              metadata: { restartedFromSnapshot: snapshotRef, previousState, providerUnavailable: true }
+            });
+          }
+        } else {
+          db.updateVmContext(vmContext.id, {
+            snapshotId: snapshotRef,
+            state: 'clean',
+            metadata: { restartedFromSnapshot: snapshotRef, previousState, simulatedRestart: true }
+          });
+        }
+        if (attempt && (run.status === 'paused' || run.status === 'blocked')) {
+          db.updateAttemptState(attempt.id, 'active', `Restarted from VM snapshot ${snapshotRef}.`);
+          db.updateRunStatus(action.runId, 'active', `Restarted from VM snapshot ${snapshotRef}.`);
+        }
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'vm_event',
+          source: 'user',
+          summary: 'Run restarted from VM snapshot by user.',
+          payload: {
+            vmContextId: vmContext.id,
+            snapshotRef,
+            previousState,
+            note: redactForModelText(action.note ?? '')
+          },
+          vmContextId: vmContext.id,
+          modelVisible: false
+        });
+        break;
+      }
+      case 'update_run_budget': {
+        const previousBudget = run.budget;
+        const updated = db.updateRunBudget(action.runId, action.budgetPatch);
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'user_note',
+          source: 'user',
+          summary: 'Run budget updated by user.',
+          payload: {
+            previousBudget,
+            nextBudget: updated.budget,
+            note: redactForModelText(action.note ?? '')
+          },
+          modelVisible: false
+        });
+        break;
+      }
       case 'rerun_verifier': {
         const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
         runVerifierContract(db, this.requireExecutorManager(), action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
+        break;
+      }
+      case 'edit_verifier_contract': {
+        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
+        const updated = db.updateVerifierContract(contract.id, { ...action.patch, status: 'edited' });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'verifier_result',
+          source: 'user',
+          summary: 'Verifier contract edited by user.',
+          payload: {
+            contractId: updated.id,
+            status: updated.status,
+            editedFields: Object.keys(action.patch),
+            note: redactForModelText(action.note ?? '')
+          },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
+        break;
+      }
+      case 'review_verifier_contract': {
+        const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
+        const updated = db.updateVerifierContract(contract.id, { status: action.decision });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'verifier_result',
+          source: 'user',
+          summary: `Verifier contract ${action.decision} by user.`,
+          payload: {
+            contractId: updated.id,
+            decision: action.decision,
+            note: redactForModelText(action.note ?? '')
+          },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
         break;
       }
       case 'promote_artifact': {
@@ -384,8 +488,50 @@ export class WorkspaceService {
         });
         break;
       }
+      case 'mark_disclosure_ready': {
+        requireFinding(db.getRunDetail(action.runId), action.findingId);
+        db.updateFindingState(action.findingId, 'disclosure_ready');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'finding_event',
+          source: 'user',
+          summary: 'Finding marked disclosure ready by user.',
+          payload: { findingId: action.findingId, note: redactForModelText(action.note ?? '') },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
+        break;
+      }
+      case 'mark_needs_more_evidence': {
+        requireFinding(db.getRunDetail(action.runId), action.findingId);
+        db.updateFindingState(action.findingId, 'needs_evidence');
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'finding_event',
+          source: 'user',
+          summary: 'Finding marked as needing more evidence by user.',
+          payload: { findingId: action.findingId, note: redactForModelText(action.note ?? '') },
+          vmContextId: attempt?.vmContextId ?? null,
+          modelVisible: false
+        });
+        break;
+      }
       case 'export_evidence_bundle': {
         this.exportEvidenceBundle(action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        break;
+      }
+      case 'export_finding_bundle': {
+        this.exportDisclosureArtifact('finding_bundle', action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        break;
+      }
+      case 'export_redacted_trace': {
+        this.exportDisclosureArtifact('redacted_trace', action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+        break;
+      }
+      case 'generate_report_draft': {
+        this.exportDisclosureArtifact('report_draft', action.runId, action.findingId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
         break;
       }
       case 'review_export': {
@@ -407,6 +553,64 @@ export class WorkspaceService {
           vmContextId: attempt?.vmContextId ?? null,
           modelVisible: false
         });
+        break;
+      }
+      case 'preserve_vm': {
+        const detail = db.getRunDetail(action.runId);
+        const vmContext = selectVmContext(detail, attempt, action.vmContextId);
+        const reason = redactForModelText(action.reason ?? 'User requested VM preservation for review.');
+        if (vmContext.state !== 'destroyed' && shouldUseRealVmProvider(vmContext) && this.requireExecutorManager().getStatus().available && attempt) {
+          this.requireExecutorManager().preserveContext({ run, attempt, vmContext }, reason);
+        } else {
+          db.updateVmContext(vmContext.id, {
+            state: vmContext.state === 'destroyed' ? 'destroyed' : 'preserved',
+            metadata: {
+              preserveReason: reason,
+              preservedByUser: vmContext.state !== 'destroyed',
+              previousState: vmContext.state,
+              providerSkipped: !shouldUseRealVmProvider(vmContext)
+            }
+          });
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'vm_event',
+            source: 'user',
+            summary: vmContext.state === 'destroyed' ? 'VM preserve request recorded for already-destroyed context.' : 'VM context preserved by explicit request.',
+            payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
+            vmContextId: vmContext.id,
+            modelVisible: false
+          });
+        }
+        break;
+      }
+      case 'destroy_vm': {
+        const detail = db.getRunDetail(action.runId);
+        const vmContext = selectVmContext(detail, attempt, action.vmContextId);
+        const reason = redactForModelText(action.reason ?? 'User requested VM destruction.');
+        if (vmContext.state !== 'destroyed' && shouldUseRealVmProvider(vmContext) && this.requireExecutorManager().getStatus().available && attempt) {
+          this.requireExecutorManager().destroyContext({ run, attempt, vmContext });
+        } else {
+          db.updateVmContext(vmContext.id, {
+            state: 'destroyed',
+            metadata: {
+              destroyReason: reason,
+              destroyedByUser: true,
+              previousState: vmContext.state,
+              providerSkipped: !shouldUseRealVmProvider(vmContext)
+            }
+          });
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'vm_event',
+            source: 'user',
+            summary: 'VM context destroyed.',
+            payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
+            vmContextId: vmContext.id,
+            modelVisible: false
+          });
+        }
         break;
       }
       case 'review_policy_request': {
@@ -604,18 +808,22 @@ export class WorkspaceService {
   }
 
   private exportEvidenceBundle(runId: string, findingId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
+    this.exportDisclosureArtifact('evidence_bundle', runId, findingId, note, attemptId, vmContextId);
+  }
+
+  private exportDisclosureArtifact(kind: DisclosureExportKind, runId: string, findingId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
     const db = this.requireDb();
     if (!this.workspacePath) throw new Error('No Beale workspace is open');
     const detail = db.getRunDetail(runId);
     const finding = findingId ? requireFinding(detail, findingId) : detail.findings[0] ?? null;
-    const markdown = buildEvidenceBundleMarkdown(detail, finding, note);
+    const markdown = buildDisclosureMarkdown(kind, detail, finding, note);
     const exportDir = join(this.workspacePath, '.beale', 'exports');
     mkdirSync(exportDir, { recursive: true });
-    const fileName = `${sanitizeFileSegment(detail.run.title)}-${finding ? sanitizeFileSegment(finding.id) : 'run'}-evidence.md`;
+    const fileName = `${sanitizeFileSegment(detail.run.title)}-${finding ? sanitizeFileSegment(finding.id) : 'run'}-${exportKindFileSuffix(kind)}.md`;
     const relativePath = join('.beale', 'exports', fileName).replace(/\\/g, '/');
     writeFileAtomic(join(this.workspacePath, relativePath), markdown);
     const artifact = db.createArtifact({
-      kind: 'evidence_bundle_export',
+      kind: `${kind}_export`,
       mimeType: 'text/markdown',
       sensitivity: 'internal',
       modelVisible: false,
@@ -623,8 +831,9 @@ export class WorkspaceService {
       metadata: {
         name: fileName,
         findingId: finding?.id ?? null,
+        exportKind: kind,
         exportRelativePath: relativePath,
-        disclosureDraft: true,
+        disclosureDraft: kind !== 'redacted_trace',
         redactionReview: {
           redactionApplied: true,
           userReviewRequired: true,
@@ -637,23 +846,23 @@ export class WorkspaceService {
     const exportId = db.createExportRecord({
       runId,
       findingId: finding?.id ?? null,
-      kind: 'evidence_bundle',
+      kind,
       relativePath,
       redactionPolicy: { modelVisible: false, redactionApplied: true, userReviewRequired: true, obviousSecretPatternsRedacted: true },
-      includedArtifacts: { artifactIds: detail.artifacts.map((item) => item.id), bundleArtifactId: artifact.id }
+      includedArtifacts: { artifactIds: detail.artifacts.map((item) => item.id), bundleArtifactId: artifact.id, exportKind: kind }
     });
     const event = db.appendTraceEvent({
       runId,
       attemptId,
       type: 'artifact_created',
       source: 'system',
-      summary: 'Evidence bundle export created.',
+      summary: exportKindSummary(kind),
       payload: {
         artifactId: artifact.id,
         exportId,
         relativePath,
         findingId: finding?.id ?? null,
-        note
+        note: redactForModelText(note)
       },
       artifactId: artifact.id,
       vmContextId,
@@ -828,6 +1037,18 @@ function requireExport(detail: RunDetail, exportId: string) {
   return exportRecord;
 }
 
+function selectVmContext(detail: RunDetail, attempt: AttemptRecord | null, vmContextId: string | undefined): VmContextRecord {
+  const selectedId = vmContextId ?? attempt?.vmContextId ?? null;
+  const selected = selectedId ? detail.vmContexts.find((item) => item.id === selectedId) : null;
+  const vmContext = selected ?? detail.vmContexts[0] ?? null;
+  if (!vmContext) throw new Error(`No VM context found for run: ${detail.run.id}`);
+  return vmContext;
+}
+
+function shouldUseRealVmProvider(vmContext: VmContextRecord): boolean {
+  return vmContext.backend === 'vmctl' || vmContext.metadata.executor === 'vmctl' || vmContext.metadata.targetExecution === true;
+}
+
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {
   const redacted = redactJsonForModel(value);
   return redacted && typeof redacted === 'object' && !Array.isArray(redacted) ? (redacted as Record<string, unknown>) : {};
@@ -838,6 +1059,45 @@ function latestVerifierForHypothesis(detail: RunDetail, hypothesisId: string, st
   return [...detail.verifierRuns]
     .reverse()
     .find((run) => contractIds.has(run.contractId) && run.status === status && (status !== 'pass' || isRealVerifierPass(run))) ?? null;
+}
+
+function buildDisclosureMarkdown(kind: DisclosureExportKind, detail: RunDetail, finding: FindingRecord | null, note: string): string {
+  switch (kind) {
+    case 'evidence_bundle':
+      return buildEvidenceBundleMarkdown(detail, finding, note);
+    case 'finding_bundle':
+      return buildFindingBundleMarkdown(detail, finding, note);
+    case 'redacted_trace':
+      return buildRedactedTraceMarkdown(detail, finding, note);
+    case 'report_draft':
+      return buildReportDraftMarkdown(detail, finding, note);
+  }
+}
+
+function exportKindFileSuffix(kind: DisclosureExportKind): string {
+  switch (kind) {
+    case 'evidence_bundle':
+      return 'evidence';
+    case 'finding_bundle':
+      return 'finding-bundle';
+    case 'redacted_trace':
+      return 'redacted-trace';
+    case 'report_draft':
+      return 'report-draft';
+  }
+}
+
+function exportKindSummary(kind: DisclosureExportKind): string {
+  switch (kind) {
+    case 'evidence_bundle':
+      return 'Evidence bundle export created.';
+    case 'finding_bundle':
+      return 'Finding bundle export created.';
+    case 'redacted_trace':
+      return 'Redacted trace export created.';
+    case 'report_draft':
+      return 'Report draft export created.';
+  }
 }
 
 function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {
@@ -886,6 +1146,105 @@ function buildEvidenceBundleMarkdown(detail: RunDetail, finding: FindingRecord |
     '## Review Notes',
     'Generated by Beale as a candidate evidence bundle. User review is required before disclosure.'
   ].join('\n');
+}
+
+function buildFindingBundleMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {
+  const selectedFinding = finding ?? detail.findings[0] ?? null;
+  const hypothesis = selectedFinding?.hypothesisId ? detail.hypotheses.find((item) => item.id === selectedFinding.hypothesisId) ?? null : null;
+  const contracts = detail.verifierContracts.filter((contract) => contract.findingId === selectedFinding?.id || contract.hypothesisId === selectedFinding?.hypothesisId);
+  const verifierRuns = detail.verifierRuns.filter((run) => contracts.some((contract) => contract.id === run.contractId));
+  return [
+    `# Finding Bundle: ${redactForModelText(selectedFinding?.title ?? detail.run.title)}`,
+    '',
+    '## Review State',
+    selectedFinding ? `Finding state: ${selectedFinding.state}` : 'Finding state: no finding selected',
+    selectedFinding ? `Priority: ${selectedFinding.priorityScore.toFixed(2)}` : '',
+    selectedFinding?.verifiedByVerifierRunId ? `Verified by: ${selectedFinding.verifiedByVerifierRunId}` : 'Verified by: none',
+    note ? `Reviewer note: ${redactForModelText(note)}` : '',
+    '',
+    '## Finding Summary',
+    redactForModelText(selectedFinding?.summaryMarkdown ?? detail.run.summary),
+    '',
+    '## Impact',
+    redactForModelText(selectedFinding?.impactMarkdown ?? 'Impact not promoted to a finding yet.'),
+    '',
+    '## Scope and Assets',
+    codeBlockJson(redactJsonForModel(selectedFinding?.affectedAssets ?? { runNetworkProfile: detail.run.networkProfile })),
+    '',
+    '## Hypothesis',
+    hypothesis ? `${redactForModelText(hypothesis.title)}\n\n${redactForModelText(hypothesis.descriptionMarkdown)}` : 'No linked hypothesis.',
+    '',
+    '## Verifier Contracts',
+    contracts.map((contract) => `- ${contract.id}: ${contract.mode}, status=${contract.status}`).join('\n') || 'No verifier contracts linked.',
+    '',
+    '## Verifier Runs',
+    verifierRuns.map((run) => `- ${run.id}: ${run.status}, real=${String(run.result.realExecution === true)}, vm=${String(run.result.vmExecution === true)}`).join('\n') || 'No verifier runs linked.',
+    '',
+    '## Evidence Artifacts',
+    detail.artifacts.map((artifact) => `- ${artifact.id}: ${artifact.kind}, sha256=${artifact.sha256}, path=${artifact.relativePath}`).join('\n') || 'No artifacts recorded.',
+    '',
+    '## Redaction Review',
+    'Obvious secret patterns were redacted before writing this export. User review is required before disclosure.'
+  ].join('\n');
+}
+
+function buildReportDraftMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {
+  const selectedFinding = finding ?? detail.findings[0] ?? null;
+  return [
+    `# Report Draft: ${redactForModelText(selectedFinding?.title ?? detail.run.title)}`,
+    '',
+    '## Summary',
+    redactForModelText(selectedFinding?.summaryMarkdown ?? detail.run.summary),
+    '',
+    '## Affected Assets',
+    codeBlockJson(redactJsonForModel(selectedFinding?.affectedAssets ?? { networkProfile: detail.run.networkProfile })),
+    '',
+    '## Impact',
+    redactForModelText(selectedFinding?.impactMarkdown ?? 'Impact requires more evidence before disclosure.'),
+    '',
+    '## Reproduction Evidence',
+    selectedFinding?.verifiedByVerifierRunId ? `Verifier run ${selectedFinding.verifiedByVerifierRunId} is the authoritative verification record.` : 'No passing real verifier run is linked yet.',
+    '',
+    '## Supporting Artifacts',
+    detail.artifacts.map((artifact) => `- ${artifact.kind}: ${artifact.relativePath} (${artifact.sha256})`).join('\n') || 'No supporting artifacts recorded.',
+    '',
+    '## Reviewer Notes',
+    note ? redactForModelText(note) : 'No reviewer note provided.',
+    '',
+    '## Disclosure Review',
+    'This is a draft generated by Beale. Review scope, redactions, reproduction steps, and evidence before disclosure.'
+  ].join('\n');
+}
+
+function buildRedactedTraceMarkdown(detail: RunDetail, finding: FindingRecord | null, note: string): string {
+  const events = detail.traceEvents.map((event) => ({
+    sequence: event.sequence,
+    type: event.type,
+    source: event.source,
+    summary: redactForModelText(event.summary),
+    payload: redactJsonForModel(event.payload),
+    artifactId: event.artifactId,
+    vmContextId: event.vmContextId,
+    modelVisible: event.modelVisible,
+    createdAt: event.createdAt
+  }));
+  return [
+    `# Redacted Trace: ${redactForModelText(detail.run.title)}`,
+    '',
+    '## Scope',
+    finding ? `Finding: ${redactForModelText(finding.title)} (${finding.id})` : 'Run-level trace export.',
+    note ? `Reviewer note: ${redactForModelText(note)}` : '',
+    '',
+    '## Redaction Policy',
+    'Obvious secret patterns and structured secret fields were redacted. User review is required before disclosure.',
+    '',
+    '## Events',
+    codeBlockJson(events)
+  ].join('\n');
+}
+
+function codeBlockJson(value: unknown): string {
+  return ['```json', JSON.stringify(value, null, 2), '```'].join('\n');
 }
 
 function emptyRecoveryReport(openedAt: string | null): WorkspaceRecoveryReport {

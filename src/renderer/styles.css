@@ -881,6 +881,22 @@ code {
   background: #fffefa;
 }
 
+.entity-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 6px;
+}
+
+.verifier-row {
+  align-items: stretch;
+}
+
+.verifier-edit {
+  min-height: 64px;
+  font-size: 0.82rem;
+}
+
 .entity-row.state-verified,
 .entity-row.verified-finding {
   border-color: #8bc4aa;
@@ -913,7 +929,7 @@ code {
   justify-content: flex-end;
   gap: 6px;
   align-items: flex-start;
-  max-width: 112px;
+  max-width: 150px;
 }
 
 .entity-actions button {

@@ -28,9 +28,11 @@ import type {
   RunStatus,
   ScopeAsset,
   ScopeAssetInput,
+  StartRunInput,
   TraceEventRecord,
   TraceEventType,
   TraceSource,
+  VerifierContractEditInput,
   VerifierContractRecord,
   VerifierRunRecord,
   VmContextRecord,
@@ -834,6 +836,30 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = COALESCE(?, ended_at) WHERE id = ?').run(status, summary, endedAt, runId);
   }
 
+  public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const nextBudget: Record<string, unknown> = { ...run.budget };
+    for (const key of ['maxMinutes', 'maxAttempts', 'maxCostUsd'] as const) {
+      const value = budgetPatch[key];
+      if (value === undefined) continue;
+      if (!Number.isFinite(value)) {
+        throw new Error(`Invalid budget value for ${key}.`);
+      }
+      if ((key === 'maxMinutes' || key === 'maxAttempts') && value < 1) {
+        throw new Error(`${key} must be at least 1.`);
+      }
+      if (key === 'maxCostUsd' && value < 0) {
+        throw new Error('maxCostUsd must be zero or greater.');
+      }
+      nextBudget[key] = value;
+    }
+    this.db.prepare('UPDATE runs SET budget_json = ? WHERE id = ?').run(toJson(nextBudget), runId);
+    const updated = this.getRun(runId);
+    if (!updated) throw new Error(`Run not found after budget update: ${runId}`);
+    return updated;
+  }
+
   public updateAttemptState(attemptId: string, status: AttemptStatus, shortState: string): void {
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
     this.db
@@ -1051,6 +1077,38 @@ export class WorkspaceDatabase {
     const contract = this.getVerifierContract(id);
     if (!contract) throw new Error('Failed to create verifier contract');
     return contract;
+  }
+
+  public updateVerifierContract(contractId: string, patch: VerifierContractEditInput & { status?: string }): VerifierContractRecord {
+    const existing = this.getVerifierContract(contractId);
+    if (!existing) throw new Error(`Verifier contract not found: ${contractId}`);
+    this.db
+      .prepare(
+        `UPDATE verifier_contracts
+         SET status = ?,
+             setup_steps_markdown = ?,
+             trigger_steps_markdown = ?,
+             expected_observations_json = ?,
+             invariants_json = ?,
+             artifacts_to_collect_json = ?,
+             pass_criteria_json = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        patch.status ?? existing.status,
+        patch.setupStepsMarkdown ?? existing.setupStepsMarkdown,
+        patch.triggerStepsMarkdown ?? existing.triggerStepsMarkdown,
+        toJson(patch.expectedObservations ?? existing.expectedObservations),
+        toJson(patch.invariants ?? existing.invariants),
+        toJson(patch.artifactsToCollect ?? existing.artifactsToCollect),
+        toJson(patch.passCriteria ?? existing.passCriteria),
+        nowIso(),
+        contractId
+      );
+    const updated = this.getVerifierContract(contractId);
+    if (!updated) throw new Error(`Verifier contract not found after update: ${contractId}`);
+    return updated;
   }
 
   public createVerifierRun(input: CreateVerifierRunInput): VerifierRunRecord {
