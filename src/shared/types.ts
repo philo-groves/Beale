@@ -42,6 +42,12 @@ export type TraceEventType =
 
 export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
 
+export type RunEngineKind = 'fake' | 'openai_responses';
+
+export type OpenAiAuthSource = 'oauth_bearer_env' | 'api_key_env' | 'not_configured';
+
+export type OpenAiTransport = 'websocket' | 'sse_http';
+
 export interface ScopeAssetInput {
   direction: ScopeAssetDirection;
   kind: ScopeAssetKind;
@@ -92,7 +98,20 @@ export interface WorkspaceSummary {
   fakeExecutorLabel: string;
 }
 
+export interface OpenAiAccountStatus {
+  configured: boolean;
+  source: OpenAiAuthSource;
+  label: string;
+  credentialHint: string;
+  credentialsHostOnly: boolean;
+  defaultModel: string;
+  defaultReasoningEffort: string;
+  supportsWebSocket: boolean;
+  preferredTransport: OpenAiTransport;
+}
+
 export interface StartRunInput {
+  runEngine: RunEngineKind;
   promptMarkdown: string;
   mode: string;
   attemptStrategy: string;
@@ -258,6 +277,18 @@ export interface VmContextRecord {
   metadata: Record<string, unknown>;
 }
 
+export interface ModelSessionRecord {
+  id: string;
+  runId: string;
+  provider: string;
+  transport: OpenAiTransport;
+  previousResponseId: string | null;
+  status: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApprovalRecord {
   id: string;
   runId: string;
@@ -274,6 +305,7 @@ export interface ApprovalRecord {
 export interface RunRow {
   run: RunRecord;
   attemptCount: number;
+  engine: RunEngineKind;
   latestAttemptState: string;
   topHypothesis: string | null;
   topFinding: string | null;
@@ -293,11 +325,13 @@ export interface RunDetail {
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
   vmContexts: VmContextRecord[];
+  modelSessions: ModelSessionRecord[];
   policyEvents: ApprovalRecord[];
 }
 
 export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
+  openAi: OpenAiAccountStatus;
   activeScope: ProgramScopeVersion;
   runs: RunRow[];
 }

@@ -23,6 +23,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.workspace.databasePath).toBe(join(dir, '.beale', 'beale.sqlite'));
     expect(snapshot.activeScope.version).toBe(1);
     expect(snapshot.activeScope.programName).toBe('Untitled Program');
+    expect(snapshot.openAi.credentialsHostOnly).toBe(true);
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
 
@@ -93,6 +94,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.verifierRuns.some((run) => run.status === 'pass')).toBe(true);
     expect(detail.findings.some((finding) => finding.state === 'verified')).toBe(true);
     expect(detail.vmContexts[0].backend).toBe('fake_vm');
+    expect(snapshot.runs[0].engine).toBe('fake');
 
     const workspacePath = snapshot.workspace.workspacePath;
     service.close();
@@ -170,6 +172,7 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 
 function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
   return {
+    runEngine: 'fake',
     promptMarkdown: '# Test run\nExercise the fake workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'adaptive_portfolio',

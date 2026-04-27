@@ -2,6 +2,9 @@ import { mkdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { FakeRunEngine } from './fakeRunEngine';
 import { WorkspaceDatabase } from './database';
+import { OpenAiResponsesAdapter } from './openaiAdapter';
+import { OpenAiAuthService } from './openaiAuth';
+import { OpenAiRunEngine } from './openaiRunEngine';
 import type {
   FakeScenario,
   ProgramScopeDraft,
@@ -17,6 +20,8 @@ const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target co
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private engine: FakeRunEngine | null = null;
+  private openAiEngine: OpenAiRunEngine | null = null;
+  private readonly openAiAuth = new OpenAiAuthService();
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
 
@@ -36,6 +41,7 @@ export class WorkspaceService {
     }
     return {
       workspace: this.getWorkspaceSummary(),
+      openAi: this.openAiAuth.getStatus(),
       activeScope: this.db.getActiveScope(),
       runs: this.db.listRunRows()
     };
@@ -49,8 +55,12 @@ export class WorkspaceService {
   }
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
-    const engine = this.requireEngine();
-    engine.startRun(input, mode);
+    if (input.runEngine === 'openai_responses') {
+      this.requireOpenAiEngine().startRun(input);
+    } else {
+      const engine = this.requireEngine();
+      engine.startRun(input, mode);
+    }
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -71,6 +81,7 @@ export class WorkspaceService {
     switch (action.type) {
       case 'pause': {
         engine.pause(action.runId);
+        this.openAiEngine?.pause(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'paused', 'Paused by user steering.');
         db.updateRunStatus(action.runId, 'paused', 'Paused by user steering.');
         db.appendTraceEvent({
@@ -94,11 +105,26 @@ export class WorkspaceService {
           summary: 'Run resumed by user.',
           payload: { note: action.note ?? '' }
         });
-        engine.resume(action.runId);
+        if (run.budget.runEngine === 'openai_responses') {
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'model_message',
+            source: 'system',
+            summary: 'OpenAI run resume recorded; continuation will be implemented with persisted response state.',
+            payload: {
+              runEngine: 'openai_responses',
+              previousResponseState: 'recorded_in_model_sessions'
+            }
+          });
+        } else {
+          engine.resume(action.runId);
+        }
         break;
       }
       case 'stop': {
         engine.stop(action.runId);
+        this.openAiEngine?.stop(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Stopped by user steering.');
         db.updateRunStatus(action.runId, 'stopped', 'Stopped by user steering.');
         db.appendTraceEvent({
@@ -121,24 +147,27 @@ export class WorkspaceService {
           payload: { instruction: action.instruction }
         });
         const scenario = fakeScenarioFromBudget(run.budget);
-        engine.startRun(
-          {
-            promptMarkdown: `${run.promptMarkdown}\n\n## Fork instruction\n${action.instruction}`,
-            mode: run.mode,
-            attemptStrategy: run.attemptStrategy,
-            model: run.model,
-            reasoningEffort: run.reasoningEffort,
-            networkProfile: run.networkProfile,
-            sandboxProfile: run.sandboxProfile,
-            budget: {
-              maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 45),
-              maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 2),
-              maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
-            },
-            fakeScenario: scenario
+        const forkInput: StartRunInput = {
+          promptMarkdown: `${run.promptMarkdown}\n\n## Fork instruction\n${action.instruction}`,
+          mode: run.mode,
+          attemptStrategy: run.attemptStrategy,
+          model: run.model,
+          reasoningEffort: run.reasoningEffort,
+          networkProfile: run.networkProfile,
+          sandboxProfile: run.sandboxProfile,
+          budget: {
+            maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 45),
+            maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 2),
+            maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
           },
-          'scheduled'
-        );
+          runEngine: run.budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake',
+          fakeScenario: scenario
+        };
+        if (forkInput.runEngine === 'openai_responses') {
+          this.requireOpenAiEngine().startRun(forkInput);
+        } else {
+          engine.startRun(forkInput, 'scheduled');
+        }
         break;
       }
       case 'rerun_verifier': {
@@ -228,9 +257,11 @@ export class WorkspaceService {
 
   public close(): void {
     this.engine?.dispose();
+    this.openAiEngine?.dispose();
     this.db?.close();
     this.db = null;
     this.engine = null;
+    this.openAiEngine = null;
     this.workspacePath = null;
     this.openedAt = null;
   }
@@ -258,6 +289,7 @@ export class WorkspaceService {
     this.db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     this.db.initialize();
     this.engine = new FakeRunEngine(this.db, this.onChange);
+    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.onChange);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -274,6 +306,13 @@ export class WorkspaceService {
       throw new Error('No fake run engine is available');
     }
     return this.engine;
+  }
+
+  private requireOpenAiEngine(): OpenAiRunEngine {
+    if (!this.openAiEngine) {
+      throw new Error('No OpenAI run engine is available');
+    }
+    return this.openAiEngine;
   }
 
   private requireSnapshot(): WorkspaceSnapshot {

@@ -52,6 +52,7 @@ interface ScopeFormState {
 }
 
 const defaultRunInput: StartRunInput = {
+  runEngine: 'fake',
   promptMarkdown: '# Open discovery\nMap the scoped target, identify promising attack surfaces, and collect verifier-backed evidence where possible.',
   mode: 'open_discovery',
   attemptStrategy: 'adaptive_portfolio',
@@ -152,6 +153,10 @@ export function App(): JSX.Element {
             <ShieldAlert size={15} />
             <span>{snapshot.workspace.fakeExecutorLabel}</span>
           </div>
+          <div className="meta-row">
+            <Network size={15} />
+            <span>{snapshot.openAi.label}</span>
+          </div>
         </div>
         <div className="sidebar-section">
           <div className="meta-label">Active Scope</div>
@@ -171,7 +176,7 @@ export function App(): JSX.Element {
           <div className="header-stats">
             <Stat label="Runs" value={String(snapshot.runs.length)} />
             <Stat label="Scope Assets" value={String(snapshot.activeScope.assets.length)} />
-            <Stat label="Engine" value="Fake" tone="warning" />
+            <Stat label="OpenAI" value={snapshot.openAi.configured ? 'Ready' : 'Missing'} tone={snapshot.openAi.configured ? undefined : 'warning'} />
           </div>
         </div>
 
@@ -404,6 +409,13 @@ function StartRunForm({
       <textarea className="prompt-box" rows={6} value={input.promptMarkdown} onChange={(event) => update('promptMarkdown', event.target.value)} />
       <div className="start-grid">
         <label>
+          Engine
+          <select value={input.runEngine} onChange={(event) => update('runEngine', event.target.value as StartRunInput['runEngine'])}>
+            <option value="fake">fake</option>
+            <option value="openai_responses">openai_responses</option>
+          </select>
+        </label>
+        <label>
           Mode
           <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
             <option value="open_discovery">open_discovery</option>
@@ -493,6 +505,7 @@ function RunTracker({
               </div>
               <p>{row.latestAttemptState}</p>
               <div className="run-row-grid">
+                <span>{row.engine}</span>
                 <span>{row.attemptCount} attempt{row.attemptCount === 1 ? '' : 's'}</span>
                 <span>{row.topFinding ?? row.topHypothesis ?? 'No hypothesis yet'}</span>
                 <span>{row.verifierState ?? 'verifier pending'}</span>
@@ -605,6 +618,7 @@ function RunDetailView({
           disabled={busy}
           onRerun={(contractId) => steer({ type: 'rerun_verifier', runId: detail.run.id, verifierContractId: contractId })}
         />
+        <ModelSessionPanel detail={detail} />
         <FindingPanel detail={detail} />
         <VmPolicyPanel detail={detail} />
       </div>
@@ -785,6 +799,28 @@ function FindingPanel({ detail }: { detail: RunDetail }): JSX.Element {
           <div>
             <strong>{finding.title}</strong>
             <p>{finding.state} · priority {finding.priorityScore.toFixed(2)}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function ModelSessionPanel({ detail }: { detail: RunDetail }): JSX.Element {
+  return (
+    <section className="detail-section">
+      <div className="section-title">
+        <Network size={16} />
+        <h4>Model Session</h4>
+      </div>
+      {detail.modelSessions.length === 0 ? <div className="empty-state">No model session.</div> : null}
+      {detail.modelSessions.map((session) => (
+        <div className="entity-row" key={session.id}>
+          <div>
+            <strong>{session.provider}</strong>
+            <p>
+              {session.status} · {session.transport} · {session.previousResponseId ?? 'no response id'}
+            </p>
           </div>
         </div>
       ))}

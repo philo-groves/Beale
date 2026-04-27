@@ -9,9 +9,12 @@ import type {
   AttemptStatus,
   FindingRecord,
   HypothesisRecord,
+  ModelSessionRecord,
+  OpenAiTransport,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
+  RunEngineKind,
   RunRecord,
   RunRow,
   RunStatus,
@@ -134,6 +137,15 @@ export interface CreateToolCallInput {
   vmContextId?: string | null;
 }
 
+export interface CreateModelSessionInput {
+  runId: string;
+  provider: string;
+  transport: OpenAiTransport;
+  previousResponseId?: string | null;
+  status: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface StartRunRecordInput {
   scopeVersionId: string;
   title: string;
@@ -153,7 +165,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -396,6 +408,48 @@ export class WorkspaceDatabase {
       throw new Error('Failed to create run context');
     }
     return { run, attempt, vmContext };
+  }
+
+  public createModelSession(input: CreateModelSessionInput): ModelSessionRecord {
+    const id = createId('model_session');
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO model_sessions (
+          id, run_id, provider, transport, previous_response_id, status,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.runId,
+        input.provider,
+        input.transport,
+        input.previousResponseId ?? null,
+        input.status,
+        toJson(input.metadata),
+        createdAt,
+        createdAt
+      );
+    const session = this.getModelSession(id);
+    if (!session) throw new Error('Failed to create model session');
+    return session;
+  }
+
+  public updateModelSessionByRun(runId: string, patch: { previousResponseId?: string | null; status?: string; metadata?: Record<string, unknown> }): void {
+    const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId));
+    if (!existing) return;
+    const metadata = patch.metadata ? { ...parseJson(existing.metadata_json), ...patch.metadata } : parseJson(existing.metadata_json);
+    this.db
+      .prepare(
+        `UPDATE model_sessions
+         SET previous_response_id = COALESCE(?, previous_response_id),
+             status = COALESCE(?, status),
+             metadata_json = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(patch.previousResponseId ?? null, patch.status ?? null, toJson(metadata), nowIso(), text(existing, 'id'));
   }
 
   public appendTraceEvent(input: AppendTraceInput): TraceEventRecord {
@@ -748,6 +802,7 @@ export class WorkspaceDatabase {
       return {
         run,
         attemptCount,
+        engine: this.runEngineFromBudget(run.budget),
         latestAttemptState: latestAttempt ? text(latestAttempt, 'short_state') : run.summary,
         topHypothesis: topHypothesis ? `${text(topHypothesis, 'title')} (${text(topHypothesis, 'state')})` : null,
         topFinding: topFinding ? `${text(topFinding, 'title')} (${text(topFinding, 'state')})` : null,
@@ -790,6 +845,7 @@ export class WorkspaceDatabase {
           )
           .all(runId, runId)
       ).map((row) => this.mapVmContext(row)),
+      modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
       policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row))
     };
   }
@@ -945,6 +1001,11 @@ export class WorkspaceDatabase {
   private getApproval(approvalId: string): ApprovalRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM approvals WHERE id = ?').get(approvalId));
     return row ? this.mapApproval(row) : null;
+  }
+
+  private getModelSession(modelSessionId: string): ModelSessionRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE id = ?').get(modelSessionId));
+    return row ? this.mapModelSession(row) : null;
   }
 
   private mapScope(row: SqlRow): ProgramScopeVersion {
@@ -1159,6 +1220,24 @@ export class WorkspaceDatabase {
       decidedAt: nullableText(row, 'decided_at')
     };
   }
+
+  private mapModelSession(row: SqlRow): ModelSessionRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      provider: text(row, 'provider'),
+      transport: text(row, 'transport') as OpenAiTransport,
+      previousResponseId: nullableText(row, 'previous_response_id'),
+      status: text(row, 'status'),
+      metadata: parseJson(row.metadata_json),
+      createdAt: text(row, 'created_at'),
+      updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private runEngineFromBudget(budget: Record<string, unknown>): RunEngineKind {
+    return budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake';
+  }
 }
 
 const SCHEMA_SQL = `
@@ -1239,6 +1318,18 @@ CREATE TABLE IF NOT EXISTS attempts (
   token_usage_json TEXT NOT NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS model_sessions (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  transport TEXT NOT NULL,
+  previous_response_id TEXT,
+  status TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS approvals (
@@ -1404,6 +1495,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(entity_type, entity_id 
 CREATE INDEX IF NOT EXISTS idx_scope_assets_kind_value ON scope_assets(kind, value);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_attempts_run_status ON attempts(run_id, status);
+CREATE INDEX IF NOT EXISTS idx_model_sessions_run ON model_sessions(run_id);
 CREATE INDEX IF NOT EXISTS idx_trace_run_sequence ON trace_events(run_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_trace_artifact ON trace_events(artifact_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);

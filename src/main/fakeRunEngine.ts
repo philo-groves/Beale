@@ -32,7 +32,7 @@ export class FakeRunEngine {
       attemptStrategy: input.attemptStrategy,
       networkProfile: input.networkProfile,
       sandboxProfile: input.sandboxProfile,
-      budget: { ...input.budget, fakeScenario: input.fakeScenario }
+      budget: { ...input.budget, fakeScenario: input.fakeScenario, runEngine: 'fake' }
     }), this.db);
 
     this.db.appendTraceEvent({
