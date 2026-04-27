@@ -337,6 +337,7 @@ pre {
 
 .scope-panel,
 .start-panel,
+.openai-panel,
 .hardening-panel,
 .benchmark-panel,
 .tracker-panel,
@@ -364,6 +365,167 @@ pre {
 
 .prompt-box {
   min-height: 116px;
+}
+
+.openai-status-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.openai-status-row > div:last-child {
+  display: grid;
+  gap: 5px;
+}
+
+.openai-status-row strong,
+.openai-status-row p {
+  overflow-wrap: anywhere;
+}
+
+.openai-status-row p {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.status-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.readiness-development_fallback .status-icon,
+.readiness-development-fallback .status-icon,
+.readiness-oauth_command_failed .status-icon,
+.readiness-oauth-command-failed .status-icon,
+.readiness-not_configured .status-icon,
+.readiness-not-configured .status-icon {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.openai-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.openai-grid div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.openai-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.openai-grid strong {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.openai-isolation,
+.command-row {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 6px 8px;
+}
+
+.openai-isolation {
+  color: var(--green);
+}
+
+.command-row {
+  color: var(--text);
+}
+
+code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #f6f4ef;
+  padding: 2px 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.onboarding-list {
+  display: grid;
+  gap: 7px;
+}
+
+.onboarding-step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.onboarding-step > span {
+  height: 23px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: #ece9df;
+  color: #555a51;
+}
+
+.onboarding-step.step-complete > span {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.onboarding-step.step-current > span,
+.onboarding-step.step-warning > span {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.onboarding-step.step-blocked > span {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.onboarding-step strong,
+.onboarding-step p {
+  overflow-wrap: anywhere;
+}
+
+.onboarding-step p {
+  margin-top: 2px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.onboarding-step code {
+  display: inline-flex;
+  margin-top: 6px;
 }
 
 .benchmark-controls {
@@ -582,6 +744,22 @@ pre {
 .status-failed {
   background: var(--red-soft);
   color: var(--red);
+}
+
+.status-oauth_ready,
+.status-oauth-ready {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.status-development_fallback,
+.status-development-fallback,
+.status-oauth_command_failed,
+.status-oauth-command-failed,
+.status-not_configured,
+.status-not-configured {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .control-bar,
@@ -834,6 +1012,7 @@ pre {
   }
 
   .start-grid,
+  .openai-grid,
   .asset-grid,
   .form-grid {
     grid-template-columns: 1fr;

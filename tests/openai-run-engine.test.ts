@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,13 +54,39 @@ describe('OpenAI Responses run engine', () => {
     const dir = mkdtempSync(join(tmpdir(), 'beale-openai-auth-'));
     createdDirs.push(dir);
     const tokenCommand = join(dir, 'token.sh');
-    writeFileSync(tokenCommand, '#!/bin/sh\nprintf "Bearer oauth-command-token\\n"\n', { mode: 0o700 });
+    const envDump = join(dir, 'auth-env.txt');
+    writeFileSync(tokenCommand, `#!/bin/sh\nenv > "${envDump}"\nprintf "Bearer oauth-command-token\\n"\n`, { mode: 0o700 });
     process.env.BEALE_OPENAI_AUTH_COMMAND = tokenCommand;
     process.env.OPENAI_API_KEY = 'sk-development-fallback-for-test';
 
     const auth = new OpenAiAuthService();
     expect(auth.getCredential()).toEqual({ token: 'oauth-command-token', source: 'oauth_command' });
     expect(auth.getStatus().source).toBe('oauth_command');
+    expect(auth.getStatus().readiness).toBe('oauth_ready');
+    expect(JSON.stringify(auth.getStatus())).not.toContain('oauth-command-token');
+    expect(readFileSync(envDump, 'utf8')).not.toContain('OPENAI_API_KEY');
+    expect(readFileSync(envDump, 'utf8')).not.toContain('sk-development-fallback-for-test');
+  });
+
+  it('reports OAuth onboarding and command failures without exposing tokens', () => {
+    let auth = new OpenAiAuthService();
+    const missing = auth.getStatus();
+    expect(missing.readiness).toBe('not_configured');
+    expect(missing.setupCommand).toBe('codex login');
+    expect(missing.onboardingSteps.some((step) => step.id === 'secret_isolation' && step.status === 'complete')).toBe(true);
+
+    const dir = mkdtempSync(join(tmpdir(), 'beale-openai-auth-failure-'));
+    createdDirs.push(dir);
+    const failingCommand = join(dir, 'token-fails.sh');
+    writeFileSync(failingCommand, '#!/bin/sh\nprintf "Bearer oauth-failure-secret\\n" >&2\nexit 1\n', { mode: 0o700 });
+    process.env.BEALE_OPENAI_AUTH_COMMAND = failingCommand;
+
+    auth = new OpenAiAuthService();
+    const failed = auth.getStatus();
+    expect(failed.readiness).toBe('oauth_command_failed');
+    expect(failed.oauthCommandConfigured).toBe(true);
+    expect(failed.configured).toBe(false);
+    expect(JSON.stringify(failed)).not.toContain('oauth-failure-secret');
   });
 
   it('redacts secrets from model input and compacted replay context', () => {

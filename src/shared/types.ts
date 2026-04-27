@@ -48,6 +48,18 @@ export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'api_key_e
 
 export type OpenAiTransport = 'websocket' | 'sse_http';
 
+export type OpenAiAuthReadiness = 'oauth_ready' | 'development_fallback' | 'oauth_command_failed' | 'not_configured';
+
+export type OpenAiOnboardingStepStatus = 'complete' | 'current' | 'blocked' | 'warning';
+
+export interface OpenAiOnboardingStep {
+  id: string;
+  label: string;
+  status: OpenAiOnboardingStepStatus;
+  detail: string;
+  command: string | null;
+}
+
 export type ExecutorProviderKind = 'fake' | 'vmctl';
 
 export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
@@ -182,6 +194,13 @@ export interface OpenAiAccountStatus {
   defaultReasoningEffort: string;
   supportsWebSocket: boolean;
   preferredTransport: OpenAiTransport;
+  readiness: OpenAiAuthReadiness;
+  statusDetail: string;
+  userAction: string | null;
+  setupCommand: string | null;
+  oauthCommandConfigured: boolean;
+  codexCliAvailable: boolean;
+  onboardingSteps: OpenAiOnboardingStep[];
 }
 
 export interface StartRunInput {
@@ -598,6 +617,7 @@ export interface BealeApi {
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
+  refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;

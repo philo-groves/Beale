@@ -31,6 +31,9 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.activeScope.version).toBe(1);
     expect(snapshot.activeScope.programName).toBe('Untitled Program');
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
+    expect(snapshot.openAi.readiness).toBe('not_configured');
+    expect(snapshot.openAi.onboardingSteps.some((step) => step.id === 'secret_isolation')).toBe(true);
+    expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
 

@@ -14,10 +14,13 @@ import {
   Gauge,
   GitFork,
   GitMerge,
+  KeyRound,
+  LockKeyhole,
   Network,
   PackageCheck,
   Pause,
   Play,
+  RefreshCw,
   RotateCw,
   Save,
   Search,
@@ -25,6 +28,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Square,
+  Terminal,
   XCircle
 } from 'lucide-react';
 import type {
@@ -35,6 +39,7 @@ import type {
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
+  OpenAiAccountStatus,
   PriorityFactorInput,
   ProgramScopeDraft,
   ProgramScopeVersion,
@@ -164,7 +169,7 @@ export function App(): JSX.Element {
             <ShieldAlert size={15} />
             <span>{snapshot.workspace.fakeExecutorLabel}</span>
           </div>
-          <div className="meta-row">
+          <div className={`meta-row ${snapshot.openAi.readiness === 'oauth_ready' ? '' : 'warning'}`}>
             <Network size={15} />
             <span>{snapshot.openAi.label}</span>
           </div>
@@ -197,7 +202,7 @@ export function App(): JSX.Element {
               tone={snapshot.recovery.interruptedRuns + snapshot.recovery.interruptedVmContexts > 0 ? 'warning' : undefined}
             />
             <Stat label="Benchmarks" value={snapshot.benchmark.latestRun ? `${snapshot.benchmark.latestRun.identity.passCount}/${snapshot.benchmark.latestRun.identity.totalCount}` : 'None'} />
-            <Stat label="OpenAI" value={snapshot.openAi.configured ? 'Ready' : 'Missing'} tone={snapshot.openAi.configured ? undefined : 'warning'} />
+            <Stat label="OpenAI" value={openAiStatusLabel(snapshot.openAi)} tone={snapshot.openAi.readiness === 'oauth_ready' ? undefined : 'warning'} />
             <Stat label="Executor" value={snapshot.executor.available ? snapshot.executor.provider : 'Unavailable'} tone={snapshot.executor.available ? undefined : 'warning'} />
           </div>
         </div>
@@ -205,6 +210,7 @@ export function App(): JSX.Element {
         <div className="workspace-grid">
           <ScopeEditor snapshot={snapshot} busy={busy} runAction={runAction} />
           <section className="center-column">
+            <OpenAiAccountPanel snapshot={snapshot} busy={busy} runAction={runAction} />
             <StartRunForm snapshot={snapshot} busy={busy} runAction={runAction} onStarted={setSelectedRunId} />
             <HardeningPanel snapshot={snapshot} busy={busy} runAction={runAction} />
             <BenchmarkPanel benchmark={snapshot.benchmark} busy={busy} runAction={runAction} />
@@ -381,6 +387,98 @@ function ScopeEditor({
   );
 }
 
+function OpenAiAccountPanel({
+  snapshot,
+  busy,
+  runAction
+}: {
+  snapshot: WorkspaceSnapshot;
+  busy: boolean;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+}): JSX.Element {
+  const status = snapshot.openAi;
+  const refresh = (): void => {
+    void runAction(() => window.beale.refreshOpenAiStatus());
+  };
+
+  return (
+    <section className={`panel openai-panel readiness-${stateClass(status.readiness)}`}>
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">OpenAI</p>
+          <h3>Account</h3>
+        </div>
+        <button type="button" title="Refresh OpenAI account status" disabled={busy} onClick={refresh}>
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="openai-status-row">
+        <div className="status-icon">
+          <KeyRound size={18} />
+        </div>
+        <div>
+          <StatusPill status={status.readiness} />
+          <strong>{status.label}</strong>
+          <p>{status.statusDetail}</p>
+        </div>
+      </div>
+
+      <div className="openai-grid">
+        <div>
+          <span>Source</span>
+          <strong>{status.source}</strong>
+        </div>
+        <div>
+          <span>Transport</span>
+          <strong>{status.preferredTransport}</strong>
+        </div>
+        <div>
+          <span>Model</span>
+          <strong>{status.defaultModel}</strong>
+        </div>
+        <div>
+          <span>Reasoning</span>
+          <strong>{status.defaultReasoningEffort}</strong>
+        </div>
+      </div>
+
+      <div className="openai-isolation">
+        <LockKeyhole size={15} />
+        <span>{status.credentialsHostOnly ? 'Host-only credential boundary' : 'Credential boundary needs review'}</span>
+      </div>
+
+      {status.setupCommand ? (
+        <div className="command-row">
+          <Terminal size={15} />
+          <code>{status.setupCommand}</code>
+        </div>
+      ) : null}
+
+      {status.userAction ? (
+        <div className="policy-line">
+          <ShieldAlert size={15} />
+          {status.userAction}
+        </div>
+      ) : null}
+
+      <div className="onboarding-list">
+        {status.onboardingSteps.map((step) => (
+          <div className={`onboarding-step step-${step.status}`} key={step.id}>
+            <span>{step.status}</span>
+            <div>
+              <strong>{step.label}</strong>
+              <p>{step.detail}</p>
+              {step.command ? <code>{step.command}</code> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function StartRunForm({
   snapshot,
   busy,
@@ -408,6 +506,7 @@ function StartRunForm({
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
     setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
   };
+  const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
 
   const start = (): void => {
     void runAction(async () => {
@@ -425,11 +524,17 @@ function StartRunForm({
           <p className="eyebrow">Run</p>
           <h3>Start Research</h3>
         </div>
-        <button className="primary-button" type="button" disabled={busy || !input.promptMarkdown.trim()} onClick={start}>
+        <button className="primary-button" type="button" disabled={busy || !input.promptMarkdown.trim() || openAiBlocked} onClick={start}>
           <Play size={16} />
           Start
         </button>
       </div>
+      {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
+        <div className="policy-line">
+          <ShieldAlert size={15} />
+          {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
+        </div>
+      ) : null}
       <textarea className="prompt-box" rows={6} value={input.promptMarkdown} onChange={(event) => update('promptMarkdown', event.target.value)} />
       <div className="start-grid">
         <label>
@@ -1229,6 +1334,19 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'wa
       <strong>{value}</strong>
     </div>
   );
+}
+
+function openAiStatusLabel(status: OpenAiAccountStatus): string {
+  switch (status.readiness) {
+    case 'oauth_ready':
+      return 'OAuth';
+    case 'development_fallback':
+      return 'Fallback';
+    case 'oauth_command_failed':
+      return 'Review';
+    case 'not_configured':
+      return 'Missing';
+  }
 }
 
 function StatusPill({ status }: { status: string }): JSX.Element {

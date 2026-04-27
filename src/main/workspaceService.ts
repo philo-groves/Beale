@@ -79,6 +79,12 @@ export class WorkspaceService {
     };
   }
 
+  public refreshOpenAiStatus(): WorkspaceSnapshot {
+    this.openAiAuth.clearCachedCredential();
+    this.emitChange();
+    return this.requireSnapshot();
+  }
+
   public saveProgramScope(scope: ProgramScopeDraft): WorkspaceSnapshot {
     const db = this.requireDb();
     db.saveProgramScope(scope);

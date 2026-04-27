@@ -23,6 +23,9 @@ const api: BealeApi = {
   getSnapshot() {
     return ipcRenderer.invoke(IPC_CHANNELS.getSnapshot);
   },
+  refreshOpenAiStatus() {
+    return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
+  },
   saveProgramScope(scope: ProgramScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);
   },
