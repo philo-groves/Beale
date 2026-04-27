@@ -157,6 +157,11 @@ export interface StartRunRecordInput {
   networkProfile: string;
   sandboxProfile: string;
   budget: Record<string, unknown>;
+  vmBackend?: string;
+  vmImageId?: string;
+  vmSnapshotId?: string;
+  vmState?: string;
+  vmMetadata?: Record<string, unknown>;
 }
 
 export interface CreatedRunContext {
@@ -340,15 +345,15 @@ export class WorkspaceDatabase {
         )
         .run(
           vmContextId,
-          'fake_vm',
-          'fake-beale-toolchain',
-          'clean-snapshot-simulated',
-          'working',
+          input.vmBackend ?? 'fake_vm',
+          input.vmImageId ?? 'fake-beale-toolchain',
+          input.vmSnapshotId ?? 'clean-snapshot-simulated',
+          input.vmState ?? 'working',
           input.networkProfile,
           input.scopeVersionId,
           createdAt,
           null,
-          toJson({ executor: 'simulated', targetExecution: false })
+          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
         );
 
       this.db
@@ -545,6 +550,36 @@ export class WorkspaceDatabase {
   public updateVmState(vmContextId: string, state: string): void {
     const destroyedAt = state === 'destroyed' ? nowIso() : null;
     this.db.prepare('UPDATE vm_contexts SET state = ?, destroyed_at = COALESCE(?, destroyed_at) WHERE id = ?').run(state, destroyedAt, vmContextId);
+  }
+
+  public updateVmContext(
+    vmContextId: string,
+    patch: { backend?: string; imageId?: string; snapshotId?: string; state?: string; metadata?: Record<string, unknown> }
+  ): void {
+    const existing = this.getVmContext(vmContextId);
+    if (!existing) return;
+    const state = patch.state ?? existing.state;
+    const destroyedAt = state === 'destroyed' ? nowIso() : null;
+    this.db
+      .prepare(
+        `UPDATE vm_contexts
+         SET backend = ?,
+             image_id = ?,
+             snapshot_id = ?,
+             state = ?,
+             destroyed_at = COALESCE(?, destroyed_at),
+             metadata_json = ?
+         WHERE id = ?`
+      )
+      .run(
+        patch.backend ?? existing.backend,
+        patch.imageId ?? existing.imageId,
+        patch.snapshotId ?? existing.snapshotId,
+        state,
+        destroyedAt,
+        toJson(patch.metadata ? { ...existing.metadata, ...patch.metadata } : existing.metadata),
+        vmContextId
+      );
   }
 
   public createHypothesis(input: CreateHypothesisInput): HypothesisRecord {
@@ -1239,6 +1274,7 @@ export class WorkspaceDatabase {
   }
 
   private runEngineFromBudget(budget: Record<string, unknown>): RunEngineKind {
+    if (budget.runEngine === 'executor_alpha') return 'executor_alpha';
     return budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake';
   }
 }

@@ -5,6 +5,8 @@ import { WorkspaceDatabase } from './database';
 import { OpenAiResponsesAdapter } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
+import { ExecutorManager } from './executorManager';
+import { ExecutorRunEngine } from './executorRunEngine';
 import type {
   FakeScenario,
   ProgramScopeDraft,
@@ -21,6 +23,8 @@ export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private engine: FakeRunEngine | null = null;
   private openAiEngine: OpenAiRunEngine | null = null;
+  private executorManager: ExecutorManager | null = null;
+  private executorRunEngine: ExecutorRunEngine | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
@@ -42,6 +46,7 @@ export class WorkspaceService {
     return {
       workspace: this.getWorkspaceSummary(),
       openAi: this.openAiAuth.getStatus(),
+      executor: this.requireExecutorManager().getStatus(),
       activeScope: this.db.getActiveScope(),
       runs: this.db.listRunRows()
     };
@@ -57,6 +62,8 @@ export class WorkspaceService {
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
     if (input.runEngine === 'openai_responses') {
       this.requireOpenAiEngine().startRun(input);
+    } else if (input.runEngine === 'executor_alpha') {
+      this.requireExecutorRunEngine().startRun(input);
     } else {
       const engine = this.requireEngine();
       engine.startRun(input, mode);
@@ -150,11 +157,13 @@ export class WorkspaceService {
             maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 2),
             maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
           },
-          runEngine: run.budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake',
+          runEngine: run.budget.runEngine === 'openai_responses' ? 'openai_responses' : run.budget.runEngine === 'executor_alpha' ? 'executor_alpha' : 'fake',
           fakeScenario: scenario
         };
         if (forkInput.runEngine === 'openai_responses') {
           this.requireOpenAiEngine().startRun(forkInput);
+        } else if (forkInput.runEngine === 'executor_alpha') {
+          this.requireExecutorRunEngine().startRun(forkInput);
         } else {
           engine.startRun(forkInput, 'scheduled');
         }
@@ -252,6 +261,8 @@ export class WorkspaceService {
     this.db = null;
     this.engine = null;
     this.openAiEngine = null;
+    this.executorManager = null;
+    this.executorRunEngine = null;
     this.workspacePath = null;
     this.openedAt = null;
   }
@@ -280,6 +291,8 @@ export class WorkspaceService {
     this.db.initialize();
     this.engine = new FakeRunEngine(this.db, this.onChange);
     this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.onChange);
+    this.executorManager = new ExecutorManager(this.db);
+    this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, this.onChange);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -303,6 +316,20 @@ export class WorkspaceService {
       throw new Error('No OpenAI run engine is available');
     }
     return this.openAiEngine;
+  }
+
+  private requireExecutorManager(): ExecutorManager {
+    if (!this.executorManager) {
+      throw new Error('No VM executor manager is available');
+    }
+    return this.executorManager;
+  }
+
+  private requireExecutorRunEngine(): ExecutorRunEngine {
+    if (!this.executorRunEngine) {
+      throw new Error('No VM executor run engine is available');
+    }
+    return this.executorRunEngine;
   }
 
   private requireSnapshot(): WorkspaceSnapshot {

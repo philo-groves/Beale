@@ -64,10 +64,10 @@ describe('plan conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('does not add general host shell or target execution paths before the executor boundary', () => {
+  it('keeps host subprocess use limited to auth and VM controller boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
-      (hit) => normalizePath(hit.path) !== 'src/main/openaiAuth.ts'
+      (hit) => !['src/main/openaiAuth.ts', 'src/main/vmctlExecutor.ts'].includes(normalizePath(hit.path))
     );
 
     expect(hits).toEqual([]);

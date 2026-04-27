@@ -18,6 +18,7 @@ This book is the working planning document for the Beale rewrite.
 - [Trusted Harness Boundary](trusted-harness-boundary.md)
 - [Sandbox Model](sandbox-model.md)
 - [Executor Interface](executor-interface.md)
+- [Firecracker VM Controller](firecracker-vmctl.md)
 - [Network Policy](network-policy.md)
 - [Benchmark Isolation](benchmark-isolation.md)
 

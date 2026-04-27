@@ -10,8 +10,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:plan": "vitest run tests/plan-conformance.test.ts",
+    "test:executor": "vitest run tests/executor-manager.test.ts",
+    "test:firecracker": "vitest run tests/firecracker-vmctl.test.ts",
+    "test:firecracker:live": "BEALE_FIRECRACKER_LIVE_TEST=1 BEALE_VMCTL_COMMAND=$(command -v node) BEALE_VMCTL_ARGS_JSON='[\"scripts/firecracker-vmctl.mjs\",\"--config\",\".beale/firecracker/config.json\"]' vitest run tests/firecracker-live.test.ts",
     "test:openai:live": "BEALE_LIVE_OPENAI_TEST=1 vitest run tests/openai-live.test.ts",
-    "build": "npm run typecheck && electron-vite build"
+    "build": "npm run typecheck && electron-vite build",
+    "firecracker:init": "node scripts/firecracker-setup.mjs --init",
+    "firecracker:doctor": "node scripts/firecracker-setup.mjs --doctor",
+    "firecracker:install-binary": "node scripts/firecracker-setup.mjs --install-binary",
+    "firecracker:install-ci-images": "node scripts/firecracker-setup.mjs --install-ci-images",
+    "firecracker:install-privileged-helper": "node scripts/firecracker-setup.mjs --install-privileged-helper"
   },
   "dependencies": {
     "lucide-react": "^0.554.0",

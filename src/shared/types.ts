@@ -42,11 +42,34 @@ export type TraceEventType =
 
 export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
 
-export type RunEngineKind = 'fake' | 'openai_responses';
+export type RunEngineKind = 'fake' | 'openai_responses' | 'executor_alpha';
 
 export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'api_key_env' | 'not_configured';
 
 export type OpenAiTransport = 'websocket' | 'sse_http';
+
+export type ExecutorProviderKind = 'fake' | 'vmctl';
+
+export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
+
+export interface ExecutorStatus {
+  provider: ExecutorProviderKind;
+  configured: boolean;
+  available: boolean;
+  label: string;
+  reason: string | null;
+  targetExecution: boolean;
+  supportedNetworkProfiles: ExecutorNetworkProfile[];
+  supports: {
+    snapshots: boolean;
+    clone: boolean;
+    import: boolean;
+    export: boolean;
+    shell: boolean;
+    python: boolean;
+    debugger: boolean;
+  };
+}
 
 export interface ScopeAssetInput {
   direction: ScopeAssetDirection;
@@ -332,6 +355,7 @@ export interface RunDetail {
 export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
+  executor: ExecutorStatus;
   activeScope: ProgramScopeVersion;
   runs: RunRow[];
 }

@@ -157,6 +157,10 @@ export function App(): JSX.Element {
             <Network size={15} />
             <span>{snapshot.openAi.label}</span>
           </div>
+          <div className={`meta-row ${snapshot.executor.available ? '' : 'warning'}`}>
+            <ShieldAlert size={15} />
+            <span>{snapshot.executor.label}</span>
+          </div>
         </div>
         <div className="sidebar-section">
           <div className="meta-label">Active Scope</div>
@@ -170,13 +174,14 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workbench-header">
           <div>
-            <p className="eyebrow">Milestone 1</p>
-            <h2>Workbench Skeleton</h2>
+            <p className="eyebrow">Milestone 3</p>
+            <h2>VM Executor Alpha</h2>
           </div>
           <div className="header-stats">
             <Stat label="Runs" value={String(snapshot.runs.length)} />
             <Stat label="Scope Assets" value={String(snapshot.activeScope.assets.length)} />
             <Stat label="OpenAI" value={snapshot.openAi.configured ? 'Ready' : 'Missing'} tone={snapshot.openAi.configured ? undefined : 'warning'} />
+            <Stat label="Executor" value={snapshot.executor.available ? snapshot.executor.provider : 'Unavailable'} tone={snapshot.executor.available ? undefined : 'warning'} />
           </div>
         </div>
 
@@ -413,6 +418,7 @@ function StartRunForm({
           <select value={input.runEngine} onChange={(event) => update('runEngine', event.target.value as StartRunInput['runEngine'])}>
             <option value="fake">fake</option>
             <option value="openai_responses">openai_responses</option>
+            <option value="executor_alpha">executor_alpha</option>
           </select>
         </label>
         <label>
@@ -839,7 +845,10 @@ function VmPolicyPanel({ detail }: { detail: RunDetail }): JSX.Element {
         <div className="entity-row" key={vm.id}>
           <div>
             <strong>{vm.backend}</strong>
-            <p>{vm.state} · {vm.networkProfile}</p>
+            <p>
+              {vm.state} · {vm.networkProfile}
+              {typeof vm.metadata.targetExecution === 'boolean' ? ` · target execution ${vm.metadata.targetExecution ? 'enabled' : 'simulated'}` : ''}
+            </p>
           </div>
         </div>
       ))}
