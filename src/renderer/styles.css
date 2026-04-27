@@ -337,6 +337,7 @@ pre {
 
 .scope-panel,
 .start-panel,
+.benchmark-panel,
 .tracker-panel,
 .detail-panel {
   display: grid;
@@ -362,6 +363,84 @@ pre {
 
 .prompt-box {
   min-height: 116px;
+}
+
+.benchmark-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.benchmark-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.benchmark-buttons button {
+  flex: 1 1 150px;
+}
+
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.benchmark-grid div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.benchmark-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.benchmark-grid strong {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.benchmark-results {
+  display: grid;
+  gap: 6px;
+}
+
+.benchmark-result {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: #ffffff;
+}
+
+.benchmark-result span {
+  overflow-wrap: anywhere;
+}
+
+.benchmark-result.state-pass {
+  border-color: #8bc4aa;
+  background: var(--green-soft);
+}
+
+.benchmark-result.state-fail {
+  border-color: #d9b1aa;
+  background: var(--red-soft);
+}
+
+.benchmark-result.state-inconclusive {
+  border-color: #e3c287;
+  background: var(--amber-soft);
 }
 
 .run-list {

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
+  BenchmarkRunInput,
   ProgramScopeDraft,
   StartRunInput,
   SteeringAction,
@@ -27,6 +28,9 @@ const api: BealeApi = {
   },
   startRun(input: StartRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.startRun, input);
+  },
+  runBenchmarkSuite(input: BenchmarkRunInput) {
+    return ipcRenderer.invoke(IPC_CHANNELS.runBenchmarkSuite, input);
   },
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);

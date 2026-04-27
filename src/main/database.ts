@@ -7,6 +7,12 @@ import type {
   ArtifactRecord,
   AttemptRecord,
   AttemptStatus,
+  BenchmarkHarnessIdentity,
+  BenchmarkResultStatus,
+  BenchmarkRunRecord,
+  BenchmarkSuiteKind,
+  BenchmarkTaskMode,
+  BenchmarkTaskResultRecord,
   FindingRecord,
   HypothesisRecord,
   ModelSessionRecord,
@@ -188,13 +194,39 @@ export interface CreateExportInput {
   includedArtifacts?: Record<string, unknown>;
 }
 
+export interface CreateBenchmarkRunInput {
+  suiteKind: BenchmarkSuiteKind;
+  suiteId: string;
+  identity: BenchmarkHarnessIdentity;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FinishBenchmarkRunInput {
+  status: 'completed' | 'failed';
+  identity: BenchmarkHarnessIdentity;
+}
+
+export interface CreateBenchmarkTaskResultInput {
+  benchmarkRunId: string;
+  taskId: string;
+  suiteKind: BenchmarkSuiteKind;
+  mode: BenchmarkTaskMode;
+  status: BenchmarkResultStatus;
+  score: number;
+  runId?: string | null;
+  isolationPassed: boolean;
+  metrics?: Record<string, unknown>;
+  graderReport?: Record<string, unknown>;
+  agentOutput?: Record<string, unknown>;
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -219,6 +251,14 @@ function parseJson(value: SqlPrimitive | undefined): Record<string, unknown> {
     return parsed as Record<string, unknown>;
   }
   return {};
+}
+
+function parseStringArray(value: SqlPrimitive | undefined): string[] {
+  if (typeof value !== 'string' || value.length === 0) {
+    return [];
+  }
+  const parsed: unknown = JSON.parse(value);
+  return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function text(row: SqlRow, key: string): string {
@@ -924,6 +964,114 @@ export class WorkspaceDatabase {
     return id;
   }
 
+  public createBenchmarkRun(input: CreateBenchmarkRunInput): BenchmarkRunRecord {
+    const id = createId('bench_run');
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO benchmark_runs (
+          id, suite_kind, suite_id, status, model, reasoning_effort, harness_name,
+          harness_version, prompt_version, toolset_version, verifier_version,
+          sandbox_backend, sandbox_image_version, network_profile, attempt_strategy,
+          attempt_count, task_subset_id, task_ids_json, benchmark_version, cost_json,
+          tokens_json, wall_time_ms, pass_count, total_count, metadata_json,
+          created_at, started_at, ended_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.suiteKind,
+        input.suiteId,
+        'running',
+        input.identity.model,
+        input.identity.reasoningEffort,
+        input.identity.harnessName,
+        input.identity.harnessVersion,
+        input.identity.promptVersion,
+        input.identity.toolsetVersion,
+        input.identity.verifierVersion,
+        input.identity.sandboxBackend,
+        input.identity.sandboxImageVersion,
+        input.identity.networkProfile,
+        input.identity.attemptStrategy,
+        input.identity.attemptCount,
+        input.identity.taskSubsetId,
+        toJson(input.identity.taskIds),
+        input.identity.benchmarkVersion,
+        toJson(input.identity.cost),
+        toJson(input.identity.tokens),
+        input.identity.wallTimeMs,
+        input.identity.passCount,
+        input.identity.totalCount,
+        toJson(input.metadata),
+        createdAt,
+        createdAt,
+        null
+      );
+    const run = this.getBenchmarkRun(id);
+    if (!run) throw new Error('Failed to create benchmark run');
+    return run;
+  }
+
+  public finishBenchmarkRun(benchmarkRunId: string, input: FinishBenchmarkRunInput): BenchmarkRunRecord {
+    const endedAt = nowIso();
+    this.db
+      .prepare(
+        `UPDATE benchmark_runs
+         SET status = ?,
+             cost_json = ?,
+             tokens_json = ?,
+             wall_time_ms = ?,
+             pass_count = ?,
+             total_count = ?,
+             ended_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        input.status,
+        toJson(input.identity.cost),
+        toJson(input.identity.tokens),
+        input.identity.wallTimeMs,
+        input.identity.passCount,
+        input.identity.totalCount,
+        endedAt,
+        benchmarkRunId
+      );
+    const run = this.getBenchmarkRun(benchmarkRunId);
+    if (!run) throw new Error(`Benchmark run not found: ${benchmarkRunId}`);
+    return run;
+  }
+
+  public createBenchmarkTaskResult(input: CreateBenchmarkTaskResultInput): BenchmarkTaskResultRecord {
+    const id = createId('bench_result');
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO benchmark_task_results (
+          id, benchmark_run_id, task_id, suite_kind, mode, status, score, run_id,
+          isolation_passed, metrics_json, grader_report_json, agent_output_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.benchmarkRunId,
+        input.taskId,
+        input.suiteKind,
+        input.mode,
+        input.status,
+        input.score,
+        input.runId ?? null,
+        input.isolationPassed ? 1 : 0,
+        toJson(input.metrics),
+        toJson(input.graderReport),
+        toJson(input.agentOutput),
+        createdAt
+      );
+    const result = this.getBenchmarkTaskResult(id);
+    if (!result) throw new Error('Failed to create benchmark task result');
+    return result;
+  }
+
   public createApproval(input: CreateApprovalInput): ApprovalRecord {
     const id = createId('approval');
     const createdAt = nowIso();
@@ -994,6 +1142,18 @@ export class WorkspaceDatabase {
         costLabel: 'simulated $0.00'
       };
     });
+  }
+
+  public listBenchmarkRuns(limit = 12): BenchmarkRunRecord[] {
+    return rows(this.db.prepare('SELECT * FROM benchmark_runs ORDER BY created_at DESC LIMIT ?').all(limit)).map((row) => this.mapBenchmarkRun(row));
+  }
+
+  public listBenchmarkTaskResults(benchmarkRunId: string): BenchmarkTaskResultRecord[] {
+    return rows(
+      this.db
+        .prepare('SELECT * FROM benchmark_task_results WHERE benchmark_run_id = ? ORDER BY created_at ASC')
+        .all(benchmarkRunId)
+    ).map((row) => this.mapBenchmarkTaskResult(row));
   }
 
   public getRunDetail(runId: string): RunDetail {
@@ -1188,6 +1348,16 @@ export class WorkspaceDatabase {
   private getModelSession(modelSessionId: string): ModelSessionRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE id = ?').get(modelSessionId));
     return row ? this.mapModelSession(row) : null;
+  }
+
+  private getBenchmarkRun(benchmarkRunId: string): BenchmarkRunRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM benchmark_runs WHERE id = ?').get(benchmarkRunId));
+    return row ? this.mapBenchmarkRun(row) : null;
+  }
+
+  private getBenchmarkTaskResult(resultId: string): BenchmarkTaskResultRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM benchmark_task_results WHERE id = ?').get(resultId));
+    return row ? this.mapBenchmarkTaskResult(row) : null;
   }
 
   private mapScope(row: SqlRow): ProgramScopeVersion {
@@ -1414,6 +1584,65 @@ export class WorkspaceDatabase {
       metadata: parseJson(row.metadata_json),
       createdAt: text(row, 'created_at'),
       updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private mapBenchmarkRun(row: SqlRow): BenchmarkRunRecord {
+    const passCount = numberValue(row, 'pass_count');
+    const totalCount = numberValue(row, 'total_count');
+    const identity: BenchmarkHarnessIdentity = {
+      model: text(row, 'model'),
+      reasoningEffort: text(row, 'reasoning_effort'),
+      harnessName: text(row, 'harness_name'),
+      harnessVersion: text(row, 'harness_version'),
+      promptVersion: text(row, 'prompt_version'),
+      toolsetVersion: text(row, 'toolset_version'),
+      verifierVersion: text(row, 'verifier_version'),
+      sandboxBackend: text(row, 'sandbox_backend'),
+      sandboxImageVersion: text(row, 'sandbox_image_version'),
+      networkProfile: text(row, 'network_profile'),
+      attemptStrategy: text(row, 'attempt_strategy'),
+      attemptCount: numberValue(row, 'attempt_count'),
+      taskSubsetId: text(row, 'task_subset_id'),
+      taskIds: parseStringArray(row.task_ids_json),
+      benchmarkVersion: text(row, 'benchmark_version'),
+      date: text(row, 'started_at'),
+      cost: parseJson(row.cost_json),
+      tokens: parseJson(row.tokens_json),
+      wallTimeMs: numberValue(row, 'wall_time_ms'),
+      passCount,
+      totalCount,
+      passRate: totalCount > 0 ? passCount / totalCount : 0,
+      smallSampleWarning: totalCount > 0 && totalCount < 25 ? `Small sample: ${passCount}/${totalCount}` : null
+    };
+    return {
+      id: text(row, 'id'),
+      suiteKind: text(row, 'suite_kind') as BenchmarkSuiteKind,
+      suiteId: text(row, 'suite_id'),
+      status: text(row, 'status') as BenchmarkRunRecord['status'],
+      identity,
+      metadata: parseJson(row.metadata_json),
+      createdAt: text(row, 'created_at'),
+      startedAt: text(row, 'started_at'),
+      endedAt: nullableText(row, 'ended_at')
+    };
+  }
+
+  private mapBenchmarkTaskResult(row: SqlRow): BenchmarkTaskResultRecord {
+    return {
+      id: text(row, 'id'),
+      benchmarkRunId: text(row, 'benchmark_run_id'),
+      taskId: text(row, 'task_id'),
+      suiteKind: text(row, 'suite_kind') as BenchmarkSuiteKind,
+      mode: text(row, 'mode') as BenchmarkTaskMode,
+      status: text(row, 'status') as BenchmarkResultStatus,
+      score: numberValue(row, 'score'),
+      runId: nullableText(row, 'run_id'),
+      isolationPassed: booleanValue(row, 'isolation_passed'),
+      metrics: parseJson(row.metrics_json),
+      graderReport: parseJson(row.grader_report_json),
+      agentOutput: parseJson(row.agent_output_json),
+      createdAt: text(row, 'created_at')
     };
   }
 
@@ -1673,6 +1902,53 @@ CREATE TABLE IF NOT EXISTS exports (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+  id TEXT PRIMARY KEY,
+  suite_kind TEXT NOT NULL,
+  suite_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  model TEXT NOT NULL,
+  reasoning_effort TEXT NOT NULL,
+  harness_name TEXT NOT NULL,
+  harness_version TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  toolset_version TEXT NOT NULL,
+  verifier_version TEXT NOT NULL,
+  sandbox_backend TEXT NOT NULL,
+  sandbox_image_version TEXT NOT NULL,
+  network_profile TEXT NOT NULL,
+  attempt_strategy TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL,
+  task_subset_id TEXT NOT NULL,
+  task_ids_json TEXT NOT NULL,
+  benchmark_version TEXT NOT NULL,
+  cost_json TEXT NOT NULL,
+  tokens_json TEXT NOT NULL,
+  wall_time_ms INTEGER NOT NULL,
+  pass_count INTEGER NOT NULL,
+  total_count INTEGER NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS benchmark_task_results (
+  id TEXT PRIMARY KEY,
+  benchmark_run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL,
+  suite_kind TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  score REAL NOT NULL,
+  run_id TEXT REFERENCES runs(id),
+  isolation_passed INTEGER NOT NULL CHECK (isolation_passed IN (0, 1)),
+  metrics_json TEXT NOT NULL,
+  grader_report_json TEXT NOT NULL,
+  agent_output_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(entity_type, entity_id UNINDEXED, text);
 
 CREATE INDEX IF NOT EXISTS idx_scope_assets_kind_value ON scope_assets(kind, value);
@@ -1685,4 +1961,6 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);
 CREATE INDEX IF NOT EXISTS idx_hypotheses_run_state ON hypotheses(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_findings_run_state ON findings(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
+CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_model ON benchmark_runs(suite_kind, model, reasoning_effort, task_subset_id);
+CREATE INDEX IF NOT EXISTS idx_benchmark_task_results_run ON benchmark_task_results(benchmark_run_id);
 `;

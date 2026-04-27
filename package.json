@@ -9,6 +9,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:benchmark": "vitest run tests/benchmark-runner.test.ts",
+    "test:benchmark:live": "BEALE_BENCHMARK_LIVE_DOCKER=1 vitest run tests/benchmark-live.test.ts",
     "test:plan": "vitest run tests/plan-conformance.test.ts",
     "test:executor": "vitest run tests/executor-manager.test.ts",
     "test:firecracker": "vitest run tests/firecracker-vmctl.test.ts",

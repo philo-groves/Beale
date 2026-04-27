@@ -8,7 +8,9 @@ import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
+import { BenchmarkRunner } from './benchmarkRunner';
 import type {
+  BenchmarkRunInput,
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
@@ -23,17 +25,25 @@ import type {
 
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
 
+export interface WorkspaceServiceOptions {
+  benchmarkDockerCommand?: string;
+}
+
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private engine: FakeRunEngine | null = null;
   private openAiEngine: OpenAiRunEngine | null = null;
   private executorManager: ExecutorManager | null = null;
   private executorRunEngine: ExecutorRunEngine | null = null;
+  private benchmarkRunner: BenchmarkRunner | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
 
-  public constructor(private readonly onChange: () => void = () => undefined) {}
+  public constructor(
+    private readonly onChange: () => void = () => undefined,
+    private readonly options: WorkspaceServiceOptions = {}
+  ) {}
 
   public openWorkspace(path: string): WorkspaceSnapshot {
     return this.open(path, false);
@@ -52,7 +62,8 @@ export class WorkspaceService {
       openAi: this.openAiAuth.getStatus(),
       executor: this.requireExecutorManager().getStatus(),
       activeScope: this.db.getActiveScope(),
-      runs: this.db.listRunRows()
+      runs: this.db.listRunRows(),
+      benchmark: this.requireBenchmarkRunner().getOverview()
     };
   }
 
@@ -72,6 +83,12 @@ export class WorkspaceService {
       const engine = this.requireEngine();
       engine.startRun(input, mode);
     }
+    this.emitChange();
+    return this.requireSnapshot();
+  }
+
+  public async runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot> {
+    await this.requireBenchmarkRunner().runSuite(input);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -422,6 +439,7 @@ export class WorkspaceService {
     this.openAiEngine = null;
     this.executorManager = null;
     this.executorRunEngine = null;
+    this.benchmarkRunner = null;
     this.workspacePath = null;
     this.openedAt = null;
   }
@@ -452,6 +470,7 @@ export class WorkspaceService {
     this.executorManager = new ExecutorManager(this.db);
     this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, this.onChange);
     this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, this.onChange);
+    this.benchmarkRunner = new BenchmarkRunner(this.db, workspacePath, this.options.benchmarkDockerCommand);
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -489,6 +508,13 @@ export class WorkspaceService {
       throw new Error('No VM executor run engine is available');
     }
     return this.executorRunEngine;
+  }
+
+  private requireBenchmarkRunner(): BenchmarkRunner {
+    if (!this.benchmarkRunner) {
+      throw new Error('No benchmark runner is available');
+    }
+    return this.benchmarkRunner;
   }
 
   private requireSnapshot(): WorkspaceSnapshot {

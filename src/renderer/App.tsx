@@ -11,6 +11,7 @@ import {
   FileText,
   FolderOpen,
   FolderPlus,
+  Gauge,
   GitFork,
   GitMerge,
   Network,
@@ -28,6 +29,8 @@ import {
 } from 'lucide-react';
 import type {
   ArtifactRecord,
+  BenchmarkOverview,
+  BenchmarkSuiteKind,
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
@@ -181,12 +184,13 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workbench-header">
           <div>
-            <p className="eyebrow">Milestone 5</p>
-            <h2>Open-Ended Discovery Alpha</h2>
+            <p className="eyebrow">Milestone 6</p>
+            <h2>Benchmark and Calibration</h2>
           </div>
           <div className="header-stats">
             <Stat label="Runs" value={String(snapshot.runs.length)} />
             <Stat label="Scope Assets" value={String(snapshot.activeScope.assets.length)} />
+            <Stat label="Benchmarks" value={snapshot.benchmark.latestRun ? `${snapshot.benchmark.latestRun.identity.passCount}/${snapshot.benchmark.latestRun.identity.totalCount}` : 'None'} />
             <Stat label="OpenAI" value={snapshot.openAi.configured ? 'Ready' : 'Missing'} tone={snapshot.openAi.configured ? undefined : 'warning'} />
             <Stat label="Executor" value={snapshot.executor.available ? snapshot.executor.provider : 'Unavailable'} tone={snapshot.executor.available ? undefined : 'warning'} />
           </div>
@@ -196,6 +200,7 @@ export function App(): JSX.Element {
           <ScopeEditor snapshot={snapshot} busy={busy} runAction={runAction} />
           <section className="center-column">
             <StartRunForm snapshot={snapshot} busy={busy} runAction={runAction} onStarted={setSelectedRunId} />
+            <BenchmarkPanel benchmark={snapshot.benchmark} busy={busy} runAction={runAction} />
             <RunTracker runs={snapshot.runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
           </section>
           <RunDetailView detail={runDetail} busy={busy} runAction={runAction} />
@@ -480,6 +485,88 @@ function StartRunForm({
           <input type="number" min={1} value={input.budget.maxAttempts} onChange={(event) => updateBudget('maxAttempts', Number(event.target.value))} />
         </label>
       </div>
+    </section>
+  );
+}
+
+function BenchmarkPanel({
+  benchmark,
+  busy,
+  runAction
+}: {
+  benchmark: BenchmarkOverview;
+  busy: boolean;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+}): JSX.Element {
+  const [harnessName, setHarnessName] = useState('beale-benchmark-alpha');
+  const [dockerImage, setDockerImage] = useState('node:22-alpine');
+  const runSuite = (suiteKind: BenchmarkSuiteKind): void => {
+    void runAction(() =>
+      window.beale.runBenchmarkSuite({
+        suiteKind,
+        harnessName: harnessName.trim() || 'beale-benchmark-alpha',
+        dockerImage: dockerImage.trim() || 'node:22-alpine'
+      })
+    );
+  };
+  const latest = benchmark.latestRun;
+  const comparison = benchmark.comparisons[0] ?? null;
+
+  return (
+    <section className="panel benchmark-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Benchmark</p>
+          <h3>Calibration</h3>
+        </div>
+        <Gauge size={17} />
+      </div>
+      <div className="benchmark-controls">
+        <label>
+          Harness
+          <input value={harnessName} onChange={(event) => setHarnessName(event.target.value)} />
+        </label>
+        <label>
+          Docker image
+          <input value={dockerImage} onChange={(event) => setDockerImage(event.target.value)} />
+        </label>
+        <div className="benchmark-buttons">
+          {benchmark.suites.map((suite) => (
+            <button key={suite.suiteKind} type="button" disabled={busy} title={suite.title} onClick={() => runSuite(suite.suiteKind)}>
+              <CheckCircle2 size={14} />
+              {suite.suiteKind}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="benchmark-grid">
+        <div>
+          <span>Latest</span>
+          <strong>{latest ? `${latest.identity.passCount}/${latest.identity.totalCount}` : 'none'}</strong>
+        </div>
+        <div>
+          <span>Suite</span>
+          <strong>{latest?.suiteId ?? 'none'}</strong>
+        </div>
+        <div>
+          <span>Isolation</span>
+          <strong>{benchmark.isolationSummary.graderFilesMounted || benchmark.isolationSummary.groundTruthMounted ? 'blocked' : 'clean'}</strong>
+        </div>
+        <div>
+          <span>Compare</span>
+          <strong>{comparison ? `${formatPercent(comparison.passRateDelta)} delta` : 'pending'}</strong>
+        </div>
+      </div>
+      {benchmark.latestResults.length > 0 ? (
+        <div className="benchmark-results">
+          {benchmark.latestResults.slice(0, 5).map((result) => (
+            <div className={`benchmark-result state-${stateClass(result.status)}`} key={result.id}>
+              <span>{result.taskId}</span>
+              <strong>{result.status}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -985,6 +1072,11 @@ function factorFromText(value: string): number {
 
 function stateClass(state: string): string {
   return state.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+}
+
+function formatPercent(value: number): string {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${Math.round(value * 100)}%`;
 }
 
 function scopeToForm(scope: ProgramScopeVersion): ScopeFormState {

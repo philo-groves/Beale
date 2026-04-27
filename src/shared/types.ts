@@ -352,12 +352,135 @@ export interface RunDetail {
   policyEvents: ApprovalRecord[];
 }
 
+export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';
+
+export type BenchmarkTaskMode = 'discovery' | 'reproduction' | 'patch_validation' | 'variant_analysis' | 'benchmark' | 'safety';
+
+export type BenchmarkResultStatus = 'pass' | 'fail' | 'inconclusive';
+
+export interface BenchmarkSuiteSummary {
+  suiteKind: BenchmarkSuiteKind;
+  suiteId: string;
+  title: string;
+  taskCount: number;
+  benchmarkVersion: string;
+}
+
+export interface BenchmarkRunInput {
+  suiteKind: BenchmarkSuiteKind;
+  model?: string;
+  reasoningEffort?: string;
+  harnessName?: string;
+  harnessVersion?: string;
+  promptVersion?: string;
+  toolsetVersion?: string;
+  verifierVersion?: string;
+  sandboxBackend?: string;
+  sandboxImageVersion?: string;
+  attemptStrategy?: string;
+  attemptCount?: number;
+  failureTaskIds?: string[];
+  dockerImage?: string;
+}
+
+export interface BenchmarkHarnessIdentity {
+  model: string;
+  reasoningEffort: string;
+  harnessName: string;
+  harnessVersion: string;
+  promptVersion: string;
+  toolsetVersion: string;
+  verifierVersion: string;
+  sandboxBackend: string;
+  sandboxImageVersion: string;
+  networkProfile: string;
+  attemptStrategy: string;
+  attemptCount: number;
+  taskSubsetId: string;
+  taskIds: string[];
+  benchmarkVersion: string;
+  date: string;
+  cost: Record<string, unknown>;
+  tokens: Record<string, unknown>;
+  wallTimeMs: number;
+  passCount: number;
+  totalCount: number;
+  passRate: number;
+  smallSampleWarning: string | null;
+}
+
+export interface BenchmarkRunRecord {
+  id: string;
+  suiteKind: BenchmarkSuiteKind;
+  suiteId: string;
+  status: 'running' | 'completed' | 'failed';
+  identity: BenchmarkHarnessIdentity;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export interface BenchmarkTaskResultRecord {
+  id: string;
+  benchmarkRunId: string;
+  taskId: string;
+  suiteKind: BenchmarkSuiteKind;
+  mode: BenchmarkTaskMode;
+  status: BenchmarkResultStatus;
+  score: number;
+  runId: string | null;
+  isolationPassed: boolean;
+  metrics: Record<string, unknown>;
+  graderReport: Record<string, unknown>;
+  agentOutput: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface BenchmarkComparison {
+  baselineRunId: string;
+  candidateRunId: string;
+  suiteKind: BenchmarkSuiteKind;
+  taskSubsetId: string;
+  model: string;
+  reasoningEffort: string;
+  baselineHarness: string;
+  candidateHarness: string;
+  baselinePassRate: number;
+  candidatePassRate: number;
+  passRateDelta: number;
+  baselinePassCount: number;
+  candidatePassCount: number;
+  totalCount: number;
+  wallTimeDeltaMs: number;
+  costDeltaUsd: number;
+  compatible: boolean;
+  warning: string | null;
+}
+
+export interface BenchmarkOverview {
+  suites: BenchmarkSuiteSummary[];
+  latestRun: BenchmarkRunRecord | null;
+  latestResults: BenchmarkTaskResultRecord[];
+  recentRuns: BenchmarkRunRecord[];
+  comparisons: BenchmarkComparison[];
+  isolationSummary: {
+    dockerizedAgentHarness: boolean;
+    hostSideModelProxy: boolean;
+    hostSideGrader: boolean;
+    graderFilesMounted: boolean;
+    groundTruthMounted: boolean;
+    normalVmArchitectureChanged: boolean;
+  };
+}
+
 export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
   activeScope: ProgramScopeVersion;
   runs: RunRow[];
+  benchmark: BenchmarkOverview;
 }
 
 export type WorkspacePickerMode = 'open' | 'create';
@@ -401,6 +524,7 @@ export interface BealeApi {
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
+  runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot) => void): () => void;
