@@ -403,7 +403,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   gap: 8px;
   min-width: 0;
-  padding-top: 12px;
+  padding-top: 0;
 }
 
 .workspace-meta {
@@ -668,6 +668,36 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-color: transparent;
   background: var(--panel);
   color: var(--muted-strong);
+}
+
+.program-session-empty,
+.program-session-more {
+  min-height: 24px;
+  justify-content: flex-start;
+  color: var(--muted);
+  font-size: 1rem;
+  font-style: italic;
+  padding: 4px 6px;
+}
+
+.program-session-empty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.program-session-more {
+  width: auto;
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.program-session-more:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: #c8c8c8;
 }
 
 .program-session-title {
@@ -1539,6 +1569,51 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .program-info-block {
   grid-column: 1 / -1;
+}
+
+.session-history-list {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.session-history-item {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  border-color: transparent;
+  background: transparent;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.session-history-item:hover:not(:disabled),
+.session-history-item.active {
+  border-color: transparent;
+  background: var(--panel);
+}
+
+.session-history-title {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted-strong);
+  text-overflow: ellipsis;
+}
+
+.session-history-meta,
+.session-history-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.session-history-empty {
+  padding: 8px 10px;
+  font-style: italic;
+  text-transform: none;
 }
 
 .settings-layout {

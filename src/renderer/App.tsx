@@ -229,6 +229,8 @@ const defaultRunInput: StartRunInput = {
   fakeScenario: 'adaptive_portfolio'
 };
 
+const SIDEBAR_SESSION_LIMIT = 4;
+
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
@@ -240,6 +242,7 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [programInfo, setProgramInfo] = useState<ProgramRegistryEntry | null>(null);
+  const [sessionHistoryProgramId, setSessionHistoryProgramId] = useState<string | null>(null);
   const [openProgramMenuId, setOpenProgramMenuId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
@@ -395,7 +398,10 @@ export function App(): JSX.Element {
     if (programInfo && !programRegistry.programs.some((program) => program.id === programInfo.id)) {
       setProgramInfo(null);
     }
-  }, [openProgramMenuId, programInfo, programRegistry]);
+    if (sessionHistoryProgramId && !programRegistry.programs.some((program) => program.id === sessionHistoryProgramId)) {
+      setSessionHistoryProgramId(null);
+    }
+  }, [openProgramMenuId, programInfo, programRegistry, sessionHistoryProgramId]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -591,6 +597,9 @@ export function App(): JSX.Element {
     .join(' ');
   const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
   const selectedTraceEvent = activeRunDetail?.traceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
+  const sessionHistoryProgram =
+    sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
+  const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -629,6 +638,7 @@ export function App(): JSX.Element {
             const active = snapshot?.workspace.workspacePath === program.workspacePath;
             const menuOpen = openProgramMenuId === program.id;
             const sessions = programRegistry ? researchSessionsForProgram(programRegistry, program) : [];
+            const visibleSessions = sessions.slice(0, SIDEBAR_SESSION_LIMIT);
             return (
               <div className="program-group" key={program.id}>
                 <div className={`program-item-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-program-menu-root>
@@ -667,9 +677,9 @@ export function App(): JSX.Element {
                     </div>
                   ) : null}
                 </div>
-                {sessions.length > 0 ? (
-                  <div className="program-session-list">
-                    {sessions.map((session) => (
+                <div className="program-session-list">
+                  {visibleSessions.length > 0 ? (
+                    visibleSessions.map((session) => (
                       <button
                         type="button"
                         className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
@@ -680,9 +690,16 @@ export function App(): JSX.Element {
                         <span className="program-session-title">{promptSessionTitle(session)}</span>
                         <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
                       </button>
-                    ))}
-                  </div>
-                ) : null}
+                    ))
+                  ) : (
+                    <span className="program-session-empty">No Session Yet...</span>
+                  )}
+                  {sessions.length > SIDEBAR_SESSION_LIMIT ? (
+                    <button type="button" className="program-session-more" onClick={() => setSessionHistoryProgramId(program.id)}>
+                      More Sessions...
+                    </button>
+                  ) : null}
+                </div>
               </div>
             );
           })}
@@ -788,6 +805,18 @@ export function App(): JSX.Element {
         />
       ) : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
+      {sessionHistoryProgram ? (
+        <ProgramSessionHistoryModal
+          program={sessionHistoryProgram}
+          sessions={sessionHistorySessions}
+          selectedRunId={selectedRunId}
+          onClose={() => setSessionHistoryProgramId(null)}
+          onOpenSession={(session) => {
+            openResearchSession(sessionHistoryProgram, session);
+            setSessionHistoryProgramId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1612,6 +1641,44 @@ function ProgramInformationModal({ program, onClose }: { program: ProgramRegistr
           <span>Scope and Rules</span>
           <p>{program.rulesMarkdown || 'No scope or rules recorded.'}</p>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ProgramSessionHistoryModal({
+  program,
+  sessions,
+  selectedRunId,
+  onClose,
+  onOpenSession
+}: {
+  program: ProgramRegistryEntry;
+  sessions: ResearchSessionSummary[];
+  selectedRunId: string | null;
+  onClose: () => void;
+  onOpenSession: (session: ResearchSessionSummary) => void;
+}): JSX.Element {
+  return (
+    <Modal title={`${program.programName} Sessions`} wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+      <div className="session-history-list">
+        {sessions.length > 0 ? (
+          sessions.map((session) => (
+            <button
+              type="button"
+              className={`session-history-item ${selectedRunId === session.runId ? 'active' : ''}`}
+              key={session.id}
+              onClick={() => onOpenSession(session)}
+            >
+              <span className="session-history-title">{promptSessionTitle(session)}</span>
+              <span className="session-history-meta">
+                {session.status} · Updated {shortRelativeAge(session.updatedAt)}
+              </span>
+            </button>
+          ))
+        ) : (
+          <span className="session-history-empty">No Session Yet...</span>
+        )}
       </div>
     </Modal>
   );
