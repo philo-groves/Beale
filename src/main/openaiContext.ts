@@ -26,6 +26,7 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     `Network profile: ${input.networkProfile}`,
     `Sandbox profile: ${input.sandboxProfile}`,
     `Mode: ${input.mode}`,
+    modeGuidance(input.mode),
     `Attempt strategy: ${input.attemptStrategy}`,
     'In scope:',
     inScope || 'No scoped assets recorded yet.',
@@ -34,6 +35,31 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     'Program rules:',
     scope.rulesMarkdown ? redactForModelText(scope.rulesMarkdown) : 'No additional rules recorded.'
   ].join('\n\n');
+}
+
+function modeGuidance(mode: string): string {
+  if (mode === 'dynamic') {
+    return [
+      'Mode guidance:',
+      'Dynamic mode means you may transition between open discovery, targeted reproduction, patch validation, and variant analysis as the evidence changes.',
+      'Start from the user prompt and program scope, then choose the next most useful research posture explicitly in your plan.',
+      'Record mode transitions in trace-visible reasoning summaries when they affect tool choice, evidence goals, or verifier strategy.',
+      'Do not stay in broad discovery after a concrete lead appears; switch to reproduction, verification, or variant analysis when that better advances vulnerability research.'
+    ].join('\n');
+  }
+  if (mode === 'open_discovery') {
+    return 'Mode guidance: Map attack surface, form hypotheses, and collect initial tool-backed evidence before narrowing.';
+  }
+  if (mode === 'targeted_reproduction') {
+    return 'Mode guidance: Focus on reproducing a suspected issue or claim with concrete tool, artifact, and verifier-backed evidence.';
+  }
+  if (mode === 'patch_validation') {
+    return 'Mode guidance: Evaluate whether a known fix or mitigation works, then look for bypasses and regressions.';
+  }
+  if (mode === 'variant_analysis') {
+    return 'Mode guidance: Search related code paths, assets, inputs, and sibling components for variants of a known bug class or finding.';
+  }
+  return 'Mode guidance: Follow the user prompt while preserving Beale evidence, scope, and verifier requirements.';
 }
 
 export function buildInitialOpenAiInput(input: StartRunInput): ResponseInputMessage[] {

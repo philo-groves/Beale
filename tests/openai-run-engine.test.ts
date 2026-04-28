@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
-import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput } from '../src/main/openaiContext';
+import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions } from '../src/main/openaiContext';
 import { OpenAiResponsesAdapter, parseSseEvent, parseSseStream, type FetchLike, type WebSocketConstructorLike, type WebSocketLike } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { OpenAiRunEngine } from '../src/main/openaiRunEngine';
@@ -198,6 +198,16 @@ describe('OpenAI Responses run engine', () => {
     expect(replayText).toContain('token=...redacted');
     expect(replayText).toContain('"access_token":"...redacted"');
     expect(replayText).not.toContain('secret-password');
+    db.close();
+  });
+
+  it('gives dynamic mode transition guidance to the model', () => {
+    const { db } = openDb();
+    const instructions = buildOpenAiInstructions(db.getActiveScope(), { ...openAiInput(), mode: 'dynamic' });
+
+    expect(instructions).toContain('Mode: dynamic');
+    expect(instructions).toContain('may transition between open discovery, targeted reproduction, patch validation, and variant analysis');
+    expect(instructions).toContain('Do not stay in broad discovery after a concrete lead appears');
     db.close();
   });
 

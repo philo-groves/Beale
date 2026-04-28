@@ -43,6 +43,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -55,7 +56,6 @@ import type {
   BenchmarkSuiteKind,
   ExportRecord,
   ExecutorStatus,
-  FakeScenario,
   FindingRecord,
   HypothesisRecord,
   HostEnvironment,
@@ -109,6 +109,7 @@ interface ProgramOnboardingFormState {
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 type SettingsSection = 'general' | 'providers';
 
+const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 
@@ -175,16 +176,16 @@ const MSRC_SCOPE_AND_RULES = [
 ].join('\n');
 
 const defaultRunInput: StartRunInput = {
-  runEngine: 'fake',
-  promptMarkdown: '# Open discovery\nMap the scoped target, identify promising attack surfaces, and collect verifier-backed evidence where possible.',
-  mode: 'open_discovery',
+  runEngine: 'openai_responses',
+  promptMarkdown: '',
+  mode: 'dynamic',
   attemptStrategy: 'adaptive_portfolio',
   model: 'gpt-5.5',
   reasoningEffort: 'xhigh',
   networkProfile: 'offline',
   sandboxProfile: 'local_disposable_vm',
   budget: {
-    maxMinutes: 180,
+    maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: UNBOUNDED_ATTEMPTS,
     maxCostUsd: 0
   },
@@ -488,9 +489,9 @@ export function App(): JSX.Element {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
-        <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
+        <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
           <Play size={15} />
-          <span>New Research</span>
+          <span>New Research Session</span>
         </button>
         <div className="sidebar-quick-actions">
           <button type="button" className="sidebar-utility-button" title="Search">
@@ -504,8 +505,8 @@ export function App(): JSX.Element {
         </div>
         <div className="sidebar-section program-list">
           <div className="section-row">
-            <div className="meta-label">Programs</div>
-            <button type="button" title="Add program" disabled={busy} onClick={addProgram}>
+            <div className="meta-label">Research Programs</div>
+            <button type="button" title="Add research program" disabled={busy} onClick={addProgram}>
               <FolderPlus size={15} />
             </button>
           </div>
@@ -665,7 +666,7 @@ function firstPromptSentence(promptMarkdown: string): string {
     .map((line) => line.replace(/^#{1,6}\s+/, '').replace(/^[*\-\d.]+\s+/, '').trim())
     .filter(Boolean);
   const text = lines.join(' ').replace(/\s+/g, ' ').trim();
-  const match = /^(.+?[.!?])(?:\s|$)/.exec(text);
+  const match = text.match(/^(.+?[.!?])(?:\s|$)/);
   return (match?.[1] ?? text).trim();
 }
 
@@ -1418,6 +1419,7 @@ function StartRunForm({
     ...defaultRunInput,
     networkProfile: snapshot.activeScope.networkProfile
   }));
+  const [generatingPrompt, setGeneratingPrompt] = useState(false);
 
   useEffect(() => {
     setInput((current) => ({ ...current, networkProfile: snapshot.activeScope.networkProfile }));
@@ -1430,9 +1432,11 @@ function StartRunForm({
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
     setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
   };
+  const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
   const attemptLimitValue = input.budget.maxAttempts >= UNBOUNDED_ATTEMPTS ? '' : String(input.budget.maxAttempts);
   const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
   const canStart = input.promptMarkdown.trim().length > 0 && !openAiBlocked;
+  const showGeneratePrompt = input.promptMarkdown.length === 0;
 
   const start = (): void => {
     void runAction(async () => {
@@ -1443,13 +1447,27 @@ function StartRunForm({
     });
   };
 
+  const generatePrompt = (): void => {
+    setGeneratingPrompt(true);
+    void runAction(async () => {
+      const generated = await window.beale.generateResearchPrompt();
+      setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
+    }).finally(() => setGeneratingPrompt(false));
+  };
+
   return (
     <Modal
-      title="New Research"
+      title="New Research Session"
       wide
       onClose={onCancel}
       footer={
         <>
+          {showGeneratePrompt ? (
+            <button type="button" className="modal-footer-leading generate-prompt-button" disabled={busy || generatingPrompt} onClick={generatePrompt}>
+              <Sparkles size={16} />
+              {generatingPrompt ? 'Generating...' : 'Generate'}
+            </button>
+          ) : null}
           <button type="button" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
@@ -1467,23 +1485,30 @@ function StartRunForm({
             {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
           </div>
         ) : null}
-        <textarea className="prompt-box" rows={6} value={input.promptMarkdown} onChange={(event) => update('promptMarkdown', event.target.value)} />
+        <textarea
+          className="prompt-box"
+          rows={6}
+          placeholder="Enter a prompt or press Generate."
+          value={input.promptMarkdown}
+          onChange={(event) => update('promptMarkdown', event.target.value)}
+        />
         <div className="start-grid">
-          <label>
-            Engine
-            <select value={input.runEngine} onChange={(event) => update('runEngine', event.target.value as StartRunInput['runEngine'])}>
-              <option value="fake">fake</option>
-              <option value="openai_responses">openai_responses</option>
-              <option value="executor_alpha">executor_alpha</option>
-            </select>
-          </label>
           <label>
             Mode
             <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
-              <option value="open_discovery">open_discovery</option>
-              <option value="targeted_reproduction">targeted_reproduction</option>
-              <option value="patch_validation">patch_validation</option>
-              <option value="variant_analysis">variant_analysis</option>
+              <option value="dynamic">Dynamic</option>
+              <option value="open_discovery">Open Discovery</option>
+              <option value="targeted_reproduction">Targeted Reproduction</option>
+              <option value="patch_validation">Patch Validation</option>
+              <option value="variant_analysis">Variant Analysis</option>
+            </select>
+          </label>
+          <label>
+            Strategy
+            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
+              <option value="adaptive_portfolio">Adaptive Portfolio</option>
+              <option value="single_path">Single Path</option>
+              <option value="reproduction_first">Reproduction First</option>
             </select>
           </label>
           <label>
@@ -1491,18 +1516,24 @@ function StartRunForm({
             <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
               {NETWORK_PROFILE_OPTIONS.map((profile) => (
                 <option value={profile} key={profile}>
-                  {profile}
+                  {networkProfileLabel(profile)}
                 </option>
               ))}
             </select>
           </label>
         </div>
         <details className="advanced-run-options">
-          <summary>Run settings</summary>
+          <summary>Session Settings</summary>
           <div className="form-grid">
             <label>
               Minutes
-              <input type="number" min={1} value={input.budget.maxMinutes} onChange={(event) => updateBudget('maxMinutes', Number(event.target.value))} />
+              <input
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                value={minuteLimitValue}
+                onChange={(event) => updateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
+              />
             </label>
             <label>
               Attempts
@@ -1511,30 +1542,8 @@ function StartRunForm({
                 min={1}
                 placeholder="Unlimited"
                 value={attemptLimitValue}
-                onChange={(event) => {
-                  const rawValue = event.target.value.trim();
-                  const nextAttempts = rawValue ? Math.max(1, Math.floor(Number(rawValue))) : UNBOUNDED_ATTEMPTS;
-                  updateBudget('maxAttempts', Number.isFinite(nextAttempts) ? nextAttempts : UNBOUNDED_ATTEMPTS);
-                }}
+                onChange={(event) => updateBudget('maxAttempts', optionalPositiveInteger(event.target.value, UNBOUNDED_ATTEMPTS))}
               />
-            </label>
-            <label>
-              Strategy
-              <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-                <option value="adaptive_portfolio">adaptive_portfolio</option>
-                <option value="single_path">single_path</option>
-                <option value="reproduction_first">reproduction_first</option>
-              </select>
-            </label>
-            <label>
-              Fake scenario
-              <select value={input.fakeScenario} onChange={(event) => update('fakeScenario', event.target.value as FakeScenario)}>
-                <option value="adaptive_portfolio">adaptive_portfolio</option>
-                <option value="source_logic_bug">source_logic_bug</option>
-                <option value="memory_corruption">memory_corruption</option>
-                <option value="policy_block">policy_block</option>
-                <option value="verified_finding">verified_finding</option>
-              </select>
             </label>
             <label>
               Model
@@ -1858,7 +1867,7 @@ function RunDetailView({
               type: 'update_run_budget',
               runId: detail.run.id,
               budgetPatch: {
-                maxMinutes: budgetNumber(detail.run.budget.maxMinutes, 180) + 30,
+                maxMinutes: extendBudgetLimit(detail.run.budget.maxMinutes, UNBOUNDED_MINUTES, 30),
                 maxAttempts: budgetNumber(detail.run.budget.maxAttempts, UNBOUNDED_ATTEMPTS)
               }
             })
@@ -2564,6 +2573,25 @@ function factorFromText(value: string): number {
 
 function budgetNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function optionalPositiveInteger(rawValue: string, fallback: number): number {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return fallback;
+  const value = Math.floor(Number(trimmed));
+  return Number.isFinite(value) ? Math.max(1, value) : fallback;
+}
+
+function extendBudgetLimit(value: unknown, unboundedValue: number, step: number): number {
+  const current = budgetNumber(value, unboundedValue);
+  return current >= unboundedValue ? unboundedValue : current + step;
+}
+
+function networkProfileLabel(profile: string): string {
+  if (profile === 'offline') return 'Offline';
+  if (profile === 'scoped') return 'Scoped';
+  if (profile === 'elevated') return 'Elevated';
+  return profile;
 }
 
 function stateClass(state: string): string {

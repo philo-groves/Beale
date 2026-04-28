@@ -375,6 +375,54 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('generates a recommended research prompt from program scope and prior research', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
+    const modelRequests: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        modelRequests.push(request);
+        const serialized = JSON.stringify(request);
+        expect(request.model).toBe('gpt-5.5');
+        expect(request.tools).toEqual([]);
+        expect(request.reasoning).toEqual({ effort: 'medium' });
+        expect(serialized).toContain('Kernel Audit Program');
+        expect(serialized).toContain('/src/kernel');
+        expect(serialized).toContain('previousResearch');
+        expect(serialized).toContain('likelyUnderexploredInScopeAssets');
+        expect(serialized).toContain('chain existing findings');
+        return new Response(
+          sse(
+            event('response.output_text.done', {
+              type: 'response.output_text.done',
+              text: JSON.stringify({
+                promptMarkdown: '# Kernel parser audit\nFocus on the least explored kernel parser surface and collect verifier-backed evidence.'
+              })
+            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_prompt_generation' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        );
+      }
+    });
+
+    service.createWorkspace(tempWorkspace());
+    service.saveProgramScope({
+      programName: 'Kernel Audit Program',
+      organizationName: 'Kernel Org',
+      descriptionMarkdown: 'Authorized source and binary review for kernel-adjacent parsing components.',
+      rulesMarkdown: 'Only test local fixtures and scoped repositories.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'repo', '/src/kernel'), asset('in_scope', 'binary', '/bin/parserd'), asset('out_of_scope', 'domain', 'prod.example.test')]
+    });
+    startRunForTest(service, runInput('verified_finding'));
+
+    const result = await service.generateResearchPrompt();
+    expect(result.promptMarkdown).toBe('# Kernel parser audit\nFocus on the least explored kernel parser surface and collect verifier-backed evidence.');
+    expect(modelRequests).toHaveLength(1);
+    service.close();
+  });
+
   it('upgrades an older migration marker into the current workspace schema', () => {
     const dir = tempWorkspace();
     mkdirSync(join(dir, '.beale', 'artifacts', 'sha256'), { recursive: true });

@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   BenchmarkRunInput,
+  GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneProgramLookupResult,
   ProgramOnboardingInput,
@@ -56,6 +57,9 @@ const api: BealeApi = {
   },
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
+  },
+  generateResearchPrompt(): Promise<GeneratedResearchPrompt> {
+    return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt);
   },
   saveProgramScope(scope: ProgramScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);

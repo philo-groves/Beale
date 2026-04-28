@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   getOpenAiStatus: 'beale:get-openai-status',
   startOpenAiOAuth: 'beale:start-openai-oauth',
   refreshOpenAiStatus: 'beale:refresh-openai-status',
+  generateResearchPrompt: 'beale:generate-research-prompt',
   saveProgramScope: 'beale:save-program-scope',
   startRun: 'beale:start-run',
   runBenchmarkSuite: 'beale:run-benchmark-suite',

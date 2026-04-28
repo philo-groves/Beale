@@ -313,7 +313,15 @@ code {
   min-height: 26px;
   border-radius: 5px;
   border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
   padding: 0 8px;
+}
+
+.top-actions button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
 }
 
 .top-actions button[title="Export"],
@@ -454,7 +462,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   height: 28px;
   min-height: 28px;
   border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
   padding: 0;
+}
+
+.section-row button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
 }
 
 .sidebar-new-research {
@@ -541,7 +557,14 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .program-item-row.active .program-item,
 .program-item.active {
   border-color: transparent;
-  background: #202020;
+  background: transparent;
+  color: #c8c8c8;
+}
+
+.program-item-row.active .program-item:hover:not(:disabled),
+.program-item.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
   color: var(--text);
 }
 
@@ -629,16 +652,21 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
   border-color: transparent;
   background: transparent;
-  color: var(--muted);
+  color: #a8a8a8;
   padding: 4px 6px;
-  font-size: 0.78rem;
+  font-size: 1rem;
   text-align: left;
 }
 
-.program-session-item:hover:not(:disabled),
-.program-session-item.active {
+.program-session-item:hover:not(:disabled) {
   border-color: transparent;
   background: #181818;
+  color: #c8c8c8;
+}
+
+.program-session-item.active {
+  border-color: transparent;
+  background: var(--panel);
   color: var(--muted-strong);
 }
 
@@ -908,6 +936,22 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .modal-footer {
   justify-content: flex-end;
   background: #0b0b0b;
+}
+
+.modal-footer-leading {
+  margin-right: auto;
+}
+
+.generate-prompt-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
+}
+
+.generate-prompt-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
 }
 
 .modal-form {

@@ -318,6 +318,10 @@ export interface StartRunInput {
   fakeScenario: FakeScenario;
 }
 
+export interface GeneratedResearchPrompt {
+  promptMarkdown: string;
+}
+
 export interface RunRecord {
   id: string;
   scopeVersionId: string;
@@ -747,6 +751,7 @@ export interface BealeApi {
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
+  generateResearchPrompt(): Promise<GeneratedResearchPrompt>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
