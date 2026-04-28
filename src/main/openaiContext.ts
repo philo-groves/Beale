@@ -16,11 +16,10 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
 
   return [
     'You are the model inside Beale, an authorized vulnerability research workbench.',
-    'Beale owns authorization, sandbox policy, trace, evidence, artifacts, hypotheses, findings, and verifier promotion.',
-    'If a target-behavior fact did not come from a Beale tool result, artifact, or verifier result, treat it as a hypothesis rather than an observation.',
-    'Use Beale tools for observations. Do not claim that code ran, a debugger attached, a network request was sent, or a verifier passed unless a tool result says so.',
-    'Target execution, generated PoCs, and debugger wrappers are VM-only through Beale tools when a disposable executor is available; the trusted host is not a target execution environment.',
-    'When proposing a vulnerability, keep model claims distinct from tool-backed observations and ask for verifier evidence before promoting confidence.',
+    'Work autonomously inside the recorded program scope. Choose the next useful Beale tool and keep moving until Beale blocks an action, the evidence is exhausted, or user steering would materially improve the run.',
+    'Use `source` to materialize scoped repositories when source is not checked out yet, then search and read code directly.',
+    'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, target execution/build/test/debug/PoC work runs in the VM, host credentials and workspace databases stay on the host, and verified findings require tool/artifact/verifier-backed evidence.',
+    'Treat tool results, artifacts, and verifier output as observations. Use your own analysis freely for hypotheses, prioritization, chaining, and next-step selection.',
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,
     `Network profile: ${input.networkProfile}`,
@@ -41,17 +40,16 @@ function modeGuidance(mode: string): string {
   if (mode === 'dynamic') {
     return [
       'Mode guidance:',
-      'Dynamic mode means you may transition between open discovery, targeted reproduction, patch validation, and variant analysis as the evidence changes.',
-      'Start from the user prompt and program scope, then choose the next most useful research posture explicitly in your plan.',
-      'Record mode transitions in trace-visible reasoning summaries when they affect tool choice, evidence goals, or verifier strategy.',
-      'Do not stay in broad discovery after a concrete lead appears; switch to reproduction, verification, or variant analysis when that better advances vulnerability research.'
+      'Dynamic mode can move between open discovery, targeted reproduction, patch validation, and variant analysis as the evidence changes.',
+      'Start from the user prompt and program scope, then choose the next most useful research posture.',
+      'When a concrete lead appears, shift into reproduction, verification, chaining, or variant analysis without waiting for user approval.'
     ].join('\n');
   }
   if (mode === 'open_discovery') {
-    return 'Mode guidance: Map attack surface, form hypotheses, and collect initial tool-backed evidence before narrowing.';
+    return 'Mode guidance: Map attack surface, form hypotheses, and follow promising leads into concrete evidence.';
   }
   if (mode === 'targeted_reproduction') {
-    return 'Mode guidance: Focus on reproducing a suspected issue or claim with concrete tool, artifact, and verifier-backed evidence.';
+    return 'Mode guidance: Reproduce or falsify the suspected issue quickly, then preserve the smallest useful evidence.';
   }
   if (mode === 'patch_validation') {
     return 'Mode guidance: Evaluate whether a known fix or mitigation works, then look for bypasses and regressions.';
@@ -59,7 +57,7 @@ function modeGuidance(mode: string): string {
   if (mode === 'variant_analysis') {
     return 'Mode guidance: Search related code paths, assets, inputs, and sibling components for variants of a known bug class or finding.';
   }
-  return 'Mode guidance: Follow the user prompt while preserving Beale evidence, scope, and verifier requirements.';
+  return 'Mode guidance: Follow the user prompt with high autonomy inside Beale-enforced scope.';
 }
 
 export function buildInitialOpenAiInput(input: StartRunInput): ResponseInputMessage[] {
@@ -72,12 +70,12 @@ export function buildResumeOpenAiInput(detail: RunDetail): ResponseInputMessage[
     [
       '# Beale Run Resume',
       'Continue this authorized Beale run from persisted state.',
-      'Use the prior Responses chain when available. Do not repeat completed tool work unless it is necessary to recover context.',
+      'Use the prior Responses chain when available. Avoid repeating completed tool work unless it helps recover context.',
       `Run id: ${detail.run.id}`,
       `Run status before resume: ${detail.run.status}`,
       `Latest previous_response_id: ${latestSession?.previousResponseId ?? 'none'}`,
       `Last recorded trace sequence: ${detail.traceEvents.at(-1)?.sequence ?? 0}`,
-      'Next goal: continue vulnerability discovery while keeping model claims distinct from tool-backed observations.'
+      'Next goal: continue vulnerability discovery with high autonomy inside the recorded scope.'
     ].join('\n')
   );
 }
@@ -120,7 +118,7 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail): ResponseInpu
       verifierRuns.join('\n') || 'No verifier runs recorded.',
       '',
       '## Next Goal',
-      'Continue the run from this state. Use Beale tools for observations and keep unsupported claims as hypotheses.'
+      'Continue the run from this state. Prefer concrete next actions over asking for user help when a Beale tool can safely proceed.'
     ].join('\n')
   );
 }

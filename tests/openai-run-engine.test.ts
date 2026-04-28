@@ -202,13 +202,16 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
-  it('gives dynamic mode transition guidance to the model', () => {
+  it('gives autonomy-forward dynamic mode transition guidance to the model', () => {
     const { db } = openDb();
     const instructions = buildOpenAiInstructions(db.getActiveScope(), { ...openAiInput(), mode: 'dynamic' });
 
     expect(instructions).toContain('Mode: dynamic');
-    expect(instructions).toContain('may transition between open discovery, targeted reproduction, patch validation, and variant analysis');
-    expect(instructions).toContain('Do not stay in broad discovery after a concrete lead appears');
+    expect(instructions).toContain('Work autonomously inside the recorded program scope');
+    expect(instructions).toContain('Dynamic mode can move between open discovery, targeted reproduction, patch validation, and variant analysis');
+    expect(instructions).toContain('shift into reproduction, verification, chaining, or variant analysis without waiting for user approval');
+    expect(instructions).not.toContain('Do not stay in broad discovery');
+    expect(instructions).not.toContain('Do not claim');
     db.close();
   });
 

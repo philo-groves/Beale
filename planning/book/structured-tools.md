@@ -27,6 +27,8 @@ Tool bloat causes inefficiency. It increases prompt/tool-selection overhead, mak
 
 The v1 tool set should cover Beale's first-release scope without exposing every possible analysis tool directly to the model.
 
+The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, host/guest isolation, credential boundaries, workspace database exposure, and verified-finding promotion.
+
 The operating rule:
 
 - `source` materializes scoped repositories into the workspace.
