@@ -45,6 +45,8 @@ interface GuestToolResult {
   result: GuestExecuteResult;
   artifactId: string | null;
   importedHostPath: string | null;
+  requestedNetworkProfile: 'offline' | 'scoped' | 'elevated';
+  networkProfile: 'offline' | 'scoped' | 'elevated';
 }
 
 interface DebuggerSummary {
@@ -422,6 +424,7 @@ export class BealeToolRouter {
     }
 
     const artifactPath = stringValue(args.artifact_path, '').trim();
+    const networkProfile = guestToolNetworkProfile(context);
     const execution = this.executeInDisposableGuest(context, {
       operationKind: 'python',
       command: ['python3', '-c', script],
@@ -430,7 +433,7 @@ export class BealeToolRouter {
         BEALE_TARGET_PATH: '/workspace/target'
       },
       timeoutMs: 30_000,
-      networkProfile: localAnalysisNetworkProfile(),
+      networkProfile,
       expectedOutput: artifactPath ? 'artifact' : 'summary'
     }, artifactPath || null);
 
@@ -454,7 +457,8 @@ export class BealeToolRouter {
         candidateArtifactCount: execution.result.candidateArtifacts.length,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
-        networkProfile: localAnalysisNetworkProfile(),
+        requestedNetworkProfile: execution.requestedNetworkProfile,
+        networkProfile: execution.networkProfile,
         runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
       }
     };
@@ -501,6 +505,7 @@ export class BealeToolRouter {
       'exit "$status"'
     ].join('\n');
 
+    const networkProfile = guestToolNetworkProfile(context);
     const execution = this.executeInDisposableGuest(context, {
       operationKind: 'shell',
       command: ['sh', '-lc', shellCommand],
@@ -512,7 +517,7 @@ export class BealeToolRouter {
         BEALE_DEBUGGER_TRANSCRIPT: transcriptPath
       },
       timeoutMs: 30_000,
-      networkProfile: localAnalysisNetworkProfile(),
+      networkProfile,
       expectedOutput: 'summary'
     }, transcriptPath);
 
@@ -539,7 +544,8 @@ export class BealeToolRouter {
         debugger: debuggerSummary,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
-        networkProfile: localAnalysisNetworkProfile(),
+        requestedNetworkProfile: execution.requestedNetworkProfile,
+        networkProfile: execution.networkProfile,
         runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
       }
     };
@@ -723,6 +729,8 @@ export class BealeToolRouter {
     }
 
     const importSpec = this.firstScopedImport();
+    const requestedNetworkProfile = request.networkProfile;
+    const networkProfile = this.executor.resolveNetworkProfile(requestedNetworkProfile);
     let contextCreated = false;
     try {
       this.executor.createContext(context, 'beale-default-toolchain', 'clean', request.networkProfile);
@@ -752,7 +760,9 @@ export class BealeToolRouter {
       return {
         result,
         artifactId,
-        importedHostPath: importSpec?.hostPath ?? null
+        importedHostPath: importSpec?.hostPath ?? null,
+        requestedNetworkProfile,
+        networkProfile
       };
     } finally {
       if (contextCreated) {
@@ -1068,8 +1078,8 @@ function trimSnippet(value: string): string {
   return value.trim().replace(/\s+/g, ' ').slice(0, 240);
 }
 
-function localAnalysisNetworkProfile(): 'offline' {
-  return 'offline';
+function guestToolNetworkProfile(context: CreatedRunContext): 'offline' | 'scoped' | 'elevated' {
+  return normalizeNetworkProfile(context.run.networkProfile);
 }
 
 function parseDebuggerSummary(stdout: string, stderr: string, exitCode: number | null): DebuggerSummary {

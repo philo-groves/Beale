@@ -59,9 +59,15 @@ export class ExecutorManager {
     };
   }
 
+  public resolveNetworkProfile(requestedNetworkProfile: string): ExecutorNetworkProfile {
+    const status = this.requireAvailable();
+    return this.resolveSupportedNetworkProfile(status, normalizeNetworkProfile(requestedNetworkProfile));
+  }
+
   public createContext(context: CreatedRunContext, imageRef = 'beale-default-toolchain', snapshotRef = 'clean', requestedNetworkProfile = context.run.networkProfile): void {
     const status = this.requireAvailable();
-    const networkProfile = normalizeNetworkProfile(requestedNetworkProfile);
+    const requestedProfile = normalizeNetworkProfile(requestedNetworkProfile);
+    const networkProfile = this.resolveSupportedNetworkProfile(status, requestedProfile);
     if (!status.supportedNetworkProfiles.includes(networkProfile)) {
       throw new Error(`Executor backend cannot enforce requested network profile: ${networkProfile}`);
     }
@@ -83,6 +89,7 @@ export class ExecutorManager {
         artifactAuthority: 'host',
         networkPolicy: {
           profile: networkPolicy.profile,
+          requestedProfile,
           allowedDestinationCount: networkPolicy.allowedDestinations.length,
           liveTargetAllowed: networkPolicy.liveTargetAllowed,
           failClosed: networkPolicy.failClosed
@@ -94,6 +101,7 @@ export class ExecutorManager {
       imageRef,
       snapshotRef,
       networkProfile,
+      requestedNetworkProfile: requestedProfile,
       allowedDestinations: networkPolicy.allowedDestinations,
       liveTargetAllowed: networkPolicy.liveTargetAllowed,
       userApprovalRequired: networkPolicy.userApprovalRequired,
@@ -115,7 +123,7 @@ export class ExecutorManager {
       this.recordPolicyBlock(context, 'Executor backend does not support clean snapshot clone.', { snapshotRef, provider: status.provider });
       throw new Error('Executor backend does not support clean snapshot clone.');
     }
-    const networkProfile = normalizeNetworkProfile(requestedNetworkProfile);
+    const networkProfile = this.resolveSupportedNetworkProfile(status, normalizeNetworkProfile(requestedNetworkProfile));
     const currentState = this.currentVmState(context);
     if (currentState !== 'clean') {
       this.recordPolicyBlock(context, 'Clean snapshot clone requires a clean VM context.', {
@@ -161,7 +169,8 @@ export class ExecutorManager {
 
   public executeGuestOperation(context: CreatedRunContext, request: GuestExecuteRequest): GuestExecuteResult {
     const status = this.requireAvailable();
-    const networkProfile = normalizeNetworkProfile(request.networkProfile);
+    const requestedProfile = normalizeNetworkProfile(request.networkProfile);
+    const networkProfile = this.resolveSupportedNetworkProfile(status, requestedProfile);
     if (!status.supportedNetworkProfiles.includes(networkProfile)) {
       this.recordPolicyBlock(context, `Executor backend cannot enforce requested network profile: ${networkProfile}`, { networkProfile });
       throw new Error(`Executor backend cannot enforce requested network profile: ${networkProfile}`);
@@ -191,6 +200,7 @@ export class ExecutorManager {
         command: request.command,
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
+        requestedNetworkProfile: requestedProfile,
         networkProfile,
         allowedDestinations: networkPolicy.allowedDestinations.map((destination) => destination.value),
         liveTargetAllowed: networkPolicy.liveTargetAllowed
@@ -210,6 +220,7 @@ export class ExecutorManager {
         command: request.command,
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
+        requestedNetworkProfile: requestedProfile,
         networkProfile,
         allowedDestinations: networkPolicy.allowedDestinations,
         liveTargetAllowed: networkPolicy.liveTargetAllowed,
@@ -241,6 +252,7 @@ export class ExecutorManager {
         structured: result.structured,
         candidateArtifactCount: result.candidateArtifacts.length,
         contaminated: result.contaminated,
+        requestedNetworkProfile: requestedProfile,
         networkProfile
       },
       toolCallId,
@@ -411,6 +423,12 @@ export class ExecutorManager {
       failClosed: true,
       enforcement: 'host_vm_controller'
     };
+  }
+
+  private resolveSupportedNetworkProfile(status: ExecutorStatus, requestedNetworkProfile: ExecutorNetworkProfile): ExecutorNetworkProfile {
+    if (status.supportedNetworkProfiles.includes(requestedNetworkProfile)) return requestedNetworkProfile;
+    if (requestedNetworkProfile === 'elevated' && status.supportedNetworkProfiles.includes('scoped')) return 'scoped';
+    return requestedNetworkProfile;
   }
 
   private recordNetworkEnforcement(context: CreatedRunContext, toolCallId: string, networkPolicy: GuestNetworkPolicy, status: ExecutorStatus): void {

@@ -1,6 +1,7 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { defaultHypothesisFactors, priorityFactorLabels, scorePriority, verifiedFindingFactors } from './discoveryScoring';
 import type { FakeScenario, StartRunInput } from '@shared/types';
+import { generateSessionTitle } from '../shared/sessionTitle';
 
 type ScenarioStep = (context: CreatedRunContext) => void;
 
@@ -25,7 +26,7 @@ export class FakeRunEngine {
     const scope = this.db.getActiveScope();
     const context = attachDatabase(this.db.createRun({
       scopeVersionId: scope.id,
-      title: deriveRunTitle(input.promptMarkdown),
+      title: generateSessionTitle(input.promptMarkdown),
       promptMarkdown: input.promptMarkdown,
       mode: input.mode,
       model: input.model,
@@ -170,15 +171,6 @@ function getSteps(scenario: FakeScenario): ScenarioStep[] {
     default:
       return adaptivePortfolioSteps();
   }
-}
-
-function deriveRunTitle(promptMarkdown: string): string {
-  const firstLine = promptMarkdown
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) return 'Open discovery run';
-  return firstLine.replace(/^#+\s*/, '').slice(0, 80);
 }
 
 function recordModel(context: CreatedRunContext, summary: string, payload: Record<string, unknown> = {}): void {

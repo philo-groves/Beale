@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import {
   OpenAiResponsesAdapter,
+  OpenAiApiError,
   openAiApiErrorFromEvent,
   openAiErrorCode,
   type FunctionCallInputItem,
@@ -24,6 +26,7 @@ import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiIn
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
 import type { ExecutorManager } from './executorManager';
 import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
+import { generateSessionTitle } from '../shared/sessionTitle';
 
 export interface OpenAiRunHandle {
   context: CreatedRunContext;
@@ -35,6 +38,8 @@ const MAX_OPENAI_TOOL_TURN_LIMIT = 10_000;
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const OUTPUT_DELTA_TRACE_INTERVAL_MS = 1000;
+const DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT = 2;
+const DEFAULT_OPENAI_TRANSPORT_RETRY_DELAY_MS = 250;
 
 interface RunLoopState {
   responseInput: ResponseInputItem[];
@@ -64,7 +69,7 @@ export class OpenAiRunEngine {
     const scope = this.db.getActiveScope();
     const context = this.db.createRun({
       scopeVersionId: scope.id,
-      title: deriveRunTitle(input.promptMarkdown),
+      title: generateSessionTitle(input.promptMarkdown),
       promptMarkdown: input.promptMarkdown,
       mode: input.mode,
       model: input.model,
@@ -264,8 +269,10 @@ export class OpenAiRunEngine {
     let pendingContextWindowRecoveryTrace = false;
     let latestReportedInputTokens: number | null = null;
     let latestCompletedModelOutput: { text: string; traceEventId: string } | null = null;
+    let transportRetryAttempts = 0;
     const maxToolTurns = openAiToolTurnLimit();
     const compactionPolicy = openAiCompactionPolicyFromEnv();
+    const transportRetryLimit = openAiTransportRetryLimit();
 
     try {
       for (let turn = 0; turn < maxToolTurns; turn += 1) {
@@ -335,8 +342,10 @@ export class OpenAiRunEngine {
         const functionCalls: OpenAiFunctionCall[] = [];
         const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0, persistedTranscriptKeys: new Set() };
         latestCompletedModelOutput = null;
+        let streamEventSeen = false;
         try {
           for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
+            streamEventSeen = true;
             const persistedTraceEvents = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
             for (const persistedTraceEvent of persistedTraceEvents) {
               const transcript = this.recordTranscriptFromTraceEvent(context, persistedTraceEvent, event, streamTraceState);
@@ -359,6 +368,7 @@ export class OpenAiRunEngine {
               this.onChange();
             }
           }
+          transportRetryAttempts = 0;
           if (pendingContextWindowRecoveryTrace) {
             pendingContextWindowRecoveryTrace = false;
             this.db.appendTraceEvent({
@@ -376,6 +386,27 @@ export class OpenAiRunEngine {
             this.onChange();
           }
         } catch (error) {
+          if (isRetryableOpenAiTransportError(error) && !streamEventSeen && !controller.signal.aborted && transportRetryAttempts < transportRetryLimit) {
+            transportRetryAttempts += 1;
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'system',
+              summary: 'OpenAI transport error was retryable; retrying request.',
+              payload: {
+                error: errorMessage(error),
+                retryAttempt: transportRetryAttempts,
+                retryLimit: transportRetryLimit,
+                replayMode
+              },
+              vmContextId: context.vmContext.id
+            });
+            this.onChange();
+            await sleep(openAiTransportRetryDelayMs(transportRetryAttempts));
+            turn -= 1;
+            continue;
+          }
           if (openAiErrorCode(error) === 'previous_response_not_found' && previousResponseId && !replayedAfterMissingPrevious) {
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -675,6 +706,8 @@ export class OpenAiRunEngine {
       }
       case 'response.output_text.done': {
         const text = typeof event.text === 'string' ? event.text : '';
+        const key = transcriptKeyFromEvent(event, 'agent_output', text);
+        if (text.trim() && streamTraceState.persistedTranscriptKeys.has(key)) return [];
         return [
           this.db.appendTraceEvent({
             runId: context.run.id,
@@ -686,7 +719,7 @@ export class OpenAiRunEngine {
               text,
               claimStatus: 'model_claim',
               transcriptKind: 'agent_output',
-              transcriptKey: transcriptKeyFromEvent(event, 'agent_output', text),
+              transcriptKey: key,
               responseId: responseIdFromEvent(event),
               itemId: stringEventValue(event, 'item_id'),
               outputIndex: primitiveEventValue(event, 'output_index'),
@@ -823,13 +856,15 @@ export class OpenAiRunEngine {
     if (!Array.isArray(output)) return [];
 
     const events: TraceEventRecord[] = [];
+    const seenKeys = new Set(streamTraceState.persistedTranscriptKeys);
     for (const item of output) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
       const record = item as Record<string, unknown>;
       const messageText = outputTextFromMessageItem(record);
       if (messageText) {
         const key = transcriptKeyFromResponseItem(event, record, 'agent_output', messageText);
-        if (!streamTraceState.persistedTranscriptKeys.has(key)) {
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
           events.push(
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -854,7 +889,8 @@ export class OpenAiRunEngine {
       const reasoningSummary = reasoningSummaryTextFromItem(record);
       if (reasoningSummary) {
         const key = transcriptKeyFromResponseItem(event, record, 'reasoning_summary', reasoningSummary);
-        if (!streamTraceState.persistedTranscriptKeys.has(key)) {
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
           events.push(
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -917,15 +953,6 @@ export class OpenAiRunEngine {
 
     return { source, text };
   }
-}
-
-function deriveRunTitle(promptMarkdown: string): string {
-  const firstLine = promptMarkdown
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) return 'OpenAI discovery run';
-  return firstLine.replace(/^#+\s*/, '').slice(0, 80);
 }
 
 function buildResumeState(session: ModelSessionRecord | undefined, detail: RunDetail): RunLoopState {
@@ -1110,23 +1137,26 @@ function reasoningSummaryTextFromUnknown(value: unknown): string {
 }
 
 function transcriptKeyFromEvent(event: OpenAiStreamEvent, kind: string, text: string): string {
-  return transcriptKey(kind, responseIdFromEvent(event), stringEventValue(event, 'item_id'), primitiveEventValue(event, 'content_index') ?? primitiveEventValue(event, 'summary_index'), text);
+  return transcriptKey(kind, responseIdFromEvent(event), stringEventValue(event, 'item_id'), text);
 }
 
 function transcriptKeyFromOutputItem(event: OpenAiStreamEvent, kind: string, text: string): string {
   const item = eventItemRecord(event);
   const itemId = item && typeof item.id === 'string' ? item.id : stringEventValue(event, 'item_id');
-  return transcriptKey(kind, responseIdFromEvent(event), itemId, primitiveEventValue(event, 'content_index') ?? primitiveEventValue(event, 'summary_index'), text);
+  return transcriptKey(kind, responseIdFromEvent(event), itemId, text);
 }
 
 function transcriptKeyFromResponseItem(event: OpenAiStreamEvent, item: Record<string, unknown>, kind: string, text: string): string {
-  return transcriptKey(kind, responseIdFromEvent(event), typeof item.id === 'string' ? item.id : null, null, text);
+  return transcriptKey(kind, responseIdFromEvent(event), typeof item.id === 'string' ? item.id : null, text);
 }
 
-function transcriptKey(kind: string, responseId: string | null, itemId: string | null, index: unknown, text: string): string {
-  const stableItem = itemId || responseId || summarizeText(text);
-  const stableIndex = index === null || index === undefined ? '' : String(index);
-  return `${kind}:${stableItem}:${stableIndex}`;
+function transcriptKey(kind: string, responseId: string | null, itemId: string | null, text: string): string {
+  const stableItem = itemId || responseId || 'text';
+  return `${kind}:${stableItem}:${transcriptTextDigest(text)}`;
+}
+
+function transcriptTextDigest(text: string): string {
+  return createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
 }
 
 function stringEventValue(event: OpenAiStreamEvent, key: string): string | null {
@@ -1187,10 +1217,36 @@ function isPreviousResponseIdUnsupported(error: unknown): boolean {
   return message.includes('Unsupported parameter') && message.includes('previous_response_id');
 }
 
+function isRetryableOpenAiTransportError(error: unknown): boolean {
+  if (error instanceof OpenAiApiError && error.status !== null) {
+    return [408, 409, 429, 500, 502, 503, 504].includes(error.status);
+  }
+  const message = errorMessage(error).toLowerCase();
+  return /\b(fetch failed|network|socket|econnreset|etimedout|eai_again|enotfound|und_err|terminated)\b/.test(message);
+}
+
 function openAiToolTurnLimit(): number {
   const configured = Number(process.env.BEALE_OPENAI_MAX_TOOL_TURNS);
   if (Number.isInteger(configured) && configured > 0) {
     return Math.min(configured, MAX_OPENAI_TOOL_TURN_LIMIT);
   }
   return DEFAULT_OPENAI_TOOL_TURN_LIMIT;
+}
+
+function openAiTransportRetryLimit(): number {
+  const configured = Number(process.env.BEALE_OPENAI_TRANSPORT_RETRY_LIMIT);
+  if (Number.isInteger(configured) && configured >= 0) {
+    return Math.min(configured, 10);
+  }
+  return DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT;
+}
+
+function openAiTransportRetryDelayMs(attempt: number): number {
+  const configured = Number(process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS);
+  const base = Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_OPENAI_TRANSPORT_RETRY_DELAY_MS;
+  return Math.min(5000, base * Math.max(1, attempt));
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }

@@ -25,6 +25,8 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_COMPACT_SERIALIZED_BYTES;
   delete process.env.BEALE_OPENAI_CONTEXT_BUDGET_TOKENS;
   delete process.env.BEALE_OPENAI_MAX_TOOL_TURNS;
+  delete process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS;
+  delete process.env.BEALE_OPENAI_TRANSPORT_RETRY_LIMIT;
   delete process.env.BEALE_OPENAI_TRANSPORT;
   delete process.env.OPENAI_API_KEY;
   for (const dir of createdDirs.splice(0)) {
@@ -415,6 +417,34 @@ describe('OpenAI Responses run engine', () => {
     expect(dir).toContain('beale-openai-test-');
   });
 
+  it('retries retryable OpenAI transport failures without failing the session', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS = '0';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        throw new TypeError('fetch failed');
+      }
+      return new Response(sse(finalResponseEvents('resp_after_transport_retry')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI transport error was retryable; retrying request.' && event.payload.retryAttempt === 1)).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses run failed.')).toBe(false);
+    db.close();
+  });
+
   it('uses manual response replay for Codex OAuth tool outputs', async () => {
     const authDir = mkdtempSync(join(tmpdir(), 'beale-codex-engine-'));
     createdDirs.push(authDir);
@@ -702,6 +732,13 @@ function openAiInput(): StartRunInput {
 function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
   return [
     event('response.created', { type: 'response.created', response: { id: responseId } }),
+    event('response.reasoning_summary_text.done', {
+      type: 'response.reasoning_summary_text.done',
+      response_id: responseId,
+      item_id: 'rs_1',
+      summary_index: 0,
+      text: 'I need to inspect scoped metadata before choosing a tool.'
+    }),
     event('response.output_item.done', {
       type: 'response.output_item.done',
       response_id: responseId,
@@ -713,7 +750,13 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
       }
     }),
     event('response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, delta: 'Checking scope.' }),
-    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, item_id: 'msg_1', text: 'I will search scoped metadata first.' }),
+    event('response.output_text.done', {
+      type: 'response.output_text.done',
+      response_id: responseId,
+      item_id: 'msg_1',
+      content_index: 0,
+      text: 'I will search scoped metadata first.'
+    }),
     event('response.output_item.done', {
       type: 'response.output_item.done',
       response_id: responseId,
@@ -737,7 +780,28 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
         status: 'completed'
       }
     }),
-    event('response.completed', { type: 'response.completed', response: { id: responseId, usage: { total_tokens: 42 } } })
+    event('response.completed', {
+      type: 'response.completed',
+      response: {
+        id: responseId,
+        output: [
+          {
+            type: 'reasoning',
+            id: 'rs_1',
+            status: 'completed',
+            summary: [{ type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' }]
+          },
+          {
+            type: 'message',
+            id: 'msg_1',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'I will search scoped metadata first.', annotations: [] }]
+          }
+        ],
+        usage: { total_tokens: 42 }
+      }
+    })
   ].join('');
 }
 

@@ -147,6 +147,39 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
+  it('falls back from elevated to scoped when the VM backend only supports scoped allowlists', () => {
+    const { db, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath);
+    const context = createExecutorRun(
+      db,
+      [
+        { direction: 'in_scope', kind: 'domain', value: 'live.example.test', sensitivity: 'public', attributes: { protocol: 'tcp', port: 443 } }
+      ],
+      'elevated'
+    );
+    const manager = new ExecutorManager(db);
+
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+    manager.executeGuestOperation(context, {
+      operationKind: 'shell',
+      command: ['sh', '-lc', 'curl -fsS https://live.example.test/health'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5000,
+      networkProfile: 'elevated',
+      expectedOutput: 'summary'
+    });
+
+    const detail = db.getRunDetail(context.run.id);
+    const createEvent = detail.traceEvents.find((event) => event.summary === 'VM executor created disposable guest context.');
+    const networkEvent = detail.traceEvents.find((event) => event.type === 'network_event' && event.payload.decision === 'allow_scoped_network');
+    expect(createEvent?.payload.requestedNetworkProfile).toBe('elevated');
+    expect(createEvent?.payload.networkProfile).toBe('scoped');
+    expect(networkEvent?.payload.liveTargetAllowed).toBe(true);
+    expect(readFileSync(logPath, 'utf8')).toContain('"networkProfile":"scoped"');
+    db.close();
+  });
+
   it('fails closed when scoped networking has no live-target scope', () => {
     const { db, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);

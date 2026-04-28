@@ -83,6 +83,7 @@ import type {
   TranscriptMessageRecord,
   WorkspaceSnapshot
 } from '@shared/types';
+import { displaySessionTitle } from '../shared/sessionTitle';
 
 interface ScopeFormState {
   programName: string;
@@ -363,6 +364,7 @@ export function App(): JSX.Element {
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
+  const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
   const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -871,6 +873,17 @@ export function App(): JSX.Element {
           <div className="workbench-program">
             <RunStatusIndicator detail={activeRunDetail} />
             <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
+            {activeRunDetail ? (
+              <button
+                type="button"
+                className="workbench-session-title"
+                title="View original research prompt"
+                onClick={() => setResearchPromptDetail(activeRunDetail)}
+              >
+                <span>{displaySessionTitle(activeRunDetail.run.title, activeRunDetail.run.promptMarkdown)}</span>
+              </button>
+            ) : null}
+            {activeRunDetail ? <SessionConfigPills detail={activeRunDetail} /> : null}
           </div>
           <SessionTimestamps detail={activeRunDetail} events={activeTraceEvents} visibleTraceCategories={visibleTraceCategories} />
         </div>
@@ -960,6 +973,7 @@ export function App(): JSX.Element {
           }}
         />
       ) : null}
+      {researchPromptDetail ? <ResearchPromptModal detail={researchPromptDetail} onClose={() => setResearchPromptDetail(null)} /> : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
       {sessionHistoryProgram ? (
         <ProgramSessionHistoryModal
@@ -988,8 +1002,7 @@ function researchSessionsForProgram(registry: ProgramRegistryState, program: Pro
 }
 
 function promptSessionTitle(session: ResearchSessionSummary): string {
-  const promptText = firstPromptSentence(session.promptMarkdown);
-  return truncateText(promptText || session.title || session.summary || 'Untitled research', 86);
+  return displaySessionTitle(session.title, session.promptMarkdown);
 }
 
 function firstPromptSentence(promptMarkdown: string): string {
@@ -1208,6 +1221,20 @@ function NotificationDetailModal({
   );
 }
 
+function ResearchPromptModal({ detail, onClose }: { detail: RunDetail; onClose: () => void }): JSX.Element {
+  return (
+    <Modal title="Original Research Prompt" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+      <div className="research-prompt-detail">
+        <div className="research-prompt-title">
+          <span>Session</span>
+          <strong>{displaySessionTitle(detail.run.title, detail.run.promptMarkdown)}</strong>
+        </div>
+        <pre>{detail.run.promptMarkdown || 'No prompt recorded.'}</pre>
+      </div>
+    </Modal>
+  );
+}
+
 function firstNotificationSentence(markdown: string): string {
   return firstPromptSentence(markdown) || markdown.replace(/\s+/g, ' ').trim();
 }
@@ -1252,6 +1279,24 @@ function runStatusClass(status: RunStatus): 'active' | 'completed' | 'failed' | 
   return 'paused';
 }
 
+function SessionConfigPills({ detail }: { detail: RunDetail }): JSX.Element {
+  const pills = [
+    { label: traceLabel(detail.run.mode), tooltip: `Mode: ${traceLabel(detail.run.mode)}` },
+    { label: traceLabel(detail.run.attemptStrategy), tooltip: `Strategy: ${traceLabel(detail.run.attemptStrategy)}` },
+    { label: traceLabel(detail.run.networkProfile), tooltip: `Network: ${traceLabel(detail.run.networkProfile)}` }
+  ];
+
+  return (
+    <div className="session-config-pills" aria-label="Session configuration">
+      {pills.map((pill) => (
+        <span className="session-config-pill" title={pill.tooltip} aria-label={pill.tooltip} key={pill.tooltip}>
+          {pill.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function SessionTimestamps({
   detail,
   events,
@@ -1285,7 +1330,6 @@ function SessionTimestamps({
 
   return (
     <div className="session-start-time">
-      <span className="session-mode-pill">{traceLabel(detail.run.mode)}</span>
       <span className="session-header-metric" title={turnTooltip} aria-label={`Current model turn ${latestTurn}`}>
         <GitFork size={13} />
         <span>{latestTurn}</span>
@@ -1718,7 +1762,8 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceDisplayEven
   const outcome = traceEventOutcome(event);
   const detail = traceEventDetailText(event, category);
   const hasDetail = detail.length > 0;
-  const eventKindClass = usesCompactTraceSublabel(event, category) ? 'trace-compact-sublabel' : '';
+  const proseDetail = isProseTraceEvent(event, category);
+  const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
   return (
     <button
       type="button"
@@ -1746,15 +1791,17 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceDisplayEven
           </div>
         </div>
         <div className="main-trace-context">
-          {hasDetail ? <code>{detail}</code> : null}
+          {hasDetail ? (
+            proseDetail ? (
+              <span className="main-trace-prose">{renderInlineCodeText(detail)}</span>
+            ) : (
+              <code>{detail}</code>
+            )
+          ) : null}
         </div>
       </div>
     </button>
   );
-}
-
-function usesCompactTraceSublabel(event: TraceEventRecord, category: TraceCategoryId): boolean {
-  return !isProseTraceEvent(event, category);
 }
 
 function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId): boolean {
@@ -1768,11 +1815,32 @@ function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId): 
   return category === 'agent_output' && event.source === 'model';
 }
 
+function renderInlineCodeText(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(`+)([^`\n]+?)\1/g;
+  let lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    const codeText = match[2] ?? '';
+    const index = match.index ?? 0;
+    if (index > lastIndex) nodes.push(text.slice(lastIndex, index));
+    nodes.push(
+      <code className="main-trace-inline-code" key={`${index}-${codeText}`}>
+        {codeText}
+      </code>
+    );
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes.length > 0 ? nodes : [text];
+}
+
 function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
   const transcriptTraceIds = new Set(detail.transcriptMessages.map((message) => message.traceEventId).filter((id): id is string => Boolean(id)));
   const traceById = new Map(detail.traceEvents.map((event) => [event.id, event]));
   const baseEvents = detail.traceEvents.filter((event) => !transcriptTraceIds.has(event.id));
-  const transcriptEvents = detail.transcriptMessages.map((message, index) => transcriptMessageToTraceEvent(message, index, traceById.get(message.traceEventId ?? '')));
+  const transcriptEvents = uniqueTranscriptMessages(detail.transcriptMessages).map((message, index) =>
+    transcriptMessageToTraceEvent(message, index, traceById.get(message.traceEventId ?? ''))
+  );
 
   return [...baseEvents, ...transcriptEvents].sort((left, right) => {
     const leftTime = Date.parse(left.createdAt);
@@ -1781,6 +1849,26 @@ function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
     if (left.sequence !== right.sequence) return left.sequence - right.sequence;
     return left.id.localeCompare(right.id);
   });
+}
+
+function uniqueTranscriptMessages(messages: TranscriptMessageRecord[]): TranscriptMessageRecord[] {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    const key = transcriptMessageDisplayKey(message);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function transcriptMessageDisplayKey(message: TranscriptMessageRecord): string | null {
+  const text = message.contentMarkdown.replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const responseId = stringRecordValue(message.metadata, 'responseId') ?? '';
+  const itemId = stringRecordValue(message.metadata, 'itemId') ?? '';
+  if (!responseId && !itemId) return null;
+  return [message.source, responseId, itemId, text].join('\u0000');
 }
 
 function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: number, linkedTraceEvent?: TraceEventRecord): TraceDisplayEvent {
@@ -2830,12 +2918,38 @@ function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Elem
 }
 
 function InspectorReference({ label, value }: { label: string; value: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const copyValue = (): void => {
+    void copyTextToClipboard(value).then((success) => {
+      if (!success) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
   return (
     <div className="trace-inspector-reference">
       <span>{label}:</span>
-      <code>{value}</code>
+      <button
+        type="button"
+        className="trace-inspector-reference-value"
+        title={copied ? 'Copied' : `Copy ${label}`}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+        onClick={copyValue}
+      >
+        <code>{value}</code>
+      </button>
     </div>
   );
+}
+
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function ProgramInformationModal({ program, onClose }: { program: ProgramRegistryEntry; onClose: () => void }): JSX.Element {
@@ -3398,6 +3512,7 @@ function StartRunForm({
     networkProfile: snapshot.activeScope.networkProfile
   }));
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
+  const [startingRun, setStartingRun] = useState(false);
 
   useEffect(() => {
     setInput((current) => ({ ...current, networkProfile: snapshot.activeScope.networkProfile }));
@@ -3416,12 +3531,14 @@ function StartRunForm({
   const showGeneratePrompt = input.promptMarkdown.length === 0;
 
   const start = (): void => {
+    if (startingRun) return;
+    setStartingRun(true);
     void runAction(async () => {
       const next = await window.beale.startRun(input);
       const latestRunId = next.runs[0]?.run.id;
       if (latestRunId) onStarted(latestRunId);
       return next;
-    });
+    }).finally(() => setStartingRun(false));
   };
 
   const generatePrompt = (): void => {
@@ -3448,9 +3565,9 @@ function StartRunForm({
           <button type="button" disabled={busy} onClick={onCancel}>
             Cancel
           </button>
-          <button className="primary-button" type="button" disabled={busy || !canStart} onClick={start}>
+          <button className="primary-button" type="button" disabled={busy || startingRun || !canStart} onClick={start}>
             <Play size={16} />
-            Start
+            {startingRun ? 'Generating Title...' : 'Start'}
           </button>
         </>
       }

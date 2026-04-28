@@ -126,7 +126,7 @@ describe('structured research tools', () => {
 
   it('runs Python and the debugger wrapper through the disposable VM controller boundary', () => {
     const { db, context, logPath } = openStructuredToolDb();
-    context.run.networkProfile = 'scoped';
+    context.run.networkProfile = 'elevated';
     configureVmctlFixture(logPath);
     const router = new BealeToolRouter(db, new ExecutorManager(db));
 
@@ -138,6 +138,8 @@ describe('structured research tools', () => {
     expect(python.status).toBe('success');
     expect(python.artifact_id).toBeTruthy();
     expect(python.payload.hostExecution).toBe(false);
+    expect(python.payload.requestedNetworkProfile).toBe('elevated');
+    expect(python.payload.networkProfile).toBe('scoped');
 
     const debuggerResult = callTool(router, context, 'debugger', {
       operation: 'gdb_probe',
@@ -148,6 +150,8 @@ describe('structured research tools', () => {
     expect(debuggerResult.artifact_id).toBeTruthy();
     expect(debuggerResult.payload.wrapper).toBe('gdb_batch_probe');
     expect(debuggerResult.payload.hostExecution).toBe(false);
+    expect(debuggerResult.payload.requestedNetworkProfile).toBe('elevated');
+    expect(debuggerResult.payload.networkProfile).toBe('scoped');
     expect((debuggerResult.payload.debugger as { signal: string }).signal).toBe('SIGSEGV');
     expect((debuggerResult.payload.debugger as { frames: string[] }).frames.length).toBeGreaterThan(0);
     expect((debuggerResult.payload.debugger as { registersCaptured: boolean }).registersCaptured).toBe(true);
@@ -183,7 +187,7 @@ describe('structured research tools', () => {
       .filter((entry) => entry.input.action === 'execute')
       .slice(0, 2)
       .map((entry) => entry.input.payload.operation?.networkPolicy?.profile);
-    expect(localAnalysisProfiles).toEqual(['offline', 'offline']);
+    expect(localAnalysisProfiles).toEqual(['scoped', 'scoped']);
     db.close();
   });
 });
@@ -249,7 +253,10 @@ function openStructuredToolDb(): { db: WorkspaceDatabase; context: CreatedRunCon
     rulesMarkdown: 'Offline guest execution only.',
     networkProfile: 'offline',
     expiresAt: null,
-    assets: [{ direction: 'in_scope', kind: 'path', value: targetDir, sensitivity: 'internal', attributes: {} }]
+    assets: [
+      { direction: 'in_scope', kind: 'path', value: targetDir, sensitivity: 'internal', attributes: {} },
+      { direction: 'in_scope', kind: 'domain', value: 'live.example.test', sensitivity: 'public', attributes: { protocol: 'tcp', port: 443 } }
+    ]
   });
   const context = db.createRun({
     scopeVersionId: db.getActiveScope().id,

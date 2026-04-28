@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { ProgramScopeVersion, ScopeAsset, ScopeAssetKind, StartRunInput } from '@shared/types';
+import { generateSessionTitle } from '../shared/sessionTitle';
 
 const LOCAL_IMPORT_KIND_PRIORITY: ScopeAssetKind[] = ['path', 'repo', 'binary', 'documentation', 'other'];
 
@@ -20,7 +21,7 @@ export class ExecutorRunEngine {
     const snapshotRef = process.env.BEALE_VM_SNAPSHOT_REF?.trim() || 'clean';
     const context = this.db.createRun({
       scopeVersionId: scope.id,
-      title: deriveRunTitle(input.promptMarkdown),
+      title: generateSessionTitle(input.promptMarkdown),
       promptMarkdown: input.promptMarkdown,
       mode: input.mode,
       model: input.model,
@@ -184,15 +185,6 @@ function selectScopedImport(scope: ProgramScopeVersion): ScopeAsset | null {
     if (asset) return asset;
   }
   return null;
-}
-
-function deriveRunTitle(promptMarkdown: string): string {
-  const firstLine = promptMarkdown
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (!firstLine) return 'VM executor alpha run';
-  return firstLine.replace(/^#+\s*/, '').slice(0, 80);
 }
 
 function errorMessage(error: unknown): string {
