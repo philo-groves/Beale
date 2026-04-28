@@ -96,6 +96,7 @@ describe('Beale workbench skeleton', () => {
       workspacePath: workspace,
       runId: latestRun?.id,
       title: latestRun?.title,
+      promptMarkdown: '# Test run\nExercise the fake workbench path.',
       status: latestRun?.status,
       runEngine: 'fake'
     });
@@ -139,6 +140,43 @@ describe('Beale workbench skeleton', () => {
     expect(firstProgram).toBeTruthy();
     service.openProgram(firstProgram?.id ?? '');
     expect(service.getProgramRegistryState().programs.map((program) => program.id)).toEqual(initialOrder);
+    service.close();
+  });
+
+  it('removes programs from the global registry without deleting workspaces', () => {
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    service.createProgram({
+      workspacePath: firstWorkspace,
+      programName: 'First Program',
+      organizationName: '',
+      descriptionMarkdown: 'First persisted program.',
+      rulesMarkdown: 'First rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.createProgram({
+      workspacePath: secondWorkspace,
+      programName: 'Second Program',
+      organizationName: '',
+      descriptionMarkdown: 'Second persisted program.',
+      rulesMarkdown: 'Second rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+
+    const secondProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'Second Program');
+    expect(secondProgram).toBeTruthy();
+    expect(service.removeProgram(secondProgram?.id ?? '')).toBeNull();
+    expect(service.getSnapshot()).toBeNull();
+    expect(existsSync(secondWorkspace)).toBe(true);
+
+    const remaining = service.getProgramRegistryState().programs;
+    expect(remaining.map((program) => program.programName)).toEqual(['First Program']);
+    expect(service.openProgram(remaining[0]?.id ?? '').activeScope.programName).toBe('First Program');
     service.close();
   });
 

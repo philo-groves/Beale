@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { release, tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -44,6 +45,8 @@ import type {
 } from '@shared/types';
 
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
+const DEFAULT_RUN_MAX_MINUTES = 180;
+const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
 
 const HACKERONE_PROGRAM_QUERY = `
@@ -132,6 +135,7 @@ export function getHostEnvironment(): HostEnvironment {
   const platform = hostPlatform(process.platform);
   const kernelRelease = platform === 'linux' ? release().toLowerCase() : '';
   const procVersion = platform === 'linux' ? safeReadText('/proc/version').toLowerCase() : '';
+  const linuxName = platform === 'linux' ? linuxDistributionName() : null;
   const explicitWslName = process.env.WSL_DISTRO_NAME?.trim() || null;
   const isWsl =
     platform === 'linux' &&
@@ -143,10 +147,12 @@ export function getHostEnvironment(): HostEnvironment {
         procVersion.includes('microsoft') ||
         procVersion.includes('wsl')
     );
+  const remoteName = isWsl ? explicitWslName ?? linuxName ?? 'WSL' : null;
   return {
     platform,
+    osLabel: hostOsLabel(platform, isWsl, remoteName, linuxName),
     isWsl,
-    remoteName: isWsl ? explicitWslName ?? linuxDistributionName() ?? 'WSL' : null
+    remoteName
   };
 }
 
@@ -296,6 +302,15 @@ export class WorkspaceService {
       throw new Error(`Program not found: ${programId}`);
     }
     return this.open(program.workspacePath, false);
+  }
+
+  public removeProgram(programId: string): WorkspaceSnapshot | null {
+    const removed = this.getProgramRegistry().removeProgram(programId);
+    if (removed && this.workspacePath && resolve(this.workspacePath) === resolve(removed.workspacePath)) {
+      this.close();
+    }
+    this.onChange();
+    return this.getSnapshot();
   }
 
   public getSnapshot(): WorkspaceSnapshot | null {
@@ -480,8 +495,8 @@ export class WorkspaceService {
           networkProfile: run.networkProfile,
           sandboxProfile: run.sandboxProfile,
           budget: {
-            maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 45),
-            maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 2),
+            maxMinutes: numberFromBudget(run.budget, 'maxMinutes', DEFAULT_RUN_MAX_MINUTES),
+            maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
             maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
           },
           runEngine: run.budget.runEngine === 'openai_responses' ? 'openai_responses' : run.budget.runEngine === 'executor_alpha' ? 'executor_alpha' : 'fake',
@@ -1703,6 +1718,34 @@ function shouldIncludeInWorkspaceBackup(workspacePath: string, source: string): 
 function hostPlatform(value: NodeJS.Platform): HostEnvironment['platform'] {
   if (value === 'linux' || value === 'win32' || value === 'darwin') return value;
   return 'other';
+}
+
+function hostOsLabel(platform: HostEnvironment['platform'], isWsl: boolean, remoteName: string | null, linuxName: string | null): string {
+  if (isWsl) return `WSL: ${remoteName ?? 'Linux'}`;
+  if (platform === 'win32') return windowsLabel();
+  if (platform === 'darwin') return macOsLabel();
+  if (platform === 'linux') return linuxName ?? 'Linux';
+  return 'Host OS';
+}
+
+function windowsLabel(): string {
+  const [majorPart, minorPart, buildPart] = release().split('.');
+  const major = Number(majorPart);
+  const minor = Number(minorPart);
+  const build = Number(buildPart);
+  if (major === 10 && minor === 0 && Number.isFinite(build)) return build >= 22000 ? 'Windows 11' : 'Windows 10';
+  return 'Windows';
+}
+
+function macOsLabel(): string {
+  const swVers = spawnSync('sw_vers', ['-productVersion'], { encoding: 'utf8' });
+  const productVersion = swVers.status === 0 ? swVers.stdout.trim() : '';
+  if (productVersion) return `macOS ${productVersion}`;
+
+  const [majorPart, minorPart = '0', patchPart = '0'] = release().split('.');
+  const darwinMajor = Number(majorPart);
+  if (Number.isFinite(darwinMajor) && darwinMajor >= 20) return `macOS ${darwinMajor + 1}.${minorPart}.${patchPart}`;
+  return 'macOS';
 }
 
 function linuxDistributionName(): string | null {

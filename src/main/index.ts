@@ -74,6 +74,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
   ipcMain.handle(IPC_CHANNELS.createProgram, (_event, input: ProgramOnboardingInput) => workspaceService.createProgram(input));
   ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) => workspaceService.openProgram(programId));
+  ipcMain.handle(IPC_CHANNELS.removeProgram, (_event, programId: string) => workspaceService.removeProgram(programId));
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());

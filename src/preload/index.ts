@@ -33,6 +33,9 @@ const api: BealeApi = {
   openProgram(programId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.openProgram, programId);
   },
+  removeProgram(programId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeProgram, programId);
+  },
   openWorkspace(path: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, path);
   },

@@ -19,6 +19,8 @@ export interface OpenAiRunHandle {
 }
 
 const MAX_OPENAI_TOOL_TURNS = 4;
+const DEFAULT_RUN_MAX_MINUTES = 180;
+const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 
 interface RunLoopState {
   responseInput: ResponseInputItem[];
@@ -536,8 +538,8 @@ function startInputFromRun(run: RunRecord): StartRunInput {
     networkProfile: run.networkProfile,
     sandboxProfile: run.sandboxProfile,
     budget: {
-      maxMinutes: numberFromBudget(run.budget, 'maxMinutes', 30),
-      maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 1),
+      maxMinutes: numberFromBudget(run.budget, 'maxMinutes', DEFAULT_RUN_MAX_MINUTES),
+      maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
       maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
     },
     fakeScenario: fakeScenarioFromBudget(run.budget)

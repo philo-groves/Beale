@@ -150,6 +150,7 @@ export interface WorkspaceSummary {
 
 export interface HostEnvironment {
   platform: 'linux' | 'win32' | 'darwin' | 'other';
+  osLabel: string;
   isWsl: boolean;
   remoteName: string | null;
 }
@@ -181,6 +182,7 @@ export interface ResearchSessionSummary {
   status: RunStatus;
   runEngine: RunEngineKind;
   mode: string;
+  promptMarkdown: string;
   summary: string;
   model: string;
   reasoningEffort: string;
@@ -737,6 +739,7 @@ export interface BealeApi {
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
   openProgram(programId: string): Promise<WorkspaceSnapshot>;
+  removeProgram(programId: string): Promise<WorkspaceSnapshot | null>;
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;

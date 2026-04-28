@@ -5,6 +5,7 @@ export const IPC_CHANNELS = {
   lookupHackerOneProgram: 'beale:lookup-hackerone-program',
   createProgram: 'beale:create-program',
   openProgram: 'beale:open-program',
+  removeProgram: 'beale:remove-program',
   openWorkspace: 'beale:open-workspace',
   createWorkspace: 'beale:create-workspace',
   getSnapshot: 'beale:get-snapshot',

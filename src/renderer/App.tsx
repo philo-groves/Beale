@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive,
+  ArrowRight,
   Ban,
   Bell,
   Bug,
@@ -28,6 +29,8 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   RefreshCw,
@@ -35,6 +38,7 @@ import {
   RotateCw,
   Save,
   Search,
+  Server,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -50,6 +54,7 @@ import type {
   BenchmarkOverview,
   BenchmarkSuiteKind,
   ExportRecord,
+  ExecutorStatus,
   FakeScenario,
   FindingRecord,
   HypothesisRecord,
@@ -63,6 +68,7 @@ import type {
   ProgramRegistryState,
   ProgramScopeDraft,
   ProgramScopeVersion,
+  ResearchSessionSummary,
   RunDetail,
   RunRow,
   ScopeAssetDirection,
@@ -102,6 +108,9 @@ interface ProgramOnboardingFormState {
 
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 type SettingsSection = 'general' | 'providers';
+
+const UNBOUNDED_ATTEMPTS = 999_999;
+const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 
 const APPLE_PROGRAM_DESCRIPTION =
   'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
@@ -175,8 +184,8 @@ const defaultRunInput: StartRunInput = {
   networkProfile: 'offline',
   sandboxProfile: 'local_disposable_vm',
   budget: {
-    maxMinutes: 45,
-    maxAttempts: 2,
+    maxMinutes: 180,
+    maxAttempts: UNBOUNDED_ATTEMPTS,
     maxCostUsd: 0
   },
   fakeScenario: 'adaptive_portfolio'
@@ -192,6 +201,10 @@ export function App(): JSX.Element {
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
+  const [programInfo, setProgramInfo] = useState<ProgramRegistryEntry | null>(null);
+  const [openProgramMenuId, setOpenProgramMenuId] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -263,6 +276,38 @@ export function App(): JSX.Element {
     loadRunDetail(selectedRunId).catch((caught: unknown) => setError(errorMessage(caught)));
   }, [loadRunDetail, selectedRunId, snapshot]);
 
+  useEffect(() => {
+    if (!openProgramMenuId) return undefined;
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Element && !event.target.closest('[data-program-menu-root]')) {
+        setOpenProgramMenuId(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setOpenProgramMenuId(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openProgramMenuId]);
+
+  useEffect(() => {
+    if (!programRegistry) return;
+    if (openProgramMenuId && !programRegistry.programs.some((program) => program.id === openProgramMenuId)) {
+      setOpenProgramMenuId(null);
+    }
+    if (programInfo && !programRegistry.programs.some((program) => program.id === programInfo.id)) {
+      setProgramInfo(null);
+    }
+  }, [openProgramMenuId, programInfo, programRegistry]);
+
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
       setBusy(true);
@@ -330,19 +375,6 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const startDefaultRun = (): void => {
-    if (!snapshot) return;
-    void runAction(async () => {
-      const next = await window.beale.startRun({
-        ...defaultRunInput,
-        networkProfile: snapshot.activeScope.networkProfile
-      });
-      const latestRunId = next.runs[0]?.run.id;
-      if (latestRunId) setSelectedRunId(latestRunId);
-      return next;
-    });
-  };
-
   const addProgram = (): void => {
     void runProgramAction(async () => {
       const selection = await window.beale.selectProgramDirectory();
@@ -360,6 +392,24 @@ export function App(): JSX.Element {
   const openRegisteredProgram = (program: ProgramRegistryEntry): void => {
     void runProgramAction(async () => {
       applySnapshot(await window.beale.openProgram(program.id));
+    });
+  };
+
+  const openResearchSession = (program: ProgramRegistryEntry, session: ResearchSessionSummary): void => {
+    void runProgramAction(async () => {
+      setRunDetail(null);
+      const activeProgram = snapshot?.workspace.workspacePath === program.workspacePath;
+      const next = activeProgram ? await window.beale.getSnapshot() : await window.beale.openProgram(program.id);
+      applySnapshot(next);
+      setSelectedRunId(session.runId);
+    });
+  };
+
+  const removeRegisteredProgram = (program: ProgramRegistryEntry): void => {
+    void runProgramAction(async () => {
+      setProgramInfo((current) => (current?.id === program.id ? null : current));
+      setOpenProgramMenuId(null);
+      applySnapshot(await window.beale.removeProgram(program.id));
     });
   };
 
@@ -420,17 +470,25 @@ export function App(): JSX.Element {
     window.addEventListener('pointercancel', handlePointerUp);
   };
 
-  const appShellClassName = sidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell';
+  const appShellClassName = [
+    'app-shell',
+    sidebarCollapsed ? 'sidebar-collapsed' : '',
+    inspectorOpen ? 'inspector-open' : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
+        inspectorOpen={inspectorOpen}
         onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+        onToggleInspector={() => setInspectorOpen((current) => !current)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
-        <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={startDefaultRun}>
+        <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
           <Play size={15} />
           <span>New Research</span>
         </button>
@@ -439,9 +497,9 @@ export function App(): JSX.Element {
             <Search size={15} />
             <span>Search</span>
           </button>
-          <button type="button" className="sidebar-utility-button" title="Scheduled Jobs">
+          <button type="button" className="sidebar-utility-button" title="Schedules">
             <CalendarClock size={15} />
-            <span>Scheduled Jobs</span>
+            <span>Schedules</span>
           </button>
         </div>
         <div className="sidebar-section program-list">
@@ -453,11 +511,63 @@ export function App(): JSX.Element {
           </div>
           {(programRegistry?.programs ?? []).map((program) => {
             const active = snapshot?.workspace.workspacePath === program.workspacePath;
+            const menuOpen = openProgramMenuId === program.id;
+            const sessions = programRegistry ? researchSessionsForProgram(programRegistry, program) : [];
             return (
-              <button type="button" className={`program-item ${active ? 'active' : ''}`} title={program.workspacePath} key={program.id} onClick={() => openRegisteredProgram(program)}>
-                <Terminal size={15} />
-                <span>{program.programName}</span>
-              </button>
+              <div className="program-group" key={program.id}>
+                <div className={`program-item-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-program-menu-root>
+                  <button type="button" className="program-item" title={program.workspacePath} onClick={() => openRegisteredProgram(program)}>
+                    <Terminal size={15} />
+                    <span>{program.programName}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="program-menu-button"
+                    title={`${program.programName} options`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenProgramMenuId((current) => (current === program.id ? null : program.id));
+                    }}
+                  >
+                    <MoreVertical size={14} />
+                  </button>
+                  {menuOpen ? (
+                    <div className="program-menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProgramInfo(program);
+                          setOpenProgramMenuId(null);
+                        }}
+                      >
+                        Program Information
+                      </button>
+                      <button type="button" role="menuitem" className="danger" onClick={() => removeRegisteredProgram(program)}>
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {sessions.length > 0 ? (
+                  <div className="program-session-list">
+                    {sessions.map((session) => (
+                      <button
+                        type="button"
+                        className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
+                        title={promptSessionTitle(session)}
+                        key={session.id}
+                        onClick={() => openResearchSession(program, session)}
+                      >
+                        <span className="program-session-title">{promptSessionTitle(session)}</span>
+                        <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             );
           })}
           {!programRegistry && snapshot ? (
@@ -472,9 +582,26 @@ export function App(): JSX.Element {
       </aside>
 
       <main className="workbench">
-        <div className="workspace-page" />
+        <div className="workbench-header">{snapshot?.activeScope.programName ?? 'No Program Selected'}</div>
+        <div className="workspace-page">
+          <ResearchSessionPage detail={runDetail} selectedRunId={selectedRunId} />
+        </div>
       </main>
-      <StatusBar hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment} message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)} />
+      <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
+        <div className="inspector-empty-state">
+          <span>Inspector</span>
+          <p>No inspector content.</p>
+        </div>
+      </aside>
+      <StatusBar
+        hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
+        executor={snapshot?.executor ?? null}
+        message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)}
+        onConfigureVm={() => {
+          setSettingsSection('general');
+          setSettingsOpen(true);
+        }}
+      />
       {programDraft ? (
         <ProgramOnboardingModal
           busy={busy}
@@ -484,6 +611,19 @@ export function App(): JSX.Element {
           onLookupHackerOne={lookupHackerOneProgram}
           onTemplate={applyOnboardingTemplate}
           onSubmit={submitProgramOnboarding}
+        />
+      ) : null}
+      {newResearchOpen && snapshot ? (
+        <StartRunForm
+          snapshot={snapshot}
+          busy={busy}
+          runAction={runAction}
+          onCancel={() => setNewResearchOpen(false)}
+          onStarted={(runId) => {
+            setRunDetail(null);
+            setSelectedRunId(runId);
+            setNewResearchOpen(false);
+          }}
         />
       ) : null}
       {settingsOpen ? (
@@ -498,6 +638,7 @@ export function App(): JSX.Element {
           onStartOpenAiOAuth={startOpenAiOAuth}
         />
       ) : null}
+      {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
     </div>
   );
 }
@@ -508,16 +649,58 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
+function researchSessionsForProgram(registry: ProgramRegistryState, program: ProgramRegistryEntry): ResearchSessionSummary[] {
+  return registry.researchSessions.filter((session) => session.programId === program.id || (!session.programId && session.workspacePath === program.workspacePath));
+}
+
+function promptSessionTitle(session: ResearchSessionSummary): string {
+  const promptText = firstPromptSentence(session.promptMarkdown);
+  return truncateText(promptText || session.title || session.summary || 'Untitled research', 86);
+}
+
+function firstPromptSentence(promptMarkdown: string): string {
+  const rawLines = promptMarkdown.split(/\r?\n/);
+  const contentLines = rawLines.length > 1 && /^#{1,6}\s+/.test(rawLines[0]?.trim() ?? '') ? rawLines.slice(1) : rawLines;
+  const lines = contentLines
+    .map((line) => line.replace(/^#{1,6}\s+/, '').replace(/^[*\-\d.]+\s+/, '').trim())
+    .filter(Boolean);
+  const text = lines.join(' ').replace(/\s+/g, ' ').trim();
+  const match = /^(.+?[.!?])(?:\s|$)/.exec(text);
+  return (match?.[1] ?? text).trim();
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function shortRelativeAge(iso: string): string {
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return '';
+  const minutes = Math.max(1, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 60) return `${minutes}M`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}H`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}D`;
+  return `${Math.max(1, Math.floor(days / 7))}W`;
+}
+
 function TopBar({
   sidebarCollapsed,
+  inspectorOpen,
   onOpenSettings,
-  onToggleSidebar
+  onToggleSidebar,
+  onToggleInspector
 }: {
   sidebarCollapsed: boolean;
+  inspectorOpen: boolean;
   onOpenSettings: () => void;
   onToggleSidebar: () => void;
+  onToggleInspector: () => void;
 }): JSX.Element {
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+  const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
 
   return (
     <header className="top-bar">
@@ -544,8 +727,14 @@ function TopBar({
         <button type="button" title="Settings" onClick={onOpenSettings}>
           <Settings size={14} />
         </button>
-        <button type="button" title="More">
-          <MoreVertical size={15} />
+        <button
+          type="button"
+          title={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+          aria-label={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+          aria-pressed={inspectorOpen}
+          onClick={onToggleInspector}
+        >
+          <InspectorToggleIcon size={14} />
         </button>
       </div>
     </header>
@@ -554,25 +743,129 @@ function TopBar({
 
 function StatusBar({
   hostEnvironment,
-  message
+  executor,
+  message,
+  onConfigureVm
 }: {
   hostEnvironment: HostEnvironment | null;
+  executor: ExecutorStatus | null;
   message: { tone: 'error' | 'info'; text: string } | null;
+  onConfigureVm: () => void;
 }): JSX.Element {
-  const isWsl = hostEnvironment?.isWsl ?? false;
-  const remoteLabel = isWsl ? `WSL: ${hostEnvironment?.remoteName ?? 'WSL'}` : null;
+  const osLabel = hostEnvironmentLabel(hostEnvironment);
+  const vmTarget = vmTargetStatus(executor);
+
   return (
     <footer className="status-bar">
-      <button type="button" className={`remote-window-button ${isWsl ? 'is-wsl' : ''}`} title={remoteLabel ?? 'Open Remote Window'}>
-        <Monitor size={14} />
-        {remoteLabel ? <span>{remoteLabel}</span> : null}
-      </button>
+      <div className="environment-switcher" aria-label="Environment target">
+        <div className="environment-pill" title={`Host operating system: ${osLabel}`}>
+          <Monitor size={14} />
+          <span>{osLabel}</span>
+        </div>
+        <ArrowRight className="environment-arrow" size={14} aria-hidden="true" />
+        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'}`} title={vmTarget.title}>
+          <Server size={14} />
+          <span>{vmTarget.label}</span>
+          {vmTarget.configured ? null : (
+            <button type="button" className="environment-configure" onClick={onConfigureVm}>
+              Configure
+            </button>
+          )}
+        </div>
+      </div>
       <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>
       <button type="button" className="notification-button" title="Notifications">
         <Bell size={15} />
       </button>
     </footer>
   );
+}
+
+function ResearchSessionPage({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element {
+  if (!selectedRunId) {
+    return (
+      <div className="research-session-empty">
+        <span>Research Session</span>
+        <p>No research session selected.</p>
+      </div>
+    );
+  }
+
+  if (!detail || detail.run.id !== selectedRunId) {
+    return (
+      <div className="research-session-empty">
+        <span>Research Session</span>
+        <p>Loading research session.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="research-session-page">
+      <div className="research-session-heading">
+        <div>
+          <StatusPill status={detail.run.status} />
+          <h2>{detail.run.title}</h2>
+          <p>{detail.run.summary || 'No summary recorded.'}</p>
+        </div>
+        <div className="research-session-meta">
+          <span>{detail.run.mode}</span>
+          <span>{detail.run.model}</span>
+          <span>{detail.attempts.length} attempt{detail.attempts.length === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+
+      <div className="research-session-prompt">
+        <span>Prompt</span>
+        <pre>{detail.run.promptMarkdown.trim() || 'No prompt recorded.'}</pre>
+      </div>
+
+      <div className="research-session-stats">
+        <div>
+          <span>Hypotheses</span>
+          <strong>{detail.hypotheses.length}</strong>
+        </div>
+        <div>
+          <span>Findings</span>
+          <strong>{detail.findings.length}</strong>
+        </div>
+        <div>
+          <span>Artifacts</span>
+          <strong>{detail.artifacts.length}</strong>
+        </div>
+        <div>
+          <span>Verifiers</span>
+          <strong>{detail.verifierRuns.length}/{detail.verifierContracts.length}</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function hostEnvironmentLabel(hostEnvironment: HostEnvironment | null): string {
+  if (!hostEnvironment) return 'Host OS';
+  if (hostEnvironment.osLabel) return hostEnvironment.osLabel;
+  if (hostEnvironment.isWsl) return `WSL: ${hostEnvironment.remoteName ?? 'Linux'}`;
+  if (hostEnvironment.platform === 'win32') return 'Windows';
+  if (hostEnvironment.platform === 'darwin') return 'macOS';
+  if (hostEnvironment.platform === 'linux') return 'Linux';
+  return 'Host OS';
+}
+
+function vmTargetStatus(executor: ExecutorStatus | null): { configured: boolean; label: string; title: string } {
+  const backend = executor?.backends.find((candidate) => candidate.available) ?? executor?.backends.find((candidate) => candidate.configured) ?? null;
+  if (!backend) {
+    return {
+      configured: false,
+      label: 'Not Setup',
+      title: 'Local VM target is not configured'
+    };
+  }
+  return {
+    configured: true,
+    label: backend.label,
+    title: backend.available ? `${backend.label} is available` : `${backend.label} is configured but unavailable`
+  };
 }
 
 function Modal({
@@ -601,6 +894,47 @@ function Modal({
         <footer className="modal-footer">{footer}</footer>
       </section>
     </div>
+  );
+}
+
+function ProgramInformationModal({ program, onClose }: { program: ProgramRegistryEntry; onClose: () => void }): JSX.Element {
+  return (
+    <Modal title="Program Information" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+      <div className="program-info-grid">
+        <div>
+          <span>Program</span>
+          <strong>{program.programName}</strong>
+        </div>
+        <div>
+          <span>Organization</span>
+          <strong>{program.organizationName || 'None'}</strong>
+        </div>
+        <div>
+          <span>Workspace</span>
+          <strong>{program.workspacePath}</strong>
+        </div>
+        <div>
+          <span>Network</span>
+          <strong>{program.networkProfile}</strong>
+        </div>
+        <div>
+          <span>Authorization Expires</span>
+          <strong>{program.expiresAt ?? 'Never'}</strong>
+        </div>
+        <div>
+          <span>Research Sessions</span>
+          <strong>{program.runCount}</strong>
+        </div>
+        <div className="program-info-block">
+          <span>Description</span>
+          <p>{program.descriptionMarkdown || 'No description recorded.'}</p>
+        </div>
+        <div className="program-info-block">
+          <span>Scope and Rules</span>
+          <p>{program.rulesMarkdown || 'No scope or rules recorded.'}</p>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1071,11 +1405,13 @@ function StartRunForm({
   snapshot,
   busy,
   runAction,
+  onCancel,
   onStarted
 }: {
   snapshot: WorkspaceSnapshot;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+  onCancel: () => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
   const [input, setInput] = useState<StartRunInput>(() => ({
@@ -1094,7 +1430,9 @@ function StartRunForm({
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
     setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
   };
+  const attemptLimitValue = input.budget.maxAttempts >= UNBOUNDED_ATTEMPTS ? '' : String(input.budget.maxAttempts);
   const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
+  const canStart = input.promptMarkdown.trim().length > 0 && !openAiBlocked;
 
   const start = (): void => {
     void runAction(async () => {
@@ -1106,95 +1444,110 @@ function StartRunForm({
   };
 
   return (
-    <section className="panel start-panel">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Run</p>
-          <h3>Start Research</h3>
-        </div>
-        <button className="primary-button" type="button" disabled={busy || !input.promptMarkdown.trim() || openAiBlocked} onClick={start}>
-          <Play size={16} />
-          Start
-        </button>
-      </div>
-      {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
-        <div className="policy-line">
-          <ShieldAlert size={15} />
-          {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
-        </div>
-      ) : null}
-      <textarea className="prompt-box" rows={6} value={input.promptMarkdown} onChange={(event) => update('promptMarkdown', event.target.value)} />
-      <div className="start-grid">
-        <label>
-          Engine
-          <select value={input.runEngine} onChange={(event) => update('runEngine', event.target.value as StartRunInput['runEngine'])}>
-            <option value="fake">fake</option>
-            <option value="openai_responses">openai_responses</option>
-            <option value="executor_alpha">executor_alpha</option>
-          </select>
-        </label>
-        <label>
-          Mode
-          <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
-            <option value="open_discovery">open_discovery</option>
-            <option value="targeted_reproduction">targeted_reproduction</option>
-            <option value="patch_validation">patch_validation</option>
-            <option value="variant_analysis">variant_analysis</option>
-          </select>
-        </label>
-        <label>
-          Attempts
-          <input type="number" min={1} value={input.budget.maxAttempts} onChange={(event) => updateBudget('maxAttempts', Number(event.target.value))} />
-        </label>
-        <label>
-          Budget USD
-          <input type="number" min={0} value={input.budget.maxCostUsd} onChange={(event) => updateBudget('maxCostUsd', Number(event.target.value))} />
-        </label>
-      </div>
-      <details className="advanced-run-options">
-        <summary>Run settings</summary>
-        <div className="form-grid">
+    <Modal
+      title="New Research"
+      wide
+      onClose={onCancel}
+      footer={
+        <>
+          <button type="button" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="primary-button" type="button" disabled={busy || !canStart} onClick={start}>
+            <Play size={16} />
+            Start
+          </button>
+        </>
+      }
+    >
+      <div className="start-run-modal-body">
+        {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
+          <div className="policy-line">
+            <ShieldAlert size={15} />
+            {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
+          </div>
+        ) : null}
+        <textarea className="prompt-box" rows={6} value={input.promptMarkdown} onChange={(event) => update('promptMarkdown', event.target.value)} />
+        <div className="start-grid">
           <label>
-            Minutes
-            <input type="number" min={1} value={input.budget.maxMinutes} onChange={(event) => updateBudget('maxMinutes', Number(event.target.value))} />
-          </label>
-          <label>
-            Strategy
-            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-              <option value="adaptive_portfolio">adaptive_portfolio</option>
-              <option value="single_path">single_path</option>
-              <option value="reproduction_first">reproduction_first</option>
+            Engine
+            <select value={input.runEngine} onChange={(event) => update('runEngine', event.target.value as StartRunInput['runEngine'])}>
+              <option value="fake">fake</option>
+              <option value="openai_responses">openai_responses</option>
+              <option value="executor_alpha">executor_alpha</option>
             </select>
           </label>
           <label>
-            Fake scenario
-            <select value={input.fakeScenario} onChange={(event) => update('fakeScenario', event.target.value as FakeScenario)}>
-              <option value="adaptive_portfolio">adaptive_portfolio</option>
-              <option value="source_logic_bug">source_logic_bug</option>
-              <option value="memory_corruption">memory_corruption</option>
-              <option value="policy_block">policy_block</option>
-              <option value="verified_finding">verified_finding</option>
+            Mode
+            <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
+              <option value="open_discovery">open_discovery</option>
+              <option value="targeted_reproduction">targeted_reproduction</option>
+              <option value="patch_validation">patch_validation</option>
+              <option value="variant_analysis">variant_analysis</option>
             </select>
-          </label>
-          <label>
-            Model
-            <input value={input.model} onChange={(event) => update('model', event.target.value)} />
-          </label>
-          <label>
-            Reasoning
-            <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
           </label>
           <label>
             Network
-            <input value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)} />
-          </label>
-          <label>
-            Sandbox
-            <input value={input.sandboxProfile} onChange={(event) => update('sandboxProfile', event.target.value)} />
+            <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
+              {NETWORK_PROFILE_OPTIONS.map((profile) => (
+                <option value={profile} key={profile}>
+                  {profile}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
-      </details>
-    </section>
+        <details className="advanced-run-options">
+          <summary>Run settings</summary>
+          <div className="form-grid">
+            <label>
+              Minutes
+              <input type="number" min={1} value={input.budget.maxMinutes} onChange={(event) => updateBudget('maxMinutes', Number(event.target.value))} />
+            </label>
+            <label>
+              Attempts
+              <input
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                value={attemptLimitValue}
+                onChange={(event) => {
+                  const rawValue = event.target.value.trim();
+                  const nextAttempts = rawValue ? Math.max(1, Math.floor(Number(rawValue))) : UNBOUNDED_ATTEMPTS;
+                  updateBudget('maxAttempts', Number.isFinite(nextAttempts) ? nextAttempts : UNBOUNDED_ATTEMPTS);
+                }}
+              />
+            </label>
+            <label>
+              Strategy
+              <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
+                <option value="adaptive_portfolio">adaptive_portfolio</option>
+                <option value="single_path">single_path</option>
+                <option value="reproduction_first">reproduction_first</option>
+              </select>
+            </label>
+            <label>
+              Fake scenario
+              <select value={input.fakeScenario} onChange={(event) => update('fakeScenario', event.target.value as FakeScenario)}>
+                <option value="adaptive_portfolio">adaptive_portfolio</option>
+                <option value="source_logic_bug">source_logic_bug</option>
+                <option value="memory_corruption">memory_corruption</option>
+                <option value="policy_block">policy_block</option>
+                <option value="verified_finding">verified_finding</option>
+              </select>
+            </label>
+            <label>
+              Model
+              <input value={input.model} onChange={(event) => update('model', event.target.value)} />
+            </label>
+            <label>
+              Reasoning
+              <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
+            </label>
+          </div>
+        </details>
+      </div>
+    </Modal>
   );
 }
 
@@ -1505,8 +1858,8 @@ function RunDetailView({
               type: 'update_run_budget',
               runId: detail.run.id,
               budgetPatch: {
-                maxMinutes: budgetNumber(detail.run.budget.maxMinutes, 45) + 15,
-                maxAttempts: budgetNumber(detail.run.budget.maxAttempts, 1)
+                maxMinutes: budgetNumber(detail.run.budget.maxMinutes, 180) + 30,
+                maxAttempts: budgetNumber(detail.run.budget.maxAttempts, UNBOUNDED_ATTEMPTS)
               }
             })
           }

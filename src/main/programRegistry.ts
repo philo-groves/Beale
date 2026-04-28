@@ -85,12 +85,25 @@ export class ProgramRegistry {
     return row ? this.mapProgram(row) : null;
   }
 
+  public removeProgram(programId: string): ProgramRegistryEntry | null {
+    const program = this.getProgram(programId);
+    if (!program) return null;
+
+    this.db.prepare('DELETE FROM programs WHERE id = ?').run(programId);
+    if (this.getMeta('last_program_id') === programId) {
+      this.deleteMeta('last_program_id');
+    }
+    if (this.getMeta('last_workspace_path') === program.workspacePath) {
+      this.deleteMeta('last_workspace_path');
+    }
+    return program;
+  }
+
   public syncWorkspace(snapshot: WorkspaceSnapshot): void {
     const program = this.upsertProgramFromSnapshot(snapshot);
     this.rememberLastKnownProgram(program);
-    const now = nowIso();
     for (const row of snapshot.runs) {
-      this.upsertResearchSession(program.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, now);
+      this.upsertResearchSession(program.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, sessionUpdatedAt(row));
     }
   }
 
@@ -128,6 +141,7 @@ export class ProgramRegistry {
         status TEXT NOT NULL,
         run_engine TEXT NOT NULL,
         mode TEXT NOT NULL,
+        prompt_markdown TEXT NOT NULL DEFAULT '',
         summary TEXT NOT NULL,
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
@@ -147,6 +161,13 @@ export class ProgramRegistry {
     this.db
       .prepare('INSERT OR IGNORE INTO registry_meta (key, value, updated_at) VALUES (?, ?, ?)')
       .run('schema_version', '1', nowIso());
+    this.addColumnIfMissing('research_sessions', 'prompt_markdown', "TEXT NOT NULL DEFAULT ''");
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const columns = rows(this.db.prepare(`PRAGMA table_info(${table})`).all());
+    if (columns.some((row) => text(row, 'name') === column)) return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
   }
 
   private listPrograms(): ProgramRegistryEntry[] {
@@ -170,6 +191,10 @@ export class ProgramRegistry {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
       )
       .run(key, value, nowIso());
+  }
+
+  private deleteMeta(key: string): void {
+    this.db.prepare('DELETE FROM registry_meta WHERE key = ?').run(key);
   }
 
   private rememberLastKnownProgram(program: ProgramRegistryEntry): void {
@@ -259,6 +284,7 @@ export class ProgramRegistry {
       run.status,
       row.engine,
       run.mode,
+      run.promptMarkdown,
       run.summary,
       run.model,
       run.reasoningEffort,
@@ -282,6 +308,7 @@ export class ProgramRegistry {
             status = ?,
             run_engine = ?,
             mode = ?,
+            prompt_markdown = ?,
             summary = ?,
             model = ?,
             reasoning_effort = ?,
@@ -301,9 +328,9 @@ export class ProgramRegistry {
       .prepare(
         `INSERT INTO research_sessions (
           id, program_id, workspace_path, workspace_id, run_id, title, status, run_engine,
-          mode, summary, model, reasoning_effort, network_profile, sandbox_profile,
+          mode, prompt_markdown, summary, model, reasoning_effort, network_profile, sandbox_profile,
           created_at, started_at, ended_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
@@ -340,6 +367,7 @@ export class ProgramRegistry {
       status: text(row, 'status') as RunStatus,
       runEngine: text(row, 'run_engine') as RunEngineKind,
       mode: text(row, 'mode'),
+      promptMarkdown: text(row, 'prompt_markdown'),
       summary: text(row, 'summary'),
       model: text(row, 'model'),
       reasoningEffort: text(row, 'reasoning_effort'),
@@ -388,6 +416,10 @@ function nullableText(row: SqlRow, key: string): string | null {
 function numberValue(row: SqlRow, key: string): number {
   const value = row[key];
   return typeof value === 'number' ? value : Number(value ?? 0);
+}
+
+function sessionUpdatedAt(row: WorkspaceSnapshot['runs'][number]): string {
+  return row.run.endedAt ?? row.run.startedAt ?? row.run.createdAt;
 }
 
 function titleFromDirectoryName(value: string): string {
