@@ -1,4 +1,4 @@
-import type { ProgramScopeVersion, RunDetail, ScopeAsset, StartRunInput, TraceEventRecord } from '@shared/types';
+import type { ContextCompactionRecord, ProgramScopeVersion, RunDetail, ScopeAsset, StartRunInput, TraceEventRecord } from '@shared/types';
 import type { ResponseInputMessage } from './openaiAdapter';
 import { redactForModelText, redactJsonForModel } from './redaction';
 
@@ -80,9 +80,9 @@ export function buildResumeOpenAiInput(detail: RunDetail): ResponseInputMessage[
   );
 }
 
-export function buildCompactedReplayOpenAiInput(detail: RunDetail): ResponseInputMessage[] {
+export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { reason?: string; previousCompaction?: ContextCompactionRecord | null; recentEventLimit?: number } = {}): ResponseInputMessage[] {
   const visibleEvents = detail.traceEvents.filter((event) => event.modelVisible);
-  const recentEvents = visibleEvents.slice(-60).map(formatTraceEventForReplay);
+  const recentEvents = visibleEvents.slice(-(options.recentEventLimit ?? 60)).map(formatTraceEventForReplay);
   const activeHypotheses = detail.hypotheses
     .filter((hypothesis) => !['dismissed', 'out_of_scope'].includes(hypothesis.state))
     .slice(0, 20)
@@ -94,6 +94,7 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail): ResponseInpu
   const verifierRuns = detail.verifierRuns
     .slice(-20)
     .map((run) => `- ${run.id}: ${run.status}; blocked=${run.blockedIssue}; diagnostics=${run.diagnosticsClean}`);
+  const previousCompaction = options.previousCompaction;
 
   return messageInput(
     [
@@ -101,6 +102,10 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail): ResponseInpu
       'Previous Responses state was unavailable or intentionally reset. Continue from this compacted, redacted Beale state.',
       'Preserve completed actions, active assumptions, tool outcomes, unresolved blockers, and the next concrete goal.',
       'Only model-visible trace events are included below.',
+      `Compaction reason: ${options.reason ? redactForModelText(options.reason) : 'unspecified'}`,
+      previousCompaction
+        ? `Previous compaction checkpoint: ${previousCompaction.id}; trace high-water mark ${previousCompaction.traceHighWaterMark}; created ${previousCompaction.createdAt}.`
+        : 'Previous compaction checkpoint: none.',
       '',
       '## Original Prompt',
       redactForModelText(detail.run.promptMarkdown),

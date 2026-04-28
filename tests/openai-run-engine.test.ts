@@ -19,6 +19,11 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_AUTH_COMMAND_TIMEOUT_MS;
   delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE;
+  delete process.env.BEALE_OPENAI_COMPACT_INPUT_TOKENS;
+  delete process.env.BEALE_OPENAI_COMPACT_MANUAL_TURNS;
+  delete process.env.BEALE_OPENAI_COMPACT_RECENT_EVENTS;
+  delete process.env.BEALE_OPENAI_COMPACT_SERIALIZED_BYTES;
+  delete process.env.BEALE_OPENAI_CONTEXT_BUDGET_TOKENS;
   delete process.env.BEALE_OPENAI_MAX_TOOL_TURNS;
   delete process.env.BEALE_OPENAI_TRANSPORT;
   delete process.env.OPENAI_API_KEY;
@@ -443,6 +448,88 @@ describe('OpenAI Responses run engine', () => {
     expect(replayInput.some((item) => item.type === 'function_call' && item.call_id === 'call_codex_1')).toBe(true);
     expect(replayInput.some((item) => item.type === 'function_call_output' && item.call_id === 'call_codex_1')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses request sent for turn 2.' && event.payload.replayMode === 'manual_response_replay')).toBe(true);
+    db.close();
+  });
+
+  it('proactively compacts long manual response replay before it hits the context window', async () => {
+    process.env.BEALE_OPENAI_COMPACT_MANUAL_TURNS = '1';
+    const authDir = mkdtempSync(join(tmpdir(), 'beale-codex-compaction-'));
+    createdDirs.push(authDir);
+    const authPath = join(authDir, 'auth.json');
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: fakeCodexAccessToken('codex-account-123')
+        }
+      })
+    );
+
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length <= 2) {
+        return new Response(sse(toolCallEvents(`resp_compact_${requests.length}`, `call_compact_${requests.length}`)), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' }
+        });
+      }
+      return new Response(sse(finalResponseEvents('resp_compact_final')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1', null, 'https://chatgpt.test/backend-api');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(detail.contextCompactions).toHaveLength(2);
+    expect(detail.contextCompactions[0].reason).toBe('manual_replay_turn_limit');
+    expect(detail.contextCompactions[0].previousCompactionId).toBeNull();
+    expect(detail.contextCompactions[1].reason).toBe('manual_replay_turn_limit');
+    expect(detail.contextCompactions[1].previousCompactionId).toBe(detail.contextCompactions[0].id);
+    expect(detail.traceEvents.some((event) => event.summary === 'Context compacted for long-running session.' && event.payload.reason === 'manual_replay_turn_limit')).toBe(true);
+
+    const compactedRequest = requests[1];
+    expect(JSON.stringify(compactedRequest.input)).toContain('Compacted Beale Run Replay');
+    const session = db.getRunDetail(handle.context.run.id).modelSessions[0];
+    const manualConversationInput = session.metadata.manualConversationInput as Array<Record<string, unknown>>;
+    expect(manualConversationInput.filter((item) => item.type === 'function_call').length).toBeLessThanOrEqual(1);
+    db.close();
+  });
+
+  it('compacts and retries once after a context-window error', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model.' } }), { status: 400 });
+      }
+      return new Response(sse(finalResponseEvents('resp_after_context_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[1].input)).toContain('Compacted Beale Run Replay');
+    expect(detail.contextCompactions).toHaveLength(1);
+    expect(detail.contextCompactions[0].reason).toBe('context_window_error');
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI compacted retry recovered from context window pressure.')).toBe(true);
     db.close();
   });
 

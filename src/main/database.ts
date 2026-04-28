@@ -13,6 +13,7 @@ import type {
   BenchmarkSuiteKind,
   BenchmarkTaskMode,
   BenchmarkTaskResultRecord,
+  ContextCompactionRecord,
   ExportRecord,
   ExportReviewDecision,
   FindingRecord,
@@ -183,6 +184,24 @@ export interface CreateModelSessionInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface CreateContextCompactionInput {
+  runId: string;
+  attemptId?: string | null;
+  previousCompactionId?: string | null;
+  reason: string;
+  previousReplayMode: string;
+  newReplayMode: string;
+  traceRangeSummarized: Record<string, unknown>;
+  traceRangeKept: Record<string, unknown>;
+  traceHighWaterMark: number;
+  tokenPressure?: Record<string, unknown>;
+  serializedSizeBytes: number;
+  redactionPolicyVersion: string;
+  summarySource: string;
+  representedState?: Record<string, unknown>;
+  compactedInput?: Record<string, unknown>;
+}
+
 export interface StartRunRecordInput {
   scopeVersionId: string;
   title: string;
@@ -243,7 +262,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -704,6 +723,52 @@ export class WorkspaceDatabase {
     const session = this.getModelSession(id);
     if (!session) throw new Error('Failed to create model session');
     return session;
+  }
+
+  public createContextCompaction(input: CreateContextCompactionInput): ContextCompactionRecord {
+    const id = createId('compaction');
+    const createdAt = nowIso();
+    const previousCompactionId =
+      input.previousCompactionId === undefined ? this.getLatestContextCompaction(input.runId)?.id ?? null : input.previousCompactionId;
+
+    this.db
+      .prepare(
+        `INSERT INTO context_compactions (
+          id, run_id, attempt_id, previous_compaction_id, trace_event_id, reason,
+          previous_replay_mode, new_replay_mode, trace_range_summarized_json,
+          trace_range_kept_json, trace_high_water_mark, token_pressure_json,
+          serialized_size_bytes, redaction_policy_version, summary_source,
+          represented_state_json, compacted_input_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.runId,
+        input.attemptId ?? null,
+        previousCompactionId,
+        null,
+        input.reason,
+        input.previousReplayMode,
+        input.newReplayMode,
+        toJson(input.traceRangeSummarized),
+        toJson(input.traceRangeKept),
+        input.traceHighWaterMark,
+        toJson(input.tokenPressure),
+        input.serializedSizeBytes,
+        input.redactionPolicyVersion,
+        input.summarySource,
+        toJson(input.representedState),
+        toJson(input.compactedInput),
+        createdAt
+      );
+
+    const compaction = this.getContextCompaction(id);
+    if (!compaction) throw new Error('Failed to create context compaction');
+    return compaction;
+  }
+
+  public setContextCompactionTrace(compactionId: string, traceEventId: string): void {
+    this.db.prepare('UPDATE context_compactions SET trace_event_id = ? WHERE id = ?').run(traceEventId, compactionId);
   }
 
   public createAttempt(input: CreateAttemptInput): AttemptRecord {
@@ -1534,6 +1599,9 @@ export class WorkspaceDatabase {
           .all(runId, runId)
       ).map((row) => this.mapVmContext(row)),
       modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
+      contextCompactions: rows(this.db.prepare('SELECT * FROM context_compactions WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapContextCompaction(row)
+      ),
       policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
       exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
     };
@@ -1611,6 +1679,10 @@ export class WorkspaceDatabase {
         this.applyNotificationsMigration();
         this.insertMigration(5, 'session_final_response_notifications');
       }
+      if (currentVersion < 6) {
+        this.applyContextCompactionMigration();
+        this.insertMigration(6, 'context_compaction_checkpoints');
+      }
     });
   }
 
@@ -1627,6 +1699,10 @@ export class WorkspaceDatabase {
 
   private applyNotificationsMigration(): void {
     this.db.exec(NOTIFICATIONS_SCHEMA_SQL);
+  }
+
+  private applyContextCompactionMigration(): void {
+    this.db.exec(CONTEXT_COMPACTIONS_SCHEMA_SQL);
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -1758,6 +1834,16 @@ export class WorkspaceDatabase {
   private getModelSession(modelSessionId: string): ModelSessionRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE id = ?').get(modelSessionId));
     return row ? this.mapModelSession(row) : null;
+  }
+
+  private getContextCompaction(compactionId: string): ContextCompactionRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM context_compactions WHERE id = ?').get(compactionId));
+    return row ? this.mapContextCompaction(row) : null;
+  }
+
+  private getLatestContextCompaction(runId: string): ContextCompactionRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM context_compactions WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(runId));
+    return row ? this.mapContextCompaction(row) : null;
   }
 
   private getBenchmarkRun(benchmarkRunId: string): BenchmarkRunRecord | null {
@@ -2034,6 +2120,29 @@ export class WorkspaceDatabase {
     };
   }
 
+  private mapContextCompaction(row: SqlRow): ContextCompactionRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
+      previousCompactionId: nullableText(row, 'previous_compaction_id'),
+      traceEventId: nullableText(row, 'trace_event_id'),
+      reason: text(row, 'reason'),
+      previousReplayMode: text(row, 'previous_replay_mode'),
+      newReplayMode: text(row, 'new_replay_mode'),
+      traceRangeSummarized: parseJson(row.trace_range_summarized_json),
+      traceRangeKept: parseJson(row.trace_range_kept_json),
+      traceHighWaterMark: numberValue(row, 'trace_high_water_mark'),
+      tokenPressure: parseJson(row.token_pressure_json),
+      serializedSizeBytes: numberValue(row, 'serialized_size_bytes'),
+      redactionPolicyVersion: text(row, 'redaction_policy_version'),
+      summarySource: text(row, 'summary_source'),
+      representedState: parseJson(row.represented_state_json),
+      compactedInput: parseJson(row.compacted_input_json),
+      createdAt: text(row, 'created_at')
+    };
+  }
+
   private mapBenchmarkRun(row: SqlRow): BenchmarkRunRecord {
     const passCount = numberValue(row, 'pass_count');
     const totalCount = numberValue(row, 'total_count');
@@ -2115,6 +2224,32 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_trace_event ON notifications(trace_event_id) WHERE trace_event_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notifications_status_created ON notifications(status, created_at);
+`;
+
+const CONTEXT_COMPACTIONS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS context_compactions (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+  previous_compaction_id TEXT REFERENCES context_compactions(id),
+  trace_event_id TEXT REFERENCES trace_events(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  previous_replay_mode TEXT NOT NULL,
+  new_replay_mode TEXT NOT NULL,
+  trace_range_summarized_json TEXT NOT NULL,
+  trace_range_kept_json TEXT NOT NULL,
+  trace_high_water_mark INTEGER NOT NULL,
+  token_pressure_json TEXT NOT NULL,
+  serialized_size_bytes INTEGER NOT NULL,
+  redaction_policy_version TEXT NOT NULL,
+  summary_source TEXT NOT NULL,
+  represented_state_json TEXT NOT NULL,
+  compacted_input_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_compactions_run_created ON context_compactions(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_context_compactions_previous ON context_compactions(previous_compaction_id);
 `;
 
 const SCHEMA_SQL = `
@@ -2272,6 +2407,8 @@ CREATE TABLE IF NOT EXISTS trace_events (
   approval_id TEXT REFERENCES approvals(id),
   UNIQUE (run_id, sequence)
 );
+
+${CONTEXT_COMPACTIONS_SCHEMA_SQL}
 
 ${NOTIFICATIONS_SCHEMA_SQL}
 

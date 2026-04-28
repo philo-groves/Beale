@@ -15,6 +15,7 @@ This book is the working planning document for the Beale rewrite.
 - [Implementation Architecture](implementation-architecture.md)
 - [OpenAI Integration](openai-integration.md)
 - [Agent Loop Ownership](agent-loop-ownership.md)
+- [Context Compaction](context-compaction.md)
 - [Trusted Harness Boundary](trusted-harness-boundary.md)
 - [Sandbox Model](sandbox-model.md)
 - [Executor Interface](executor-interface.md)

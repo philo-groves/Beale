@@ -499,6 +499,27 @@ export interface ModelSessionRecord {
   updatedAt: string;
 }
 
+export interface ContextCompactionRecord {
+  id: string;
+  runId: string;
+  attemptId: string | null;
+  previousCompactionId: string | null;
+  traceEventId: string | null;
+  reason: string;
+  previousReplayMode: string;
+  newReplayMode: string;
+  traceRangeSummarized: Record<string, unknown>;
+  traceRangeKept: Record<string, unknown>;
+  traceHighWaterMark: number;
+  tokenPressure: Record<string, unknown>;
+  serializedSizeBytes: number;
+  redactionPolicyVersion: string;
+  summarySource: string;
+  representedState: Record<string, unknown>;
+  compactedInput: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface ApprovalRecord {
   id: string;
   runId: string;
@@ -567,6 +588,7 @@ export interface RunDetail {
   verifierRuns: VerifierRunRecord[];
   vmContexts: VmContextRecord[];
   modelSessions: ModelSessionRecord[];
+  contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
 }
