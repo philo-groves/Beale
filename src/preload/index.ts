@@ -79,6 +79,12 @@ const api: BealeApi = {
   steerRun(action: SteeringAction) {
     return ipcRenderer.invoke(IPC_CHANNELS.steerRun, action);
   },
+  openNotification(notificationId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openNotification, notificationId);
+  },
+  dismissNotification(notificationId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.dismissNotification, notificationId);
+  },
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void) {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot | null): void => listener(snapshot);
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, wrapped);

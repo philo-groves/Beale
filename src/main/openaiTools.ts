@@ -6,8 +6,9 @@ import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
 import { runVerifierContract } from './verifierRunner';
+import { materializeGitRepository, selectSourceRepository, sourceRepositoryCandidates } from './sourceMaterializer';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
-import type { ScopeAsset, TraceEventType, TraceSource } from '@shared/types';
+import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource } from '@shared/types';
 
 export interface OpenAiToolDefinition {
   type: 'function';
@@ -56,7 +57,7 @@ interface DebuggerSummary {
   targetMissing: boolean;
 }
 
-const TOOL_NAMES = ['search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier'] as const;
+const TOOL_NAMES = ['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
 const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
@@ -70,7 +71,11 @@ const MAX_MODEL_ARTIFACT_BYTES = 256 * 1024;
 
 export function bealeToolDefinitions(): OpenAiToolDefinition[] {
   return [
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, notes, and artifact summaries. Does not access live networks.', {
+    tool('source', 'Materialize an in-scope source repository into the Beale workspace with a host-safe shallow git clone. Use before source search when a scoped repo is not checked out yet.', {
+      repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
+      ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
+    }),
+    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, and artifact summaries. Does not perform target execution.', {
       query: stringProp('Search query'),
       target: stringProp('Scoped target, path, artifact id, or component hint; use an empty string when not needed')
     }),
@@ -215,6 +220,8 @@ export class BealeToolRouter {
 
   private dispatch(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
     switch (toolName) {
+      case 'source':
+        return this.materializeSource(context, args);
       case 'search':
         return this.searchScopedMaterial(context, args);
       case 'code_browser':
@@ -242,6 +249,7 @@ export class BealeToolRouter {
     }
 
     const files = this.collectScopedFiles(targetHint);
+    const sourceCandidates = sourceRepositoryCandidates(this.db.getActiveScope());
     const queryLower = query.toLowerCase();
     const matches: Array<Record<string, unknown>> = [];
     let skippedFiles = 0;
@@ -270,11 +278,16 @@ export class BealeToolRouter {
       }
     }
 
-    matches.push(...this.searchRunArtifactsAndTrace(context, queryLower, MAX_SEARCH_MATCHES - matches.length));
+    matches.push(...this.searchRunArtifacts(context, queryLower, MAX_SEARCH_MATCHES - matches.length));
+
+    const sourceHint =
+      matches.length === 0 && sourceCandidates.length > 0
+        ? 'No local source matches were available. Use the source tool to materialize an in-scope repository, then retry search.'
+        : null;
 
     return {
       status: 'success',
-      summary: `Search returned ${matches.length} scoped match${matches.length === 1 ? '' : 'es'}.`,
+      summary: sourceHint ?? `Search returned ${matches.length} scoped match${matches.length === 1 ? '' : 'es'}.`,
       payload: {
         observationBacked: true,
         simulated: false,
@@ -282,7 +295,53 @@ export class BealeToolRouter {
         targetHint,
         filesConsidered: files.length,
         skippedFiles,
+        sourceRepositoriesAvailable: sourceCandidates.map((candidate) => ({ label: candidate.label, url: candidate.url })),
+        sourceAcquisitionHint: sourceHint,
         matches
+      }
+    };
+  }
+
+  private materializeSource(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+    const repository = stringValue(args.repository, '').trim();
+    const ref = stringValue(args.ref, '').trim();
+    const scope = this.db.getActiveScope();
+    const selection = selectSourceRepository(scope, repository);
+    if (!selection.candidate) {
+      return {
+        status: 'error',
+        summary:
+          selection.reason === 'ambiguous'
+            ? 'Source repository request was ambiguous; choose one scoped repository URL.'
+            : 'Source repository is not recorded in active program scope.',
+        payload: {
+          observationBacked: false,
+          requestedRepository: repository,
+          reason: selection.reason,
+          availableRepositories: selection.candidates.map((candidate) => ({ label: candidate.label, url: candidate.url }))
+        }
+      };
+    }
+
+    const materialized = materializeGitRepository(selection.candidate, this.db.getDatabasePath(), ref);
+    const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+
+    return {
+      status: 'success',
+      summary: `Source repository materialized for scoped analysis: ${selection.candidate.url}.`,
+      payload: {
+        observationBacked: true,
+        simulated: false,
+        targetExecution: false,
+        hostSetup: true,
+        repositoryUrl: materialized.repositoryUrl,
+        localPath: materialized.localPath,
+        cloned: materialized.cloned,
+        ref: materialized.ref,
+        head: materialized.head,
+        sourceAssetId: selection.candidate.sourceAssetId,
+        activeScopeVersion: nextScope.version,
+        searchNext: true
       }
     };
   }
@@ -371,7 +430,7 @@ export class BealeToolRouter {
         BEALE_TARGET_PATH: '/workspace/target'
       },
       timeoutMs: 30_000,
-      networkProfile: normalizeNetworkProfile(context.run.networkProfile),
+      networkProfile: localAnalysisNetworkProfile(),
       expectedOutput: artifactPath ? 'artifact' : 'summary'
     }, artifactPath || null);
 
@@ -395,7 +454,8 @@ export class BealeToolRouter {
         candidateArtifactCount: execution.result.candidateArtifacts.length,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
-        networkProfile: normalizeNetworkProfile(context.run.networkProfile)
+        networkProfile: localAnalysisNetworkProfile(),
+        runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
       }
     };
   }
@@ -452,7 +512,7 @@ export class BealeToolRouter {
         BEALE_DEBUGGER_TRANSCRIPT: transcriptPath
       },
       timeoutMs: 30_000,
-      networkProfile: normalizeNetworkProfile(context.run.networkProfile),
+      networkProfile: localAnalysisNetworkProfile(),
       expectedOutput: 'summary'
     }, transcriptPath);
 
@@ -479,7 +539,8 @@ export class BealeToolRouter {
         debugger: debuggerSummary,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
-        networkProfile: normalizeNetworkProfile(context.run.networkProfile)
+        networkProfile: localAnalysisNetworkProfile(),
+        runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
       }
     };
   }
@@ -664,9 +725,9 @@ export class BealeToolRouter {
     const importSpec = this.firstScopedImport();
     let contextCreated = false;
     try {
-      this.executor.createContext(context, 'beale-default-toolchain', 'clean');
+      this.executor.createContext(context, 'beale-default-toolchain', 'clean', request.networkProfile);
       contextCreated = true;
-      this.executor.cloneContext(context, 'clean');
+      this.executor.cloneContext(context, 'clean', request.networkProfile);
       if (importSpec) {
         this.executor.importWorkspaceMaterial(context, {
           hostPath: importSpec.hostPath,
@@ -730,7 +791,7 @@ export class BealeToolRouter {
     }
   }
 
-  private searchRunArtifactsAndTrace(context: CreatedRunContext, queryLower: string, remaining: number): Array<Record<string, unknown>> {
+  private searchRunArtifacts(context: CreatedRunContext, queryLower: string, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
     const detail = this.db.getRunDetail(context.run.id);
     const matches: Array<Record<string, unknown>> = [];
@@ -743,19 +804,6 @@ export class BealeToolRouter {
         artifactKind: artifact.kind,
         sha256: artifact.sha256,
         snippet: trimSnippet(`${artifact.kind} ${artifact.id} ${artifact.sha256}`)
-      });
-      if (matches.length >= remaining) return matches;
-    }
-    for (const event of detail.traceEvents) {
-      const haystack = `${event.summary} ${event.type} ${event.source} ${JSON.stringify(event.payload)}`.toLowerCase();
-      if (!haystack.includes(queryLower)) continue;
-      matches.push({
-        kind: 'trace_event',
-        traceEventId: event.id,
-        sequence: event.sequence,
-        eventType: event.type,
-        source: event.source,
-        snippet: trimSnippet(event.summary)
       });
       if (matches.length >= remaining) return matches;
     }
@@ -780,8 +828,46 @@ export class BealeToolRouter {
     return asset ? { hostPath: resolve(asset.value) } : null;
   }
 
+  private ensureLocalSourceInScope(sourceAssetId: string, sensitivity: string, localPath: string, repositoryUrl: string, head: string | null): ReturnType<WorkspaceDatabase['getActiveScope']> {
+    const scope = this.db.getActiveScope();
+    const resolvedLocalPath = resolve(localPath);
+    if (scope.assets.some((asset) => asset.direction === 'in_scope' && isScopedLocalAsset(asset) && resolve(asset.value) === resolvedLocalPath)) {
+      return scope;
+    }
+    const assets: ScopeAssetInput[] = scope.assets.map((asset) => ({
+      direction: asset.direction,
+      kind: asset.kind,
+      value: asset.value,
+      sensitivity: asset.sensitivity,
+      attributes: asset.attributes
+    }));
+    assets.push({
+      direction: 'in_scope',
+      kind: 'repo',
+      value: resolvedLocalPath,
+      sensitivity,
+      attributes: {
+        source: 'beale_source_materializer',
+        repositoryUrl,
+        sourceAssetId,
+        head
+      }
+    });
+    return this.db.saveProgramScope({
+      programName: scope.programName,
+      organizationName: scope.organizationName,
+      descriptionMarkdown: scope.descriptionMarkdown,
+      rulesMarkdown: scope.rulesMarkdown,
+      networkProfile: scope.networkProfile,
+      expiresAt: scope.expiresAt,
+      assets
+    });
+  }
+
   private toolPolicy(toolName: ToolName): Record<string, unknown> {
     switch (toolName) {
+      case 'source':
+        return { execution: 'host_safe_source_setup', targetExecution: false, liveNetwork: 'scoped_repository_clone', hostShell: false };
       case 'search':
       case 'code_browser':
         return { execution: 'host_scoped_read_only', targetExecution: false, liveNetwork: false };
@@ -980,6 +1066,10 @@ function selectLineRange(lines: string[], symbol: string): { start: number; end:
 
 function trimSnippet(value: string): string {
   return value.trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function localAnalysisNetworkProfile(): 'offline' {
+  return 'offline';
 }
 
 function parseDebuggerSummary(stdout: string, stderr: string, exitCode: number | null): DebuggerSummary {

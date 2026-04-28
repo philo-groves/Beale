@@ -511,9 +511,13 @@ describe('Beale workbench skeleton', () => {
     const migrated = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
     const columns = (migrated.prepare('PRAGMA table_info(exports)').all() as Array<{ name: string }>).map((row) => row.name);
     const migration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 4').get();
+    const notificationsMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 5').get();
+    const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
     expect(migration).toBeTruthy();
+    expect(notificationsMigration).toBeTruthy();
+    expect(notificationsTable).toBeTruthy();
   });
 
   it('recovers interrupted active state on workspace reopen', () => {

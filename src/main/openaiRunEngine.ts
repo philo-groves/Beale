@@ -12,14 +12,15 @@ import { OpenAiAuthService } from './openaiAuth';
 import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
 import type { ExecutorManager } from './executorManager';
-import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput } from '@shared/types';
+import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
 
 export interface OpenAiRunHandle {
   context: CreatedRunContext;
   completion: Promise<void>;
 }
 
-const MAX_OPENAI_TOOL_TURNS = 4;
+const DEFAULT_OPENAI_TOOL_TURN_LIMIT = 256;
+const MAX_OPENAI_TOOL_TURN_LIMIT = 10_000;
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const OUTPUT_DELTA_TRACE_INTERVAL_MS = 1000;
@@ -247,9 +248,11 @@ export class OpenAiRunEngine {
     let previousResponseIdUnsupported = state?.previousResponseIdUnsupported ?? this.adapter.usesManualConversationState();
     let replayMode = state?.replayMode ?? 'initial';
     let replayedAfterMissingPrevious = replayMode === 'compacted_replay';
+    let latestCompletedModelOutput: { text: string; traceEventId: string } | null = null;
+    const maxToolTurns = openAiToolTurnLimit();
 
     try {
-      for (let turn = 0; turn < MAX_OPENAI_TOOL_TURNS; turn += 1) {
+      for (let turn = 0; turn < maxToolTurns; turn += 1) {
         const requestPreviousResponseId = previousResponseIdUnsupported ? null : previousResponseId;
         this.db.updateModelSessionByRun(context.run.id, {
           status: 'active',
@@ -298,9 +301,16 @@ export class OpenAiRunEngine {
 
         const functionCalls: OpenAiFunctionCall[] = [];
         const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0 };
+        latestCompletedModelOutput = null;
         try {
           for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
             const persistedTraceEvent = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
+            if (persistedTraceEvent?.source === 'model' && persistedTraceEvent.type === 'model_message') {
+              const text = stringPayloadValue(persistedTraceEvent.payload, 'text').trim();
+              if (text) {
+                latestCompletedModelOutput = { text, traceEventId: persistedTraceEvent.id };
+              }
+            }
             let updatedModelSession = false;
             const eventResponseId = responseIdFromEvent(event);
             if (eventResponseId && event.type === 'response.completed') {
@@ -380,6 +390,15 @@ export class OpenAiRunEngine {
         }
 
         if (functionCalls.length === 0) {
+          if (latestCompletedModelOutput) {
+            this.db.createNotification({
+              runId: context.run.id,
+              traceEventId: latestCompletedModelOutput.traceEventId,
+              kind: 'session_final_response',
+              title: context.run.title,
+              bodyMarkdown: latestCompletedModelOutput.text
+            });
+          }
           this.db.updateAttemptState(context.attempt.id, 'completed', 'OpenAI run completed without additional tool requests.');
           this.db.updateRunStatus(context.run.id, 'completed', 'OpenAI run completed.');
           this.db.updateModelSessionByRun(context.run.id, { status: 'completed', metadata: { completed: true, pendingInput: [] } });
@@ -409,11 +428,11 @@ export class OpenAiRunEngine {
         });
       }
 
-      this.db.updateAttemptState(context.attempt.id, 'paused', 'Paused after OpenAI tool-turn budget was reached.');
-      this.db.updateRunStatus(context.run.id, 'paused', 'Paused after OpenAI tool-turn budget was reached.');
+      this.db.updateAttemptState(context.attempt.id, 'paused', 'Paused after OpenAI internal safety turn limit was reached.');
+      this.db.updateRunStatus(context.run.id, 'paused', 'Paused after OpenAI internal safety turn limit was reached.');
       this.db.updateModelSessionByRun(context.run.id, {
-        status: 'paused_tool_budget',
-        metadata: { maxToolTurns: MAX_OPENAI_TOOL_TURNS, pendingInput: responseInput, manualConversationInput, previousResponseIdUnsupported, replayMode }
+        status: 'paused_safety_turn_limit',
+        metadata: { maxToolTurns, pendingInput: responseInput, manualConversationInput, previousResponseIdUnsupported, replayMode }
       });
       this.adapter.closeWebSocketSession(context.run.id);
     } catch (error) {
@@ -441,10 +460,10 @@ export class OpenAiRunEngine {
     }
   }
 
-  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): boolean {
+  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): TraceEventRecord | null {
     switch (event.type) {
       case 'response.created':
-        this.db.appendTraceEvent({
+        return this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
           type: 'model_message',
@@ -452,13 +471,12 @@ export class OpenAiRunEngine {
           summary: 'OpenAI response created.',
           payload: summarizeEvent(event)
         });
-        return true;
       case 'response.output_text.delta': {
         const delta = typeof event.delta === 'string' ? event.delta : '';
         const now = Date.now();
         if (delta.trim().length > 0 && now - streamTraceState.lastOutputDeltaTraceAt >= OUTPUT_DELTA_TRACE_INTERVAL_MS) {
           streamTraceState.lastOutputDeltaTraceAt = now;
-          this.db.appendTraceEvent({
+          return this.db.appendTraceEvent({
             runId: context.run.id,
             attemptId: context.attempt.id,
             type: 'model_message',
@@ -470,13 +488,12 @@ export class OpenAiRunEngine {
             },
             vmContextId: context.vmContext.id
           });
-          return true;
         }
-        return false;
+        return null;
       }
       case 'response.output_text.done': {
         const text = typeof event.text === 'string' ? event.text : '';
-        this.db.appendTraceEvent({
+        return this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
           type: 'model_message',
@@ -488,14 +505,13 @@ export class OpenAiRunEngine {
           },
           vmContextId: context.vmContext.id
         });
-        return true;
       }
       case 'response.function_call_arguments.done':
       case 'response.output_item.done': {
         const call = functionCallFromEvent(event);
         if (call && !functionCalls.some((existing) => existing.callId === call.callId)) {
           functionCalls.push(call);
-          this.db.appendTraceEvent({
+          return this.db.appendTraceEvent({
             runId: context.run.id,
             attemptId: context.attempt.id,
             type: 'tool_call',
@@ -509,12 +525,11 @@ export class OpenAiRunEngine {
             },
             vmContextId: context.vmContext.id
           });
-          return true;
         }
-        return false;
+        return null;
       }
       case 'response.completed':
-        this.db.appendTraceEvent({
+        return this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
           type: 'model_message',
@@ -522,11 +537,10 @@ export class OpenAiRunEngine {
           summary: 'OpenAI response completed.',
           payload: summarizeEvent(event)
         });
-        return true;
       case 'error':
         throw openAiApiErrorFromEvent(event);
       default:
-        return false;
+        return null;
     }
   }
 }
@@ -697,6 +711,11 @@ function summarizeEvent(event: OpenAiStreamEvent): Record<string, unknown> {
   };
 }
 
+function stringPayloadValue(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : '';
+}
+
 function summarizeText(text: string): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();
   return oneLine.length > 180 ? `${oneLine.slice(0, 177)}...` : oneLine;
@@ -709,4 +728,12 @@ function errorMessage(error: unknown): string {
 function isPreviousResponseIdUnsupported(error: unknown): boolean {
   const message = errorMessage(error);
   return message.includes('Unsupported parameter') && message.includes('previous_response_id');
+}
+
+function openAiToolTurnLimit(): number {
+  const configured = Number(process.env.BEALE_OPENAI_MAX_TOOL_TURNS);
+  if (Number.isInteger(configured) && configured > 0) {
+    return Math.min(configured, MAX_OPENAI_TOOL_TURN_LIMIT);
+  }
+  return DEFAULT_OPENAI_TOOL_TURN_LIMIT;
 }

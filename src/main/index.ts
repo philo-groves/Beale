@@ -89,6 +89,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) => workspaceService.getRunDetail(runId));
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) => workspaceService.steerRun(action));
+  ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
+  ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));
 }
 
 app.whenReady().then(() => {

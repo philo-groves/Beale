@@ -341,6 +341,7 @@ export class WorkspaceService {
       recovery: this.lastRecovery ?? emptyRecoveryReport(this.openedAt),
       policyReview: buildPolicyReview(this.db.getActiveScope()),
       runs: this.db.listRunRows(),
+      notifications: this.db.listNotifications(),
       benchmark: this.requireBenchmarkRunner().getOverview()
     };
   }
@@ -1033,6 +1034,18 @@ export class WorkspaceService {
     }
 
     this.emitChange();
+    return this.requireSnapshot();
+  }
+
+  public openNotification(notificationId: string): WorkspaceSnapshot {
+    this.requireDb().markNotificationOpened(notificationId);
+    this.emitChangeNow();
+    return this.requireSnapshot();
+  }
+
+  public dismissNotification(notificationId: string): WorkspaceSnapshot {
+    this.requireDb().dismissNotification(notificationId);
+    this.emitChangeNow();
     return this.requireSnapshot();
   }
 
@@ -1867,21 +1880,45 @@ function hackerOneScopeToAsset(scope: HackerOneScopeNode): ScopeAssetInput | nul
   const value = scope.asset_identifier?.trim();
   if (!value) return null;
   const assetType = scope.asset_type?.trim() ?? 'OTHER';
+  const instruction = scope.instruction ?? '';
+  const repositoryUrl = firstGitHubRepositoryUrl(`${value}\n${instruction}`);
+  const kind = repositoryUrl ? 'repo' : hackerOneAssetKind(assetType, value);
+  const normalizedValue = repositoryUrl && (kind === 'repo' || assetType.toUpperCase().includes('SOURCE')) ? repositoryUrl : value;
   return {
     direction: scope.eligible_for_submission === false ? 'out_of_scope' : 'in_scope',
-    kind: hackerOneAssetKind(assetType, value),
-    value,
+    kind,
+    value: normalizedValue,
     sensitivity: 'public',
     attributes: {
       source: 'hackerone',
       assetType,
-      instruction: scope.instruction ?? '',
+      displayName: normalizedValue === value ? undefined : value,
+      instruction,
+      repositoryUrl: repositoryUrl ?? undefined,
       eligibleForBounty: scope.eligible_for_bounty,
       eligibleForSubmission: scope.eligible_for_submission,
       maxSeverity: scope.max_severity,
       url: scope.url
     }
   };
+}
+
+function firstGitHubRepositoryUrl(text: string): string | null {
+  const match = text.match(/\b(?:https?:\/\/)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/i);
+  if (!match) return null;
+  const raw = match[0].replace(/[),.;]+$/, '');
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com') return null;
+    const [owner, repoWithSuffix] = parsed.pathname.split('/').filter(Boolean);
+    if (!owner || !repoWithSuffix) return null;
+    const repo = repoWithSuffix.replace(/\.git$/i, '');
+    if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return null;
+    return `https://github.com/${owner}/${repo}`;
+  } catch {
+    return null;
+  }
 }
 
 function hackerOneAssetKind(assetType: string, value: string): ScopeAssetInput['kind'] {

@@ -142,7 +142,22 @@ function messageInput(text: string): ResponseInputMessage[] {
 
 function scopeAssetLine(asset: ScopeAsset): string {
   if (asset.kind === 'credential_ref') return `${asset.kind}: [credential reference redacted]`;
-  return `${asset.kind}: ${redactForModelText(asset.value)}`;
+  const repositoryUrl = repositoryUrlFromAsset(asset);
+  const suffix = repositoryUrl && repositoryUrl !== asset.value ? ` (repository: ${redactForModelText(repositoryUrl)})` : '';
+  return `${asset.kind}: ${redactForModelText(asset.value)}${suffix}`;
+}
+
+function repositoryUrlFromAsset(asset: ScopeAsset): string | null {
+  const values = [asset.value, stringAttribute(asset.attributes?.repositoryUrl), stringAttribute(asset.attributes?.instruction)];
+  for (const value of values) {
+    const match = value.match(/\bhttps:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/i);
+    if (match) return match[0].replace(/\.git$/i, '');
+  }
+  return null;
+}
+
+function stringAttribute(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 function formatTraceEventForReplay(event: TraceEventRecord): string {

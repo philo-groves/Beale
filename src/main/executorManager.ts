@@ -59,9 +59,9 @@ export class ExecutorManager {
     };
   }
 
-  public createContext(context: CreatedRunContext, imageRef = 'beale-default-toolchain', snapshotRef = 'clean'): void {
+  public createContext(context: CreatedRunContext, imageRef = 'beale-default-toolchain', snapshotRef = 'clean', requestedNetworkProfile = context.run.networkProfile): void {
     const status = this.requireAvailable();
-    const networkProfile = normalizeNetworkProfile(context.run.networkProfile);
+    const networkProfile = normalizeNetworkProfile(requestedNetworkProfile);
     if (!status.supportedNetworkProfiles.includes(networkProfile)) {
       throw new Error(`Executor backend cannot enforce requested network profile: ${networkProfile}`);
     }
@@ -109,12 +109,13 @@ export class ExecutorManager {
     this.recordVmEvent(context, 'VM snapshot restored.', { snapshotRef, providerResult: result });
   }
 
-  public cloneContext(context: CreatedRunContext, snapshotRef: string): void {
+  public cloneContext(context: CreatedRunContext, snapshotRef: string, requestedNetworkProfile = context.run.networkProfile): void {
     const status = this.requireAvailable();
     if (!status.supports.clone || !status.supports.snapshots) {
       this.recordPolicyBlock(context, 'Executor backend does not support clean snapshot clone.', { snapshotRef, provider: status.provider });
       throw new Error('Executor backend does not support clean snapshot clone.');
     }
+    const networkProfile = normalizeNetworkProfile(requestedNetworkProfile);
     const currentState = this.currentVmState(context);
     if (currentState !== 'clean') {
       this.recordPolicyBlock(context, 'Clean snapshot clone requires a clean VM context.', {
@@ -124,7 +125,8 @@ export class ExecutorManager {
       });
       throw new Error(`Clean snapshot clone requires a clean VM context; current state is ${currentState}.`);
     }
-    const result = this.provider.cloneContext(context, snapshotRef);
+    const providerContext = { ...context, vmContext: { ...context.vmContext, networkProfile } };
+    const result = this.provider.cloneContext(providerContext, snapshotRef);
     this.db.updateVmContext(context.vmContext.id, { snapshotId: snapshotRef, state: 'clean', metadata: { clonedFromSnapshot: snapshotRef, providerResult: result } });
     this.recordVmEvent(context, 'VM context cloned from clean snapshot.', { snapshotRef, providerResult: result });
   }

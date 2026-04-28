@@ -59,6 +59,7 @@ import type {
   FindingRecord,
   HypothesisRecord,
   HostEnvironment,
+  NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   PriorityFactorInput,
@@ -241,6 +242,7 @@ export function App(): JSX.Element {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
+  const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
   const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -409,6 +411,29 @@ export function App(): JSX.Element {
       }
     },
     [applySnapshot, loadProgramRegistry, loadSnapshot]
+  );
+
+  const openNotification = useCallback(
+    async (notification: NotificationRecord) => {
+      setActiveNotification(notification);
+      try {
+        applySnapshot(await window.beale.openNotification(notification.id));
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [applySnapshot]
+  );
+
+  const dismissNotification = useCallback(
+    async (notificationId: string) => {
+      try {
+        applySnapshot(await window.beale.dismissNotification(notificationId));
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    },
+    [applySnapshot]
   );
 
   const runProgramAction = useCallback(
@@ -699,11 +724,13 @@ export function App(): JSX.Element {
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         executor={snapshot?.executor ?? null}
         message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)}
+        notificationCount={snapshot?.notifications.length ?? 0}
         onConfigureVm={() => {
           setSettingsSection('general');
           setSettingsOpen(true);
         }}
       />
+      <NotificationStack notifications={snapshot?.notifications ?? []} onOpen={openNotification} onDismiss={dismissNotification} />
       {programDraft ? (
         <ProgramOnboardingModal
           busy={busy}
@@ -745,6 +772,17 @@ export function App(): JSX.Element {
           visibleCategories={visibleTraceCategories}
           onChange={setVisibleTraceCategories}
           onClose={() => setTraceFilterOpen(false)}
+        />
+      ) : null}
+      {activeNotification ? (
+        <NotificationDetailModal
+          notification={activeNotification}
+          busy={busy}
+          onClose={() => setActiveNotification(null)}
+          onSteer={(instruction) => {
+            void runAction(() => window.beale.steerRun({ type: 'fork', runId: activeNotification.runId, instruction }));
+            setActiveNotification(null);
+          }}
         />
       ) : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
@@ -863,11 +901,13 @@ function StatusBar({
   hostEnvironment,
   executor,
   message,
+  notificationCount,
   onConfigureVm
 }: {
   hostEnvironment: HostEnvironment | null;
   executor: ExecutorStatus | null;
   message: { tone: 'error' | 'info'; text: string } | null;
+  notificationCount: number;
   onConfigureVm: () => void;
 }): JSX.Element {
   const osLabel = hostEnvironmentLabel(hostEnvironment);
@@ -892,11 +932,95 @@ function StatusBar({
         </div>
       </div>
       <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>
-      <button type="button" className="notification-button" title="Notifications">
+      <button type="button" className="notification-button" title={`${notificationCount} unread notification${notificationCount === 1 ? '' : 's'}`}>
         <Bell size={15} />
+        {notificationCount > 0 ? <span>{notificationCount}</span> : null}
       </button>
     </footer>
   );
+}
+
+function NotificationStack({
+  notifications,
+  onOpen,
+  onDismiss
+}: {
+  notifications: NotificationRecord[];
+  onOpen: (notification: NotificationRecord) => void;
+  onDismiss: (notificationId: string) => void;
+}): JSX.Element | null {
+  if (notifications.length === 0) return null;
+  return (
+    <div className="notification-stack" aria-label="Notifications">
+      {notifications.map((notification) => (
+        <article className="notification-toast" key={notification.id}>
+          <button type="button" className="notification-toast-main" onClick={() => onOpen(notification)}>
+            <span className="notification-toast-title">{notification.title}</span>
+            <span className="notification-toast-body">{truncateText(firstNotificationSentence(notification.bodyMarkdown), 140)}</span>
+          </button>
+          <button
+            type="button"
+            className="notification-toast-close"
+            title="Dismiss notification"
+            aria-label="Dismiss notification"
+            onClick={() => onDismiss(notification.id)}
+          >
+            <XCircle size={15} />
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function NotificationDetailModal({
+  notification,
+  busy,
+  onClose,
+  onSteer
+}: {
+  notification: NotificationRecord;
+  busy: boolean;
+  onClose: () => void;
+  onSteer: (instruction: string) => void;
+}): JSX.Element {
+  const [instruction, setInstruction] = useState('');
+  const trimmedInstruction = instruction.trim();
+  return (
+    <Modal
+      title={notification.title}
+      wide
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="primary-button" disabled={busy || !trimmedInstruction} onClick={() => onSteer(trimmedInstruction)}>
+            <ChevronRight size={15} />
+            Steer
+          </button>
+        </>
+      }
+    >
+      <div className="notification-detail">
+        <pre>{notification.bodyMarkdown}</pre>
+        <label>
+          Steer
+          <textarea
+            rows={4}
+            value={instruction}
+            placeholder="Add direction for this research session"
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+function firstNotificationSentence(markdown: string): string {
+  return firstPromptSentence(markdown) || markdown.replace(/\s+/g, ' ').trim();
 }
 
 function SessionTimestamps({ detail }: { detail: RunDetail | null }): JSX.Element | null {

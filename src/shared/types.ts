@@ -374,6 +374,21 @@ export interface TraceEventRecord {
   approvalId: string | null;
 }
 
+export type NotificationStatus = 'unread' | 'opened' | 'dismissed';
+
+export interface NotificationRecord {
+  id: string;
+  runId: string;
+  traceEventId: string | null;
+  kind: 'session_final_response';
+  title: string;
+  bodyMarkdown: string;
+  status: NotificationStatus;
+  createdAt: string;
+  openedAt: string | null;
+  dismissedAt: string | null;
+}
+
 export interface HypothesisRecord {
   id: string;
   runId: string;
@@ -686,6 +701,7 @@ export interface WorkspaceSnapshot {
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
+  notifications: NotificationRecord[];
   benchmark: BenchmarkOverview;
 }
 
@@ -758,6 +774,8 @@ export interface BealeApi {
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
+  openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
+  dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
   onProgramRegistry(listener: (state: ProgramRegistryState) => void): () => void;
 }

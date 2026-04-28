@@ -18,6 +18,8 @@ import type {
   FindingRecord,
   HypothesisRecord,
   ModelSessionRecord,
+  NotificationRecord,
+  NotificationStatus,
   OpenAiTransport,
   ProgramScopeDraft,
   ProgramScopeVersion,
@@ -56,6 +58,14 @@ export interface AppendTraceInput {
   artifactId?: string | null;
   toolCallId?: string | null;
   approvalId?: string | null;
+}
+
+export interface CreateNotificationInput {
+  runId: string;
+  traceEventId?: string | null;
+  kind: 'session_final_response';
+  title: string;
+  bodyMarkdown: string;
 }
 
 export interface CreateHypothesisInput {
@@ -233,7 +243,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -807,6 +817,56 @@ export class WorkspaceDatabase {
       throw new Error('Failed to append trace event');
     }
     return event;
+  }
+
+  public createNotification(input: CreateNotificationInput): NotificationRecord {
+    const id = createId('notification');
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO notifications (
+          id, run_id, trace_event_id, kind, title, body_markdown, status, created_at, opened_at, dismissed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'unread', ?, NULL, NULL)`
+      )
+      .run(id, input.runId, input.traceEventId ?? null, input.kind, input.title, input.bodyMarkdown, createdAt);
+
+    const notification =
+      (input.traceEventId ? this.getNotificationByTraceEvent(input.traceEventId) : null) ??
+      this.getNotification(id);
+    if (!notification) {
+      throw new Error('Failed to create notification');
+    }
+    return notification;
+  }
+
+  public listNotifications(status: NotificationStatus = 'unread'): NotificationRecord[] {
+    return rows(this.db.prepare('SELECT * FROM notifications WHERE status = ? ORDER BY created_at ASC').all(status)).map((row) => this.mapNotification(row));
+  }
+
+  public markNotificationOpened(notificationId: string): NotificationRecord | null {
+    const openedAt = nowIso();
+    this.db
+      .prepare(
+        `UPDATE notifications
+         SET status = 'opened',
+             opened_at = COALESCE(opened_at, ?)
+         WHERE id = ?`
+      )
+      .run(openedAt, notificationId);
+    return this.getNotification(notificationId);
+  }
+
+  public dismissNotification(notificationId: string): NotificationRecord | null {
+    const dismissedAt = nowIso();
+    this.db
+      .prepare(
+        `UPDATE notifications
+         SET status = 'dismissed',
+             dismissed_at = COALESCE(dismissed_at, ?)
+         WHERE id = ?`
+      )
+      .run(dismissedAt, notificationId);
+    return this.getNotification(notificationId);
   }
 
   public createToolCall(input: CreateToolCallInput): string {
@@ -1547,6 +1607,10 @@ export class WorkspaceDatabase {
         this.applyExportReviewMigration();
         this.insertMigration(4, 'export_review_hardening');
       }
+      if (currentVersion < 5) {
+        this.applyNotificationsMigration();
+        this.insertMigration(5, 'session_final_response_notifications');
+      }
     });
   }
 
@@ -1559,6 +1623,10 @@ export class WorkspaceDatabase {
     this.addColumnIfMissing('exports', 'review_decision', 'review_decision TEXT');
     this.addColumnIfMissing('exports', 'review_note', 'review_note TEXT');
     this.addColumnIfMissing('exports', 'reviewed_at', 'reviewed_at TEXT');
+  }
+
+  private applyNotificationsMigration(): void {
+    this.db.exec(NOTIFICATIONS_SCHEMA_SQL);
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -1635,6 +1703,16 @@ export class WorkspaceDatabase {
   private getTraceEvent(traceEventId: string): TraceEventRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM trace_events WHERE id = ?').get(traceEventId));
     return row ? this.mapTraceEvent(row) : null;
+  }
+
+  private getNotification(notificationId: string): NotificationRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM notifications WHERE id = ?').get(notificationId));
+    return row ? this.mapNotification(row) : null;
+  }
+
+  private getNotificationByTraceEvent(traceEventId: string): NotificationRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM notifications WHERE trace_event_id = ?').get(traceEventId));
+    return row ? this.mapNotification(row) : null;
   }
 
   private getAttempt(attemptId: string): AttemptRecord | null {
@@ -1782,6 +1860,21 @@ export class WorkspaceDatabase {
       artifactId: nullableText(row, 'artifact_id'),
       toolCallId: nullableText(row, 'tool_call_id'),
       approvalId: nullableText(row, 'approval_id')
+    };
+  }
+
+  private mapNotification(row: SqlRow): NotificationRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      traceEventId: nullableText(row, 'trace_event_id'),
+      kind: text(row, 'kind') as NotificationRecord['kind'],
+      title: text(row, 'title'),
+      bodyMarkdown: text(row, 'body_markdown'),
+      status: text(row, 'status') as NotificationStatus,
+      createdAt: text(row, 'created_at'),
+      openedAt: nullableText(row, 'opened_at'),
+      dismissedAt: nullableText(row, 'dismissed_at')
     };
   }
 
@@ -2006,6 +2099,24 @@ export class WorkspaceDatabase {
   }
 }
 
+const NOTIFICATIONS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  trace_event_id TEXT REFERENCES trace_events(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body_markdown TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('unread', 'opened', 'dismissed')),
+  created_at TEXT NOT NULL,
+  opened_at TEXT,
+  dismissed_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_trace_event ON notifications(trace_event_id) WHERE trace_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notifications_status_created ON notifications(status, created_at);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
@@ -2161,6 +2272,8 @@ CREATE TABLE IF NOT EXISTS trace_events (
   approval_id TEXT REFERENCES approvals(id),
   UNIQUE (run_id, sequence)
 );
+
+${NOTIFICATIONS_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS hypotheses (
   id TEXT PRIMARY KEY,

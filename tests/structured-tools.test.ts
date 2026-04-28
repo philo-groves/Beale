@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { ExecutorManager } from '../src/main/executorManager';
 import { BealeToolRouter } from '../src/main/openaiTools';
 
 const createdDirs: string[] = [];
-const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS'];
+const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'BEALE_GIT_COMMAND'];
 let callSequence = 0;
 
 afterEach(() => {
@@ -21,6 +21,38 @@ afterEach(() => {
 });
 
 describe('structured research tools', () => {
+  it('materializes in-scope source repositories before scoped search and VM import', () => {
+    const { db, context } = openStructuredToolDb();
+    const gitFixture = join(process.cwd(), 'tests/fixtures/git-fixture.mjs');
+    chmodSync(gitFixture, 0o700);
+    process.env.BEALE_GIT_COMMAND = gitFixture;
+    const router = new BealeToolRouter(db);
+
+    db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'other',
+          value: 'Open Source - Zuul',
+          sensitivity: 'public',
+          attributes: { instruction: '## https://github.com/Netflix/zuul\nPrimary target.' }
+        }
+      ]
+    });
+
+    const source = callTool(router, context, 'source', { repository: 'Zuul', ref: '' });
+    expect(source.status).toBe('success');
+    expect(source.payload.repositoryUrl).toBe('https://github.com/Netflix/zuul');
+    expect(String(source.payload.localPath)).toContain('targets/repositories/github.com_Netflix_zuul');
+
+    const search = callTool(router, context, 'search', { query: 'authorizationBoundary', target: '' });
+    expect(search.status).toBe('success');
+    expect(JSON.stringify(search.payload)).toContain('ProxyEndpoint.java');
+    db.close();
+  });
+
   it('searches scoped source and binary-derived strings, then reads bounded source chunks', () => {
     const { db, context, sourceFile, binaryFile } = openStructuredToolDb();
     const router = new BealeToolRouter(db);
@@ -33,6 +65,19 @@ describe('structured research tools', () => {
     expect(binarySearch.status).toBe('success');
     expect(JSON.stringify(binarySearch.payload)).toContain(binaryFile);
     expect(JSON.stringify(binarySearch.payload)).toContain('binaryDerived');
+
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: 'UniqueTraceOnlyNeedle should not become scoped search material.',
+      payload: { text: 'UniqueTraceOnlyNeedle' }
+    });
+    const selfSearch = callTool(router, context, 'search', { query: 'UniqueTraceOnlyNeedle', target: '' });
+    expect(selfSearch.status).toBe('success');
+    expect(selfSearch.payload.matches).toEqual([]);
+    expect(JSON.stringify(selfSearch.payload)).not.toContain('trace_event');
 
     const read = callTool(router, context, 'code_browser', { path: sourceFile, symbol: 'check_access' });
     expect(read.status).toBe('success');
@@ -81,6 +126,7 @@ describe('structured research tools', () => {
 
   it('runs Python and the debugger wrapper through the disposable VM controller boundary', () => {
     const { db, context, logPath } = openStructuredToolDb();
+    context.run.networkProfile = 'scoped';
     configureVmctlFixture(logPath);
     const router = new BealeToolRouter(db, new ExecutorManager(db));
 
@@ -105,6 +151,7 @@ describe('structured research tools', () => {
     expect((debuggerResult.payload.debugger as { signal: string }).signal).toBe('SIGSEGV');
     expect((debuggerResult.payload.debugger as { frames: string[] }).frames.length).toBeGreaterThan(0);
     expect((debuggerResult.payload.debugger as { registersCaptured: boolean }).registersCaptured).toBe(true);
+    context.run.networkProfile = 'offline';
 
     const verifier = callTool(router, context, 'verifier', {
       hypothesis: 'structured tool VM verifier',
@@ -132,6 +179,11 @@ describe('structured research tools', () => {
       .filter((entry) => entry.input.action === 'execute' && entry.input.payload.operation)
       .map((entry) => entry.input.payload.operation?.operationKind);
     expect(operations).toEqual(['python', 'shell', 'shell']);
+    const localAnalysisProfiles = readVmctlEntries(logPath)
+      .filter((entry) => entry.input.action === 'execute')
+      .slice(0, 2)
+      .map((entry) => entry.input.payload.operation?.networkPolicy?.profile);
+    expect(localAnalysisProfiles).toEqual(['offline', 'offline']);
     db.close();
   });
 });
@@ -142,6 +194,25 @@ interface ToolOutput {
   trace_event_id?: string;
   artifact_id?: string;
   payload: Record<string, unknown>;
+}
+
+function scopeDraftFromActive(db: WorkspaceDatabase) {
+  const scope = db.getActiveScope();
+  return {
+    programName: scope.programName,
+    organizationName: scope.organizationName,
+    descriptionMarkdown: scope.descriptionMarkdown,
+    rulesMarkdown: scope.rulesMarkdown,
+    networkProfile: scope.networkProfile,
+    expiresAt: scope.expiresAt,
+    assets: scope.assets.map((asset) => ({
+      direction: asset.direction,
+      kind: asset.kind,
+      value: asset.value,
+      sensitivity: asset.sensitivity,
+      attributes: asset.attributes
+    }))
+  };
 }
 
 function callTool(router: BealeToolRouter, context: CreatedRunContext, name: string, args: Record<string, unknown>): ToolOutput {
@@ -200,7 +271,7 @@ function configureVmctlFixture(logPath: string): void {
   process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath]);
 }
 
-function readVmctlEntries(logPath: string): Array<{ input: { action: string; payload: { operation?: { operationKind: string } } } }> {
+function readVmctlEntries(logPath: string): Array<{ input: { action: string; payload: { operation?: { operationKind: string; networkPolicy?: { profile: string } } } } }> {
   const content = readFileSync(logPath, 'utf8').trim();
   if (!content) return [];
   return content.split('\n').map((line) => JSON.parse(line) as { input: { action: string; payload: { operation?: { operationKind: string } } } });

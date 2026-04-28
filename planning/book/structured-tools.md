@@ -4,7 +4,7 @@ Status: accepted initial direction, 2026-04-26.
 
 ## Decision
 
-Beale's first model-facing structured tool set should be minimal:
+Beale's first model-facing structured research tool set should be minimal:
 
 - `search`
 - `code_browser`
@@ -13,9 +13,13 @@ Beale's first model-facing structured tool set should be minimal:
 - `artifact`
 - `verifier`
 
+Beale also exposes one setup tool:
+
+- `source`
+
 Shell remains available as an escape hatch, but the harness should guide the model toward structured tools when they produce better traces, safer execution, or clearer evidence.
 
-Workspace setup is separate from this research tool set. Cloning in-scope repositories, importing local target material, and copying material into a VM should use narrow Beale-managed workspace/import operations rather than arbitrary host shell commands.
+Workspace setup is separate from the research evidence tool set. Cloning in-scope repositories, importing local target material, and copying material into a VM should use narrow Beale-managed workspace/import operations rather than arbitrary host shell commands.
 
 ## Rationale
 
@@ -25,12 +29,27 @@ The v1 tool set should cover Beale's first-release scope without exposing every 
 
 The operating rule:
 
+- `source` materializes scoped repositories into the workspace.
 - `search` finds where to look.
 - `code_browser` explains what is there.
 - `python` creates and mutates inputs.
 - `debugger` observes runtime truth.
 - `artifact` preserves evidence.
 - `verifier` decides whether evidence is strong enough.
+
+## Tool: `source`
+
+Purpose:
+
+- Materialize in-scope source repositories before source-backed analysis.
+
+Capabilities:
+
+- Validate that the requested repository URL or label is present in active program scope.
+- Clone the repository into a Beale-managed workspace directory using a shallow host-side git operation.
+- Add the local checkout as scoped source material for `search`, `code_browser`, VM import, and verifier setup.
+
+The tool is host-safe setup, not target execution. It must not expose a general host shell, run target-controlled code on the host, or use host secrets. Build, test, mutation, sanitizer, debugger, and PoC execution remain VM-only.
 
 ## Tool: `search`
 

@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
   steerRun: 'beale:steer-run',
+  openNotification: 'beale:open-notification',
+  dismissNotification: 'beale:dismiss-notification',
   programRegistryUpdated: 'beale:program-registry-updated',
   snapshotUpdated: 'beale:snapshot-updated'
 } as const;

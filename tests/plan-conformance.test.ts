@@ -65,17 +65,17 @@ describe('plan conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth and VM controller boundaries', () => {
+  it('keeps host subprocess use limited to auth, VM controller, benchmark, and source setup boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
-      (hit) => !['src/main/openaiAuth.ts', 'src/main/vmctlExecutor.ts', 'src/main/benchmarkDockerRunner.ts'].includes(normalizePath(hit.path))
+      (hit) => !['src/main/openaiAuth.ts', 'src/main/vmctlExecutor.ts', 'src/main/benchmarkDockerRunner.ts', 'src/main/sourceMaterializer.ts'].includes(normalizePath(hit.path))
     );
 
     expect(hits).toEqual([]);
   });
 
-  it('keeps the first model-facing tool surface to the planned six structured tools', () => {
-    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual(['search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier']);
+  it('keeps the first model-facing tool surface to one setup tool plus the planned structured research tools', () => {
+    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual(['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier']);
   });
 
   it('keeps the OpenAI adapter aligned with the planned defaults and host-only credential state', () => {

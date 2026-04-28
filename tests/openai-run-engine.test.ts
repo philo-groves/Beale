@@ -19,6 +19,7 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_AUTH_COMMAND_TIMEOUT_MS;
   delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE;
+  delete process.env.BEALE_OPENAI_MAX_TOOL_TURNS;
   delete process.env.BEALE_OPENAI_TRANSPORT;
   delete process.env.OPENAI_API_KEY;
   for (const dir of createdDirs.splice(0)) {
@@ -371,6 +372,10 @@ describe('OpenAI Responses run engine', () => {
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI streamed model output delta.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI completed function call arguments for search.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'tool_result' && event.source === 'tool')).toBe(true);
+    const notifications = db.listNotifications();
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].kind).toBe('session_final_response');
+    expect(notifications[0].bodyMarkdown).toBe('No verified finding yet.');
 
     const firstRequest = requests[0] as Record<string, unknown>;
     expect(firstRequest.model).toBe('gpt-5.5');
@@ -471,6 +476,7 @@ describe('OpenAI Responses run engine', () => {
 
   it('resumes a paused OpenAI run from persisted pending tool output', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    process.env.BEALE_OPENAI_MAX_TOOL_TURNS = '4';
     const requests: unknown[] = [];
     const fetchImpl: FetchLike = async (_url, init) => {
       const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
@@ -503,6 +509,36 @@ describe('OpenAI Responses run engine', () => {
     expect((requests[4] as Record<string, unknown>).previous_response_id).toBe('resp_4');
     expect(JSON.stringify((requests[4] as Record<string, unknown>).input)).toContain('function_call_output');
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI run resumed from persisted Responses state.')).toBe(true);
+    db.close();
+  });
+
+  it('continues past the legacy four-turn development cap by default', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: unknown[] = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length <= 5) {
+        return new Response(sse(toolCallEvents(`resp_${requests.length}`, `call_${requests.length}`)), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' }
+        });
+      }
+      return new Response(sse(finalResponseEvents('resp_6')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(6);
+    expect(detail.modelSessions[0].status).toBe('completed');
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses request sent for turn 5.')).toBe(true);
     db.close();
   });
 

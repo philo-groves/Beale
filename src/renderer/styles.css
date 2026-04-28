@@ -2538,6 +2538,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .notification-button {
   grid-column: 3;
+  position: relative;
   width: 34px;
   height: 30px;
   min-height: 30px;
@@ -2548,10 +2549,125 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin-right: 8px;
 }
 
+.notification-button span {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: #101010;
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
 .notification-button:hover:not(:disabled) {
   border-color: transparent;
   background: #181818;
   color: var(--text);
+}
+
+.notification-stack {
+  position: fixed;
+  right: 14px;
+  bottom: 42px;
+  z-index: 18;
+  width: min(370px, calc(100vw - 28px));
+  display: grid;
+  gap: 8px;
+}
+
+.notification-toast {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #111111;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+}
+
+.notification-toast-main {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  justify-content: stretch;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 11px;
+  text-align: left;
+  white-space: normal;
+}
+
+.notification-toast-main:hover:not(:disabled) {
+  border-color: transparent;
+  background: #171717;
+}
+
+.notification-toast-title,
+.notification-toast-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-toast-title {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.notification-toast-body {
+  display: -webkit-box;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.notification-toast-close {
+  width: 32px;
+  min-height: 0;
+  align-self: start;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 7px;
+}
+
+.notification-toast-close:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.notification-detail {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.notification-detail pre {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: #090909;
+  padding: 10px;
+  color: var(--muted-strong);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
 }
 
 .stat {
