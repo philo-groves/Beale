@@ -8,6 +8,7 @@ import {
   Bell,
   Bug,
   CalendarClock,
+  ChevronRight,
   CheckCircle2,
   ClipboardCheck,
   ClipboardX,
@@ -47,7 +48,6 @@ import {
   Square,
   Terminal,
   Trash2,
-  Upload,
   XCircle
 } from 'lucide-react';
 import type {
@@ -108,6 +108,40 @@ interface ProgramOnboardingFormState {
 
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 type SettingsSection = 'general' | 'providers';
+type TraceCategoryId =
+  | 'agent_output'
+  | 'reasoning'
+  | 'tools'
+  | 'vm_execution'
+  | 'hypotheses'
+  | 'evidence'
+  | 'verifier'
+  | 'policy_scope'
+  | 'code_navigation'
+  | 'failure_recovery'
+  | 'events';
+
+interface TraceCategoryOption {
+  id: TraceCategoryId;
+  label: string;
+  description: string;
+}
+
+const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
+  { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
+  { id: 'reasoning', label: 'Reasoning Summary', description: 'Plan changes, intent, and concise rationale without hidden chain-of-thought.' },
+  { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
+  { id: 'vm_execution', label: 'VM / Execution', description: 'Guest VM lifecycle, imports, commands, cleanup, and target execution.' },
+  { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
+  { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
+  { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
+  { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
+  { id: 'code_navigation', label: 'Code Navigation', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
+  { id: 'failure_recovery', label: 'Failure / Recovery', description: 'Errors, retries, cleanup failures, recovery notes, and blocked operations.' },
+  { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
+];
+
+const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
 
 const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
@@ -206,12 +240,17 @@ export function App(): JSX.Element {
   const [openProgramMenuId, setOpenProgramMenuId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
+  const [traceFilterOpen, setTraceFilterOpen] = useState(false);
+  const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
+  const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(292);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const previousRunIdRef = useRef<string | null>(null);
+  const runDetailRequestSeqRef = useRef(0);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     setSnapshot(next);
@@ -233,14 +272,7 @@ export function App(): JSX.Element {
     setProgramRegistry(await window.beale.getProgramRegistry());
   }, []);
 
-  const loadRunDetail = useCallback(async (runId: string | null) => {
-    if (!runId) {
-      setRunDetail(null);
-      return;
-    }
-    const detail = await window.beale.getRunDetail(runId);
-    setRunDetail(detail);
-  }, []);
+  const selectedRunStatus = selectedRunId ? snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run.status ?? null : null;
 
   useEffect(() => {
     window.beale
@@ -274,8 +306,60 @@ export function App(): JSX.Element {
   }, [applySnapshot]);
 
   useEffect(() => {
-    loadRunDetail(selectedRunId).catch((caught: unknown) => setError(errorMessage(caught)));
-  }, [loadRunDetail, selectedRunId, snapshot]);
+    const requestSeq = ++runDetailRequestSeqRef.current;
+    if (!selectedRunId) {
+      setRunDetail(null);
+      return undefined;
+    }
+
+    let disposed = false;
+    let inFlight = false;
+    const refreshRunDetail = (): void => {
+      if (inFlight) return;
+      inFlight = true;
+      window.beale
+        .getRunDetail(selectedRunId)
+        .then((detail) => {
+          if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
+            setRunDetail(detail);
+          }
+        })
+        .catch((caught: unknown) => {
+          if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
+            setError(errorMessage(caught));
+          }
+        })
+        .finally(() => {
+          inFlight = false;
+        });
+    };
+
+    refreshRunDetail();
+    if (selectedRunStatus !== 'active') {
+      return () => {
+        disposed = true;
+      };
+    }
+
+    const interval = window.setInterval(refreshRunDetail, 750);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedRunId, selectedRunStatus]);
+
+  useEffect(() => {
+    if (previousRunIdRef.current === selectedRunId) return;
+    previousRunIdRef.current = selectedRunId;
+    setSelectedTraceEventId(null);
+  }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedTraceEventId || !runDetail) return;
+    if (!runDetail.traceEvents.some((event) => event.id === selectedTraceEventId)) {
+      setSelectedTraceEventId(null);
+    }
+  }, [runDetail, selectedTraceEventId]);
 
   useEffect(() => {
     if (!openProgramMenuId) return undefined;
@@ -478,6 +562,8 @@ export function App(): JSX.Element {
   ]
     .filter(Boolean)
     .join(' ');
+  const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
+  const selectedTraceEvent = activeRunDetail?.traceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -486,7 +572,9 @@ export function App(): JSX.Element {
         inspectorOpen={inspectorOpen}
         onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         onToggleInspector={() => setInspectorOpen((current) => !current)}
+        onOpenTraceFilters={() => setTraceFilterOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        traceFilterCount={visibleTraceCategories.length}
       />
       <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
         <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
@@ -585,17 +673,27 @@ export function App(): JSX.Element {
       <main className="workbench">
         <div className="workbench-header">
           <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
-          <SessionStartTime detail={runDetail && runDetail.run.id === selectedRunId ? runDetail : null} />
+          <SessionTimestamps detail={activeRunDetail} />
         </div>
         <div className="workspace-page">
-          <MainSessionWorkspace detail={runDetail && runDetail.run.id === selectedRunId ? runDetail : null} selectedRunId={selectedRunId} />
+          <MainSessionWorkspace
+            detail={activeRunDetail}
+            selectedRunId={selectedRunId}
+            selectedTraceEventId={selectedTraceEventId}
+            visibleTraceCategories={visibleTraceCategories}
+            busy={busy}
+            onSelectTraceEvent={(event) => {
+              setSelectedTraceEventId(event.id);
+              setInspectorOpen(true);
+            }}
+            onSteerInstruction={(runId, instruction) => {
+              void runAction(() => window.beale.steerRun({ type: 'fork', runId, instruction }));
+            }}
+          />
         </div>
       </main>
       <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
-        <div className="inspector-empty-state">
-          <span>Inspector</span>
-          <p>No inspector content.</p>
-        </div>
+        <TraceInspector event={selectedTraceEvent} />
       </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
@@ -640,6 +738,13 @@ export function App(): JSX.Element {
           onClose={() => setSettingsOpen(false)}
           onRefreshOpenAi={refreshOpenAiProvider}
           onStartOpenAiOAuth={startOpenAiOAuth}
+        />
+      ) : null}
+      {traceFilterOpen ? (
+        <TraceFilterModal
+          visibleCategories={visibleTraceCategories}
+          onChange={setVisibleTraceCategories}
+          onClose={() => setTraceFilterOpen(false)}
         />
       ) : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
@@ -694,14 +799,18 @@ function TopBar({
   sidebarCollapsed,
   inspectorOpen,
   onOpenSettings,
+  onOpenTraceFilters,
   onToggleSidebar,
-  onToggleInspector
+  onToggleInspector,
+  traceFilterCount
 }: {
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
   onOpenSettings: () => void;
+  onOpenTraceFilters: () => void;
   onToggleSidebar: () => void;
   onToggleInspector: () => void;
+  traceFilterCount: number;
 }): JSX.Element {
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
@@ -725,8 +834,13 @@ function TopBar({
         <button type="button">Window</button>
       </nav>
       <div className="top-actions">
-        <button type="button" title="Export">
-          <Upload size={14} />
+        <button
+          type="button"
+          title={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
+          aria-label={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
+          onClick={onOpenTraceFilters}
+        >
+          <SlidersHorizontal size={14} />
         </button>
         <button type="button" title="Settings" onClick={onOpenSettings}>
           <Settings size={14} />
@@ -785,17 +899,45 @@ function StatusBar({
   );
 }
 
-function SessionStartTime({ detail }: { detail: RunDetail | null }): JSX.Element | null {
+function SessionTimestamps({ detail }: { detail: RunDetail | null }): JSX.Element | null {
   if (!detail) return null;
-  const startAt = detail.run.startedAt ?? detail.run.createdAt;
-  const start = new Date(startAt);
-  if (Number.isNaN(start.getTime())) return null;
+  const created = new Date(detail.run.createdAt);
+  const updated = latestRunDetailDate(detail);
+  if (Number.isNaN(created.getTime()) || !updated) return null;
 
   return (
-    <div className="session-start-time" title={startAt}>
-      <span>{formatSessionStart(start)}</span>
+    <div className="session-start-time" title={`Created ${detail.run.createdAt}\nUpdated ${updated.toISOString()}`}>
+      <span>
+        Created {formatSessionStart(created)} • Updated {formatSessionStart(updated)}
+      </span>
     </div>
   );
+}
+
+function latestRunDetailDate(detail: RunDetail): Date | null {
+  const timestamps = [
+    detail.run.createdAt,
+    detail.run.startedAt,
+    detail.run.endedAt,
+    ...detail.attempts.flatMap((attempt) => [attempt.startedAt, attempt.endedAt]),
+    ...detail.traceEvents.map((event) => event.createdAt),
+    ...detail.hypotheses.flatMap((hypothesis) => [hypothesis.createdAt, hypothesis.updatedAt]),
+    ...detail.artifacts.map((artifact) => artifact.createdAt),
+    ...detail.findings.flatMap((finding) => [finding.createdAt, finding.updatedAt]),
+    ...detail.verifierContracts.flatMap((contract) => [contract.createdAt, contract.updatedAt]),
+    ...detail.verifierRuns.flatMap((run) => [run.startedAt, run.endedAt]),
+    ...detail.vmContexts.flatMap((context) => [context.createdAt, context.destroyedAt]),
+    ...detail.modelSessions.flatMap((session) => [session.createdAt, session.updatedAt]),
+    ...detail.policyEvents.flatMap((event) => [event.createdAt, event.decidedAt]),
+    ...detail.exports.flatMap((exportRecord) => [exportRecord.createdAt, exportRecord.reviewedAt])
+  ];
+  const latestTimestamp = timestamps.reduce<number | null>((latest, value) => {
+    if (!value) return latest;
+    const timestamp = Date.parse(value);
+    if (!Number.isFinite(timestamp)) return latest;
+    return latest === null ? timestamp : Math.max(latest, timestamp);
+  }, null);
+  return latestTimestamp === null ? null : new Date(latestTimestamp);
 }
 
 function formatSessionStart(date: Date): string {
@@ -812,20 +954,118 @@ function formatSessionTime(date: Date): string {
 
 const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function MainSessionWorkspace({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element | null {
+function MainSessionWorkspace({
+  detail,
+  selectedRunId,
+  selectedTraceEventId,
+  visibleTraceCategories,
+  busy,
+  onSelectTraceEvent,
+  onSteerInstruction
+}: {
+  detail: RunDetail | null;
+  selectedRunId: string | null;
+  selectedTraceEventId: string | null;
+  visibleTraceCategories: TraceCategoryId[];
+  busy: boolean;
+  onSelectTraceEvent: (event: TraceEventRecord) => void;
+  onSteerInstruction: (runId: string, instruction: string) => void;
+}): JSX.Element | null {
   if (!selectedRunId) return null;
 
   return (
     <div className="main-session-grid">
-      <MainTraceView detail={detail} selectedRunId={selectedRunId} />
-      <MainHypothesisList detail={detail} />
+      <MainTraceView
+        detail={detail}
+        selectedRunId={selectedRunId}
+        selectedTraceEventId={selectedTraceEventId}
+        visibleTraceCategories={visibleTraceCategories}
+        onSelectTraceEvent={onSelectTraceEvent}
+      />
+      <MainSessionSidePanel busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
     </div>
   );
 }
 
-function MainTraceView({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element | null {
+function MainSessionSidePanel({
+  detail,
+  busy,
+  onSteerInstruction
+}: {
+  detail: RunDetail | null;
+  busy: boolean;
+  onSteerInstruction: (runId: string, instruction: string) => void;
+}): JSX.Element {
+  return (
+    <div className="main-session-side">
+      <MainHypothesisList detail={detail} />
+      <MainSteerArea busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
+    </div>
+  );
+}
+
+function MainSteerArea({
+  detail,
+  busy,
+  onSteerInstruction
+}: {
+  detail: RunDetail | null;
+  busy: boolean;
+  onSteerInstruction: (runId: string, instruction: string) => void;
+}): JSX.Element {
+  const [instruction, setInstruction] = useState('');
+  const trimmedInstruction = instruction.trim();
+  const disabled = busy || !detail || !trimmedInstruction;
+
+  const submit = (): void => {
+    if (disabled || !detail) return;
+    onSteerInstruction(detail.run.id, trimmedInstruction);
+    setInstruction('');
+  };
+
+  return (
+    <section className="main-steer-area" aria-label="Steer research session">
+      <span className="main-steer-label">
+        <GitFork size={14} />
+        <span>Steer</span>
+      </span>
+      <div className="main-steer-row">
+        <textarea
+          rows={1}
+          value={instruction}
+          placeholder="Add direction"
+          onChange={(event) => setInstruction(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button type="button" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
+          <ChevronRight size={17} />
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function MainTraceView({
+  detail,
+  selectedRunId,
+  selectedTraceEventId,
+  visibleTraceCategories,
+  onSelectTraceEvent
+}: {
+  detail: RunDetail | null;
+  selectedRunId: string | null;
+  selectedTraceEventId: string | null;
+  visibleTraceCategories: TraceCategoryId[];
+  onSelectTraceEvent: (event: TraceEventRecord) => void;
+}): JSX.Element | null {
   const loading = !detail;
   const events = detail?.traceEvents ?? [];
+  const visibleEvents = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event)));
   const latestEventId = events.at(-1)?.id ?? '';
   const traceListRef = useRef<HTMLDivElement | null>(null);
 
@@ -841,10 +1081,11 @@ function MainTraceView({ detail, selectedRunId }: { detail: RunDetail | null; se
     <section className="main-trace-view" aria-label="Agent trace">
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
-      {!loading && events.length > 0 ? (
+      {!loading && events.length > 0 && visibleEvents.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
+      {!loading && visibleEvents.length > 0 ? (
         <div className="main-trace-list" ref={traceListRef}>
-          {events.map((event) => (
-            <MainTraceEvent event={event} key={event.id} />
+          {visibleEvents.map((event) => (
+            <MainTraceEvent event={event} key={event.id} selected={event.id === selectedTraceEventId} onSelect={onSelectTraceEvent} />
           ))}
         </div>
       ) : null}
@@ -892,44 +1133,80 @@ function MainHypothesisItem({ hypothesis }: { hypothesis: HypothesisRecord }): J
   );
 }
 
-function MainTraceEvent({ event }: { event: TraceEventRecord }): JSX.Element {
+function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord; selected: boolean; onSelect: (event: TraceEventRecord) => void }): JSX.Element {
   const payload = compactTracePayload(event.payload);
   const hasPayload = payload !== '{}';
+  const category = traceCategoryForEvent(event);
   return (
-    <article className={`main-trace-event source-${event.source} type-${event.type}`}>
+    <button
+      type="button"
+      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${selected ? 'selected' : ''}`}
+      aria-pressed={selected}
+      onClick={() => onSelect(event)}
+    >
       <time className="main-trace-time" dateTime={event.createdAt}>
         {formatTraceTimestamp(event.createdAt)}
       </time>
       <div className="main-trace-marker" aria-hidden="true">
-        <span>{traceEventIcon(event)}</span>
+        <span>{traceCategoryIcon(category)}</span>
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
           <strong>{event.summary}</strong>
           <div className="main-trace-badges">
+            <span>{traceCategoryLabel(category)}</span>
             <span>{traceTypeLabel(event.type)}</span>
             {!event.modelVisible ? <span>Hidden</span> : null}
           </div>
         </div>
         <div className="main-trace-context">
-          <span>Event {event.sequence}</span>
           <span>{traceLabel(event.source)}</span>
           {hasPayload ? <code>{payload}</code> : null}
         </div>
       </div>
-    </article>
+    </button>
   );
 }
 
-function traceEventIcon(event: TraceEventRecord): JSX.Element {
-  if (event.type === 'artifact_created') return <FileOutput size={12} />;
-  if (event.type === 'network_event') return <Network size={12} />;
-  if (event.type === 'approval_event' || event.source === 'policy') return <ShieldAlert size={12} />;
-  if (event.type === 'verifier_result' || event.source === 'verifier') return <ShieldCheck size={12} />;
-  if (event.source === 'model') return <Sparkles size={12} />;
-  if (event.source === 'tool') return <Terminal size={12} />;
-  if (event.source === 'user') return <Edit3 size={12} />;
-  return <Search size={12} />;
+function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
+  const searchable = `${event.source} ${event.type} ${event.summary} ${JSON.stringify(event.payload)}`.toLowerCase();
+  if (event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope') return 'policy_scope';
+  if (/\b(error|failed|failure|retry|recover|recovery|blocked|timeout|destroy failed)\b/.test(searchable)) return 'failure_recovery';
+  if (event.type === 'verifier_result' || event.source === 'verifier') return 'verifier';
+  if (event.type === 'hypothesis_event') return 'hypotheses';
+  if (event.type === 'artifact_created' || event.type === 'finding_event' || /\b(evidence|artifact|export|finding)\b/.test(searchable)) return 'evidence';
+  if (event.source === 'executor' || event.type === 'vm_event' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
+  if (event.source === 'tool' || event.type === 'tool_call' || event.type === 'tool_result') {
+    if (/\b(search|code browser|symbol|file|repository|repo|line|bounded text)\b/.test(searchable)) return 'code_navigation';
+    return 'tools';
+  }
+  if (event.source === 'model' || event.type === 'model_message') {
+    if (/\b(plan|planned|prepared|objective|rationale|reason|strategy|hypothesis|intent)\b/.test(searchable)) return 'reasoning';
+    return 'agent_output';
+  }
+  return 'events';
+}
+
+function traceCategoryOption(category: TraceCategoryId): TraceCategoryOption {
+  return TRACE_CATEGORY_OPTIONS.find((option) => option.id === category) ?? TRACE_CATEGORY_OPTIONS[TRACE_CATEGORY_OPTIONS.length - 1];
+}
+
+function traceCategoryLabel(category: TraceCategoryId): string {
+  return traceCategoryOption(category).label;
+}
+
+function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
+  if (category === 'agent_output') return <Sparkles size={13} />;
+  if (category === 'reasoning') return <GitFork size={13} />;
+  if (category === 'tools') return <Terminal size={13} />;
+  if (category === 'vm_execution') return <Server size={13} />;
+  if (category === 'hypotheses') return <Bug size={13} />;
+  if (category === 'evidence') return <FileOutput size={13} />;
+  if (category === 'verifier') return <ShieldCheck size={13} />;
+  if (category === 'policy_scope') return <ShieldAlert size={13} />;
+  if (category === 'code_navigation') return <Search size={13} />;
+  if (category === 'failure_recovery') return <XCircle size={13} />;
+  return <Square size={13} />;
 }
 
 function traceLabel(value: string): string {
@@ -1006,6 +1283,131 @@ function Modal({
         <div className="modal-body">{children}</div>
         <footer className="modal-footer">{footer}</footer>
       </section>
+    </div>
+  );
+}
+
+function TraceFilterModal({
+  visibleCategories,
+  onChange,
+  onClose
+}: {
+  visibleCategories: TraceCategoryId[];
+  onChange: (categories: TraceCategoryId[]) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const visibleSet = new Set(visibleCategories);
+  const updateCategory = (category: TraceCategoryId, visible: boolean): void => {
+    if (visible) {
+      onChange(ALL_TRACE_CATEGORY_IDS.filter((candidate) => candidate === category || visibleSet.has(candidate)));
+      return;
+    }
+    onChange(visibleCategories.filter((candidate) => candidate !== category));
+  };
+
+  return (
+    <Modal
+      title="Trace Filters"
+      wide
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="modal-footer-leading" onClick={() => onChange(ALL_TRACE_CATEGORY_IDS)}>
+            Select All
+          </button>
+          <button type="button" onClick={() => onChange([])}>
+            Clear
+          </button>
+          <button type="button" onClick={onClose}>
+            Done
+          </button>
+        </>
+      }
+    >
+      <div className="trace-filter-grid">
+        {TRACE_CATEGORY_OPTIONS.map((option) => {
+          const active = visibleSet.has(option.id);
+          return (
+            <button type="button" className={`trace-filter-option ${active ? 'active' : ''}`} key={option.id} aria-pressed={active} onClick={() => updateCategory(option.id, !active)}>
+              <span className={`trace-filter-icon category-${option.id}`}>{traceCategoryIcon(option.id)}</span>
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+              <span className="trace-filter-state">{active ? 'Shown' : 'Hidden'}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
+function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Element {
+  if (!event) {
+    return (
+      <div className="inspector-empty-state">
+        <span>Inspector</span>
+        <p>Select a trace item to inspect its details.</p>
+      </div>
+    );
+  }
+
+  const category = traceCategoryForEvent(event);
+  const payload = JSON.stringify(event.payload, null, 2);
+
+  return (
+    <div className="trace-inspector">
+      <div className="trace-inspector-heading">
+        <span>Inspector</span>
+        <h3>Trace Detail</h3>
+      </div>
+      <div className="trace-inspector-summary">
+        <span className={`trace-filter-icon category-${category}`}>{traceCategoryIcon(category)}</span>
+        <div>
+          <strong>{traceCategoryLabel(category)}</strong>
+          <p>{event.summary}</p>
+        </div>
+      </div>
+      <div className="trace-inspector-grid">
+        <div>
+          <span>Time</span>
+          <strong>{formatSessionStart(new Date(event.createdAt))}</strong>
+        </div>
+        <div>
+          <span>Event</span>
+          <strong>{event.sequence}</strong>
+        </div>
+        <div>
+          <span>Source</span>
+          <strong>{traceLabel(event.source)}</strong>
+        </div>
+        <div>
+          <span>Type</span>
+          <strong>{traceTypeLabel(event.type)}</strong>
+        </div>
+        <div>
+          <span>Model Visible</span>
+          <strong>{event.modelVisible ? 'Yes' : 'No'}</strong>
+        </div>
+        <div>
+          <span>Sensitivity</span>
+          <strong>{traceLabel(event.sensitivity)}</strong>
+        </div>
+      </div>
+      <div className="trace-inspector-links">
+        <span>References</span>
+        <code>id: {event.id}</code>
+        {event.attemptId ? <code>attempt: {event.attemptId}</code> : null}
+        {event.vmContextId ? <code>vm: {event.vmContextId}</code> : null}
+        {event.artifactId ? <code>artifact: {event.artifactId}</code> : null}
+        {event.toolCallId ? <code>tool: {event.toolCallId}</code> : null}
+        {event.approvalId ? <code>approval: {event.approvalId}</code> : null}
+      </div>
+      <div className="trace-inspector-payload">
+        <span>Payload</span>
+        <pre>{payload === '{}' ? 'No payload recorded.' : payload}</pre>
+      </div>
     </div>
   );
 }

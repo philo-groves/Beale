@@ -3,6 +3,7 @@ import {
   OpenAiResponsesAdapter,
   openAiApiErrorFromEvent,
   openAiErrorCode,
+  type FunctionCallInputItem,
   type FunctionCallOutputItem,
   type OpenAiStreamEvent,
   type ResponseInputItem
@@ -21,11 +22,18 @@ export interface OpenAiRunHandle {
 const MAX_OPENAI_TOOL_TURNS = 4;
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
+const OUTPUT_DELTA_TRACE_INTERVAL_MS = 1000;
 
 interface RunLoopState {
   responseInput: ResponseInputItem[];
   previousResponseId: string | null;
-  replayMode: 'initial' | 'previous_response' | 'pending_input' | 'compacted_replay';
+  manualConversationInput: ResponseInputItem[];
+  previousResponseIdUnsupported: boolean;
+  replayMode: 'initial' | 'previous_response' | 'pending_input' | 'compacted_replay' | 'manual_response_replay';
+}
+
+interface StreamTraceState {
+  lastOutputDeltaTraceAt: number;
 }
 
 export class OpenAiRunEngine {
@@ -234,16 +242,21 @@ export class OpenAiRunEngine {
     const router = new BealeToolRouter(this.db, this.executor);
     const scope = this.db.getActiveScope();
     let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
+    let manualConversationInput: ResponseInputItem[] = state?.manualConversationInput ?? buildInitialOpenAiInput(input);
     let previousResponseId: string | null = state?.previousResponseId ?? null;
+    let previousResponseIdUnsupported = state?.previousResponseIdUnsupported ?? this.adapter.usesManualConversationState();
     let replayMode = state?.replayMode ?? 'initial';
     let replayedAfterMissingPrevious = replayMode === 'compacted_replay';
 
     try {
       for (let turn = 0; turn < MAX_OPENAI_TOOL_TURNS; turn += 1) {
+        const requestPreviousResponseId = previousResponseIdUnsupported ? null : previousResponseId;
         this.db.updateModelSessionByRun(context.run.id, {
           status: 'active',
           metadata: {
             pendingInput: responseInput,
+            manualConversationInput,
+            previousResponseIdUnsupported,
             replayMode,
             turn: turn + 1
           }
@@ -255,7 +268,7 @@ export class OpenAiRunEngine {
           tools: bealeToolDefinitions(),
           reasoning: { effort: input.reasoningEffort },
           text: { verbosity: 'low' },
-          previous_response_id: previousResponseId,
+          previous_response_id: requestPreviousResponseId,
           metadata: {
             beale_run_id: context.run.id,
             beale_attempt_id: context.attempt.id,
@@ -273,7 +286,7 @@ export class OpenAiRunEngine {
             model: body.model,
             reasoning: body.reasoning,
             toolCount: body.tools.length,
-            previousResponseId,
+            previousResponseId: requestPreviousResponseId,
             store: body.store,
             stream: body.stream,
             transport: this.adapter.getTransport(),
@@ -284,24 +297,23 @@ export class OpenAiRunEngine {
         this.onChange();
 
         const functionCalls: OpenAiFunctionCall[] = [];
+        const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0 };
         try {
           for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
-            this.handleStreamEvent(context, event, functionCalls);
+            const persistedTraceEvent = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
+            let updatedModelSession = false;
             const eventResponseId = responseIdFromEvent(event);
-            if (eventResponseId) {
-              if (event.type === 'response.completed') {
-                previousResponseId = eventResponseId;
-                this.db.updateModelSessionByRun(context.run.id, {
-                  previousResponseId,
-                  metadata: { lastResponseId: eventResponseId, lastEventType: event.type }
-                });
-              } else {
-                this.db.updateModelSessionByRun(context.run.id, {
-                  metadata: { lastResponseId: eventResponseId, lastEventType: event.type }
-                });
-              }
+            if (eventResponseId && event.type === 'response.completed') {
+              previousResponseId = previousResponseIdUnsupported ? null : eventResponseId;
+              this.db.updateModelSessionByRun(context.run.id, {
+                previousResponseId,
+                metadata: { lastResponseId: eventResponseId, lastEventType: event.type, previousResponseIdUnsupported }
+              });
+              updatedModelSession = true;
             }
-            this.onChange();
+            if (persistedTraceEvent || updatedModelSession) {
+              this.onChange();
+            }
           }
         } catch (error) {
           if (openAiErrorCode(error) === 'previous_response_not_found' && previousResponseId && !replayedAfterMissingPrevious) {
@@ -322,12 +334,44 @@ export class OpenAiRunEngine {
             previousResponseId = null;
             replayMode = 'compacted_replay';
             replayedAfterMissingPrevious = true;
+            manualConversationInput = responseInput;
             this.db.updateModelSessionByRun(context.run.id, {
               previousResponseId: null,
               metadata: {
                 pendingInput: responseInput,
+                manualConversationInput,
                 replayMode,
                 previousResponseRecovery: 'compacted_replay'
+              }
+            });
+            continue;
+          }
+          if (isPreviousResponseIdUnsupported(error) && previousResponseId && !previousResponseIdUnsupported) {
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'system',
+              summary: 'OpenAI backend rejected previous_response_id; retrying with manual response replay.',
+              payload: {
+                previousResponseId,
+                replayMode: 'manual_response_replay',
+                store: body.store
+              },
+              vmContextId: context.vmContext.id
+            });
+            previousResponseIdUnsupported = true;
+            previousResponseId = null;
+            responseInput = manualConversationInput;
+            replayMode = 'manual_response_replay';
+            this.db.updateModelSessionByRun(context.run.id, {
+              previousResponseId: null,
+              metadata: {
+                pendingInput: responseInput,
+                manualConversationInput,
+                previousResponseIdUnsupported,
+                replayMode,
+                previousResponseRecovery: 'manual_response_replay'
               }
             });
             continue;
@@ -345,12 +389,21 @@ export class OpenAiRunEngine {
         }
 
         const toolOutputs: FunctionCallOutputItem[] = functionCalls.map((call) => router.execute(context, call));
-        responseInput = toolOutputs;
-        replayMode = 'previous_response';
+        manualConversationInput = [...manualConversationInput, ...functionCalls.map(functionCallInputItem), ...toolOutputs];
+        if (previousResponseIdUnsupported) {
+          responseInput = manualConversationInput;
+          previousResponseId = null;
+          replayMode = 'manual_response_replay';
+        } else {
+          responseInput = toolOutputs;
+          replayMode = 'previous_response';
+        }
         this.db.updateModelSessionByRun(context.run.id, {
           metadata: {
             pendingInput: responseInput,
+            manualConversationInput,
             pendingToolOutputCount: toolOutputs.length,
+            previousResponseIdUnsupported,
             replayMode
           }
         });
@@ -360,7 +413,7 @@ export class OpenAiRunEngine {
       this.db.updateRunStatus(context.run.id, 'paused', 'Paused after OpenAI tool-turn budget was reached.');
       this.db.updateModelSessionByRun(context.run.id, {
         status: 'paused_tool_budget',
-        metadata: { maxToolTurns: MAX_OPENAI_TOOL_TURNS, pendingInput: responseInput, replayMode }
+        metadata: { maxToolTurns: MAX_OPENAI_TOOL_TURNS, pendingInput: responseInput, manualConversationInput, previousResponseIdUnsupported, replayMode }
       });
       this.adapter.closeWebSocketSession(context.run.id);
     } catch (error) {
@@ -388,7 +441,7 @@ export class OpenAiRunEngine {
     }
   }
 
-  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[]): void {
+  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): boolean {
     switch (event.type) {
       case 'response.created':
         this.db.appendTraceEvent({
@@ -399,10 +452,12 @@ export class OpenAiRunEngine {
           summary: 'OpenAI response created.',
           payload: summarizeEvent(event)
         });
-        break;
+        return true;
       case 'response.output_text.delta': {
         const delta = typeof event.delta === 'string' ? event.delta : '';
-        if (delta.trim().length > 0) {
+        const now = Date.now();
+        if (delta.trim().length > 0 && now - streamTraceState.lastOutputDeltaTraceAt >= OUTPUT_DELTA_TRACE_INTERVAL_MS) {
+          streamTraceState.lastOutputDeltaTraceAt = now;
           this.db.appendTraceEvent({
             runId: context.run.id,
             attemptId: context.attempt.id,
@@ -415,8 +470,9 @@ export class OpenAiRunEngine {
             },
             vmContextId: context.vmContext.id
           });
+          return true;
         }
-        break;
+        return false;
       }
       case 'response.output_text.done': {
         const text = typeof event.text === 'string' ? event.text : '';
@@ -432,7 +488,7 @@ export class OpenAiRunEngine {
           },
           vmContextId: context.vmContext.id
         });
-        break;
+        return true;
       }
       case 'response.function_call_arguments.done':
       case 'response.output_item.done': {
@@ -453,8 +509,9 @@ export class OpenAiRunEngine {
             },
             vmContextId: context.vmContext.id
           });
+          return true;
         }
-        break;
+        return false;
       }
       case 'response.completed':
         this.db.appendTraceEvent({
@@ -465,11 +522,11 @@ export class OpenAiRunEngine {
           summary: 'OpenAI response completed.',
           payload: summarizeEvent(event)
         });
-        break;
+        return true;
       case 'error':
         throw openAiApiErrorFromEvent(event);
       default:
-        break;
+        return false;
     }
   }
 }
@@ -485,23 +542,32 @@ function deriveRunTitle(promptMarkdown: string): string {
 
 function buildResumeState(session: ModelSessionRecord | undefined, detail: RunDetail): RunLoopState {
   const pendingInput = responseInputFromMetadata(session?.metadata.pendingInput);
+  const manualConversationInput = responseInputFromMetadata(session?.metadata.manualConversationInput);
+  const previousResponseIdUnsupported = session?.metadata.previousResponseIdUnsupported === true;
   if (pendingInput) {
     return {
       responseInput: pendingInput,
       previousResponseId: session?.previousResponseId ?? null,
+      manualConversationInput: manualConversationInput ?? pendingInput,
+      previousResponseIdUnsupported,
       replayMode: 'pending_input'
     };
   }
-  if (session?.previousResponseId) {
+  if (session?.previousResponseId && !previousResponseIdUnsupported) {
     return {
       responseInput: buildResumeOpenAiInput(detail),
       previousResponseId: session.previousResponseId,
+      manualConversationInput: manualConversationInput ?? buildInitialOpenAiInput(startInputFromRun(detail.run)),
+      previousResponseIdUnsupported,
       replayMode: 'previous_response'
     };
   }
+  const responseInput = buildCompactedReplayOpenAiInput(detail);
   return {
-    responseInput: buildCompactedReplayOpenAiInput(detail),
+    responseInput,
     previousResponseId: null,
+    manualConversationInput: responseInput,
+    previousResponseIdUnsupported,
     replayMode: 'compacted_replay'
   };
 }
@@ -517,6 +583,9 @@ function isResponseInputItem(value: unknown): value is ResponseInputItem {
   if (record.type === 'function_call_output') {
     return typeof record.call_id === 'string' && typeof record.output === 'string';
   }
+  if (record.type === 'function_call') {
+    return typeof record.call_id === 'string' && typeof record.name === 'string' && typeof record.arguments === 'string' && optionalString(record.id) && optionalCompletedStatus(record.status);
+  }
   if (record.type !== 'message') return false;
   if (record.role !== 'user' && record.role !== 'developer' && record.role !== 'system') return false;
   if (!Array.isArray(record.content)) return false;
@@ -525,6 +594,14 @@ function isResponseInputItem(value: unknown): value is ResponseInputItem {
     const content = part as Record<string, unknown>;
     return content.type === 'input_text' && typeof content.text === 'string';
   });
+}
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function optionalCompletedStatus(value: unknown): boolean {
+  return value === undefined || value === 'completed';
 }
 
 function startInputFromRun(run: RunRecord): StartRunInput {
@@ -592,6 +669,17 @@ function functionCallFromEvent(event: OpenAiStreamEvent): OpenAiFunctionCall | n
   };
 }
 
+function functionCallInputItem(call: OpenAiFunctionCall): FunctionCallInputItem {
+  return {
+    type: 'function_call',
+    ...(call.responseItemId ? { id: call.responseItemId } : {}),
+    call_id: call.callId,
+    name: call.name,
+    arguments: call.argumentsJson,
+    status: 'completed'
+  };
+}
+
 function parseFunctionArguments(argumentsJson: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(argumentsJson);
@@ -616,4 +704,9 @@ function summarizeText(text: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
+}
+
+function isPreviousResponseIdUnsupported(error: unknown): boolean {
+  const message = errorMessage(error);
+  return message.includes('Unsupported parameter') && message.includes('previous_response_id');
 }

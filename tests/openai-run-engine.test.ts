@@ -311,7 +311,24 @@ describe('OpenAI Responses run engine', () => {
     expect(seen[0].body.prompt_cache_key).toBe('run_codex_backend');
     expect(seen[0].body.include).toEqual(['reasoning.encrypted_content']);
     expect(seen[0].body.reasoning).toEqual({ effort: 'low', summary: 'auto' });
+    expect(seen[0].body).not.toHaveProperty('previous_response_id');
     expect(events).toEqual(['response.output_text.done', 'response.completed']);
+
+    const followupBody = adapter.buildRequest({
+      model: 'gpt-5.5',
+      instructions: 'Continue.',
+      input: [{ type: 'function_call_output', call_id: 'call_codex_1', output: '{"ok":true}' }],
+      tools: [],
+      reasoning: { effort: 'low' },
+      text: { verbosity: 'low' },
+      previous_response_id: 'resp_codex',
+      metadata: { beale_run_id: 'run_codex_backend' }
+    });
+    for await (const _streamEvent of adapter.streamResponse({ body: followupBody })) {
+      // Drain the follow-up request.
+    }
+    expect(seen[1].headers.get('session_id')).toBe('run_codex_backend');
+    expect(seen[1].body.previous_response_id).toBe('resp_codex');
   });
 
   it('constructs a host-only Responses request and routes model tool calls through Beale policy', async () => {
@@ -361,6 +378,7 @@ describe('OpenAI Responses run engine', () => {
     expect(firstRequest.stream).toBe(true);
     expect(firstRequest.reasoning).toEqual({ effort: 'xhigh' });
     expect(Array.isArray(firstRequest.tools)).toBe(true);
+    expect(firstRequest).not.toHaveProperty('previous_response_id');
 
     const secondRequest = requests[1] as Record<string, unknown>;
     expect(secondRequest.previous_response_id).toBe('resp_1');
@@ -368,6 +386,56 @@ describe('OpenAI Responses run engine', () => {
 
     db.close();
     expect(dir).toContain('beale-openai-test-');
+  });
+
+  it('uses manual response replay for Codex OAuth tool outputs', async () => {
+    const authDir = mkdtempSync(join(tmpdir(), 'beale-codex-engine-'));
+    createdDirs.push(authDir);
+    const authPath = join(authDir, 'auth.json');
+    writeFileSync(
+      authPath,
+      JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: {
+          access_token: fakeCodexAccessToken('codex-account-123')
+        }
+      })
+    );
+
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (body.previous_response_id) {
+        return new Response(JSON.stringify({ detail: 'Unsupported parameter: previous_response_id' }), { status: 400 });
+      }
+      if (requests.length === 1) {
+        return new Response(sse(toolCallEvents('resp_codex_1', 'call_codex_1')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return new Response(sse(finalResponseEvents('resp_codex_2')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1', null, 'https://chatgpt.test/backend-api');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(detail.modelSessions[0].previousResponseId).toBeNull();
+    expect(detail.modelSessions[0].metadata.previousResponseIdUnsupported).toBe(true);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).not.toHaveProperty('previous_response_id');
+    expect(requests[1]).not.toHaveProperty('previous_response_id');
+    const replayInput = requests[1].input as Array<Record<string, unknown>>;
+    expect(replayInput.some((item) => item.type === 'message')).toBe(true);
+    expect(replayInput.some((item) => item.type === 'function_call' && item.call_id === 'call_codex_1')).toBe(true);
+    expect(replayInput.some((item) => item.type === 'function_call_output' && item.call_id === 'call_codex_1')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses request sent for turn 2.' && event.payload.replayMode === 'manual_response_replay')).toBe(true);
+    db.close();
   });
 
   it('replays compacted context when previous_response_id cannot be recovered', async () => {
@@ -396,7 +464,7 @@ describe('OpenAI Responses run engine', () => {
     expect(detail.run.status).toBe('completed');
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.')).toBe(true);
     expect((requests[1] as Record<string, unknown>).previous_response_id).toBe('resp_1');
-    expect((requests[2] as Record<string, unknown>).previous_response_id).toBeNull();
+    expect(requests[2] as Record<string, unknown>).not.toHaveProperty('previous_response_id');
     expect(JSON.stringify((requests[2] as Record<string, unknown>).input)).toContain('Compacted Beale Run Replay');
     db.close();
   });

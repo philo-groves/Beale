@@ -21,7 +21,16 @@ export interface FunctionCallOutputItem {
   output: string;
 }
 
-export type ResponseInputItem = ResponseInputMessage | FunctionCallOutputItem;
+export interface FunctionCallInputItem {
+  type: 'function_call';
+  call_id: string;
+  name: string;
+  arguments: string;
+  id?: string;
+  status?: 'completed';
+}
+
+export type ResponseInputItem = ResponseInputMessage | FunctionCallInputItem | FunctionCallOutputItem;
 
 export interface OpenAiResponseCreateBody {
   model: string;
@@ -109,6 +118,11 @@ export class OpenAiResponsesAdapter {
 
   public getTransport(): OpenAiTransport {
     return resolveOpenAiTransport(this.webSocketImpl !== null) === 'websocket' ? 'websocket' : 'sse_http';
+  }
+
+  public usesManualConversationState(): boolean {
+    const credential = this.auth.getCredential();
+    return credential ? usesCodexBackend(credential) : false;
   }
 
   public buildRequest(input: Omit<OpenAiResponseCreateBody, 'stream' | 'store' | 'tool_choice' | 'parallel_tool_calls'>): OpenAiResponseCreateBody {
@@ -520,8 +534,14 @@ function normalizeOpenAiStreamEvent(event: OpenAiStreamEvent): OpenAiStreamEvent
 }
 
 function wireBodyForCredential(credential: OpenAiCredential, body: OpenAiResponseCreateBody, sessionId?: string): OpenAiResponseWireBody {
-  if (!usesCodexBackend(credential)) return body;
-  const { metadata: _metadata, ...wireBody } = body;
+  const { previous_response_id: previousResponseId, ...bodyWithoutPreviousResponse } = body;
+  const bodyWithPreviousResponse: OpenAiResponseWireBody =
+    previousResponseId === null || previousResponseId === undefined
+      ? bodyWithoutPreviousResponse
+      : { ...bodyWithoutPreviousResponse, previous_response_id: previousResponseId };
+
+  if (!usesCodexBackend(credential)) return bodyWithPreviousResponse;
+  const { metadata: _metadata, ...wireBody } = bodyWithPreviousResponse;
   return {
     ...wireBody,
     reasoning: { ...body.reasoning, summary: 'auto' },

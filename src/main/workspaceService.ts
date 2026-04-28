@@ -141,6 +141,7 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
   'Make the prompt actionable for an autonomous research session: include target focus, hypotheses to test, evidence to collect, verifier expectations, and stop conditions.',
   'Return strict JSON only with a string field named promptMarkdown.'
 ].join('\n');
+const CHANGE_BROADCAST_DELAY_MS = 150;
 
 export function getHostEnvironment(): HostEnvironment {
   const platform = hostPlatform(process.platform);
@@ -186,6 +187,7 @@ export class WorkspaceService {
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
   private lastRecovery: WorkspaceRecoveryReport | null = null;
+  private pendingChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
   public constructor(
     private readonly onChange: () => void = () => undefined,
@@ -214,7 +216,9 @@ export class WorkspaceService {
   }
 
   public getProgramRegistryState(): ProgramRegistryState {
-    return this.getProgramRegistry().getState();
+    const registry = this.getProgramRegistry();
+    this.syncProgramRegistry();
+    return registry.getState();
   }
 
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {
@@ -303,6 +307,7 @@ export class WorkspaceService {
       expiresAt: optionalDateOrNever(input.expiresAt),
       assets: input.assets ?? []
     });
+    this.syncProgramRegistry();
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -444,7 +449,7 @@ export class WorkspaceService {
       const engine = this.requireEngine();
       engine.startRun(input, mode);
     }
-    this.emitChange();
+    this.emitChangeNow();
     return this.requireSnapshot();
   }
 
@@ -1032,6 +1037,7 @@ export class WorkspaceService {
   }
 
   public close(): void {
+    this.clearPendingChange();
     this.engine?.dispose();
     this.openAiEngine?.dispose();
     this.db?.close();
@@ -1168,8 +1174,21 @@ export class WorkspaceService {
   }
 
   private emitChange(): void {
+    if (this.pendingChangeTimer) return;
+    this.pendingChangeTimer = setTimeout(() => this.emitChangeNow(), CHANGE_BROADCAST_DELAY_MS);
+    this.pendingChangeTimer.unref?.();
+  }
+
+  private emitChangeNow(): void {
+    this.clearPendingChange();
     this.syncProgramRegistry();
     this.onChange();
+  }
+
+  private clearPendingChange(): void {
+    if (!this.pendingChangeTimer) return;
+    clearTimeout(this.pendingChangeTimer);
+    this.pendingChangeTimer = null;
   }
 
   private exportEvidenceBundle(runId: string, findingId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
