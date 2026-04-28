@@ -72,6 +72,7 @@ import type {
   ResearchSessionSummary,
   RunDetail,
   RunRow,
+  RunStatus,
   ScopeAssetDirection,
   ScopeAssetInput,
   ScopeAssetKind,
@@ -128,6 +129,28 @@ interface TraceCategoryOption {
   description: string;
 }
 
+interface TraceTimelineGroup {
+  key: string;
+  label: string;
+  startedAt: string;
+  updatedAt: string;
+  visibleCount: number;
+  toolCount: number;
+  modelCount: number;
+  failureCount: number;
+}
+
+interface TraceTimelineEntry {
+  event: TraceEventRecord;
+  group: TraceTimelineGroup;
+}
+
+interface RenderedTraceGroup {
+  key: string;
+  group: TraceTimelineGroup;
+  entries: TraceTimelineEntry[];
+}
+
 const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
   { id: 'reasoning', label: 'Reasoning Summary', description: 'Plan changes, intent, and concise rationale without hidden chain-of-thought.' },
@@ -144,7 +167,7 @@ const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
 
 const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
 const TRACE_RENDER_WINDOW_SIZE = 50;
-const TRACE_ESTIMATED_EVENT_HEIGHT = 48;
+const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 
 const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
@@ -1130,6 +1153,7 @@ function MainSessionWorkspace({
 
   return (
     <div className="main-session-grid">
+      <MainSessionStatusHeader detail={detail} visibleTraceCategories={visibleTraceCategories} />
       <MainTraceView
         detail={detail}
         selectedRunId={selectedRunId}
@@ -1138,6 +1162,51 @@ function MainSessionWorkspace({
         onSelectTraceEvent={onSelectTraceEvent}
       />
       <MainSessionSidePanel busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
+    </div>
+  );
+}
+
+function MainSessionStatusHeader({
+  detail,
+  visibleTraceCategories
+}: {
+  detail: RunDetail | null;
+  visibleTraceCategories: TraceCategoryId[];
+}): JSX.Element {
+  const events = detail?.traceEvents ?? [];
+  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
+  const latestTurn = latestTraceTurnNumber(events);
+  const evidenceCount = detail ? detail.artifacts.length + detail.findings.length + detail.verifierRuns.length : 0;
+  const nextAction = traceNextActionLabel(detail);
+
+  return (
+    <div className="main-session-status-strip" aria-label="Session status">
+      <div>
+        <span>Status</span>
+        <strong>{detail ? traceLabel(detail.run.status) : 'Loading'}</strong>
+      </div>
+      <div>
+        <span>Turn</span>
+        <strong>{latestTurn === null ? 'Setup' : String(latestTurn)}</strong>
+      </div>
+      <div>
+        <span>Mode</span>
+        <strong>{detail ? traceLabel(detail.run.mode) : 'Loading'}</strong>
+      </div>
+      <div>
+        <span>Events</span>
+        <strong>
+          {visibleEventCount}/{events.length}
+        </strong>
+      </div>
+      <div>
+        <span>Evidence</span>
+        <strong>{evidenceCount}</strong>
+      </div>
+      <div>
+        <span>Next Action</span>
+        <strong>{nextAction}</strong>
+      </div>
     </div>
   );
 }
@@ -1220,15 +1289,17 @@ function MainTraceView({
 }): JSX.Element | null {
   const loading = !detail;
   const events = detail?.traceEvents ?? [];
-  const visibleEvents = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event)));
+  const timelineEntries = buildTraceTimelineEntries(events, visibleTraceCategories);
   const latestEventId = events.at(-1)?.id ?? '';
   const traceFilterKey = visibleTraceCategories.join('|');
-  const maxWindowStart = Math.max(0, visibleEvents.length - TRACE_RENDER_WINDOW_SIZE);
+  const maxWindowStart = Math.max(0, timelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
   const normalizedWindowStart = Math.min(traceWindowStart, maxWindowStart);
-  const renderedEvents = visibleEvents.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
+  const renderedEntries = timelineEntries.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
+  const renderedGroups = groupRenderedTraceEntries(renderedEntries);
+  const latestGroupKey = latestTraceGroupKey(events);
   const topSpacerHeight = normalizedWindowStart * TRACE_ESTIMATED_EVENT_HEIGHT;
-  const bottomSpacerHeight = Math.max(0, visibleEvents.length - normalizedWindowStart - renderedEvents.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, timelineEntries.length - normalizedWindowStart - renderedEntries.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
   const traceListRef = useRef<HTMLDivElement | null>(null);
   const traceFollowLatestRef = useRef(true);
 
@@ -1236,11 +1307,11 @@ function MainTraceView({
     const traceList = traceListRef.current;
     if (!traceList || !traceFollowLatestRef.current) return;
     traceList.scrollTop = traceList.scrollHeight;
-  }, [bottomSpacerHeight, latestEventId, normalizedWindowStart, renderedEvents.length, selectedRunId]);
+  }, [bottomSpacerHeight, latestEventId, normalizedWindowStart, renderedEntries.length, selectedRunId]);
 
   useEffect(() => {
     traceFollowLatestRef.current = true;
-    setTraceWindowStart(Math.max(0, visibleEvents.length - TRACE_RENDER_WINDOW_SIZE));
+    setTraceWindowStart(Math.max(0, timelineEntries.length - TRACE_RENDER_WINDOW_SIZE));
   }, [selectedRunId, traceFilterKey]);
 
   useEffect(() => {
@@ -1255,14 +1326,14 @@ function MainTraceView({
 
   const handleTraceScroll = useCallback(() => {
     const traceList = traceListRef.current;
-    if (!traceList || visibleEvents.length <= TRACE_RENDER_WINDOW_SIZE) return;
+    if (!traceList || timelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
     const nearBottom = traceList.scrollTop + traceList.clientHeight >= traceList.scrollHeight - TRACE_ESTIMATED_EVENT_HEIGHT;
     traceFollowLatestRef.current = nearBottom;
     const nextStart = Math.max(0, Math.min(maxWindowStart, Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT)));
     if (nextStart !== normalizedWindowStart) {
       setTraceWindowStart(nextStart);
     }
-  }, [maxWindowStart, normalizedWindowStart, visibleEvents.length]);
+  }, [maxWindowStart, normalizedWindowStart, timelineEntries.length]);
 
   if (!selectedRunId) return null;
 
@@ -1270,12 +1341,20 @@ function MainTraceView({
     <section className="main-trace-view" aria-label="Agent trace">
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
-      {!loading && events.length > 0 && visibleEvents.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
-      {!loading && renderedEvents.length > 0 ? (
+      {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
+      {!loading && renderedEntries.length > 0 ? (
         <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
           {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
-          {renderedEvents.map((event) => (
-            <MainTraceEvent event={event} key={event.id} selected={event.id === selectedTraceEventId} onSelect={onSelectTraceEvent} />
+          {renderedGroups.map((group) => (
+            <MainTraceTurnGroup
+              group={group.group}
+              entries={group.entries}
+              key={group.key}
+              latest={group.group.key === latestGroupKey}
+              runStatus={detail.run.status}
+              selectedTraceEventId={selectedTraceEventId}
+              onSelectTraceEvent={onSelectTraceEvent}
+            />
           ))}
           {bottomSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
         </div>
@@ -1324,10 +1403,53 @@ function MainHypothesisItem({ hypothesis }: { hypothesis: HypothesisRecord }): J
   );
 }
 
+function MainTraceTurnGroup({
+  group,
+  entries,
+  latest,
+  runStatus,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  group: TraceTimelineGroup;
+  entries: TraceTimelineEntry[];
+  latest: boolean;
+  runStatus: RunStatus;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceEventRecord) => void;
+}): JSX.Element {
+  const status = traceGroupStatusLabel(group, latest, runStatus);
+  const activitySummary = group.toolCount > 0 ? `${group.toolCount} ops` : group.modelCount > 0 ? `${group.modelCount} model` : 'system';
+
+  return (
+    <section className="main-trace-turn" aria-label={group.label}>
+      <div className="main-trace-turn-header">
+        <div>
+          <span className="main-trace-turn-label">{group.label}</span>
+          <span>
+            {formatTraceTimestamp(group.startedAt)}
+            {group.updatedAt !== group.startedAt ? ` - ${formatTraceTimestamp(group.updatedAt)}` : ''}
+          </span>
+        </div>
+        <div>
+          <span>{group.visibleCount} events</span>
+          <span>{activitySummary}</span>
+          <span className={`main-trace-turn-state state-${status.kind}`}>{status.label}</span>
+        </div>
+      </div>
+      <div className="main-trace-turn-events">
+        {entries.map(({ event }) => (
+          <MainTraceEvent event={event} key={event.id} selected={event.id === selectedTraceEventId} onSelect={onSelectTraceEvent} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord; selected: boolean; onSelect: (event: TraceEventRecord) => void }): JSX.Element {
-  const payload = compactTracePayload(event.payload);
-  const hasPayload = payload !== '{}';
   const category = traceCategoryForEvent(event);
+  const detail = traceEventDetailText(event, category);
+  const hasDetail = detail.length > 0;
   return (
     <button
       type="button"
@@ -1346,19 +1468,155 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
-          <strong>{event.summary}</strong>
+          <strong>{traceEventSummary(event, category)}</strong>
           <div className="main-trace-badges">
             <span>{traceCategoryLabel(category)}</span>
-            <span>{traceTypeLabel(event.type)}</span>
             {!event.modelVisible ? <span>Hidden</span> : null}
           </div>
         </div>
         <div className="main-trace-context">
-          {hasPayload ? <code>{payload}</code> : null}
+          {hasDetail ? <code>{detail}</code> : null}
         </div>
       </div>
     </button>
   );
+}
+
+function buildTraceTimelineEntries(events: TraceEventRecord[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry[] {
+  const entries: TraceTimelineEntry[] = [];
+  let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
+
+  for (const event of events) {
+    const turnNumber = traceTurnNumber(event);
+    if (turnNumber !== null) {
+      group = createTraceTimelineGroup(`turn-${turnNumber}-${event.sequence}`, `Turn ${turnNumber}`, event.createdAt);
+    }
+
+    group.updatedAt = event.createdAt;
+    const category = traceCategoryForEvent(event);
+    if (!visibleCategories.includes(category)) continue;
+
+    group.visibleCount += 1;
+    if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
+      group.toolCount += 1;
+    }
+    if (category === 'agent_output' || category === 'reasoning') {
+      group.modelCount += 1;
+    }
+    if (category === 'failure_recovery') {
+      group.failureCount += 1;
+    }
+    entries.push({ event, group });
+  }
+
+  return entries;
+}
+
+function createTraceTimelineGroup(key: string, label: string, startedAt: string): TraceTimelineGroup {
+  return {
+    key,
+    label,
+    startedAt,
+    updatedAt: startedAt,
+    visibleCount: 0,
+    toolCount: 0,
+    modelCount: 0,
+    failureCount: 0
+  };
+}
+
+function groupRenderedTraceEntries(entries: TraceTimelineEntry[]): RenderedTraceGroup[] {
+  const groups: RenderedTraceGroup[] = [];
+  for (const entry of entries) {
+    const current = groups.at(-1);
+    if (current && current.group === entry.group) {
+      current.entries.push(entry);
+      continue;
+    }
+    groups.push({ key: `${entry.group.key}-${entry.event.id}`, group: entry.group, entries: [entry] });
+  }
+  return groups;
+}
+
+function latestTraceTurnNumber(events: TraceEventRecord[]): number | null {
+  let latest: number | null = null;
+  for (const event of events) {
+    latest = traceTurnNumber(event) ?? latest;
+  }
+  return latest;
+}
+
+function latestTraceGroupKey(events: TraceEventRecord[]): string {
+  let key = 'setup';
+  for (const event of events) {
+    const turnNumber = traceTurnNumber(event);
+    if (turnNumber !== null) {
+      key = `turn-${turnNumber}-${event.sequence}`;
+    }
+  }
+  return key;
+}
+
+function traceTurnNumber(event: TraceEventRecord): number | null {
+  const turn = event.payload.turn;
+  if (typeof turn === 'number' && Number.isInteger(turn) && turn > 0) return turn;
+  if (typeof turn === 'string' && /^\d+$/.test(turn)) return Number(turn);
+  const match = event.summary.match(/\bturn\s+(\d+)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+function traceNextActionLabel(detail: RunDetail | null): string {
+  if (!detail) return 'Loading';
+  if (detail.run.status === 'active') return 'Monitor turn';
+  if (detail.run.status === 'failed') return 'Inspect failure';
+  if (detail.run.status === 'blocked' || detail.run.status === 'paused') return 'Steer session';
+  if (detail.findings.length > 0) return 'Review findings';
+  if (detail.hypotheses.length > 0) return 'Review hypotheses';
+  if (detail.run.status === 'completed') return 'Review output';
+  return 'Awaiting start';
+}
+
+function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): { kind: string; label: string } {
+  if (group.failureCount > 0) return { kind: 'review', label: 'Review' };
+  if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
+  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Complete' };
+  return { kind: 'events', label: 'Events' };
+}
+
+function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
+  if (category === 'agent_output' && event.summary === 'OpenAI streamed model output delta.') return 'Agent output streaming';
+  if (category === 'agent_output' && event.summary === 'OpenAI response completed.') return 'Agent response completed';
+  if (category === 'reasoning' && event.summary === 'OpenAI response created.') return 'Agent turn started';
+  return event.summary;
+}
+
+function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  if ((category === 'agent_output' || category === 'reasoning') && text) {
+    return truncateText(text.replace(/\s+/g, ' ').trim(), 360);
+  }
+
+  const details = [
+    tracePayloadPrimitive(event.payload, 'toolName'),
+    tracePayloadPrimitive(event.payload, 'operationKind'),
+    tracePayloadPrimitive(event.payload, 'status'),
+    tracePayloadPrimitive(event.payload, 'path'),
+    tracePayloadPrimitive(event.payload, 'command'),
+    tracePayloadPrimitive(event.payload, 'networkProfile'),
+    tracePayloadPrimitive(event.payload, 'backend'),
+    tracePayloadPrimitive(event.payload, 'exitCode')
+  ].filter((value): value is string => Boolean(value));
+  if (details.length > 0) return truncateText(details.join(' · '), 220);
+
+  const payload = compactTracePayload(event.payload);
+  return payload === '{}' ? '' : payload;
+}
+
+function tracePayloadPrimitive(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
 }
 
 function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
