@@ -54,6 +54,7 @@ export class ExecutorManager {
       reason: status.reason,
       targetExecution: status.targetExecution,
       supportedNetworkProfiles: status.supportedNetworkProfiles,
+      metadata: status.metadata,
       supports: status.supports,
       backends: status.backends
     };
@@ -406,21 +407,13 @@ export class ExecutorManager {
       });
       throw new Error('Scoped network profile requires at least one in-scope domain, host, IP range, or service.');
     }
-    if (networkProfile === 'elevated' && allowedDestinations.length === 0) {
-      this.recordPolicyBlock(context, 'Elevated network profile requires recorded live-target scope before execution.', {
-        networkProfile,
-        scopeVersionId: scope.id,
-        allowedDestinationCount: 0
-      });
-      throw new Error('Elevated network profile requires recorded live-target scope before execution.');
-    }
     return {
       profile: networkProfile,
       scopeVersionId: scope.id,
       allowedDestinations: networkProfile === 'offline' ? [] : allowedDestinations,
-      liveTargetAllowed: networkProfile !== 'offline' && allowedDestinations.length > 0,
+      liveTargetAllowed: networkProfile === 'elevated' || (networkProfile === 'scoped' && allowedDestinations.length > 0),
       userApprovalRequired: networkProfile !== 'offline',
-      failClosed: true,
+      failClosed: networkProfile !== 'elevated',
       enforcement: 'host_vm_controller'
     };
   }

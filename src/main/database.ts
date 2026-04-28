@@ -310,7 +310,7 @@ function parseStringArray(value: SqlPrimitive | undefined): string[] {
 }
 
 function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
-  return run.status === 'pass' && run.result.realExecution === true && run.result.vmExecution === true;
+  return run.status === 'pass' && run.result.realExecution === true && (run.result.vmExecution === true || run.result.hostExecution === true);
 }
 
 function text(row: SqlRow, key: string): string {
@@ -352,7 +352,7 @@ function jsonFromScopeDraft(draft: ProgramScopeDraft): Record<string, unknown> {
   const outOfScope = draft.assets.filter((asset) => asset.direction === 'out_of_scope').map((asset) => asset.value);
   return {
     defaultProfile: draft.networkProfile,
-    vmNetworkDefault: draft.networkProfile === 'offline' ? 'disabled' : 'scoped',
+    vmNetworkDefault: draft.networkProfile === 'offline' ? 'disabled' : draft.networkProfile === 'elevated' ? 'online' : 'scoped',
     inScope,
     outOfScope
   };

@@ -65,10 +65,10 @@ describe('plan conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth, VM controller, benchmark, and source setup boundaries', () => {
+  it('keeps host subprocess use limited to auth, sandbox, VM controller, benchmark, and source setup boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
-      (hit) => !['src/main/openaiAuth.ts', 'src/main/vmctlExecutor.ts', 'src/main/benchmarkDockerRunner.ts', 'src/main/sourceMaterializer.ts'].includes(normalizePath(hit.path))
+      (hit) => !['src/main/openaiAuth.ts', 'src/main/hostToolExecutor.ts', 'src/main/vmctlExecutor.ts', 'src/main/benchmarkDockerRunner.ts', 'src/main/sourceMaterializer.ts'].includes(normalizePath(hit.path))
     );
 
     expect(hits).toEqual([]);

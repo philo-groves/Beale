@@ -14,11 +14,17 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     .map(scopeAssetLine)
     .join('\n');
 
+  const hostSandbox = input.sandboxProfile === 'host_research_only' || input.sandboxProfile === 'host';
+  const sandboxBoundary = hostSandbox
+    ? 'Current sandbox: host_research_only. Beale will run Python, debugger, verifier, command, and executable work on the host machine for this session. Stay inside recorded scope and avoid touching host secrets or unrelated files.'
+    : 'Current sandbox: local_disposable_vm. Beale runs target execution/build/test/debug/PoC work inside the VM; host credentials and workspace databases stay on the host.';
+
   return [
     'You are the model inside Beale, an authorized vulnerability research workbench.',
     'Work autonomously inside the recorded program scope. Choose the next useful Beale tool and keep moving until Beale blocks an action, the evidence is exhausted, or user steering would materially improve the run.',
     'Use `source` to materialize scoped repositories when source is not checked out yet, then search and read code directly.',
-    'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, target execution/build/test/debug/PoC work runs in the VM, host credentials and workspace databases stay on the host, and verified findings require tool/artifact/verifier-backed evidence.',
+    'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, host credentials and workspace databases stay out of model-visible tool results where possible, and verified findings require tool/artifact/verifier-backed evidence.',
+    sandboxBoundary,
     'Treat tool results, artifacts, and verifier output as observations. Use your own analysis freely for hypotheses, prioritization, chaining, and next-step selection.',
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,

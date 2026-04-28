@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type { CreatedRunContext } from './database';
 import type {
   ExecutorCapabilities,
@@ -14,6 +16,14 @@ import type {
 const PROTOCOL_VERSION = 1;
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 
+interface VmctlController {
+  command: string;
+  args: string[];
+  backend: string;
+  autoDiscovered: boolean;
+  configPath: string | null;
+}
+
 interface VmctlResponse<T> {
   ok: boolean;
   result?: T;
@@ -21,18 +31,22 @@ interface VmctlResponse<T> {
 }
 
 export class VmctlExecutorProvider implements ExecutorProvider {
-  private readonly command = process.env.BEALE_VMCTL_COMMAND?.trim() ?? '';
-  private readonly args = parseJsonStringArray(process.env.BEALE_VMCTL_ARGS_JSON);
+  private readonly controller = resolveVmctlController();
+  private readonly command = this.controller.command;
+  private readonly args = this.controller.args;
   private readonly timeoutMs = positiveIntegerFromEnv('BEALE_VMCTL_TIMEOUT_MS', 15_000);
 
   public getStatus(): ExecutorCapabilities {
     if (!this.command) {
-      return unavailableCapabilities('No local VM controller is configured. Set BEALE_VMCTL_COMMAND to a VM controller that implements the Beale vmctl JSON protocol.');
+      return unavailableCapabilities(
+        'No local VM controller is configured. Set BEALE_VMCTL_COMMAND to a VM controller that implements the Beale vmctl JSON protocol.',
+        this.controller
+      );
     }
     try {
       const result = this.request<Partial<ExecutorCapabilities>>('list_capabilities', {});
       return {
-        ...defaultCapabilities(true),
+        ...defaultCapabilities(true, this.controller),
         ...result,
         protocolVersion: PROTOCOL_VERSION,
         provider: 'vmctl',
@@ -40,10 +54,14 @@ export class VmctlExecutorProvider implements ExecutorProvider {
         available: result.available ?? true,
         targetExecution: true,
         label: result.label ?? 'Configured local VM controller',
-        reason: result.reason ?? null
+        reason: result.reason ?? null,
+        metadata: {
+          ...(result as Record<string, unknown>),
+          controller: controllerMetadata(this.controller)
+        }
       };
     } catch (error) {
-      return unavailableCapabilities(errorMessage(error));
+      return unavailableCapabilities(errorMessage(error), this.controller);
     }
   }
 
@@ -134,20 +152,23 @@ function contextPayload(context: CreatedRunContext, extra: Record<string, unknow
   };
 }
 
-function unavailableCapabilities(reason: string): ExecutorCapabilities {
+function unavailableCapabilities(reason: string, controller: VmctlController): ExecutorCapabilities {
   return {
-    ...defaultCapabilities(false),
+    ...defaultCapabilities(false, controller),
     protocolVersion: PROTOCOL_VERSION,
     provider: 'vmctl',
-    configured: Boolean(process.env.BEALE_VMCTL_COMMAND?.trim()),
+    configured: Boolean(controller.command),
     available: false,
     label: 'Local VM executor unavailable',
     reason,
-    targetExecution: false
+    targetExecution: false,
+    metadata: {
+      controller: controllerMetadata(controller)
+    }
   };
 }
 
-function defaultCapabilities(available: boolean): ExecutorCapabilities {
+function defaultCapabilities(available: boolean, controller: VmctlController): ExecutorCapabilities {
   return {
     protocolVersion: PROTOCOL_VERSION,
     provider: 'vmctl',
@@ -156,7 +177,7 @@ function defaultCapabilities(available: boolean): ExecutorCapabilities {
     label: available ? 'Local VM executor' : 'Local VM executor unavailable',
     reason: null,
     targetExecution: available,
-    supportedNetworkProfiles: ['offline', 'scoped'],
+    supportedNetworkProfiles: ['offline', 'scoped', 'elevated'],
     supports: {
       snapshots: true,
       clone: true,
@@ -166,13 +187,13 @@ function defaultCapabilities(available: boolean): ExecutorCapabilities {
       python: true,
       debugger: false
     },
-    backends: backendStatuses(available)
+    backends: backendStatuses(available, controller)
   };
 }
 
-function backendStatuses(vmctlAvailable: boolean): ExecutorCapabilities['backends'] {
-  const configuredBackend = (process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase();
-  const hasVmctl = Boolean(process.env.BEALE_VMCTL_COMMAND?.trim());
+function backendStatuses(vmctlAvailable: boolean, controller: VmctlController): ExecutorCapabilities['backends'] {
+  const configuredBackend = controller.backend;
+  const hasVmctl = Boolean(controller.command);
   return [
     {
       kind: 'firecracker',
@@ -236,6 +257,99 @@ function backendStatuses(vmctlAvailable: boolean): ExecutorCapabilities['backend
       reason: hasVmctl ? (vmctlAvailable ? null : 'Configured vmctl command is not currently available.') : 'Set BEALE_VMCTL_COMMAND to a compatible controller.'
     }
   ];
+}
+
+function resolveVmctlController(): VmctlController {
+  const envCommand = process.env.BEALE_VMCTL_COMMAND?.trim() ?? '';
+  if (envCommand) {
+    return {
+      command: envCommand,
+      args: parseJsonStringArray(process.env.BEALE_VMCTL_ARGS_JSON),
+      backend: (process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase(),
+      autoDiscovered: false,
+      configPath: null
+    };
+  }
+
+  const discovered = discoverFirecrackerController();
+  if (discovered) return discovered;
+
+  return {
+    command: '',
+    args: [],
+    backend: (process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase(),
+    autoDiscovered: false,
+    configPath: null
+  };
+}
+
+function discoverFirecrackerController(): VmctlController | null {
+  if (!vmctlAutoDiscoveryEnabled()) return null;
+
+  const configuredPath = process.env.BEALE_FIRECRACKER_CONFIG?.trim();
+  const configPath = resolve(configuredPath || join(process.cwd(), '.beale', 'firecracker', 'config.json'));
+  const scriptPath = resolve(join(process.cwd(), 'scripts', 'firecracker-vmctl.mjs'));
+  if (!existsSync(configPath) || !existsSync(scriptPath)) return null;
+
+  return {
+    command: resolveNodeRuntimeCommand(),
+    args: [scriptPath, '--config', configPath],
+    backend: 'firecracker',
+    autoDiscovered: true,
+    configPath
+  };
+}
+
+function resolveNodeRuntimeCommand(): string {
+  const candidates = [
+    process.env.BEALE_NODE_COMMAND?.trim(),
+    process.env.npm_node_execpath?.trim(),
+    process.env.NODE?.trim(),
+    'node',
+    isPlainNodeExecutable(process.execPath) ? process.execPath : ''
+  ];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (nodeCommandAvailable(candidate)) return candidate;
+  }
+  return 'node';
+}
+
+function nodeCommandAvailable(command: string): boolean {
+  const result = spawnSync(command, ['--version'], {
+    encoding: 'utf8',
+    env: minimalControllerEnv(),
+    timeout: 3000,
+    windowsHide: true
+  });
+  return result.status === 0 && /^v\d+\.\d+\.\d+/.test(result.stdout.trim());
+}
+
+function isPlainNodeExecutable(path: string): boolean {
+  const name = path.split(/[\\/]+/).at(-1)?.toLowerCase() ?? '';
+  return name === 'node' || name === 'node.exe';
+}
+
+function vmctlAutoDiscoveryEnabled(): boolean {
+  const configured = process.env.BEALE_VMCTL_AUTODISCOVERY?.trim().toLowerCase();
+  if (configured === '0' || configured === 'false' || configured === 'off') return false;
+  if (configured === '1' || configured === 'true' || configured === 'on') return true;
+  return process.env.NODE_ENV !== 'test';
+}
+
+function controllerMetadata(controller: VmctlController): Record<string, unknown> {
+  return {
+    autoDiscovered: controller.autoDiscovered,
+    configPath: controller.configPath,
+    command: controller.command || null,
+    args: redactControllerArgs(controller.args)
+  };
+}
+
+function redactControllerArgs(args: string[]): string[] {
+  return args.map((arg) => (SECRET_ENV_PATTERN.test(arg) ? '...redacted' : arg));
 }
 
 function minimalControllerEnv(): NodeJS.ProcessEnv {

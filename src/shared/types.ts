@@ -66,6 +66,17 @@ export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
 
 export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'custom_vmctl';
 
+export interface VmPreference {
+  enabled: boolean;
+  backendKind: ExecutorBackendKind | null;
+  updatedAt: string | null;
+}
+
+export interface VmPreferenceInput {
+  enabled: boolean;
+  backendKind?: ExecutorBackendKind | null;
+}
+
 export interface ExecutorBackendStatus {
   kind: ExecutorBackendKind;
   label: string;
@@ -84,6 +95,7 @@ export interface ExecutorStatus {
   reason: string | null;
   targetExecution: boolean;
   supportedNetworkProfiles: ExecutorNetworkProfile[];
+  metadata?: Record<string, unknown>;
   supports: {
     snapshots: boolean;
     clone: boolean;
@@ -196,6 +208,7 @@ export interface ResearchSessionSummary {
 
 export interface ProgramRegistryState {
   registryPath: string;
+  vmPreference: VmPreference;
   programs: ProgramRegistryEntry[];
   researchSessions: ResearchSessionSummary[];
 }
@@ -734,6 +747,7 @@ export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
+  vmPreference: VmPreference;
   activeScope: ProgramScopeVersion;
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
@@ -801,6 +815,7 @@ export interface BealeApi {
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  setVmPreference(input: VmPreferenceInput): Promise<ProgramRegistryState>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;

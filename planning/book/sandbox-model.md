@@ -1,10 +1,10 @@
 # Sandbox Model
 
-Status: accepted initial direction, 2026-04-26.
+Status: revised product default, 2026-04-28.
 
 ## Decision
 
-Beale should use local virtual machines as the default sandbox provider.
+Beale should be VM-free by default for normal research sessions, with local virtual machines available and recommended for risky execution.
 
 Platform backends:
 
@@ -12,37 +12,39 @@ Platform backends:
 - macOS: Tart.
 - Linux: Firecracker or a comparable local microVM/VM backend.
 
-Docker and devcontainers are not the default sandbox boundary for v1.
+Docker and devcontainers are not the default sandbox boundary for v1. Benchmark mode remains a separate Dockerized harness.
 
 ## Rationale
 
-Beale's first-release priorities include binary reverse engineering, debugger-driven workflows, memory corruption, closed-source executables, crash reproduction, and open-ended discovery. These workflows justify a stronger isolation boundary than containers provide.
+Beale's first-release priorities include binary reverse engineering, debugger-driven workflows, memory corruption, closed-source executables, crash reproduction, and open-ended discovery. These workflows justify keeping VM support first-class, but the VM cost can also impair practical source research and raise setup friction.
 
-The sandbox must handle untrusted code and untrusted program behavior while keeping the trusted Beale host process separate from target execution.
+The default product path prioritizes usability: commands and executables run on the host unless the session is explicitly configured for a disposable VM. The New Research Session flow must show an orange warning that host execution is dangerous and that a VM is recommended.
 
 ## Security Posture
 
-VM isolation is the default security boundary.
+Host execution is the default convenience boundary. VM isolation is the recommended safety boundary.
 
 Design requirements:
 
-- Disposable VM per attempt or per tightly scoped task.
+- A visible host-execution warning before starting a default session.
+- A session sandbox profile recorded in the run and trace.
+- Host execution tools avoid mounting or exposing OpenAI credentials and `.beale/` state through model-visible outputs where possible.
+- Disposable VM per attempt or per tightly scoped task when the user selects VM execution.
 - Snapshot and revert instead of long-lived mutable guests.
 - No provider/model credentials inside guests.
 - No Docker socket or equivalent host-control socket exposed to guests.
 - No broad host filesystem mounts.
 - Explicit file import/export through Beale-controlled artifact channels.
-- Network disabled by default.
-- Network allowlists scoped to the authorized target and task.
+- Network policy remains session-level and scope-aware.
 - Resource limits for CPU, memory, disk, runtime, and process count where supported.
 - Guest images are versioned and reproducible.
 - Sandbox lifecycle events are written to the trace.
 
-VMs reduce escape risk, but they are not treated as perfect. Backend configuration and host integration must be audited as part of the security model.
+VMs reduce escape risk, but they are not treated as perfect. Host execution is more dangerous and should be treated as a documented convenience mode, not as a security boundary.
 
 ## Snapshot Flow
 
-VM snapshotting is a first-class sandbox workflow.
+VM snapshotting is a first-class workflow when the session uses VM isolation.
 
 Beale should distinguish between image templates, clean snapshots, working snapshots, and captured evidence.
 
@@ -88,6 +90,7 @@ Beale is not primarily a malware-analysis platform, but closed-source vulnerabil
 
 For high-risk binaries:
 
+- Prefer a disposable VM instead of host execution.
 - Use network-off execution by default.
 - Disable shared clipboard, shared folders, and guest integration features where possible.
 - Use one-way artifact import where backend support allows.
@@ -125,7 +128,7 @@ Planning requirements:
 
 ### Linux: Firecracker or Similar
 
-Firecracker, or a comparable local microVM/VM backend, is the default Linux direction.
+Firecracker, or a comparable local microVM/VM backend, is the recommended Linux VM direction.
 
 Planning requirements:
 
@@ -166,7 +169,7 @@ The trusted Beale host owns:
 - Trace and audit logs.
 - Verifier promotion decisions.
 
-The guest VM owns:
+In VM-backed sessions, the guest VM owns:
 
 - Target execution.
 - Build/test/debug/fuzz commands.
@@ -177,13 +180,14 @@ The guest communicates with Beale only through narrow, typed channels.
 
 ## Planning Consequence
 
-The executor abstraction should be VM-first:
+The executor abstraction should be sandbox-aware:
 
 ```text
 Executor
+  HostResearchExecutor
   WindowsHyperVExecutor
   TartExecutor
   LinuxFirecrackerExecutor
 ```
 
-The exact class names are placeholders. The important point is that local VM execution is the default architecture, not a future hardening option.
+The exact class names are placeholders. The important point is that local VM execution remains a recommended safety option, while host execution is the default product path and must be clearly traceable.

@@ -19,7 +19,7 @@ Beale also exposes one setup tool:
 
 Shell remains available as an escape hatch, but the harness should guide the model toward structured tools when they produce better traces, safer execution, or clearer evidence.
 
-Workspace setup is separate from the research evidence tool set. Cloning in-scope repositories, importing local target material, and copying material into a VM should use narrow Beale-managed workspace/import operations rather than arbitrary host shell commands.
+Workspace setup is separate from the research evidence tool set. Cloning in-scope repositories, importing local target material, and copying material into a VM should use narrow Beale-managed workspace/import operations where possible.
 
 ## Rationale
 
@@ -27,7 +27,7 @@ Tool bloat causes inefficiency. It increases prompt/tool-selection overhead, mak
 
 The v1 tool set should cover Beale's first-release scope without exposing every possible analysis tool directly to the model.
 
-The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, host/guest isolation, credential boundaries, workspace database exposure, and verified-finding promotion.
+The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, workspace database exposure, verified-finding promotion, and the New Research Session warning when the selected sandbox is host execution.
 
 The operating rule:
 
@@ -49,9 +49,9 @@ Capabilities:
 
 - Validate that the requested repository URL or label is present in active program scope.
 - Clone the repository into a Beale-managed workspace directory using a shallow host-side git operation.
-- Add the local checkout as scoped source material for `search`, `code_browser`, VM import, and verifier setup.
+- Add the local checkout as scoped source material for `search`, `code_browser`, host execution, VM import, and verifier setup.
 
-The tool is host-safe setup, not target execution. It must not expose a general host shell, run target-controlled code on the host, or use host secrets. Build, test, mutation, sanitizer, debugger, and PoC execution remain VM-only.
+The tool is host-safe setup, not target execution. It must not use host secrets. Build, test, mutation, sanitizer, debugger, and PoC execution run in the active session sandbox: host by default, VM when selected.
 
 ## Tool: `search`
 
@@ -101,14 +101,14 @@ Purpose:
 
 Capabilities:
 
-- Run small scripts in the guest VM.
+- Run small scripts in the active session sandbox.
 - Generate PoC inputs.
 - Mutate structured formats.
 - Parse logs and traces.
 - Minimize or transform crash inputs.
 - Perform local calculations and quick experiments.
 
-Execution is inside the guest VM, not on the trusted host.
+Execution is on the host in default sessions and inside the guest VM when `local_disposable_vm` is selected.
 
 Python outputs should be captured as trace events, with generated files preserved through the `artifact` tool when relevant.
 
@@ -131,7 +131,7 @@ Capabilities:
 
 Debugger observations are evidence candidates. They must be stored as tool-backed trace events, not only summarized in model prose.
 
-The debugger tool should abstract over backend-specific tools where possible, but v1 can start with a narrow implementation per guest image.
+The debugger tool should abstract over backend-specific tools where possible, but v1 can start with a narrow implementation for the active sandbox.
 
 Debugger access should be wrapper-first rather than raw PTY-first. The model should call structured operations such as setting breakpoints, continuing execution, reading registers, inspecting stack frames, reading memory, and capturing crash context.
 
@@ -155,7 +155,7 @@ Artifact types:
 - Binary metadata.
 - Reproduction bundles.
 
-Artifacts are exported from the guest through Beale-controlled channels, stored in the workspace artifact store, and referenced by content hash and metadata in SQLite.
+Artifacts are collected from the active sandbox through Beale-controlled channels, stored in the workspace artifact store, and referenced by content hash and metadata in SQLite.
 
 The model should not treat stdout as durable evidence when an artifact is more appropriate.
 
@@ -195,8 +195,8 @@ Shell remains available because vulnerability research needs flexibility.
 Rules:
 
 - Prefer structured tools when they cover the task.
-- Use shell inside the guest for target setup, uncommon tooling, package commands, and one-off operations.
-- Shell runs inside the guest VM.
+- Use shell inside the active sandbox for target setup, uncommon tooling, package commands, and one-off operations.
+- Shell runs on the host in default sessions and inside the guest VM when VM isolation is selected.
 - Shell output should be summarized and artifact-backed when it becomes evidence.
 - Shell is not a replacement for `artifact` or `verifier`.
 

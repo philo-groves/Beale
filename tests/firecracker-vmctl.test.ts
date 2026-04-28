@@ -14,13 +14,13 @@ afterEach(() => {
 
 describe('Firecracker vmctl controller', () => {
   it('reports available capabilities when configured assets are present', () => {
-    const { configPath } = fixtureConfig();
-    const response = vmctl(configPath, 'list_capabilities', {});
+    const { configPath, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true });
+    const response = vmctl(configPath, 'list_capabilities', {}, { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` });
 
     expect(response.ok).toBe(true);
     expect(response.result.available).toBe(true);
     expect(response.result.label).toBe('Firecracker VM executor');
-    expect(response.result.supportedNetworkProfiles).toEqual(['offline']);
+    expect(response.result.supportedNetworkProfiles).toEqual(['offline', 'elevated']);
     expect(response.result.supports).toMatchObject({ clone: true, import: true, export: true, shell: true, python: true });
   });
 
@@ -30,7 +30,45 @@ describe('Firecracker vmctl controller', () => {
 
     expect(response.ok).toBe(true);
     expect(response.result.available).toBe(true);
-    expect(response.result.supportedNetworkProfiles).toEqual(['offline', 'scoped']);
+    expect(response.result.supportedNetworkProfiles).toEqual(['offline', 'scoped', 'elevated']);
+  });
+
+  it('runs elevated network operations with unrestricted NAT and no allowlist policy', () => {
+    const { configPath, fakeBinDir, sshLogPath } = fixtureConfig({ fakeRuntimeCommands: true });
+    const payload = {
+      vmContextId: 'vm_firecracker_elevated_policy_test',
+      runId: 'run_firecracker_elevated_policy_test',
+      attemptId: 'attempt_firecracker_elevated_policy_test',
+      scopeVersionId: 'scope_firecracker_elevated_policy_test',
+      snapshotRef: 'clean',
+      networkProfile: 'elevated'
+    };
+    const env = { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` };
+
+    expect(vmctl(configPath, 'create_context', payload, env).result.state).toBe('clean');
+    const response = vmctl(
+      configPath,
+      'execute',
+      {
+        ...payload,
+        operation: {
+          command: ['true'],
+          cwd: '/',
+          env: {},
+          timeoutMs: 1000,
+          networkProfile: 'elevated'
+        }
+      },
+      env
+    );
+
+    try {
+      expect(response.ok).toBe(true);
+      expect(response.result.status).toBe('success');
+      expect(readFileSync(sshLogPath, 'utf8')).toContain('ip route replace default');
+    } finally {
+      vmctl(configPath, 'destroy', payload, env);
+    }
   });
 
   it('fails closed for scoped execution without an allowlist policy', () => {
@@ -66,9 +104,9 @@ describe('Firecracker vmctl controller', () => {
   });
 
   it('fails closed when required Firecracker assets are missing', () => {
-    const { configPath, rootfsPath } = fixtureConfig();
+    const { configPath, rootfsPath, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true });
     rmSync(rootfsPath);
-    const response = vmctl(configPath, 'list_capabilities', {});
+    const response = vmctl(configPath, 'list_capabilities', {}, { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` });
 
     expect(response.ok).toBe(true);
     expect(response.result.available).toBe(false);
@@ -76,7 +114,8 @@ describe('Firecracker vmctl controller', () => {
   });
 
   it('creates and resets context rootfs copies without booting a guest', () => {
-    const { configPath, stateDir } = fixtureConfig();
+    const { configPath, stateDir, fakeBinDir } = fixtureConfig({ fakeRuntimeCommands: true });
+    const env = { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH ?? ''}` };
     const basePayload = {
       vmContextId: 'vm_firecracker_test',
       runId: 'run_firecracker_test',
@@ -86,12 +125,12 @@ describe('Firecracker vmctl controller', () => {
       networkProfile: 'offline'
     };
 
-    expect(vmctl(configPath, 'create_context', basePayload).result.state).toBe('clean');
+    expect(vmctl(configPath, 'create_context', basePayload, env).result.state).toBe('clean');
     const contextRootfs = join(stateDir, 'vm_firecracker_test', 'rootfs.ext4');
     expect(existsSync(contextRootfs)).toBe(true);
 
     writeFileSync(contextRootfs, 'mutated rootfs');
-    expect(vmctl(configPath, 'clone_context', basePayload).result.reset).toBe(true);
+    expect(vmctl(configPath, 'clone_context', basePayload, env).result.reset).toBe(true);
     expect(readFileSync(contextRootfs, 'utf8')).toBe('base rootfs');
   });
 

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { BenchmarkRunInput, ProgramOnboardingInput, ProgramScopeDraft, StartRunInput, SteeringAction, WorkspacePickerMode } from '@shared/types';
+import type { BenchmarkRunInput, ProgramOnboardingInput, ProgramScopeDraft, StartRunInput, SteeringAction, VmPreferenceInput, WorkspacePickerMode } from '@shared/types';
 import { getHostEnvironment, WorkspaceService } from './workspaceService';
 
 let mainWindow: BrowserWindow | null = null;
@@ -79,6 +79,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
+  ipcMain.handle(IPC_CHANNELS.setVmPreference, (_event, input: VmPreferenceInput) => workspaceService.setVmPreference(input));
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());

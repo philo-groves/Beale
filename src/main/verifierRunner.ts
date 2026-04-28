@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
+import { executeHostOperation, isHostResearchSandbox } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
 import type { ScopeAsset, VerifierContractRecord, VerifierRunRecord } from '@shared/types';
 
@@ -45,6 +46,11 @@ export function runVerifierContract(
     });
   }
 
+  const context = verifierContext(db, runId, attemptId, vmContextId);
+  if (isHostResearchSandbox(context.run.sandboxProfile)) {
+    return runHostVerifierContract(db, runId, contract, context, spec, note);
+  }
+
   if (!executor) {
     return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed before VM start.', {
       issues: ['VM executor is not available'],
@@ -60,7 +66,6 @@ export function runVerifierContract(
     });
   }
 
-  const context = verifierContext(db, runId, attemptId, vmContextId);
   const imageRef = context.vmContext.imageId || 'beale-default-toolchain';
   const snapshotRef = context.vmContext.snapshotId || 'clean';
   let contextCreated = false;
@@ -190,7 +195,92 @@ export function runVerifierContract(
 }
 
 export function isRealVerifierPass(run: VerifierRunRecord | null | undefined): boolean {
-  return run?.status === 'pass' && run.result.realExecution === true && run.result.vmExecution === true;
+  return run?.status === 'pass' && run.result.realExecution === true && (run.result.vmExecution === true || run.result.hostExecution === true);
+}
+
+function runHostVerifierContract(
+  db: WorkspaceDatabase,
+  runId: string,
+  contract: VerifierContractRecord,
+  context: CreatedRunContext,
+  spec: VerifierExecutionSpec,
+  note: string
+): VerifierExecutionOutcome {
+  try {
+    const execution = executeHostOperation(db, context, verifierRequest(context, spec), spec.artifactPath, 'verifier_output');
+    const verdict = verifierVerdict(execution.result, spec);
+    const verifierRun = db.createVerifierRun({
+      contractId: contract.id,
+      runId,
+      attemptId: context.attempt.id,
+      vmContextId: context.vmContext.id,
+      status: verdict.status,
+      blockedIssue: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'no' : 'error',
+      behaviorPreserved: contract.mode === 'patch_validation' ? (verdict.status === 'pass' ? 'yes' : 'inconclusive') : 'not_applicable',
+      diagnosticsClean: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'fail' : 'inconclusive',
+      regressionTests: contract.mode === 'patch_validation' && verdict.status === 'pass' ? 'pass' : 'not_run',
+      result: {
+        realExecution: true,
+        vmExecution: false,
+        hostExecution: true,
+        observationBacked: true,
+        execution: {
+          substrate: 'host',
+          operationKind: spec.operationKind,
+          expectedExitCode: spec.expectedExitCode,
+          expectedStdoutIncludes: spec.expectedStdoutIncludes,
+          expectedStderrIncludes: spec.expectedStderrIncludes
+        },
+        exitCode: execution.result.exitCode,
+        status: execution.result.status,
+        stdoutSummary: execution.result.stdoutSummary,
+        stderrSummary: execution.result.stderrSummary,
+        checks: verdict.checks,
+        artifactId: execution.artifactId,
+        hostCwd: execution.cwd,
+        hostTargetPath: execution.targetPath,
+        hostArtifactPath: execution.artifactPath,
+        note: redactForModelText(note)
+      }
+    });
+
+    if (execution.artifactId) {
+      db.createEvidenceFromArtifact(runId, execution.artifactId, 'Verifier output artifact from host execution.', contract.hypothesisId, contract.findingId);
+    }
+    if (verdict.status === 'pass' && contract.findingId) {
+      db.verifyFindingWithVerifierRun(contract.findingId, verifierRun.id);
+    }
+
+    const event = db.appendTraceEvent({
+      runId,
+      attemptId: context.attempt.id,
+      type: 'verifier_result',
+      source: 'verifier',
+      summary: `Verifier contract executed on host with ${verdict.status}.`,
+      payload: {
+        verifierRunId: verifierRun.id,
+        contractId: contract.id,
+        status: verdict.status,
+        realExecution: true,
+        vmExecution: false,
+        hostExecution: true,
+        observationBacked: true,
+        artifactId: execution.artifactId,
+        checks: verdict.checks
+      },
+      artifactId: execution.artifactId,
+      vmContextId: context.vmContext.id
+    });
+    return { verifierRun, traceEventId: event.id, artifactId: execution.artifactId };
+  } catch (error) {
+    return recordVerifierFailure(db, runId, contract, context.attempt.id, context.vmContext.id, 'Verifier execution failed on host.', {
+      issues: [errorMessage(error)],
+      note: redactForModelText(note),
+      realExecution: false,
+      vmExecution: false,
+      hostExecution: true
+    });
+  }
 }
 
 export function verifierContractIssues(contract: VerifierContractRecord): string[] {

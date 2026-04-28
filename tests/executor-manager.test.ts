@@ -8,9 +8,21 @@ import { WorkspaceService } from '../src/main/workspaceService';
 import type { ScopeAssetInput } from '../src/shared/types';
 
 const createdDirs: string[] = [];
-const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'BEALE_VM_BACKEND', 'OPENAI_API_KEY', 'BEALE_OPENAI_ACCESS_TOKEN'];
+const originalCwd = process.cwd();
+const ENV_KEYS = [
+  'BEALE_VMCTL_COMMAND',
+  'BEALE_VMCTL_ARGS_JSON',
+  'BEALE_VMCTL_TIMEOUT_MS',
+  'BEALE_VMCTL_AUTODISCOVERY',
+  'BEALE_FIRECRACKER_CONFIG',
+  'BEALE_NODE_COMMAND',
+  'BEALE_VM_BACKEND',
+  'OPENAI_API_KEY',
+  'BEALE_OPENAI_ACCESS_TOKEN'
+];
 
 afterEach(() => {
+  process.chdir(originalCwd);
   for (const key of ENV_KEYS) {
     delete process.env[key];
   }
@@ -180,6 +192,32 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
+  it('passes elevated network operations to online VM backends without requiring a scoped allowlist', () => {
+    const { db, logPath } = openExecutorDb();
+    configureVmctlFixture(logPath, '', ['offline', 'scoped', 'elevated']);
+    const context = createExecutorRun(db, undefined, 'elevated');
+    const manager = new ExecutorManager(db);
+
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+    manager.executeGuestOperation(context, {
+      operationKind: 'shell',
+      command: ['sh', '-lc', 'curl -fsS https://example.com/'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5000,
+      networkProfile: 'elevated',
+      expectedOutput: 'summary'
+    });
+
+    const detail = db.getRunDetail(context.run.id);
+    const networkEvent = detail.traceEvents.find((event) => event.type === 'network_event' && event.payload.decision === 'allow_elevated_network');
+    expect(networkEvent?.payload.liveTargetAllowed).toBe(true);
+    expect(networkEvent?.payload.allowedDestinationCount).toBe(0);
+    expect(networkEvent?.payload.failClosed).toBe(false);
+    expect(readFileSync(logPath, 'utf8')).toContain('"networkProfile":"elevated"');
+    db.close();
+  });
+
   it('fails closed when scoped networking has no live-target scope', () => {
     const { db, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
@@ -278,6 +316,36 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
+  it('autodiscovers a local Firecracker vmctl config when no controller env vars are set', () => {
+    const appRoot = mkdtempSync(join(tmpdir(), 'beale-vmctl-autodiscovery-'));
+    createdDirs.push(appRoot);
+    mkdirSync(join(appRoot, 'scripts'), { recursive: true });
+    mkdirSync(join(appRoot, '.beale', 'firecracker'), { recursive: true });
+    writeFileSync(join(appRoot, '.beale', 'firecracker', 'config.json'), '{}\n');
+    writeFileSync(
+      join(appRoot, 'scripts', 'firecracker-vmctl.mjs'),
+      [
+        "import { readFileSync } from 'node:fs';",
+        "const request = JSON.parse(readFileSync(0, 'utf8'));",
+        "if (request.action !== 'list_capabilities') throw new Error(`unexpected ${request.action}`);",
+        'console.log(JSON.stringify({ ok: true, result: { available: true, label: "Autodiscovered Firecracker", supportedNetworkProfiles: ["offline", "scoped"], supports: { snapshots: true, clone: true, import: true, export: true, shell: true, python: true, debugger: false } } }));'
+      ].join('\n')
+    );
+    process.env.BEALE_VMCTL_AUTODISCOVERY = '1';
+    process.chdir(appRoot);
+    const { db } = openExecutorDb();
+    const manager = new ExecutorManager(db);
+
+    const status = manager.getStatus();
+
+    expect(status.available).toBe(true);
+    expect(status.label).toBe('Autodiscovered Firecracker');
+    expect(status.backends.find((backend) => backend.kind === 'firecracker')?.available).toBe(true);
+    expect((status.metadata?.controller as Record<string, unknown>).autoDiscovered).toBe(true);
+    expect((status.metadata?.controller as Record<string, unknown>).configPath).toBe(join(appRoot, '.beale', 'firecracker', 'config.json'));
+    db.close();
+  });
+
   it('runs the executor_alpha product path through workspace service when vmctl is configured', () => {
     const dir = mkdtempSync(join(tmpdir(), 'beale-executor-service-'));
     createdDirs.push(dir);
@@ -349,9 +417,9 @@ describe('VM executor alpha', () => {
   });
 });
 
-function configureVmctlFixture(logPath: string, failActions = ''): void {
+function configureVmctlFixture(logPath: string, failActions = '', supportedNetworkProfiles = ['offline', 'scoped']): void {
   process.env.BEALE_VMCTL_COMMAND = process.execPath;
-  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions]);
+  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions, JSON.stringify(supportedNetworkProfiles)]);
 }
 
 function readVmctlActions(logPath: string): string[] {

@@ -4,7 +4,7 @@ Status: alpha implementation direction, 2026-04-27.
 
 ## Decision
 
-Beale's first real local VM backend should be a Firecracker controller on Linux/WSL.
+Beale's first real local VM backend should be a Firecracker controller on Linux/WSL. It is an opt-in safety backend, not the default research sandbox.
 
 The Beale app continues to talk to a narrow `vmctl` JSON command through `BEALE_VMCTL_COMMAND`. Firecracker-specific host setup stays outside the renderer and outside the model-facing tool surface.
 
@@ -88,11 +88,13 @@ The controller starts from a clean rootfs copy per context, queues scoped import
 
 ## Network Posture
 
-Default Firecracker networking is `offline`.
+When a research session uses Firecracker, its default VM network profile is `elevated`.
 
-The controller uses a host-to-guest bridge for executor control. It does not enable NAT or arbitrary internet access by default.
+The controller uses a host-to-guest bridge for executor control and enables unrestricted guest NAT for the `elevated` profile. The session layer remains responsible for deciding whether a requested action is allowed by the recorded program scope before it asks the VM to run it.
 
-`scoped` networking remains disabled unless `enableScopedNetwork` is explicitly set in the controller config and the host-side network policy is audited. When enabled, Beale passes the run's scoped domain/host/IP/service allowlist to the controller, the controller pins domain and host destinations to resolved IPv4 addresses, and host firewall/NAT rules fail closed to that allowlist. Live-target access still requires recorded program scope and an active network profile that permits it.
+Benchmark execution remains `offline`. Benchmark isolation is handled by the Dockerized benchmark harness, host-side grader, and host-side model/auth proxy rather than by the normal Firecracker online profile.
+
+`offline` still starts only the host-to-guest control bridge. `scoped` networking remains disabled unless `enableScopedNetwork` is explicitly set in the controller config and the host-side network policy is audited. When enabled, Beale passes the run's scoped domain/host/IP/service allowlist to the controller, the controller pins domain and host destinations to resolved IPv4 addresses, and host firewall/NAT rules fail closed to that allowlist. Live-target access still requires recorded program scope and session-level policy approval.
 
 ## Non-Goals
 

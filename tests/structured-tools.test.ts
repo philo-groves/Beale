@@ -190,6 +190,46 @@ describe('structured research tools', () => {
     expect(localAnalysisProfiles).toEqual(['scoped', 'scoped']);
     db.close();
   });
+
+  it('runs Python and verifier scripts on the host when the session sandbox is host_research_only', () => {
+    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+    const router = new BealeToolRouter(db);
+
+    const python = callTool(router, context, 'python', {
+      task: 'generate host-side analysis output',
+      script: [
+        'import os',
+        'target = os.environ["BEALE_TARGET_PATH"]',
+        'path = os.path.join(target, "beale-host-output.txt")',
+        'open(path, "w", encoding="utf-8").write("host artifact")',
+        'print(os.environ["BEALE_EXECUTION_SUBSTRATE"])'
+      ].join('\n'),
+      artifact_path: '/workspace/target/beale-host-output.txt'
+    });
+    expect(python.status).toBe('success');
+    expect(python.artifact_id).toBeTruthy();
+    expect(python.payload.hostExecution).toBe(true);
+    expect(python.payload.executionSubstrate).toBe('host');
+    expect(python.payload.hostTargetPath).toBe(targetDir);
+    expect(python.payload.stdoutSummary).toContain('host');
+
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: 'host verifier',
+      expectation: 'host verifier should observe stdout',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: 'printf verifier-ok',
+      artifact_path: '',
+      expected_stdout: 'verifier-ok'
+    });
+    expect(verifier.status).toBe('success');
+    expect(verifier.payload.status).toBe('pass');
+    expect(verifier.payload.realExecution).toBe(true);
+    expect(verifier.payload.hostExecution).toBe(true);
+    expect(verifier.payload.vmExecution).toBe(false);
+    expect(db.getRunDetail(context.run.id).traceEvents.some((event) => event.summary === 'Verifier contract executed on host with pass.')).toBe(true);
+    db.close();
+  });
 });
 
 interface ToolOutput {
@@ -229,7 +269,7 @@ function callTool(router: BealeToolRouter, context: CreatedRunContext, name: str
   ) as ToolOutput;
 }
 
-function openStructuredToolDb(): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; logPath: string } {
+function openStructuredToolDb(sandboxProfile = 'local_disposable_vm'): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; targetDir: string; logPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-structured-tools-'));
   createdDirs.push(dir);
   const artifactRoot = join(dir, '.beale', 'artifacts');
@@ -267,10 +307,10 @@ function openStructuredToolDb(): { db: WorkspaceDatabase; context: CreatedRunCon
     reasoningEffort: 'xhigh',
     attemptStrategy: 'single_path',
     networkProfile: 'offline',
-    sandboxProfile: 'local_disposable_vm',
+    sandboxProfile,
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
   });
-  return { db, context, sourceFile, binaryFile, logPath };
+  return { db, context, sourceFile, binaryFile, targetDir, logPath };
 }
 
 function configureVmctlFixture(logPath: string): void {

@@ -24,6 +24,7 @@ import {
 } from './openaiCompaction';
 import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
+import { isHostResearchSandbox } from './hostToolExecutor';
 import type { ExecutorManager } from './executorManager';
 import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
@@ -77,7 +78,20 @@ export class OpenAiRunEngine {
       attemptStrategy: input.attemptStrategy,
       networkProfile: input.networkProfile,
       sandboxProfile: input.sandboxProfile,
-      budget: { ...input.budget, runEngine: 'openai_responses' }
+      budget: { ...input.budget, runEngine: 'openai_responses' },
+      vmBackend: isHostResearchSandbox(input.sandboxProfile) ? 'host' : undefined,
+      vmImageId: isHostResearchSandbox(input.sandboxProfile) ? 'host-machine' : undefined,
+      vmSnapshotId: isHostResearchSandbox(input.sandboxProfile) ? 'none' : undefined,
+      vmState: isHostResearchSandbox(input.sandboxProfile) ? 'host_active' : undefined,
+      vmMetadata: isHostResearchSandbox(input.sandboxProfile)
+        ? {
+            executor: 'host',
+            targetExecution: true,
+            hostExecutionDefault: true,
+            vmRecommended: true,
+            warning: 'Commands and executables run on the host machine for this session.'
+          }
+        : undefined
     });
 
     const status = this.auth.getStatus();
@@ -105,9 +119,26 @@ export class OpenAiRunEngine {
       payload: {
         mode: input.mode,
         attemptStrategy: input.attemptStrategy,
-        runEngine: 'openai_responses'
+        runEngine: 'openai_responses',
+        sandboxProfile: input.sandboxProfile,
+        hostExecutionDefault: isHostResearchSandbox(input.sandboxProfile)
       }
     });
+    if (isHostResearchSandbox(input.sandboxProfile)) {
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Session started with host execution sandbox warning.',
+        payload: {
+          sandboxProfile: input.sandboxProfile,
+          hostExecutionDefault: true,
+          warning: 'Commands and executables run on the host machine. A disposable VM is recommended.'
+        },
+        vmContextId: context.vmContext.id
+      });
+    }
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,

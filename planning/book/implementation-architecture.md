@@ -4,9 +4,9 @@ Status: draft implementation direction, 2026-04-27.
 
 ## Decision
 
-Beale should be implemented as an Electron workbench with a trusted host service, a typed UI boundary, local SQLite persistence, an OpenAI model adapter, and a VM-first executor abstraction.
+Beale should be implemented as an Electron workbench with a trusted host service, a typed UI boundary, local SQLite persistence, an OpenAI model adapter, and a sandbox-aware executor abstraction.
 
-The architecture should keep product state and security decisions in Beale-owned modules. OpenAI APIs supply model reasoning and tool-call mechanics; VMs supply isolated target execution; SQLite supplies authoritative local state.
+The architecture should keep product state and security decisions in Beale-owned modules. OpenAI APIs supply model reasoning and tool-call mechanics; the active sandbox supplies target execution; SQLite supplies authoritative local state.
 
 ## Process Boundary
 
@@ -21,13 +21,13 @@ Trusted host service
   owns credentials, policy, run engine, SQLite, artifacts, model adapter, executor control
   records trace and decides what becomes evidence
 
-Guest VM
-  receives scoped target material
-  runs target code, tools, debuggers, tests, and verifier commands
+Execution sandbox
+  defaults to host execution after an explicit warning
+  can be switched to a disposable guest VM for stronger isolation
   returns observations and candidate artifacts
 ```
 
-Benchmark mode adds a separate Dockerized agent harness and host-side grader, but normal authorized research remains VM-based.
+Benchmark mode adds a separate Dockerized agent harness and host-side grader. Normal authorized research is host-backed by default, with VM isolation recommended and available.
 
 ## Renderer UI
 
@@ -122,7 +122,7 @@ Artifacts can originate from user import, VM export, verifier output, model-prop
 Responsibilities:
 
 - Evaluate program scope.
-- Enforce host vs VM execution rules.
+- Enforce active sandbox execution rules.
 - Enforce network profiles.
 - Enforce credential injection rules.
 - Enforce model visibility and redaction.
@@ -186,12 +186,12 @@ Responsibilities:
 - Create execution contexts.
 - Restore snapshots.
 - Import target material.
-- Execute guest commands and structured tool backends.
+- Execute host or guest commands and structured tool backends.
 - Export artifacts.
 - Revert, preserve, or destroy guests.
 - Record VM lifecycle and contamination state.
 
-Initial implementation should support a fake executor for UI/run-engine development and one real VM backend for alpha.
+Initial implementation should support host execution, a fake executor for UI/run-engine development, and one real VM backend for alpha.
 
 ## Verifier Service
 
@@ -252,4 +252,3 @@ User starts run
 ## Implementation Rule
 
 If a component affects authorization, secrets, target execution, trace authority, artifact authority, verifier promotion, or workspace persistence, it belongs in the trusted host service.
-

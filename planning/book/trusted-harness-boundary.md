@@ -1,10 +1,10 @@
 # Trusted Harness Boundary
 
-Status: accepted initial direction, 2026-04-26.
+Status: revised sandbox default, 2026-04-28.
 
 ## Decision
 
-Beale should keep the trusted harness on the host and run target code only inside disposable guest VMs.
+Beale should keep the trusted harness on the host. Normal research sessions are VM-free by default and run commands/executables on the host after an orange warning in the New Research Session flow. Disposable guest VMs remain the recommended isolation boundary and can be selected for sessions that need stronger protection.
 
 The VM is a tool the harness controls. The VM is not where the harness lives.
 
@@ -21,8 +21,8 @@ The VM is a tool the harness controls. The VM is not where the harness lives.
 | Tool policy and approvals | yes | no |
 | Trace/audit log authority | yes | no direct write |
 | Target source or binary | scoped copy/reference | yes |
-| Build/test/debug/fuzz execution | no | yes |
-| Temporary execution state | no | yes |
+| Build/test/debug/fuzz execution | default | VM sessions |
+| Temporary execution state | default | VM sessions |
 | Verifier promotion decision | yes | no |
 
 ## Rationale
@@ -38,14 +38,16 @@ Target code is untrusted. That includes:
 - Debugger automation.
 - Generated PoCs.
 
-If Beale runs its model client, credentials, database, artifact authority, or verifier decisions inside the same environment as target code, target execution can potentially read secrets, tamper with traces, modify findings, or influence future runs.
+If Beale runs target code on the host, target execution can potentially read host files, affect local state, or interfere with future runs. Beale accepts this as the default usability tradeoff only when the session-start warning is shown and the selected sandbox is recorded.
 
 ## Fast Workflow Without Collapsing the Boundary
 
-Performance should come from efficient VM operations, not from weakening isolation.
+VM performance work still matters, but usability requires a host-default path for researchers who will not accept VM setup or load.
 
 Required workflow aids:
 
+- Orange host-execution warning when creating a default session.
+- Clear session metadata showing host vs VM execution.
 - Prebuilt toolchain snapshots.
 - Clone/revert per attempt.
 - Clean target snapshots when setup is expensive.
@@ -57,18 +59,19 @@ Required workflow aids:
 
 ## Data Flow
 
-Typical execution flow:
+Typical host-default execution flow:
 
 1. Beale host loads the workspace database.
-2. Beale restores or clones a VM from a clean snapshot.
-3. Beale imports scoped target material into the guest.
+2. The user starts a session after the host-execution warning.
+3. Beale resolves scoped target material on the host.
 4. The model requests a tool call.
 5. Beale checks authorization, tool policy, and sandbox policy.
-6. Beale executes the command or structured tool inside the VM.
-7. The guest returns stdout, stderr, exit status, and artifact references through a controlled channel.
+6. Beale executes the command or structured tool on the host.
+7. The host runner returns stdout, stderr, exit status, and artifact references through a controlled channel.
 8. Beale stores trace events and artifact metadata in the host database.
-9. Beale exports selected artifacts into the host artifact store.
-10. Beale reverts or destroys the guest VM.
+9. Beale stores selected artifacts in the host artifact store.
+
+VM-backed sessions insert the VM clone/import/execute/export/revert lifecycle between steps 2 and 9.
 
 ## Prohibited Defaults
 
@@ -82,13 +85,14 @@ Beale should not:
 - Let the guest directly write authoritative artifacts.
 - Let guest logs become trusted evidence without host-recorded provenance.
 - Reuse contaminated guest state as a clean base.
+- Hide host execution behind a default session without the warning.
 
 ## Planning Consequence
 
 The executor API should be command/artifact oriented:
 
-- Host asks the guest to run a scoped operation.
-- Guest returns observations and candidate artifacts.
+- Host runner or guest VM runs a scoped operation.
+- The selected sandbox returns observations and candidate artifacts.
 - Host records, validates, indexes, and decides what becomes evidence.
 
 This boundary should shape tool design, trace design, verifier design, and GUI state.

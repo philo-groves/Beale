@@ -105,7 +105,7 @@ async function capabilities(config) {
     label: available ? 'Firecracker VM executor' : 'Firecracker VM executor unavailable',
     reason: available ? null : checks.filter((check) => !check.ok).map((check) => check.message).join(' '),
     targetExecution: available,
-    supportedNetworkProfiles: config.enableScopedNetwork ? ['offline', 'scoped'] : ['offline'],
+    supportedNetworkProfiles: config.enableScopedNetwork ? ['offline', 'scoped', 'elevated'] : ['offline', 'elevated'],
     supports: {
       snapshots: true,
       clone: true,
@@ -139,7 +139,7 @@ async function readinessChecks(config) {
     await commandCheck('ssh'),
     await commandCheck('scp'),
     await commandCheck('ip'),
-    await scopedNetworkCheck(config),
+    await networkNatCheck(),
     privilegedHelperCheck(config),
     await kvmCheck(config),
     tapCheck(config)
@@ -180,7 +180,7 @@ async function resetContextRootfs(config, payload) {
     const networkProfile = normalizeNetworkProfile(payload.networkProfile ?? state.networkProfile);
     state.networkProfile = networkProfile;
     state.networkPolicy = await validateNetworkPolicy(config, networkProfile, payload.networkPolicy ?? state.networkPolicy);
-    state.scopedNetworkConfigured = false;
+    clearNetworkConfigurationState(state);
   }
   state.imports = [];
   state.running = false;
@@ -213,7 +213,7 @@ async function executeGuestOperation(config, payload) {
   const state = readState(dir, payload);
   state.networkProfile = networkProfile;
   state.networkPolicy = networkPolicy;
-  state.scopedNetworkConfigured = false;
+  clearNetworkConfigurationState(state);
   writeState(dir, state);
   await ensureStarted(config, dir, payload);
   await materializeImports(config, dir, payload);
@@ -294,11 +294,11 @@ function destroyContext(config, payload) {
 async function ensureStarted(config, dir, payload) {
   const state = readState(dir, payload);
   if (state.running && config.privilegedHelper && state.pidFile && existsSync(state.pidFile)) {
-    await ensureScopedNetworkConfigured(config, dir, payload);
+    await ensureNetworkConfigured(config, dir, payload);
     return;
   }
   if (state.running && state.pid && isProcessAlive(state.pid)) {
-    await ensureScopedNetworkConfigured(config, dir, payload);
+    await ensureNetworkConfigured(config, dir, payload);
     return;
   }
   setupTap(config, dir);
@@ -342,7 +342,7 @@ async function ensureStarted(config, dir, payload) {
   });
   apiPut(config, apiSocket, '/actions', { action_type: 'InstanceStart' });
   await waitForSsh(config);
-  await ensureScopedNetworkConfigured(config, dir, payload);
+  await ensureNetworkConfigured(config, dir, payload);
 }
 
 async function materializeImports(config, dir, payload) {
@@ -373,9 +373,25 @@ function setupTap(config, dir) {
   runHost(config, 'ip', ['link', 'set', 'dev', name, 'up']);
 }
 
-async function ensureScopedNetworkConfigured(config, dir, payload) {
+async function ensureNetworkConfigured(config, dir, payload) {
   const state = readState(dir, payload);
-  if (state.networkProfile !== 'scoped') return;
+  if (state.networkProfile === 'offline') {
+    cleanupAllNetwork(config, state, { allowFailure: true });
+    state.networkConfiguredProfile = 'offline';
+    writeState(dir, state);
+    return;
+  }
+  if (state.networkProfile === 'elevated') {
+    if (state.onlineNetworkConfigured === true && state.networkConfiguredProfile === 'elevated') {
+      return;
+    }
+    setupOnlineNetwork(config, state);
+    configureGuestDefaultRoute(config);
+    state.onlineNetworkConfigured = true;
+    state.networkConfiguredProfile = 'elevated';
+    writeState(dir, state);
+    return;
+  }
   const policy = state.networkPolicy;
   if (!policy?.resolvedDestinations?.length) {
     throw new Error('Scoped network policy is missing resolved destinations.');
@@ -388,17 +404,31 @@ async function ensureScopedNetworkConfigured(config, dir, payload) {
   configureScopedGuestNetwork(config, policy);
   state.scopedNetworkConfigured = true;
   state.scopedNetworkFingerprint = fingerprint;
+  state.networkConfiguredProfile = 'scoped';
   writeState(dir, state);
+}
+
+function clearNetworkConfigurationState(state) {
+  state.scopedNetworkConfigured = false;
+  state.scopedNetworkFingerprint = null;
+  state.onlineNetworkConfigured = false;
+  state.networkConfiguredProfile = null;
+}
+
+function cleanupAllNetwork(config, state, options = {}) {
+  cleanupOnlineNetwork(config, state, options);
+  cleanupScopedNetwork(config, state, options);
 }
 
 function setupScopedNetwork(config, state) {
   const name = tapName(config, state.vmContextId);
   const allowSpec = networkAllowSpec(state.networkPolicy.resolvedDestinations);
   if (config.privilegedHelper) {
+    cleanupAllNetwork(config, state, { allowFailure: true });
     privileged(config, ['scoped-network-setup', name, config.network.guestIp, allowSpec]);
     return;
   }
-  cleanupScopedNetwork(config, state, { allowFailure: true });
+  cleanupAllNetwork(config, state, { allowFailure: true });
   runHost(config, 'sysctl', ['-w', 'net.ipv4.ip_forward=1']);
   const chain = firewallChainName(config, state.vmContextId);
   runHost(config, 'iptables', ['-N', chain]);
@@ -409,6 +439,34 @@ function setupScopedNetwork(config, state) {
     addFirewallAllowRule(config, chain, destination);
   }
   runHost(config, 'iptables', ['-A', chain, '-j', 'REJECT']);
+}
+
+function setupOnlineNetwork(config, state) {
+  const name = tapName(config, state.vmContextId);
+  if (config.privilegedHelper) {
+    const result = privileged(config, ['online-network-setup', name, config.network.guestIp], { allowFailure: true });
+    if (result.status === 0) return;
+    cleanupAllNetwork(config, state, { allowFailure: true });
+    privileged(config, ['scoped-network-setup', name, config.network.guestIp, onlineAllowSpec()]);
+    return;
+  }
+  cleanupAllNetwork(config, state, { allowFailure: true });
+  runHost(config, 'sysctl', ['-w', 'net.ipv4.ip_forward=1']);
+  runHost(config, 'iptables', ['-A', 'FORWARD', '-i', name, '-j', 'ACCEPT']);
+  runHost(config, 'iptables', ['-A', 'FORWARD', '-o', name, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT']);
+  runHost(config, 'iptables', ['-t', 'nat', '-A', 'POSTROUTING', '-s', `${config.network.guestIp}/32`, '-j', 'MASQUERADE']);
+}
+
+function cleanupOnlineNetwork(config, state, options = {}) {
+  if (!state.vmContextId) return;
+  const name = tapName(config, state.vmContextId);
+  if (config.privilegedHelper) {
+    privileged(config, ['online-network-cleanup', name, config.network.guestIp], { ...options, allowFailure: true });
+    return;
+  }
+  runHost(config, 'iptables', ['-D', 'FORWARD', '-i', name, '-j', 'ACCEPT'], options);
+  runHost(config, 'iptables', ['-D', 'FORWARD', '-o', name, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], options);
+  runHost(config, 'iptables', ['-t', 'nat', '-D', 'POSTROUTING', '-s', `${config.network.guestIp}/32`, '-j', 'MASQUERADE'], options);
 }
 
 function cleanupScopedNetwork(config, state, options = {}) {
@@ -437,16 +495,28 @@ function addFirewallAllowRule(config, chain, destination) {
   }
 }
 
+function onlineAllowSpec() {
+  return '0.0.0.0/0,any,any';
+}
+
 function configureScopedGuestNetwork(config, policy) {
   const hostEntries = policy.resolvedDestinations
     .filter((destination) => destination.hostname)
     .map((destination) => `${destination.ip} ${destination.hostname}`)
     .join('\n');
-  const commands = [`ip route replace default via ${shellQuote(config.network.hostIp)} dev eth0`];
+  const commands = [guestDefaultRouteCommand(config)];
   if (hostEntries) {
     commands.push(`printf '%s\\n' ${shellQuote(hostEntries)} >> /etc/hosts`);
   }
   ssh(config, ['sh', '-lc', commands.join(' && ')], config.commandTimeoutMs);
+}
+
+function configureGuestDefaultRoute(config) {
+  ssh(config, ['sh', '-lc', guestDefaultRouteCommand(config)], config.commandTimeoutMs);
+}
+
+function guestDefaultRouteCommand(config) {
+  return `ip route replace default via ${shellQuote(config.network.hostIp)} dev eth0`;
 }
 
 function stopContext(config, dir) {
@@ -466,7 +536,7 @@ function stopContext(config, dir) {
     }
   }
   if (state.vmContextId) {
-    cleanupScopedNetwork(config, state, { allowFailure: true });
+    cleanupAllNetwork(config, state, { allowFailure: true });
     if (config.privilegedHelper) {
       privileged(config, ['tap-delete', tapName(config, state.vmContextId)], { allowFailure: true });
     } else {
@@ -587,7 +657,9 @@ async function requireReady(config) {
 }
 
 function normalizeNetworkProfile(profile) {
-  return profile === 'scoped' ? 'scoped' : 'offline';
+  if (profile === 'scoped') return 'scoped';
+  if (profile === 'elevated' || profile === 'online') return 'elevated';
+  return 'offline';
 }
 
 async function validateNetworkPolicy(config, profile, policy) {
@@ -598,6 +670,21 @@ async function validateNetworkPolicy(config, profile, policy) {
       resolvedDestinations: [],
       liveTargetAllowed: false,
       failClosed: true
+    };
+  }
+  if (profile === 'elevated') {
+    const allowedDestinations = Array.isArray(policy?.allowedDestinations)
+      ? policy.allowedDestinations.map(normalizeNetworkDestination).filter(Boolean)
+      : [];
+    return {
+      profile: 'elevated',
+      scopeVersionId: typeof policy?.scopeVersionId === 'string' ? policy.scopeVersionId : null,
+      allowedDestinations,
+      resolvedDestinations: [],
+      liveTargetAllowed: policy?.liveTargetAllowed !== false,
+      userApprovalRequired: policy?.userApprovalRequired !== false,
+      failClosed: false,
+      enforcement: 'firecracker_unrestricted_nat'
     };
   }
   if (profile === 'scoped' && !config.enableScopedNetwork) {
@@ -794,15 +881,21 @@ function privilegedHelperCheck(config) {
   if (result.status !== 0) {
     return { name: 'privileged_helper', ok: false, message: `privileged helper failed: ${(result.stderr || result.stdout).trim()}` };
   }
-  if (config.enableScopedNetwork) {
-    const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
-    if (scoped.status !== 0) {
-      return {
-        name: 'privileged_helper',
-        ok: false,
-        message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}`
-      };
-    }
+  const online = spawnSync('sudo', ['-n', config.privilegedHelper, 'online-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+  const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+  if (online.status !== 0 && scoped.status !== 0) {
+    return {
+      name: 'privileged_helper',
+      ok: false,
+      message: `privileged helper lacks Firecracker network support; reinstall it with npm run firecracker:install-privileged-helper. ${(online.stderr || online.stdout || scoped.stderr || scoped.stdout).trim()}`
+    };
+  }
+  if (config.enableScopedNetwork && scoped.status !== 0) {
+    return {
+      name: 'privileged_helper',
+      ok: false,
+      message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}`
+    };
   }
   return { name: 'privileged_helper', ok: true, message: 'privileged helper: ok' };
 }
@@ -890,17 +983,14 @@ async function fileCheck(name, path, mode) {
   }
 }
 
-async function scopedNetworkCheck(config) {
-  if (!config.enableScopedNetwork) {
-    return { name: 'scoped_network', ok: true, message: 'scoped network: disabled' };
-  }
+async function networkNatCheck() {
   const iptables = await commandCheck('iptables');
   const sysctl = await commandCheck('sysctl');
   const missing = [iptables, sysctl].filter((check) => !check.ok);
   if (missing.length > 0) {
-    return { name: 'scoped_network', ok: false, message: missing.map((check) => check.message).join(' ') };
+    return { name: 'network_nat', ok: false, message: missing.map((check) => check.message).join(' ') };
   }
-  return { name: 'scoped_network', ok: true, message: 'scoped network: firewall tools available' };
+  return { name: 'network_nat', ok: true, message: 'network NAT: firewall tools available' };
 }
 
 async function commandCheck(command) {

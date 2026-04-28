@@ -4,13 +4,13 @@ Status: draft implementation direction, 2026-04-27.
 
 ## Decision
 
-Beale should define a VM-first executor interface owned by the trusted host harness.
+Beale should define a sandbox-aware executor interface owned by the trusted host harness.
 
-The executor is not an agent. It is a controlled execution substrate. It receives scoped target material, runs commands or structured tool backends, returns observations and candidate artifacts, and then reverts, preserves, or destroys the execution context.
+The executor is not an agent. It is a controlled execution substrate. It receives scoped target material, runs commands or structured tool backends, returns observations and candidate artifacts, and records whether execution happened on the host or in a disposable VM.
 
 ## Design Goals
 
-- Keep target execution out of the trusted host.
+- Make host execution explicit and traceable when it is selected.
 - Support Hyper-V, Tart, Firecracker, and comparable local VM backends.
 - Support snapshot, clone, revert, preserve, and destroy.
 - Support explicit import and export channels.
@@ -22,7 +22,7 @@ The executor is not an agent. It is a controlled execution substrate. It receive
 ## Non-Goals
 
 - Hosted sandbox support in v1.
-- Running target code directly on the host.
+- Hidden host execution without a New Research Session warning.
 - Letting guest code write authoritative artifacts directly.
 - Exposing host control sockets to the guest.
 - Passing OpenAI credentials into the guest.
@@ -237,21 +237,21 @@ Rules:
 
 Recommended order:
 
-1. Fake executor.
-2. One local VM backend on the primary development platform.
-3. Guest command execution and artifact export.
-4. Snapshot lifecycle.
-5. Network profiles.
-6. Debugger wrapper.
-7. Additional platform backends.
+1. Host execution for default research sessions.
+2. Fake executor.
+3. One local VM backend on the primary development platform.
+4. Guest command execution and artifact export.
+5. Snapshot lifecycle.
+6. Network profiles.
+7. Debugger wrapper.
+8. Additional platform backends.
 
 ## Security Invariants
 
-- No target execution on host.
+- No hidden target execution on host.
 - No OpenAI credentials in guests.
 - No raw workspace database in guests.
 - No broad host filesystem mounts.
 - No guest direct writes to authoritative artifact storage.
 - No contaminated context reused as clean.
 - No out-of-scope live-target network access without scope amendment.
-

@@ -110,6 +110,29 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('persists the global VM enablement preference', () => {
+    const workspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    const snapshot = service.createWorkspace(workspace);
+    expect(snapshot.vmPreference).toMatchObject({ enabled: false, backendKind: null });
+    expect(service.getProgramRegistryState().vmPreference).toMatchObject({ enabled: false, backendKind: null });
+
+    const enabled = service.setVmPreference({ enabled: true, backendKind: 'firecracker' });
+    expect(enabled.vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
+    expect(service.getSnapshot()?.vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    expect(reopened.getProgramRegistryState().vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
+    expect(reopened.openWorkspace(workspace).vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
+
+    const disabled = reopened.setVmPreference({ enabled: false, backendKind: null });
+    expect(disabled.vmPreference).toMatchObject({ enabled: false, backendKind: null });
+    reopened.close();
+  });
+
   it('keeps program sidebar order stable when programs are opened', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
@@ -297,7 +320,7 @@ describe('Beale workbench skeleton', () => {
       programName: 'GitHub',
       organizationName: 'GitHub',
       descriptionMarkdown: 'Authorized research under the GitHub Security Bounty program on HackerOne.',
-      networkProfile: 'scoped',
+      networkProfile: 'elevated',
       importedScopeCount: 2
     });
     expect(modelRequests).toHaveLength(1);

@@ -6,7 +6,7 @@ Status: accepted initial direction, 2026-04-26.
 
 Beale should support VM networking because real authorized vulnerability research often requires networked debugging and target interaction.
 
-Networking must be scoped, observable, and revocable.
+Networking must be authorized, observable, and revocable. Scope enforcement belongs at the session policy layer for the normal Firecracker path.
 
 Benchmark mode is stricter than authorized project mode.
 
@@ -56,28 +56,24 @@ Allowed destinations can include:
 
 Out-of-scope destinations should be blocked unless approval records a scoped exception or scope amendment.
 
-`scoped` is the normal authorized project mode once the user has recorded program scope.
+`scoped` remains available when a controller-level allowlist is needed, but it is no longer the normal Firecracker transport for authorized project mode.
 
 ## Elevated Profile
 
-`elevated` allows broader connectivity than the current allowlist, but it is not a substitute for authorization scope.
+`elevated` allows broader VM connectivity than the current allowlist, but it is not a substitute for authorization scope.
 
-Elevated access can be used for setup, research, newly discovered program infrastructure, or other explicitly approved cases where the recorded network allowlist is too narrow. It must not authorize live-target testing against assets that are not represented in the workspace scope.
+Elevated access is the normal Firecracker VM transport for authorized research sessions. Scope enforcement belongs at the session/tool policy layer, where Beale can reason over program metadata, tool intent, and recorded approvals before a command is sent to the VM.
 
 Requirements:
 
-- Human approval.
-- Reason recorded.
 - Attempt ID recorded.
 - VM ID or snapshot context recorded.
 - Network policy profile recorded in the trace.
-- Destination pattern recorded as specifically as possible.
+- Destination pattern recorded as specifically as possible when Beale can infer one.
 
 Elevated access should not be time-limited by default. Long-running research operations should not be interrupted by an arbitrary timer.
 
-Elevated access is not the normal operating mode.
-
-If an elevated request is meant to reach a live target that is not already in scope, Beale should require an explicit scope amendment or scoped exception before the action runs. The approval records the authorization change; the elevated profile only controls connectivity.
+If an elevated request is meant to reach a live target that is not already in scope, the session-level policy should require an explicit scope amendment or scoped exception before the action runs. The approval records the authorization change; the VM profile only controls connectivity.
 
 ## Benchmark Mode
 
@@ -103,11 +99,14 @@ Rationale:
 Authorized project mode should follow program scope:
 
 - Host network is allowed for safe setup and research such as cloning in-scope repositories and reading public advisories.
-- VM network starts `offline` until scope is configured.
-- VM network normally uses `scoped`.
-- Out-of-scope network requests are blocked unless approval records a scoped exception or scope amendment.
+- Default host-backed sessions use the host network under session/tool policy.
+- Firecracker VM sessions normally use `elevated` online NAT for authorized research sessions.
+- Scope enforcement happens at the session/tool policy layer instead of the Firecracker NAT layer.
+- `offline` remains available for high-risk local analysis and benchmark paths.
+- `scoped` remains available when controller-level allowlist enforcement is explicitly desired.
+- Out-of-scope network requests are blocked by session policy unless approval records a scoped exception or scope amendment.
 - The GUI should show the active network profile and allowed destinations.
-- Each run records whether the VM network was `offline`, `scoped`, or `elevated`.
+- Each run records whether the active network profile was `offline`, `scoped`, or `elevated`, and whether execution happened on host or VM.
 
 ## Live-Target Testing
 
@@ -122,8 +121,8 @@ Policy:
 - Generated PoCs run against local VM targets unless program scope explicitly permits live target execution.
 - Live-target interaction must be represented in the recorded program scope.
 - Approved test accounts and credentials must be recorded as scoped assets.
-- VM network must be `scoped` or `elevated` before reaching live assets.
-- `elevated` is valid for live-target interaction only when the target is already in scope or the approval flow records a scope amendment.
+- VM network must be online before reaching live assets.
+- Live-target interaction under `elevated` is valid only when the target is already in scope or the approval flow records a scope amendment.
 - Commands that appear to target out-of-scope live assets should be blocked until scope is corrected.
 - Benchmark mode must not perform arbitrary live-target testing.
 - The GUI should clearly show when a run can reach live assets.

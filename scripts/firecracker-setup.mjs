@@ -64,7 +64,7 @@ async function doctor(configPath) {
     commandCheck('ssh'),
     commandCheck('scp'),
     commandCheck('ip'),
-    scopedNetworkCheck(config),
+    networkNatCheck(),
     commandCheck('setfacl'),
     commandCheck('sudo'),
     await kvmCheck(config),
@@ -94,7 +94,7 @@ async function doctor(configPath) {
       console.log(`- Or add the user to the kvm group and restart WSL: sudo usermod -aG kvm ${process.env.USER}`);
     }
     if (failures.some((check) => check.name === 'tap')) {
-      console.log('- The Firecracker alpha controller needs TAP setup privileges for the host-to-guest control bridge.');
+      console.log('- The Firecracker alpha controller needs TAP and guest NAT setup privileges for the host-to-guest control bridge.');
       console.log(`- Run: sudo node scripts/firecracker-setup.mjs --install-privileged-helper --config ${configPath}`);
     }
     process.exitCode = 1;
@@ -314,16 +314,13 @@ function commandCheck(command) {
     : { name: command, ok: false, message: `${command} is required but was not found in PATH` };
 }
 
-function scopedNetworkCheck(config) {
-  if (!config.enableScopedNetwork) {
-    return { name: 'scoped_network', ok: true, message: 'scoped networking disabled by config' };
-  }
+function networkNatCheck() {
   const checks = [commandCheck('iptables'), commandCheck('sysctl')];
   const missing = checks.filter((check) => !check.ok);
   if (missing.length > 0) {
-    return { name: 'scoped_network', ok: false, message: missing.map((check) => check.message).join('; ') };
+    return { name: 'network_nat', ok: false, message: missing.map((check) => check.message).join('; ') };
   }
-  return { name: 'scoped_network', ok: true, message: 'scoped networking firewall tools available' };
+  return { name: 'network_nat', ok: true, message: 'Firecracker guest NAT firewall tools available' };
 }
 
 async function kvmCheck(config) {
@@ -347,11 +344,13 @@ function tapCheck(config) {
     if (result.status !== 0) {
       return { name: 'tap', ok: false, message: `privileged helper is not available through passwordless sudo: ${(result.stderr || result.stdout).trim()}` };
     }
-    if (config.enableScopedNetwork) {
-      const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
-      if (scoped.status !== 0) {
-        return { name: 'tap', ok: false, message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}` };
-      }
+    const online = spawnSync('sudo', ['-n', config.privilegedHelper, 'online-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+    const scoped = spawnSync('sudo', ['-n', config.privilegedHelper, 'scoped-network-cleanup', 'bealefcdoctor', config.network.guestIp], { encoding: 'utf8' });
+    if (online.status !== 0 && scoped.status !== 0) {
+      return { name: 'tap', ok: false, message: `privileged helper lacks Firecracker network support; reinstall it with npm run firecracker:install-privileged-helper. ${(online.stderr || online.stdout || scoped.stderr || scoped.stdout).trim()}` };
+    }
+    if (config.enableScopedNetwork && scoped.status !== 0) {
+      return { name: 'tap', ok: false, message: `privileged helper lacks scoped-network support; reinstall it with npm run firecracker:install-privileged-helper. ${(scoped.stderr || scoped.stdout).trim()}` };
     }
     return { name: 'tap', ok: true, message: 'privileged helper is available for TAP setup' };
   }
@@ -509,11 +508,29 @@ case "$1" in
     "$IPTABLES_BIN" -F "$chain" 2>/dev/null || true
     "$IPTABLES_BIN" -X "$chain" 2>/dev/null || true
     ;;
+  online-network-cleanup)
+    name="$(tap_name "$2")"
+    guest_ip="$(ipv4_or_cidr "$3")"
+    "$IPTABLES_BIN" -D FORWARD -i "$name" -j ACCEPT 2>/dev/null || true
+    "$IPTABLES_BIN" -D FORWARD -o "$name" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    "$IPTABLES_BIN" -t nat -D POSTROUTING -s "$guest_ip/32" -j MASQUERADE 2>/dev/null || true
+    ;;
+  online-network-setup)
+    name="$(tap_name "$2")"
+    guest_ip="$(ipv4_or_cidr "$3")"
+    "$0" online-network-cleanup "$name" "$guest_ip" || true
+    "$0" scoped-network-cleanup "$name" "$guest_ip" || true
+    "$SYSCTL_BIN" -w net.ipv4.ip_forward=1 >/dev/null
+    "$IPTABLES_BIN" -A FORWARD -i "$name" -j ACCEPT
+    "$IPTABLES_BIN" -A FORWARD -o "$name" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    "$IPTABLES_BIN" -t nat -A POSTROUTING -s "$guest_ip/32" -j MASQUERADE
+    ;;
   scoped-network-setup)
     name="$(tap_name "$2")"
     guest_ip="$(ipv4_or_cidr "$3")"
     allow_spec="$4"
     chain="$(chain_name "$name")"
+    "$0" online-network-cleanup "$name" "$guest_ip" || true
     "$0" scoped-network-cleanup "$name" "$guest_ip" || true
     "$SYSCTL_BIN" -w net.ipv4.ip_forward=1 >/dev/null
     "$IPTABLES_BIN" -N "$chain"

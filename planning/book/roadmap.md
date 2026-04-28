@@ -189,7 +189,7 @@ Exit criteria:
 ## Sequencing Rules
 
 - Prefer one complete workflow over many incomplete tools.
-- Keep target execution out of the host from the first real executor.
+- Keep target execution location explicit from the first real executor; host execution is default but must be warning-backed and traceable.
 - Keep fake systems explicitly labeled in UI and trace.
 - Add new model-facing tools only after the initial six tools are deep enough.
 - Do not let benchmark needs override workbench needs.
@@ -208,4 +208,3 @@ The first release is credible when Beale can support authorized open-ended disco
 - Verifier-backed findings.
 - Human steering.
 - Exportable evidence bundles.
-

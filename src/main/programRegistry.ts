@@ -9,14 +9,23 @@ import type {
   ProgramRegistryEntry,
   ProgramRegistryState,
   ResearchSessionSummary,
+  ExecutorBackendKind,
   RunEngineKind,
   RunStatus,
+  VmPreference,
+  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 
 interface SqlRow {
   [key: string]: unknown;
 }
+
+const DEFAULT_VM_PREFERENCE: VmPreference = {
+  enabled: false,
+  backendKind: null,
+  updatedAt: null
+};
 
 export class ProgramRegistry {
   private readonly db: DatabaseSync;
@@ -37,9 +46,31 @@ export class ProgramRegistry {
   public getState(): ProgramRegistryState {
     return {
       registryPath: this.registryPath,
+      vmPreference: this.getVmPreference(),
       programs: this.listPrograms(),
       researchSessions: this.listResearchSessions()
     };
+  }
+
+  public getVmPreference(): VmPreference {
+    const raw = this.getMeta('vm_preference');
+    if (!raw) return DEFAULT_VM_PREFERENCE;
+    try {
+      return normalizeVmPreference(JSON.parse(raw));
+    } catch {
+      return DEFAULT_VM_PREFERENCE;
+    }
+  }
+
+  public setVmPreference(input: VmPreferenceInput): VmPreference {
+    const backendKind = isExecutorBackendKind(input.backendKind) ? input.backendKind : null;
+    const next: VmPreference = {
+      enabled: input.enabled && Boolean(backendKind),
+      backendKind: input.enabled ? backendKind : null,
+      updatedAt: nowIso()
+    };
+    this.setMeta('vm_preference', JSON.stringify(next));
+    return next;
   }
 
   public inspectDirectory(path: string): ProgramDirectorySelection {
@@ -388,7 +419,7 @@ export function defaultsForProgramDirectory(workspacePath: string): ProgramOnboa
     organizationName: '',
     descriptionMarkdown: '',
     rulesMarkdown: '',
-    networkProfile: 'offline',
+    networkProfile: 'elevated',
     expiresAt: null,
     assets: []
   };
@@ -416,6 +447,21 @@ function nullableText(row: SqlRow, key: string): string | null {
 function numberValue(row: SqlRow, key: string): number {
   const value = row[key];
   return typeof value === 'number' ? value : Number(value ?? 0);
+}
+
+function normalizeVmPreference(value: unknown): VmPreference {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_VM_PREFERENCE;
+  const record = value as Record<string, unknown>;
+  const backendKind = isExecutorBackendKind(record.backendKind) ? record.backendKind : null;
+  return {
+    enabled: record.enabled === true && Boolean(backendKind),
+    backendKind,
+    updatedAt: typeof record.updatedAt === 'string' && record.updatedAt.trim() ? record.updatedAt : null
+  };
+}
+
+function isExecutorBackendKind(value: unknown): value is ExecutorBackendKind {
+  return value === 'firecracker' || value === 'hyperv' || value === 'tart' || value === 'custom_vmctl';
 }
 
 function sessionUpdatedAt(row: WorkspaceSnapshot['runs'][number]): string {

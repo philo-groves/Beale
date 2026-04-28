@@ -10,7 +10,7 @@ For benchmarks, Beale should build on benchmark infrastructure such as CyberGym'
 
 Benchmark mode should run the agent harness in its own Docker container, while the grader runs on the host side with one-way communication from agent output to grader input.
 
-Regular authorized research remains VM-based and should not be affected by benchmark-specific isolation choices.
+Regular authorized research is host-backed by default, with VM isolation available when selected, and should not be affected by benchmark-specific isolation choices.
 
 ## Rationale
 
@@ -124,7 +124,7 @@ This is acceptable because:
 
 Benchmark mode should have a separate execution topology:
 
-- Normal workbench: trusted host harness controls disposable VMs.
+- Normal workbench: trusted host harness runs the default host sandbox or controls disposable VMs when selected.
 - Benchmark mode: host benchmark runner controls a Dockerized agent harness and host-side grader.
 
 Both modes should share as many workbench primitives as practical, but benchmark anti-cheating requirements are allowed to impose extra containment around the agent itself.

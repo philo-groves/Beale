@@ -11,6 +11,7 @@ import type {
   ProgramScopeDraft,
   StartRunInput,
   SteeringAction,
+  VmPreferenceInput,
   WorkspacePickerMode,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -48,6 +49,9 @@ const api: BealeApi = {
   },
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
+  },
+  setVmPreference(input: VmPreferenceInput) {
+    return ipcRenderer.invoke(IPC_CHANNELS.setVmPreference, input);
   },
   getOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.getOpenAiStatus);

@@ -7,6 +7,7 @@ import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
 import { runVerifierContract } from './verifierRunner';
 import { materializeGitRepository, selectSourceRepository, sourceRepositoryCandidates } from './sourceMaterializer';
+import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource } from '@shared/types';
 
@@ -47,6 +48,11 @@ interface GuestToolResult {
   importedHostPath: string | null;
   requestedNetworkProfile: 'offline' | 'scoped' | 'elevated';
   networkProfile: 'offline' | 'scoped' | 'elevated';
+  hostExecution: boolean;
+  executionSubstrate: 'host' | 'disposable_guest_vm';
+  hostCwd?: string;
+  hostTargetPath?: string | null;
+  hostArtifactPath?: string | null;
 }
 
 interface DebuggerSummary {
@@ -85,15 +91,15 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       path: stringProp('Scoped file path or artifact id'),
       symbol: stringProp('Symbol or text anchor; use an empty string when not needed')
     }),
-    tool('python', 'Run a small Python analysis operation inside the disposable guest VM. No host execution.', {
+    tool('python', 'Run a small Python analysis operation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       task: stringProp('Analysis task'),
-      script: stringProp('Python script to run in the guest VM'),
-      artifact_path: stringProp('Guest path to export as an artifact after execution; use an empty string when not needed')
+      script: stringProp('Python script to run in the active sandbox'),
+      artifact_path: stringProp('Path to collect as an artifact after execution; use an empty string when not needed')
     }),
-    tool('debugger', 'Run a wrapper-first debugger observation inside the disposable guest VM.', {
+    tool('debugger', 'Run a wrapper-first debugger observation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       operation: stringProp('Debugger operation, such as crash_summary or gdb_probe'),
-      target: stringProp('Target executable path inside the guest'),
-      input_path: stringProp('Guest input path for crash reproduction; use an empty string when not needed')
+      target: stringProp('Target executable path in the active sandbox'),
+      input_path: stringProp('Input path for crash reproduction; use an empty string when not needed')
     }),
     tool('artifact', 'Preserve generated research output or evidence metadata in the content-addressed artifact store.', {
       name: stringProp('Artifact name'),
@@ -105,8 +111,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       expectation: stringProp('Expected observation'),
       artifact_id: stringProp('Artifact id that backs the expectation; use an empty string when not available'),
       trace_event_id: stringProp('Trace event id that backs the expectation; use an empty string when not available'),
-      verifier_script: stringProp('Shell script to execute inside the disposable guest VM; use an empty string to only declare the contract'),
-      artifact_path: stringProp('Guest artifact path to export after verifier execution; use an empty string when not needed'),
+      verifier_script: stringProp('Shell script to execute in the active session sandbox; use an empty string to only declare the contract'),
+      artifact_path: stringProp('Artifact path to export after verifier execution; use an empty string when not needed'),
       expected_stdout: stringProp('Substring expected in verifier stdout for pass; use an empty string when not needed')
     })
   ];
@@ -415,17 +421,9 @@ export class BealeToolRouter {
         payload: { observationBacked: false, error: 'missing_script' }
       };
     }
-    const unavailable = this.executorUnavailable();
-    if (unavailable) {
-      return this.recordToolPolicyBlock(context, call, args, unavailable, {
-        reason: 'vm_executor_unavailable',
-        hostExecution: false
-      });
-    }
-
     const artifactPath = stringValue(args.artifact_path, '').trim();
     const networkProfile = guestToolNetworkProfile(context);
-    const execution = this.executeInDisposableGuest(context, {
+    const execution = this.executeInActiveSandbox(context, {
       operationKind: 'python',
       command: ['python3', '-c', script],
       cwd: '/workspace',
@@ -439,12 +437,13 @@ export class BealeToolRouter {
 
     return {
       status: execution.result.status === 'success' ? 'success' : 'error',
-      summary: `Guest python operation finished with ${execution.result.status}.`,
+      summary: `${execution.hostExecution ? 'Host' : 'Guest'} python operation finished with ${execution.result.status}.`,
       artifactId: execution.artifactId ?? undefined,
       payload: {
         observationBacked: true,
         simulated: false,
-        hostExecution: false,
+        hostExecution: execution.hostExecution,
+        executionSubstrate: execution.executionSubstrate,
         task: stringValue(args.task, ''),
         scriptHash: createHash('sha256').update(script).digest('hex'),
         status: execution.result.status,
@@ -457,6 +456,9 @@ export class BealeToolRouter {
         candidateArtifactCount: execution.result.candidateArtifacts.length,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
+        hostCwd: execution.hostCwd ?? null,
+        hostTargetPath: execution.hostTargetPath ?? null,
+        hostArtifactPath: execution.hostArtifactPath ?? null,
         requestedNetworkProfile: execution.requestedNetworkProfile,
         networkProfile: execution.networkProfile,
         runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
@@ -465,16 +467,9 @@ export class BealeToolRouter {
   }
 
   private runDebuggerWrapper(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
-    const unavailable = this.executorUnavailable();
-    if (unavailable) {
-      return this.recordToolPolicyBlock(context, call, args, unavailable, {
-        reason: 'vm_executor_unavailable',
-        hostExecution: false
-      });
-    }
     const operation = stringValue(args.operation, 'gdb_probe');
-    const target = stringValue(args.target, '/workspace/target');
-    const inputPath = stringValue(args.input_path, '').trim();
+    const target = this.sandboxPathForContext(context, stringValue(args.target, '/workspace/target'));
+    const inputPath = this.sandboxPathForContext(context, stringValue(args.input_path, '').trim());
     const transcriptPath = '/tmp/beale-debugger-transcript.txt';
     const shellCommand = [
       'set -eu',
@@ -506,7 +501,7 @@ export class BealeToolRouter {
     ].join('\n');
 
     const networkProfile = guestToolNetworkProfile(context);
-    const execution = this.executeInDisposableGuest(context, {
+    const execution = this.executeInActiveSandbox(context, {
       operationKind: 'shell',
       command: ['sh', '-lc', shellCommand],
       cwd: '/workspace',
@@ -526,12 +521,13 @@ export class BealeToolRouter {
 
     return {
       status: wrapperSucceeded ? 'success' : 'error',
-      summary: `Debugger wrapper operation finished with ${execution.result.status}.`,
+      summary: `${execution.hostExecution ? 'Host' : 'Guest'} debugger wrapper operation finished with ${execution.result.status}.`,
       artifactId: execution.artifactId ?? undefined,
       payload: {
         observationBacked: true,
         simulated: false,
-        hostExecution: false,
+        hostExecution: execution.hostExecution,
+        executionSubstrate: execution.executionSubstrate,
         wrapper: 'gdb_batch_probe',
         operation,
         target,
@@ -544,6 +540,9 @@ export class BealeToolRouter {
         debugger: debuggerSummary,
         exportedArtifactId: execution.artifactId,
         importedHostPath: execution.importedHostPath,
+        hostCwd: execution.hostCwd ?? null,
+        hostTargetPath: execution.hostTargetPath ?? null,
+        hostArtifactPath: execution.hostArtifactPath ?? null,
         requestedNetworkProfile: execution.requestedNetworkProfile,
         networkProfile: execution.networkProfile,
         runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
@@ -668,6 +667,7 @@ export class BealeToolRouter {
           status: outcome.verifierRun.status,
           realExecution: outcome.verifierRun.result.realExecution === true,
           vmExecution: outcome.verifierRun.result.vmExecution === true,
+          hostExecution: outcome.verifierRun.result.hostExecution === true,
           promotedFinding: false,
           artifactId: outcome.artifactId
         }
@@ -718,7 +718,25 @@ export class BealeToolRouter {
     };
   }
 
-  private executeInDisposableGuest(context: CreatedRunContext, request: GuestExecuteRequest, artifactPath: string | null): GuestToolResult {
+  private executeInActiveSandbox(context: CreatedRunContext, request: GuestExecuteRequest, artifactPath: string | null): GuestToolResult {
+    const requestedNetworkProfile = request.networkProfile;
+    if (isHostResearchSandbox(context.run.sandboxProfile)) {
+      const artifactKind = request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output';
+      const execution = executeHostOperation(this.db, context, request, artifactPath, artifactKind);
+      return {
+        result: execution.result,
+        artifactId: execution.artifactId,
+        importedHostPath: null,
+        requestedNetworkProfile,
+        networkProfile: requestedNetworkProfile,
+        hostExecution: true,
+        executionSubstrate: 'host',
+        hostCwd: execution.cwd,
+        hostTargetPath: execution.targetPath,
+        hostArtifactPath: execution.artifactPath
+      };
+    }
+
     if (!this.executor) {
       throw new Error('VM executor is not available to the OpenAI tool router.');
     }
@@ -729,7 +747,6 @@ export class BealeToolRouter {
     }
 
     const importSpec = this.firstScopedImport();
-    const requestedNetworkProfile = request.networkProfile;
     const networkProfile = this.executor.resolveNetworkProfile(requestedNetworkProfile);
     let contextCreated = false;
     try {
@@ -762,7 +779,9 @@ export class BealeToolRouter {
         artifactId,
         importedHostPath: importSpec?.hostPath ?? null,
         requestedNetworkProfile,
-        networkProfile
+        networkProfile,
+        hostExecution: false,
+        executionSubstrate: 'disposable_guest_vm'
       };
     } finally {
       if (contextCreated) {
@@ -883,7 +902,7 @@ export class BealeToolRouter {
         return { execution: 'host_scoped_read_only', targetExecution: false, liveNetwork: false };
       case 'python':
       case 'debugger':
-        return { execution: 'disposable_guest_vm', hostExecution: false, hostDatabaseMounted: false, openAiCredentialsMounted: false };
+        return { execution: 'active_session_sandbox', defaultExecution: 'host_research_only', vmOption: 'local_disposable_vm', hostDatabaseMounted: false, openAiCredentialsMounted: false };
       case 'artifact':
         return { execution: 'host_artifact_store', contentAddressed: true, modelGeneratedContentIsNotObservation: true };
       case 'verifier':
@@ -891,10 +910,8 @@ export class BealeToolRouter {
     }
   }
 
-  private executorUnavailable(): string | null {
-    if (!this.executor) return 'VM executor is not available to the OpenAI tool router.';
-    const status = this.executor.getStatus();
-    return status.available ? null : (status.reason ?? 'VM executor is not available.');
+  private sandboxPathForContext(context: CreatedRunContext, path: string): string {
+    return isHostResearchSandbox(context.run.sandboxProfile) ? mapSandboxPathToHost(this.db, path) : path;
   }
 
   private recordToolPolicyBlock(

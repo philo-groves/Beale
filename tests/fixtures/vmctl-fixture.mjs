@@ -4,6 +4,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 const input = JSON.parse(readFileSync(0, 'utf8'));
 const logPath = process.argv[2];
 const failActions = new Set((process.argv[3] ?? '').split(',').map((item) => item.trim()).filter(Boolean));
+const supportedNetworkProfiles = JSON.parse(process.argv[4] ?? '["offline","scoped"]');
 if (logPath) {
   appendFileSync(logPath, `${JSON.stringify({ input, env: process.env })}\n`);
 }
@@ -16,7 +17,7 @@ const baseCapabilities = {
   label: 'Fixture local VM controller',
   reason: null,
   targetExecution: true,
-  supportedNetworkProfiles: ['offline', 'scoped'],
+  supportedNetworkProfiles,
   supports: {
     snapshots: true,
     clone: true,

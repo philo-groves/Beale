@@ -34,6 +34,8 @@ import type {
   SteeringAction,
   VerifierContractRecord,
   VmContextRecord,
+  VmPreference,
+  VmPreferenceInput,
   WorkspaceExportResult,
   HostEnvironment,
   OpenAiAccountStatus,
@@ -47,6 +49,11 @@ import type {
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
+const DEFAULT_VM_PREFERENCE: VmPreference = {
+  enabled: false,
+  backendKind: null,
+  updatedAt: null
+};
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
 
 const HACKERONE_PROGRAM_QUERY = `
@@ -221,6 +228,13 @@ export class WorkspaceService {
     return registry.getState();
   }
 
+  public setVmPreference(input: VmPreferenceInput): ProgramRegistryState {
+    const registry = this.getProgramRegistry();
+    registry.setVmPreference(input);
+    this.onChange();
+    return registry.getState();
+  }
+
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {
     return this.getProgramRegistry().inspectDirectory(path);
   }
@@ -279,7 +293,7 @@ export class WorkspaceService {
       organizationName: modelReview.organizationName || team.name,
       descriptionMarkdown: buildHackerOneDescription(team.name),
       rulesMarkdown: [modelReview.scopeMarkdown, modelReview.rulesMarkdown].filter(Boolean).join('\n\n'),
-      networkProfile: assets.some((asset) => asset.direction === 'in_scope') ? 'scoped' : 'offline',
+      networkProfile: 'elevated',
       expiresAt: null,
       assets,
       importedScopeCount: assets.length
@@ -303,7 +317,7 @@ export class WorkspaceService {
       organizationName: input.organizationName.trim(),
       descriptionMarkdown: input.descriptionMarkdown.trim(),
       rulesMarkdown: input.rulesMarkdown.trim(),
-      networkProfile: input.networkProfile.trim() || 'offline',
+      networkProfile: input.networkProfile.trim() || 'elevated',
       expiresAt: optionalDateOrNever(input.expiresAt),
       assets: input.assets ?? []
     });
@@ -337,6 +351,7 @@ export class WorkspaceService {
       workspace: this.getWorkspaceSummary(),
       openAi: this.openAiAuth.getStatus(),
       executor: this.requireExecutorManager().getStatus(),
+      vmPreference: this.getVmPreferenceForSnapshot(),
       activeScope: this.db.getActiveScope(),
       recovery: this.lastRecovery ?? emptyRecoveryReport(this.openedAt),
       policyReview: buildPolicyReview(this.db.getActiveScope()),
@@ -1111,6 +1126,12 @@ export class WorkspaceService {
     return this.programRegistry;
   }
 
+  private getVmPreferenceForSnapshot(): VmPreference {
+    if (this.programRegistry) return this.programRegistry.getVmPreference();
+    if (process.env.NODE_ENV === 'test' && !this.options.programRegistryDirectory) return DEFAULT_VM_PREFERENCE;
+    return this.getProgramRegistry().getVmPreference();
+  }
+
   private syncProgramRegistry(): void {
     if (!this.programRegistry) return;
     const snapshot = this.getSnapshot();
@@ -1575,7 +1596,7 @@ function buildFindingBundleMarkdown(detail: RunDetail, finding: FindingRecord | 
     contracts.map((contract) => `- ${contract.id}: ${contract.mode}, status=${contract.status}`).join('\n') || 'No verifier contracts linked.',
     '',
     '## Verifier Runs',
-    verifierRuns.map((run) => `- ${run.id}: ${run.status}, real=${String(run.result.realExecution === true)}, vm=${String(run.result.vmExecution === true)}`).join('\n') || 'No verifier runs linked.',
+    verifierRuns.map((run) => `- ${run.id}: ${run.status}, real=${String(run.result.realExecution === true)}, vm=${String(run.result.vmExecution === true)}, host=${String(run.result.hostExecution === true)}`).join('\n') || 'No verifier runs linked.',
     '',
     '## Evidence Artifacts',
     detail.artifacts.map((artifact) => `- ${artifact.id}: ${artifact.kind}, sha256=${artifact.sha256}, path=${artifact.relativePath}`).join('\n') || 'No artifacts recorded.',
@@ -1669,8 +1690,8 @@ function buildPolicyReview(scope: ProgramScopeVersion): WorkspacePolicyReview {
     .map((asset) => asset.value);
   const warnings: string[] = [];
   if (inScope.length === 0) warnings.push('No in-scope assets are recorded.');
-  if (scope.networkProfile !== 'offline' && allowedDestinations.length === 0) {
-    warnings.push('Network profile is not offline, but no scoped network destinations are recorded.');
+  if (scope.networkProfile === 'scoped' && allowedDestinations.length === 0) {
+    warnings.push('Scoped network profile is selected, but no scoped network destinations are recorded.');
   }
   if (credentialReferenceCount > 0) warnings.push('Credential references require explicit host-side approval before injection.');
   if (outOfScope.length === 0) warnings.push('No explicit out-of-scope assets are recorded.');
@@ -2070,6 +2091,7 @@ function buildResearchPromptRecommendationInput(scope: ProgramScopeVersion, deta
         status: run.status,
         realExecution: run.result.realExecution === true,
         vmExecution: run.result.vmExecution === true,
+        hostExecution: run.result.hostExecution === true,
         blockedIssue: trimRedactedText(run.blockedIssue, 180)
       })),
       notableTraceEvents: detail.traceEvents

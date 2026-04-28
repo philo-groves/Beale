@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
   createWorkspace: 'beale:create-workspace',
   getSnapshot: 'beale:get-snapshot',
   getHostEnvironment: 'beale:get-host-environment',
+  setVmPreference: 'beale:set-vm-preference',
   getOpenAiStatus: 'beale:get-openai-status',
   startOpenAiOAuth: 'beale:start-openai-oauth',
   refreshOpenAiStatus: 'beale:refresh-openai-status',

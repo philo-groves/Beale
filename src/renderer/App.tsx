@@ -57,6 +57,8 @@ import type {
   BenchmarkOverview,
   BenchmarkSuiteKind,
   ExportRecord,
+  ExecutorBackendKind,
+  ExecutorBackendStatus,
   ExecutorStatus,
   FindingRecord,
   HypothesisRecord,
@@ -81,6 +83,8 @@ import type {
   StartRunInput,
   TraceEventRecord,
   TranscriptMessageRecord,
+  VmPreference,
+  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 import { displaySessionTitle } from '../shared/sessionTitle';
@@ -253,6 +257,7 @@ const INSET_SCROLLBAR_SELECTOR = [
   '.inspector-sidebar',
   '.main-trace-list',
   '.main-hypothesis-list',
+  '.main-finding-list',
   '.modal-body',
   '.session-history-list',
   '.trace-inspector-payload pre',
@@ -265,6 +270,11 @@ const INSET_SCROLLBAR_SELECTOR = [
 const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
+const DEFAULT_VM_PREFERENCE: VmPreference = {
+  enabled: false,
+  backendKind: null,
+  updatedAt: null
+};
 
 const APPLE_PROGRAM_DESCRIPTION =
   'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
@@ -335,8 +345,8 @@ const defaultRunInput: StartRunInput = {
   attemptStrategy: 'adaptive_portfolio',
   model: 'gpt-5.5',
   reasoningEffort: 'xhigh',
-  networkProfile: 'offline',
-  sandboxProfile: 'local_disposable_vm',
+  networkProfile: 'elevated',
+  sandboxProfile: 'host_research_only',
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: 1,
@@ -610,6 +620,16 @@ export function App(): JSX.Element {
     [loadProgramRegistry]
   );
 
+  const updateVmPreference = useCallback(
+    async (input: VmPreferenceInput) => {
+      await runProgramAction(async () => {
+        setProgramRegistry(await window.beale.setVmPreference(input));
+        await loadSnapshot();
+      });
+    },
+    [loadSnapshot, runProgramAction]
+  );
+
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -752,6 +772,7 @@ export function App(): JSX.Element {
   const sessionHistoryProgram =
     sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
+  const vmPreference = programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -910,6 +931,7 @@ export function App(): JSX.Element {
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         executor={snapshot?.executor ?? null}
+        vmPreference={vmPreference}
         activity={environmentActivityForDetail(activeRunDetail)}
         message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)}
         notificationCount={snapshot?.notifications.length ?? 0}
@@ -933,6 +955,7 @@ export function App(): JSX.Element {
       {newResearchOpen && snapshot ? (
         <StartRunForm
           snapshot={snapshot}
+          vmPreference={vmPreference}
           busy={busy}
           runAction={runAction}
           onCancel={() => setNewResearchOpen(false)}
@@ -946,11 +969,14 @@ export function App(): JSX.Element {
       {settingsOpen ? (
         <SettingsModal
           section={settingsSection}
+          executor={snapshot?.executor ?? null}
+          vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={snapshot?.openAi ?? openAiStatus}
           busy={busy}
           onChangeSection={setSettingsSection}
           onClose={() => setSettingsOpen(false)}
+          onSetVmPreference={updateVmPreference}
           onRefreshOpenAi={refreshOpenAiProvider}
           onStartOpenAiOAuth={startOpenAiOAuth}
         />
@@ -1100,6 +1126,7 @@ function TopBar({
 function StatusBar({
   hostEnvironment,
   executor,
+  vmPreference,
   activity,
   message,
   notificationCount,
@@ -1107,13 +1134,14 @@ function StatusBar({
 }: {
   hostEnvironment: HostEnvironment | null;
   executor: ExecutorStatus | null;
+  vmPreference: VmPreference;
   activity: EnvironmentActivity;
   message: { tone: 'error' | 'info'; text: string } | null;
   notificationCount: number;
   onConfigureVm: () => void;
 }): JSX.Element {
   const osLabel = hostEnvironmentLabel(hostEnvironment);
-  const vmTarget = vmTargetStatus(executor);
+  const vmTarget = vmTargetStatus(executor, vmPreference);
 
   return (
     <footer className="status-bar">
@@ -1126,11 +1154,11 @@ function StatusBar({
         <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'} ${activity.guest ? 'is-active' : ''}`} title={vmTarget.title}>
           <Server size={14} />
           <span>{vmTarget.label}</span>
-          {vmTarget.configured ? null : (
+          {vmTarget.showConfigure ? (
             <button type="button" className="environment-configure" onClick={onConfigureVm}>
               Configure
             </button>
-          )}
+          ) : null}
         </div>
       </div>
       <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>
@@ -1434,15 +1462,24 @@ function MainSessionWorkspace({
         onSelectTraceEvent={onSelectTraceEvent}
         onSteerInstruction={onSteerInstruction}
       />
-      <MainSessionSidePanel detail={detail} />
+      <MainSessionSidePanel detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }
 
-function MainSessionSidePanel({ detail }: { detail: RunDetail | null }): JSX.Element {
+function MainSessionSidePanel({
+  detail,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  detail: RunDetail | null;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
   return (
     <div className="main-session-side">
-      <MainHypothesisList detail={detail} />
+      <MainHypothesisList detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+      <MainFindingList detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }
@@ -1674,12 +1711,21 @@ function MainTraceView({
   );
 }
 
-function MainHypothesisList({ detail }: { detail: RunDetail | null }): JSX.Element {
+function MainHypothesisList({
+  detail,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  detail: RunDetail | null;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
   const loading = !detail;
   const hypotheses = detail?.hypotheses ?? [];
+  const events = detail ? buildTraceDisplayEvents(detail) : [];
 
   return (
-    <section className="main-hypothesis-view" aria-label="Hypotheses">
+    <section className="main-side-section main-hypothesis-view" aria-label="Hypotheses">
       <div className="main-surface-header">
         <div>
           <Bug size={14} />
@@ -1691,18 +1737,33 @@ function MainHypothesisList({ detail }: { detail: RunDetail | null }): JSX.Eleme
       {!loading && hypotheses.length === 0 ? <div className="main-trace-empty">No hypotheses recorded.</div> : null}
       {!loading && hypotheses.length > 0 ? (
         <div className="main-hypothesis-list">
-          {hypotheses.map((hypothesis) => (
-            <MainHypothesisItem hypothesis={hypothesis} key={hypothesis.id} />
-          ))}
+          {hypotheses.map((hypothesis) => {
+            const event = traceEventForHypothesis(events, hypothesis);
+            return (
+              <MainHypothesisItem
+                hypothesis={hypothesis}
+                key={hypothesis.id}
+                selected={event?.id === selectedTraceEventId}
+                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
+              />
+            );
+          })}
         </div>
       ) : null}
     </section>
   );
 }
 
-function MainHypothesisItem({ hypothesis }: { hypothesis: HypothesisRecord }): JSX.Element {
+function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: HypothesisRecord; selected: boolean; onSelect?: () => void }): JSX.Element {
+  const disabled = !onSelect;
   return (
-    <article className={`main-hypothesis-item state-${stateClass(hypothesis.state)}`}>
+    <button
+      type="button"
+      className={`main-research-item main-hypothesis-item state-${stateClass(hypothesis.state)} ${selected ? 'selected' : ''}`}
+      disabled={disabled}
+      title={disabled ? 'No trace provenance available' : 'Inspect hypothesis trace'}
+      onClick={onSelect}
+    >
       <strong>{hypothesis.title}</strong>
       <p>
         {traceLabel(hypothesis.state)} · Priority {hypothesis.priorityScore.toFixed(2)}
@@ -1710,7 +1771,150 @@ function MainHypothesisItem({ hypothesis }: { hypothesis: HypothesisRecord }): J
       <p>
         {hypothesis.bugClass || 'Unclassified'} · {hypothesis.component || 'Unknown component'}
       </p>
-    </article>
+    </button>
+  );
+}
+
+function MainFindingList({
+  detail,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  detail: RunDetail | null;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const loading = !detail;
+  const findings = detail?.findings ?? [];
+  const hypotheses = detail?.hypotheses ?? [];
+  const events = detail ? buildTraceDisplayEvents(detail) : [];
+
+  return (
+    <section className="main-side-section main-finding-view" aria-label="Findings">
+      <div className="main-surface-header">
+        <div>
+          <FileOutput size={14} />
+          <span>Findings</span>
+        </div>
+        <span>{loading ? 'Loading' : `${findings.length}`}</span>
+      </div>
+      {loading ? <div className="main-trace-empty">Loading findings.</div> : null}
+      {!loading && findings.length === 0 ? <div className="main-trace-empty">No findings recorded.</div> : null}
+      {!loading && findings.length > 0 ? (
+        <div className="main-finding-list">
+          {findings.map((finding) => {
+            const hypothesis = finding.hypothesisId ? hypotheses.find((candidate) => candidate.id === finding.hypothesisId) ?? null : null;
+            const event = traceEventForFinding(events, finding, hypothesis);
+            return (
+              <MainFindingItem
+                finding={finding}
+                hypothesis={hypothesis}
+                key={finding.id}
+                selected={event?.id === selectedTraceEventId}
+                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MainFindingItem({
+  finding,
+  hypothesis,
+  selected,
+  onSelect
+}: {
+  finding: FindingRecord;
+  hypothesis: HypothesisRecord | null;
+  selected: boolean;
+  onSelect?: () => void;
+}): JSX.Element {
+  const disabled = !onSelect;
+  const power = findingPowerLevel(finding);
+  const tone = sessionHeatForFinding(finding, hypothesis);
+  const linkedComponent = hypothesis?.component || affectedAssetLabel(finding) || 'Unknown surface';
+
+  return (
+    <button
+      type="button"
+      className={`main-research-item main-finding-item state-${stateClass(finding.state)} power-${tone} ${selected ? 'selected' : ''}`}
+      disabled={disabled}
+      title={disabled ? 'No trace provenance available' : 'Inspect finding trace'}
+      onClick={onSelect}
+    >
+      <div className="main-finding-topline">
+        <strong>{finding.title}</strong>
+        <FindingPowerMeter score={finding.priorityScore} level={power} tone={tone} />
+      </div>
+      <p>
+        {traceLabel(finding.state)} · Priority {finding.priorityScore.toFixed(2)}
+      </p>
+      <p>{linkedComponent}</p>
+      {finding.summaryMarkdown ? <small>{truncateText(finding.summaryMarkdown, 138)}</small> : null}
+    </button>
+  );
+}
+
+function FindingPowerMeter({ score, level, tone }: { score: number; level: number; tone: SessionHeat }): JSX.Element {
+  return (
+    <span className={`finding-power-meter power-${tone}`} title={`Finding power ${level}/5 · priority ${score.toFixed(2)}`} aria-label={`Finding power ${level} of 5`}>
+      {Array.from({ length: 5 }, (_, index) => (
+        <span className={`finding-power-star ${index < level ? 'active' : ''}`} key={index} aria-hidden="true" />
+      ))}
+    </span>
+  );
+}
+
+function traceEventForHypothesis(events: TraceDisplayEvent[], hypothesis: HypothesisRecord): TraceDisplayEvent | null {
+  if (hypothesis.createdTraceEventId) {
+    const createdEvent = events.find((event) => event.id === hypothesis.createdTraceEventId);
+    if (createdEvent) return createdEvent;
+  }
+
+  return (
+    [...events]
+      .reverse()
+      .find(
+        (event) =>
+          event.type === 'hypothesis_event' &&
+          (tracePayloadPrimitive(event.payload, 'hypothesisId') === hypothesis.id ||
+            tracePayloadPrimitive(event.payload, 'sourceHypothesisId') === hypothesis.id ||
+            tracePayloadPrimitive(event.payload, 'targetHypothesisId') === hypothesis.id)
+      ) ?? null
+  );
+}
+
+function traceEventForFinding(events: TraceDisplayEvent[], finding: FindingRecord, hypothesis: HypothesisRecord | null): TraceDisplayEvent | null {
+  const directEvent =
+    [...events].reverse().find((event) => event.type === 'finding_event' && tracePayloadPrimitive(event.payload, 'findingId') === finding.id) ?? null;
+  if (directEvent) return directEvent;
+  return hypothesis ? traceEventForHypothesis(events, hypothesis) : null;
+}
+
+function findingPowerLevel(finding: FindingRecord): number {
+  const score = finding.priorityScore;
+  const state = stateClass(finding.state);
+  let level = 0;
+  if (score >= 48) level = 5;
+  else if (score >= 32) level = 4;
+  else if (score >= 20) level = 3;
+  else if (score >= 10) level = 2;
+  else if (score > 0) level = 1;
+  if ((finding.verifiedByVerifierRunId || state === 'verified') && level > 0) return Math.max(level, 3);
+  return level;
+}
+
+function affectedAssetLabel(finding: FindingRecord): string | null {
+  return (
+    stringRecordValue(finding.affectedAssets, 'component') ??
+    stringRecordValue(finding.affectedAssets, 'asset') ??
+    stringRecordValue(finding.affectedAssets, 'path') ??
+    stringRecordValue(finding.affectedAssets, 'service') ??
+    stringRecordValue(finding.affectedVersions, 'version') ??
+    stringRecordValue(finding.affectedVersions, 'status')
   );
 }
 
@@ -2048,6 +2252,10 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
   match = summary.match(/^Guest ([\w -]+) operation finished with ([^.]+)\.$/i);
   if (match) return `Finish ${match[1].toLowerCase()} operation: ${match[2]}`;
+  match = summary.match(/^Host ([\w -]+) operation finished with ([^.]+)\.$/i);
+  if (match) return `Finish host ${match[1].toLowerCase()} operation: ${match[2]}`;
+  match = summary.match(/^Host debugger wrapper operation finished with ([^.]+)\.$/i);
+  if (match) return `Finish host debugger wrapper: ${match[1]}`;
   match = summary.match(/^Debugger wrapper operation finished with ([^.]+)\.$/i);
   if (match) return `Finish debugger wrapper: ${match[1]}`;
   match = summary.match(/^Guest artifact exported and accepted: (.+)\.$/);
@@ -2056,6 +2264,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Enforce network profile: ${match[1]}`;
   match = summary.match(/^Verifier contract executed in disposable VM with ([^.]+)\.$/);
   if (match) return `Execute verifier contract: ${match[1]}`;
+  match = summary.match(/^Verifier contract executed on host with ([^.]+)\.$/);
+  if (match) return `Execute host verifier contract: ${match[1]}`;
   match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
   if (match) return `Record portfolio branch: ${match[1]}`;
   match = summary.match(/^Requested (.+)\.$/);
@@ -2280,6 +2490,7 @@ function detailPartsForVerifierEvent(event: TraceEventRecord): string[] | null {
     pathPart('run', tracePayloadPrimitive(payload, 'verifierRunId')),
     traceBooleanPart('real', tracePayloadPrimitive(payload, 'realExecution')),
     traceBooleanPart('vm', tracePayloadPrimitive(payload, 'vmExecution')),
+    traceBooleanPart('host', tracePayloadPrimitive(payload, 'hostExecution')),
     pathPart('artifact', tracePayloadPrimitive(payload, 'artifactId')),
     tracePart('blocked', tracePayloadPrimitive(payload, 'blockedIssue')),
     firstArrayPart('issue', tracePayloadArray(payload, 'issues'))
@@ -2747,20 +2958,133 @@ function environmentActivityForDetail(detail: RunDetail | null): EnvironmentActi
   return { host: true, guest: false };
 }
 
-function vmTargetStatus(executor: ExecutorStatus | null): { configured: boolean; label: string; title: string } {
-  const backend = executor?.backends.find((candidate) => candidate.available) ?? executor?.backends.find((candidate) => candidate.configured) ?? null;
-  if (!backend) {
+function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {
+  if (!vmPreference.enabled || !vmPreference.backendKind) {
     return {
       configured: false,
-      label: 'Not Setup',
-      title: 'Local VM target is not configured'
+      showConfigure: true,
+      label: 'None',
+      title: 'No local VM is enabled. Configure a VM to run target commands in a disposable guest.'
     };
   }
+
+  const backend = findBackendByKind(executor, vmPreference.backendKind);
+  if (backend) {
+    const available = backend.available && executor?.available === true;
+    return {
+      configured: available,
+      showConfigure: !available,
+      label: backend.label,
+      title: available ? `${backend.label} is enabled` : executor?.reason ?? backend.reason ?? `${backend.label} is enabled but unavailable`
+    };
+  }
+
   return {
-    configured: true,
-    label: backend.label,
-    title: backend.available ? `${backend.label} is available` : `${backend.label} is configured but unavailable`
+    configured: false,
+    showConfigure: true,
+    label: 'Unavailable',
+    title: 'The enabled local VM backend is no longer reported by this host.'
   };
+}
+
+function findBackendByKind(executor: ExecutorStatus | null, backendKind: ExecutorBackendKind | null): ExecutorBackendStatus | null {
+  if (!backendKind) return null;
+  return executor?.backends.find((candidate) => candidate.kind === backendKind) ?? null;
+}
+
+function vmSelectionStatus(
+  executor: ExecutorStatus | null,
+  vmPreference: VmPreference
+): { status: string; heading: string; execution: string; backend: ExecutorBackendStatus | null } {
+  if (!vmPreference.enabled || !vmPreference.backendKind) {
+    return {
+      status: 'none',
+      heading: 'No VM enabled',
+      execution: 'host machine',
+      backend: null
+    };
+  }
+
+  const backend = findBackendByKind(executor, vmPreference.backendKind);
+  if (!backend) {
+    return {
+      status: 'unavailable',
+      heading: 'Enabled VM is not reported by this host',
+      execution: 'not available',
+      backend: null
+    };
+  }
+
+  if (backend.available && executor?.available === true) {
+    return {
+      status: 'enabled',
+      heading: backend.label,
+      execution: 'guest VM',
+      backend
+    };
+  }
+
+  return {
+    status: 'unavailable',
+    heading: `${backend.label} unavailable`,
+    execution: 'not available',
+    backend
+  };
+}
+
+function backendRowClass(backend: ExecutorBackendStatus, vmPreference: VmPreference): string {
+  return [
+    backend.available ? 'available' : '',
+    backend.configured && !backend.available ? 'configured' : '',
+    vmPreference.enabled && vmPreference.backendKind === backend.kind ? 'selected' : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function backendStatusLabel(backend: ExecutorBackendStatus, vmPreference: VmPreference): string {
+  if (vmPreference.enabled && vmPreference.backendKind === backend.kind) return backend.available ? 'enabled' : 'unavailable';
+  if (backend.available) return 'available';
+  if (backend.configured) return 'configured';
+  return 'not_configured';
+}
+
+function executorControllerMetadata(executor: ExecutorStatus | null): { autoDiscovered: boolean; configPath: string | null } {
+  const metadata = executor?.metadata;
+  const controller = metadata?.controller;
+  if (!controller || typeof controller !== 'object' || Array.isArray(controller)) {
+    return { autoDiscovered: false, configPath: null };
+  }
+  const record = controller as Record<string, unknown>;
+  return {
+    autoDiscovered: record.autoDiscovered === true,
+    configPath: typeof record.configPath === 'string' && record.configPath.trim() ? record.configPath : null
+  };
+}
+
+function executorStatusDetail(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
+  if (!vmPreference.enabled || !vmPreference.backendKind) {
+    return 'No local VM is enabled. Research sessions run on the host unless a VM backend is enabled here.';
+  }
+  const backend = findBackendByKind(executor, vmPreference.backendKind);
+  if (backend?.available && executor?.available === true) return 'Beale can execute target code and verifier contracts inside the enabled disposable VM.';
+  if (backend) return executor?.reason ?? backend.reason ?? 'The enabled local VM backend is not currently available.';
+  if (!executor) return 'Open a research program to check the local VM executor.';
+  if (executor.configured) return executor.reason ?? 'A local VM controller is configured, but it is not currently available.';
+  return 'Beale did not find a local VM controller. On WSL/Linux, Firecracker is autodetected when .beale/firecracker/config.json exists in the Beale app directory.';
+}
+
+function executorVmSetupCommand(executor: ExecutorStatus | null): string {
+  if (executor?.available) return 'npm run firecracker:doctor';
+  if (executor?.configured) return 'npm run firecracker:doctor';
+  const firecrackerRecommended = !executor || executor.backends.some((backend) => backend.kind === 'firecracker' && backend.recommended);
+  if (firecrackerRecommended) return 'npm run firecracker:init && npm run firecracker:doctor';
+  return 'Configure BEALE_VMCTL_COMMAND for a Beale vmctl-compatible local VM controller.';
+}
+
+function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
+  const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
+  return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
 }
 
 function Modal({
@@ -3033,20 +3357,26 @@ function ProgramSessionHistoryModal({
 
 function SettingsModal({
   section,
+  executor,
+  vmPreference,
   openAiStatus,
   openAiOAuthResult,
   busy,
   onChangeSection,
   onClose,
+  onSetVmPreference,
   onRefreshOpenAi,
   onStartOpenAiOAuth
 }: {
   section: SettingsSection;
+  executor: ExecutorStatus | null;
+  vmPreference: VmPreference;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
+  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
 }): JSX.Element {
@@ -3071,15 +3401,101 @@ function SettingsModal({
         </nav>
         <section className="settings-view">
           {section === 'general' ? (
-            <div className="settings-page">
-              <h3>General</h3>
-            </div>
+            <GeneralSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetVmPreference={onSetVmPreference} />
           ) : (
             <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
           )}
         </section>
       </div>
     </Modal>
+  );
+}
+
+function GeneralSettingsView({
+  executor,
+  vmPreference,
+  busy,
+  onSetVmPreference
+}: {
+  executor: ExecutorStatus | null;
+  vmPreference: VmPreference;
+  busy: boolean;
+  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
+}): JSX.Element {
+  const selection = vmSelectionStatus(executor, vmPreference);
+  const status = selection.status;
+  const controller = executorControllerMetadata(executor);
+
+  return (
+    <div className="settings-page general-settings-page">
+      <div className="settings-page-header">
+        <h3>General</h3>
+      </div>
+      <section className={`provider-card vm-settings-card readiness-${stateClass(status)}`}>
+        <div className="provider-heading">
+          <div className="status-icon">
+            <Server size={18} />
+          </div>
+          <div>
+            <h4>Local VM</h4>
+            <p>{selection.heading}</p>
+          </div>
+          <StatusPill status={status} />
+        </div>
+
+        <div className="provider-grid vm-provider-grid">
+          <div>
+            <span>Provider</span>
+            <strong>{executor?.provider ?? 'vmctl'}</strong>
+          </div>
+          <div>
+            <span>Execution</span>
+            <strong>{selection.execution}</strong>
+          </div>
+          <div>
+            <span>Network</span>
+            <strong>{executor?.supportedNetworkProfiles.join(', ') || 'none'}</strong>
+          </div>
+          <div>
+            <span>Controller</span>
+            <strong>{controller.autoDiscovered ? 'auto' : executor?.configured ? 'environment' : 'not configured'}</strong>
+          </div>
+        </div>
+
+        <p className="provider-detail">{executorStatusDetail(executor, vmPreference)}</p>
+        {controller.configPath ? <p className="provider-detail muted">Config: {controller.configPath}</p> : null}
+
+        <div className="vm-backend-list">
+          {(executor?.backends ?? []).map((backend) => (
+            <div className={`vm-backend-row ${backendRowClass(backend, vmPreference)}`} key={backend.kind}>
+              <div>
+                <strong>{backend.label}</strong>
+                <span>{backend.reason ?? (backend.available ? 'Available' : backend.recommended ? 'Recommended for this host' : 'Not configured')}</span>
+              </div>
+              <div className="vm-backend-controls">
+                <StatusPill status={backendStatusLabel(backend, vmPreference)} />
+                {vmPreference.enabled && vmPreference.backendKind === backend.kind ? (
+                  <button type="button" disabled={busy} onClick={() => void onSetVmPreference({ enabled: false, backendKind: null })}>
+                    Disable
+                  </button>
+                ) : (
+                  <button type="button" disabled={busy || !backend.available} onClick={() => void onSetVmPreference({ enabled: true, backendKind: backend.kind })}>
+                    Enable
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="provider-actions">
+          <div className="command-row">
+            <Terminal size={15} />
+            <code>{executorVmSetupCommand(executor)}</code>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -3283,7 +3699,6 @@ function ProgramOnboardingModal({
             <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
               <option value="offline">offline</option>
               <option value="scoped">scoped</option>
-              <option value="host_research_only">host_research_only</option>
               <option value="elevated">elevated</option>
             </select>
           </label>
@@ -3358,7 +3773,6 @@ function ScopeEditor({
           <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
             <option value="offline">offline</option>
             <option value="scoped">scoped</option>
-            <option value="host_research_only">host_research_only</option>
             <option value="elevated">elevated</option>
           </select>
         </label>
@@ -3496,27 +3910,31 @@ function OpenAiAccountPanel({
 
 function StartRunForm({
   snapshot,
+  vmPreference,
   busy,
   runAction,
   onCancel,
   onStarted
 }: {
   snapshot: WorkspaceSnapshot;
+  vmPreference: VmPreference;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
+  const sandboxProfile = preferredSandboxProfile(snapshot.executor, vmPreference);
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
-    networkProfile: snapshot.activeScope.networkProfile
+    networkProfile: 'elevated',
+    sandboxProfile
   }));
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [startingRun, setStartingRun] = useState(false);
 
   useEffect(() => {
-    setInput((current) => ({ ...current, networkProfile: snapshot.activeScope.networkProfile }));
-  }, [snapshot.activeScope.networkProfile]);
+    setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
+  }, [sandboxProfile, snapshot.activeScope.id]);
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => ({ ...current, [key]: value }));
@@ -3577,6 +3995,12 @@ function StartRunForm({
           <div className="policy-line">
             <ShieldAlert size={15} />
             {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
+          </div>
+        ) : null}
+        {input.sandboxProfile === 'host_research_only' ? (
+          <div className="policy-line host-sandbox-warning">
+            <ShieldAlert size={15} />
+            Commands and executables will run on this host machine. A disposable VM is recommended.
           </div>
         ) : null}
         <textarea
@@ -4873,7 +5297,7 @@ function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: Pr
       organizationName: 'Apple',
       descriptionMarkdown: APPLE_PROGRAM_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
-      networkProfile: 'scoped',
+      networkProfile: 'elevated',
       expiresAt: '',
       assets: []
     };
@@ -4885,7 +5309,7 @@ function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: Pr
     organizationName: 'Microsoft',
     descriptionMarkdown: MSRC_PROGRAM_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
-    networkProfile: 'scoped',
+    networkProfile: 'elevated',
     expiresAt: '',
     assets: []
   };
