@@ -878,6 +878,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0;
 }
 
+.main-trace-spacer {
+  min-width: 0;
+  pointer-events: none;
+}
+
 .main-trace-empty {
   min-width: 0;
   align-self: start;

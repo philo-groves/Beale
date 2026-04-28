@@ -143,6 +143,8 @@ const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
 ];
 
 const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
+const TRACE_RENDER_WINDOW_SIZE = 50;
+const TRACE_ESTIMATED_EVENT_HEIGHT = 48;
 
 const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
@@ -1191,13 +1193,47 @@ function MainTraceView({
   const events = detail?.traceEvents ?? [];
   const visibleEvents = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event)));
   const latestEventId = events.at(-1)?.id ?? '';
+  const traceFilterKey = visibleTraceCategories.join('|');
+  const maxWindowStart = Math.max(0, visibleEvents.length - TRACE_RENDER_WINDOW_SIZE);
+  const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
+  const normalizedWindowStart = Math.min(traceWindowStart, maxWindowStart);
+  const renderedEvents = visibleEvents.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
+  const topSpacerHeight = normalizedWindowStart * TRACE_ESTIMATED_EVENT_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, visibleEvents.length - normalizedWindowStart - renderedEvents.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
   const traceListRef = useRef<HTMLDivElement | null>(null);
+  const traceFollowLatestRef = useRef(true);
 
   useEffect(() => {
     const traceList = traceListRef.current;
-    if (!traceList) return;
+    if (!traceList || !traceFollowLatestRef.current) return;
     traceList.scrollTop = traceList.scrollHeight;
-  }, [events.length, latestEventId, selectedRunId]);
+  }, [bottomSpacerHeight, latestEventId, normalizedWindowStart, renderedEvents.length, selectedRunId]);
+
+  useEffect(() => {
+    traceFollowLatestRef.current = true;
+    setTraceWindowStart(Math.max(0, visibleEvents.length - TRACE_RENDER_WINDOW_SIZE));
+  }, [selectedRunId, traceFilterKey]);
+
+  useEffect(() => {
+    setTraceWindowStart((current) => Math.min(current, maxWindowStart));
+  }, [maxWindowStart]);
+
+  useEffect(() => {
+    if (traceFollowLatestRef.current) {
+      setTraceWindowStart(maxWindowStart);
+    }
+  }, [latestEventId, maxWindowStart]);
+
+  const handleTraceScroll = useCallback(() => {
+    const traceList = traceListRef.current;
+    if (!traceList || visibleEvents.length <= TRACE_RENDER_WINDOW_SIZE) return;
+    const nearBottom = traceList.scrollTop + traceList.clientHeight >= traceList.scrollHeight - TRACE_ESTIMATED_EVENT_HEIGHT;
+    traceFollowLatestRef.current = nearBottom;
+    const nextStart = Math.max(0, Math.min(maxWindowStart, Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT)));
+    if (nextStart !== normalizedWindowStart) {
+      setTraceWindowStart(nextStart);
+    }
+  }, [maxWindowStart, normalizedWindowStart, visibleEvents.length]);
 
   if (!selectedRunId) return null;
 
@@ -1206,11 +1242,13 @@ function MainTraceView({
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && visibleEvents.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
-      {!loading && visibleEvents.length > 0 ? (
-        <div className="main-trace-list" ref={traceListRef}>
-          {visibleEvents.map((event) => (
+      {!loading && renderedEvents.length > 0 ? (
+        <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
+          {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
+          {renderedEvents.map((event) => (
             <MainTraceEvent event={event} key={event.id} selected={event.id === selectedTraceEventId} onSelect={onSelectTraceEvent} />
           ))}
+          {bottomSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
         </div>
       ) : null}
     </section>
