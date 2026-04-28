@@ -583,10 +583,11 @@ export function App(): JSX.Element {
       </aside>
 
       <main className="workbench">
-        <div className="workbench-header">{snapshot?.activeScope.programName ?? 'No Program Selected'}</div>
-        <div className="workspace-page">
-          <ResearchSessionPage detail={runDetail} selectedRunId={selectedRunId} />
+        <div className="workbench-header">
+          <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
+          <SessionStartTime detail={runDetail && runDetail.run.id === selectedRunId ? runDetail : null} />
         </div>
+        <div className="workspace-page" />
       </main>
       <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
         <div className="inspector-empty-state">
@@ -782,66 +783,32 @@ function StatusBar({
   );
 }
 
-function ResearchSessionPage({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element {
-  if (!selectedRunId) {
-    return (
-      <div className="research-session-empty">
-        <span>Research Session</span>
-        <p>No research session selected.</p>
-      </div>
-    );
-  }
-
-  if (!detail || detail.run.id !== selectedRunId) {
-    return (
-      <div className="research-session-empty">
-        <span>Research Session</span>
-        <p>Loading research session.</p>
-      </div>
-    );
-  }
+function SessionStartTime({ detail }: { detail: RunDetail | null }): JSX.Element | null {
+  if (!detail) return null;
+  const startAt = detail.run.startedAt ?? detail.run.createdAt;
+  const start = new Date(startAt);
+  if (Number.isNaN(start.getTime())) return null;
 
   return (
-    <div className="research-session-page">
-      <div className="research-session-heading">
-        <div>
-          <StatusPill status={detail.run.status} />
-          <h2>{detail.run.title}</h2>
-          <p>{detail.run.summary || 'No summary recorded.'}</p>
-        </div>
-        <div className="research-session-meta">
-          <span>{detail.run.mode}</span>
-          <span>{detail.run.model}</span>
-          <span>{detail.attempts.length} attempt{detail.attempts.length === 1 ? '' : 's'}</span>
-        </div>
-      </div>
-
-      <div className="research-session-prompt">
-        <span>Prompt</span>
-        <pre>{detail.run.promptMarkdown.trim() || 'No prompt recorded.'}</pre>
-      </div>
-
-      <div className="research-session-stats">
-        <div>
-          <span>Hypotheses</span>
-          <strong>{detail.hypotheses.length}</strong>
-        </div>
-        <div>
-          <span>Findings</span>
-          <strong>{detail.findings.length}</strong>
-        </div>
-        <div>
-          <span>Artifacts</span>
-          <strong>{detail.artifacts.length}</strong>
-        </div>
-        <div>
-          <span>Verifiers</span>
-          <strong>{detail.verifierRuns.length}/{detail.verifierContracts.length}</strong>
-        </div>
-      </div>
+    <div className="session-start-time" title={startAt}>
+      <span>{formatSessionStart(start)}</span>
     </div>
   );
 }
+
+function formatSessionStart(date: Date): string {
+  return `${SESSION_MONTHS[date.getMonth()]} ${date.getDate()}, ${formatSessionTime(date)}`;
+}
+
+function formatSessionTime(date: Date): string {
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const hour24 = date.getHours();
+  const hour12 = hour24 % 12 || 12;
+  const suffix = hour24 < 12 ? 'a' : 'p';
+  return `${hour12}:${minutes}${suffix}`;
+}
+
+const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function hostEnvironmentLabel(hostEnvironment: HostEnvironment | null): string {
   if (!hostEnvironment) return 'Host OS';
