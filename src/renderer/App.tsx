@@ -168,6 +168,72 @@ const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
 const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
+const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
+const TRACE_SUMMARY_VERBS = new Set([
+  'accept',
+  'accepted',
+  'allocate',
+  'allocated',
+  'block',
+  'blocked',
+  'call',
+  'called',
+  'compact',
+  'compacted',
+  'complete',
+  'completed',
+  'create',
+  'created',
+  'destroy',
+  'destroyed',
+  'enforce',
+  'enforced',
+  'execute',
+  'executed',
+  'export',
+  'exported',
+  'fail',
+  'failed',
+  'finish',
+  'finished',
+  'import',
+  'imported',
+  'inspect',
+  'inspected',
+  'pause',
+  'paused',
+  'plan',
+  'planned',
+  'prepare',
+  'prepared',
+  'read',
+  'record',
+  'recorded',
+  'recover',
+  'recovered',
+  'request',
+  'requested',
+  'resume',
+  'resumed',
+  'retry',
+  'retried',
+  'review',
+  'reviewed',
+  'run',
+  'search',
+  'send',
+  'sent',
+  'skip',
+  'skipped',
+  'start',
+  'started',
+  'stream',
+  'streamed',
+  'update',
+  'updated',
+  'verify',
+  'verified'
+]);
 const INSET_SCROLLBAR_ACTIVE_MS = 900;
 const INSET_SCROLLBAR_SELECTOR = [
   '.sidebar',
@@ -260,7 +326,7 @@ const defaultRunInput: StartRunInput = {
   sandboxProfile: 'local_disposable_vm',
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,
-    maxAttempts: UNBOUNDED_ATTEMPTS,
+    maxAttempts: 1,
     maxCostUsd: 0
   },
   fakeScenario: 'adaptive_portfolio'
@@ -750,16 +816,18 @@ export function App(): JSX.Element {
                 <div className="program-session-list">
                   {visibleSessions.length > 0 ? (
                     visibleSessions.map((session) => (
-                      <button
-                        type="button"
-                        className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
-                        title={promptSessionTitle(session)}
-                        key={session.id}
-                        onClick={() => openResearchSession(program, session)}
-                      >
-                        <span className="program-session-title">{promptSessionTitle(session)}</span>
-                        <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
-                      </button>
+                      <div className="program-session-row" key={session.id}>
+                        <SessionStatusIcon status={session.status} />
+                        <button
+                          type="button"
+                          className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
+                          title={promptSessionTitle(session)}
+                          onClick={() => openResearchSession(program, session)}
+                        >
+                          <span className="program-session-title">{promptSessionTitle(session)}</span>
+                          <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
+                        </button>
+                      </div>
                     ))
                   ) : (
                     <span className="program-session-empty">No Session Yet...</span>
@@ -786,7 +854,10 @@ export function App(): JSX.Element {
 
       <main className="workbench">
         <div className="workbench-header">
-          <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
+          <div className="workbench-program">
+            <RunStatusIndicator detail={activeRunDetail} />
+            <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
+          </div>
           <SessionTimestamps detail={activeRunDetail} />
         </div>
         <div className="workspace-page">
@@ -1124,17 +1195,43 @@ function firstNotificationSentence(markdown: string): string {
   return firstPromptSentence(markdown) || markdown.replace(/\s+/g, ' ').trim();
 }
 
+function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Element | null {
+  if (!detail) return null;
+  const status = detail.run.status;
+  const statusClass = runStatusClass(status);
+  return (
+    <span className={`workbench-run-status status-${statusClass}`} title={traceLabel(status)} aria-label={`Run status: ${traceLabel(status)}`}>
+      {statusClass === 'active' ? <RefreshCw size={13} /> : null}
+    </span>
+  );
+}
+
+function SessionStatusIcon({ status }: { status: RunStatus }): JSX.Element {
+  const statusClass = runStatusClass(status);
+  return (
+    <span className={`program-session-status status-${statusClass}`} title={traceLabel(status)} aria-label={`Session status: ${traceLabel(status)}`}>
+      {statusClass === 'active' ? <RefreshCw size={10} /> : null}
+    </span>
+  );
+}
+
+function runStatusClass(status: RunStatus): 'active' | 'completed' | 'failed' | 'paused' | 'queued' {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'active') return 'active';
+  if (status === 'queued') return 'queued';
+  return 'paused';
+}
+
 function SessionTimestamps({ detail }: { detail: RunDetail | null }): JSX.Element | null {
   if (!detail) return null;
-  const created = new Date(detail.run.createdAt);
   const updated = latestRunDetailDate(detail);
-  if (Number.isNaN(created.getTime()) || !updated) return null;
+  if (!updated) return null;
 
   return (
     <div className="session-start-time" title={`Created ${detail.run.createdAt}\nUpdated ${updated.toISOString()}`}>
-      <span>
-        Created {formatSessionStart(created)} • Updated {formatSessionStart(updated)}
-      </span>
+      <span className="session-mode-pill">{traceLabel(detail.run.mode)}</span>
+      <span>Updated {formatSessionStart(updated)}</span>
     </div>
   );
 }
@@ -1200,20 +1297,21 @@ function MainSessionWorkspace({
 
   return (
     <div className="main-session-grid">
-      <MainSessionStatusHeader detail={detail} visibleTraceCategories={visibleTraceCategories} />
       <MainTraceView
+        busy={busy}
         detail={detail}
         selectedRunId={selectedRunId}
         selectedTraceEventId={selectedTraceEventId}
         visibleTraceCategories={visibleTraceCategories}
         onSelectTraceEvent={onSelectTraceEvent}
+        onSteerInstruction={onSteerInstruction}
       />
-      <MainSessionSidePanel busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
+      <MainSessionSidePanel detail={detail} />
     </div>
   );
 }
 
-function MainSessionStatusHeader({
+function MainTraceStatusHeader({
   detail,
   visibleTraceCategories
 }: {
@@ -1221,24 +1319,14 @@ function MainSessionStatusHeader({
   visibleTraceCategories: TraceCategoryId[];
 }): JSX.Element {
   const events = detail?.traceEvents ?? [];
-  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
   const latestTurn = latestTraceTurnNumber(events);
-  const evidenceCount = detail ? detail.artifacts.length + detail.findings.length + detail.verifierRuns.length : 0;
-  const nextAction = traceNextActionLabel(detail);
+  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
 
   return (
-    <div className="main-session-status-strip" aria-label="Session status">
-      <div>
-        <span>Status</span>
-        <strong>{detail ? traceLabel(detail.run.status) : 'Loading'}</strong>
-      </div>
+    <div className="main-session-status-strip" aria-label="Trace status">
       <div>
         <span>Turn</span>
         <strong>{latestTurn === null ? 'Setup' : String(latestTurn)}</strong>
-      </div>
-      <div>
-        <span>Mode</span>
-        <strong>{detail ? traceLabel(detail.run.mode) : 'Loading'}</strong>
       </div>
       <div>
         <span>Events</span>
@@ -1246,31 +1334,14 @@ function MainSessionStatusHeader({
           {visibleEventCount}/{events.length}
         </strong>
       </div>
-      <div>
-        <span>Evidence</span>
-        <strong>{evidenceCount}</strong>
-      </div>
-      <div>
-        <span>Next Action</span>
-        <strong>{nextAction}</strong>
-      </div>
     </div>
   );
 }
 
-function MainSessionSidePanel({
-  detail,
-  busy,
-  onSteerInstruction
-}: {
-  detail: RunDetail | null;
-  busy: boolean;
-  onSteerInstruction: (runId: string, instruction: string) => void;
-}): JSX.Element {
+function MainSessionSidePanel({ detail }: { detail: RunDetail | null }): JSX.Element {
   return (
     <div className="main-session-side">
       <MainHypothesisList detail={detail} />
-      <MainSteerArea busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
     </div>
   );
 }
@@ -1295,11 +1366,7 @@ function MainSteerArea({
   };
 
   return (
-    <section className="main-steer-area" aria-label="Steer research session">
-      <span className="main-steer-label">
-        <GitFork size={14} />
-        <span>Steer</span>
-      </span>
+    <footer className="main-trace-footer" aria-label="Steer research session">
       <div className="main-steer-row">
         <textarea
           rows={1}
@@ -1317,22 +1384,26 @@ function MainSteerArea({
           <ChevronRight size={17} />
         </button>
       </div>
-    </section>
+    </footer>
   );
 }
 
 function MainTraceView({
+  busy,
   detail,
   selectedRunId,
   selectedTraceEventId,
   visibleTraceCategories,
-  onSelectTraceEvent
+  onSelectTraceEvent,
+  onSteerInstruction
 }: {
+  busy: boolean;
   detail: RunDetail | null;
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
   onSelectTraceEvent: (event: TraceEventRecord) => void;
+  onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   const loading = !detail;
   const events = detail?.traceEvents ?? [];
@@ -1347,14 +1418,79 @@ function MainTraceView({
   const latestGroupKey = latestTraceGroupKey(events);
   const topSpacerHeight = normalizedWindowStart * TRACE_ESTIMATED_EVENT_HEIGHT;
   const bottomSpacerHeight = Math.max(0, timelineEntries.length - normalizedWindowStart - renderedEntries.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
+  const traceScrollRef = useRef<HTMLDivElement | null>(null);
   const traceListRef = useRef<HTMLDivElement | null>(null);
   const traceFollowLatestRef = useRef(true);
+  const traceAutoScrollingRef = useRef(false);
+  const traceAutoScrollFrameRef = useRef<number | null>(null);
+  const traceAutoScrollSettledFrameRef = useRef<number | null>(null);
+  const latestRenderedEvent = renderedEntries.at(-1)?.event;
+  const latestRenderedPayloadLength = latestRenderedEvent ? (JSON.stringify(latestRenderedEvent.payload)?.length ?? 0) : 0;
+  const latestRenderedEventVersion = latestRenderedEvent ? `${latestRenderedEvent.id}:${latestRenderedEvent.summary.length}:${latestRenderedPayloadLength}` : '';
+
+  const updateTraceScrollEdges = useCallback(() => {
+    const traceScroll = traceScrollRef.current;
+    const traceList = traceListRef.current;
+    if (!traceScroll) return;
+    if (!traceList) {
+      traceScroll.classList.remove('has-top-fade', 'has-bottom-fade');
+      return;
+    }
+
+    const scrollableDistance = traceList.scrollHeight - traceList.clientHeight;
+    const canScroll = scrollableDistance > 8;
+    const hasVirtualTop = normalizedWindowStart > 0;
+    const hasVirtualBottom = normalizedWindowStart + renderedEntries.length < timelineEntries.length;
+    const showTopFade = canScroll && (hasVirtualTop || traceList.scrollTop > 8);
+    const showBottomFade = canScroll && (hasVirtualBottom || traceList.scrollTop < scrollableDistance - 8);
+
+    traceScroll.classList.toggle('has-top-fade', showTopFade);
+    traceScroll.classList.toggle('has-bottom-fade', showBottomFade);
+  }, [normalizedWindowStart, renderedEntries.length, timelineEntries.length]);
+
+  const cancelPendingTraceAutoScroll = useCallback(() => {
+    if (traceAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(traceAutoScrollFrameRef.current);
+      traceAutoScrollFrameRef.current = null;
+    }
+    if (traceAutoScrollSettledFrameRef.current !== null) {
+      window.cancelAnimationFrame(traceAutoScrollSettledFrameRef.current);
+      traceAutoScrollSettledFrameRef.current = null;
+    }
+  }, []);
+
+  const scrollTraceToBottom = useCallback(() => {
+    const traceList = traceListRef.current;
+    if (!traceList) return;
+
+    cancelPendingTraceAutoScroll();
+    traceAutoScrollingRef.current = true;
+    const alignToBottom = (): void => {
+      traceList.scrollTop = Math.max(0, traceList.scrollHeight - traceList.clientHeight);
+      updateTraceScrollEdges();
+    };
+
+    alignToBottom();
+    traceAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      alignToBottom();
+      traceAutoScrollSettledFrameRef.current = window.requestAnimationFrame(() => {
+        alignToBottom();
+        traceAutoScrollingRef.current = false;
+        traceAutoScrollFrameRef.current = null;
+        traceAutoScrollSettledFrameRef.current = null;
+        updateTraceScrollEdges();
+      });
+    });
+  }, [cancelPendingTraceAutoScroll, updateTraceScrollEdges]);
 
   useEffect(() => {
-    const traceList = traceListRef.current;
-    if (!traceList || !traceFollowLatestRef.current) return;
-    traceList.scrollTop = traceList.scrollHeight;
-  }, [bottomSpacerHeight, latestEventId, normalizedWindowStart, renderedEntries.length, selectedRunId]);
+    if (!traceFollowLatestRef.current) return;
+    scrollTraceToBottom();
+  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, normalizedWindowStart, renderedEntries.length, scrollTraceToBottom, selectedRunId]);
+
+  useEffect(() => () => {
+    cancelPendingTraceAutoScroll();
+  }, [cancelPendingTraceAutoScroll]);
 
   useEffect(() => {
     traceFollowLatestRef.current = true;
@@ -1371,41 +1507,64 @@ function MainTraceView({
     }
   }, [latestEventId, maxWindowStart]);
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateTraceScrollEdges);
+    return () => window.cancelAnimationFrame(frame);
+  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, renderedEntries.length, selectedRunId, topSpacerHeight, updateTraceScrollEdges]);
+
+  useEffect(() => {
+    const traceList = traceListRef.current;
+    if (!traceList || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(updateTraceScrollEdges);
+    observer.observe(traceList);
+    return () => observer.disconnect();
+  }, [selectedRunId, updateTraceScrollEdges]);
+
   const handleTraceScroll = useCallback(() => {
     const traceList = traceListRef.current;
+    updateTraceScrollEdges();
     if (!traceList || timelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
-    const nearBottom = traceList.scrollTop + traceList.clientHeight >= traceList.scrollHeight - TRACE_ESTIMATED_EVENT_HEIGHT;
+    if (traceAutoScrollingRef.current) {
+      traceFollowLatestRef.current = true;
+      return;
+    }
+    const distanceFromBottom = traceList.scrollHeight - traceList.clientHeight - traceList.scrollTop;
+    const nearBottom = distanceFromBottom <= TRACE_AUTO_FOLLOW_THRESHOLD;
     traceFollowLatestRef.current = nearBottom;
     const nextStart = Math.max(0, Math.min(maxWindowStart, Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT)));
     if (nextStart !== normalizedWindowStart) {
       setTraceWindowStart(nextStart);
     }
-  }, [maxWindowStart, normalizedWindowStart, timelineEntries.length]);
+  }, [maxWindowStart, normalizedWindowStart, timelineEntries.length, updateTraceScrollEdges]);
 
   if (!selectedRunId) return null;
 
   return (
     <section className="main-trace-view" aria-label="Agent trace">
+      <MainTraceStatusHeader detail={detail} visibleTraceCategories={visibleTraceCategories} />
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
       {!loading && renderedEntries.length > 0 ? (
-        <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
-          {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
-          {renderedGroups.map((group) => (
-            <MainTraceTurnGroup
-              group={group.group}
-              entries={group.entries}
-              key={group.key}
-              latest={group.group.key === latestGroupKey}
-              runStatus={detail.run.status}
-              selectedTraceEventId={selectedTraceEventId}
-              onSelectTraceEvent={onSelectTraceEvent}
-            />
-          ))}
-          {bottomSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+        <div className="main-trace-scroll" ref={traceScrollRef}>
+          <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
+            {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
+            {renderedGroups.map((group) => (
+              <MainTraceTurnGroup
+                group={group.group}
+                entries={group.entries}
+                key={group.key}
+                latest={group.group.key === latestGroupKey}
+                runStatus={detail.run.status}
+                selectedTraceEventId={selectedTraceEventId}
+                onSelectTraceEvent={onSelectTraceEvent}
+              />
+            ))}
+            {bottomSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+          </div>
         </div>
       ) : null}
+      <MainSteerArea busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
     </section>
   );
 }
@@ -1495,12 +1654,13 @@ function MainTraceTurnGroup({
 
 function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord; selected: boolean; onSelect: (event: TraceEventRecord) => void }): JSX.Element {
   const category = traceCategoryForEvent(event);
+  const outcome = traceEventOutcome(event);
   const detail = traceEventDetailText(event, category);
   const hasDetail = detail.length > 0;
   return (
     <button
       type="button"
-      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${selected ? 'selected' : ''}`}
+      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${outcome ? `outcome-${outcome}` : ''} ${selected ? 'selected' : ''}`}
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >
@@ -1511,7 +1671,7 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord
         <span>{traceLabel(event.source)}</span>
       </div>
       <div className="main-trace-marker" aria-hidden="true">
-        <span>{traceCategoryIcon(category)}</span>
+        <span>{traceEventIcon(event, category)}</span>
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
@@ -1612,17 +1772,6 @@ function traceTurnNumber(event: TraceEventRecord): number | null {
   return match ? Number(match[1]) : null;
 }
 
-function traceNextActionLabel(detail: RunDetail | null): string {
-  if (!detail) return 'Loading';
-  if (detail.run.status === 'active') return 'Monitor turn';
-  if (detail.run.status === 'failed') return 'Inspect failure';
-  if (detail.run.status === 'blocked' || detail.run.status === 'paused') return 'Steer session';
-  if (detail.findings.length > 0) return 'Review findings';
-  if (detail.hypotheses.length > 0) return 'Review hypotheses';
-  if (detail.run.status === 'completed') return 'Review output';
-  return 'Awaiting start';
-}
-
 function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): { kind: string; label: string } {
   if (group.failureCount > 0) return { kind: 'review', label: 'Review' };
   if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
@@ -1631,10 +1780,85 @@ function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runSt
 }
 
 function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
-  if (category === 'agent_output' && event.summary === 'OpenAI streamed model output delta.') return 'Agent output streaming';
-  if (category === 'agent_output' && event.summary === 'OpenAI response completed.') return 'Agent response completed';
-  if (category === 'reasoning' && event.summary === 'OpenAI response created.') return 'Agent turn started';
-  return event.summary;
+  const summary = event.summary.trim();
+  if (!summary) return traceCategoryFallbackPrefix(category);
+
+  if (summary === 'OpenAI streamed model output delta.') return 'Stream model output';
+  if (summary === 'OpenAI response completed.') return 'Complete response';
+  if (summary === 'OpenAI response created.') return 'Start model turn';
+  if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
+  if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
+  if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
+  if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';
+  if (summary === 'OpenAI run resume blocked because no host credential is configured.') return 'Block resume: missing host credential';
+  if (summary === 'OpenAI run resumed from compacted Beale replay context.') return 'Resume run from compacted replay';
+  if (summary === 'OpenAI run resumed from persisted Responses state.') return 'Resume run from persisted state';
+  if (summary === 'OpenAI compacted retry recovered from context window pressure.') return 'Recover compacted retry';
+  if (summary === 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
+  if (summary === 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
+  if (summary === 'OpenAI context window pressure triggered compacted retry.') return 'Compact context for retry';
+  if (summary === 'OpenAI Responses run failed.') return 'Fail Responses run';
+  if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
+  if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
+  if (summary === 'Run started from markdown prompt.') return 'Start run from prompt';
+  if (summary === 'Fake executor allocated a simulated disposable VM context.') return 'Allocate simulated VM context';
+  if (summary === 'Simulated model planned an open-ended discovery pass.') return 'Plan discovery pass';
+  if (summary === 'No network request was sent.') return 'Skip network request';
+  if (summary === 'Simulated finding recorded; real VM verifier required for verified state.') return 'Record simulated finding';
+  if (summary === 'Verifier failed to destroy guest after execution.') return 'Review verifier cleanup failure';
+  if (summary === 'VM executor alpha failed to destroy guest after run failure.') return 'Review VM cleanup failure';
+  if (summary === 'VM executor alpha run failed.') return 'Fail VM executor run';
+  if (summary === 'VM executor alpha run started from markdown prompt.') return 'Start VM executor run';
+
+  let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
+  if (match) return `Send request for turn ${match[1]}`;
+  match = summary.match(/^OpenAI completed function call arguments for ([^.]+)\.$/);
+  if (match) return `Call ${match[1]}`;
+  match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
+  if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
+  match = summary.match(/^Guest ([\w -]+) operation finished with ([^.]+)\.$/i);
+  if (match) return `Finish ${match[1].toLowerCase()} operation: ${match[2]}`;
+  match = summary.match(/^Debugger wrapper operation finished with ([^.]+)\.$/i);
+  if (match) return `Finish debugger wrapper: ${match[1]}`;
+  match = summary.match(/^Guest artifact exported and accepted: (.+)\.$/);
+  if (match) return `Accept exported artifact: ${match[1]}`;
+  match = summary.match(/^VM network profile enforced: ([^.]+)\.$/);
+  if (match) return `Enforce network profile: ${match[1]}`;
+  match = summary.match(/^Verifier contract executed in disposable VM with ([^.]+)\.$/);
+  if (match) return `Execute verifier contract: ${match[1]}`;
+  match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
+  if (match) return `Record portfolio branch: ${match[1]}`;
+  match = summary.match(/^Requested (.+)\.$/);
+  if (match) return `Request ${match[1]}`;
+  match = summary.match(/^Artifact recorded: (.+)\.$/);
+  if (match) return `Record artifact: ${match[1]}`;
+  match = summary.match(/^Hypothesis created: (.+)\.$/);
+  if (match) return `Create hypothesis: ${match[1]}`;
+  match = summary.match(/^Policy engine blocked (.+)\.$/);
+  if (match) return `Block ${match[1]}`;
+  match = summary.match(/^Paused after (.+)\.$/);
+  if (match) return `Pause after ${match[1]}`;
+
+  if (startsWithTraceVerb(summary)) return summary;
+  return `${traceCategoryFallbackPrefix(category)}: ${summary}`;
+}
+
+function startsWithTraceVerb(summary: string): boolean {
+  const firstWord = summary.trim().split(/\s+/)[0]?.replace(/[^A-Za-z]/g, '').toLowerCase() ?? '';
+  return TRACE_SUMMARY_VERBS.has(firstWord);
+}
+
+function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
+  if (category === 'agent_output' || category === 'reasoning') return 'Report';
+  if (category === 'tools') return 'Run';
+  if (category === 'vm_execution') return 'Execute';
+  if (category === 'hypotheses') return 'Track';
+  if (category === 'evidence') return 'Record';
+  if (category === 'verifier') return 'Verify';
+  if (category === 'policy_scope') return 'Enforce';
+  if (category === 'code_navigation') return 'Inspect';
+  if (category === 'failure_recovery') return 'Review';
+  return 'Note';
 }
 
 function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
@@ -1669,6 +1893,10 @@ function tracePayloadPrimitive(payload: Record<string, unknown>, key: string): s
 function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
   const searchable = `${event.source} ${event.type} ${event.summary} ${JSON.stringify(event.payload)}`.toLowerCase();
   if (event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope') return 'policy_scope';
+  if (traceEventOutcome(event) === 'success') {
+    if (event.source === 'executor' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
+    if (event.source === 'tool' || event.type === 'tool_result') return 'tools';
+  }
   if (/\b(error|failed|failure|retry|recover|recovery|blocked|timeout|destroy failed)\b/.test(searchable)) return 'failure_recovery';
   if (event.type === 'verifier_result' || event.source === 'verifier') return 'verifier';
   if (event.type === 'hypothesis_event') return 'hypotheses';
@@ -1685,12 +1913,27 @@ function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
   return 'events';
 }
 
+function traceEventOutcome(event: TraceEventRecord): 'success' | 'failure' | null {
+  const status = tracePayloadPrimitive(event.payload, 'status')?.toLowerCase() ?? '';
+  if (status === 'success' || /\bfinished with success\b/i.test(event.summary)) return 'success';
+  if (['failure', 'failed', 'timeout', 'policy_blocked', 'executor_error', 'error'].includes(status)) return 'failure';
+  if (/\b(failed|failure|timeout|blocked|errored)\b/i.test(event.summary)) return 'failure';
+  return null;
+}
+
 function traceCategoryOption(category: TraceCategoryId): TraceCategoryOption {
   return TRACE_CATEGORY_OPTIONS.find((option) => option.id === category) ?? TRACE_CATEGORY_OPTIONS[TRACE_CATEGORY_OPTIONS.length - 1];
 }
 
 function traceCategoryLabel(category: TraceCategoryId): string {
   return traceCategoryOption(category).label;
+}
+
+function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
+  const outcome = traceEventOutcome(event);
+  if (outcome === 'success') return <CheckCircle2 size={13} />;
+  if (outcome === 'failure') return <XCircle size={13} />;
+  return traceCategoryIcon(category);
 }
 
 function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
@@ -2483,7 +2726,6 @@ function StartRunForm({
     setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
-  const attemptLimitValue = input.budget.maxAttempts >= UNBOUNDED_ATTEMPTS ? '' : String(input.budget.maxAttempts);
   const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
   const canStart = input.promptMarkdown.trim().length > 0 && !openAiBlocked;
   const showGeneratePrompt = input.promptMarkdown.length === 0;
@@ -2586,13 +2828,13 @@ function StartRunForm({
               />
             </label>
             <label>
-              Attempts
+              Max Research Branches
               <input
                 type="number"
                 min={1}
-                placeholder="Unlimited"
-                value={attemptLimitValue}
-                onChange={(event) => updateBudget('maxAttempts', optionalPositiveInteger(event.target.value, UNBOUNDED_ATTEMPTS))}
+                value={1}
+                disabled
+                onChange={() => undefined}
               />
             </label>
             <label>
