@@ -1405,7 +1405,7 @@ export class WorkspaceDatabase {
         this.db.prepare("SELECT title, state FROM findings WHERE run_id = ? AND state NOT IN ('dismissed', 'out_of_scope') ORDER BY priority_score DESC, created_at DESC LIMIT 1").get(run.id)
       );
       const verifier = rowOrUndefined(
-        this.db.prepare('SELECT status FROM verifier_runs WHERE run_id = ? ORDER BY started_at DESC LIMIT 1').get(run.id)
+        this.db.prepare('SELECT status FROM verifier_runs WHERE run_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1').get(run.id)
       );
       const policy = rowOrUndefined(
         this.db.prepare("SELECT reason FROM approvals WHERE run_id = ? AND decision = 'blocked' ORDER BY created_at DESC LIMIT 1").get(run.id)
@@ -1462,7 +1462,7 @@ export class WorkspaceDatabase {
       ).map((row) => this.mapArtifact(row)),
       findings: rows(this.db.prepare('SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapFinding(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
-      verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
+      verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
       vmContexts: rows(
         this.db
           .prepare(

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
@@ -587,7 +587,9 @@ export function App(): JSX.Element {
           <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
           <SessionStartTime detail={runDetail && runDetail.run.id === selectedRunId ? runDetail : null} />
         </div>
-        <div className="workspace-page" />
+        <div className="workspace-page">
+          <MainSessionWorkspace detail={runDetail && runDetail.run.id === selectedRunId ? runDetail : null} selectedRunId={selectedRunId} />
+        </div>
       </main>
       <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
         <div className="inspector-empty-state">
@@ -809,6 +811,149 @@ function formatSessionTime(date: Date): string {
 }
 
 const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function MainSessionWorkspace({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element | null {
+  if (!selectedRunId) return null;
+
+  return (
+    <div className="main-session-grid">
+      <MainTraceView detail={detail} selectedRunId={selectedRunId} />
+      <MainHypothesisList detail={detail} />
+    </div>
+  );
+}
+
+function MainTraceView({ detail, selectedRunId }: { detail: RunDetail | null; selectedRunId: string | null }): JSX.Element | null {
+  const loading = !detail;
+  const events = detail?.traceEvents ?? [];
+  const latestEventId = events.at(-1)?.id ?? '';
+  const traceListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const traceList = traceListRef.current;
+    if (!traceList) return;
+    traceList.scrollTop = traceList.scrollHeight;
+  }, [events.length, latestEventId, selectedRunId]);
+
+  if (!selectedRunId) return null;
+
+  return (
+    <section className="main-trace-view" aria-label="Agent trace">
+      {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
+      {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
+      {!loading && events.length > 0 ? (
+        <div className="main-trace-list" ref={traceListRef}>
+          {events.map((event) => (
+            <MainTraceEvent event={event} key={event.id} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MainHypothesisList({ detail }: { detail: RunDetail | null }): JSX.Element {
+  const loading = !detail;
+  const hypotheses = detail?.hypotheses ?? [];
+
+  return (
+    <section className="main-hypothesis-view" aria-label="Hypotheses">
+      <div className="main-surface-header">
+        <div>
+          <Bug size={14} />
+          <span>Hypotheses</span>
+        </div>
+        <span>{loading ? 'Loading' : `${hypotheses.length}`}</span>
+      </div>
+      {loading ? <div className="main-trace-empty">Loading hypotheses.</div> : null}
+      {!loading && hypotheses.length === 0 ? <div className="main-trace-empty">No hypotheses recorded.</div> : null}
+      {!loading && hypotheses.length > 0 ? (
+        <div className="main-hypothesis-list">
+          {hypotheses.map((hypothesis) => (
+            <MainHypothesisItem hypothesis={hypothesis} key={hypothesis.id} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MainHypothesisItem({ hypothesis }: { hypothesis: HypothesisRecord }): JSX.Element {
+  return (
+    <article className={`main-hypothesis-item state-${stateClass(hypothesis.state)}`}>
+      <strong>{hypothesis.title}</strong>
+      <p>
+        {traceLabel(hypothesis.state)} · Priority {hypothesis.priorityScore.toFixed(2)}
+      </p>
+      <p>
+        {hypothesis.bugClass || 'Unclassified'} · {hypothesis.component || 'Unknown component'}
+      </p>
+    </article>
+  );
+}
+
+function MainTraceEvent({ event }: { event: TraceEventRecord }): JSX.Element {
+  const payload = compactTracePayload(event.payload);
+  const hasPayload = payload !== '{}';
+  return (
+    <article className={`main-trace-event source-${event.source} type-${event.type}`}>
+      <time className="main-trace-time" dateTime={event.createdAt}>
+        {formatTraceTimestamp(event.createdAt)}
+      </time>
+      <div className="main-trace-marker" aria-hidden="true">
+        <span>{traceEventIcon(event)}</span>
+      </div>
+      <div className="main-trace-event-body">
+        <div className="main-trace-line">
+          <strong>{event.summary}</strong>
+          <div className="main-trace-badges">
+            <span>{traceTypeLabel(event.type)}</span>
+            {!event.modelVisible ? <span>Hidden</span> : null}
+          </div>
+        </div>
+        <div className="main-trace-context">
+          <span>Event {event.sequence}</span>
+          <span>{traceLabel(event.source)}</span>
+          {hasPayload ? <code>{payload}</code> : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function traceEventIcon(event: TraceEventRecord): JSX.Element {
+  if (event.type === 'artifact_created') return <FileOutput size={12} />;
+  if (event.type === 'network_event') return <Network size={12} />;
+  if (event.type === 'approval_event' || event.source === 'policy') return <ShieldAlert size={12} />;
+  if (event.type === 'verifier_result' || event.source === 'verifier') return <ShieldCheck size={12} />;
+  if (event.source === 'model') return <Sparkles size={12} />;
+  if (event.source === 'tool') return <Terminal size={12} />;
+  if (event.source === 'user') return <Edit3 size={12} />;
+  return <Search size={12} />;
+}
+
+function traceLabel(value: string): string {
+  return value
+    .split('_')
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+    .join(' ');
+}
+
+function traceTypeLabel(value: string): string {
+  return traceLabel(value);
+}
+
+function formatTraceTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return formatSessionTime(date);
+}
+
+function compactTracePayload(value: Record<string, unknown>): string {
+  const text = JSON.stringify(value);
+  if (!text) return '{}';
+  return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+}
 
 function hostEnvironmentLabel(hostEnvironment: HostEnvironment | null): string {
   if (!hostEnvironment) return 'Host OS';
