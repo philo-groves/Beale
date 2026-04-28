@@ -168,6 +168,20 @@ const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
 const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
+const INSET_SCROLLBAR_ACTIVE_MS = 900;
+const INSET_SCROLLBAR_SELECTOR = [
+  '.sidebar',
+  '.inspector-sidebar',
+  '.main-trace-list',
+  '.main-hypothesis-list',
+  '.modal-body',
+  '.session-history-list',
+  '.trace-inspector-payload pre',
+  '.center-column',
+  '.tracker-panel',
+  '.timeline',
+  '.notification-detail pre'
+].join(', ');
 
 const UNBOUNDED_MINUTES = 999_999;
 const UNBOUNDED_ATTEMPTS = 999_999;
@@ -281,6 +295,39 @@ export function App(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const previousRunIdRef = useRef<string | null>(null);
   const runDetailRequestSeqRef = useRef(0);
+
+  useEffect(() => {
+    const timers = new Map<Element, number>();
+
+    const handleScroll = (event: Event): void => {
+      if (!(event.target instanceof Element) || !event.target.matches(INSET_SCROLLBAR_SELECTOR)) {
+        return;
+      }
+
+      const target = event.target;
+      target.classList.add('scrollbar-active');
+      const existingTimer = timers.get(target);
+      if (existingTimer !== undefined) {
+        window.clearTimeout(existingTimer);
+      }
+      timers.set(
+        target,
+        window.setTimeout(() => {
+          target.classList.remove('scrollbar-active');
+          timers.delete(target);
+        }, INSET_SCROLLBAR_ACTIVE_MS)
+      );
+    };
+
+    document.addEventListener('scroll', handleScroll, true);
+    return () => {
+      document.removeEventListener('scroll', handleScroll, true);
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer);
+      }
+      timers.clear();
+    };
+  }, []);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     setSnapshot(next);
