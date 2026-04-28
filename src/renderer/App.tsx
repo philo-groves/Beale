@@ -6,6 +6,7 @@ import {
   Ban,
   Bell,
   Bug,
+  CalendarClock,
   CheckCircle2,
   ClipboardCheck,
   ClipboardX,
@@ -25,6 +26,8 @@ import {
   MoreVertical,
   Network,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Play,
   RefreshCw,
@@ -194,6 +197,7 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(292);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     setSnapshot(next);
@@ -416,14 +420,30 @@ export function App(): JSX.Element {
     window.addEventListener('pointercancel', handlePointerUp);
   };
 
+  const appShellClassName = sidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell';
+
   return (
-    <div className="app-shell" style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
-      <TopBar onOpenSettings={() => setSettingsOpen(true)} />
-      <aside className="sidebar">
+    <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+      <TopBar
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
         <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={startDefaultRun}>
           <Play size={15} />
           <span>New Research</span>
         </button>
+        <div className="sidebar-quick-actions">
+          <button type="button" className="sidebar-utility-button" title="Search">
+            <Search size={15} />
+            <span>Search</span>
+          </button>
+          <button type="button" className="sidebar-utility-button" title="Scheduled Jobs">
+            <CalendarClock size={15} />
+            <span>Scheduled Jobs</span>
+          </button>
+        </div>
         <div className="sidebar-section program-list">
           <div className="section-row">
             <div className="meta-label">Programs</div>
@@ -488,32 +508,44 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
-function TopBar({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
+function TopBar({
+  sidebarCollapsed,
+  onOpenSettings,
+  onToggleSidebar
+}: {
+  sidebarCollapsed: boolean;
+  onOpenSettings: () => void;
+  onToggleSidebar: () => void;
+}): JSX.Element {
+  const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+
   return (
     <header className="top-bar">
       <nav className="window-menu" aria-label="Application menu">
+        <button
+          type="button"
+          className="sidebar-toggle-button"
+          title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          aria-pressed={!sidebarCollapsed}
+          onClick={onToggleSidebar}
+        >
+          <SidebarToggleIcon size={14} />
+        </button>
         <button type="button">File</button>
         <button type="button">Edit</button>
         <button type="button">View</button>
         <button type="button">Window</button>
       </nav>
-      <div className="top-command">
-        <button type="button" className="command-button" title="Open command palette">
-          <Search size={15} />
-          <span>Search or Command</span>
-          <kbd>Ctrl+O Search</kbd>
-          <kbd>Ctrl+K Commands</kbd>
-        </button>
-      </div>
       <div className="top-actions">
         <button type="button" title="Export">
-          <Upload size={16} />
+          <Upload size={14} />
         </button>
         <button type="button" title="Settings" onClick={onOpenSettings}>
-          <Settings size={16} />
+          <Settings size={14} />
         </button>
         <button type="button" title="More">
-          <MoreVertical size={17} />
+          <MoreVertical size={15} />
         </button>
       </div>
     </header>
@@ -532,7 +564,7 @@ function StatusBar({
   return (
     <footer className="status-bar">
       <button type="button" className={`remote-window-button ${isWsl ? 'is-wsl' : ''}`} title={remoteLabel ?? 'Open Remote Window'}>
-        <Monitor size={15} />
+        <Monitor size={14} />
         {remoteLabel ? <span>{remoteLabel}</span> : null}
       </button>
       <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>

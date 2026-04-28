@@ -201,10 +201,15 @@ code {
   height: 100%;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  grid-template-rows: 46px minmax(0, 1fr) 34px;
+  grid-template-rows: 38px minmax(0, 1fr) 34px;
   overflow: hidden;
   color: var(--text);
   background: var(--bg);
+  transition: grid-template-columns 180ms ease;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .top-bar {
@@ -212,7 +217,7 @@ code {
   grid-row: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(520px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   background: var(--chrome);
 }
@@ -255,16 +260,18 @@ code {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 10px;
+  padding: 0 8px;
 }
 
 .window-menu button {
-  height: 30px;
-  min-height: 30px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 5px;
   border-color: transparent;
   background: transparent;
   color: var(--muted-strong);
-  padding: 0 10px;
+  padding: 0 8px;
+  font-size: 0.88rem;
 }
 
 .window-menu button:hover:not(:disabled) {
@@ -273,11 +280,13 @@ code {
   color: var(--text);
 }
 
-.top-command {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 12px 0 0;
+.window-menu .sidebar-toggle-button {
+  width: 26px;
+  padding: 0;
+}
+
+.sidebar-toggle-button svg {
+  transition: transform 180ms ease;
 }
 
 .top-actions {
@@ -285,55 +294,23 @@ code {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 4px;
+  padding: 0 8px;
 }
 
 .top-actions button {
-  height: 30px;
-  min-height: 30px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 5px;
   border-color: transparent;
-  padding: 0 10px;
+  padding: 0 8px;
 }
 
 .top-actions button[title="Export"],
 .top-actions button[title="Settings"],
 .top-actions button:last-child {
-  width: 30px;
+  width: 26px;
   padding: 0;
-}
-
-.command-button {
-  width: min(380px, 100%);
-  max-width: 380px;
-  min-width: 0;
-  border-color: transparent;
-  justify-content: space-between;
-  color: var(--muted-strong);
-  background: #1b1b1b;
-  gap: 8px;
-}
-
-.command-button span {
-  flex: 1 1 auto;
-  text-align: left;
-}
-
-kbd {
-  min-width: 0;
-  min-height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 5px;
-  background: #050505;
-  color: var(--muted);
-  padding: 0 7px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .top-bar .status-pill {
@@ -357,6 +334,34 @@ kbd {
   gap: 12px;
   overflow-x: hidden;
   overflow-y: auto;
+  transition:
+    opacity 140ms ease,
+    padding 180ms ease,
+    visibility 0s linear 0s;
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  padding-right: 0;
+  padding-left: 0;
+  transition:
+    opacity 140ms ease,
+    padding 180ms ease,
+    visibility 0s linear 180ms;
+}
+
+.app-shell.sidebar-collapsed .sidebar-resize-handle {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .workbench {
+  margin-left: 8px;
+}
+
+.app-shell.sidebar-collapsed .status-bar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .sidebar-resize-handle {
@@ -458,6 +463,33 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   text-overflow: ellipsis;
 }
 
+.sidebar-quick-actions {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar-utility-button {
+  width: auto;
+  min-width: 0;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  color: #c8c8c8;
+  padding: 7px 8px;
+}
+
+.sidebar-utility-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
+}
+
+.sidebar-utility-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .program-item {
   width: auto;
   min-width: 0;
@@ -488,9 +520,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  margin: 0 8px 0 0;
   padding: 0;
   background: var(--panel);
-  border-radius: 12px 0 0 12px;
+  border-radius: 12px;
+  transition:
+    margin 180ms ease,
+    border-radius 180ms ease;
 }
 
 .workbench-header {
@@ -503,6 +539,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   min-height: 0;
   background: var(--panel);
+  border-radius: inherit;
 }
 
 .modal-backdrop {
@@ -1490,14 +1527,16 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .remote-window-button {
   justify-self: start;
-  align-self: stretch;
-  height: 100%;
-  min-height: 100%;
+  align-self: end;
+  height: auto;
+  min-height: 0;
   border-color: transparent;
   border-radius: 0 7px 0 0;
   background: transparent;
   color: var(--muted-strong);
-  padding: 0 10px;
+  padding: 5px 10px;
+  font-size: 0.88rem;
+  line-height: 1;
 }
 
 .remote-window-button:hover:not(:disabled) {
@@ -1582,23 +1621,18 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     overflow: visible;
   }
 
-  .top-bar {
-    grid-template-columns: 272px minmax(380px, 1fr);
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
   }
 
-  .top-command {
-    padding: 0 12px 0 0;
+  .top-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .top-actions {
     grid-column: 2;
-    justify-content: flex-start;
-    padding: 8px 12px;
-  }
-
-  .command-button {
-    width: 100%;
-    min-width: 0;
+    justify-content: flex-end;
+    padding: 0 8px;
   }
 
   .sidebar,
@@ -1626,6 +1660,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar,
   .workbench {
     grid-column: 1;
@@ -1650,10 +1688,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     grid-template-columns: 1fr;
   }
 
-  .top-command,
   .top-actions {
     grid-column: 1;
-    padding: 6px 12px;
+    padding: 4px 8px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar {
+    display: none;
   }
 
   .status-bar div,
