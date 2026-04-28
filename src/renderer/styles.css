@@ -1011,7 +1011,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: 35px 27px minmax(0, 1fr);
+  grid-template-columns: 48px 27px minmax(0, 1fr);
   gap: 6px;
   align-items: stretch;
   min-height: 46px;
@@ -1031,17 +1031,33 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #141414;
 }
 
-.main-trace-time {
+.main-trace-meta {
   min-width: 0;
   align-self: start;
+  display: grid;
+  gap: 4px;
   padding-top: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.main-trace-time {
   color: #7c7c7c;
   font-size: 0.7rem;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  text-align: left;
-  white-space: nowrap;
+}
+
+.main-trace-meta span {
+  overflow: hidden;
+  color: #696969;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  padding-top: 3px;
+  text-overflow: ellipsis;
+  text-transform: none;
 }
 
 .main-trace-marker {
@@ -1086,12 +1102,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   gap: 3px;
   align-content: start;
-  border-bottom: 1px solid #242424;
   padding: 7px 0 8px;
-}
-
-.main-trace-event:last-child .main-trace-event-body {
-  border-bottom-color: transparent;
 }
 
 .main-trace-event.source-model .main-trace-marker span {
@@ -1230,17 +1241,9 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.25;
-}
-
-.main-trace-context span {
-  flex: 0 0 auto;
-  color: #858585;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .main-trace-context code {

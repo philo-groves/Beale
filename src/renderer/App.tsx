@@ -1306,9 +1306,12 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >
-      <time className="main-trace-time" dateTime={event.createdAt}>
-        {formatTraceTimestamp(event.createdAt)}
-      </time>
+      <div className="main-trace-meta">
+        <time className="main-trace-time" dateTime={event.createdAt}>
+          {formatTraceTimestamp(event.createdAt)}
+        </time>
+        <span>{traceLabel(event.source)}</span>
+      </div>
       <div className="main-trace-marker" aria-hidden="true">
         <span>{traceCategoryIcon(category)}</span>
       </div>
@@ -1322,7 +1325,6 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord
           </div>
         </div>
         <div className="main-trace-context">
-          <span>{traceLabel(event.source)}</span>
           {hasPayload ? <code>{payload}</code> : null}
         </div>
       </div>
