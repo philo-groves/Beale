@@ -46,6 +46,7 @@ interface RunLoopState {
 
 interface StreamTraceState {
   lastOutputDeltaTraceAt: number;
+  persistedTranscriptKeys: Set<string>;
 }
 
 export class OpenAiRunEngine {
@@ -332,15 +333,15 @@ export class OpenAiRunEngine {
         this.onChange();
 
         const functionCalls: OpenAiFunctionCall[] = [];
-        const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0 };
+        const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0, persistedTranscriptKeys: new Set() };
         latestCompletedModelOutput = null;
         try {
           for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
-            const persistedTraceEvent = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
-            if (persistedTraceEvent?.source === 'model' && persistedTraceEvent.type === 'model_message') {
-              const text = stringPayloadValue(persistedTraceEvent.payload, 'text').trim();
-              if (text) {
-                latestCompletedModelOutput = { text, traceEventId: persistedTraceEvent.id };
+            const persistedTraceEvents = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
+            for (const persistedTraceEvent of persistedTraceEvents) {
+              const transcript = this.recordTranscriptFromTraceEvent(context, persistedTraceEvent, event, streamTraceState);
+              if (transcript?.source === 'openai_response_output') {
+                latestCompletedModelOutput = { text: transcript.text, traceEventId: persistedTraceEvent.id };
               }
             }
             let updatedModelSession = false;
@@ -354,7 +355,7 @@ export class OpenAiRunEngine {
               });
               updatedModelSession = true;
             }
-            if (persistedTraceEvent || updatedModelSession) {
+            if (persistedTraceEvents.length > 0 || updatedModelSession) {
               this.onChange();
             }
           }
@@ -637,76 +638,168 @@ export class OpenAiRunEngine {
     return { responseInput, manualConversationInput: responseInput };
   }
 
-  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): TraceEventRecord | null {
+  private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): TraceEventRecord[] {
     switch (event.type) {
       case 'response.created':
-        return this.db.appendTraceEvent({
-          runId: context.run.id,
-          attemptId: context.attempt.id,
-          type: 'model_message',
-          source: 'system',
-          summary: 'OpenAI response created.',
-          payload: summarizeEvent(event)
-        });
+        return [
+          this.db.appendTraceEvent({
+            runId: context.run.id,
+            attemptId: context.attempt.id,
+            type: 'model_message',
+            source: 'system',
+            summary: 'OpenAI response created.',
+            payload: summarizeEvent(event)
+          })
+        ];
       case 'response.output_text.delta': {
         const delta = typeof event.delta === 'string' ? event.delta : '';
         const now = Date.now();
         if (delta.trim().length > 0 && now - streamTraceState.lastOutputDeltaTraceAt >= OUTPUT_DELTA_TRACE_INTERVAL_MS) {
           streamTraceState.lastOutputDeltaTraceAt = now;
-          return this.db.appendTraceEvent({
+          return [
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'model',
+              summary: 'OpenAI streamed model output delta.',
+              payload: {
+                delta,
+                claimStatus: 'model_claim'
+              },
+              vmContextId: context.vmContext.id
+            })
+          ];
+        }
+        return [];
+      }
+      case 'response.output_text.done': {
+        const text = typeof event.text === 'string' ? event.text : '';
+        return [
+          this.db.appendTraceEvent({
             runId: context.run.id,
             attemptId: context.attempt.id,
             type: 'model_message',
             source: 'model',
-            summary: 'OpenAI streamed model output delta.',
+            summary: text ? summarizeText(text) : 'OpenAI completed a model output item.',
             payload: {
-              delta,
-              claimStatus: 'model_claim'
+              text,
+              claimStatus: 'model_claim',
+              transcriptKind: 'agent_output',
+              transcriptKey: transcriptKeyFromEvent(event, 'agent_output', text),
+              responseId: responseIdFromEvent(event),
+              itemId: stringEventValue(event, 'item_id'),
+              outputIndex: primitiveEventValue(event, 'output_index'),
+              contentIndex: primitiveEventValue(event, 'content_index')
             },
             vmContextId: context.vmContext.id
-          });
-        }
-        return null;
+          })
+        ];
       }
-      case 'response.output_text.done': {
-        const text = typeof event.text === 'string' ? event.text : '';
-        return this.db.appendTraceEvent({
-          runId: context.run.id,
-          attemptId: context.attempt.id,
-          type: 'model_message',
-          source: 'model',
-          summary: text ? summarizeText(text) : 'OpenAI completed a model output item.',
-          payload: {
-            text,
-            claimStatus: 'model_claim'
-          },
-          vmContextId: context.vmContext.id
-        });
+      case 'response.reasoning_summary_text.done':
+      case 'response.reasoning_summary.done': {
+        const text = streamReasoningSummaryText(event);
+        if (!text) return [];
+        const key = transcriptKeyFromEvent(event, 'reasoning_summary', text);
+        if (streamTraceState.persistedTranscriptKeys.has(key)) return [];
+        return [
+          this.db.appendTraceEvent({
+            runId: context.run.id,
+            attemptId: context.attempt.id,
+            type: 'model_message',
+            source: 'model',
+            summary: 'OpenAI completed thought.',
+            payload: {
+              text,
+              claimStatus: 'reasoning_summary',
+              transcriptKind: 'reasoning_summary',
+              transcriptKey: key,
+              responseId: responseIdFromEvent(event),
+              itemId: stringEventValue(event, 'item_id'),
+              outputIndex: primitiveEventValue(event, 'output_index'),
+              summaryIndex: primitiveEventValue(event, 'summary_index')
+            },
+            vmContextId: context.vmContext.id
+          })
+        ];
       }
       case 'response.function_call_arguments.done':
       case 'response.output_item.done': {
         const call = functionCallFromEvent(event);
         if (call && !functionCalls.some((existing) => existing.callId === call.callId)) {
           functionCalls.push(call);
-          return this.db.appendTraceEvent({
-            runId: context.run.id,
-            attemptId: context.attempt.id,
-            type: 'tool_call',
-            source: 'model',
-            summary: `OpenAI completed function call arguments for ${call.name}.`,
-            payload: {
-              openaiCallId: call.callId,
-              responseItemId: call.responseItemId ?? null,
-              toolName: call.name,
-              arguments: parseFunctionArguments(call.argumentsJson)
-            },
-            vmContextId: context.vmContext.id
-          });
+          return [
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'tool_call',
+              source: 'model',
+              summary: `OpenAI completed function call arguments for ${call.name}.`,
+              payload: {
+                openaiCallId: call.callId,
+                responseItemId: call.responseItemId ?? null,
+                toolName: call.name,
+                arguments: parseFunctionArguments(call.argumentsJson)
+              },
+              vmContextId: context.vmContext.id
+            })
+          ];
         }
-        return null;
+
+        const item = eventItemRecord(event);
+        const messageText = item ? outputTextFromMessageItem(item) : '';
+        if (messageText) {
+          const key = transcriptKeyFromOutputItem(event, 'agent_output', messageText);
+          if (streamTraceState.persistedTranscriptKeys.has(key)) return [];
+          return [
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'model',
+              summary: summarizeText(messageText),
+              payload: {
+                text: messageText,
+                claimStatus: 'model_claim',
+                transcriptKind: 'agent_output',
+                transcriptKey: key,
+                responseId: responseIdFromEvent(event),
+                itemId: item && typeof item.id === 'string' ? item.id : stringEventValue(event, 'item_id'),
+                outputIndex: primitiveEventValue(event, 'output_index')
+              },
+              vmContextId: context.vmContext.id
+            })
+          ];
+        }
+
+        const reasoningSummary = item ? reasoningSummaryTextFromItem(item) : '';
+        if (reasoningSummary) {
+          const key = transcriptKeyFromOutputItem(event, 'reasoning_summary', reasoningSummary);
+          if (streamTraceState.persistedTranscriptKeys.has(key)) return [];
+          return [
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'model',
+              summary: 'OpenAI completed thought.',
+              payload: {
+                text: reasoningSummary,
+                claimStatus: 'reasoning_summary',
+                transcriptKind: 'reasoning_summary',
+                transcriptKey: key,
+                responseId: responseIdFromEvent(event),
+                itemId: item && typeof item.id === 'string' ? item.id : stringEventValue(event, 'item_id'),
+                outputIndex: primitiveEventValue(event, 'output_index')
+              },
+              vmContextId: context.vmContext.id
+            })
+          ];
+        }
+        return [];
       }
-      case 'response.completed':
-        return this.db.appendTraceEvent({
+      case 'response.completed': {
+        const completed = this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
           type: 'model_message',
@@ -714,11 +807,115 @@ export class OpenAiRunEngine {
           summary: 'OpenAI response completed.',
           payload: summarizeEvent(event)
         });
+        return [completed, ...this.completedResponseTranscriptTraceEvents(context, event, streamTraceState)];
+      }
       case 'error':
         throw openAiApiErrorFromEvent(event);
       default:
-        return null;
+        return [];
     }
+  }
+
+  private completedResponseTranscriptTraceEvents(context: CreatedRunContext, event: OpenAiStreamEvent, streamTraceState: StreamTraceState): TraceEventRecord[] {
+    const response = event.response;
+    if (!response || typeof response !== 'object' || Array.isArray(response)) return [];
+    const output = (response as Record<string, unknown>).output;
+    if (!Array.isArray(output)) return [];
+
+    const events: TraceEventRecord[] = [];
+    for (const item of output) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const record = item as Record<string, unknown>;
+      const messageText = outputTextFromMessageItem(record);
+      if (messageText) {
+        const key = transcriptKeyFromResponseItem(event, record, 'agent_output', messageText);
+        if (!streamTraceState.persistedTranscriptKeys.has(key)) {
+          events.push(
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'model',
+              summary: summarizeText(messageText),
+              payload: {
+                text: messageText,
+                claimStatus: 'model_claim',
+                transcriptKind: 'agent_output',
+                transcriptKey: key,
+                responseId: responseIdFromEvent(event),
+                itemId: typeof record.id === 'string' ? record.id : null
+              },
+              vmContextId: context.vmContext.id
+            })
+          );
+        }
+      }
+
+      const reasoningSummary = reasoningSummaryTextFromItem(record);
+      if (reasoningSummary) {
+        const key = transcriptKeyFromResponseItem(event, record, 'reasoning_summary', reasoningSummary);
+        if (!streamTraceState.persistedTranscriptKeys.has(key)) {
+          events.push(
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'model',
+              summary: 'OpenAI completed thought.',
+              payload: {
+                text: reasoningSummary,
+                claimStatus: 'reasoning_summary',
+                transcriptKind: 'reasoning_summary',
+                transcriptKey: key,
+                responseId: responseIdFromEvent(event),
+                itemId: typeof record.id === 'string' ? record.id : null
+              },
+              vmContextId: context.vmContext.id
+            })
+          );
+        }
+      }
+    }
+
+    return events;
+  }
+
+  private recordTranscriptFromTraceEvent(
+    context: CreatedRunContext,
+    traceEvent: TraceEventRecord,
+    streamEvent: OpenAiStreamEvent,
+    streamTraceState: StreamTraceState
+  ): { source: string; text: string } | null {
+    if (traceEvent.source !== 'model' || traceEvent.type !== 'model_message') return null;
+    const text = stringPayloadValue(traceEvent.payload, 'text').trim();
+    if (!text) return null;
+
+    const transcriptKind = stringPayloadValue(traceEvent.payload, 'transcriptKind') || 'agent_output';
+    const source = transcriptKind === 'reasoning_summary' ? 'openai_reasoning_summary' : 'openai_response_output';
+    const key = stringPayloadValue(traceEvent.payload, 'transcriptKey') || `${source}:${traceEvent.id}`;
+    if (streamTraceState.persistedTranscriptKeys.has(key)) return null;
+    streamTraceState.persistedTranscriptKeys.add(key);
+
+    this.db.createTranscriptMessage({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      traceEventId: traceEvent.id,
+      role: 'assistant',
+      contentMarkdown: text,
+      source,
+      metadata: {
+        responseId: stringPayloadValue(traceEvent.payload, 'responseId') || responseIdFromEvent(streamEvent),
+        eventType: streamEvent.type,
+        transcriptKind,
+        itemId: traceEvent.payload.itemId ?? null,
+        outputIndex: traceEvent.payload.outputIndex ?? null,
+        contentIndex: traceEvent.payload.contentIndex ?? null,
+        summaryIndex: traceEvent.payload.summaryIndex ?? null,
+        claimStatus: stringPayloadValue(traceEvent.payload, 'claimStatus') || 'model_claim'
+      }
+    });
+
+    return { source, text };
   }
 }
 
@@ -861,6 +1058,86 @@ function functionCallFromEvent(event: OpenAiStreamEvent): OpenAiFunctionCall | n
     argumentsJson: typeof argumentsJson === 'string' ? argumentsJson : '{}',
     responseItemId: typeof record.id === 'string' ? record.id : undefined
   };
+}
+
+function eventItemRecord(event: OpenAiStreamEvent): Record<string, unknown> | null {
+  const item = event.item;
+  return item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
+}
+
+function outputTextFromMessageItem(item: Record<string, unknown>): string {
+  if (item.type !== 'message') return '';
+  const content = item.content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object' || Array.isArray(part)) return '';
+      const record = part as Record<string, unknown>;
+      if (record.type !== 'output_text') return '';
+      return typeof record.text === 'string' ? record.text.trim() : '';
+    })
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+function reasoningSummaryTextFromItem(item: Record<string, unknown>): string {
+  if (item.type !== 'reasoning') return '';
+  return reasoningSummaryTextFromUnknown(item.summary).trim();
+}
+
+function streamReasoningSummaryText(event: OpenAiStreamEvent): string {
+  const directText = typeof event.text === 'string' ? event.text : typeof event.delta === 'string' ? event.delta : '';
+  if (directText.trim()) return directText.trim();
+  return reasoningSummaryTextFromUnknown(event.summary || event.part).trim();
+}
+
+function reasoningSummaryTextFromUnknown(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => reasoningSummaryTextFromUnknown(item))
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === 'string' ? record.type : '';
+  if (type && !type.includes('summary')) return '';
+  if (typeof record.text === 'string') return record.text;
+  if (typeof record.summary === 'string') return record.summary;
+  return reasoningSummaryTextFromUnknown(record.content);
+}
+
+function transcriptKeyFromEvent(event: OpenAiStreamEvent, kind: string, text: string): string {
+  return transcriptKey(kind, responseIdFromEvent(event), stringEventValue(event, 'item_id'), primitiveEventValue(event, 'content_index') ?? primitiveEventValue(event, 'summary_index'), text);
+}
+
+function transcriptKeyFromOutputItem(event: OpenAiStreamEvent, kind: string, text: string): string {
+  const item = eventItemRecord(event);
+  const itemId = item && typeof item.id === 'string' ? item.id : stringEventValue(event, 'item_id');
+  return transcriptKey(kind, responseIdFromEvent(event), itemId, primitiveEventValue(event, 'content_index') ?? primitiveEventValue(event, 'summary_index'), text);
+}
+
+function transcriptKeyFromResponseItem(event: OpenAiStreamEvent, item: Record<string, unknown>, kind: string, text: string): string {
+  return transcriptKey(kind, responseIdFromEvent(event), typeof item.id === 'string' ? item.id : null, null, text);
+}
+
+function transcriptKey(kind: string, responseId: string | null, itemId: string | null, index: unknown, text: string): string {
+  const stableItem = itemId || responseId || summarizeText(text);
+  const stableIndex = index === null || index === undefined ? '' : String(index);
+  return `${kind}:${stableItem}:${stableIndex}`;
+}
+
+function stringEventValue(event: OpenAiStreamEvent, key: string): string | null {
+  const value = event[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function primitiveEventValue(event: OpenAiStreamEvent, key: string): string | number | null {
+  const value = event[key];
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  return null;
 }
 
 function functionCallInputItem(call: OpenAiFunctionCall): FunctionCallInputItem {

@@ -35,6 +35,8 @@ import type {
   TraceEventRecord,
   TraceEventType,
   TraceSource,
+  TranscriptMessageRecord,
+  TranscriptRole,
   VerifierContractEditInput,
   VerifierContractRecord,
   VerifierRunRecord,
@@ -67,6 +69,16 @@ export interface CreateNotificationInput {
   kind: 'session_final_response';
   title: string;
   bodyMarkdown: string;
+}
+
+export interface CreateTranscriptMessageInput {
+  runId: string;
+  attemptId?: string | null;
+  traceEventId?: string | null;
+  role: TranscriptRole;
+  contentMarkdown: string;
+  source: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateHypothesisInput {
@@ -262,7 +274,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -688,6 +700,33 @@ export class WorkspaceDatabase {
           createdAt,
           null
         );
+
+      const promptMarkdown = input.promptMarkdown.trim();
+      if (promptMarkdown) {
+        this.db
+          .prepare(
+            `INSERT INTO transcript_messages (
+              id, run_id, attempt_id, trace_event_id, role, content_markdown, source, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            createId('transcript'),
+            runId,
+            attemptId,
+            null,
+            'user',
+            promptMarkdown,
+            'run_prompt',
+            toJson({
+              mode: input.mode,
+              model: input.model,
+              reasoningEffort: input.reasoningEffort,
+              networkProfile: input.networkProfile,
+              sandboxProfile: input.sandboxProfile
+            }),
+            createdAt
+          );
+      }
     });
 
     const run = this.getRun(runId);
@@ -882,6 +921,35 @@ export class WorkspaceDatabase {
       throw new Error('Failed to append trace event');
     }
     return event;
+  }
+
+  public createTranscriptMessage(input: CreateTranscriptMessageInput): TranscriptMessageRecord {
+    const id = createId('transcript');
+    const createdAt = nowIso();
+    const contentMarkdown = input.contentMarkdown.trim();
+    this.db
+      .prepare(
+        `INSERT INTO transcript_messages (
+          id, run_id, attempt_id, trace_event_id, role, content_markdown, source, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.runId,
+        input.attemptId ?? null,
+        input.traceEventId ?? null,
+        input.role,
+        contentMarkdown,
+        input.source,
+        toJson(input.metadata),
+        createdAt
+      );
+
+    const message = this.getTranscriptMessage(id);
+    if (!message) {
+      throw new Error('Failed to create transcript message');
+    }
+    return message;
   }
 
   public createNotification(input: CreateNotificationInput): NotificationRecord {
@@ -1574,6 +1642,9 @@ export class WorkspaceDatabase {
       run,
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? ORDER BY sequence ASC').all(runId)).map((row) => this.mapTraceEvent(row)),
+      transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapTranscriptMessage(row)
+      ),
       hypotheses: rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC').all(runId)).map((row) => this.mapHypothesis(row)),
       artifacts: rows(
         this.db
@@ -1683,6 +1754,10 @@ export class WorkspaceDatabase {
         this.applyContextCompactionMigration();
         this.insertMigration(6, 'context_compaction_checkpoints');
       }
+      if (currentVersion < 7) {
+        this.applyTranscriptMessagesMigration();
+        this.insertMigration(7, 'session_transcript_messages');
+      }
     });
   }
 
@@ -1703,6 +1778,62 @@ export class WorkspaceDatabase {
 
   private applyContextCompactionMigration(): void {
     this.db.exec(CONTEXT_COMPACTIONS_SCHEMA_SQL);
+  }
+
+  private applyTranscriptMessagesMigration(): void {
+    this.db.exec(TRANSCRIPT_MESSAGES_SCHEMA_SQL);
+    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
+    if (!runsTable) return;
+    const attemptsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'attempts'").get());
+
+    const runRows = rows(
+      this.db
+        .prepare(
+          `SELECT id, prompt_markdown, mode, model, reasoning_effort, network_profile, sandbox_profile, created_at
+           FROM runs
+           ORDER BY created_at ASC`
+        )
+        .all()
+    );
+
+    for (const row of runRows) {
+      const runId = text(row, 'id');
+      const promptMarkdown = text(row, 'prompt_markdown').trim();
+      if (!promptMarkdown) continue;
+
+      const existing = rowOrUndefined(
+        this.db.prepare("SELECT id FROM transcript_messages WHERE run_id = ? AND source = 'run_prompt' LIMIT 1").get(runId)
+      );
+      if (existing) continue;
+
+      const attempt = attemptsTable
+        ? rowOrUndefined(this.db.prepare('SELECT id FROM attempts WHERE run_id = ? ORDER BY started_at ASC, rowid ASC LIMIT 1').get(runId))
+        : null;
+      this.db
+        .prepare(
+          `INSERT INTO transcript_messages (
+            id, run_id, attempt_id, trace_event_id, role, content_markdown, source, metadata_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          createId('transcript'),
+          runId,
+          attempt ? text(attempt, 'id') : null,
+          null,
+          'user',
+          promptMarkdown,
+          'run_prompt',
+          toJson({
+            mode: text(row, 'mode'),
+            model: text(row, 'model'),
+            reasoningEffort: text(row, 'reasoning_effort'),
+            networkProfile: text(row, 'network_profile'),
+            sandboxProfile: text(row, 'sandbox_profile'),
+            backfilled: true
+          }),
+          text(row, 'created_at')
+        );
+    }
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -1779,6 +1910,11 @@ export class WorkspaceDatabase {
   private getTraceEvent(traceEventId: string): TraceEventRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM trace_events WHERE id = ?').get(traceEventId));
     return row ? this.mapTraceEvent(row) : null;
+  }
+
+  private getTranscriptMessage(messageId: string): TranscriptMessageRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM transcript_messages WHERE id = ?').get(messageId));
+    return row ? this.mapTranscriptMessage(row) : null;
   }
 
   private getNotification(notificationId: string): NotificationRecord | null {
@@ -1946,6 +2082,20 @@ export class WorkspaceDatabase {
       artifactId: nullableText(row, 'artifact_id'),
       toolCallId: nullableText(row, 'tool_call_id'),
       approvalId: nullableText(row, 'approval_id')
+    };
+  }
+
+  private mapTranscriptMessage(row: SqlRow): TranscriptMessageRecord {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
+      traceEventId: nullableText(row, 'trace_event_id'),
+      role: text(row, 'role') as TranscriptRole,
+      contentMarkdown: text(row, 'content_markdown'),
+      source: text(row, 'source'),
+      metadata: parseJson(row.metadata_json),
+      createdAt: text(row, 'created_at')
     };
   }
 
@@ -2252,6 +2402,23 @@ CREATE INDEX IF NOT EXISTS idx_context_compactions_run_created ON context_compac
 CREATE INDEX IF NOT EXISTS idx_context_compactions_previous ON context_compactions(previous_compaction_id);
 `;
 
+const TRANSCRIPT_MESSAGES_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS transcript_messages (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+  trace_event_id TEXT REFERENCES trace_events(id) ON DELETE SET NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content_markdown TEXT NOT NULL,
+  source TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_transcript_messages_run_created ON transcript_messages(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transcript_messages_trace ON transcript_messages(trace_event_id);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
@@ -2411,6 +2578,8 @@ CREATE TABLE IF NOT EXISTS trace_events (
 ${CONTEXT_COMPACTIONS_SCHEMA_SQL}
 
 ${NOTIFICATIONS_SCHEMA_SQL}
+
+${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS hypotheses (
   id TEXT PRIMARY KEY,

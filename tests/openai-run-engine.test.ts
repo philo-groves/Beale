@@ -380,6 +380,20 @@ describe('OpenAI Responses run engine', () => {
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI streamed model output delta.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI completed function call arguments for search.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'tool_result' && event.source === 'tool')).toBe(true);
+    expect(detail.transcriptMessages.map((message) => message.contentMarkdown)).toEqual([
+      '# OpenAI test\nUse Beale tools before making observations.',
+      'I need to inspect scoped metadata before choosing a tool.',
+      'I will search scoped metadata first.',
+      'No verified finding yet.'
+    ]);
+    expect(detail.transcriptMessages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant', 'assistant']);
+    expect(detail.transcriptMessages.map((message) => message.source)).toEqual([
+      'run_prompt',
+      'openai_reasoning_summary',
+      'openai_response_output',
+      'openai_response_output'
+    ]);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI completed thought.')).toBe(true);
     const notifications = db.listNotifications();
     expect(notifications).toHaveLength(1);
     expect(notifications[0].kind).toBe('session_final_response');
@@ -688,8 +702,29 @@ function openAiInput(): StartRunInput {
 function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
   return [
     event('response.created', { type: 'response.created', response: { id: responseId } }),
+    event('response.output_item.done', {
+      type: 'response.output_item.done',
+      response_id: responseId,
+      item: {
+        type: 'reasoning',
+        id: 'rs_1',
+        status: 'completed',
+        summary: [{ type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' }]
+      }
+    }),
     event('response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, delta: 'Checking scope.' }),
-    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, text: 'I will search scoped metadata first.' }),
+    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, item_id: 'msg_1', text: 'I will search scoped metadata first.' }),
+    event('response.output_item.done', {
+      type: 'response.output_item.done',
+      response_id: responseId,
+      item: {
+        type: 'message',
+        id: 'msg_1',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'I will search scoped metadata first.', annotations: [] }]
+      }
+    }),
     event('response.output_item.done', {
       type: 'response.output_item.done',
       response_id: responseId,
@@ -709,8 +744,33 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
 function finalResponseEvents(responseId = 'resp_2'): string {
   return [
     event('response.created', { type: 'response.created', response: { id: responseId } }),
-    event('response.output_text.done', { type: 'response.output_text.done', response_id: responseId, text: 'No verified finding yet.' }),
-    event('response.completed', { type: 'response.completed', response: { id: responseId, usage: { total_tokens: 24 } } })
+    event('response.output_item.done', {
+      type: 'response.output_item.done',
+      response_id: responseId,
+      item: {
+        type: 'message',
+        id: 'msg_final',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'No verified finding yet.', annotations: [] }]
+      }
+    }),
+    event('response.completed', {
+      type: 'response.completed',
+      response: {
+        id: responseId,
+        output: [
+          {
+            type: 'message',
+            id: 'msg_final',
+            status: 'completed',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'No verified finding yet.', annotations: [] }]
+          }
+        ],
+        usage: { total_tokens: 24 }
+      }
+    })
   ].join('');
 }
 

@@ -36,6 +36,7 @@ This book is the working planning document for the Beale rewrite.
 ## Chapter 4: Product Experience and Delivery
 
 - [Electron GUI](electron-gui.md)
+- [Session Heat](session-heat.md)
 - [First Vertical Slice](vertical-slice.md)
 - [Roadmap](roadmap.md)
 

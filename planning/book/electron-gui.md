@@ -109,7 +109,7 @@ Clicking a run should open a detailed run view.
 The run detail view should include:
 
 - Trace timeline.
-- Model messages or reasoning summaries where available.
+- Model messages or thoughts where available.
 - Tool calls and tool results.
 - VM events.
 - Artifact list.

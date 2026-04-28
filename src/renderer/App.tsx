@@ -10,6 +10,7 @@ import {
   CalendarClock,
   ChevronRight,
   CheckCircle2,
+  Clock,
   ClipboardCheck,
   ClipboardX,
   Edit3,
@@ -48,6 +49,7 @@ import {
   Square,
   Terminal,
   Trash2,
+  X,
   XCircle
 } from 'lucide-react';
 import type {
@@ -78,6 +80,7 @@ import type {
   ScopeAssetKind,
   StartRunInput,
   TraceEventRecord,
+  TranscriptMessageRecord,
   WorkspaceSnapshot
 } from '@shared/types';
 
@@ -141,8 +144,13 @@ interface TraceTimelineGroup {
 }
 
 interface TraceTimelineEntry {
-  event: TraceEventRecord;
+  event: TraceDisplayEvent;
   group: TraceTimelineGroup;
+}
+
+interface TraceDisplayEvent extends TraceEventRecord {
+  transcriptMessageId?: string;
+  displayOnly?: boolean;
 }
 
 interface RenderedTraceGroup {
@@ -153,15 +161,15 @@ interface RenderedTraceGroup {
 
 const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
-  { id: 'reasoning', label: 'Reasoning Summary', description: 'Plan changes, intent, and concise rationale without hidden chain-of-thought.' },
+  { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
   { id: 'vm_execution', label: 'VM / Execution', description: 'Guest VM lifecycle, imports, commands, cleanup, and target execution.' },
   { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
   { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
-  { id: 'code_navigation', label: 'Code Navigation', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
-  { id: 'failure_recovery', label: 'Failure / Recovery', description: 'Errors, retries, cleanup failures, recovery notes, and blocked operations.' },
+  { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
+  { id: 'failure_recovery', label: 'Error', description: 'Errors, retries, cleanup issues, recovery notes, and blocked operations.' },
   { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
 ];
 
@@ -174,6 +182,8 @@ const TRACE_SUMMARY_VERBS = new Set([
   'accepted',
   'allocate',
   'allocated',
+  'ask',
+  'asked',
   'block',
   'blocked',
   'call',
@@ -213,6 +223,8 @@ const TRACE_SUMMARY_VERBS = new Set([
   'recovered',
   'request',
   'requested',
+  'report',
+  'reported',
   'resume',
   'resumed',
   'retry',
@@ -499,7 +511,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (!selectedTraceEventId || !runDetail) return;
-    if (!runDetail.traceEvents.some((event) => event.id === selectedTraceEventId)) {
+    if (!buildTraceDisplayEvents(runDetail).some((event) => event.id === selectedTraceEventId)) {
       setSelectedTraceEventId(null);
     }
   }, [runDetail, selectedTraceEventId]);
@@ -732,7 +744,9 @@ export function App(): JSX.Element {
     .filter(Boolean)
     .join(' ');
   const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
-  const selectedTraceEvent = activeRunDetail?.traceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
+  const activeTraceEvents = activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : [];
+  const selectedTraceEvent = activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
+  const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const sessionHistoryProgram =
     sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
@@ -817,7 +831,7 @@ export function App(): JSX.Element {
                   {visibleSessions.length > 0 ? (
                     visibleSessions.map((session) => (
                       <div className="program-session-row" key={session.id}>
-                        <SessionStatusIcon status={session.status} />
+                        <SessionActiveIndicator status={session.status} />
                         <button
                           type="button"
                           className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
@@ -852,15 +866,15 @@ export function App(): JSX.Element {
         <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize} />
       </aside>
 
-      <main className="workbench">
+      <main className={`workbench session-heat-${sessionHeat}`} data-session-heat={sessionHeat}>
         <div className="workbench-header">
           <div className="workbench-program">
             <RunStatusIndicator detail={activeRunDetail} />
             <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
           </div>
-          <SessionTimestamps detail={activeRunDetail} />
+          <SessionTimestamps detail={activeRunDetail} events={activeTraceEvents} visibleTraceCategories={visibleTraceCategories} />
         </div>
-        <div className="workspace-page">
+        <div className={`workspace-page session-heat-${sessionHeat}`}>
           <MainSessionWorkspace
             detail={activeRunDetail}
             selectedRunId={selectedRunId}
@@ -883,6 +897,7 @@ export function App(): JSX.Element {
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         executor={snapshot?.executor ?? null}
+        activity={environmentActivityForDetail(activeRunDetail)}
         message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)}
         notificationCount={snapshot?.notifications.length ?? 0}
         onConfigureVm={() => {
@@ -1072,12 +1087,14 @@ function TopBar({
 function StatusBar({
   hostEnvironment,
   executor,
+  activity,
   message,
   notificationCount,
   onConfigureVm
 }: {
   hostEnvironment: HostEnvironment | null;
   executor: ExecutorStatus | null;
+  activity: EnvironmentActivity;
   message: { tone: 'error' | 'info'; text: string } | null;
   notificationCount: number;
   onConfigureVm: () => void;
@@ -1088,12 +1105,12 @@ function StatusBar({
   return (
     <footer className="status-bar">
       <div className="environment-switcher" aria-label="Environment target">
-        <div className="environment-pill" title={`Host operating system: ${osLabel}`}>
+        <div className={`environment-pill ${activity.host ? 'is-active' : ''}`} title={`Host operating system: ${osLabel}`}>
           <Monitor size={14} />
           <span>{osLabel}</span>
         </div>
         <ArrowRight className="environment-arrow" size={14} aria-hidden="true" />
-        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'}`} title={vmTarget.title}>
+        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'} ${activity.guest ? 'is-active' : ''}`} title={vmTarget.title}>
           <Server size={14} />
           <span>{vmTarget.label}</span>
           {vmTarget.configured ? null : (
@@ -1199,18 +1216,30 @@ function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Eleme
   if (!detail) return null;
   const status = detail.run.status;
   const statusClass = runStatusClass(status);
+  const label = traceLabel(status);
+  const icon =
+    statusClass === 'active' ? (
+      <RefreshCw size={13} />
+    ) : statusClass === 'paused' ? (
+      <Pause size={17} strokeWidth={2.8} />
+    ) : statusClass === 'completed' ? (
+      <Square size={16} strokeWidth={2.6} />
+    ) : statusClass === 'failed' ? (
+      <X size={17} strokeWidth={3.2} />
+    ) : null;
+
+  if (!icon) return null;
   return (
-    <span className={`workbench-run-status status-${statusClass}`} title={traceLabel(status)} aria-label={`Run status: ${traceLabel(status)}`}>
-      {statusClass === 'active' ? <RefreshCw size={13} /> : null}
+    <span className={`workbench-run-status run-status-${statusClass}`} title={`Run status: ${label}`} aria-label={`Run status: ${label}`}>
+      {icon}
     </span>
   );
 }
 
-function SessionStatusIcon({ status }: { status: RunStatus }): JSX.Element {
-  const statusClass = runStatusClass(status);
+function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element {
   return (
-    <span className={`program-session-status status-${statusClass}`} title={traceLabel(status)} aria-label={`Session status: ${traceLabel(status)}`}>
-      {statusClass === 'active' ? <RefreshCw size={10} /> : null}
+    <span className="program-session-status" title={traceLabel(status)} aria-label={`Session status: ${traceLabel(status)}`}>
+      {status === 'active' ? <RefreshCw size={10} /> : null}
     </span>
   );
 }
@@ -1223,15 +1252,56 @@ function runStatusClass(status: RunStatus): 'active' | 'completed' | 'failed' | 
   return 'paused';
 }
 
-function SessionTimestamps({ detail }: { detail: RunDetail | null }): JSX.Element | null {
+function SessionTimestamps({
+  detail,
+  events,
+  visibleTraceCategories
+}: {
+  detail: RunDetail | null;
+  events: TraceDisplayEvent[];
+  visibleTraceCategories: TraceCategoryId[];
+}): JSX.Element | null {
+  const active = detail?.run.status === 'active';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) return undefined;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [active, detail?.run.id]);
+
   if (!detail) return null;
   const updated = latestRunDetailDate(detail);
   if (!updated) return null;
+  const createdMs = Date.parse(detail.run.createdAt);
+  const durationEndMs = active ? nowMs : updated.getTime();
+  const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
+  const latestTurn = latestTraceTurnNumber(events) ?? 0;
+  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
+  const eventMetric = `${visibleEventCount}/${events.length}`;
+  const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
+  const durationTooltip = `Created ${formatSessionDateTime(detail.run.createdAt)}\nUpdated ${formatSessionStart(updated)}`;
 
   return (
-    <div className="session-start-time" title={`Created ${detail.run.createdAt}\nUpdated ${updated.toISOString()}`}>
+    <div className="session-start-time">
       <span className="session-mode-pill">{traceLabel(detail.run.mode)}</span>
-      <span>Updated {formatSessionStart(updated)}</span>
+      <span className="session-header-metric" title={turnTooltip} aria-label={`Current model turn ${latestTurn}`}>
+        <GitFork size={13} />
+        <span>{latestTurn}</span>
+      </span>
+      <span
+        className="session-header-metric"
+        title="Visible trace events after filters, followed by total trace events when filters are active."
+        aria-label={`${visibleEventCount} visible trace events out of ${events.length} total trace events`}
+      >
+        <FileText size={13} />
+        <span>{eventMetric}</span>
+      </span>
+      <span className="session-header-metric session-duration-metric" title={durationTooltip} aria-label={`Session duration ${formatDurationHms(durationMs)}`}>
+        <Clock size={13} />
+        <span>{formatDurationHms(durationMs)}</span>
+      </span>
     </div>
   );
 }
@@ -1266,12 +1336,26 @@ function formatSessionStart(date: Date): string {
   return `${SESSION_MONTHS[date.getMonth()]} ${date.getDate()}, ${formatSessionTime(date)}`;
 }
 
+function formatSessionDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return formatSessionStart(date);
+}
+
 function formatSessionTime(date: Date): string {
   const minutes = String(date.getMinutes()).padStart(2, '0');
   const hour24 = date.getHours();
   const hour12 = hour24 % 12 || 12;
   const suffix = hour24 < 12 ? 'a' : 'p';
   return `${hour12}:${minutes}${suffix}`;
+}
+
+function formatDurationHms(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1290,7 +1374,7 @@ function MainSessionWorkspace({
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
-  onSelectTraceEvent: (event: TraceEventRecord) => void;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   if (!selectedRunId) return null;
@@ -1307,33 +1391,6 @@ function MainSessionWorkspace({
         onSteerInstruction={onSteerInstruction}
       />
       <MainSessionSidePanel detail={detail} />
-    </div>
-  );
-}
-
-function MainTraceStatusHeader({
-  detail,
-  visibleTraceCategories
-}: {
-  detail: RunDetail | null;
-  visibleTraceCategories: TraceCategoryId[];
-}): JSX.Element {
-  const events = detail?.traceEvents ?? [];
-  const latestTurn = latestTraceTurnNumber(events);
-  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
-
-  return (
-    <div className="main-session-status-strip" aria-label="Trace status">
-      <div>
-        <span>Turn</span>
-        <strong>{latestTurn === null ? 'Setup' : String(latestTurn)}</strong>
-      </div>
-      <div>
-        <span>Events</span>
-        <strong>
-          {visibleEventCount}/{events.length}
-        </strong>
-      </div>
     </div>
   );
 }
@@ -1368,21 +1425,26 @@ function MainSteerArea({
   return (
     <footer className="main-trace-footer" aria-label="Steer research session">
       <div className="main-steer-row">
-        <textarea
-          rows={1}
-          value={instruction}
-          placeholder="Add direction"
-          onChange={(event) => setInstruction(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <button type="button" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
-          <ChevronRight size={17} />
-        </button>
+        <div className="main-steer-input-shell">
+          <textarea
+            rows={1}
+            value={instruction}
+            placeholder="Steer the agent..."
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
+            {detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
+          </button>
+          <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
+            <ChevronRight size={17} />
+          </button>
+        </div>
       </div>
     </footer>
   );
@@ -1402,11 +1464,11 @@ function MainTraceView({
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
-  onSelectTraceEvent: (event: TraceEventRecord) => void;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   const loading = !detail;
-  const events = detail?.traceEvents ?? [];
+  const events = detail ? buildTraceDisplayEvents(detail) : [];
   const timelineEntries = buildTraceTimelineEntries(events, visibleTraceCategories);
   const latestEventId = events.at(-1)?.id ?? '';
   const traceFilterKey = visibleTraceCategories.join('|');
@@ -1541,7 +1603,6 @@ function MainTraceView({
 
   return (
     <section className="main-trace-view" aria-label="Agent trace">
-      <MainTraceStatusHeader detail={detail} visibleTraceCategories={visibleTraceCategories} />
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
@@ -1622,7 +1683,7 @@ function MainTraceTurnGroup({
   latest: boolean;
   runStatus: RunStatus;
   selectedTraceEventId: string | null;
-  onSelectTraceEvent: (event: TraceEventRecord) => void;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const status = traceGroupStatusLabel(group, latest, runStatus);
   const activitySummary = group.toolCount > 0 ? `${group.toolCount} ops` : group.modelCount > 0 ? `${group.modelCount} model` : 'system';
@@ -1652,15 +1713,18 @@ function MainTraceTurnGroup({
   );
 }
 
-function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord; selected: boolean; onSelect: (event: TraceEventRecord) => void }): JSX.Element {
+function MainTraceEvent({ event, selected, onSelect }: { event: TraceDisplayEvent; selected: boolean; onSelect: (event: TraceDisplayEvent) => void }): JSX.Element {
   const category = traceCategoryForEvent(event);
   const outcome = traceEventOutcome(event);
   const detail = traceEventDetailText(event, category);
   const hasDetail = detail.length > 0;
+  const eventKindClass = usesCompactTraceSublabel(event, category) ? 'trace-compact-sublabel' : '';
   return (
     <button
       type="button"
-      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${outcome ? `outcome-${outcome}` : ''} ${selected ? 'selected' : ''}`}
+      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
+        selected ? 'selected' : ''
+      }`}
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >
@@ -1689,7 +1753,80 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceEventRecord
   );
 }
 
-function buildTraceTimelineEntries(events: TraceEventRecord[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry[] {
+function usesCompactTraceSublabel(event: TraceEventRecord, category: TraceCategoryId): boolean {
+  return !isProseTraceEvent(event, category);
+}
+
+function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId): boolean {
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  if (!text) return false;
+  if (tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptRole') === 'assistant') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'agent_output') return true;
+  return category === 'agent_output' && event.source === 'model';
+}
+
+function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
+  const transcriptTraceIds = new Set(detail.transcriptMessages.map((message) => message.traceEventId).filter((id): id is string => Boolean(id)));
+  const traceById = new Map(detail.traceEvents.map((event) => [event.id, event]));
+  const baseEvents = detail.traceEvents.filter((event) => !transcriptTraceIds.has(event.id));
+  const transcriptEvents = detail.transcriptMessages.map((message, index) => transcriptMessageToTraceEvent(message, index, traceById.get(message.traceEventId ?? '')));
+
+  return [...baseEvents, ...transcriptEvents].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt);
+    const rightTime = Date.parse(right.createdAt);
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: number, linkedTraceEvent?: TraceEventRecord): TraceDisplayEvent {
+  const source: TraceEventRecord['source'] = message.role === 'assistant' ? 'model' : message.role === 'user' ? 'user' : 'system';
+  const type: TraceEventRecord['type'] = message.role === 'user' ? 'user_note' : 'model_message';
+  const summary =
+    message.source === 'openai_reasoning_summary'
+      ? 'Thought.'
+      : message.role === 'assistant'
+        ? 'Report agent output.'
+        : message.role === 'user'
+          ? 'Ask agent.'
+          : 'Record system message.';
+  const linkedTurn = linkedTraceEvent?.payload.turn;
+  const payload: Record<string, unknown> = {
+    text: message.contentMarkdown,
+    transcriptMessageId: message.id,
+    transcriptRole: message.role,
+    transcriptSource: message.source,
+    ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
+    ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
+    metadata: message.metadata
+  };
+
+  return {
+    id: `transcript:${message.id}`,
+    runId: message.runId,
+    attemptId: message.attemptId,
+    sequence: linkedTraceEvent ? linkedTraceEvent.sequence + 0.01 + index / 100_000 : -100_000 + index,
+    type,
+    source,
+    summary,
+    payload,
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: message.createdAt,
+    vmContextId: linkedTraceEvent?.vmContextId ?? null,
+    artifactId: null,
+    toolCallId: null,
+    approvalId: null,
+    transcriptMessageId: message.id,
+    displayOnly: true
+  };
+}
+
+function buildTraceTimelineEntries(events: TraceDisplayEvent[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry[] {
   const entries: TraceTimelineEntry[] = [];
   let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
 
@@ -1745,7 +1882,7 @@ function groupRenderedTraceEntries(entries: TraceTimelineEntry[]): RenderedTrace
   return groups;
 }
 
-function latestTraceTurnNumber(events: TraceEventRecord[]): number | null {
+function latestTraceTurnNumber(events: TraceDisplayEvent[]): number | null {
   let latest: number | null = null;
   for (const event of events) {
     latest = traceTurnNumber(event) ?? latest;
@@ -1753,7 +1890,7 @@ function latestTraceTurnNumber(events: TraceEventRecord[]): number | null {
   return latest;
 }
 
-function latestTraceGroupKey(events: TraceEventRecord[]): string {
+function latestTraceGroupKey(events: TraceDisplayEvent[]): string {
   let key = 'setup';
   for (const event of events) {
     const turnNumber = traceTurnNumber(event);
@@ -1773,13 +1910,17 @@ function traceTurnNumber(event: TraceEventRecord): number | null {
 }
 
 function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): { kind: string; label: string } {
-  if (group.failureCount > 0) return { kind: 'review', label: 'Review' };
+  if (group.failureCount > 0) return { kind: 'review', label: `${group.failureCount} ${group.failureCount === 1 ? 'Error' : 'Errors'}` };
   if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
   if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Complete' };
   return { kind: 'events', label: 'Events' };
 }
 
 function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
+  return trimTraceLabelPeriod(rawTraceEventSummary(event, category));
+}
+
+function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
   const summary = event.summary.trim();
   if (!summary) return traceCategoryFallbackPrefix(category);
 
@@ -1787,6 +1928,7 @@ function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): 
   if (summary === 'OpenAI response completed.') return 'Complete response';
   if (summary === 'OpenAI response created.') return 'Start model turn';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
+  if (summary === 'OpenAI completed thought.' || isLegacyThoughtSummary(summary)) return 'Thought';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
   if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';
@@ -1843,6 +1985,14 @@ function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): 
   return `${traceCategoryFallbackPrefix(category)}: ${summary}`;
 }
 
+function trimTraceLabelPeriod(label: string): string {
+  return label.replace(/(?<!\.)\.$/, '');
+}
+
+function isLegacyThoughtSummary(summary: string): boolean {
+  return summary.startsWith('OpenAI completed reasoning') && summary.endsWith('summary.');
+}
+
 function startsWithTraceVerb(summary: string): boolean {
   const firstWord = summary.trim().split(/\s+/)[0]?.replace(/[^A-Za-z]/g, '').toLowerCase() ?? '';
   return TRACE_SUMMARY_VERBS.has(firstWord);
@@ -1864,23 +2014,323 @@ function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
 function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if ((category === 'agent_output' || category === 'reasoning') && text) {
-    return truncateText(text.replace(/\s+/g, ' ').trim(), 360);
+    return category === 'reasoning' ? formatReasoningTraceText(text) : truncateText(text.replace(/\s+/g, ' ').trim(), 360);
   }
 
-  const details = [
-    tracePayloadPrimitive(event.payload, 'toolName'),
-    tracePayloadPrimitive(event.payload, 'operationKind'),
-    tracePayloadPrimitive(event.payload, 'status'),
-    tracePayloadPrimitive(event.payload, 'path'),
-    tracePayloadPrimitive(event.payload, 'command'),
-    tracePayloadPrimitive(event.payload, 'networkProfile'),
-    tracePayloadPrimitive(event.payload, 'backend'),
-    tracePayloadPrimitive(event.payload, 'exitCode')
-  ].filter((value): value is string => Boolean(value));
-  if (details.length > 0) return truncateText(details.join(' · '), 220);
+  return tracePayloadDetailText(event, category);
+}
 
-  const payload = compactTracePayload(event.payload);
-  return payload === '{}' ? '' : payload;
+function formatReasoningTraceText(text: string): string {
+  const thoughts: string[] = [];
+  let current = '';
+
+  for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = rawLine.replace(/[ \t]+/g, ' ').trim();
+    if (!line) continue;
+
+    const heading = line.match(/^\*\*([^*]+?)\*\*\s*(.*)$/);
+    if (heading) {
+      if (current) thoughts.push(current);
+      const title = heading[1].trim();
+      const description = heading[2].trim();
+      current = description ? `${title}: ${description}` : `${title}:`;
+      continue;
+    }
+
+    current = current ? `${current} ${line}` : line;
+  }
+
+  if (current) thoughts.push(current);
+  return thoughts.join('\n');
+}
+
+function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
+  const payload = event.payload;
+  const parts =
+    [
+      detailPartsForToolCall(event),
+      detailPartsForToolResult(event),
+      detailPartsForModelSystemEvent(event),
+      detailPartsForVerifierEvent(event),
+      detailPartsForNetworkEvent(event),
+      detailPartsForVmEvent(event),
+      detailPartsForEvidenceEvent(event),
+      detailPartsForReviewEvent(event),
+      detailPartsForUserEvent(event),
+      fallbackPayloadParts(payload, category)
+    ].find((candidate): candidate is string[] => Boolean(candidate && candidate.length > 0)) ?? [];
+  return truncateText(formatTraceDetailParts(parts), 300);
+}
+
+function detailPartsForToolCall(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'tool_call') return null;
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  const args = tracePayloadRecord(event.payload, 'arguments');
+  const parts = [toolName ? `tool ${toolName}` : null, ...toolArgumentParts(toolName, args), policyPart(event.payload)].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts : null;
+}
+
+function toolArgumentParts(toolName: string | null, args: Record<string, unknown> | null): Array<string | null> {
+  if (!args) return [];
+  if (toolName === 'search') return [quotedPart('query', stringRecordValue(args, 'query')), targetPart(args)];
+  if (toolName === 'source') return [pathPart('repo', stringRecordValue(args, 'repository')), quotedPart('ref', stringRecordValue(args, 'ref'))];
+  if (toolName === 'code_browser') return [pathPart('path', stringRecordValue(args, 'path')), quotedPart('symbol', stringRecordValue(args, 'symbol')), rangePart(args)];
+  if (toolName === 'python') return [quotedPart('task', stringRecordValue(args, 'task')), pathPart('artifact', stringRecordValue(args, 'artifact_path'))];
+  if (toolName === 'debugger') return [tracePart('operation', stringRecordValue(args, 'operation')), pathPart('target', stringRecordValue(args, 'target')), pathPart('input', stringRecordValue(args, 'input_path'))];
+  if (toolName === 'artifact') return [quotedPart('name', stringRecordValue(args, 'name')), tracePart('kind', stringRecordValue(args, 'kind'))];
+  if (toolName === 'verifier') return [quotedPart('hypothesis', stringRecordValue(args, 'hypothesis')), pathPart('artifact', stringRecordValue(args, 'artifact_id')), pathPart('trace', stringRecordValue(args, 'trace_event_id'))];
+  return Object.entries(args)
+    .slice(0, 3)
+    .map(([key, value]) => primitiveValuePart(key, value));
+}
+
+function detailPartsForToolResult(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
+  const payload = event.payload;
+  const error = tracePayloadPrimitive(payload, 'error');
+  if (error) {
+    return [
+      tracePart('status', tracePayloadPrimitive(payload, 'status') ?? 'error'),
+      tracePart('error', error),
+      pathPart('path', tracePayloadPrimitive(payload, 'path')),
+      tracePart('tool', tracePayloadPrimitive(payload, 'toolName')),
+      ...nestedArgumentsParts(payload)
+    ].filter((part): part is string => Boolean(part));
+  }
+
+  const query = tracePayloadPrimitive(payload, 'query');
+  if (query) {
+    return [
+      quotedPart('query', query),
+      matchCountPart(payload),
+      traceNumberPart('files', tracePayloadPrimitive(payload, 'filesConsidered')),
+      traceNumberPart('skipped', tracePayloadPrimitive(payload, 'skippedFiles')),
+      availableRepositoriesPart(payload),
+      targetPart(payload),
+      tracePayloadPrimitive(payload, 'sourceAcquisitionHint')
+    ].filter((part): part is string => Boolean(part));
+  }
+
+  const repositoryUrl = tracePayloadPrimitive(payload, 'repositoryUrl') ?? tracePayloadPrimitive(payload, 'requestedRepository');
+  if (repositoryUrl || tracePayloadArray(payload, 'availableRepositories')) {
+    return [
+      pathPart('repo', repositoryUrl),
+      pathPart('local', tracePayloadPrimitive(payload, 'localPath')),
+      traceBooleanPart('cloned', tracePayloadPrimitive(payload, 'cloned')),
+      shortHashPart('head', tracePayloadPrimitive(payload, 'head')),
+      tracePart('reason', tracePayloadPrimitive(payload, 'reason')),
+      availableRepositoriesPart(payload)
+    ].filter((part): part is string => Boolean(part));
+  }
+
+  const sourcePath = tracePayloadPrimitive(payload, 'sourcePath') ?? tracePayloadPrimitive(payload, 'path');
+  if (sourcePath && (event.summary.includes('Code browser') || payload.excerpt)) {
+    return [
+      pathPart('path', sourcePath),
+      lineRangePart(payload),
+      quotedPart('symbol', tracePayloadPrimitive(payload, 'symbol')),
+      traceBooleanPart('truncated', tracePayloadPrimitive(payload, 'truncated')),
+      shortHashPart('hash', tracePayloadPrimitive(payload, 'contentHash')),
+      tracePart('reason', tracePayloadPrimitive(payload, 'reason'))
+    ].filter((part): part is string => Boolean(part));
+  }
+
+  const artifactId = tracePayloadPrimitive(payload, 'artifactId') ?? tracePayloadPrimitive(payload, 'exportedArtifactId');
+  if (artifactId || event.type === 'artifact_created') {
+    return [
+      pathPart('artifact', artifactId),
+      pathPart('path', tracePayloadPrimitive(payload, 'relativePath') ?? tracePayloadPrimitive(payload, 'guestPath')),
+      quotedPart('name', tracePayloadPrimitive(payload, 'name')),
+      tracePart('kind', tracePayloadPrimitive(payload, 'kind')),
+      shortHashPart('sha256', tracePayloadPrimitive(payload, 'sha256'))
+    ].filter((part): part is string => Boolean(part));
+  }
+
+  return executionParts(payload);
+}
+
+function detailPartsForModelSystemEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'model_message') return null;
+  const payload = event.payload;
+  const responseId = tracePayloadPrimitive(payload, 'responseId');
+  const usage = tracePayloadRecord(payload, 'usage');
+  const tokenParts = usage
+    ? [
+        traceNumberPart('input', stringRecordValue(usage, 'input_tokens')),
+        traceNumberPart('output', stringRecordValue(usage, 'output_tokens')),
+        traceNumberPart('reasoning', tracePayloadRecord(usage, 'output_tokens_details') ? stringRecordValue(tracePayloadRecord(usage, 'output_tokens_details') ?? {}, 'reasoning_tokens') : null)
+      ]
+    : [];
+
+  return [
+    tracePart('model', tracePayloadPrimitive(payload, 'model')),
+    tracePart('effort', reasoningEffortPart(payload)),
+    traceNumberPart('tools', tracePayloadPrimitive(payload, 'toolCount')),
+    tracePart('transport', tracePayloadPrimitive(payload, 'transport')),
+    replayPart(payload),
+    tracePart('reason', tracePayloadPrimitive(payload, 'reason')),
+    traceNumberPart('high water', tracePayloadPrimitive(payload, 'traceHighWaterMark')),
+    byteSizePart(tracePayloadPrimitive(payload, 'serializedSizeBytes')),
+    shortHashPart('response', responseId),
+    shortHashPart('previous response', tracePayloadPrimitive(payload, 'previousResponseId')),
+    tracePart('auth', tracePayloadPrimitive(payload, 'authSource')),
+    traceBooleanPart('auth configured', tracePayloadPrimitive(payload, 'authConfigured')),
+    traceBooleanPart('credentials host-only', tracePayloadPrimitive(payload, 'credentialsHostOnly')),
+    traceBooleanPart('recovered', tracePayloadPrimitive(payload, 'recovered')),
+    traceBooleanPart('retry', tracePayloadPrimitive(payload, 'retryAttempted')),
+    tracePart('error', tracePayloadPrimitive(payload, 'error')),
+    ...tokenParts
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForVerifierEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'verifier_result' && event.source !== 'verifier') return null;
+  const payload = event.payload;
+  return [
+    tracePart('status', tracePayloadPrimitive(payload, 'status')),
+    pathPart('contract', tracePayloadPrimitive(payload, 'contractId')),
+    pathPart('run', tracePayloadPrimitive(payload, 'verifierRunId')),
+    traceBooleanPart('real', tracePayloadPrimitive(payload, 'realExecution')),
+    traceBooleanPart('vm', tracePayloadPrimitive(payload, 'vmExecution')),
+    pathPart('artifact', tracePayloadPrimitive(payload, 'artifactId')),
+    tracePart('blocked', tracePayloadPrimitive(payload, 'blockedIssue')),
+    firstArrayPart('issue', tracePayloadArray(payload, 'issues'))
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForNetworkEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'network_event') return null;
+  const payload = event.payload;
+  return [
+    tracePart('profile', tracePayloadPrimitive(payload, 'networkProfile')),
+    tracePart('decision', tracePayloadPrimitive(payload, 'decision')),
+    traceBooleanPart('live target', tracePayloadPrimitive(payload, 'liveTargetAllowed')),
+    traceNumberPart('destinations', tracePayloadPrimitive(payload, 'allowedDestinationCount')),
+    pathPart('host', tracePayloadPrimitive(payload, 'destinationHostname')),
+    tracePart('port', tracePayloadPrimitive(payload, 'port')),
+    tracePart('protocol', tracePayloadPrimitive(payload, 'protocol')),
+    tracePart('backend', tracePayloadPrimitive(payload, 'backend')),
+    tracePart('rule', tracePayloadPrimitive(payload, 'policyRule')),
+    tracePart('reason', tracePayloadPrimitive(payload, 'reason'))
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForVmEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'vm_event') return null;
+  const payload = event.payload;
+  return [
+    pathPart('vm', tracePayloadPrimitive(payload, 'vmContextId')),
+    tracePart('state', tracePayloadPrimitive(payload, 'state') ?? tracePayloadPrimitive(payload, 'previousState')),
+    tracePart('backend', tracePayloadPrimitive(payload, 'backend')),
+    tracePart('provider', tracePayloadPrimitive(payload, 'provider')),
+    pathPart('image', tracePayloadPrimitive(payload, 'imageRef')),
+    tracePart('snapshot', tracePayloadPrimitive(payload, 'snapshotRef')),
+    tracePart('profile', tracePayloadPrimitive(payload, 'networkProfile')),
+    pathPart('host', tracePayloadPrimitive(payload, 'hostPath') ?? tracePayloadPrimitive(payload, 'requestedHostPath')),
+    pathPart('guest', tracePayloadPrimitive(payload, 'guestPath')),
+    tracePart('mode', tracePayloadPrimitive(payload, 'mode')),
+    importSummaryPart(payload),
+    providerResultPart(payload),
+    traceNumberPart('destinations', arrayLengthValue(payload, 'allowedDestinations')),
+    traceBooleanPart('live target', tracePayloadPrimitive(payload, 'liveTargetAllowed')),
+    traceBooleanPart('target execution', tracePayloadPrimitive(payload, 'targetExecution')),
+    traceBooleanPart('host db mounted', tracePayloadPrimitive(payload, 'hostDatabaseMounted')),
+    traceBooleanPart('OpenAI creds mounted', tracePayloadPrimitive(payload, 'openAiCredentialsMounted')),
+    traceBooleanPart('review required', tracePayloadPrimitive(payload, 'userReviewRequired')),
+    tracePart('reason', tracePayloadPrimitive(payload, 'reason')),
+    tracePayloadPrimitive(payload, 'error'),
+    tracePart('recovered', tracePayloadPrimitive(payload, 'recoveredAt'))
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'artifact_created' && event.type !== 'finding_event' && event.type !== 'hypothesis_event') return null;
+  const payload = event.payload;
+  return [
+    pathPart('hypothesis', tracePayloadPrimitive(payload, 'hypothesisId')),
+    pathPart('source hypothesis', tracePayloadPrimitive(payload, 'sourceHypothesisId')),
+    pathPart('target hypothesis', tracePayloadPrimitive(payload, 'targetHypothesisId')),
+    pathPart('finding', tracePayloadPrimitive(payload, 'findingId')),
+    tracePart('title', tracePayloadPrimitive(payload, 'title')),
+    tracePart('component', tracePayloadPrimitive(payload, 'component')),
+    tracePart('severity', tracePayloadPrimitive(payload, 'severity')),
+    tracePart('state', tracePayloadPrimitive(payload, 'findingState') ?? tracePayloadPrimitive(payload, 'state')),
+    traceNumberPart('priority', tracePayloadPrimitive(payload, 'priorityScore')),
+    pathPart('artifact', tracePayloadPrimitive(payload, 'artifactId')),
+    pathPart('evidence', tracePayloadPrimitive(payload, 'evidenceId')),
+    pathPart('export', tracePayloadPrimitive(payload, 'exportId')),
+    pathPart('path', tracePayloadPrimitive(payload, 'relativePath')),
+    tracePart('decision', tracePayloadPrimitive(payload, 'decision')),
+    traceBooleanPart('reversible', tracePayloadPrimitive(payload, 'reversible')),
+    tracePayloadPrimitive(payload, 'note')
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForReviewEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'approval_event') return null;
+  const payload = event.payload;
+  return [
+    tracePart('decision', tracePayloadPrimitive(payload, 'decision')),
+    tracePart('request', tracePayloadPrimitive(payload, 'requestKind')),
+    pathPart('approval', tracePayloadPrimitive(payload, 'approvalId')),
+    tracePart('tool', tracePayloadPrimitive(payload, 'toolName')),
+    tracePayloadPrimitive(payload, 'credentialHint'),
+    tracePayloadPrimitive(payload, 'note'),
+    tracePayloadPrimitive(payload, 'reason'),
+    ...nestedArgumentsParts(payload)
+  ].filter((part): part is string => Boolean(part));
+}
+
+function detailPartsForUserEvent(event: TraceEventRecord): string[] | null {
+  if (event.source !== 'user' && event.type !== 'user_note') return null;
+  const payload = event.payload;
+  return [
+    tracePayloadPrimitive(payload, 'instruction'),
+    tracePayloadPrimitive(payload, 'note'),
+    tracePart('mode', tracePayloadPrimitive(payload, 'mode')),
+    tracePart('strategy', tracePayloadPrimitive(payload, 'attemptStrategy')),
+    tracePart('engine', tracePayloadPrimitive(payload, 'runEngine'))
+  ].filter((part): part is string => Boolean(part));
+}
+
+function executionParts(payload: Record<string, unknown>): string[] | null {
+  const status = tracePayloadPrimitive(payload, 'status');
+  const operation = tracePayloadPrimitive(payload, 'operationKind') ?? tracePayloadPrimitive(payload, 'operation') ?? tracePayloadPrimitive(payload, 'wrapper');
+  const parts = [
+    quotedPart('task', tracePayloadPrimitive(payload, 'task')),
+    tracePart('operation', operation),
+    tracePart('status', status),
+    traceNumberPart('exit', tracePayloadPrimitive(payload, 'exitCode')),
+    tracePart('signal', tracePayloadPrimitive(payload, 'signal')),
+    durationPart(tracePayloadPrimitive(payload, 'durationMs')),
+    tracePart('network', tracePayloadPrimitive(payload, 'networkProfile')),
+    shortHashPart('script', tracePayloadPrimitive(payload, 'scriptHash')),
+    pathPart('imported', tracePayloadPrimitive(payload, 'importedHostPath')),
+    pathPart('artifact', tracePayloadPrimitive(payload, 'exportedArtifactId')),
+    traceNumberPart('artifact candidates', tracePayloadPrimitive(payload, 'candidateArtifactCount')),
+    structuredSummaryPart(payload),
+    tracePayloadPrimitive(payload, 'stdoutSummary'),
+    tracePayloadPrimitive(payload, 'stderrSummary'),
+    firstArrayPart('artifact candidates', tracePayloadArray(payload, 'candidateArtifacts'))
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts : null;
+}
+
+function fallbackPayloadParts(payload: Record<string, unknown>, category: TraceCategoryId): string[] {
+  const preferredKeys =
+    category === 'failure_recovery'
+      ? ['error', 'status', 'reason', 'message', 'blockedIssue']
+      : ['status', 'reason', 'message', 'path', 'target', 'query', 'name', 'operationKind', 'command', 'cwd'];
+  const preferred = preferredKeys.map((key) => primitiveValuePart(key, payload[key])).filter((part): part is string => Boolean(part));
+  if (preferred.length > 0) return preferred;
+  return Object.entries(payload)
+    .map(([key, value]) => primitiveValuePart(key, value))
+    .filter((part): part is string => Boolean(part))
+    .slice(0, 4);
+}
+
+function formatTraceDetailParts(parts: string[]): string {
+  return parts.map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ');
 }
 
 function tracePayloadPrimitive(payload: Record<string, unknown>, key: string): string | null {
@@ -1890,8 +2340,212 @@ function tracePayloadPrimitive(payload: Record<string, unknown>, key: string): s
   return null;
 }
 
+function tracePayloadRecord(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = payload[key];
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function tracePayloadArray(payload: Record<string, unknown>, key: string): unknown[] | null {
+  const value = payload[key];
+  return Array.isArray(value) ? value : null;
+}
+
+function stringRecordValue(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function primitiveValuePart(key: string, value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() ? `${traceLabel(key)} ${truncateText(value.trim(), 72)}` : null;
+  if (typeof value === 'number' || typeof value === 'boolean') return `${traceLabel(key)} ${String(value)}`;
+  if (Array.isArray(value)) return `${traceLabel(key)} ${value.length}`;
+  return null;
+}
+
+function tracePart(label: string, value: string | null): string | null {
+  return value ? `${label} ${value}` : null;
+}
+
+function quotedPart(label: string, value: string | null): string | null {
+  return value ? `${label} "${truncateText(value, 72)}"` : null;
+}
+
+function pathPart(label: string, value: string | null): string | null {
+  return value ? `${label} ${compactTracePath(value)}` : null;
+}
+
+function targetPart(record: Record<string, unknown>): string | null {
+  return pathPart('target', stringRecordValue(record, 'target') ?? stringRecordValue(record, 'targetHint'));
+}
+
+function nestedArgumentsParts(payload: Record<string, unknown>): string[] {
+  const args = tracePayloadRecord(payload, 'arguments');
+  if (!args) return [];
+  return [
+    quotedPart('query', stringRecordValue(args, 'query')),
+    targetPart(args),
+    pathPart('repo', stringRecordValue(args, 'repository')),
+    pathPart('path', stringRecordValue(args, 'path')),
+    quotedPart('task', stringRecordValue(args, 'task')),
+    tracePart('operation', stringRecordValue(args, 'operation'))
+  ].filter((part): part is string => Boolean(part));
+}
+
+function policyPart(payload: Record<string, unknown>): string | null {
+  const policy = tracePayloadRecord(payload, 'policy');
+  if (!policy) return null;
+  const execution = stringRecordValue(policy, 'execution');
+  const targetExecution = stringRecordValue(policy, 'targetExecution');
+  return [execution, targetExecution ? `target ${targetExecution}` : null].filter(Boolean).join(' / ') || null;
+}
+
+function rangePart(record: Record<string, unknown>): string | null {
+  const start = stringRecordValue(record, 'line_start') ?? stringRecordValue(record, 'lineStart');
+  const end = stringRecordValue(record, 'line_end') ?? stringRecordValue(record, 'lineEnd');
+  if (start && end) return `lines ${start}-${end}`;
+  if (start) return `line ${start}`;
+  return null;
+}
+
+function lineRangePart(payload: Record<string, unknown>): string | null {
+  const start = tracePayloadPrimitive(payload, 'lineStart');
+  const end = tracePayloadPrimitive(payload, 'lineEnd');
+  if (start && end) return `lines ${start}-${end}`;
+  if (start) return `line ${start}`;
+  return null;
+}
+
+function matchCountPart(payload: Record<string, unknown>): string | null {
+  const matches = tracePayloadArray(payload, 'matches');
+  return matches ? `${matches.length} match${matches.length === 1 ? '' : 'es'}` : null;
+}
+
+function availableRepositoriesPart(payload: Record<string, unknown>): string | null {
+  const repositories = tracePayloadArray(payload, 'sourceRepositoriesAvailable') ?? tracePayloadArray(payload, 'availableRepositories');
+  if (!repositories) return null;
+  return `${repositories.length} source repo${repositories.length === 1 ? '' : 's'}`;
+}
+
+function reasoningEffortPart(payload: Record<string, unknown>): string | null {
+  const reasoning = tracePayloadRecord(payload, 'reasoning');
+  return reasoning ? stringRecordValue(reasoning, 'effort') : tracePayloadPrimitive(payload, 'reasoningEffort');
+}
+
+function replayPart(payload: Record<string, unknown>): string | null {
+  const previousReplay = tracePayloadPrimitive(payload, 'previousReplayMode');
+  const nextReplay = tracePayloadPrimitive(payload, 'newReplayMode');
+  if (previousReplay && nextReplay) return `replay ${previousReplay} -> ${nextReplay}`;
+  return tracePart('replay', tracePayloadPrimitive(payload, 'replayMode') ?? nextReplay);
+}
+
+function arrayLengthValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = tracePayloadArray(payload, key);
+  return value ? String(value.length) : null;
+}
+
+function importSummaryPart(payload: Record<string, unknown>): string | null {
+  const summary = tracePayloadRecord(payload, 'importSummary');
+  if (!summary) return null;
+  const kind = stringRecordValue(summary, 'kind');
+  const files = stringRecordValue(summary, 'fileCount');
+  const directories = stringRecordValue(summary, 'directoryCount');
+  const size = byteSizePart(stringRecordValue(summary, 'sizeBytes'))?.replace(/^size /, '');
+  return [kind, files ? `${files} files` : null, directories ? `${directories} dirs` : null, size].filter(Boolean).join(' · ') || null;
+}
+
+function providerResultPart(payload: Record<string, unknown>): string | null {
+  const result = tracePayloadRecord(payload, 'providerResult');
+  if (!result) return null;
+  return (
+    [
+      traceBooleanPart('destroyed', stringRecordValue(result, 'destroyed')),
+      traceBooleanPart('reset', stringRecordValue(result, 'reset')),
+      traceBooleanPart('preserved', stringRecordValue(result, 'preserved')),
+      tracePart('snapshot', stringRecordValue(result, 'snapshotRef')),
+      pathPart('path', stringRecordValue(result, 'path'))
+    ]
+      .filter(Boolean)
+      .join(' · ') || null
+  );
+}
+
+function structuredSummaryPart(payload: Record<string, unknown>): string | null {
+  const structured = tracePayloadRecord(payload, 'structured');
+  if (!structured) return null;
+  return [
+    tracePart('backend', stringRecordValue(structured, 'backend')),
+    pathPart('artifact', stringRecordValue(structured, 'artifactPath') ?? stringRecordValue(structured, 'artifact_path')),
+    tracePart('result', stringRecordValue(structured, 'result')),
+    tracePart('status', stringRecordValue(structured, 'status'))
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function traceNumberPart(label: string, value: string | null): string | null {
+  if (!value) return null;
+  return `${label} ${value}`;
+}
+
+function traceBooleanPart(label: string, value: string | null): string | null {
+  if (value !== 'true' && value !== 'false') return null;
+  return `${label} ${value === 'true' ? 'yes' : 'no'}`;
+}
+
+function durationPart(value: string | null): string | null {
+  if (!value) return null;
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return `duration ${value}`;
+  if (ms < 1000) return `duration ${Math.round(ms)}ms`;
+  return `duration ${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function byteSizePart(value: string | null): string | null {
+  if (!value) return null;
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes)) return `size ${value}`;
+  if (bytes < 1024) return `size ${bytes}B`;
+  if (bytes < 1024 * 1024) return `size ${(bytes / 1024).toFixed(1)}KB`;
+  return `size ${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function shortHashPart(label: string, value: string | null): string | null {
+  if (!value) return null;
+  return `${label} ${value.length > 16 ? value.slice(0, 12) : value}`;
+}
+
+function firstArrayPart(label: string, value: unknown[] | null): string | null {
+  if (!value) return null;
+  if (value.length === 0) return `${label} 0`;
+  const first = value[0];
+  if (typeof first === 'string') return `${label} ${truncateText(first, 72)}`;
+  return `${label} ${value.length}`;
+}
+
+function compactTracePath(value: string): string {
+  const normalized = value.replace(/\\/g, '/');
+  if (normalized.length <= 68) return normalized;
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 2) return `...${normalized.slice(-64)}`;
+  return `.../${parts.slice(-3).join('/')}`;
+}
+
+function toolNameFromSummary(summary: string): string | null {
+  const requested = summary.match(/OpenAI requested Beale tool: ([^.]+)\./);
+  if (requested) return requested[1];
+  const completed = summary.match(/OpenAI completed function call arguments for ([^.]+)\./);
+  return completed ? completed[1] : null;
+}
+
 function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
   const searchable = `${event.source} ${event.type} ${event.summary} ${JSON.stringify(event.payload)}`.toLowerCase();
+  const transcriptRole = tracePayloadPrimitive(event.payload, 'transcriptRole');
+  const transcriptSource = tracePayloadPrimitive(event.payload, 'transcriptSource');
+  if (transcriptSource === 'openai_reasoning_summary') return 'reasoning';
+  if (transcriptRole === 'assistant') return 'agent_output';
+  if (transcriptRole === 'user' || transcriptRole === 'system') return 'events';
   if (event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope') return 'policy_scope';
   if (traceEventOutcome(event) === 'success') {
     if (event.source === 'executor' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
@@ -1981,6 +2635,28 @@ function hostEnvironmentLabel(hostEnvironment: HostEnvironment | null): string {
   if (hostEnvironment.platform === 'darwin') return 'macOS';
   if (hostEnvironment.platform === 'linux') return 'Linux';
   return 'Host OS';
+}
+
+interface EnvironmentActivity {
+  host: boolean;
+  guest: boolean;
+}
+
+function environmentActivityForDetail(detail: RunDetail | null): EnvironmentActivity {
+  if (!detail || detail.run.status !== 'active') return { host: false, guest: false };
+  const latest = detail.traceEvents.at(-1);
+  if (!latest) return { host: true, guest: false };
+  const category = traceCategoryForEvent(latest);
+
+  if (latest.source === 'executor' || latest.type === 'vm_event' || category === 'vm_execution' || category === 'tools' || category === 'verifier' || category === 'code_navigation') {
+    return { host: false, guest: true };
+  }
+
+  if (latest.source === 'model' || latest.source === 'policy' || latest.source === 'system' || latest.source === 'user') {
+    return { host: true, guest: false };
+  }
+
+  return { host: true, guest: false };
 }
 
 function vmTargetStatus(executor: ExecutorStatus | null): { configured: boolean; label: string; title: string } {
@@ -2138,17 +2814,26 @@ function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Elem
       </div>
       <div className="trace-inspector-links">
         <span>References</span>
-        <code>id: {event.id}</code>
-        {event.attemptId ? <code>attempt: {event.attemptId}</code> : null}
-        {event.vmContextId ? <code>vm: {event.vmContextId}</code> : null}
-        {event.artifactId ? <code>artifact: {event.artifactId}</code> : null}
-        {event.toolCallId ? <code>tool: {event.toolCallId}</code> : null}
-        {event.approvalId ? <code>approval: {event.approvalId}</code> : null}
+        <InspectorReference label="id" value={event.id} />
+        {event.attemptId ? <InspectorReference label="attempt" value={event.attemptId} /> : null}
+        {event.vmContextId ? <InspectorReference label="vm" value={event.vmContextId} /> : null}
+        {event.artifactId ? <InspectorReference label="artifact" value={event.artifactId} /> : null}
+        {event.toolCallId ? <InspectorReference label="tool" value={event.toolCallId} /> : null}
+        {event.approvalId ? <InspectorReference label="approval" value={event.approvalId} /> : null}
       </div>
       <div className="trace-inspector-payload">
         <span>Payload</span>
         <pre>{payload === '{}' ? 'No payload recorded.' : payload}</pre>
       </div>
+    </div>
+  );
+}
+
+function InspectorReference({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="trace-inspector-reference">
+      <span>{label}:</span>
+      <code>{value}</code>
     </div>
   );
 }
@@ -3851,6 +4536,117 @@ function bumpedPriorityFactors(hypothesis: HypothesisRecord): PriorityFactorInpu
     exploitPracticality: factorFromText(hypothesis.exploitPracticality),
     scopeConfidence: factorFromText(hypothesis.scopeConfidence)
   };
+}
+
+type SessionHeat = 'none' | 'low' | 'medium' | 'high' | 'critical';
+
+const SESSION_HEAT_LEVELS: SessionHeat[] = ['none', 'low', 'medium', 'high', 'critical'];
+const SESSION_HEAT_IGNORED_STATES = new Set(['dismissed', 'duplicate', 'false_positive', 'false-positive', 'out_of_scope', 'out-of-scope']);
+
+function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
+  if (!detail) return 'none';
+
+  const hypothesesById = new Map(detail.hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
+  let heat: SessionHeat = 'none';
+
+  for (const finding of detail.findings) {
+    if (isIgnoredHeatState(finding.state)) continue;
+    const hypothesis = finding.hypothesisId ? (hypothesesById.get(finding.hypothesisId) ?? null) : null;
+    heat = maxSessionHeat(heat, sessionHeatForFinding(finding, hypothesis));
+  }
+
+  for (const hypothesis of detail.hypotheses) {
+    if (isIgnoredHeatState(hypothesis.state)) continue;
+    heat = maxSessionHeat(heat, sessionHeatForHypothesis(hypothesis));
+  }
+
+  return heat;
+}
+
+function sessionHeatForFinding(finding: FindingRecord, hypothesis: HypothesisRecord | null): SessionHeat {
+  const impactScore = hypothesis ? heatFactorFromText(hypothesis.impact) : heatImpactFromText(`${finding.title}\n${finding.summaryMarkdown}\n${finding.impactMarkdown}`);
+  const reachabilityScore = hypothesis ? heatFactorFromText(hypothesis.attackerReachability) : 1;
+  const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(finding.priorityScore));
+  return gateSessionHeat(baseHeat, findingEvidenceScore(finding, hypothesis));
+}
+
+function sessionHeatForHypothesis(hypothesis: HypothesisRecord): SessionHeat {
+  const impactScore = heatFactorFromText(hypothesis.impact);
+  const reachabilityScore = heatFactorFromText(hypothesis.attackerReachability);
+  const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(hypothesis.priorityScore));
+  return gateSessionHeat(baseHeat, hypothesisEvidenceScore(hypothesis));
+}
+
+function findingEvidenceScore(finding: FindingRecord, hypothesis: HypothesisRecord | null): number {
+  const state = stateClass(finding.state);
+  if (finding.verifiedByVerifierRunId || state === 'verified') return 3;
+  if (state === 'reproduced' || state === 'promoted') return Math.max(2, hypothesis ? hypothesisEvidenceScore(hypothesis) : 2);
+  if (state === 'needs_evidence' || state === 'needs-evidence') return hypothesis ? Math.max(1, hypothesisEvidenceScore(hypothesis)) : 1;
+  return hypothesis ? hypothesisEvidenceScore(hypothesis) : 1;
+}
+
+function hypothesisEvidenceScore(hypothesis: HypothesisRecord): number {
+  const state = stateClass(hypothesis.state);
+  if (state === 'verified') return 3;
+  if (state === 'promoted' || state === 'reproduced') return Math.max(2, heatFactorFromText(hypothesis.evidenceConfidence));
+  return heatFactorFromText(hypothesis.evidenceConfidence);
+}
+
+function gateSessionHeat(heat: SessionHeat, evidenceScore: number): SessionHeat {
+  if (heat === 'none') return 'none';
+  if (evidenceScore <= 0) return 'low';
+  if (evidenceScore === 1) return minSessionHeat(heat, 'medium');
+  if (evidenceScore === 2) return minSessionHeat(heat, 'high');
+  return heat;
+}
+
+function sessionHeatFromImpact(impactScore: number, reachabilityScore: number): SessionHeat {
+  if (impactScore >= 4 && reachabilityScore >= 3) return 'critical';
+  if (impactScore >= 4 || (impactScore >= 3 && reachabilityScore >= 3)) return 'high';
+  if (impactScore >= 2) return 'medium';
+  if (impactScore >= 1) return 'low';
+  return 'none';
+}
+
+function sessionHeatFromPriority(priorityScore: number): SessionHeat {
+  if (priorityScore >= 42) return 'critical';
+  if (priorityScore >= 24) return 'high';
+  if (priorityScore >= 10) return 'medium';
+  if (priorityScore > 0) return 'low';
+  return 'none';
+}
+
+function maxSessionHeat(left: SessionHeat, right: SessionHeat): SessionHeat {
+  return SESSION_HEAT_LEVELS[Math.max(SESSION_HEAT_LEVELS.indexOf(left), SESSION_HEAT_LEVELS.indexOf(right))];
+}
+
+function minSessionHeat(left: SessionHeat, right: SessionHeat): SessionHeat {
+  return SESSION_HEAT_LEVELS[Math.min(SESSION_HEAT_LEVELS.indexOf(left), SESSION_HEAT_LEVELS.indexOf(right))];
+}
+
+function isIgnoredHeatState(state: string): boolean {
+  return SESSION_HEAT_IGNORED_STATES.has(stateClass(state));
+}
+
+function heatFactorFromText(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isFinite(parsed)) return Math.max(0, Math.min(4, parsed));
+  const lower = value.toLowerCase();
+  if (lower.includes('critical') || lower.includes('compromise') || lower.includes('code execution') || lower.includes('privilege escalation')) return 4;
+  if (lower.includes('verified') || lower.includes('verifier')) return 3;
+  if (lower.includes('dynamic') || lower.includes('reproduced') || lower.includes('controlled')) return 2;
+  if (lower.includes('static') || lower.includes('tool-backed') || lower.includes('plausible') || lower.includes('lead')) return 1;
+  if (lower.includes('hypothesis only') || lower.includes('out_of_scope') || lower.includes('out-of-scope') || lower.includes('none')) return 0;
+  return 1;
+}
+
+function heatImpactFromText(value: string): number {
+  const lower = value.toLowerCase();
+  if (/\b(rce|remote code execution|code execution|sandbox escape|privilege escalation|credential compromise|cross-tenant|critical compromise)\b/.test(lower)) return 4;
+  if (/\b(authorization bypass|data integrity|sensitive data|service compromise|account takeover|tenant)\b/.test(lower)) return 3;
+  if (/\b(denial of service|dos|limited data exposure|limited exposure|integrity violation)\b/.test(lower)) return 2;
+  if (/\b(crash|info leak|information leak|limited impact)\b/.test(lower)) return 1;
+  return 1;
 }
 
 function factorFromText(value: string): number {

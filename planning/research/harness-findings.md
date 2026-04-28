@@ -113,7 +113,7 @@ The major institutions rely on transcript review, trace analysis, and task debug
 
 Beale should have a structured trace schema with:
 
-- Message and reasoning summaries where available.
+- Message and thoughts where available.
 - Tool calls, stdout/stderr, exit codes, timeouts, artifacts.
 - Environment snapshots and diffs.
 - Hypothesis IDs and evidence links.

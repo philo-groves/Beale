@@ -374,6 +374,20 @@ export interface TraceEventRecord {
   approvalId: string | null;
 }
 
+export type TranscriptRole = 'user' | 'assistant' | 'system';
+
+export interface TranscriptMessageRecord {
+  id: string;
+  runId: string;
+  attemptId: string | null;
+  traceEventId: string | null;
+  role: TranscriptRole;
+  contentMarkdown: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export type NotificationStatus = 'unread' | 'opened' | 'dismissed';
 
 export interface NotificationRecord {
@@ -581,6 +595,7 @@ export interface RunDetail {
   run: RunRecord;
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
+  transcriptMessages: TranscriptMessageRecord[];
   hypotheses: HypothesisRecord[];
   artifacts: ArtifactRecord[];
   findings: FindingRecord[];

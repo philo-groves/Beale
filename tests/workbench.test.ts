@@ -512,12 +512,18 @@ describe('Beale workbench skeleton', () => {
     const columns = (migrated.prepare('PRAGMA table_info(exports)').all() as Array<{ name: string }>).map((row) => row.name);
     const migration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 4').get();
     const notificationsMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 5').get();
+    const contextCompactionMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 6').get();
+    const transcriptMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 7').get();
     const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
+    const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
     expect(migration).toBeTruthy();
     expect(notificationsMigration).toBeTruthy();
+    expect(contextCompactionMigration).toBeTruthy();
+    expect(transcriptMigration).toBeTruthy();
     expect(notificationsTable).toBeTruthy();
+    expect(transcriptTable).toBeTruthy();
   });
 
   it('recovers interrupted active state on workspace reopen', () => {

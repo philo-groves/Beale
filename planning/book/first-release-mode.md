@@ -28,7 +28,7 @@ The first release should make open-ended research credible by giving users:
 - A target setup flow that records authorization, scope, environment, and network policy.
 - A threat model and attack-surface workspace.
 - A hypothesis board with states, evidence links, and affected components.
-- Structured tools for code search, code navigation, execution, debugging, and artifact capture.
+- Structured tools for code search, code nav, execution, debugging, and artifact capture.
 - A trace timeline that separates model claims from real tool observations.
 - A verifier workflow for promoting hypotheses into reproduced findings.
 - Patch validation as a follow-on workflow after reproduction.
