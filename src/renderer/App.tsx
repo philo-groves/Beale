@@ -214,6 +214,18 @@ const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
 const DEFAULT_CONTEXT_TOKEN_LIMIT = 225_000;
 const APP_BACKGROUND_PULSES = Array.from({ length: 18 }, (_, index) => index);
+const MOMENTUM_SNAKE_BODY = '#0e0c0d';
+const MOMENTUM_SNAKE_EDGE = 'rgba(55, 40, 50, 0.9)';
+const MOMENTUM_SNAKE_EDGE_STRONG = 'rgba(55, 40, 50, 0.9)';
+const MOMENTUM_SNAKE_HIGHLIGHT = 'rgba(255, 240, 255, 0.04)';
+const MOMENTUM_SNAKE_TICK = 'rgba(55, 38, 50, 0.7)';
+const MOMENTUM_SNAKE_EYE_SOCKET = '#060405';
+const MOMENTUM_SNAKE_EYE_IRIS = '#5c3a10';
+const MOMENTUM_SNAKE_EYE_PUPIL = '#030202';
+const MOMENTUM_SNAKE_TONGUE = '#cc3350';
+const MOMENTUM_GOAL_ICON = '#b4b2a9';
+const MOMENTUM_GOAL_SHADOW_ACTIVE = 'rgba(68, 68, 65, 0.9)';
+const MOMENTUM_GOAL_SHADOW = 'rgba(68, 68, 65, 0.68)';
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -1420,18 +1432,18 @@ function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, hei
   context.lineCap = 'round';
   context.lineJoin = 'round';
   drawMomentumSnakePath(context, points);
-  context.strokeStyle = 'rgba(68, 68, 65, 0.6)';
-  context.lineWidth = 9.5;
+  context.strokeStyle = MOMENTUM_SNAKE_EDGE;
+  context.lineWidth = 10.5;
   context.stroke();
 
   drawMomentumSnakePath(context, points);
-  context.strokeStyle = '#b4b2a9';
+  context.strokeStyle = MOMENTUM_SNAKE_BODY;
   context.lineWidth = clampedMomentum > 0.85 ? 7.2 : 6.5;
   context.stroke();
 
   drawMomentumSnakePath(context, points);
-  context.strokeStyle = 'rgba(209, 207, 199, 0.15)';
-  context.lineWidth = 2.2;
+  context.strokeStyle = MOMENTUM_SNAKE_HIGHLIGHT;
+  context.lineWidth = 1.5;
   context.stroke();
   context.restore();
 
@@ -1458,7 +1470,7 @@ function drawMomentumSnakeTicks(context: CanvasRenderingContext2D, points: Array
     context.beginPath();
     context.moveTo(x, y - 2.5);
     context.lineTo(x, y + 2.5);
-    context.strokeStyle = 'rgba(60, 60, 58, 0.9)';
+    context.strokeStyle = MOMENTUM_SNAKE_TICK;
     context.lineWidth = 0.8;
     context.stroke();
   }
@@ -1476,29 +1488,38 @@ function drawMomentumSnakeHead(context: CanvasRenderingContext2D, points: Array<
 
   context.beginPath();
   context.ellipse(7, 0, 9, 6, 0, 0, Math.PI * 2);
-  context.fillStyle = '#b4b2a9';
+  context.fillStyle = MOMENTUM_SNAKE_BODY;
+  context.fill();
+  context.beginPath();
+  context.ellipse(7, 0, 9, 6, 0, 0, Math.PI * 2);
+  context.strokeStyle = MOMENTUM_SNAKE_EDGE_STRONG;
+  context.lineWidth = 1.2;
+  context.stroke();
+
+  context.beginPath();
+  context.ellipse(4, -2, 4, 2.5, -0.3, 0, Math.PI * 2);
+  context.fillStyle = MOMENTUM_SNAKE_HIGHLIGHT;
   context.fill();
 
   context.beginPath();
-  context.ellipse(5, -1.5, 4, 3, -0.2, 0, Math.PI * 2);
-  context.fillStyle = 'rgba(209, 207, 199, 0.15)';
-  context.fill();
-
-  context.beginPath();
-  context.arc(13, -2.5, 2, 0, Math.PI * 2);
-  context.fillStyle = '#111318';
+  context.arc(13, -2.5, 2.2, 0, Math.PI * 2);
+  context.fillStyle = MOMENTUM_SNAKE_EYE_SOCKET;
   context.fill();
   context.beginPath();
-  context.arc(13, -2.5, 1.3, 0, Math.PI * 2);
-  context.fillStyle = '#d3d1c7';
+  context.arc(13, -2.5, 1.5, 0, Math.PI * 2);
+  context.fillStyle = MOMENTUM_SNAKE_EYE_IRIS;
   context.fill();
   context.beginPath();
-  context.arc(13.5, -3, 0.5, 0, Math.PI * 2);
-  context.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  context.arc(13, -2.5, 0.8, 0, Math.PI * 2);
+  context.fillStyle = MOMENTUM_SNAKE_EYE_PUPIL;
+  context.fill();
+  context.beginPath();
+  context.arc(13.4, -2.9, 0.4, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(255, 255, 255, 0.4)';
   context.fill();
 
   if (tongueVisible) {
-    context.strokeStyle = '#ff5370';
+    context.strokeStyle = MOMENTUM_SNAKE_TONGUE;
     context.lineWidth = 1;
     context.lineCap = 'round';
     context.beginPath();
@@ -1520,8 +1541,8 @@ function drawMomentumSnakeHead(context: CanvasRenderingContext2D, points: Array<
 
 function drawContextGoalStrawberry(context: CanvasRenderingContext2D, x: number, y: number, contextFraction: number): void {
   const active = contextFraction >= 0.94;
-  const iconColor = '#b4b2a9';
-  const shadowColor = active ? 'rgba(68, 68, 65, 0.9)' : 'rgba(68, 68, 65, 0.68)';
+  const iconColor = MOMENTUM_GOAL_ICON;
+  const shadowColor = active ? MOMENTUM_GOAL_SHADOW_ACTIVE : MOMENTUM_GOAL_SHADOW;
 
   const drawBerryOutline = () => {
     context.beginPath();
