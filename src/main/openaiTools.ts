@@ -811,6 +811,12 @@ export class BealeToolRouter {
           scopeConfidence,
           ...(cweMappings ? { cweMappings } : {})
         });
+    const promotedFindings = this.db.ensureFindingsForReproducedHypotheses(context.run.id, {
+      attemptId: context.attempt.id,
+      vmContextId: context.vmContext.id,
+      modelVisible: true,
+      reason: 'hypothesis_state_reproduced_with_real_verifier_evidence'
+    });
 
     return {
       status: 'success',
@@ -827,7 +833,8 @@ export class BealeToolRouter {
         component: hypothesis.component,
         bugClass: hypothesis.bugClass,
         cweMappings: cwePayload(hypothesis.cweMappings),
-        priorityScore: hypothesis.priorityScore
+        priorityScore: hypothesis.priorityScore,
+        autoPromotedFindingIds: promotedFindings.map((finding) => finding.id)
       }
     };
   }

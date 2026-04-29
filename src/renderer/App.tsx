@@ -56,6 +56,7 @@ import type {
   ArtifactRecord,
   BenchmarkOverview,
   BenchmarkSuiteKind,
+  EvidenceRecord,
   ExportRecord,
   ExecutorBackendKind,
   ExecutorBackendStatus,
@@ -759,17 +760,20 @@ export function App(): JSX.Element {
     window.addEventListener('pointercancel', handlePointerUp);
   };
 
+  const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
+  const activeTraceEvents = activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : [];
+  const selectedTraceEvent = activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
+  const selectedTraceFinding = selectedTraceEvent ? findingForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
+  const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
+  const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const appShellClassName = [
     'app-shell',
+    `session-heat-${sessionHeat}`,
     sidebarCollapsed ? 'sidebar-collapsed' : '',
     inspectorOpen ? 'inspector-open' : ''
   ]
     .filter(Boolean)
     .join(' ');
-  const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
-  const activeTraceEvents = activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : [];
-  const selectedTraceEvent = activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
-  const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const sessionHistoryProgram =
     sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
@@ -890,7 +894,7 @@ export function App(): JSX.Element {
         <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize} />
       </aside>
 
-      <main className={`workbench session-heat-${sessionHeat}`} data-session-heat={sessionHeat}>
+      <main className="workbench" data-session-heat={sessionHeat}>
         <div className="workbench-header">
           <div className="workbench-program">
             <RunStatusIndicator detail={activeRunDetail} />
@@ -909,7 +913,7 @@ export function App(): JSX.Element {
           </div>
           <SessionTimestamps detail={activeRunDetail} events={activeTraceEvents} visibleTraceCategories={visibleTraceCategories} />
         </div>
-        <div className={`workspace-page session-heat-${sessionHeat}`}>
+        <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
             selectedRunId={selectedRunId}
@@ -927,7 +931,7 @@ export function App(): JSX.Element {
         </div>
       </main>
       <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
-        <TraceInspector event={selectedTraceEvent} />
+        <TraceInspector event={selectedTraceEvent} finding={selectedTraceFinding} hypothesis={selectedTraceHypothesis} />
       </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
@@ -1485,6 +1489,85 @@ function MainSessionSidePanel({
   );
 }
 
+function MainSideScrollRegion({
+  children,
+  className,
+  listClassName,
+  stickToEnd = false,
+  updateKey
+}: {
+  children: ReactNode;
+  className?: string;
+  listClassName: string;
+  stickToEnd?: boolean;
+  updateKey: string;
+}): JSX.Element {
+  const regionRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const followEndRef = useRef(true);
+
+  const updateScrollEdges = useCallback(() => {
+    const region = regionRef.current;
+    const list = listRef.current;
+    if (!region || !list) return;
+
+    const scrollableDistance = list.scrollHeight - list.clientHeight;
+    const canScroll = scrollableDistance > 8;
+    const showTopFade = canScroll && list.scrollTop > 8;
+    const showBottomFade = canScroll && list.scrollTop < scrollableDistance - 8;
+
+    region.classList.toggle('has-top-fade', showTopFade);
+    region.classList.toggle('has-bottom-fade', showBottomFade);
+  }, []);
+
+  const scrollToEnd = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    updateScrollEdges();
+  }, [updateScrollEdges]);
+
+  const syncScrollState = useCallback(() => {
+    if (stickToEnd && followEndRef.current) {
+      scrollToEnd();
+      return;
+    }
+    updateScrollEdges();
+  }, [scrollToEnd, stickToEnd, updateScrollEdges]);
+
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(syncScrollState);
+    return () => window.cancelAnimationFrame(frame);
+  }, [syncScrollState, updateKey]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver(syncScrollState);
+    observer.observe(list);
+    Array.from(list.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [syncScrollState, updateKey]);
+
+  const handleScroll = useCallback(() => {
+    const list = listRef.current;
+    if (stickToEnd && list) {
+      const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+      followEndRef.current = distanceFromBottom <= 12;
+    }
+    updateScrollEdges();
+  }, [stickToEnd, updateScrollEdges]);
+
+  return (
+    <div className={`main-side-scroll ${className ?? ''}`.trim()} ref={regionRef}>
+      <div className={listClassName} ref={listRef} onScroll={handleScroll}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function MainSteerArea({
   detail,
   busy,
@@ -1730,6 +1813,9 @@ function MainHypothesisList({
   const loading = !detail;
   const hypotheses = detail?.hypotheses ?? [];
   const events = detail ? buildTraceDisplayEvents(detail) : [];
+  const hypothesisScrollKey = hypotheses
+    .map((hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.title}:${hypothesis.descriptionMarkdown.length}`)
+    .join('|');
 
   return (
     <section className="main-side-section main-hypothesis-view" aria-label="Hypotheses">
@@ -1743,7 +1829,7 @@ function MainHypothesisList({
       {loading ? <div className="main-trace-empty">Loading hypotheses.</div> : null}
       {!loading && hypotheses.length === 0 ? <div className="main-trace-empty">No hypotheses recorded.</div> : null}
       {!loading && hypotheses.length > 0 ? (
-        <div className="main-hypothesis-list">
+        <MainSideScrollRegion listClassName="main-hypothesis-list" updateKey={hypothesisScrollKey}>
           {hypotheses.map((hypothesis) => {
             const event = traceEventForHypothesis(events, hypothesis);
             return (
@@ -1755,7 +1841,7 @@ function MainHypothesisList({
               />
             );
           })}
-        </div>
+        </MainSideScrollRegion>
       ) : null}
     </section>
   );
@@ -1773,14 +1859,12 @@ function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: Hy
     >
       <div className="main-research-topline">
         <strong>{hypothesis.title}</strong>
+      </div>
+      <div className="main-hypothesis-meta" aria-label="Hypothesis state, priority, and CWE">
+        <span className="hypothesis-pill state-pill">{traceLabel(hypothesis.state)}</span>
+        <span className="hypothesis-pill priority-pill">{formatPriorityPill(hypothesis.priorityScore)}</span>
         <CwePill mappings={hypothesis.cweMappings} />
       </div>
-      <p>
-        {traceLabel(hypothesis.state)} · Priority {hypothesis.priorityScore.toFixed(2)}
-      </p>
-      <p>
-        {hypothesis.bugClass || 'Unclassified'} · {hypothesis.component || 'Unknown component'}
-      </p>
     </button>
   );
 }
@@ -1798,6 +1882,9 @@ function MainFindingList({
   const findings = detail?.findings ?? [];
   const hypotheses = detail?.hypotheses ?? [];
   const events = detail ? buildTraceDisplayEvents(detail) : [];
+  const findingScrollKey = findings
+    .map((finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.title}:${finding.summaryMarkdown.length}`)
+    .join('|');
 
   return (
     <section className="main-side-section main-finding-view" aria-label="Findings">
@@ -1811,7 +1898,7 @@ function MainFindingList({
       {loading ? <div className="main-trace-empty">Loading findings.</div> : null}
       {!loading && findings.length === 0 ? <div className="main-trace-empty">No findings recorded.</div> : null}
       {!loading && findings.length > 0 ? (
-        <div className="main-finding-list">
+        <MainSideScrollRegion listClassName="main-finding-list" stickToEnd={true} updateKey={findingScrollKey}>
           {findings.map((finding) => {
             const hypothesis = finding.hypothesisId ? hypotheses.find((candidate) => candidate.id === finding.hypothesisId) ?? null : null;
             const event = traceEventForFinding(events, finding, hypothesis);
@@ -1825,7 +1912,7 @@ function MainFindingList({
               />
             );
           })}
-        </div>
+        </MainSideScrollRegion>
       ) : null}
     </section>
   );
@@ -1843,9 +1930,7 @@ function MainFindingItem({
   onSelect?: () => void;
 }): JSX.Element {
   const disabled = !onSelect;
-  const power = findingPowerLevel(finding);
   const tone = sessionHeatForFinding(finding, hypothesis);
-  const linkedComponent = hypothesis?.component || affectedAssetLabel(finding) || 'Unknown surface';
 
   return (
     <button
@@ -1857,27 +1942,13 @@ function MainFindingItem({
     >
       <div className="main-finding-topline">
         <strong>{finding.title}</strong>
-        <span className="main-finding-badges">
-          <CwePill mappings={finding.cweMappings} />
-          <FindingPowerMeter score={finding.priorityScore} level={power} tone={tone} />
-        </span>
       </div>
-      <p>
-        {traceLabel(finding.state)} · Priority {finding.priorityScore.toFixed(2)}
-      </p>
-      <p>{linkedComponent}</p>
-      {finding.summaryMarkdown ? <small>{truncateText(finding.summaryMarkdown, 138)}</small> : null}
+      <div className="main-hypothesis-meta main-finding-meta" aria-label="Finding state, priority, and CWE">
+        <span className="hypothesis-pill state-pill">{traceLabel(finding.state)}</span>
+        <span className="hypothesis-pill priority-pill">{formatPriorityPill(finding.priorityScore)}</span>
+        <CwePill mappings={finding.cweMappings} />
+      </div>
     </button>
-  );
-}
-
-function FindingPowerMeter({ score, level, tone }: { score: number; level: number; tone: SessionHeat }): JSX.Element {
-  return (
-    <span className={`finding-power-meter power-${tone}`} title={`Finding power ${level}/5 · priority ${score.toFixed(2)}`} aria-label={`Finding power ${level} of 5`}>
-      {Array.from({ length: 5 }, (_, index) => (
-        <span className={`finding-power-star ${index < level ? 'active' : ''}`} key={index} aria-hidden="true" />
-      ))}
-    </span>
   );
 }
 
@@ -1897,6 +1968,11 @@ function CwePill({ mappings }: { mappings: WeaknessMappingRecord[] }): JSX.Eleme
       {primary.cweId}
     </span>
   );
+}
+
+function formatPriorityPill(priorityScore: number): string {
+  const rounded = Math.round(priorityScore);
+  return `P${Number.isFinite(rounded) ? rounded : 0}`;
 }
 
 function traceEventForHypothesis(events: TraceDisplayEvent[], hypothesis: HypothesisRecord): TraceDisplayEvent | null {
@@ -1925,28 +2001,32 @@ function traceEventForFinding(events: TraceDisplayEvent[], finding: FindingRecor
   return hypothesis ? traceEventForHypothesis(events, hypothesis) : null;
 }
 
-function findingPowerLevel(finding: FindingRecord): number {
-  const score = finding.priorityScore;
-  const state = stateClass(finding.state);
-  let level = 0;
-  if (score >= 48) level = 5;
-  else if (score >= 32) level = 4;
-  else if (score >= 20) level = 3;
-  else if (score >= 10) level = 2;
-  else if (score > 0) level = 1;
-  if ((finding.verifiedByVerifierRunId || state === 'verified') && level > 0) return Math.max(level, 3);
-  return level;
+function hypothesisForTraceEvent(detail: RunDetail | null, event: TraceEventRecord): HypothesisRecord | null {
+  if (!detail) return null;
+
+  const createdMatch = detail.hypotheses.find((hypothesis) => hypothesis.createdTraceEventId === event.id);
+  if (createdMatch) return createdMatch;
+
+  const hypothesisId =
+    tracePayloadPrimitive(event.payload, 'hypothesisId') ??
+    tracePayloadPrimitive(event.payload, 'targetHypothesisId') ??
+    tracePayloadPrimitive(event.payload, 'sourceHypothesisId');
+  if (!hypothesisId) return null;
+  return detail.hypotheses.find((hypothesis) => hypothesis.id === hypothesisId) ?? null;
 }
 
-function affectedAssetLabel(finding: FindingRecord): string | null {
-  return (
-    stringRecordValue(finding.affectedAssets, 'component') ??
-    stringRecordValue(finding.affectedAssets, 'asset') ??
-    stringRecordValue(finding.affectedAssets, 'path') ??
-    stringRecordValue(finding.affectedAssets, 'service') ??
-    stringRecordValue(finding.affectedVersions, 'version') ??
-    stringRecordValue(finding.affectedVersions, 'status')
-  );
+function findingForTraceEvent(detail: RunDetail | null, event: TraceEventRecord): FindingRecord | null {
+  if (!detail) return null;
+
+  const findingId = tracePayloadPrimitive(event.payload, 'findingId');
+  if (findingId) {
+    const directMatch = detail.findings.find((finding) => finding.id === findingId);
+    if (directMatch) return directMatch;
+  }
+
+  const hypothesis = hypothesisForTraceEvent(detail, event);
+  if (!hypothesis) return null;
+  return detail.findings.find((finding) => finding.hypothesisId === hypothesis.id) ?? null;
 }
 
 function MainTraceTurnGroup({
@@ -3217,7 +3297,15 @@ function TraceFilterModal({
   );
 }
 
-function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Element {
+function TraceInspector({
+  event,
+  finding,
+  hypothesis
+}: {
+  event: TraceEventRecord | null;
+  finding: FindingRecord | null;
+  hypothesis: HypothesisRecord | null;
+}): JSX.Element {
   if (!event) {
     return (
       <div className="inspector-empty-state">
@@ -3236,6 +3324,8 @@ function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Elem
         <span>Inspector</span>
         <h3>Trace Detail</h3>
       </div>
+      {finding ? <FindingInspectorContext finding={finding} hypothesis={hypothesis} /> : null}
+      {hypothesis ? <HypothesisInspectorContext hypothesis={hypothesis} /> : null}
       <div className="trace-inspector-summary">
         <span className={`trace-filter-icon category-${category}`}>{traceCategoryIcon(category)}</span>
         <div>
@@ -3283,6 +3373,58 @@ function TraceInspector({ event }: { event: TraceEventRecord | null }): JSX.Elem
         <pre>{payload === '{}' ? 'No payload recorded.' : payload}</pre>
       </div>
     </div>
+  );
+}
+
+function FindingInspectorContext({ finding, hypothesis }: { finding: FindingRecord; hypothesis: HypothesisRecord | null }): JSX.Element {
+  const affectedSurface =
+    hypothesis?.component ??
+    stringRecordValue(finding.affectedAssets, 'component') ??
+    stringRecordValue(finding.affectedAssets, 'asset') ??
+    stringRecordValue(finding.affectedAssets, 'path') ??
+    stringRecordValue(finding.affectedAssets, 'service') ??
+    'Unknown surface';
+
+  return (
+    <section className="trace-inspector-context" aria-label="Finding context">
+      <div className="trace-inspector-context-header">
+        <span>Finding</span>
+        <div className="main-hypothesis-meta main-finding-meta" aria-label="Finding state, priority, and CWE">
+          <span className="hypothesis-pill state-pill">{traceLabel(finding.state)}</span>
+          <span className="hypothesis-pill priority-pill">{formatPriorityPill(finding.priorityScore)}</span>
+          <CwePill mappings={finding.cweMappings} />
+        </div>
+      </div>
+      <strong>{finding.title}</strong>
+      <p>{finding.summaryMarkdown || 'No summary recorded.'}</p>
+      <dl className="trace-inspector-context-facts">
+        <div>
+          <dt>Surface</dt>
+          <dd>{affectedSurface}</dd>
+        </div>
+        <div>
+          <dt>Impact</dt>
+          <dd>{finding.impactMarkdown || 'Impact not yet assessed.'}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function HypothesisInspectorContext({ hypothesis }: { hypothesis: HypothesisRecord }): JSX.Element {
+  return (
+    <section className="trace-inspector-context" aria-label="Hypothesis context">
+      <div className="trace-inspector-context-header">
+        <span>Hypothesis</span>
+        <div className="main-hypothesis-meta" aria-label="Hypothesis state, priority, and CWE">
+          <span className="hypothesis-pill state-pill">{traceLabel(hypothesis.state)}</span>
+          <span className="hypothesis-pill priority-pill">{formatPriorityPill(hypothesis.priorityScore)}</span>
+          <CwePill mappings={hypothesis.cweMappings} />
+        </div>
+      </div>
+      <strong>{hypothesis.title}</strong>
+      <p>{hypothesis.descriptionMarkdown || 'No description recorded.'}</p>
+    </section>
   );
 }
 
@@ -5148,6 +5290,13 @@ function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
   if (!detail) return 'none';
 
   const hypothesesById = new Map(detail.hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
+  const evidenceByHypothesisId = new Map<string, EvidenceRecord[]>();
+  for (const evidence of detail.evidence) {
+    if (!evidence.hypothesisId) continue;
+    const existing = evidenceByHypothesisId.get(evidence.hypothesisId) ?? [];
+    existing.push(evidence);
+    evidenceByHypothesisId.set(evidence.hypothesisId, existing);
+  }
   let heat: SessionHeat = 'none';
 
   for (const finding of detail.findings) {
@@ -5158,7 +5307,7 @@ function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
 
   for (const hypothesis of detail.hypotheses) {
     if (isIgnoredHeatState(hypothesis.state)) continue;
-    heat = maxSessionHeat(heat, sessionHeatForHypothesis(hypothesis));
+    heat = maxSessionHeat(heat, sessionHeatForHypothesis(hypothesis, evidenceByHypothesisId.get(hypothesis.id) ?? []));
   }
 
   return heat;
@@ -5171,11 +5320,11 @@ function sessionHeatForFinding(finding: FindingRecord, hypothesis: HypothesisRec
   return gateSessionHeat(baseHeat, findingEvidenceScore(finding, hypothesis));
 }
 
-function sessionHeatForHypothesis(hypothesis: HypothesisRecord): SessionHeat {
+function sessionHeatForHypothesis(hypothesis: HypothesisRecord, evidence: EvidenceRecord[] = []): SessionHeat {
   const impactScore = heatFactorFromText(hypothesis.impact);
   const reachabilityScore = heatFactorFromText(hypothesis.attackerReachability);
   const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(hypothesis.priorityScore));
-  return gateSessionHeat(baseHeat, hypothesisEvidenceScore(hypothesis));
+  return minSessionHeat(gateSessionHeat(baseHeat, hypothesisEvidenceScore(hypothesis)), hypothesisHeatCap(hypothesis, evidence));
 }
 
 function findingEvidenceScore(finding: FindingRecord, hypothesis: HypothesisRecord | null): number {
@@ -5191,6 +5340,32 @@ function hypothesisEvidenceScore(hypothesis: HypothesisRecord): number {
   if (state === 'verified') return 3;
   if (state === 'promoted' || state === 'reproduced') return Math.max(2, heatFactorFromText(hypothesis.evidenceConfidence));
   return heatFactorFromText(hypothesis.evidenceConfidence);
+}
+
+function hypothesisHeatCap(hypothesis: HypothesisRecord, evidence: EvidenceRecord[]): SessionHeat {
+  const state = stateClass(hypothesis.state);
+  if (state === 'verified') return 'critical';
+  if (state === 'promoted' || state === 'reproduced') return 'high';
+  if (hasVerifierEvidence(evidence)) return 'critical';
+  if (hasDynamicEvidence(evidence) || evidenceTextLooksDynamic(hypothesis.evidenceConfidence)) return 'high';
+  if (evidence.length > 0 || evidenceTextLooksStatic(hypothesis.evidenceConfidence)) return 'medium';
+  return 'low';
+}
+
+function hasVerifierEvidence(evidence: EvidenceRecord[]): boolean {
+  return evidence.some((item) => Boolean(item.verifierRunId) || /\bverifier\b/i.test(item.kind));
+}
+
+function hasDynamicEvidence(evidence: EvidenceRecord[]): boolean {
+  return evidence.some((item) => /\b(dynamic|runtime|repro|reproduction|debugger|crash|sanitizer|poc|exploit)\b/i.test(`${item.kind}\n${item.summary}`));
+}
+
+function evidenceTextLooksDynamic(value: string): boolean {
+  return /\b(dynamic|runtime|reproduced|controlled reproduction|debugger|crash|sanitizer|poc|exploit)\b/i.test(value);
+}
+
+function evidenceTextLooksStatic(value: string): boolean {
+  return /\b(static|tool-backed|lead|plausible|identified|present|not proven|not reproduced|hypothesis only)\b/i.test(value);
 }
 
 function gateSessionHeat(heat: SessionHeat, evidenceScore: number): SessionHeat {

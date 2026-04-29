@@ -256,6 +256,88 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('promotes reproduced verifier-backed hypotheses into reproduced findings', () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    const router = new BealeToolRouter(db);
+
+    const hypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'needs_evidence',
+      title: 'Exported provider exposes token store',
+      description: 'The exported provider returns sensitive token-store rows to authorized callers.',
+      component: 'android content provider',
+      bug_class: 'ipc_authz',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'medium',
+      cwe_mapping_rationale: 'The issue concerns missing authorization on IPC access.',
+      attacker_reachability: '2 local app IPC',
+      impact: '3 token store exposure',
+      evidence_confidence: '2 static evidence',
+      exploit_practicality: '2 moderate constraints',
+      scope_confidence: '2 in-scope asset',
+      priority_score: 34
+    });
+    expect(hypothesis.status).toBe('success');
+    const hypothesisId = hypothesis.payload.hypothesisId as string;
+
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: hypothesisId,
+      expectation: 'Static verifier should confirm the exported provider token-store path.',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'PASS: exported provider token-store path confirmed'",
+      artifact_path: '',
+      expected_stdout: 'PASS: exported provider token-store path confirmed'
+    });
+    expect(verifier.status).toBe('success');
+    expect(verifier.payload.status).toBe('pass');
+    const verifierRunId = verifier.payload.verifierRunId as string;
+
+    const evidence = callTool(router, context, 'evidence', {
+      kind: 'verifier',
+      summary: 'Verifier confirmed the exported provider token-store path.',
+      hypothesis_id: hypothesisId,
+      finding_id: '',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_run_id: verifierRunId
+    });
+    expect(evidence.status).toBe('success');
+
+    const update = callTool(router, context, 'hypothesis', {
+      hypothesis_id: hypothesisId,
+      state: 'reproduced',
+      title: 'Exported provider exposes token store',
+      description: 'The exported provider returns sensitive token-store rows to authorized callers.',
+      component: 'android content provider',
+      bug_class: 'ipc_authz',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'medium',
+      cwe_mapping_rationale: 'The verifier-backed path concerns missing authorization on IPC access.',
+      attacker_reachability: '2 local app IPC',
+      impact: '3 token store exposure',
+      evidence_confidence: '3 verifier-backed reproduction',
+      exploit_practicality: '2 moderate constraints',
+      scope_confidence: '2 in-scope asset',
+      priority_score: 42
+    });
+    expect(update.status).toBe('success');
+    expect(update.payload.autoPromotedFindingIds).toHaveLength(1);
+
+    const detail = db.getRunDetail(context.run.id);
+    const finding = detail.findings.find((item) => item.hypothesisId === hypothesisId);
+    expect(finding?.state).toBe('reproduced');
+    expect(finding?.verifiedByVerifierRunId).toBe(verifierRunId);
+    expect(finding?.cweMappings[0]?.cweId).toBe('CWE-862');
+    expect(detail.evidence.some((item) => item.findingId === finding?.id && item.verifierRunId === verifierRunId)).toBe(true);
+    expect(detail.traceEvents.some((event) => event.type === 'finding_event' && event.payload.action === 'auto_create')).toBe(true);
+    db.close();
+  });
+
   it('runs Python and the debugger wrapper through the disposable VM controller boundary', () => {
     const { db, context, logPath } = openStructuredToolDb();
     context.run.networkProfile = 'elevated';
@@ -434,6 +516,49 @@ describe('structured research tools', () => {
 
     expect(ftlAsset).toBeTruthy();
     expect(context.run.targetAssetId).toBe(ftlAsset?.id);
+    expect(context.run.targetPath).toBeNull();
+    db.close();
+  });
+
+  it('selects an exact mobile app target instead of a materialized repo owner alias', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'beale-netflix-repo-assets-'));
+    createdDirs.push(repoRoot);
+    const zuulPath = join(repoRoot, 'github.com_Netflix_zuul');
+    mkdirSync(zuulPath, { recursive: true });
+    const { db, context } = openStructuredToolDb('host_research_only', {
+      title: 'Netflix Android Mobile App High-Impact Audit',
+      promptMarkdown: [
+        '# Netflix Android mobile app high-impact audit',
+        '',
+        'Focus on the underexplored in-scope mobile target:',
+        '',
+        '- Netflix Mobile Application for Android / com.netflix.mediaclient'
+      ].join('\n'),
+      extraAssets: [
+        {
+          direction: 'in_scope',
+          kind: 'repo',
+          value: zuulPath,
+          sensitivity: 'public',
+          attributes: { repositoryUrl: 'https://github.com/Netflix/zuul' }
+        },
+        {
+          direction: 'in_scope',
+          kind: 'domain',
+          value: 'com.netflix.mediaclient',
+          sensitivity: 'public',
+          attributes: {
+            source: 'hackerone',
+            assetType: 'GOOGLE_PLAY_APP_ID',
+            instruction: 'Netflix Mobile Application for Android'
+          }
+        }
+      ]
+    });
+    const appAsset = db.getActiveScope().assets.find((asset) => asset.value === 'com.netflix.mediaclient');
+
+    expect(appAsset).toBeTruthy();
+    expect(context.run.targetAssetId).toBe(appAsset?.id);
     expect(context.run.targetPath).toBeNull();
     db.close();
   });

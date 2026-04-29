@@ -347,6 +347,18 @@ function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
   return run.status === 'pass' && run.result.realExecution === true && (run.result.vmExecution === true || run.result.hostExecution === true);
 }
 
+function weaknessMappingInputs(records: WeaknessMappingRecord[]): WeaknessMappingInput[] {
+  return records.map((record) => ({
+    cweId: record.cweId,
+    cweName: record.cweName,
+    mappingRole: record.mappingRole,
+    mappingStatus: record.mappingStatus,
+    confidence: record.confidence,
+    rationaleMarkdown: record.rationaleMarkdown,
+    source: record.source
+  }));
+}
+
 function text(row: SqlRow, key: string): string {
   const value = row[key];
   return typeof value === 'string' ? value : String(value ?? '');
@@ -1905,6 +1917,7 @@ export class WorkspaceDatabase {
   public getRunDetail(runId: string): RunDetail {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
+    this.ensureFindingsForReproducedHypotheses(runId);
     return {
       run,
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
@@ -1944,6 +1957,94 @@ export class WorkspaceDatabase {
       policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
       exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
     };
+  }
+
+  public ensureFindingsForReproducedHypotheses(
+    runId: string,
+    options: { attemptId?: string | null; vmContextId?: string | null; modelVisible?: boolean; reason?: string } = {}
+  ): FindingRecord[] {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+
+    const created: FindingRecord[] = [];
+    const hypotheses = rows(
+      this.db
+        .prepare("SELECT * FROM hypotheses WHERE run_id = ? AND state IN ('reproduced', 'promoted') ORDER BY priority_score DESC, created_at ASC")
+        .all(runId)
+    ).map((row) => this.mapHypothesis(row));
+
+    for (const hypothesis of hypotheses) {
+      const existingFinding = rowOrUndefined(
+        this.db
+          .prepare(
+            `SELECT id FROM findings
+             WHERE run_id = ? AND hypothesis_id = ? AND state NOT IN ('dismissed', 'out_of_scope', 'false_positive', 'duplicate')
+             LIMIT 1`
+          )
+          .get(runId, hypothesis.id)
+      );
+      if (existingFinding) continue;
+
+      const evidence = rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? AND hypothesis_id = ? ORDER BY created_at ASC').all(runId, hypothesis.id)).map((row) =>
+        this.mapEvidence(row)
+      );
+      const verifierEvidence = evidence.find((item) => {
+        if (!item.verifierRunId) return false;
+        const verifierRun = this.getVerifierRun(item.verifierRunId);
+        return verifierRun ? verifierRunIsRealPass(verifierRun) : false;
+      });
+      if (!verifierEvidence?.verifierRunId) continue;
+
+      const finding = this.createFinding({
+        runId,
+        hypothesisId: hypothesis.id,
+        state: 'reproduced',
+        title: hypothesis.title,
+        summaryMarkdown: `${hypothesis.descriptionMarkdown}\n\nEvidence: ${verifierEvidence.summary}`,
+        affectedAssets: { component: hypothesis.component },
+        affectedVersions: {},
+        impactMarkdown: hypothesis.impact,
+        priorityScore: hypothesis.priorityScore,
+        verifiedByVerifierRunId: verifierEvidence.verifierRunId,
+        cweMappings: weaknessMappingInputs(hypothesis.cweMappings)
+      });
+      created.push(finding);
+
+      this.createEvidence({
+        runId,
+        hypothesisId: hypothesis.id,
+        findingId: finding.id,
+        kind: verifierEvidence.kind,
+        summary: verifierEvidence.summary,
+        observationTraceEventId: verifierEvidence.observationTraceEventId,
+        artifactId: verifierEvidence.artifactId,
+        verifierRunId: verifierEvidence.verifierRunId
+      });
+
+      this.appendTraceEvent({
+        runId,
+        attemptId: options.attemptId ?? null,
+        type: 'finding_event',
+        source: 'system',
+        summary: `Finding created from reproduced verifier-backed hypothesis: ${finding.title}.`,
+        payload: {
+          observationBacked: true,
+          claimStatus: 'verifier_backed_reproduced_finding',
+          action: 'auto_create',
+          findingId: finding.id,
+          hypothesisId: hypothesis.id,
+          title: finding.title,
+          state: finding.state,
+          priorityScore: finding.priorityScore,
+          verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+          reason: options.reason ?? 'reproduced_hypothesis_with_real_verifier_evidence'
+        },
+        vmContextId: options.vmContextId ?? null,
+        modelVisible: options.modelVisible ?? false
+      });
+    }
+
+    return created;
   }
 
   public getRun(runId: string): RunRecord | null {

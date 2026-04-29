@@ -117,8 +117,9 @@ function targetAliases(asset: ScopeAsset): string[] {
   if (asset.kind === 'repo') {
     addRepositoryNameAlias(aliases, asset.value);
     addRepositoryNameAlias(aliases, stringAttribute(asset.attributes?.repositoryUrl));
+    addMaterializedRepositoryNameAlias(aliases, asset.value);
   }
-  if (isScopedLocalAsset(asset) || asset.kind === 'repo') {
+  if (isScopedLocalAsset(asset) && asset.kind !== 'repo') {
     for (const part of basename(asset.value).split(/[^A-Za-z0-9]+/)) {
       if (part.length >= 4 && !GENERIC_ALIASES.has(part.toLowerCase())) aliases.add(part);
     }
@@ -156,6 +157,11 @@ function addStringAttributeAlias(aliases: Set<string>, value: unknown): void {
 function addRepositoryNameAlias(aliases: Set<string>, value: string): void {
   if (!looksLikeUrl(value)) return;
   const name = repositoryNameFromUrl(value);
+  if (name && !GENERIC_ALIASES.has(name.toLowerCase())) aliases.add(name);
+}
+
+function addMaterializedRepositoryNameAlias(aliases: Set<string>, value: string): void {
+  const name = basename(value).match(/^github\.com_[^_]+_(.+)$/i)?.[1];
   if (name && !GENERIC_ALIASES.has(name.toLowerCase())) aliases.add(name);
 }
 
