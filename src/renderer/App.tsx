@@ -801,9 +801,12 @@ export function App(): JSX.Element {
   const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const researchMomentum = researchMomentumForDetail(activeRunDetail, sessionHeat);
+  const researchActive = activeRunDetail?.run.status === 'active';
   const appShellClassName = [
     'app-shell',
     `session-heat-${sessionHeat}`,
+    `momentum-${researchMomentum.state}`,
+    researchActive ? 'research-active' : '',
     windowChromeState.isMaximized || windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     sidebarCollapsed ? 'sidebar-collapsed' : '',
     inspectorOpen ? 'inspector-open' : ''
@@ -2355,16 +2358,14 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
     <div className="main-trace-python-preview">
       {preview.task ? <p>{preview.task}</p> : null}
       {preview.scriptLines.length > 0 ? (
-        <>
-          <pre>
-            <code className="syntax-code language-python">{highlightPythonCode(preview.scriptLines.join('\n'))}</code>
-          </pre>
+        <pre className={preview.truncated ? 'is-truncated' : undefined}>
+          <code className="syntax-code language-python">{highlightPythonCode(preview.scriptLines.join('\n'))}</code>
           {preview.truncated ? (
-            <div className="main-trace-python-more" aria-hidden="true">
+            <span className="main-trace-python-more" aria-hidden="true">
               <span>View More</span>
-            </div>
+            </span>
           ) : null}
-        </>
+        </pre>
       ) : null}
     </div>
   );
