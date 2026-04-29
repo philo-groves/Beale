@@ -1130,7 +1130,7 @@ export class WorkspaceDatabase {
 
   public updateRunStatus(runId: string, status: RunStatus, summary: string): void {
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
-    this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = COALESCE(?, ended_at) WHERE id = ?').run(status, summary, endedAt, runId);
+    this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
   }
 
   public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {
@@ -1160,7 +1160,7 @@ export class WorkspaceDatabase {
   public updateAttemptState(attemptId: string, status: AttemptStatus, shortState: string): void {
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
     this.db
-      .prepare('UPDATE attempts SET status = ?, short_state = ?, ended_at = COALESCE(?, ended_at) WHERE id = ?')
+      .prepare('UPDATE attempts SET status = ?, short_state = ?, ended_at = ? WHERE id = ?')
       .run(status, shortState, endedAt, attemptId);
   }
 

@@ -549,6 +549,37 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
+  it('steers an OpenAI run in place without creating a forked run', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      const responseId = requests.length === 1 ? 'resp_initial' : 'resp_steered';
+      return new Response(sse(finalResponseEvents(responseId)), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    expect(db.listRunRows()).toHaveLength(1);
+    const steered = engine.steerRun(handle.context.run.id, 'Focus on auth boundary checks.');
+    await steered?.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(db.listRunRows()).toHaveLength(1);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(requests[1].previous_response_id).toBe('resp_initial');
+    expect(JSON.stringify(requests[1].input)).toContain('# User Steering');
+    expect(JSON.stringify(requests[1].input)).toContain('Focus on auth boundary checks.');
+    db.close();
+  });
+
   it('compacts and retries once after a context-window error', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
     const requests: Array<Record<string, unknown>> = [];

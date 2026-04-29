@@ -334,6 +334,7 @@ code {
   --session-heat-edge: rgba(255, 255, 255, 0.1);
   --session-heat-accent: transparent;
   --session-heat-opacity: 1;
+  --session-gradient-duration: 34s;
   height: 100%;
   position: relative;
   isolation: isolate;
@@ -366,16 +367,93 @@ code {
   z-index: 0;
   opacity: var(--session-heat-opacity);
   pointer-events: none;
+  transform: translate3d(0, 0, 0) scale(1);
   transition: opacity 300ms ease, transform 480ms ease;
   background:
     radial-gradient(ellipse at 68% 0%, var(--session-heat-wash) 0%, transparent 48%),
+    radial-gradient(ellipse at 16% 92%, var(--session-heat-wash) 0%, transparent 44%),
     linear-gradient(180deg, var(--session-heat-edge) 0%, transparent 20%, transparent 78%, var(--session-heat-edge) 100%);
   background-position:
     50% 0%,
+    0% 100%,
     50% 50%;
   background-size:
     136% 136%,
+    142% 142%,
     100% 100%;
+  animation: session-gradient-dance var(--session-gradient-duration) ease-in-out infinite;
+  animation-play-state: paused;
+  will-change: transform, background-position;
+}
+
+.app-shell.momentum-exploring {
+  --session-gradient-duration: 34s;
+}
+
+.app-shell.momentum-building {
+  --session-gradient-duration: 24s;
+}
+
+.app-shell.momentum-verifying {
+  --session-gradient-duration: 16s;
+}
+
+.app-shell.momentum-hot {
+  --session-gradient-duration: 9s;
+}
+
+.app-shell.momentum-stuck {
+  --session-gradient-duration: 12s;
+}
+
+.app-shell.momentum-exploring::before,
+.app-shell.momentum-building::before,
+.app-shell.momentum-verifying::before,
+.app-shell.momentum-hot::before,
+.app-shell.momentum-stuck::before {
+  animation-play-state: running;
+}
+
+@keyframes session-gradient-dance {
+  0% {
+    transform: translate3d(-1.2%, -0.4%, 0) scale(1.02);
+    background-position:
+      48% 0%,
+      1% 100%,
+      50% 50%;
+  }
+
+  22% {
+    transform: translate3d(1.6%, -1.1%, 0) scale(1.035);
+    background-position:
+      62% 6%,
+      10% 88%,
+      50% 48%;
+  }
+
+  48% {
+    transform: translate3d(0.8%, 1.4%, 0) scale(1.025);
+    background-position:
+      74% 16%,
+      22% 96%,
+      50% 52%;
+  }
+
+  72% {
+    transform: translate3d(-1.4%, 0.7%, 0) scale(1.04);
+    background-position:
+      58% 10%,
+      8% 82%,
+      50% 51%;
+  }
+
+  100% {
+    transform: translate3d(-1.2%, -0.4%, 0) scale(1.02);
+    background-position:
+      48% 0%,
+      1% 100%,
+      50% 50%;
+  }
 }
 
 .app-shell > * {
@@ -1635,6 +1713,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   width: 100%;
   display: grid;
   gap: 5px;
+  align-content: start;
+  align-items: stretch;
+  justify-content: stretch;
+  justify-items: stretch;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: #111111;
@@ -1729,17 +1811,23 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-research-topline {
+  width: 100%;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+  justify-self: stretch;
   gap: 8px;
+  text-align: left;
 }
 
 .main-hypothesis-meta {
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
+  align-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 6px;
   padding-top: 4px;
@@ -1752,7 +1840,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .hypothesis-pill {
   box-sizing: border-box;
   max-width: 100%;
-  height: 19px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1760,7 +1848,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.18);
   color: var(--muted-strong);
-  padding: 0 7px;
+  padding: 1px 7px 0;
   font-size: 0.68rem;
   font-weight: 760;
   line-height: 1;
@@ -1784,11 +1872,14 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-finding-topline {
+  width: 100%;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+  justify-self: stretch;
   gap: 8px;
+  text-align: left;
 }
 
 .main-research-topline strong,
@@ -1812,13 +1903,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .cwe-pill {
   box-sizing: border-box;
   max-width: 78px;
-  height: 19px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #3a3a3a;
   border-radius: 999px;
-  padding: 0 6px;
+  padding: 1px 6px 0;
   background: #181818;
   color: #d5d5d5;
   font-size: 0.68rem;
@@ -4153,6 +4244,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .app-shell::before {
+    animation: none;
+  }
+
   .environment-pill.is-active::after {
     animation: none;
     opacity: 0;

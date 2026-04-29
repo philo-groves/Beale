@@ -547,6 +547,28 @@ export class WorkspaceService {
         });
         break;
       }
+      case 'steer': {
+        const instruction = action.instruction.trim();
+        if (!instruction) {
+          throw new Error('Steering instruction cannot be empty.');
+        }
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'user_note',
+          source: 'user',
+          summary: 'User steering added to current run.',
+          payload: { instruction: redactForModelText(instruction) }
+        });
+        if (run.budget.runEngine === 'openai_responses') {
+          this.requireOpenAiEngine().steerRun(action.runId, instruction);
+        } else if (run.status === 'paused') {
+          if (attempt) db.updateAttemptState(attempt.id, 'active', 'User steering added to current run.');
+          db.updateRunStatus(action.runId, 'active', 'User steering added to current run.');
+          engine.resume(action.runId);
+        }
+        break;
+      }
       case 'fork': {
         db.appendTraceEvent({
           runId: action.runId,

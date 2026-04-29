@@ -668,8 +668,15 @@ describe('Beale workbench skeleton', () => {
     const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
     const runId = snapshot.runs[0].run.id;
 
-    service.steerRun({ type: 'pause', runId });
+    service.steerRun({ type: 'steer', runId, instruction: 'Focus on auth boundary checks.' });
     let detail = service.getRunDetail(runId);
+    expect(service.getSnapshot()?.runs).toHaveLength(1);
+    expect(detail.run.id).toBe(runId);
+    expect(detail.traceEvents.at(-1)?.summary).toBe('User steering added to current run.');
+    expect(detail.traceEvents.at(-1)?.payload.instruction).toBe('Focus on auth boundary checks.');
+
+    service.steerRun({ type: 'pause', runId });
+    detail = service.getRunDetail(runId);
     expect(detail.run.status).toBe('paused');
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run paused by user.');
 

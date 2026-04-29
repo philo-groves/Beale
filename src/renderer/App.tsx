@@ -788,7 +788,7 @@ export function App(): JSX.Element {
 
   const handleSteerInstruction = useCallback(
     (runId: string, instruction: string): void => {
-      void runAction(() => window.beale.steerRun({ type: 'fork', runId, instruction }));
+      void runAction(() => window.beale.steerRun({ type: 'steer', runId, instruction }));
     },
     [runAction]
   );
@@ -1062,7 +1062,7 @@ export function App(): JSX.Element {
           busy={busy}
           onClose={() => setActiveNotification(null)}
           onSteer={(instruction) => {
-            void runAction(() => window.beale.steerRun({ type: 'fork', runId: activeNotification.runId, instruction }));
+            void runAction(() => window.beale.steerRun({ type: 'steer', runId: activeNotification.runId, instruction }));
             setActiveNotification(null);
           }}
         />
@@ -1307,7 +1307,7 @@ function StatusBar({
 function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; momentum: ResearchMomentum }): JSX.Element {
   const label = researchMomentumLabel(momentum.state);
   const contextMeter = contextMeterForDetail(detail);
-  const title = `Research momentum: ${label}. ${momentum.reason} Context: ${contextMeter.label} from ${contextMeter.source}; strawberry marks ${formatCompactContextNumber(contextMeter.tokenLimit)} tokens.`;
+  const title = `Momentum: ${label}\nContext: ${contextMeter.label}`;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextFractionRef = useRef(contextMeter.fraction);
   const reduceMotion = usePrefersReducedMotion();
@@ -1413,17 +1413,17 @@ function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, hei
   context.lineJoin = 'round';
   drawMomentumSnakePath(context, points);
   context.strokeStyle = 'rgba(68, 68, 65, 0.6)';
-  context.lineWidth = 7;
+  context.lineWidth = 9.5;
   context.stroke();
 
   drawMomentumSnakePath(context, points);
   context.strokeStyle = '#b4b2a9';
-  context.lineWidth = clampedMomentum > 0.85 ? 4.8 : 4;
+  context.lineWidth = clampedMomentum > 0.85 ? 7.2 : 6.5;
   context.stroke();
 
   drawMomentumSnakePath(context, points);
   context.strokeStyle = 'rgba(209, 207, 199, 0.15)';
-  context.lineWidth = 1.5;
+  context.lineWidth = 2.2;
   context.stroke();
   context.restore();
 

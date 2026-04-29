@@ -25,6 +25,7 @@ import {
 import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
 import { isHostResearchSandbox } from './hostToolExecutor';
+import { redactForModelText } from './redaction';
 import type { ExecutorManager } from './executorManager';
 import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
@@ -58,6 +59,8 @@ interface StreamTraceState {
 
 export class OpenAiRunEngine {
   private readonly controllers = new Map<string, AbortController>();
+  private readonly completions = new Map<string, Promise<void>>();
+  private readonly pendingSteeringResumes = new Set<string>();
 
   public constructor(
     private readonly db: WorkspaceDatabase,
@@ -183,8 +186,13 @@ export class OpenAiRunEngine {
     const runInput = { ...input, targetAssetId: context.run.targetAssetId, targetPath: context.run.targetPath };
     const completion = this.runLoop(context, runInput, controller).finally(() => {
       this.controllers.delete(context.run.id);
+      if (this.pendingSteeringResumes.delete(context.run.id)) {
+        this.resumeRun(context.run.id);
+        return;
+      }
       this.onChange();
     });
+    this.trackCompletion(context.run.id, completion);
     return { context, completion };
   }
 
@@ -269,9 +277,53 @@ export class OpenAiRunEngine {
     this.controllers.set(runId, controller);
     const completion = this.runLoop(context, input, controller, resumeState).finally(() => {
       this.controllers.delete(runId);
+      if (this.pendingSteeringResumes.delete(runId)) {
+        this.resumeRun(runId);
+        return;
+      }
       this.onChange();
     });
+    this.trackCompletion(runId, completion);
     return { context, completion };
+  }
+
+  public steerRun(runId: string, instruction: string): OpenAiRunHandle | null {
+    const detail = this.db.getRunDetail(runId);
+    if (detail.run.budget.runEngine !== 'openai_responses') {
+      return null;
+    }
+    const attempt = detail.attempts[0];
+    if (!attempt) {
+      throw new Error(`OpenAI run has no attempt to steer: ${runId}`);
+    }
+    const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
+    if (!vmContext) {
+      throw new Error(`OpenAI run has no VM context to steer: ${runId}`);
+    }
+
+    const state = buildSteeredRunState(detail.modelSessions.at(-1), detail, instruction);
+    this.db.updateAttemptState(attempt.id, 'active', 'User steering added to OpenAI run.');
+    this.db.updateRunStatus(runId, 'active', 'User steering added to OpenAI run.');
+    this.db.updateModelSessionByRun(runId, {
+      status: 'steering_requested',
+      previousResponseId: state.previousResponseId,
+      metadata: {
+        pendingInput: state.responseInput,
+        manualConversationInput: state.manualConversationInput,
+        previousResponseIdUnsupported: state.previousResponseIdUnsupported,
+        replayMode: state.replayMode,
+        steeringInstruction: redactForModelText(instruction)
+      }
+    });
+
+    const activeController = this.controllers.get(runId);
+    if (activeController) {
+      this.pendingSteeringResumes.add(runId);
+      activeController.abort();
+      return { context: { run: detail.run, attempt, vmContext }, completion: this.completions.get(runId) ?? Promise.resolve() };
+    }
+
+    return this.resumeRun(runId);
   }
 
   public pause(runId: string): void {
@@ -289,6 +341,15 @@ export class OpenAiRunEngine {
     }
     this.controllers.clear();
     this.adapter.closeAllWebSocketSessions();
+  }
+
+  private trackCompletion(runId: string, completion: Promise<void>): void {
+    this.completions.set(runId, completion);
+    completion.finally(() => {
+      if (this.completions.get(runId) === completion) {
+        this.completions.delete(runId);
+      }
+    });
   }
 
   private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
@@ -1030,6 +1091,43 @@ function buildResumeState(session: ModelSessionRecord | undefined, detail: RunDe
     previousResponseIdUnsupported,
     replayMode: 'compacted_replay'
   };
+}
+
+function buildSteeredRunState(session: ModelSessionRecord | undefined, detail: RunDetail, instruction: string): RunLoopState {
+  const base = buildResumeState(session, detail);
+  const steeringInput = userSteeringInput(instruction, detail);
+  const canUsePreviousResponseState = Boolean(base.previousResponseId && !base.previousResponseIdUnsupported);
+
+  return {
+    responseInput: canUsePreviousResponseState ? steeringInput : [...base.responseInput, ...steeringInput],
+    previousResponseId: base.previousResponseId,
+    manualConversationInput: [...base.manualConversationInput, ...steeringInput],
+    previousResponseIdUnsupported: base.previousResponseIdUnsupported,
+    replayMode: canUsePreviousResponseState ? 'previous_response' : base.replayMode
+  };
+}
+
+function userSteeringInput(instruction: string, detail: RunDetail): ResponseInputItem[] {
+  return [
+    {
+      type: 'message',
+      role: 'user',
+      content: [
+        {
+          type: 'input_text',
+          text: [
+            '# User Steering',
+            'The user added this direction to the current Beale research session. Continue the same session; do not restart from scratch or create a new branch unless explicitly asked.',
+            `Run id: ${detail.run.id}`,
+            `Run status before steering: ${detail.run.status}`,
+            '',
+            '## Direction',
+            redactForModelText(instruction)
+          ].join('\n')
+        }
+      ]
+    }
+  ];
 }
 
 function responseInputFromMetadata(value: unknown): ResponseInputItem[] | null {

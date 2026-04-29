@@ -842,6 +842,7 @@ export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
   | { type: 'resume'; runId: string; note?: string }
   | { type: 'stop'; runId: string; note?: string }
+  | { type: 'steer'; runId: string; instruction: string }
   | { type: 'fork'; runId: string; instruction: string }
   | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
   | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }
