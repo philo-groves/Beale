@@ -27,6 +27,7 @@ import {
   LockKeyhole,
   Monitor,
   MoreVertical,
+  Minus,
   Network,
   PackageCheck,
   PanelLeftClose,
@@ -87,6 +88,7 @@ import type {
   WeaknessMappingRecord,
   VmPreference,
   VmPreferenceInput,
+  WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
 import { displaySessionTitle } from '../shared/sessionTitle';
@@ -393,6 +395,7 @@ export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
+  const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
@@ -492,11 +495,18 @@ export function App(): JSX.Element {
       .then(setOpenAiStatus)
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
+    window.beale
+      .getWindowChromeState()
+      .then(setWindowChromeState)
+      .catch((caught: unknown) => setError(errorMessage(caught)));
+
     const unsubscribeSnapshot = window.beale.onSnapshot(applySnapshot);
     const unsubscribeProgramRegistry = window.beale.onProgramRegistry(setProgramRegistry);
+    const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
     return () => {
       unsubscribeSnapshot();
       unsubscribeProgramRegistry();
+      unsubscribeWindowChromeState();
     };
   }, [applySnapshot]);
 
@@ -794,6 +804,7 @@ export function App(): JSX.Element {
   const appShellClassName = [
     'app-shell',
     `session-heat-${sessionHeat}`,
+    windowChromeState.isMaximized || windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     sidebarCollapsed ? 'sidebar-collapsed' : '',
     inspectorOpen ? 'inspector-open' : ''
   ]
@@ -803,17 +814,14 @@ export function App(): JSX.Element {
     sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
   const vmPreference = programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
+  const windowControlPlatform = (snapshot?.workspace.hostEnvironment ?? hostEnvironment)?.platform ?? 'linux';
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        inspectorOpen={inspectorOpen}
+        platform={windowControlPlatform}
         onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
-        onToggleInspector={() => setInspectorOpen((current) => !current)}
-        onOpenTraceFilters={() => setTraceFilterOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        traceFilterCount={visibleTraceCategories.length}
       />
       <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
         <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
@@ -965,10 +973,15 @@ export function App(): JSX.Element {
         activity={environmentActivityForDetail(activeRunDetail)}
         momentum={researchMomentum}
         notificationCount={snapshot?.notifications.length ?? 0}
+        inspectorOpen={inspectorOpen}
+        traceFilterCount={visibleTraceCategories.length}
         onConfigureVm={() => {
           setSettingsSection('general');
           setSettingsOpen(true);
         }}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenTraceFilters={() => setTraceFilterOpen(true)}
+        onToggleInspector={() => setInspectorOpen((current) => !current)}
       />
       <NotificationStack notifications={snapshot?.notifications ?? []} onOpen={openNotification} onDismiss={dismissNotification} />
       {programDraft ? (
@@ -1091,26 +1104,19 @@ function shortRelativeAge(iso: string): string {
 
 function TopBar({
   sidebarCollapsed,
-  inspectorOpen,
-  onOpenSettings,
-  onOpenTraceFilters,
-  onToggleSidebar,
-  onToggleInspector,
-  traceFilterCount
+  platform,
+  onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
-  inspectorOpen: boolean;
-  onOpenSettings: () => void;
-  onOpenTraceFilters: () => void;
+  platform: HostEnvironment['platform'];
   onToggleSidebar: () => void;
-  onToggleInspector: () => void;
-  traceFilterCount: number;
 }): JSX.Element {
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
-  const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
+  const isMac = platform === 'darwin';
 
   return (
-    <header className="top-bar">
+    <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'}`}>
+      {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
       <nav className="window-menu" aria-label="Application menu">
         <button
           type="button"
@@ -1127,28 +1133,25 @@ function TopBar({
         <button type="button">View</button>
         <button type="button">Window</button>
       </nav>
-      <div className="top-actions">
-        <button
-          type="button"
-          title={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
-          onClick={onOpenTraceFilters}
-        >
-          <SlidersHorizontal size={14} />
-        </button>
-        <button type="button" title="Settings" onClick={onOpenSettings}>
-          <Settings size={14} />
-        </button>
-        <button
-          type="button"
-          title={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
-          aria-label={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
-          aria-pressed={inspectorOpen}
-          onClick={onToggleInspector}
-        >
-          <InspectorToggleIcon size={14} />
-        </button>
-      </div>
+      {!isMac ? (
+        <div className="window-controls" aria-label="Window controls">
+          <button type="button" className="window-control-button" title="Minimize" aria-label="Minimize" onClick={() => void window.beale.minimizeWindow()}>
+            <Minus size={15} />
+          </button>
+          <button
+            type="button"
+            className="window-control-button"
+            title="Maximize"
+            aria-label="Maximize"
+            onClick={() => void window.beale.toggleMaximizeWindow()}
+          >
+            <Square size={13} />
+          </button>
+          <button type="button" className="window-control-button window-control-close" title="Close" aria-label="Close" onClick={() => void window.beale.closeWindow()}>
+            <X size={15} />
+          </button>
+        </div>
+      ) : null}
     </header>
   );
 }
@@ -1160,7 +1163,12 @@ function StatusBar({
   activity,
   momentum,
   notificationCount,
-  onConfigureVm
+  inspectorOpen,
+  traceFilterCount,
+  onConfigureVm,
+  onOpenSettings,
+  onOpenTraceFilters,
+  onToggleInspector
 }: {
   hostEnvironment: HostEnvironment | null;
   executor: ExecutorStatus | null;
@@ -1168,10 +1176,16 @@ function StatusBar({
   activity: EnvironmentActivity;
   momentum: ResearchMomentum;
   notificationCount: number;
+  inspectorOpen: boolean;
+  traceFilterCount: number;
   onConfigureVm: () => void;
+  onOpenSettings: () => void;
+  onOpenTraceFilters: () => void;
+  onToggleInspector: () => void;
 }): JSX.Element {
   const osLabel = hostEnvironmentLabel(hostEnvironment);
   const vmTarget = vmTargetStatus(executor, vmPreference);
+  const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
 
   return (
     <footer className="status-bar">
@@ -1192,10 +1206,34 @@ function StatusBar({
         </div>
       </div>
       <ResearchMomentumLine momentum={momentum} />
-      <button type="button" className="notification-button" title={`${notificationCount} unread notification${notificationCount === 1 ? '' : 's'}`}>
-        <Bell size={15} />
-        {notificationCount > 0 ? <span>{notificationCount}</span> : null}
-      </button>
+      <div className="status-actions" aria-label="Application actions">
+        <button
+          type="button"
+          className="status-icon-button"
+          title={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
+          aria-label={`Trace filters (${traceFilterCount}/${ALL_TRACE_CATEGORY_IDS.length} shown)`}
+          onClick={onOpenTraceFilters}
+        >
+          <SlidersHorizontal size={14} />
+        </button>
+        <button type="button" className="status-icon-button" title="Settings" aria-label="Settings" onClick={onOpenSettings}>
+          <Settings size={14} />
+        </button>
+        <button type="button" className="status-icon-button notification-button" title={`${notificationCount} unread notification${notificationCount === 1 ? '' : 's'}`}>
+          <Bell size={15} />
+          {notificationCount > 0 ? <span>{notificationCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className="status-icon-button"
+          title={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+          aria-label={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+          aria-pressed={inspectorOpen}
+          onClick={onToggleInspector}
+        >
+          <InspectorToggleIcon size={14} />
+        </button>
+      </div>
     </footer>
   );
 }

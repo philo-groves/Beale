@@ -167,6 +167,11 @@ export interface HostEnvironment {
   remoteName: string | null;
 }
 
+export interface WindowChromeState {
+  isMaximized: boolean;
+  isFullScreen: boolean;
+}
+
 export interface ProgramRegistryEntry {
   id: string;
   workspacePath: string;
@@ -890,6 +895,11 @@ export interface BealeApi {
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;
+  minimizeWindow(): Promise<void>;
+  toggleMaximizeWindow(): Promise<void>;
+  closeWindow(): Promise<void>;
+  getWindowChromeState(): Promise<WindowChromeState>;
+  onWindowChromeState(listener: (state: WindowChromeState) => void): () => void;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
   onProgramRegistry(listener: (state: ProgramRegistryState) => void): () => void;
 }

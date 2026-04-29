@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
@@ -18,14 +19,26 @@ let workspaceService: WorkspaceService;
 const smokeTestMode = process.argv.includes('--smoke-test');
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 940,
     minWidth: 1120,
     minHeight: 760,
     title: 'Beale',
-    backgroundColor: '#050505',
+    backgroundColor: '#00000000',
     autoHideMenuBar: true,
+    transparent: true,
+    hasShadow: true,
+    roundedCorners: true,
+    ...(isMac
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 12, y: 13 }
+        }
+      : {
+          frame: false
+        }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -33,13 +46,41 @@ function createWindow(): void {
       sandbox: false
     }
   });
+  mainWindow.setBackgroundColor('#00000000');
   mainWindow.setMenuBarVisibility(false);
+  registerWindowChromeStateEvents(mainWindow);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+}
+
+function windowForEvent(event: IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function windowChromeState(window: BrowserWindow | null): { isMaximized: boolean; isFullScreen: boolean } {
+  return {
+    isMaximized: window?.isMaximized() ?? false,
+    isFullScreen: window?.isFullScreen() ?? false
+  };
+}
+
+function sendWindowChromeState(window: BrowserWindow): void {
+  if (!window.isDestroyed()) {
+    window.webContents.send(IPC_CHANNELS.windowChromeStateUpdated, windowChromeState(window));
+  }
+}
+
+function registerWindowChromeStateEvents(window: BrowserWindow): void {
+  const send = (): void => sendWindowChromeState(window);
+  window.on('maximize', send);
+  window.on('unmaximize', send);
+  window.on('enter-full-screen', send);
+  window.on('leave-full-screen', send);
+  window.webContents.once('did-finish-load', send);
 }
 
 function broadcastSnapshot(): void {
@@ -101,6 +142,22 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) => workspaceService.steerRun(action));
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));
+  ipcMain.handle(IPC_CHANNELS.minimizeWindow, (event) => {
+    windowForEvent(event)?.minimize();
+  });
+  ipcMain.handle(IPC_CHANNELS.toggleMaximizeWindow, (event) => {
+    const window = windowForEvent(event);
+    if (!window) return;
+    if (window.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.closeWindow, (event) => {
+    windowForEvent(event)?.close();
+  });
+  ipcMain.handle(IPC_CHANNELS.getWindowChromeState, (event) => windowChromeState(windowForEvent(event)));
 }
 
 app.whenReady().then(() => {

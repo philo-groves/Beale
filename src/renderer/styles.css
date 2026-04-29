@@ -4,7 +4,7 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   color: #f2f2f2;
-  background: #151515;
+  background: transparent;
   letter-spacing: 0;
   --bg: #151515;
   --chrome: #151515;
@@ -34,6 +34,8 @@
   --shadow: none;
   --sidebar-width: 292px;
   --inspector-width: 304px;
+  --app-window-radius: 12px;
+  --app-window-border: rgba(255, 255, 255, 0.16);
   --inset-scrollbar-thumb: rgba(255, 255, 255, 0.24);
   --inset-scrollbar-thumb-strong: rgba(255, 255, 255, 0.34);
 }
@@ -48,11 +50,12 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
+  background: transparent;
 }
 
 body {
   overflow: hidden;
-  background: var(--bg);
+  background: transparent;
 }
 
 body.is-resizing-sidebar {
@@ -338,11 +341,22 @@ code {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0;
   grid-template-rows: 38px minmax(0, 1fr) 34px;
   overflow: hidden;
+  border: 1px solid var(--app-window-border);
+  border-radius: var(--app-window-radius);
   color: var(--text);
   background:
     linear-gradient(var(--session-heat-surface), var(--session-heat-surface)),
     var(--bg);
-  transition: grid-template-columns 180ms ease, background 260ms ease;
+  transition:
+    grid-template-columns 180ms ease,
+    background 260ms ease,
+    border-color 180ms ease,
+    border-radius 180ms ease;
+}
+
+.app-shell.window-edge-flush {
+  border-color: transparent;
+  border-radius: 0;
 }
 
 .app-shell::before {
@@ -383,6 +397,15 @@ code {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   background: transparent;
+  -webkit-app-region: drag;
+}
+
+.top-bar-darwin {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.top-bar-custom-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .top-segment {
@@ -424,6 +447,7 @@ code {
   align-items: center;
   gap: 2px;
   padding: 0 8px;
+  -webkit-app-region: drag;
 }
 
 .window-menu button {
@@ -435,6 +459,7 @@ code {
   color: var(--muted-strong);
   padding: 0 8px;
   font-size: 0.88rem;
+  -webkit-app-region: no-drag;
 }
 
 .window-menu button:hover:not(:disabled) {
@@ -448,40 +473,47 @@ code {
   padding: 0;
 }
 
-.sidebar-toggle-button svg {
-  transition: transform 180ms ease;
+.mac-window-control-spacer {
+  width: 76px;
+  min-width: 76px;
 }
 
-.top-actions {
-  min-width: 0;
+.window-controls {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-end;
-  gap: 4px;
-  padding: 0 8px;
+  min-width: 0;
+  -webkit-app-region: no-drag;
 }
 
-.top-actions button {
-  height: 26px;
-  min-height: 26px;
-  border-radius: 5px;
-  border-color: transparent;
+.window-control-button {
+  width: 44px;
+  height: 38px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--muted-strong);
-  padding: 0 8px;
+  padding: 0;
+  -webkit-app-region: no-drag;
 }
 
-.top-actions button:hover:not(:disabled) {
-  border-color: transparent;
-  background: #181818;
+.window-control-button:hover:not(:disabled) {
+  border: 0;
+  background: #242424;
   color: var(--text);
 }
 
-.top-actions button[title^="Trace filters"],
-.top-actions button[title="Settings"],
-.top-actions button:last-child {
-  width: 26px;
-  padding: 0;
+.window-control-close:hover:not(:disabled) {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.sidebar-toggle-button svg {
+  transition: transform 180ms ease;
 }
 
 .top-bar .status-pill {
@@ -1600,20 +1632,21 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-hypothesis-item .main-hypothesis-meta {
-  padding-top: 1px;
+  padding-top: 0;
 }
 
 .hypothesis-pill {
   box-sizing: border-box;
   max-width: 100%;
   height: 19px;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.18);
   color: var(--muted-strong);
-  padding: 1px 7px 0;
+  padding: 0 7px;
   font-size: 0.68rem;
   font-weight: 760;
   line-height: 1;
@@ -1666,11 +1699,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   box-sizing: border-box;
   max-width: 78px;
   height: 19px;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid #3a3a3a;
   border-radius: 999px;
-  padding: 1px 6px 0;
+  padding: 0 6px;
   background: #181818;
   color: #d5d5d5;
   font-size: 0.68rem;
@@ -3960,17 +3994,30 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: rgba(255, 255, 255, 0.68);
 }
 
-.notification-button {
+.status-actions {
   grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.status-icon-button {
   position: relative;
-  width: 34px;
+  width: 30px;
   height: 30px;
   min-height: 30px;
   border-color: transparent;
   background: transparent;
   color: var(--muted-strong);
   padding: 0;
-  margin-right: 8px;
+}
+
+.status-icon-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: #181818;
+  color: var(--text);
 }
 
 .notification-button span {
@@ -3987,12 +4034,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   font-size: 0.62rem;
   font-weight: 850;
   line-height: 1;
-}
-
-.notification-button:hover:not(:disabled) {
-  border-color: transparent;
-  background: #181818;
-  color: var(--text);
 }
 
 .notification-stack {
@@ -4179,10 +4220,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .top-actions {
-    grid-column: 2;
-    justify-content: flex-end;
-    padding: 0 8px;
+  .top-bar-darwin {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .top-bar-custom-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .sidebar,
@@ -4247,9 +4290,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     grid-template-columns: 1fr;
   }
 
-  .top-actions {
-    grid-column: 1;
-    padding: 4px 8px;
+  .top-bar-darwin {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .top-bar-custom-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .app-shell.sidebar-collapsed .sidebar {

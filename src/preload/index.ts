@@ -13,6 +13,7 @@ import type {
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
+  WindowChromeState,
   WorkspacePickerMode,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -89,6 +90,23 @@ const api: BealeApi = {
   },
   dismissNotification(notificationId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.dismissNotification, notificationId);
+  },
+  minimizeWindow() {
+    return ipcRenderer.invoke(IPC_CHANNELS.minimizeWindow);
+  },
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke(IPC_CHANNELS.toggleMaximizeWindow);
+  },
+  closeWindow() {
+    return ipcRenderer.invoke(IPC_CHANNELS.closeWindow);
+  },
+  getWindowChromeState(): Promise<WindowChromeState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWindowChromeState);
+  },
+  onWindowChromeState(listener: (state: WindowChromeState) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: WindowChromeState): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.windowChromeStateUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.windowChromeStateUpdated, wrapped);
   },
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void) {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot | null): void => listener(snapshot);

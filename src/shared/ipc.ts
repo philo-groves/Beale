@@ -23,6 +23,11 @@ export const IPC_CHANNELS = {
   steerRun: 'beale:steer-run',
   openNotification: 'beale:open-notification',
   dismissNotification: 'beale:dismiss-notification',
+  minimizeWindow: 'beale:minimize-window',
+  toggleMaximizeWindow: 'beale:toggle-maximize-window',
+  closeWindow: 'beale:close-window',
+  getWindowChromeState: 'beale:get-window-chrome-state',
+  windowChromeStateUpdated: 'beale:window-chrome-state-updated',
   programRegistryUpdated: 'beale:program-registry-updated',
   snapshotUpdated: 'beale:snapshot-updated'
 } as const;
