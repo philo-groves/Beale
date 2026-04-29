@@ -130,9 +130,11 @@ export class ProgramRegistry {
     return program;
   }
 
-  public syncWorkspace(snapshot: WorkspaceSnapshot): void {
+  public syncWorkspace(snapshot: WorkspaceSnapshot, options: { rememberLast?: boolean } = {}): void {
     const program = this.upsertProgramFromSnapshot(snapshot);
-    this.rememberLastKnownProgram(program);
+    if (options.rememberLast ?? true) {
+      this.rememberLastKnownProgram(program);
+    }
     for (const row of snapshot.runs) {
       this.upsertResearchSession(program.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, sessionUpdatedAt(row));
     }

@@ -166,6 +166,49 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('keeps active research sessions running when another program is opened', async () => {
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    service.createProgram({
+      workspacePath: firstWorkspace,
+      programName: 'First Program',
+      organizationName: '',
+      descriptionMarkdown: 'First persisted program.',
+      rulesMarkdown: 'First rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    const firstProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'First Program');
+    const activeSnapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const runId = activeSnapshot.runs[0]?.run.id ?? '';
+    const initialTraceCount = service.getRunDetail(runId).traceEvents.length;
+
+    service.createProgram({
+      workspacePath: secondWorkspace,
+      programName: 'Second Program',
+      organizationName: '',
+      descriptionMarkdown: 'Second persisted program.',
+      rulesMarkdown: 'Second rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    expect(service.getSnapshot()?.activeScope.programName).toBe('Second Program');
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 950));
+    const backgroundSession = service.getProgramRegistryState().researchSessions.find((session) => session.runId === runId);
+    expect(backgroundSession?.status).toBe('active');
+
+    service.openProgram(firstProgram?.id ?? '');
+    const detail = service.getRunDetail(runId);
+    expect(detail.run.status).toBe('active');
+    expect(detail.traceEvents.length).toBeGreaterThan(initialTraceCount);
+    expect(detail.traceEvents.some((event) => event.summary === 'Workspace recovery paused interrupted run after app restart.')).toBe(false);
+    service.close();
+  });
+
   it('removes programs from the global registry without deleting workspaces', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
@@ -496,6 +539,89 @@ describe('Beale workbench skeleton', () => {
     service.cancelResearchPromptGeneration('cancel_test');
 
     await expect(pending).rejects.toThrow(/canceled/i);
+    service.close();
+  });
+
+  it('keeps generated research prompts up to the 25k character cap', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
+    const generatedPromptPrefix = '# Long generated plan\n';
+    const generatedPrompt = `${generatedPromptPrefix}${'A'.repeat(25_000 - generatedPromptPrefix.length)}`;
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () =>
+        new Response(
+          sse(
+            event('response.output_text.done', {
+              type: 'response.output_text.done',
+              text: JSON.stringify({ promptMarkdown: generatedPrompt })
+            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_long_prompt_generation' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+    });
+
+    service.createWorkspace(tempWorkspace());
+    const result = await service.generateResearchPrompt({
+      mode: 'dynamic',
+      attemptStrategy: 'single_path',
+      model: 'gpt-5.5',
+      reasoningEffort: 'medium',
+      networkProfile: 'scoped',
+      sandboxProfile: 'host_research_only',
+      targetAssetId: null,
+      targetPath: null
+    });
+
+    expect(result.promptMarkdown).toHaveLength(25_000);
+    expect(result.promptMarkdown).toBe(generatedPrompt);
+    service.close();
+  });
+
+  it('streams decoded generated research prompt text before completion', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
+    const chunks = ['{"promptMarkdown":"# Streamed plan\\n', 'Step one', '\\nStep two"}'];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () =>
+        new Response(
+          sse(
+            chunks
+              .map((chunk) =>
+                event('response.output_text.delta', {
+                  type: 'response.output_text.delta',
+                  delta: chunk
+                })
+              )
+              .join('') +
+              event('response.output_text.done', {
+                type: 'response.output_text.done',
+                text: chunks.join('')
+              }) +
+              event('response.completed', { type: 'response.completed', response: { id: 'resp_streamed_prompt_generation' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+    });
+    const updates: string[] = [];
+
+    service.createWorkspace(tempWorkspace());
+    const result = await service.generateResearchPrompt(
+      {
+        requestId: 'stream_test',
+        mode: 'dynamic',
+        attemptStrategy: 'single_path',
+        model: 'gpt-5.5',
+        reasoningEffort: 'medium',
+        networkProfile: 'scoped',
+        sandboxProfile: 'host_research_only',
+        targetAssetId: null,
+        targetPath: null
+      },
+      (update) => updates.push(update.promptMarkdown)
+    );
+
+    expect(result.promptMarkdown).toBe('# Streamed plan\nStep one\nStep two');
+    expect(updates).toContain('# Streamed plan\n');
+    expect(updates).toContain('# Streamed plan\nStep one');
+    expect(updates.at(-1)).toBe('# Streamed plan\nStep one\nStep two');
     service.close();
   });
 

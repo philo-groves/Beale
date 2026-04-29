@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { AnimationEvent as ReactAnimationEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive,
   ArrowRight,
@@ -184,6 +184,12 @@ interface ContextMeter {
   source: string;
 }
 
+interface BackgroundPulse {
+  id: number;
+  cycle: number;
+  style: CSSProperties;
+}
+
 interface PythonToolCallPreview {
   task: string;
   scriptLines: string[];
@@ -212,9 +218,9 @@ const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
-const DEFAULT_CONTEXT_TOKEN_LIMIT = 225_000;
+const DEFAULT_CONTEXT_TOKEN_LIMIT = 272_000;
 const CONTEXT_COMPACTION_LICK_MS = 2200;
-const APP_BACKGROUND_PULSES = Array.from({ length: 18 }, (_, index) => index);
+const APP_BACKGROUND_PULSE_COUNT = 18;
 const MOMENTUM_SNAKE_BODY = '#0e0c0d';
 const MOMENTUM_SNAKE_EDGE = 'rgba(55, 40, 50, 0.9)';
 const MOMENTUM_SNAKE_EDGE_STRONG = 'rgba(55, 40, 50, 0.9)';
@@ -859,11 +865,7 @@ export function App(): JSX.Element {
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
-      <div className="app-background-pulses" aria-hidden="true">
-        {APP_BACKGROUND_PULSES.map((pulse) => (
-          <span className="app-background-pulse" key={pulse} />
-        ))}
-      </div>
+      <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
@@ -1121,6 +1123,63 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
+function AppBackgroundPulses(): JSX.Element {
+  const [pulses, setPulses] = useState<BackgroundPulse[]>(() =>
+    Array.from({ length: APP_BACKGROUND_PULSE_COUNT }, (_, index) => ({
+      id: index,
+      cycle: 0,
+      style: randomBackgroundPulseStyle(index, true)
+    }))
+  );
+
+  const rerollPulse = useCallback((id: number, event: ReactAnimationEvent<HTMLSpanElement>): void => {
+    if (event.animationName !== 'app-background-pulse') return;
+    setPulses((current) =>
+      current.map((pulse) =>
+        pulse.id === id
+          ? {
+              ...pulse,
+              cycle: pulse.cycle + 1,
+              style: randomBackgroundPulseStyle(id, false)
+            }
+          : pulse
+      )
+    );
+  }, []);
+
+  return (
+    <div className="app-background-pulses" aria-hidden="true">
+      {pulses.map((pulse) => (
+        <span className="app-background-pulse" key={`${pulse.id}-${pulse.cycle}`} style={pulse.style} onAnimationEnd={(event) => rerollPulse(pulse.id, event)} />
+      ))}
+    </div>
+  );
+}
+
+function randomBackgroundPulseStyle(index: number, initial: boolean): CSSProperties {
+  const size = randomInteger(44, 118);
+  const delay = initial ? randomFloat(0, 2.8) : randomFloat(0.12, 2.4);
+  const durationScale = randomFloat(0.88, 1.18);
+  return {
+    '--pulse-x': `${randomFloat(3, 97).toFixed(1)}%`,
+    '--pulse-y': `${randomFloat(4, 96).toFixed(1)}%`,
+    '--pulse-size': `${size}px`,
+    '--pulse-radius': `${randomInteger(8, 19)}px`,
+    '--pulse-delay': `${delay.toFixed(2)}s`,
+    '--pulse-duration': `calc(var(--app-pulse-duration) * ${durationScale.toFixed(2)})`,
+    '--pulse-rotation': `${randomInteger(-12, 12)}deg`,
+    '--pulse-seed': String(index)
+  } as CSSProperties;
+}
+
+function randomInteger(min: number, max: number): number {
+  return Math.floor(randomFloat(min, max + 1));
+}
+
+function randomFloat(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
 function runDetailRenderVersion(detail: RunDetail): string {
   return [
     detail.run.id,
@@ -1328,9 +1387,13 @@ function StatusBar({
 function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; momentum: ResearchMomentum }): JSX.Element {
   const label = researchMomentumLabel(momentum.state);
   const contextMeter = contextMeterForDetail(detail);
+  const visibleContextLabel = visibleContextMeterLabel(contextMeter);
   const title = `Momentum: ${label}\nContext: ${contextMeter.label}`;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextFractionRef = useRef(contextMeter.fraction);
+  const targetContextFractionRef = useRef(contextMeter.fraction);
+  const momentumValueRef = useRef(researchMomentumValue(momentum.state) / 100);
+  const canvasMetricsRef = useRef<{ context: CanvasRenderingContext2D; width: number; height: number } | null>(null);
   const latestCompaction = detail?.contextCompactions.at(-1) ?? null;
   const latestCompactionKey = latestCompaction ? `${latestCompaction.id}:${latestCompaction.createdAt}` : '';
   const compactionKeyRef = useRef(latestCompactionKey);
@@ -1352,6 +1415,23 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
   }, [latestCompaction, latestCompactionKey]);
 
   useEffect(() => {
+    targetContextFractionRef.current = contextMeter.fraction;
+    momentumValueRef.current = momentumValue / 100;
+    if (reduceMotion && canvasMetricsRef.current) {
+      contextFractionRef.current = contextMeter.fraction;
+      drawMomentumSnake(
+        canvasMetricsRef.current.context,
+        canvasMetricsRef.current.width,
+        canvasMetricsRef.current.height,
+        momentumValueRef.current,
+        0,
+        contextFractionRef.current,
+        0
+      );
+    }
+  }, [contextMeter.fraction, momentumValue, reduceMotion]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return undefined;
@@ -1370,9 +1450,10 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      canvasMetricsRef.current = { context, width, height };
       if (reduceMotion) {
-        contextFractionRef.current = contextMeter.fraction;
-        drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, contextFractionRef.current, 0);
+        contextFractionRef.current = targetContextFractionRef.current;
+        drawMomentumSnake(context, width, height, momentumValueRef.current, elapsed, contextFractionRef.current, 0);
       }
     };
 
@@ -1386,12 +1467,13 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
       if (!reduceMotion) {
         elapsed += deltaSeconds;
       }
+      const targetContextFraction = targetContextFractionRef.current;
       const nextContextFraction = reduceMotion
-        ? contextMeter.fraction
-        : contextFractionRef.current + (contextMeter.fraction - contextFractionRef.current) * Math.min(1, deltaSeconds * 2.4);
+        ? targetContextFraction
+        : contextFractionRef.current + (targetContextFraction - contextFractionRef.current) * Math.min(1, deltaSeconds * 2.4);
       contextFractionRef.current = nextContextFraction;
       const lickProgress = reduceMotion ? 0 : compactionLickProgress(timestamp, compactionLickStartedAtRef);
-      drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, nextContextFraction, lickProgress);
+      drawMomentumSnake(context, width, height, momentumValueRef.current, elapsed, nextContextFraction, lickProgress);
 
       if (!reduceMotion) {
         frameId = window.requestAnimationFrame(draw);
@@ -1404,14 +1486,16 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
     frameId = window.requestAnimationFrame(draw);
 
     return () => {
+      canvasMetricsRef.current = null;
       resizeObserver.disconnect();
       window.cancelAnimationFrame(frameId);
     };
-  }, [contextMeter.fraction, momentumValue, reduceMotion]);
+  }, [reduceMotion]);
 
   return (
     <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
       <canvas className="momentum-snake-canvas" ref={canvasRef} aria-hidden="true" />
+      <span className="momentum-context-label">{visibleContextLabel}</span>
     </div>
   );
 }
@@ -3241,7 +3325,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
 
   if (summary === 'OpenAI streamed model output delta.') return 'Stream model output';
   if (summary === 'OpenAI response completed.') return 'Response Completed';
-  if (summary === 'OpenAI response created.') return 'Turn Start';
+  if (summary === 'OpenAI response created.') return 'Turn Started';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
   if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
   if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
@@ -4198,18 +4282,19 @@ function researchMomentumLabel(state: ResearchMomentumState): string {
 function researchMomentumValue(state: ResearchMomentumState): number {
   switch (state) {
     case 'idle':
-    case 'waiting':
       return 0;
+    case 'waiting':
+      return 20;
     case 'exploring':
-      return 30;
+      return 40;
     case 'building':
       return 50;
     case 'verifying':
-      return 72;
+      return 80;
     case 'hot':
-      return 96;
+      return 100;
     case 'stuck':
-      return 68;
+      return 30;
   }
 }
 
@@ -4225,6 +4310,11 @@ function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
     label: inputTokens === null ? `0/${formatCompactContextNumber(tokenLimit)}` : `${formatCompactContextNumber(inputTokens)}/${formatCompactContextNumber(tokenLimit)}`,
     source: candidate?.source ?? 'no context measured'
   };
+}
+
+function visibleContextMeterLabel(contextMeter: ContextMeter): string {
+  const inputTokens = contextMeter.inputTokens ?? 0;
+  return `${formatCompactContextKilobytes(inputTokens)}/${formatCompactContextKilobytes(contextMeter.tokenLimit)}`;
 }
 
 function contextTokenLimitForDetail(detail: RunDetail | null): number {
@@ -4290,6 +4380,10 @@ function formatCompactContextNumber(value: number): string {
   if (value >= 1_000_000) return `${trimCompactDecimal(value / 1_000_000)}m`;
   if (value >= 1_000) return `${trimCompactDecimal(value / 1_000)}k`;
   return `${Math.max(0, Math.round(value))}`;
+}
+
+function formatCompactContextKilobytes(value: number): string {
+  return `${trimCompactDecimal(Math.max(0, value) / 1_000)}k`;
 }
 
 function trimCompactDecimal(value: number): string {
@@ -5537,15 +5631,23 @@ function StartRunForm({
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [startingRun, setStartingRun] = useState(false);
+  const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const generationRequestIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+  const promptStreamAutoScrollRef = useRef(false);
 
   useEffect(() => {
     setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
   }, [sandboxProfile, snapshot.activeScope.id]);
 
   useEffect(() => {
+    const unsubscribe = window.beale.onResearchPromptGenerationUpdate((update) => {
+      if (!mountedRef.current || generationRequestIdRef.current !== update.requestId) return;
+      promptStreamAutoScrollRef.current = true;
+      setInput((current) => ({ ...current, promptMarkdown: update.promptMarkdown }));
+    });
     return () => {
+      unsubscribe();
       mountedRef.current = false;
       const requestId = generationRequestIdRef.current;
       if (requestId) {
@@ -5555,9 +5657,17 @@ function StartRunForm({
   }, []);
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
+    if (key === 'promptMarkdown') promptStreamAutoScrollRef.current = false;
     setInput((current) => ({ ...current, [key]: value }));
     if (key === 'promptMarkdown') setGenerateError(null);
   };
+
+  useLayoutEffect(() => {
+    if (!generatingPrompt || !promptStreamAutoScrollRef.current) return;
+    const promptBox = promptBoxRef.current;
+    if (!promptBox) return;
+    promptBox.scrollTop = promptBox.scrollHeight;
+  }, [generatingPrompt, input.promptMarkdown]);
 
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
     setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
@@ -5596,6 +5706,7 @@ function StartRunForm({
     const draftPromptMarkdown = input.promptMarkdown;
     const operation = draftPromptMarkdown.trim().length > 0 ? 'refine' : 'generate';
     generationRequestIdRef.current = requestId;
+    promptStreamAutoScrollRef.current = true;
     setGeneratingPrompt(true);
     setGenerateError(null);
     void window.beale
@@ -5614,7 +5725,7 @@ function StartRunForm({
       })
       .then((generated) => {
         if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        setInput((current) => (current.promptMarkdown === draftPromptMarkdown ? { ...current, promptMarkdown: generated.promptMarkdown } : current));
+        setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
       })
       .catch((caught: unknown) => {
         if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
@@ -5647,7 +5758,7 @@ function StartRunForm({
               {generatingPrompt ? <X size={16} /> : <Sparkles size={16} />}
               {generatingPrompt ? 'Cancel' : promptGenerationLabel}
             </button>
-            {generatingPrompt ? <span className="generate-prompt-status">Generating plan, this may take several moments</span> : null}
+            {generatingPrompt ? <span className="generate-prompt-status">Generating plan, thinking may take several minutes...</span> : null}
             {generateError ? (
               <span className="generate-prompt-error" title={generateError}>
                 {generateError}
@@ -5655,7 +5766,7 @@ function StartRunForm({
             ) : null}
           </div>
           <button type="button" disabled={busy} onClick={closeModal}>
-            Cancel
+            Nevermind
           </button>
           <button className="primary-button" type="button" disabled={busy || startingRun || generatingPrompt || !canStart} onClick={start}>
             <Play size={16} />
@@ -5678,6 +5789,7 @@ function StartRunForm({
           </div>
         ) : null}
         <textarea
+          ref={promptBoxRef}
           className="prompt-box"
           rows={6}
           placeholder="Enter a prompt or press Generate."

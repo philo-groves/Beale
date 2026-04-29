@@ -443,8 +443,8 @@ code {
     0 0 18px rgba(226, 226, 219, 0.08),
     inset 0 0 18px rgba(226, 226, 219, 0.04);
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.18);
-  animation: app-background-pulse var(--pulse-duration, var(--app-pulse-duration)) ease-out infinite;
+  transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(0.18);
+  animation: app-background-pulse var(--pulse-duration, var(--app-pulse-duration)) ease-out both;
   animation-delay: var(--pulse-delay);
   animation-play-state: paused;
   will-change: opacity, transform;
@@ -630,7 +630,7 @@ code {
 @keyframes app-background-pulse {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.18);
+    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(0.18);
   }
 
   18% {
@@ -639,12 +639,12 @@ code {
 
   72% {
     opacity: var(--app-pulse-opacity);
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.55);
+    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(1.55);
   }
 }
 
@@ -1666,7 +1666,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-side-section + .main-side-section {
   min-height: 0;
-  border-top: 1px solid var(--panel-border);
 }
 
 .main-finding-view {
@@ -4412,7 +4411,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   mix-blend-mode: screen;
 }
 
-.environment-pill.is-active::after {
+.environment-vm-pill.is-active::after {
   opacity: 1;
   animation: environment-activity-sheen 1.65s ease-in-out infinite;
 }
@@ -4483,7 +4482,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     opacity: 0;
   }
 
-  .environment-pill.is-active::after {
+  .environment-vm-pill.is-active::after {
     animation: none;
     opacity: 0;
   }
@@ -4503,6 +4502,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-column: 2;
   height: 30px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 6px;
   align-items: center;
   overflow: hidden;
   padding: 0 12px 0 10px;
@@ -4515,6 +4516,19 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: block;
   background: transparent;
   border-radius: 4px;
+}
+
+.momentum-context-label {
+  align-self: center;
+  width: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .status-actions {

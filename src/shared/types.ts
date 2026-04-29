@@ -342,6 +342,11 @@ export interface GeneratedResearchPrompt {
   promptMarkdown: string;
 }
 
+export interface ResearchPromptGenerationUpdate {
+  requestId: string;
+  promptMarkdown: string;
+}
+
 export interface ResearchPromptGenerationInput {
   requestId?: string | null;
   operation?: 'generate' | 'refine';
@@ -892,6 +897,7 @@ export interface BealeApi {
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
+  onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;

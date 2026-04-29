@@ -6,7 +6,14 @@ import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
 import { runVerifierContract } from './verifierRunner';
-import { materializeGitRepository, normalizeGitHubRepositoryUrl, selectSourceRepository, sourceRepositoryCandidates, type SourceRepositoryCandidate } from './sourceMaterializer';
+import {
+  findScopedExistingSourceCheckout,
+  materializeGitRepository,
+  normalizeSourceRepositoryUrl,
+  selectSourceRepository,
+  sourceRepositoryCandidates,
+  type SourceRepositoryCandidate
+} from './sourceMaterializer';
 import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import { cweEntryForId, inferCweMapping, normalizeCweConfidence, normalizeCweId } from './cweCatalog';
@@ -499,6 +506,9 @@ export class BealeToolRouter {
 
     const artifactTarget = this.artifactReadTarget(context, requestedPath);
     const filePath = artifactTarget?.path ?? resolve(requestedPath);
+    if (!artifactTarget && !this.isScopedLocalPath(filePath)) {
+      this.ensureExistingCheckoutPathInScope(filePath);
+    }
     if (!artifactTarget && !this.isScopedLocalPath(filePath)) {
       return this.recordToolPolicyBlock(context, call, args, 'Path is outside the active program scope.', {
         path: requestedPath,
@@ -1296,7 +1306,14 @@ export class BealeToolRouter {
   private searchRootsForPathHint(targetHint: string, localAssets: ScopeAsset[]): ScopedSearchRoot[] {
     if (!isAbsolute(targetHint) && !targetHint.startsWith('.')) return [];
     const resolvedTarget = resolve(targetHint);
-    return localAssets.flatMap((asset) => {
+    let assets = localAssets;
+    if (!assets.some((asset) => isWithinPath(resolvedTarget, resolve(asset.value)) || isWithinPath(resolve(asset.value), resolvedTarget))) {
+      const nextScope = this.ensureExistingCheckoutPathInScope(resolvedTarget);
+      if (nextScope) {
+        assets = nextScope.assets.filter(isScopedLocalAsset);
+      }
+    }
+    return assets.flatMap((asset) => {
       const assetRoot = resolve(asset.value);
       if (isWithinPath(resolvedTarget, assetRoot)) {
         return existsSync(resolvedTarget) ? [{ path: resolvedTarget, asset, reason: 'explicit_path_inside_scope' }] : [];
@@ -1309,7 +1326,7 @@ export class BealeToolRouter {
   }
 
   private materializedSourceAsset(candidate: SourceRepositoryCandidate): ScopeAsset | null {
-    const candidateUrl = normalizeGitHubRepositoryUrl(candidate.url);
+    const candidateUrl = normalizeSourceRepositoryUrl(candidate.url);
     return (
       this.db
         .getActiveScope()
@@ -1321,6 +1338,12 @@ export class BealeToolRouter {
               sameRepository(candidateUrl, asset.value))
         ) ?? null
     );
+  }
+
+  private ensureExistingCheckoutPathInScope(pathHint: string): ReturnType<WorkspaceDatabase['getActiveScope']> | null {
+    const existing = findScopedExistingSourceCheckout(this.db.getActiveScope(), this.db.getDatabasePath(), pathHint);
+    if (!existing) return null;
+    return this.ensureLocalSourceInScope(existing.candidate.sourceAssetId, existing.candidate.sensitivity, existing.localPath, existing.candidate.url, existing.head);
   }
 
   private sourceRepositoryStatuses(candidates: SourceRepositoryCandidate[]): Array<Record<string, unknown>> {
@@ -1705,7 +1728,7 @@ function stringAttribute(value: unknown): string {
 }
 
 function sameRepository(left: string | null, right: string): boolean {
-  const normalizedRight = normalizeGitHubRepositoryUrl(right);
+  const normalizedRight = normalizeSourceRepositoryUrl(right);
   return Boolean(left && normalizedRight && left.toLowerCase() === normalizedRight.toLowerCase());
 }
 

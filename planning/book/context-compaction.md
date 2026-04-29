@@ -271,7 +271,7 @@ The first implementation should:
 Suggested default thresholds for initial tuning:
 
 - Compact manual replay after 32 tool turns.
-- Assume a conservative 225k input-token context budget when the API or model registry does not provide a model-specific limit.
+- Assume a 272k input-token context budget when the API or model registry does not provide a model-specific limit.
 - Compact when reported input tokens reach the known or configured model context budget.
 - Compact when serialized manual replay input exceeds a conservative byte limit.
 - Keep the most recent 20 to 40 model-visible events verbatim after compaction.
@@ -279,7 +279,7 @@ Suggested default thresholds for initial tuning:
 
 These defaults should be easy to change because real long-run behavior will guide tuning.
 
-The 225k default is intentionally below the common OpenAI 272k effective threshold before extra usage affects limits. This leaves room for the next model turn or tool-output message to approach the effective limit without immediately failing, even though some models may technically accept much larger contexts. Beale should optimize for reliable long-running research rather than trying to fill the largest possible context window.
+The 272k default matches the context ceiling researchers are accustomed to from Codex-style long-context workflows. Some models may technically accept much larger contexts, and some providers may expose model-specific limits later. Beale should still compact deterministically at the configured budget rather than trying to fill the largest possible context window without an explicit model-specific policy.
 
 ## Open Questions
 

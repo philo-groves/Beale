@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
 
 export interface SourceRepositoryCandidate {
@@ -26,14 +26,16 @@ export interface MaterializedSourceRepository {
 }
 
 const GIT_TIMEOUT_MS = 180_000;
-const GITHUB_REPOSITORY_RE = /\b(?:https?:\/\/)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
+const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
+const SSH_SOURCE_REPOSITORY_RE = /\bgit@(?:github\.com|gitlab\.com):[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?\b/gi;
+const SOURCE_REPOSITORY_HOSTS = new Set(['github.com', 'gitlab.com']);
 
 export function sourceRepositoryCandidates(scope: ProgramScopeVersion): SourceRepositoryCandidate[] {
   const candidates = new Map<string, SourceRepositoryCandidate>();
   for (const asset of scope.assets) {
     if (asset.direction !== 'in_scope') continue;
     const text = [asset.value, stringAttribute(asset.attributes?.instruction), stringAttribute(asset.attributes?.repositoryUrl)].filter(Boolean).join('\n');
-    for (const url of extractGitHubRepositoryUrls(text)) {
+    for (const url of extractSourceRepositoryUrls(text)) {
       if (candidates.has(url)) continue;
       candidates.set(url, {
         url,
@@ -49,7 +51,7 @@ export function sourceRepositoryCandidates(scope: ProgramScopeVersion): SourceRe
 
 export function selectSourceRepository(scope: ProgramScopeVersion, requested: string): SourceRepositorySelection {
   const candidates = sourceRepositoryCandidates(scope);
-  const requestedUrl = normalizeGitHubRepositoryUrl(requested);
+  const requestedUrl = normalizeSourceRepositoryUrl(requested);
   if (requestedUrl) {
     return {
       candidate: candidates.find((candidate) => sameRepositoryUrl(candidate.url, requestedUrl)) ?? null,
@@ -79,6 +81,17 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
   const localPath = join(managedRoot, slug);
   const cleanRef = ref.trim();
   mkdirSync(managedRoot, { recursive: true });
+
+  const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
+  if (existingCheckout) {
+    return {
+      repositoryUrl: candidate.url,
+      localPath: existingCheckout,
+      cloned: false,
+      ref: cleanRef || null,
+      head: gitHead(existingCheckout)
+    };
+  }
 
   if (existsSync(join(localPath, '.git'))) {
     return {
@@ -116,31 +129,52 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
   };
 }
 
-export function extractGitHubRepositoryUrls(text: string): string[] {
+export function extractSourceRepositoryUrls(text: string): string[] {
   const urls = new Set<string>();
-  for (const match of text.matchAll(GITHUB_REPOSITORY_RE)) {
-    const normalized = normalizeGitHubRepositoryUrl(match[0]);
-    if (normalized) urls.add(normalized);
+  for (const pattern of [SOURCE_REPOSITORY_RE, SSH_SOURCE_REPOSITORY_RE]) {
+    for (const match of text.matchAll(pattern)) {
+      const normalized = normalizeSourceRepositoryUrl(match[0]);
+      if (normalized) urls.add(normalized);
+    }
   }
   return [...urls];
 }
 
-export function normalizeGitHubRepositoryUrl(value: string): string | null {
+export function normalizeSourceRepositoryUrl(value: string): string | null {
   const trimmed = value.trim().replace(/[),.;]+$/, '');
   if (!trimmed) return null;
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const ssh = trimmed.match(/^(?:ssh:\/\/)?git@([^:/]+)[:/]([^?#]+)$/i);
+  const withProtocol = ssh ? `https://${ssh[1]}/${ssh[2]}` : /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   let parsed: URL;
   try {
     parsed = new URL(withProtocol);
   } catch {
     return null;
   }
-  if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com') return null;
-  const [owner, rawRepo] = parsed.pathname.split('/').filter(Boolean);
-  if (!owner || !rawRepo) return null;
-  const repo = rawRepo.replace(/\.git$/i, '');
-  if (!safeGitHubPathSegment(owner) || !safeGitHubPathSegment(repo)) return null;
-  return `https://github.com/${owner}/${repo}`;
+  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'https:' || !SOURCE_REPOSITORY_HOSTS.has(host)) return null;
+  const allSegments = parsed.pathname.split('/').filter(Boolean);
+  const stopIndex = allSegments.indexOf('-');
+  const pathSegments = (stopIndex >= 0 ? allSegments.slice(0, stopIndex) : allSegments).slice(0, host === 'github.com' ? 2 : undefined);
+  if (pathSegments.length < 2) return null;
+  pathSegments[pathSegments.length - 1] = pathSegments[pathSegments.length - 1].replace(/\.git$/i, '');
+  if (pathSegments.some((segment) => !safeRepositoryPathSegment(segment))) return null;
+  return `https://${host}/${pathSegments.join('/')}`;
+}
+
+export function normalizeGitHubRepositoryUrl(value: string): string | null {
+  return normalizeSourceRepositoryUrl(value);
+}
+
+export function findScopedExistingSourceCheckout(scope: ProgramScopeVersion, databasePath: string, pathHint: string): { candidate: SourceRepositoryCandidate; localPath: string; head: string | null } | null {
+  const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
+  const resolvedPath = resolve(pathHint);
+  if (!isWithinPath(resolvedPath, workspaceRoot)) return null;
+  const gitRoot = findGitRootAtOrAbove(resolvedPath, workspaceRoot);
+  if (!gitRoot) return null;
+  const remoteUrls = gitRemoteUrls(gitRoot);
+  const candidate = sourceRepositoryCandidates(scope).find((item) => remoteUrls.some((remoteUrl) => sameRepositoryUrl(item.url, remoteUrl))) ?? null;
+  return candidate ? { candidate, localPath: gitRoot, head: gitHead(gitRoot) } : null;
 }
 
 function sourceCandidateScore(candidate: SourceRepositoryCandidate, query: string): number {
@@ -157,7 +191,9 @@ function sourceCandidateScore(candidate: SourceRepositoryCandidate, query: strin
 }
 
 function sameRepositoryUrl(left: string, right: string): boolean {
-  return left.toLowerCase().replace(/\.git$/i, '') === right.toLowerCase().replace(/\.git$/i, '');
+  const normalizedLeft = normalizeSourceRepositoryUrl(left);
+  const normalizedRight = normalizeSourceRepositoryUrl(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft.toLowerCase() === normalizedRight.toLowerCase());
 }
 
 function repositorySlug(url: string): string {
@@ -180,6 +216,68 @@ function gitHead(localPath: string): string | null {
   } catch {
     return null;
   }
+}
+
+function findExistingWorkspaceCheckout(candidate: SourceRepositoryCandidate, workspaceRoot: string): string | null {
+  for (const path of existingCheckoutSearchPaths(candidate, workspaceRoot)) {
+    if (!existsSync(join(path, '.git'))) continue;
+    if (gitRemoteUrls(path).some((remoteUrl) => sameRepositoryUrl(candidate.url, remoteUrl))) {
+      return path;
+    }
+  }
+  return null;
+}
+
+function existingCheckoutSearchPaths(candidate: SourceRepositoryCandidate, workspaceRoot: string): string[] {
+  const paths = new Set<string>([workspaceRoot]);
+  const repoName = candidate.url.split('/').at(-1);
+  if (repoName) paths.add(join(workspaceRoot, repoName));
+  try {
+    for (const entry of readdirSync(workspaceRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === '.beale' || entry.name === 'targets') continue;
+      paths.add(join(workspaceRoot, entry.name));
+    }
+  } catch {
+    // Fall through to explicit candidates.
+  }
+  return [...paths].map((path) => resolve(path)).filter((path) => isWithinPath(path, workspaceRoot));
+}
+
+function findGitRootAtOrAbove(pathHint: string, workspaceRoot: string): string | null {
+  let current = safeStat(pathHint)?.isDirectory() ? resolve(pathHint) : dirname(resolve(pathHint));
+  const root = resolve(workspaceRoot);
+  while (isWithinPath(current, root)) {
+    if (existsSync(join(current, '.git'))) return current;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+function gitRemoteUrls(localPath: string): string[] {
+  try {
+    const result = runGit(['-C', localPath, 'config', '--get-regexp', '^remote\\..*\\.url$']);
+    return result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim().split(/\s+/).slice(1).join(' '))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function safeStat(path: string) {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function isWithinPath(path: string, root: string): boolean {
+  const rel = relative(resolve(root), resolve(path));
+  return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/') && !/^[A-Za-z]:/.test(rel));
 }
 
 function runGit(args: string[]): { stdout: string; stderr: string } {
@@ -209,7 +307,7 @@ function gitEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function safeGitHubPathSegment(value: string): boolean {
+function safeRepositoryPathSegment(value: string): boolean {
   return /^[A-Za-z0-9_.-]+$/.test(value);
 }
 

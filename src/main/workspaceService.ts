@@ -12,6 +12,7 @@ import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
+import { extractSourceRepositoryUrls } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
@@ -41,6 +42,7 @@ import type {
   HostEnvironment,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
   WorkspaceSnapshot,
@@ -56,6 +58,7 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
+type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 
 const HACKERONE_PROGRAM_QUERY = `
   query BealeProgram($handle: String!) {
@@ -152,6 +155,7 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
   'Make the prompt actionable for an autonomous research session: include target focus, hypotheses to test, evidence to collect, verifier expectations, and stop conditions.',
   'Return strict JSON only with a string field named promptMarkdown.'
 ].join('\n');
+const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
 
 export function getHostEnvironment(): HostEnvironment {
@@ -186,6 +190,18 @@ export interface WorkspaceServiceOptions {
   openAiFetch?: FetchLike;
 }
 
+interface WorkspaceRuntime {
+  workspacePath: string;
+  openedAt: string;
+  lastRecovery: WorkspaceRecoveryReport | null;
+  db: WorkspaceDatabase;
+  engine: FakeRunEngine;
+  openAiEngine: OpenAiRunEngine;
+  executorManager: ExecutorManager;
+  executorRunEngine: ExecutorRunEngine;
+  benchmarkRunner: BenchmarkRunner;
+}
+
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private engine: FakeRunEngine | null = null;
@@ -200,6 +216,7 @@ export class WorkspaceService {
   private lastRecovery: WorkspaceRecoveryReport | null = null;
   private pendingChangeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly researchPromptControllers = new Map<string, AbortController>();
+  private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
 
   public constructor(
     private readonly onChange: () => void = () => undefined,
@@ -342,28 +359,22 @@ export class WorkspaceService {
   public removeProgram(programId: string): WorkspaceSnapshot | null {
     const removed = this.getProgramRegistry().removeProgram(programId);
     if (removed && this.workspacePath && resolve(this.workspacePath) === resolve(removed.workspacePath)) {
-      this.close();
+      const runtime = this.detachForegroundRuntime();
+      if (runtime) this.disposeRuntime(runtime);
+    } else if (removed) {
+      const background = this.backgroundRuntimes.get(resolve(removed.workspacePath));
+      if (background) {
+        this.backgroundRuntimes.delete(resolve(removed.workspacePath));
+        this.disposeRuntime(background);
+      }
     }
     this.onChange();
     return this.getSnapshot();
   }
 
   public getSnapshot(): WorkspaceSnapshot | null {
-    if (!this.db || !this.workspacePath || !this.openedAt) {
-      return null;
-    }
-    return {
-      workspace: this.getWorkspaceSummary(),
-      openAi: this.openAiAuth.getStatus(),
-      executor: this.requireExecutorManager().getStatus(),
-      vmPreference: this.getVmPreferenceForSnapshot(),
-      activeScope: this.db.getActiveScope(),
-      recovery: this.lastRecovery ?? emptyRecoveryReport(this.openedAt),
-      policyReview: buildPolicyReview(this.db.getActiveScope()),
-      runs: this.db.listRunRows(),
-      notifications: this.db.listNotifications(),
-      benchmark: this.requireBenchmarkRunner().getOverview()
-    };
+    const runtime = this.getForegroundRuntime();
+    return runtime ? this.snapshotForRuntime(runtime) : null;
   }
 
   public refreshOpenAiStatus(): WorkspaceSnapshot {
@@ -382,7 +393,7 @@ export class WorkspaceService {
     return result;
   }
 
-  public async generateResearchPrompt(input: ResearchPromptGenerationInput | null = null): Promise<GeneratedResearchPrompt> {
+  public async generateResearchPrompt(input: ResearchPromptGenerationInput | null = null, onUpdate?: ResearchPromptGenerationUpdateHandler): Promise<GeneratedResearchPrompt> {
     requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
     const db = this.requireDb();
     const scope = db.getActiveScope();
@@ -421,8 +432,9 @@ export class WorkspaceService {
       }
     });
     try {
-      const output = await collectResearchPromptText(adapter.streamResponse({ body, signal: controller.signal }), status.source);
+      const output = await collectResearchPromptText(adapter.streamResponse({ body, signal: controller.signal }), status.source, requestId, onUpdate);
       const promptMarkdown = parseResearchPromptRecommendation(output);
+      emitResearchPromptGenerationUpdate(requestId, promptMarkdown, onUpdate);
       return { promptMarkdown };
     } finally {
       if (requestId && this.researchPromptControllers.get(requestId) === controller) {
@@ -1131,18 +1143,14 @@ export class WorkspaceService {
       controller.abort();
     }
     this.researchPromptControllers.clear();
-    this.engine?.dispose();
-    this.openAiEngine?.dispose();
-    this.db?.close();
-    this.db = null;
-    this.engine = null;
-    this.openAiEngine = null;
-    this.executorManager = null;
-    this.executorRunEngine = null;
-    this.benchmarkRunner = null;
-    this.workspacePath = null;
-    this.openedAt = null;
-    this.lastRecovery = null;
+    const foreground = this.detachForegroundRuntime();
+    if (foreground) {
+      this.disposeRuntime(foreground);
+    }
+    for (const runtime of this.backgroundRuntimes.values()) {
+      this.disposeRuntime(runtime);
+    }
+    this.backgroundRuntimes.clear();
   }
 
   public dispose(): void {
@@ -1169,19 +1177,128 @@ export class WorkspaceService {
     mkdirSync(join(bealeDir, 'exports'), { recursive: true });
     mkdirSync(join(bealeDir, 'logs'), { recursive: true });
 
-    this.close();
-    this.workspacePath = workspacePath;
-    this.openedAt = new Date().toISOString();
-    this.db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
-    this.db.initialize();
-    this.lastRecovery = this.db.recoverInterruptedState('workspace_open');
-    this.engine = new FakeRunEngine(this.db, () => this.emitChange());
-    this.executorManager = new ExecutorManager(this.db);
-    this.openAiEngine = new OpenAiRunEngine(this.db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), this.executorManager, () => this.emitChange());
-    this.executorRunEngine = new ExecutorRunEngine(this.db, this.executorManager, () => this.emitChange());
-    this.benchmarkRunner = new BenchmarkRunner(this.db, workspacePath, this.options.benchmarkDockerCommand);
+    const foreground = this.getForegroundRuntime();
+    if (foreground?.workspacePath === workspacePath) {
+      if (emitChange) this.emitChange();
+      return this.requireSnapshot();
+    }
+
+    this.releaseForegroundForSwitch();
+    const background = this.backgroundRuntimes.get(workspacePath);
+    if (background) {
+      this.backgroundRuntimes.delete(workspacePath);
+      this.setForegroundRuntime(background);
+      if (emitChange) this.emitChange();
+      return this.requireSnapshot();
+    }
+
+    this.setForegroundRuntime(this.createRuntime(workspacePath, bealeDir, artifactRoot));
     if (emitChange) this.emitChange();
     return this.requireSnapshot();
+  }
+
+  private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string): WorkspaceRuntime {
+    const db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    const openedAt = new Date().toISOString();
+    const executorManager = new ExecutorManager(db);
+    return {
+      workspacePath,
+      openedAt,
+      lastRecovery: db.recoverInterruptedState('workspace_open'),
+      db,
+      engine: new FakeRunEngine(db, () => this.emitRuntimeChange(workspacePath)),
+      openAiEngine: new OpenAiRunEngine(db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), executorManager, () => this.emitRuntimeChange(workspacePath)),
+      executorManager,
+      executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),
+      benchmarkRunner: new BenchmarkRunner(db, workspacePath, this.options.benchmarkDockerCommand)
+    };
+  }
+
+  private getForegroundRuntime(): WorkspaceRuntime | null {
+    if (
+      !this.workspacePath ||
+      !this.openedAt ||
+      !this.db ||
+      !this.engine ||
+      !this.openAiEngine ||
+      !this.executorManager ||
+      !this.executorRunEngine ||
+      !this.benchmarkRunner
+    ) {
+      return null;
+    }
+    return {
+      workspacePath: this.workspacePath,
+      openedAt: this.openedAt,
+      lastRecovery: this.lastRecovery,
+      db: this.db,
+      engine: this.engine,
+      openAiEngine: this.openAiEngine,
+      executorManager: this.executorManager,
+      executorRunEngine: this.executorRunEngine,
+      benchmarkRunner: this.benchmarkRunner
+    };
+  }
+
+  private setForegroundRuntime(runtime: WorkspaceRuntime): void {
+    this.workspacePath = runtime.workspacePath;
+    this.openedAt = runtime.openedAt;
+    this.lastRecovery = runtime.lastRecovery;
+    this.db = runtime.db;
+    this.engine = runtime.engine;
+    this.openAiEngine = runtime.openAiEngine;
+    this.executorManager = runtime.executorManager;
+    this.executorRunEngine = runtime.executorRunEngine;
+    this.benchmarkRunner = runtime.benchmarkRunner;
+  }
+
+  private detachForegroundRuntime(): WorkspaceRuntime | null {
+    const runtime = this.getForegroundRuntime();
+    this.workspacePath = null;
+    this.openedAt = null;
+    this.lastRecovery = null;
+    this.db = null;
+    this.engine = null;
+    this.openAiEngine = null;
+    this.executorManager = null;
+    this.executorRunEngine = null;
+    this.benchmarkRunner = null;
+    return runtime;
+  }
+
+  private releaseForegroundForSwitch(): void {
+    this.clearPendingChange();
+    const runtime = this.detachForegroundRuntime();
+    if (!runtime) return;
+    if (this.hasActiveRuntimeWork(runtime)) {
+      this.backgroundRuntimes.set(runtime.workspacePath, runtime);
+      this.syncProgramRegistryForRuntime(runtime, false);
+      return;
+    }
+    this.disposeRuntime(runtime);
+  }
+
+  private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
+    return runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active');
+  }
+
+  private disposeRuntime(runtime: WorkspaceRuntime): void {
+    runtime.engine.dispose();
+    runtime.openAiEngine.dispose();
+    runtime.db.close();
+  }
+
+  private emitRuntimeChange(workspacePath: string): void {
+    if (this.workspacePath === workspacePath) {
+      this.emitChange();
+      return;
+    }
+    const runtime = this.backgroundRuntimes.get(workspacePath);
+    if (runtime) {
+      this.syncProgramRegistryForRuntime(runtime, false);
+    }
+    this.onChange();
   }
 
   private getProgramRegistry(): ProgramRegistry {
@@ -1201,8 +1318,16 @@ export class WorkspaceService {
     if (!this.programRegistry) return;
     const snapshot = this.getSnapshot();
     if (snapshot) {
-      this.programRegistry.syncWorkspace(snapshot);
+      this.programRegistry.syncWorkspace(snapshot, { rememberLast: true });
     }
+    for (const runtime of this.backgroundRuntimes.values()) {
+      this.syncProgramRegistryForRuntime(runtime, false);
+    }
+  }
+
+  private syncProgramRegistryForRuntime(runtime: WorkspaceRuntime, rememberLast: boolean): void {
+    if (!this.programRegistry) return;
+    this.programRegistry.syncWorkspace(this.snapshotForRuntime(runtime), { rememberLast });
   }
 
   private requireDb(): WorkspaceDatabase {
@@ -1255,19 +1380,32 @@ export class WorkspaceService {
     return snapshot;
   }
 
-  private getWorkspaceSummary(): WorkspaceSummary {
-    const db = this.requireDb();
-    if (!this.workspacePath || !this.openedAt) {
-      throw new Error('No Beale workspace is open');
-    }
+  private snapshotForRuntime(runtime: WorkspaceRuntime): WorkspaceSnapshot {
+    const activeScope = runtime.db.getActiveScope();
     return {
-      workspaceId: db.getWorkspaceId(),
-      workspacePath: this.workspacePath,
-      databasePath: db.getDatabasePath(),
-      artifactRoot: db.getArtifactRoot(),
-      openedAt: this.openedAt,
+      workspace: this.getWorkspaceSummary(runtime),
+      openAi: this.openAiAuth.getStatus(),
+      executor: runtime.executorManager.getStatus(),
+      vmPreference: this.getVmPreferenceForSnapshot(),
+      activeScope,
+      recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
+      policyReview: buildPolicyReview(activeScope),
+      runs: runtime.db.listRunRows(),
+      notifications: runtime.db.listNotifications(),
+      benchmark: runtime.benchmarkRunner.getOverview()
+    };
+  }
+
+  private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {
+    if (!runtime) throw new Error('No Beale workspace is open');
+    return {
+      workspaceId: runtime.db.getWorkspaceId(),
+      workspacePath: runtime.workspacePath,
+      databasePath: runtime.db.getDatabasePath(),
+      artifactRoot: runtime.db.getArtifactRoot(),
+      openedAt: runtime.openedAt,
       fakeExecutorLabel: FAKE_EXECUTOR_LABEL,
-      lastWorkspaceBackup: db.getLastWorkspaceBackup(),
+      lastWorkspaceBackup: runtime.db.getLastWorkspaceBackup(),
       hostEnvironment: getHostEnvironment()
     };
   }
@@ -1985,7 +2123,7 @@ function hackerOneScopeToAsset(scope: HackerOneScopeNode): ScopeAssetInput | nul
   if (!value) return null;
   const assetType = scope.asset_type?.trim() ?? 'OTHER';
   const instruction = scope.instruction ?? '';
-  const repositoryUrl = firstGitHubRepositoryUrl(`${value}\n${instruction}`);
+  const repositoryUrl = firstSourceRepositoryUrl(`${value}\n${instruction}`);
   const kind = repositoryUrl ? 'repo' : hackerOneAssetKind(assetType, value);
   const normalizedValue = repositoryUrl && (kind === 'repo' || assetType.toUpperCase().includes('SOURCE')) ? repositoryUrl : value;
   return {
@@ -2007,22 +2145,8 @@ function hackerOneScopeToAsset(scope: HackerOneScopeNode): ScopeAssetInput | nul
   };
 }
 
-function firstGitHubRepositoryUrl(text: string): string | null {
-  const match = text.match(/\b(?:https?:\/\/)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/i);
-  if (!match) return null;
-  const raw = match[0].replace(/[),.;]+$/, '');
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  try {
-    const parsed = new URL(withProtocol);
-    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com') return null;
-    const [owner, repoWithSuffix] = parsed.pathname.split('/').filter(Boolean);
-    if (!owner || !repoWithSuffix) return null;
-    const repo = repoWithSuffix.replace(/\.git$/i, '');
-    if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) return null;
-    return `https://github.com/${owner}/${repo}`;
-  } catch {
-    return null;
-  }
+function firstSourceRepositoryUrl(text: string): string | null {
+  return extractSourceRepositoryUrls(text)[0] ?? null;
 }
 
 function hackerOneAssetKind(assetType: string, value: string): ScopeAssetInput['kind'] {
@@ -2275,16 +2399,23 @@ async function collectHackerOneModelReviewText(stream: AsyncGenerator<OpenAiStre
   return text;
 }
 
-async function collectResearchPromptText(stream: AsyncGenerator<OpenAiStreamEvent>, authSource: OpenAiAccountStatus['source']): Promise<string> {
+async function collectResearchPromptText(
+  stream: AsyncGenerator<OpenAiStreamEvent>,
+  authSource: OpenAiAccountStatus['source'],
+  requestId: string | null,
+  onUpdate?: ResearchPromptGenerationUpdateHandler
+): Promise<string> {
   let deltaText = '';
   let doneText: string | null = null;
   try {
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
         deltaText += event.delta;
+        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(deltaText), onUpdate);
       }
       if (event.type === 'response.output_text.done' && typeof event.text === 'string') {
         doneText = event.text;
+        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(doneText), onUpdate);
       }
       if (event.type === 'error') {
         throw new Error('OpenAI returned an error while generating the research prompt.');
@@ -2298,6 +2429,11 @@ async function collectResearchPromptText(stream: AsyncGenerator<OpenAiStreamEven
     throw new Error('OpenAI returned an empty research prompt recommendation.');
   }
   return text;
+}
+
+function emitResearchPromptGenerationUpdate(requestId: string | null, promptMarkdown: string, onUpdate?: ResearchPromptGenerationUpdateHandler): void {
+  if (!requestId || !promptMarkdown || !onUpdate) return;
+  onUpdate({ requestId, promptMarkdown: promptMarkdown.slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS) });
 }
 
 function hackerOneModelReviewError(error: unknown, authSource: OpenAiAccountStatus['source']): Error {
@@ -2358,7 +2494,7 @@ function parseHackerOneImportReview(output: string): HackerOneProgramImportRevie
 function parseResearchPromptRecommendation(output: string): string {
   try {
     const record = recordFromUnknown(JSON.parse(extractJsonObject(output)));
-    const promptMarkdown = record ? markdownField(record, 'promptMarkdown', 10_000) : '';
+    const promptMarkdown = record ? markdownField(record, 'promptMarkdown', GENERATED_RESEARCH_PROMPT_MAX_CHARS) : '';
     if (promptMarkdown) return promptMarkdown;
   } catch {
     // Fall back to plain text for providers that return the prompt directly.
@@ -2367,7 +2503,54 @@ function parseResearchPromptRecommendation(output: string): string {
   if (!prompt) {
     throw new Error('OpenAI research prompt recommendation did not include promptMarkdown.');
   }
-  return prompt.slice(0, 10_000);
+  return prompt.slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS);
+}
+
+function partialResearchPromptMarkdown(output: string): string {
+  const raw = output.trimStart();
+  if (!raw) return '';
+  const jsonField = partialJsonStringField(raw, 'promptMarkdown');
+  if (jsonField !== null) return jsonField;
+  if (raw.startsWith('{') || raw.startsWith('```json')) return '';
+  return raw.replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/i, '').trimStart();
+}
+
+function partialJsonStringField(output: string, key: string): string | null {
+  const keyIndex = output.indexOf(`"${key}"`);
+  if (keyIndex < 0) return null;
+  const colonIndex = output.indexOf(':', keyIndex + key.length + 2);
+  if (colonIndex < 0) return '';
+  const firstQuoteIndex = output.indexOf('"', colonIndex + 1);
+  if (firstQuoteIndex < 0) return '';
+
+  let value = '';
+  for (let index = firstQuoteIndex + 1; index < output.length; index += 1) {
+    const character = output[index];
+    if (character === '"') return value;
+    if (character !== '\\') {
+      value += character;
+      continue;
+    }
+
+    index += 1;
+    if (index >= output.length) break;
+    const escaped = output[index];
+    if (escaped === 'n') value += '\n';
+    else if (escaped === 'r') value += '\r';
+    else if (escaped === 't') value += '\t';
+    else if (escaped === 'b') value += '\b';
+    else if (escaped === 'f') value += '\f';
+    else if (escaped === 'u') {
+      const hex = output.slice(index + 1, index + 5);
+      if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+        value += String.fromCharCode(Number.parseInt(hex, 16));
+        index += 4;
+      }
+    } else {
+      value += escaped;
+    }
+  }
+  return value;
 }
 
 function extractJsonObject(output: string): string {

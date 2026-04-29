@@ -10,6 +10,7 @@ import type {
   ProgramRegistryState,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
+  ResearchPromptGenerationUpdate,
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
@@ -69,6 +70,11 @@ const api: BealeApi = {
   },
   cancelResearchPromptGeneration(requestId: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.cancelResearchPromptGeneration, requestId);
+  },
+  onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, update: ResearchPromptGenerationUpdate): void => listener(update);
+    ipcRenderer.on(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
   },
   saveProgramScope(scope: ProgramScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);

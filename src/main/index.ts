@@ -168,7 +168,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
-  ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (_event, input?: ResearchPromptGenerationInput) => workspaceService.generateResearchPrompt(input));
+  ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
+    workspaceService.generateResearchPrompt(input, (update) => event.sender.send(IPC_CHANNELS.researchPromptGenerationUpdated, update))
+  );
   ipcMain.handle(IPC_CHANNELS.cancelResearchPromptGeneration, (_event, requestId: string) => workspaceService.cancelResearchPromptGeneration(requestId));
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
