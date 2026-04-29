@@ -1,3 +1,33 @@
+@property --session-heat-surface {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(255, 255, 255, 0.022);
+}
+
+@property --session-heat-wash {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(255, 255, 255, 0.075);
+}
+
+@property --session-heat-edge {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(255, 255, 255, 0.1);
+}
+
+@property --session-heat-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+@property --session-heat-opacity {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
 :root {
   color-scheme: dark;
   font-family:
@@ -334,7 +364,8 @@ code {
   --session-heat-edge: rgba(255, 255, 255, 0.1);
   --session-heat-accent: transparent;
   --session-heat-opacity: 1;
-  --session-gradient-duration: 34s;
+  --app-pulse-duration: 12s;
+  --app-pulse-opacity: 0;
   height: 100%;
   position: relative;
   isolation: isolate;
@@ -350,6 +381,11 @@ code {
     var(--bg);
   transition:
     grid-template-columns 180ms ease,
+    --session-heat-surface 900ms ease,
+    --session-heat-wash 900ms ease,
+    --session-heat-edge 900ms ease,
+    --session-heat-accent 900ms ease,
+    --session-heat-opacity 900ms ease,
     background 260ms ease,
     border-color 180ms ease,
     border-radius 180ms ease;
@@ -367,8 +403,11 @@ code {
   z-index: 0;
   opacity: var(--session-heat-opacity);
   pointer-events: none;
-  transform: translate3d(0, 0, 0) scale(1);
-  transition: opacity 300ms ease, transform 480ms ease;
+  transition:
+    --session-heat-wash 900ms ease,
+    --session-heat-edge 900ms ease,
+    --session-heat-opacity 900ms ease,
+    opacity 900ms ease;
   background:
     radial-gradient(ellipse at 68% 0%, var(--session-heat-wash) 0%, transparent 48%),
     radial-gradient(ellipse at 16% 92%, var(--session-heat-wash) 0%, transparent 44%),
@@ -381,84 +420,232 @@ code {
     136% 136%,
     142% 142%,
     100% 100%;
-  animation: session-gradient-dance var(--session-gradient-duration) ease-in-out infinite;
+}
+
+.app-background-pulses {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-background-pulse {
+  position: absolute;
+  top: var(--pulse-y);
+  left: var(--pulse-x);
+  width: var(--pulse-size);
+  height: var(--pulse-size);
+  border: 1px solid rgba(230, 230, 224, 0.28);
+  border-radius: var(--pulse-radius, 9px);
+  background: rgba(226, 226, 219, 0.08);
+  box-shadow:
+    0 0 18px rgba(226, 226, 219, 0.08),
+    inset 0 0 18px rgba(226, 226, 219, 0.04);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.18);
+  animation: app-background-pulse var(--pulse-duration, var(--app-pulse-duration)) ease-out infinite;
+  animation-delay: var(--pulse-delay);
   animation-play-state: paused;
-  will-change: transform, background-position;
+  will-change: opacity, transform;
+}
+
+.app-shell.session-active {
+  --app-pulse-duration: 11s;
+  --app-pulse-opacity: 0.16;
 }
 
 .app-shell.momentum-exploring {
-  --session-gradient-duration: 34s;
+  --app-pulse-duration: 9.5s;
+  --app-pulse-opacity: 0.17;
 }
 
 .app-shell.momentum-building {
-  --session-gradient-duration: 24s;
+  --app-pulse-duration: 7.2s;
+  --app-pulse-opacity: 0.2;
 }
 
 .app-shell.momentum-verifying {
-  --session-gradient-duration: 16s;
+  --app-pulse-duration: 5.4s;
+  --app-pulse-opacity: 0.23;
 }
 
 .app-shell.momentum-hot {
-  --session-gradient-duration: 9s;
+  --app-pulse-duration: 3.8s;
+  --app-pulse-opacity: 0.28;
 }
 
 .app-shell.momentum-stuck {
-  --session-gradient-duration: 12s;
+  --app-pulse-duration: 4.8s;
+  --app-pulse-opacity: 0.22;
 }
 
-.app-shell.momentum-exploring::before,
-.app-shell.momentum-building::before,
-.app-shell.momentum-verifying::before,
-.app-shell.momentum-hot::before,
-.app-shell.momentum-stuck::before {
+.app-shell.session-active .app-background-pulse,
+.app-shell.momentum-exploring .app-background-pulse,
+.app-shell.momentum-building .app-background-pulse,
+.app-shell.momentum-verifying .app-background-pulse,
+.app-shell.momentum-hot .app-background-pulse,
+.app-shell.momentum-stuck .app-background-pulse {
   animation-play-state: running;
 }
 
-@keyframes session-gradient-dance {
+.app-background-pulse:nth-child(1) {
+  --pulse-x: 6%;
+  --pulse-y: 12%;
+  --pulse-size: 46px;
+  --pulse-delay: -1.5s;
+}
+
+.app-background-pulse:nth-child(2) {
+  --pulse-x: 18%;
+  --pulse-y: 78%;
+  --pulse-size: 78px;
+  --pulse-radius: 14px;
+  --pulse-delay: -9s;
+}
+
+.app-background-pulse:nth-child(3) {
+  --pulse-x: 31%;
+  --pulse-y: 28%;
+  --pulse-size: 56px;
+  --pulse-delay: -4.8s;
+}
+
+.app-background-pulse:nth-child(4) {
+  --pulse-x: 44%;
+  --pulse-y: 91%;
+  --pulse-size: 92px;
+  --pulse-radius: 16px;
+  --pulse-delay: -12s;
+}
+
+.app-background-pulse:nth-child(5) {
+  --pulse-x: 56%;
+  --pulse-y: 16%;
+  --pulse-size: 68px;
+  --pulse-radius: 13px;
+  --pulse-delay: -7.4s;
+}
+
+.app-background-pulse:nth-child(6) {
+  --pulse-x: 72%;
+  --pulse-y: 65%;
+  --pulse-size: 112px;
+  --pulse-radius: 18px;
+  --pulse-delay: -2.7s;
+}
+
+.app-background-pulse:nth-child(7) {
+  --pulse-x: 88%;
+  --pulse-y: 24%;
+  --pulse-size: 74px;
+  --pulse-radius: 14px;
+  --pulse-delay: -10.2s;
+}
+
+.app-background-pulse:nth-child(8) {
+  --pulse-x: 96%;
+  --pulse-y: 82%;
+  --pulse-size: 52px;
+  --pulse-delay: -5.6s;
+}
+
+.app-background-pulse:nth-child(9) {
+  --pulse-x: 9%;
+  --pulse-y: 48%;
+  --pulse-size: 104px;
+  --pulse-radius: 17px;
+  --pulse-delay: -13.5s;
+}
+
+.app-background-pulse:nth-child(10) {
+  --pulse-x: 25%;
+  --pulse-y: 8%;
+  --pulse-size: 84px;
+  --pulse-radius: 15px;
+  --pulse-delay: -6.3s;
+}
+
+.app-background-pulse:nth-child(11) {
+  --pulse-x: 38%;
+  --pulse-y: 62%;
+  --pulse-size: 64px;
+  --pulse-radius: 12px;
+  --pulse-delay: -11.2s;
+}
+
+.app-background-pulse:nth-child(12) {
+  --pulse-x: 51%;
+  --pulse-y: 42%;
+  --pulse-size: 118px;
+  --pulse-radius: 19px;
+  --pulse-delay: -3.9s;
+}
+
+.app-background-pulse:nth-child(13) {
+  --pulse-x: 67%;
+  --pulse-y: 6%;
+  --pulse-size: 50px;
+  --pulse-delay: -8.1s;
+}
+
+.app-background-pulse:nth-child(14) {
+  --pulse-x: 82%;
+  --pulse-y: 94%;
+  --pulse-size: 86px;
+  --pulse-radius: 15px;
+  --pulse-delay: -14.7s;
+}
+
+.app-background-pulse:nth-child(15) {
+  --pulse-x: 14%;
+  --pulse-y: 92%;
+  --pulse-size: 54px;
+  --pulse-delay: -0.7s;
+}
+
+.app-background-pulse:nth-child(16) {
+  --pulse-x: 61%;
+  --pulse-y: 84%;
+  --pulse-size: 72px;
+  --pulse-radius: 13px;
+  --pulse-delay: -6.9s;
+}
+
+.app-background-pulse:nth-child(17) {
+  --pulse-x: 78%;
+  --pulse-y: 38%;
+  --pulse-size: 44px;
+  --pulse-delay: -2.1s;
+}
+
+.app-background-pulse:nth-child(18) {
+  --pulse-x: 94%;
+  --pulse-y: 52%;
+  --pulse-size: 98px;
+  --pulse-radius: 17px;
+  --pulse-delay: -9.8s;
+}
+
+@keyframes app-background-pulse {
   0% {
-    transform: translate3d(-1.2%, -0.4%, 0) scale(1.02);
-    background-position:
-      48% 0%,
-      1% 100%,
-      50% 50%;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
   }
 
-  22% {
-    transform: translate3d(1.6%, -1.1%, 0) scale(1.035);
-    background-position:
-      62% 6%,
-      10% 88%,
-      50% 48%;
-  }
-
-  48% {
-    transform: translate3d(0.8%, 1.4%, 0) scale(1.025);
-    background-position:
-      74% 16%,
-      22% 96%,
-      50% 52%;
+  18% {
+    opacity: var(--app-pulse-opacity);
   }
 
   72% {
-    transform: translate3d(-1.4%, 0.7%, 0) scale(1.04);
-    background-position:
-      58% 10%,
-      8% 82%,
-      50% 51%;
+    opacity: var(--app-pulse-opacity);
+    transform: translate(-50%, -50%) scale(1);
   }
 
   100% {
-    transform: translate3d(-1.2%, -0.4%, 0) scale(1.02);
-    background-position:
-      48% 0%,
-      1% 100%,
-      50% 50%;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.55);
   }
-}
-
-.app-shell > * {
-  position: relative;
-  z-index: 1;
 }
 
 .app-shell.sidebar-collapsed {
@@ -477,6 +664,8 @@ code {
   grid-column: 1 / -1;
   grid-row: 1;
   min-width: 0;
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
@@ -609,6 +798,7 @@ code {
 
 .sidebar {
   position: relative;
+  z-index: 1;
   grid-column: 1;
   grid-row: 2;
   min-width: 0;
@@ -1011,6 +1201,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-height: 0;
   height: 100%;
   position: relative;
+  z-index: 1;
   isolation: isolate;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1067,6 +1258,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-row: 2;
   min-width: 0;
   min-height: 0;
+  position: relative;
+  z-index: 1;
   overflow: hidden;
   margin: 0;
   padding: 0;
@@ -4124,6 +4317,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-column: 1 / -1;
   grid-row: 3;
   min-width: 0;
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: 8px;
@@ -4244,8 +4439,9 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-shell::before {
+  .app-background-pulse {
     animation: none;
+    opacity: 0;
   }
 
   .environment-pill.is-active::after {

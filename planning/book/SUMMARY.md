@@ -32,6 +32,7 @@ This book is the working planning document for the Beale rewrite.
 - [Verifier Contracts](verifier-contracts.md)
 - [Open-Ended Discovery Scoring](open-ended-discovery-scoring.md)
 - [CWE-Guided Classification](cwe-guided-classification.md)
+- [Program Memory and Duplicate Control](program-memory-duplicate-control.md)
 - [Secret Isolation](secret-isolation.md)
 
 ## Chapter 4: Product Experience and Delivery

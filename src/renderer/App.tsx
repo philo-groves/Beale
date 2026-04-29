@@ -213,6 +213,7 @@ const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
 const DEFAULT_CONTEXT_TOKEN_LIMIT = 225_000;
+const APP_BACKGROUND_PULSES = Array.from({ length: 18 }, (_, index) => index);
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -825,10 +826,12 @@ export function App(): JSX.Element {
   const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const researchMomentum = researchMomentumForDetail(activeRunDetail, sessionHeat);
+  const sessionActive = activeRunDetail?.run.status === 'active';
   const appShellClassName = [
     'app-shell',
     `session-heat-${sessionHeat}`,
     `momentum-${researchMomentum.state}`,
+    sessionActive ? 'session-active' : '',
     windowChromeState.isMaximized || windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     sidebarCollapsed ? 'sidebar-collapsed' : '',
     inspectorOpen ? 'inspector-open' : ''
@@ -843,6 +846,11 @@ export function App(): JSX.Element {
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+      <div className="app-background-pulses" aria-hidden="true">
+        {APP_BACKGROUND_PULSES.map((pulse) => (
+          <span className="app-background-pulse" key={pulse} />
+        ))}
+      </div>
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
