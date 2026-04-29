@@ -329,11 +329,11 @@ code {
 }
 
 .app-shell {
-  --session-heat-surface: transparent;
-  --session-heat-wash: transparent;
-  --session-heat-edge: transparent;
+  --session-heat-surface: rgba(255, 255, 255, 0.018);
+  --session-heat-wash: rgba(255, 255, 255, 0.055);
+  --session-heat-edge: rgba(255, 255, 255, 0.07);
   --session-heat-accent: transparent;
-  --session-heat-opacity: 0;
+  --session-heat-opacity: 1;
   height: 100%;
   position: relative;
   isolation: isolate;
