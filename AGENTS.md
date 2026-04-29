@@ -35,6 +35,16 @@ Do not use legacy branding in new docs or code. Use `Beale`.
   - Benchmark isolation: Dockerized agent harness with host-side grader and host-side model/auth proxy
 - If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
 
+## CHANGELOG.md Management
+
+- Maintain a root `CHANGELOG.md` for product, architecture, persistence, security model, and notable UX changes.
+- Use an `Unreleased` section for ongoing work. Do not invent release versions or dates unless explicitly asked.
+- Group entries under concise headings such as `Added`, `Changed`, `Fixed`, `Removed`, `Security`, and `Documentation`.
+- Add entries for user-visible behavior, beta-relevant fixes, schema or migration changes, model/tool contract changes, sandbox or networking changes, major refactors, and project structure changes.
+- Do not add entries for trivial formatting, typo-only edits, test-only updates with no behavior change, or purely internal cleanup that does not affect future development.
+- Keep entries short and factual. Mention migrations, compatibility notes, or manual setup steps when relevant.
+- When creating `CHANGELOG.md` for the first time, start it with `# Changelog`, an `## Unreleased` section, and the headings needed by the current change only.
+
 ## Security Model
 
 Preserve these invariants in docs and implementation:
