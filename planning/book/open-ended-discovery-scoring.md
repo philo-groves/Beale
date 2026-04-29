@@ -105,6 +105,8 @@ priority = evidence_confidence * (attacker_reachability + impact + exploit_pract
 ```
 
 This makes evidence confidence a multiplier. A finding with no evidence cannot score high, even if the alleged impact is severe.
+Each input is clamped to `0-4`, so the host-derived priority range is `P0` through `P64`.
+Model-provided priority scores are not trusted; models provide the factor labels, and Beale computes and stores the score.
 
 Example:
 

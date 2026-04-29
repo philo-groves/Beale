@@ -8,8 +8,33 @@ export interface PriorityFactors {
   scopeConfidence: number;
 }
 
+export const MAX_PRIORITY_SCORE = 64;
+
 export function scorePriority(factors: PriorityFactors): number {
-  return clamp(factors.evidenceConfidence) * (clamp(factors.attackerReachability) + clamp(factors.impact) + clamp(factors.exploitPracticality) + clamp(factors.scopeConfidence));
+  return clampPriorityScore(
+    clamp(factors.evidenceConfidence) * (clamp(factors.attackerReachability) + clamp(factors.impact) + clamp(factors.exploitPracticality) + clamp(factors.scopeConfidence))
+  );
+}
+
+export function clampPriorityScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(MAX_PRIORITY_SCORE, Math.round(value)));
+}
+
+export function priorityFactorsFromLabels(input: {
+  attackerReachability: string;
+  impact: string;
+  evidenceConfidence: string;
+  exploitPracticality: string;
+  scopeConfidence: string;
+}): PriorityFactors {
+  return {
+    attackerReachability: factorFromText(input.attackerReachability),
+    impact: factorFromText(input.impact),
+    evidenceConfidence: factorFromText(input.evidenceConfidence),
+    exploitPracticality: factorFromText(input.exploitPracticality),
+    scopeConfidence: factorFromText(input.scopeConfidence)
+  };
 }
 
 export function priorityFactorsFromHypothesis(hypothesis: HypothesisRecord): PriorityFactors {

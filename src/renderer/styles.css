@@ -1189,7 +1189,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 3;
   border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--panel-border);
   opacity: 1;
@@ -1821,8 +1821,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: 12px 48px 27px minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: 12px 27px minmax(0, 1fr);
+  gap: 7px;
   align-items: stretch;
   min-height: 44px;
   justify-content: stretch;
@@ -1848,7 +1848,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trace-turn.trace-turn-entering .main-trace-turn-header,
 .main-trace-event.trace-entering {
-  animation: trace-slide-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: trace-slide-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .main-trace-event.trace-entering {
@@ -1865,35 +1865,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.main-trace-meta {
-  min-width: 0;
-  align-self: start;
-  display: grid;
-  gap: 4px;
-  padding-top: 10px;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.main-trace-time {
-  color: #7c7c7c;
-  font-size: 0.7rem;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.main-trace-meta span {
-  overflow: hidden;
-  color: #696969;
-  font-size: 0.62rem;
-  font-weight: 700;
-  line-height: 1;
-  padding-top: 3px;
-  text-overflow: ellipsis;
-  text-transform: none;
 }
 
 .main-trace-marker {
@@ -2053,7 +2024,34 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
 }
 
-.main-trace-event-body strong {
+.main-trace-flags {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.main-trace-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.main-trace-source-label {
+  flex: 0 0 auto;
+  max-width: 58px;
+  overflow: hidden;
+  color: #777777;
+  font-size: 0.66rem;
+  font-weight: 760;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-title strong {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -2142,6 +2140,9 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   -webkit-line-clamp: 3;
 }
 
+.main-trace-event.category-agent_output .main-trace-prose,
+.main-trace-event.category-evidence .main-trace-prose,
+.main-trace-event.category-hypotheses .main-trace-prose,
 .main-trace-event.category-reasoning .main-trace-prose {
   display: block;
   overflow: visible;
@@ -2172,6 +2173,52 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   text-overflow: ellipsis;
   white-space: nowrap;
   -webkit-line-clamp: unset;
+}
+
+.main-trace-python-preview {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.main-trace-python-preview p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #a9a9a9;
+  font-size: 0.76rem;
+  line-height: 1.38;
+  white-space: normal;
+}
+
+.main-trace-python-preview pre {
+  min-width: 0;
+  max-width: 100%;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: #080808;
+  color: #cfcfcf;
+  margin: 0;
+  padding: 8px 9px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.72rem;
+  line-height: 1.32;
+  white-space: pre;
+}
+
+.main-trace-python-preview code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  text-overflow: ellipsis;
 }
 
 .trace-filter-grid {
@@ -3772,7 +3819,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   align-items: center;
   overflow: hidden;
-  padding: 0 12px 0 6px;
+  padding: 0 12px 0 10px;
   color: rgba(255, 255, 255, 0.82);
 }
 
@@ -3797,53 +3844,28 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: rgba(255, 255, 255, 0.36);
 }
 
-.research-momentum-line.momentum-exploring svg {
-  animation: research-momentum-drift 3.4s linear infinite;
+.research-momentum-line.momentum-exploring {
+  color: rgba(255, 255, 255, 0.58);
 }
 
-.research-momentum-line.momentum-building svg {
-  animation: research-momentum-drift 1.55s linear infinite;
+.research-momentum-line.momentum-building {
+  color: rgba(255, 255, 255, 0.74);
 }
 
-.research-momentum-line.momentum-verifying svg {
-  animation: research-momentum-drift 0.72s linear infinite;
+.research-momentum-line.momentum-verifying {
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .research-momentum-line.momentum-hot {
-  color: rgba(255, 255, 255, 0.94);
-}
-
-.research-momentum-line.momentum-hot svg {
-  animation: research-momentum-drift 0.42s linear infinite;
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .research-momentum-line.momentum-hot path {
-  animation: research-momentum-jolt 0.24s steps(2, end) infinite;
+  stroke-width: 1.55;
 }
 
-.research-momentum-line.momentum-stuck svg {
-  animation: research-momentum-drift 1s steps(8, end) infinite;
-}
-
-@keyframes research-momentum-drift {
-  from {
-    transform: translateX(0);
-  }
-
-  to {
-    transform: translateX(64px);
-  }
-}
-
-@keyframes research-momentum-jolt {
-  0%,
-  100% {
-    transform: translateX(0) translateY(0);
-  }
-
-  50% {
-    transform: translateX(4px) translateY(-1px);
-  }
+.research-momentum-line.momentum-stuck {
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .notification-button {

@@ -788,6 +788,7 @@ export class WorkspaceService {
           payload: {
             hypothesisId: action.hypothesisId,
             priorityScore,
+            impact: labels.impact,
             factors: action.factors,
             note: action.note ?? ''
           }

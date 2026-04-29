@@ -175,6 +175,20 @@ interface ResearchMomentum {
   supportingTraceEventIds: string[];
 }
 
+interface ResearchMomentumWaveform {
+  path: string;
+  animateValues: string | null;
+  duration: string;
+  calcMode: 'linear' | 'spline';
+  keyTimes: string;
+  keySplines?: string;
+}
+
+interface PythonToolCallPreview {
+  task: string;
+  scriptLines: string[];
+}
+
 const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
   { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
@@ -193,9 +207,10 @@ const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id)
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
-const TRACE_REVEAL_ANIMATION_MS = 180;
+const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
+const MAX_PRIORITY_SCORE = 64;
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -1187,14 +1202,42 @@ function StatusBar({
 function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX.Element {
   const label = researchMomentumLabel(momentum.state);
   const title = `Research momentum: ${label}. ${momentum.reason}`;
+  const waveform = researchMomentumWaveform(momentum.state);
+  const reduceMotion = usePrefersReducedMotion();
 
   return (
     <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
       <svg aria-hidden="true" focusable="false" preserveAspectRatio="none" viewBox="0 0 420 24">
-        <path d={researchMomentumPath(momentum.state)} />
+        <path d={waveform.path}>
+          {!reduceMotion && waveform.animateValues ? (
+            <animate
+              attributeName="d"
+              calcMode={waveform.calcMode}
+              dur={waveform.duration}
+              keySplines={waveform.keySplines}
+              keyTimes={waveform.keyTimes}
+              repeatCount="indefinite"
+              values={waveform.animateValues}
+            />
+          ) : null}
+        </path>
       </svg>
     </div>
   );
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = (): void => setReduceMotion(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
+  return reduceMotion;
 }
 
 function NotificationStack({
@@ -1898,6 +1941,7 @@ function MainTraceView({
             {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
             {renderedGroups.map((group) => (
               <MainTraceTurnGroup
+                detail={detail}
                 group={group.group}
                 entries={group.entries}
                 enteringTraceEventIds={enteringTraceEntryIds}
@@ -2087,8 +2131,12 @@ function CwePill({ mappings }: { mappings: WeaknessMappingRecord[] }): JSX.Eleme
 }
 
 function formatPriorityPill(priorityScore: number): string {
-  const rounded = Math.round(priorityScore);
-  return `P${Number.isFinite(rounded) ? rounded : 0}`;
+  return `P${clampPriorityScoreForDisplay(priorityScore)}`;
+}
+
+function clampPriorityScoreForDisplay(priorityScore: number): number {
+  if (!Number.isFinite(priorityScore)) return 0;
+  return Math.max(0, Math.min(MAX_PRIORITY_SCORE, Math.round(priorityScore)));
 }
 
 function traceEventForHypothesis(events: TraceDisplayEvent[], hypothesis: HypothesisRecord): TraceDisplayEvent | null {
@@ -2146,6 +2194,7 @@ function findingForTraceEvent(detail: RunDetail | null, event: TraceEventRecord)
 }
 
 function MainTraceTurnGroup({
+  detail,
   group,
   entries,
   enteringTraceEventIds,
@@ -2154,6 +2203,7 @@ function MainTraceTurnGroup({
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
+  detail: RunDetail;
   group: TraceTimelineGroup;
   entries: TraceTimelineEntry[];
   enteringTraceEventIds: Set<string>;
@@ -2185,6 +2235,7 @@ function MainTraceTurnGroup({
       <div className="main-trace-turn-events">
         {entries.map(({ event }) => (
           <MainTraceEvent
+            detail={detail}
             entering={enteringTraceEventIds.has(event.id)}
             event={event}
             key={event.id}
@@ -2198,11 +2249,13 @@ function MainTraceTurnGroup({
 }
 
 function MainTraceEvent({
+  detail,
   entering,
   event,
   selected,
   onSelect
 }: {
+  detail: RunDetail | null;
   entering: boolean;
   event: TraceDisplayEvent;
   selected: boolean;
@@ -2210,10 +2263,11 @@ function MainTraceEvent({
 }): JSX.Element {
   const category = traceCategoryForEvent(event);
   const outcome = traceEventOutcome(event);
-  const detail = traceEventDetailText(event, category);
-  const hasDetail = detail.length > 0;
-  const proseDetail = isProseTraceEvent(event, category);
+  const detailText = traceEventDetailText(event, category, detail);
+  const hasDetail = detailText.length > 0;
+  const proseDetail = isProseTraceEvent(event, category, detail);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
+  const pythonPreview = pythonToolCallPreview(event);
   return (
     <button
       type="button"
@@ -2225,29 +2279,30 @@ function MainTraceEvent({
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >
-      <div className="main-trace-meta">
-        <time className="main-trace-time" dateTime={event.createdAt}>
-          {formatTraceTimestamp(event.createdAt)}
-        </time>
-        <span>{traceLabel(event.source)}</span>
-      </div>
       <div className="main-trace-marker" aria-hidden="true">
         <span>{traceEventIcon(event, category)}</span>
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
-          <strong>{traceEventSummary(event, category)}</strong>
-          <div className="main-trace-badges">
-            <span>{traceCategoryLabel(category)}</span>
-            {!event.modelVisible ? <span>Hidden</span> : null}
+          <div className="main-trace-title">
+            <strong>{traceEventSummary(event, category)}</strong>
+            <span className="main-trace-source-label">{traceLabel(event.source)}</span>
+          </div>
+          <div className="main-trace-flags">
+            <div className="main-trace-badges">
+              <span>{traceCategoryLabel(category)}</span>
+              {!event.modelVisible ? <span>Hidden</span> : null}
+            </div>
           </div>
         </div>
         <div className="main-trace-context">
-          {hasDetail ? (
+          {pythonPreview ? (
+            <PythonTracePreview preview={pythonPreview} />
+          ) : hasDetail ? (
             proseDetail ? (
-              <span className="main-trace-prose">{renderInlineCodeText(detail)}</span>
+              <span className="main-trace-prose">{renderInlineCodeText(detailText)}</span>
             ) : (
-              <code>{detail}</code>
+              <code>{detailText}</code>
             )
           ) : null}
         </div>
@@ -2256,7 +2311,23 @@ function MainTraceEvent({
   );
 }
 
-function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId): boolean {
+function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JSX.Element {
+  return (
+    <div className="main-trace-python-preview">
+      {preview.task ? <p>{preview.task}</p> : null}
+      {preview.scriptLines.length > 0 ? (
+        <pre>
+          <code>{preview.scriptLines.join('\n')}</code>
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
+  if (securityRecordToolCallDetail(event)) return true;
+  if (hypothesisEventDetailText(event, detail)) return true;
+
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if (!text) return false;
   if (tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary') return true;
@@ -2477,11 +2548,18 @@ function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): 
 function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
   const summary = event.summary.trim();
   if (!summary) return traceCategoryFallbackPrefix(category);
+  if (event.type === 'tool_call') {
+    const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(summary);
+    if (toolName === 'python') return 'Run Python';
+    if (toolName === 'hypothesis') return 'Formulate Hypothesis';
+    if (toolName === 'finding') return 'Document Finding';
+  }
 
   if (summary === 'OpenAI streamed model output delta.') return 'Stream model output';
   if (summary === 'OpenAI response completed.') return 'Complete response';
   if (summary === 'OpenAI response created.') return 'Start model turn';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
+  if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
   if (summary === 'OpenAI completed thought.' || isLegacyThoughtSummary(summary)) return 'Thought';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
@@ -2509,6 +2587,9 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
   if (match) return `Send request for turn ${match[1]}`;
   match = summary.match(/^OpenAI completed function call arguments for ([^.]+)\.$/);
+  if (match?.[1] === 'python') return 'Run Python';
+  if (match?.[1] === 'hypothesis') return 'Formulate Hypothesis';
+  if (match?.[1] === 'finding') return 'Document Finding';
   if (match) return `Call ${match[1]}`;
   match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
@@ -2536,6 +2617,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Record artifact: ${match[1]}`;
   match = summary.match(/^Hypothesis created: (.+)\.$/);
   if (match) return `Create hypothesis: ${match[1]}`;
+  match = summary.match(/^Hypothesis updated: (.+)\.$/);
+  if (match) return 'Hypothesis Updated';
   match = summary.match(/^Policy engine blocked (.+)\.$/);
   if (match) return `Block ${match[1]}`;
   match = summary.match(/^Paused after (.+)\.$/);
@@ -2571,10 +2654,16 @@ function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
   return 'Note';
 }
 
-function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
+function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): string {
+  const securityRecordDetail = securityRecordToolCallDetail(event);
+  if (securityRecordDetail) return securityRecordDetail;
+
+  const hypothesisDetail = hypothesisEventDetailText(event, detail);
+  if (hypothesisDetail) return hypothesisDetail;
+
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if ((category === 'agent_output' || category === 'reasoning') && text) {
-    return category === 'reasoning' ? formatReasoningTraceText(text) : truncateText(text.replace(/\s+/g, ' ').trim(), 360);
+    return category === 'reasoning' ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
   }
 
   return tracePayloadDetailText(event, category);
@@ -3114,6 +3203,61 @@ function toolNameFromSummary(summary: string): string | null {
   return completed ? completed[1] : null;
 }
 
+function isToolCallNamed(event: TraceEventRecord, toolName: string): boolean {
+  if (event.type !== 'tool_call') return false;
+  return (tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary)) === toolName;
+}
+
+function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
+  return cweTitleToolCallDetail(event, 'hypothesis', 'Untitled hypothesis') ?? cweTitleToolCallDetail(event, 'finding', 'Untitled finding');
+}
+
+function hypothesisEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
+  if (event.type !== 'hypothesis_event') return null;
+  const finding = findingForTraceEvent(detail, event);
+  const hypothesis = hypothesisForTraceEvent(detail, event);
+  const title = finding?.title ?? tracePayloadPrimitive(event.payload, 'title') ?? hypothesis?.title;
+  const impact = finding?.impactMarkdown ?? tracePayloadPrimitive(event.payload, 'impact') ?? hypothesis?.impact;
+  const lines = [title, impact].map((line) => line?.trim()).filter((line): line is string => Boolean(line));
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
+function cweTitleToolCallDetail(event: TraceEventRecord, toolName: string, fallbackTitle: string): string | null {
+  if (!isToolCallNamed(event, toolName)) return null;
+  const args = tracePayloadRecord(event.payload, 'arguments');
+  if (!args) return null;
+
+  const title = stringRecordValue(args, 'title') ?? fallbackTitle;
+  const cweName = stringRecordValue(args, 'primary_cwe_name') ?? 'Unclassified weakness';
+  const cweId = formatToolCallCweId(stringRecordValue(args, 'primary_cwe_id'));
+  return `${cweName} (${cweId}): ${title}`;
+}
+
+function formatToolCallCweId(value: string | null): string {
+  if (!value || /^(unknown|none|null|n\/a|needs[_ -]?classification)$/i.test(value)) return 'CWE TBD';
+  const cweMatch = value.match(/^CWE-(\d{1,8})$/i);
+  if (cweMatch) return `CWE-${cweMatch[1]}`;
+  const numericMatch = value.match(/^(\d{1,8})$/);
+  return numericMatch ? `CWE-${numericMatch[1]}` : value;
+}
+
+function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
+  if (event.type !== 'tool_call') return null;
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (toolName !== 'python') return null;
+
+  const args = tracePayloadRecord(event.payload, 'arguments');
+  if (!args) return null;
+
+  const task = stringRecordValue(args, 'task') ?? '';
+  const scriptValue = args.script;
+  const script = typeof scriptValue === 'string' ? scriptValue.replace(/\r\n?/g, '\n').trim() : '';
+  const scriptLines = script ? script.split('\n').slice(0, 8) : [];
+  if (!task && scriptLines.length === 0) return null;
+
+  return { task, scriptLines };
+}
+
 function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
   const searchable = `${event.source} ${event.type} ${event.summary} ${JSON.stringify(event.payload)}`.toLowerCase();
   const transcriptRole = tracePayloadPrimitive(event.payload, 'transcriptRole');
@@ -3121,6 +3265,8 @@ function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
   if (transcriptSource === 'openai_reasoning_summary') return 'reasoning';
   if (transcriptRole === 'assistant') return 'agent_output';
   if (transcriptRole === 'user' || transcriptRole === 'system') return 'events';
+  if (isToolCallNamed(event, 'hypothesis')) return 'hypotheses';
+  if (isToolCallNamed(event, 'finding')) return 'evidence';
   if (event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope') return 'policy_scope';
   if (traceEventOutcome(event) === 'success') {
     if (event.source === 'executor' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
@@ -3397,22 +3543,103 @@ function researchMomentumLabel(state: ResearchMomentumState): string {
   }
 }
 
-function researchMomentumPath(state: ResearchMomentumState): string {
+function researchMomentumWaveform(state: ResearchMomentumState): ResearchMomentumWaveform {
   switch (state) {
-    case 'exploring':
-      return 'M-80 12 C-56 8 -32 16 -8 12 S40 8 64 12 S112 16 136 12 S184 8 208 12 S256 16 280 12 S328 8 352 12 S400 16 424 12 S472 8 500 12';
-    case 'building':
-      return 'M-80 12 C-68 5 -56 19 -44 12 S-20 5 -8 12 S16 19 28 12 S52 5 64 12 S88 19 100 12 S124 5 136 12 S160 19 172 12 S196 5 208 12 S232 19 244 12 S268 5 280 12 S304 19 316 12 S340 5 352 12 S376 19 388 12 S412 5 424 12 S448 19 460 12 S484 5 500 12';
-    case 'verifying':
-      return 'M-80 12 L-68 7 L-56 17 L-44 8 L-32 16 L-20 6 L-8 18 L4 7 L16 17 L28 8 L40 16 L52 6 L64 18 L76 7 L88 17 L100 8 L112 16 L124 6 L136 18 L148 7 L160 17 L172 8 L184 16 L196 6 L208 18 L220 7 L232 17 L244 8 L256 16 L268 6 L280 18 L292 7 L304 17 L316 8 L328 16 L340 6 L352 18 L364 7 L376 17 L388 8 L400 16 L412 6 L424 18 L436 7 L448 17 L460 8 L472 16 L484 6 L500 12';
-    case 'hot':
-      return 'M-80 12 L-70 2 L-58 22 L-47 5 L-35 20 L-24 1 L-12 23 L0 6 L12 19 L24 3 L36 22 L48 4 L60 21 L72 2 L84 23 L96 5 L108 20 L120 1 L132 22 L144 6 L156 19 L168 3 L180 23 L192 4 L204 21 L216 2 L228 22 L240 5 L252 20 L264 1 L276 23 L288 6 L300 19 L312 3 L324 22 L336 4 L348 21 L360 2 L372 23 L384 5 L396 20 L408 1 L420 22 L432 6 L444 19 L456 3 L468 22 L480 4 L500 12';
-    case 'stuck':
-      return 'M-80 12 L-64 12 L-58 5 L-50 19 L-42 9 L-34 15 L-20 15 L-14 6 L-6 18 L2 10 L10 16 L24 16 L30 5 L38 19 L46 9 L54 15 L68 15 L74 6 L82 18 L90 10 L98 16 L112 16 L118 5 L126 19 L134 9 L142 15 L156 15 L162 6 L170 18 L178 10 L186 16 L200 16 L206 5 L214 19 L222 9 L230 15 L244 15 L250 6 L258 18 L266 10 L274 16 L288 16 L294 5 L302 19 L310 9 L318 15 L332 15 L338 6 L346 18 L354 10 L362 16 L376 16 L382 5 L390 19 L398 9 L406 15 L420 15 L426 6 L434 18 L442 10 L450 16 L464 16 L470 5 L478 19 L486 9 L500 12';
     case 'idle':
     case 'waiting':
-      return 'M-80 12 L500 12';
+      return {
+        path: 'M0 12 L420 12',
+        animateValues: null,
+        duration: '0s',
+        calcMode: 'linear',
+        keyTimes: '0;1'
+      };
+    case 'exploring':
+      return smoothMomentumWaveform(9, 1.25, 1, 3.6);
+    case 'building':
+      return smoothMomentumWaveform(13, 3.1, 1.35, 1.65);
+    case 'verifying':
+      return smoothMomentumWaveform(21, 4.2, 3.35, 0.7);
+    case 'hot':
+      return smoothMomentumWaveform(25, 7.2, 4.15, 0.44, 0.38);
+    case 'stuck':
+      return jaggedMomentumWaveform();
   }
+}
+
+function smoothMomentumWaveform(pointCount: number, amplitude: number, frequency: number, durationSeconds: number, overtone = 0.18): ResearchMomentumWaveform {
+  const phases = [0, Math.PI * 0.58, Math.PI * 1.12, Math.PI * 1.67];
+  const paths = phases.map((phase) => smoothMomentumPath(momentumWaveYs(pointCount, amplitude, frequency, phase, overtone)));
+  paths.push(paths[0]);
+  return {
+    path: paths[0],
+    animateValues: paths.join(';'),
+    duration: `${durationSeconds}s`,
+    calcMode: 'spline',
+    keyTimes: '0;0.25;0.5;0.75;1',
+    keySplines: '0.45 0 0.55 1;0.45 0 0.55 1;0.45 0 0.55 1;0.45 0 0.55 1'
+  };
+}
+
+function jaggedMomentumWaveform(): ResearchMomentumWaveform {
+  const frames = [
+    [12, 12, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 18, 9, 15, 12],
+    [12, 7, 17, 10, 16, 16, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 12],
+    [12, 18, 8, 16, 16, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 12],
+    [12, 12, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 18, 9, 15, 12]
+  ];
+  const paths = frames.map(jaggedMomentumPath);
+  return {
+    path: paths[0],
+    animateValues: paths.join(';'),
+    duration: '0.88s',
+    calcMode: 'linear',
+    keyTimes: '0;0.33;0.66;1'
+  };
+}
+
+function momentumWaveYs(pointCount: number, amplitude: number, frequency: number, phase: number, overtone: number): number[] {
+  return Array.from({ length: pointCount }, (_, index) => {
+    const progress = index / (pointCount - 1);
+    const envelope = Math.sin(Math.PI * progress);
+    const base = Math.sin(progress * Math.PI * 2 * frequency + phase);
+    const upper = Math.sin(progress * Math.PI * 2 * (frequency * 2 + 0.35) + phase * 0.7);
+    return clampMomentumY(12 + envelope * amplitude * (base + upper * overtone));
+  });
+}
+
+function smoothMomentumPath(ys: number[]): string {
+  const points = ys.map((y, index) => ({ x: (420 / (ys.length - 1)) * index, y }));
+  const commands = [`M${formatMomentumNumber(points[0].x)} ${formatMomentumNumber(points[0].y)}`];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[Math.max(0, index - 1)];
+    const current = points[index];
+    const next = points[index + 1];
+    const following = points[Math.min(points.length - 1, index + 2)];
+    const cp1x = current.x + (next.x - previous.x) / 6;
+    const cp1y = current.y + (next.y - previous.y) / 6;
+    const cp2x = next.x - (following.x - current.x) / 6;
+    const cp2y = next.y - (following.y - current.y) / 6;
+    commands.push(
+      `C${formatMomentumNumber(cp1x)} ${formatMomentumNumber(cp1y)} ${formatMomentumNumber(cp2x)} ${formatMomentumNumber(cp2y)} ${formatMomentumNumber(next.x)} ${formatMomentumNumber(next.y)}`
+    );
+  }
+
+  return commands.join(' ');
+}
+
+function jaggedMomentumPath(ys: number[]): string {
+  const step = 420 / (ys.length - 1);
+  return ys.map((y, index) => `${index === 0 ? 'M' : 'L'}${formatMomentumNumber(index * step)} ${formatMomentumNumber(y)}`).join(' ');
+}
+
+function clampMomentumY(value: number): number {
+  return Math.max(1.8, Math.min(22.2, value));
+}
+
+function formatMomentumNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {
@@ -5177,7 +5404,7 @@ function HypothesisPanel({
               <strong>{hypothesis.title}</strong>
               <CwePill mappings={hypothesis.cweMappings} />
             </div>
-            <p>{hypothesis.state} · priority {hypothesis.priorityScore.toFixed(2)} · {hypothesis.bugClass} · {hypothesis.component}</p>
+            <p>{hypothesis.state} · priority {clampPriorityScoreForDisplay(hypothesis.priorityScore).toFixed(2)} · {hypothesis.bugClass} · {hypothesis.component}</p>
             <p>{hypothesis.evidenceConfidence} · {hypothesis.scopeConfidence}</p>
           </div>
           <div className="entity-actions">
@@ -5345,7 +5572,7 @@ function FindingPanel({
               <CwePill mappings={finding.cweMappings} />
             </div>
             <p>
-              {finding.state} · priority {finding.priorityScore.toFixed(2)}
+              {finding.state} · priority {clampPriorityScoreForDisplay(finding.priorityScore).toFixed(2)}
               {finding.verifiedByVerifierRunId ? ` · verifier ${finding.verifiedByVerifierRunId.slice(0, 12)}` : ''}
             </p>
           </div>
@@ -5709,10 +5936,11 @@ function sessionHeatFromImpact(impactScore: number, reachabilityScore: number): 
 }
 
 function sessionHeatFromPriority(priorityScore: number): SessionHeat {
-  if (priorityScore >= 42) return 'critical';
-  if (priorityScore >= 24) return 'high';
-  if (priorityScore >= 10) return 'medium';
-  if (priorityScore > 0) return 'low';
+  const score = clampPriorityScoreForDisplay(priorityScore);
+  if (score >= 42) return 'critical';
+  if (score >= 24) return 'high';
+  if (score >= 10) return 'medium';
+  if (score > 0) return 'low';
   return 'none';
 }
 

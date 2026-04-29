@@ -63,6 +63,7 @@ import {
   normalizeCweId,
   normalizeCweMappingStatus
 } from './cweCatalog';
+import { clampPriorityScore, MAX_PRIORITY_SCORE } from './discoveryScoring';
 
 type SqlPrimitive = string | number | bigint | null;
 type SqlRow = Record<string, SqlPrimitive>;
@@ -308,7 +309,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -1218,7 +1219,7 @@ export class WorkspaceDatabase {
         input.descriptionMarkdown,
         input.component,
         input.bugClass,
-        input.priorityScore,
+        clampPriorityScore(input.priorityScore),
         input.attackerReachability,
         input.impact,
         input.evidenceConfidence,
@@ -1282,7 +1283,7 @@ export class WorkspaceDatabase {
         patch.descriptionMarkdown ?? existing.descriptionMarkdown,
         patch.component ?? existing.component,
         patch.bugClass ?? existing.bugClass,
-        patch.priorityScore ?? existing.priorityScore,
+        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
         patch.attackerReachability ?? existing.attackerReachability,
         patch.impact ?? existing.impact,
         patch.evidenceConfidence ?? existing.evidenceConfidence,
@@ -1332,7 +1333,7 @@ export class WorkspaceDatabase {
       )
       .run(
         patch.state ?? existing.state,
-        patch.priorityScore ?? existing.priorityScore,
+        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
         patch.attackerReachability ?? existing.attackerReachability,
         patch.impact ?? existing.impact,
         patch.evidenceConfidence ?? existing.evidenceConfidence,
@@ -1547,7 +1548,7 @@ export class WorkspaceDatabase {
         toJson(input.affectedAssets),
         toJson(input.affectedVersions),
         input.impactMarkdown,
-        input.priorityScore,
+        clampPriorityScore(input.priorityScore),
         input.verifiedByVerifierRunId ?? null,
         createdAt,
         createdAt
@@ -1612,7 +1613,7 @@ export class WorkspaceDatabase {
         toJson(patch.affectedAssets ?? existing.affectedAssets),
         toJson(patch.affectedVersions ?? existing.affectedVersions),
         patch.impactMarkdown ?? existing.impactMarkdown,
-        patch.priorityScore ?? existing.priorityScore,
+        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
         nextVerifierRunId ?? null,
         nowIso(),
         findingId
@@ -2135,6 +2136,10 @@ export class WorkspaceDatabase {
         this.applyCweClassificationMigration();
         this.insertMigration(9, 'cwe_guided_classification');
       }
+      if (currentVersion < 10) {
+        this.applyPriorityScoreClampMigration();
+        this.insertMigration(10, 'host_derived_priority_scores');
+      }
     });
   }
 
@@ -2241,6 +2246,16 @@ export class WorkspaceDatabase {
 
   private applyCweClassificationMigration(): void {
     this.db.exec(CWE_CLASSIFICATION_SCHEMA_SQL);
+  }
+
+  private applyPriorityScoreClampMigration(): void {
+    const clampSql = `MIN(${MAX_PRIORITY_SCORE}, MAX(0, ROUND(priority_score)))`;
+    if (rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'hypotheses'").get())) {
+      this.db.exec(`UPDATE hypotheses SET priority_score = ${clampSql};`);
+    }
+    if (rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'findings'").get())) {
+      this.db.exec(`UPDATE findings SET priority_score = ${clampSql};`);
+    }
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -2611,7 +2626,7 @@ export class WorkspaceDatabase {
       descriptionMarkdown: text(row, 'description_markdown'),
       component: text(row, 'component'),
       bugClass: text(row, 'bug_class'),
-      priorityScore: numberValue(row, 'priority_score'),
+      priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
       attackerReachability: text(row, 'attacker_reachability'),
       impact: text(row, 'impact'),
       evidenceConfidence: text(row, 'evidence_confidence'),
@@ -2668,7 +2683,7 @@ export class WorkspaceDatabase {
       affectedAssets: parseJson(row.affected_assets_json),
       affectedVersions: parseJson(row.affected_versions_json),
       impactMarkdown: text(row, 'impact_markdown'),
-      priorityScore: numberValue(row, 'priority_score'),
+      priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
       verifiedByVerifierRunId: nullableText(row, 'verified_by_verifier_run_id'),
       cweMappings: this.listWeaknessMappings('finding', id),
       createdAt: text(row, 'created_at'),

@@ -122,7 +122,7 @@ Possible UI treatments:
 
 - A concise session status phrase near the session header or inspector.
 - A small activity chip or tooltip that explains the derived state.
-- A footer momentum line: flat for idle/waiting, barely waving for exploring, faster waves for building, rapid wiggle for verifying, unstable motion for hot leads, and jagged motion for stuck sessions.
+- A footer momentum line that behaves like a taut string: flat for idle/waiting, barely vibrating for exploring, stronger string motion for building, rapid vibration for verifying, overdriven motion for hot leads, and jagged motion for stuck sessions.
 - Subtle animation on host/guest tags during active host or guest work.
 - A trace rail treatment for verifying or hot momentum.
 - A quiet "stuck" signal in the trace or inspector when repeated failures are detected.
@@ -200,7 +200,7 @@ Momentum motion should be calmer than severity heat.
 Allowed:
 
 - Short slide-in trace events.
-- A thin footer line whose waveform and speed reflect the current momentum state.
+- A thin footer line whose string-like waveform and speed reflect the current momentum state.
 - Host or guest activity shimmer while commands are actually running.
 - Low-amplitude edge or rail motion while verifying.
 - A single settle transition when a state changes.

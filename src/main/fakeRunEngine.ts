@@ -335,6 +335,7 @@ function recordHypothesis(context: CreatedRunContext, title: string, component: 
     payload: {
       hypothesisId: hypothesis.id,
       title,
+      impact: hypothesis.impact,
       observationSource: 'tool_results'
     }
   });

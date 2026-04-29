@@ -10,6 +10,7 @@ import { materializeGitRepository, normalizeGitHubRepositoryUrl, selectSourceRep
 import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import { cweEntryForId, inferCweMapping, normalizeCweConfidence, normalizeCweId } from './cweCatalog';
+import { clampPriorityScore, priorityFactorsFromLabels, scorePriority } from './discoveryScoring';
 import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource, WeaknessMappingInput, WeaknessMappingRecord } from '@shared/types';
 
 export interface OpenAiToolDefinition {
@@ -153,8 +154,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       impact: stringProp('Impact label, preferably prefixed with 0-4'),
       evidence_confidence: stringProp('Evidence confidence label, preferably prefixed with 0-4'),
       exploit_practicality: stringProp('Exploit practicality label, preferably prefixed with 0-4'),
-      scope_confidence: stringProp('Scope confidence label, preferably prefixed with 0-4'),
-      priority_score: numberProp('Priority score. Use 0 when unknown.')
+      scope_confidence: stringProp('Scope confidence label, preferably prefixed with 0-4')
     }),
     tool('finding', 'Create or update a finding record. Verified findings require a passing real verifier run id.', {
       finding_id: stringProp('Existing finding id to update; use an empty string to create a new finding'),
@@ -170,7 +170,6 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       affected_assets_json: stringProp('JSON object describing affected assets or components; use {} when unknown'),
       affected_versions_json: stringProp('JSON object describing affected versions or commits; use {} when unknown'),
       impact: stringProp('Impact explanation'),
-      priority_score: numberProp('Priority score. Use 0 when unknown.'),
       verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified; otherwise use an empty string')
     }),
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
@@ -768,12 +767,20 @@ export class BealeToolRouter {
     const descriptionMarkdown = stringValue(args.description, existing?.descriptionMarkdown ?? '').trim() || existing?.descriptionMarkdown || 'No description provided.';
     const component = stringValue(args.component, existing?.component ?? '').trim() || existing?.component || 'Unknown component';
     const bugClass = stringValue(args.bug_class, existing?.bugClass ?? '').trim() || existing?.bugClass || 'unclassified';
-    const priorityScore = numberValue(args.priority_score, existing?.priorityScore ?? 0);
     const attackerReachability = stringValue(args.attacker_reachability, existing?.attackerReachability ?? '').trim() || existing?.attackerReachability || '1 unspecified reachability';
     const impact = stringValue(args.impact, existing?.impact ?? '').trim() || existing?.impact || '1 unspecified impact';
     const evidenceConfidence = stringValue(args.evidence_confidence, existing?.evidenceConfidence ?? '').trim() || existing?.evidenceConfidence || '0 hypothesis only';
     const exploitPracticality = stringValue(args.exploit_practicality, existing?.exploitPracticality ?? '').trim() || existing?.exploitPracticality || '1 unspecified practicality';
     const scopeConfidence = stringValue(args.scope_confidence, existing?.scopeConfidence ?? '').trim() || existing?.scopeConfidence || '1 likely in scope';
+    const priorityScore = scorePriority(
+      priorityFactorsFromLabels({
+        attackerReachability,
+        impact,
+        evidenceConfidence,
+        exploitPracticality,
+        scopeConfidence
+      })
+    );
     const cweMappings = cweMappingsForToolArgs(args, existing?.cweMappings, {
       bugClass,
       title,
@@ -832,6 +839,7 @@ export class BealeToolRouter {
         state: hypothesis.state,
         component: hypothesis.component,
         bugClass: hypothesis.bugClass,
+        impact: hypothesis.impact,
         cweMappings: cwePayload(hypothesis.cweMappings),
         priorityScore: hypothesis.priorityScore,
         autoPromotedFindingIds: promotedFindings.map((finding) => finding.id)
@@ -862,8 +870,9 @@ export class BealeToolRouter {
     const affectedAssets = jsonRecordFromString(args.affected_assets_json, existing?.affectedAssets ?? {});
     const affectedVersions = jsonRecordFromString(args.affected_versions_json, existing?.affectedVersions ?? {});
     const impactMarkdown = stringValue(args.impact, existing?.impactMarkdown ?? '').trim() || existing?.impactMarkdown || 'Impact not yet assessed.';
-    const priorityScore = numberValue(args.priority_score, existing?.priorityScore ?? 0);
-    const linkedHypothesis = hypothesisId ? detail.hypotheses.find((hypothesis) => hypothesis.id === hypothesisId) ?? null : null;
+    const linkedHypothesisId = hypothesisId || existing?.hypothesisId || '';
+    const linkedHypothesis = linkedHypothesisId ? detail.hypotheses.find((hypothesis) => hypothesis.id === linkedHypothesisId) ?? null : null;
+    const priorityScore = clampPriorityScore(linkedHypothesis?.priorityScore ?? existing?.priorityScore ?? 0);
     const cweMappings = cweMappingsForToolArgs(args, existing?.cweMappings, {
       bugClass: linkedHypothesis?.bugClass ?? '',
       title,
@@ -1420,10 +1429,6 @@ function tool(name: ToolName, description: string, properties: Record<string, un
 
 function stringProp(description: string): Record<string, unknown> {
   return { type: 'string', description };
-}
-
-function numberProp(description: string): Record<string, unknown> {
-  return { type: 'number', description };
 }
 
 function parseArguments(argumentsJson: string): Record<string, unknown> {

@@ -245,11 +245,13 @@ describe('structured research tools', () => {
 
     const detail = db.getRunDetail(context.run.id);
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.state).toBe('reproduced');
+    expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.priorityScore).toBe(18);
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.createdTraceEventId).toBeTruthy();
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.cweMappings.map((mapping) => mapping.cweId)).toEqual(['CWE-200', 'CWE-798']);
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.cweMappings[0]?.cweName).toBe('Exposure of Sensitive Information to an Unauthorized Actor');
     expect(detail.evidence).toHaveLength(1);
     expect(detail.findings.find((item) => item.id === findingId)?.state).toBe('reproduced');
+    expect(detail.findings.find((item) => item.id === findingId)?.priorityScore).toBe(18);
     expect(detail.findings.find((item) => item.id === findingId)?.cweMappings[0]?.confidence).toBe('high');
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.payload.hypothesisId === hypothesisId)).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'finding_event' && event.payload.findingId === findingId)).toBe(true);
@@ -330,7 +332,9 @@ describe('structured research tools', () => {
 
     const detail = db.getRunDetail(context.run.id);
     const finding = detail.findings.find((item) => item.hypothesisId === hypothesisId);
+    expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.priorityScore).toBe(27);
     expect(finding?.state).toBe('reproduced');
+    expect(finding?.priorityScore).toBe(27);
     expect(finding?.verifiedByVerifierRunId).toBe(verifierRunId);
     expect(finding?.cweMappings[0]?.cweId).toBe('CWE-862');
     expect(detail.evidence.some((item) => item.findingId === finding?.id && item.verifierRunId === verifierRunId)).toBe(true);
