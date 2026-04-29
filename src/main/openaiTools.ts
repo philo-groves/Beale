@@ -1,12 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
 import { runVerifierContract } from './verifierRunner';
-import { materializeGitRepository, selectSourceRepository, sourceRepositoryCandidates } from './sourceMaterializer';
+import { materializeGitRepository, normalizeGitHubRepositoryUrl, selectSourceRepository, sourceRepositoryCandidates, type SourceRepositoryCandidate } from './sourceMaterializer';
 import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource } from '@shared/types';
@@ -42,6 +42,27 @@ interface ScopedFile {
   assetKind: ScopeAsset['kind'];
 }
 
+interface ScopedSearchRoot {
+  path: string;
+  asset: ScopeAsset;
+  reason: string;
+}
+
+interface SearchCollection {
+  files: ScopedFile[];
+  roots: ScopedSearchRoot[];
+  targetResolution: string;
+  unmaterializedSource: SourceRepositoryCandidate | null;
+}
+
+interface SearchQueryPlan {
+  raw: string;
+  rawLower: string;
+  terms: string[];
+  regex: RegExp | null;
+  mode: 'literal' | 'regex_or_terms' | 'terms';
+}
+
 interface GuestToolResult {
   result: GuestExecuteResult;
   artifactId: string | null;
@@ -70,8 +91,8 @@ type ToolName = (typeof TOOL_NAMES)[number];
 
 const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
 const SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache']);
-const MAX_SEARCH_FILES = 300;
-const MAX_SEARCH_MATCHES = 25;
+const MAX_SEARCH_FILES = 5000;
+const MAX_SEARCH_MATCHES = 40;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BROWSER_LINES = 180;
 const MAX_EXCERPT_CHARS = 16_000;
@@ -83,9 +104,9 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, and artifact summaries. Does not perform target execution.', {
-      query: stringProp('Search query'),
-      target: stringProp('Scoped target, path, artifact id, or component hint; use an empty string when not needed')
+    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, and artifact summaries. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
+      query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
+      target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
     tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings.', {
       path: stringProp('Scoped file path or artifact id'),
@@ -148,7 +169,7 @@ export class BealeToolRouter {
     }
 
     const toolName = call.name;
-    const destination = extractDestination(args);
+    const destination = extractDestination(toolName, args);
     if (destination && !this.destinationAllowed(destination)) {
       return this.recordToolPolicyBlock(context, call, args, `Blocked out-of-scope tool destination: ${destination}`, {
         destination
@@ -256,9 +277,10 @@ export class BealeToolRouter {
       };
     }
 
-    const files = this.collectScopedFiles(targetHint);
+    const collection = this.collectScopedFiles(targetHint);
+    const files = collection.files;
     const sourceCandidates = sourceRepositoryCandidates(this.db.getActiveScope());
-    const queryLower = query.toLowerCase();
+    const queryPlan = buildSearchQueryPlan(query);
     const matches: Array<Record<string, unknown>> = [];
     let skippedFiles = 0;
 
@@ -271,7 +293,7 @@ export class BealeToolRouter {
       }
       const lines = loaded.text.split(/\r?\n/);
       for (const [index, line] of lines.entries()) {
-        if (!line.toLowerCase().includes(queryLower)) continue;
+        if (!lineMatchesSearchQuery(line, queryPlan)) continue;
         matches.push({
           kind: 'file',
           path: file.path,
@@ -280,30 +302,45 @@ export class BealeToolRouter {
           line: loaded.binaryDerived ? null : index + 1,
           range: loaded.binaryDerived ? 'binary_strings' : `${index + 1}`,
           binaryDerived: loaded.binaryDerived,
+          matchedBy: searchMatchDescription(line, queryPlan),
           snippet: trimSnippet(line)
         });
         if (matches.length >= MAX_SEARCH_MATCHES) break;
       }
     }
 
-    matches.push(...this.searchRunArtifacts(context, queryLower, MAX_SEARCH_MATCHES - matches.length));
+    matches.push(...this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES - matches.length));
 
     const sourceHint =
-      matches.length === 0 && sourceCandidates.length > 0
-        ? 'No local source matches were available. Use the source tool to materialize an in-scope repository, then retry search.'
-        : null;
+      files.length === 0 && collection.unmaterializedSource
+        ? `Scoped repository ${collection.unmaterializedSource.url} is not materialized. Use the source tool, then retry search.`
+        : files.length === 0 && sourceCandidates.length > 0
+          ? 'No local source files were available for this target. Use the source tool to materialize an in-scope repository, or search with an empty target.'
+          : null;
+    const summary =
+      sourceHint ??
+      `Search examined ${files.length} scoped file${files.length === 1 ? '' : 's'} and returned ${matches.length} match${matches.length === 1 ? '' : 'es'}.`;
 
     return {
       status: 'success',
-      summary: sourceHint ?? `Search returned ${matches.length} scoped match${matches.length === 1 ? '' : 'es'}.`,
+      summary,
       payload: {
         observationBacked: true,
         simulated: false,
         query,
+        queryMode: queryPlan.mode,
+        queryTerms: queryPlan.terms,
         targetHint,
+        targetResolution: collection.targetResolution,
+        rootsConsidered: collection.roots.map((root) => ({
+          path: root.path,
+          assetId: root.asset.id,
+          assetKind: root.asset.kind,
+          reason: root.reason
+        })),
         filesConsidered: files.length,
         skippedFiles,
-        sourceRepositoriesAvailable: sourceCandidates.map((candidate) => ({ label: candidate.label, url: candidate.url })),
+        sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
         matches
       }
@@ -790,18 +827,103 @@ export class BealeToolRouter {
     }
   }
 
-  private collectScopedFiles(targetHint: string): ScopedFile[] {
+  private collectScopedFiles(targetHint: string): SearchCollection {
+    const rootResolution = this.resolveSearchRoots(targetHint);
     const files: ScopedFile[] = [];
-    for (const asset of this.db.getActiveScope().assets) {
-      if (!isScopedLocalAsset(asset)) continue;
-      const root = resolve(asset.value);
-      if (!existsSync(root)) continue;
-      this.addScopedFiles(root, asset, files);
+    for (const root of rootResolution.roots) {
+      this.addScopedFiles(root.path, root.asset, files);
       if (files.length >= MAX_SEARCH_FILES) break;
     }
-    if (!targetHint) return files;
-    const normalizedHint = targetHint.toLowerCase();
-    return files.filter((file) => file.path.toLowerCase().includes(normalizedHint) || basename(file.path).toLowerCase().includes(normalizedHint));
+    return {
+      files,
+      roots: rootResolution.roots,
+      targetResolution: rootResolution.targetResolution,
+      unmaterializedSource: rootResolution.unmaterializedSource
+    };
+  }
+
+  private resolveSearchRoots(targetHint: string): { roots: ScopedSearchRoot[]; targetResolution: string; unmaterializedSource: SourceRepositoryCandidate | null } {
+    const scope = this.db.getActiveScope();
+    const localAssets = scope.assets.filter(isScopedLocalAsset);
+    const trimmedTarget = targetHint.trim();
+    if (!trimmedTarget) {
+      return {
+        roots: dedupeSearchRoots(localAssets.map((asset) => ({ path: resolve(asset.value), asset, reason: 'all_local_scope' }))),
+        targetResolution: localAssets.length > 0 ? 'all_local_scope' : 'no_local_scope',
+        unmaterializedSource: null
+      };
+    }
+
+    const byPath = this.searchRootsForPathHint(trimmedTarget, localAssets);
+    if (byPath.length > 0) {
+      return {
+        roots: dedupeSearchRoots(byPath),
+        targetResolution: 'local_path_target',
+        unmaterializedSource: null
+      };
+    }
+
+    const selection = selectSourceRepository(scope, trimmedTarget);
+    if (selection.candidate) {
+      const materialized = this.materializedSourceAsset(selection.candidate);
+      return {
+        roots: materialized ? [{ path: resolve(materialized.value), asset: materialized, reason: 'materialized_source_repository' }] : [],
+        targetResolution: materialized ? 'materialized_source_repository' : 'source_repository_not_materialized',
+        unmaterializedSource: materialized ? null : selection.candidate
+      };
+    }
+
+    const normalizedHint = trimmedTarget.toLowerCase();
+    const byMetadata = localAssets
+      .filter((asset) => localAssetMatchesTargetHint(asset, normalizedHint))
+      .map((asset) => ({ path: resolve(asset.value), asset, reason: 'local_asset_metadata_match' }));
+    return {
+      roots: dedupeSearchRoots(byMetadata),
+      targetResolution: byMetadata.length > 0 ? 'local_asset_metadata_match' : 'target_not_found_in_local_scope',
+      unmaterializedSource: null
+    };
+  }
+
+  private searchRootsForPathHint(targetHint: string, localAssets: ScopeAsset[]): ScopedSearchRoot[] {
+    if (!isAbsolute(targetHint) && !targetHint.startsWith('.')) return [];
+    const resolvedTarget = resolve(targetHint);
+    return localAssets.flatMap((asset) => {
+      const assetRoot = resolve(asset.value);
+      if (isWithinPath(resolvedTarget, assetRoot)) {
+        return existsSync(resolvedTarget) ? [{ path: resolvedTarget, asset, reason: 'explicit_path_inside_scope' }] : [];
+      }
+      if (isWithinPath(assetRoot, resolvedTarget)) {
+        return [{ path: assetRoot, asset, reason: 'explicit_path_parent_of_scope' }];
+      }
+      return [];
+    });
+  }
+
+  private materializedSourceAsset(candidate: SourceRepositoryCandidate): ScopeAsset | null {
+    const candidateUrl = normalizeGitHubRepositoryUrl(candidate.url);
+    return (
+      this.db
+        .getActiveScope()
+        .assets.find(
+          (asset) =>
+            isScopedLocalAsset(asset) &&
+            (stringAttribute(asset.attributes?.sourceAssetId) === candidate.sourceAssetId ||
+              sameRepository(candidateUrl, stringAttribute(asset.attributes?.repositoryUrl)) ||
+              sameRepository(candidateUrl, asset.value))
+        ) ?? null
+    );
+  }
+
+  private sourceRepositoryStatuses(candidates: SourceRepositoryCandidate[]): Array<Record<string, unknown>> {
+    return candidates.map((candidate) => {
+      const local = this.materializedSourceAsset(candidate);
+      return {
+        label: candidate.label,
+        url: candidate.url,
+        materialized: Boolean(local),
+        localPath: local?.value ?? null
+      };
+    });
   }
 
   private addScopedFiles(path: string, asset: ScopeAsset, files: ScopedFile[]): void {
@@ -820,13 +942,13 @@ export class BealeToolRouter {
     }
   }
 
-  private searchRunArtifacts(context: CreatedRunContext, queryLower: string, remaining: number): Array<Record<string, unknown>> {
+  private searchRunArtifacts(context: CreatedRunContext, queryPlan: SearchQueryPlan, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
     const detail = this.db.getRunDetail(context.run.id);
     const matches: Array<Record<string, unknown>> = [];
     for (const artifact of detail.artifacts) {
-      const haystack = `${artifact.id} ${artifact.kind} ${artifact.sha256} ${JSON.stringify(artifact.metadata)}`.toLowerCase();
-      if (!haystack.includes(queryLower)) continue;
+      const haystack = `${artifact.id} ${artifact.kind} ${artifact.sha256} ${JSON.stringify(artifact.metadata)}`;
+      if (!lineMatchesSearchQuery(haystack, queryPlan)) continue;
       matches.push({
         kind: 'artifact',
         artifactId: artifact.id,
@@ -1026,13 +1148,94 @@ function isToolName(value: string): value is ToolName {
   return TOOL_NAMES.includes(value as ToolName);
 }
 
-function extractDestination(args: Record<string, unknown>): string | null {
+function extractDestination(toolName: ToolName, args: Record<string, unknown>): string | null {
+  if (toolName === 'source' || toolName === 'search' || toolName === 'code_browser') return null;
   const destination = args.destination ?? args.url ?? args.host ?? args.target;
   return typeof destination === 'string' && /^https?:\/\//.test(destination) ? destination : null;
 }
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function stringAttribute(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function sameRepository(left: string | null, right: string): boolean {
+  const normalizedRight = normalizeGitHubRepositoryUrl(right);
+  return Boolean(left && normalizedRight && left.toLowerCase() === normalizedRight.toLowerCase());
+}
+
+function localAssetMatchesTargetHint(asset: ScopeAsset, normalizedHint: string): boolean {
+  const haystack = [
+    asset.value,
+    stringAttribute(asset.attributes?.repositoryUrl),
+    stringAttribute(asset.attributes?.sourceAssetId),
+    stringAttribute(asset.attributes?.instruction)
+  ]
+    .join('\n')
+    .toLowerCase();
+  return haystack.includes(normalizedHint);
+}
+
+function dedupeSearchRoots(roots: ScopedSearchRoot[]): ScopedSearchRoot[] {
+  const seen = new Set<string>();
+  const deduped: ScopedSearchRoot[] = [];
+  for (const root of roots) {
+    const resolved = resolve(root.path);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    deduped.push({ ...root, path: resolved });
+  }
+  return deduped;
+}
+
+function buildSearchQueryPlan(query: string): SearchQueryPlan {
+  const raw = query.trim();
+  const regex = searchRegex(raw);
+  const terms = searchTerms(raw);
+  return {
+    raw,
+    rawLower: raw.toLowerCase(),
+    terms,
+    regex,
+    mode: regex ? 'regex_or_terms' : terms.length > 1 ? 'terms' : 'literal'
+  };
+}
+
+function searchRegex(query: string): RegExp | null {
+  if (!/[|\\()[\]{}^$*+?]/.test(query)) return null;
+  try {
+    return new RegExp(query, 'i');
+  } catch {
+    return null;
+  }
+}
+
+function searchTerms(query: string): string[] {
+  const stopWords = new Set(['and', 'for', 'from', 'new', 'the', 'with']);
+  const terms = query
+    .toLowerCase()
+    .split(/[^a-z0-9_.$/@:-]+/i)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3 && !stopWords.has(term));
+  return [...new Set(terms)].slice(0, 24);
+}
+
+function lineMatchesSearchQuery(line: string, plan: SearchQueryPlan): boolean {
+  const lower = line.toLowerCase();
+  if (plan.rawLower && lower.includes(plan.rawLower)) return true;
+  if (plan.regex?.test(line)) return true;
+  return plan.terms.some((term) => lower.includes(term));
+}
+
+function searchMatchDescription(line: string, plan: SearchQueryPlan): string {
+  const lower = line.toLowerCase();
+  if (plan.rawLower && lower.includes(plan.rawLower)) return 'literal';
+  if (plan.regex?.test(line)) return 'regex';
+  const term = plan.terms.find((candidate) => lower.includes(candidate));
+  return term ? `term:${term}` : 'unknown';
 }
 
 function isScopedLocalAsset(asset: ScopeAsset): boolean {

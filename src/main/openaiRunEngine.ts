@@ -289,7 +289,6 @@ export class OpenAiRunEngine {
 
   private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
     const router = new BealeToolRouter(this.db, this.executor);
-    const scope = this.db.getActiveScope();
     let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
     let manualConversationInput: ResponseInputItem[] = state?.manualConversationInput ?? buildInitialOpenAiInput(input);
     let previousResponseId: string | null = state?.previousResponseId ?? null;
@@ -335,6 +334,7 @@ export class OpenAiRunEngine {
             turn: turn + 1
           }
         });
+        const scope = this.db.getActiveScope();
         const body = this.adapter.buildRequest({
           model: input.model,
           instructions: buildOpenAiInstructions(scope, input),

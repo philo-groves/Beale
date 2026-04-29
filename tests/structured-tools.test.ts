@@ -22,7 +22,7 @@ afterEach(() => {
 
 describe('structured research tools', () => {
   it('materializes in-scope source repositories before scoped search and VM import', () => {
-    const { db, context } = openStructuredToolDb();
+    const { db, context, targetDir } = openStructuredToolDb();
     const gitFixture = join(process.cwd(), 'tests/fixtures/git-fixture.mjs');
     chmodSync(gitFixture, 0o700);
     process.env.BEALE_GIT_COMMAND = gitFixture;
@@ -47,9 +47,20 @@ describe('structured research tools', () => {
     expect(source.payload.repositoryUrl).toBe('https://github.com/Netflix/zuul');
     expect(String(source.payload.localPath)).toContain('targets/repositories/github.com_Netflix_zuul');
 
-    const search = callTool(router, context, 'search', { query: 'authorizationBoundary', target: '' });
+    for (let index = 0; index < 325; index += 1) {
+      writeFileSync(join(targetDir, `filler-${index}.txt`), 'unrelated filler\n');
+    }
+
+    const search = callTool(router, context, 'search', { query: 'authorizationBoundary', target: 'Open Source - Zuul' });
     expect(search.status).toBe('success');
+    expect(search.payload.targetResolution).toBe('materialized_source_repository');
+    expect(search.payload.filesConsidered).toBeGreaterThan(0);
     expect(JSON.stringify(search.payload)).toContain('ProxyEndpoint.java');
+
+    const regexSearch = callTool(router, context, 'search', { query: 'ProxyEndpoint|MissingRoute', target: 'https://github.com/Netflix/zuul' });
+    expect(regexSearch.status).toBe('success');
+    expect(regexSearch.payload.queryMode).toBe('regex_or_terms');
+    expect(JSON.stringify(regexSearch.payload)).toContain('ProxyEndpoint.java');
     db.close();
   });
 

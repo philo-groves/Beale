@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
@@ -1626,10 +1626,14 @@ function MainTraceView({
     });
   }, [cancelPendingTraceAutoScroll, updateTraceScrollEdges]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!traceFollowLatestRef.current) return;
+    if (normalizedWindowStart !== maxWindowStart) {
+      setTraceWindowStart(maxWindowStart);
+      return;
+    }
     scrollTraceToBottom();
-  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, normalizedWindowStart, renderedEntries.length, scrollTraceToBottom, selectedRunId]);
+  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, maxWindowStart, normalizedWindowStart, renderedEntries.length, scrollTraceToBottom, selectedRunId]);
 
   useEffect(() => () => {
     cancelPendingTraceAutoScroll();
@@ -1643,12 +1647,6 @@ function MainTraceView({
   useEffect(() => {
     setTraceWindowStart((current) => Math.min(current, maxWindowStart));
   }, [maxWindowStart]);
-
-  useEffect(() => {
-    if (traceFollowLatestRef.current) {
-      setTraceWindowStart(maxWindowStart);
-    }
-  }, [latestEventId, maxWindowStart]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateTraceScrollEdges);
@@ -1666,7 +1664,7 @@ function MainTraceView({
   const handleTraceScroll = useCallback(() => {
     const traceList = traceListRef.current;
     updateTraceScrollEdges();
-    if (!traceList || timelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
+    if (!traceList) return;
     if (traceAutoScrollingRef.current) {
       traceFollowLatestRef.current = true;
       return;
@@ -1674,6 +1672,14 @@ function MainTraceView({
     const distanceFromBottom = traceList.scrollHeight - traceList.clientHeight - traceList.scrollTop;
     const nearBottom = distanceFromBottom <= TRACE_AUTO_FOLLOW_THRESHOLD;
     traceFollowLatestRef.current = nearBottom;
+    if (timelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
+    if (nearBottom) {
+      if (normalizedWindowStart !== maxWindowStart) {
+        setTraceWindowStart(maxWindowStart);
+      }
+      return;
+    }
+
     const nextStart = Math.max(0, Math.min(maxWindowStart, Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT)));
     if (nextStart !== normalizedWindowStart) {
       setTraceWindowStart(nextStart);
