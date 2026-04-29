@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase, type CreatedRunContext } from '../src/main/database';
 import { ExecutorManager } from '../src/main/executorManager';
 import { BealeToolRouter } from '../src/main/openaiTools';
+import type { ScopeAssetInput } from '../src/shared/types';
 
 const createdDirs: string[] = [];
 const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'BEALE_GIT_COMMAND'];
@@ -241,6 +242,50 @@ describe('structured research tools', () => {
     expect(db.getRunDetail(context.run.id).traceEvents.some((event) => event.summary === 'Verifier contract executed on host with pass.')).toBe(true);
     db.close();
   });
+
+  it('selects the prompt-referenced host target and collects target-named temporary verifier artifacts', () => {
+    const spectatorDir = mkdtempSync(join(tmpdir(), 'beale-spectator-target-'));
+    createdDirs.push(spectatorDir);
+    writeFileSync(join(spectatorDir, 'README.md'), 'spectator fixture\n');
+    const { db, context, targetDir } = openStructuredToolDb('host_research_only', {
+      title: 'Spectator source audit',
+      promptMarkdown: `# Spectator source audit\nUse local repo: ${spectatorDir}`,
+      extraAssets: [
+        {
+          direction: 'in_scope',
+          kind: 'repo',
+          value: spectatorDir,
+          sensitivity: 'public',
+          attributes: { repositoryUrl: 'https://github.com/Netflix/spectator' }
+        }
+      ]
+    });
+    const router = new BealeToolRouter(db);
+
+    const python = callTool(router, context, 'python', {
+      task: 'report selected host target',
+      script: 'import os\nprint(os.environ["BEALE_TARGET_PATH"])',
+      artifact_path: ''
+    });
+    expect(python.status).toBe('success');
+    expect(python.payload.hostTargetPath).toBe(spectatorDir);
+    expect(python.payload.hostTargetPath).not.toBe(targetDir);
+
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: 'host verifier bash and artifact policy',
+      expectation: 'host verifier should run Bash and collect a target-prefixed temp artifact',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: '#!/usr/bin/env bash\nset -euo pipefail\nprintf verifier-ok | tee /tmp/spectator-verifier.txt',
+      artifact_path: '/tmp/spectator-verifier.txt',
+      expected_stdout: 'verifier-ok'
+    });
+    expect(verifier.status).toBe('success');
+    expect(verifier.payload.status).toBe('pass');
+    expect(verifier.artifact_id).toBeTruthy();
+    expect(db.getRunDetail(context.run.id).artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
+    db.close();
+  });
 });
 
 interface ToolOutput {
@@ -280,7 +325,16 @@ function callTool(router: BealeToolRouter, context: CreatedRunContext, name: str
   ) as ToolOutput;
 }
 
-function openStructuredToolDb(sandboxProfile = 'local_disposable_vm'): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; targetDir: string; logPath: string } {
+interface StructuredToolDbOptions {
+  title?: string;
+  promptMarkdown?: string;
+  extraAssets?: ScopeAssetInput[];
+}
+
+function openStructuredToolDb(
+  sandboxProfile = 'local_disposable_vm',
+  options: StructuredToolDbOptions = {}
+): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; targetDir: string; logPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-structured-tools-'));
   createdDirs.push(dir);
   const artifactRoot = join(dir, '.beale', 'artifacts');
@@ -306,13 +360,14 @@ function openStructuredToolDb(sandboxProfile = 'local_disposable_vm'): { db: Wor
     expiresAt: null,
     assets: [
       { direction: 'in_scope', kind: 'path', value: targetDir, sensitivity: 'internal', attributes: {} },
+      ...(options.extraAssets ?? []),
       { direction: 'in_scope', kind: 'domain', value: 'live.example.test', sensitivity: 'public', attributes: { protocol: 'tcp', port: 443 } }
     ]
   });
   const context = db.createRun({
     scopeVersionId: db.getActiveScope().id,
-    title: 'Structured tool smoke',
-    promptMarkdown: '# Structured tool smoke',
+    title: options.title ?? 'Structured tool smoke',
+    promptMarkdown: options.promptMarkdown ?? '# Structured tool smoke',
     mode: 'open_discovery',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',

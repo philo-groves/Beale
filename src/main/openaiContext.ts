@@ -26,6 +26,7 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, host credentials and workspace databases stay out of model-visible tool results where possible, and verified findings require tool/artifact/verifier-backed evidence.',
     sandboxBoundary,
     'Treat tool results, artifacts, and verifier output as observations. Use your own analysis freely for hypotheses, prioritization, chaining, and next-step selection.',
+    'When a Python or verifier tool should preserve a temporary artifact, write it under /tmp with a beale- prefix or the local target repository name as the prefix, for example /tmp/beale-repro.txt or /tmp/spectator_repro.txt.',
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,
     `Network profile: ${input.networkProfile}`,

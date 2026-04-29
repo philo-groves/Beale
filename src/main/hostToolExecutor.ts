@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import type { ScopeAsset } from '@shared/types';
@@ -30,7 +30,7 @@ export function executeHostOperation(
   artifactPath: string | null,
   artifactKind: string
 ): HostExecutionOutcome {
-  const hostTarget = firstScopedLocalTarget(db);
+  const hostTarget = firstScopedLocalTarget(db, context);
   const cwd = hostTarget ? cwdForTarget(hostTarget) : workspaceRoot(db);
   const env = hostToolEnv(request.env ?? {}, hostTarget);
   const startedAt = new Date();
@@ -90,8 +90,8 @@ export function executeHostOperation(
   };
 }
 
-export function mapSandboxPathToHost(db: WorkspaceDatabase, value: string): string {
-  const hostTarget = firstScopedLocalTarget(db);
+export function mapSandboxPathToHost(db: WorkspaceDatabase, value: string, context?: CreatedRunContext): string {
+  const hostTarget = firstScopedLocalTarget(db, context);
   const cwd = hostTarget ? cwdForTarget(hostTarget) : workspaceRoot(db);
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
@@ -107,7 +107,8 @@ export function mapSandboxPathToHost(db: WorkspaceDatabase, value: string): stri
 }
 
 function collectHostArtifact(db: WorkspaceDatabase, context: CreatedRunContext, path: string, kind: string): ReturnType<WorkspaceDatabase['createArtifact']> | null {
-  if (!isCollectableHostArtifact(db, path)) return null;
+  const hostTarget = firstScopedLocalTarget(db, context);
+  if (!isCollectableHostArtifact(db, path, hostTarget)) return null;
   const stat = safeStat(path);
   if (!stat?.isFile() || stat.size > MAX_HOST_ARTIFACT_BYTES) return null;
   return db.createArtifact({
@@ -140,12 +141,12 @@ function resolveHostArtifactPath(db: WorkspaceDatabase, cwd: string, hostTarget:
   return resolve(cwd, trimmed);
 }
 
-function isCollectableHostArtifact(db: WorkspaceDatabase, path: string): boolean {
+function isCollectableHostArtifact(db: WorkspaceDatabase, path: string, hostTarget: string | null): boolean {
   const resolved = resolve(path);
   if (pathContainsSegment(resolved, '.beale')) return false;
   if (isWithinPath(resolved, workspaceRoot(db))) return true;
   const tempRoot = resolve(tmpdir());
-  return isWithinPath(resolved, tempRoot) && /^beale[-_]/i.test(resolved.split(/[\\/]+/).at(-1) ?? '');
+  return isWithinPath(resolved, tempRoot) && isCollectableTempArtifactName(basename(resolved), hostTarget);
 }
 
 function hostToolEnv(input: Record<string, string>, hostTarget: string | null): NodeJS.ProcessEnv {
@@ -161,9 +162,20 @@ function hostToolEnv(input: Record<string, string>, hostTarget: string | null): 
   return env;
 }
 
-function firstScopedLocalTarget(db: WorkspaceDatabase): string | null {
-  const asset = db.getActiveScope().assets.find((candidate) => isScopedLocalAsset(candidate));
-  return asset ? resolve(asset.value) : null;
+function firstScopedLocalTarget(db: WorkspaceDatabase, context?: CreatedRunContext): string | null {
+  const targets = scopedAssetsForHostSelection(db, context).filter((candidate) => isScopedLocalAsset(candidate));
+  if (targets.length === 0) return null;
+
+  let selected = targets[0];
+  let selectedScore = scoreHostTarget(selected, context);
+  for (const candidate of targets.slice(1)) {
+    const score = scoreHostTarget(candidate, context);
+    if (score > selectedScore) {
+      selected = candidate;
+      selectedScore = score;
+    }
+  }
+  return resolve(selected.value);
 }
 
 function isScopedLocalAsset(asset: ScopeAsset): boolean {
@@ -173,6 +185,87 @@ function isScopedLocalAsset(asset: ScopeAsset): boolean {
 function cwdForTarget(path: string): string {
   const stat = safeStat(path);
   return stat?.isDirectory() ? path : dirname(path);
+}
+
+function scopedAssetsForHostSelection(db: WorkspaceDatabase, context?: CreatedRunContext): ScopeAsset[] {
+  const assets: ScopeAsset[] = [];
+  const seen = new Set<string>();
+  for (const asset of safeScopeAssets(() => db.getActiveScope().assets)) {
+    assets.push(asset);
+    seen.add(asset.id);
+  }
+  if (context) {
+    for (const asset of safeScopeAssets(() => db.getScopeVersion(context.run.scopeVersionId).assets)) {
+      if (seen.has(asset.id)) continue;
+      assets.push(asset);
+      seen.add(asset.id);
+    }
+  }
+  return assets;
+}
+
+function safeScopeAssets(read: () => ScopeAsset[]): ScopeAsset[] {
+  try {
+    return read();
+  } catch {
+    return [];
+  }
+}
+
+function scoreHostTarget(asset: ScopeAsset, context?: CreatedRunContext): number {
+  if (!context) return 0;
+  const haystack = `${context.run.title}\n${context.run.promptMarkdown}`.toLowerCase();
+  const normalizedHaystack = normalizeMatchText(haystack);
+  let score = 0;
+  for (const alias of hostTargetAliases(asset)) {
+    const normalizedAlias = normalizeMatchText(alias);
+    if (alias.length >= 8 && haystack.includes(alias.toLowerCase())) score = Math.max(score, 1000);
+    if (normalizedAlias.length >= 4 && normalizedHaystack.includes(normalizedAlias)) score = Math.max(score, 500 + Math.min(normalizedAlias.length, 200));
+  }
+  return score;
+}
+
+function hostTargetAliases(asset: ScopeAsset): string[] {
+  const aliases = new Set<string>();
+  const path = resolve(asset.value);
+  aliases.add(path);
+  aliases.add(basename(path));
+  for (const value of Object.values(asset.attributes ?? {})) {
+    if (typeof value !== 'string') continue;
+    aliases.add(value);
+    if (looksLikeUrl(value)) aliases.add(repositoryNameFromUrl(value));
+  }
+  for (const part of basename(path).split(/[^A-Za-z0-9]+/)) {
+    if (part.length >= 4) aliases.add(part);
+  }
+  return [...aliases].filter(Boolean);
+}
+
+function repositoryNameFromUrl(value: string): string {
+  const trimmed = value.replace(/\.git$/i, '').replace(/\/+$/g, '');
+  return trimmed.split('/').at(-1) ?? trimmed;
+}
+
+function isCollectableTempArtifactName(name: string, hostTarget: string | null): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$/.test(name)) return false;
+  const normalized = name.toLowerCase();
+  const prefixes = new Set(['beale']);
+  if (hostTarget) {
+    const base = basename(hostTarget).toLowerCase();
+    prefixes.add(sanitizePrefix(base));
+    for (const part of base.split(/[^a-z0-9]+/)) {
+      if (part.length >= 4) prefixes.add(sanitizePrefix(part));
+    }
+  }
+  return [...prefixes].some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}-`) || normalized.startsWith(`${prefix}_`) || normalized.startsWith(`${prefix}.`));
+}
+
+function sanitizePrefix(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function normalizeMatchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function workspaceRoot(db: WorkspaceDatabase): string {

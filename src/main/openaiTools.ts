@@ -1033,7 +1033,7 @@ export class BealeToolRouter {
   }
 
   private sandboxPathForContext(context: CreatedRunContext, path: string): string {
-    return isHostResearchSandbox(context.run.sandboxProfile) ? mapSandboxPathToHost(this.db, path) : path;
+    return isHostResearchSandbox(context.run.sandboxProfile) ? mapSandboxPathToHost(this.db, path, context) : path;
   }
 
   private recordToolPolicyBlock(

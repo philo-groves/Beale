@@ -379,7 +379,7 @@ function verifierSpecFromObject(value: Record<string, unknown>): VerifierExecuti
   const commandValue = value.command;
   const script = stringValue(value.script).trim();
   const command = Array.isArray(commandValue) && commandValue.every((item) => typeof item === 'string') ? commandValue : null;
-  const normalizedCommand = command ?? (script ? (operationKind === 'python' ? ['python3', '-c', script] : ['sh', '-lc', script]) : null);
+  const normalizedCommand = command ?? (script ? (operationKind === 'python' ? ['python3', '-c', script] : shellCommandForScript(script)) : null);
   if (!normalizedCommand || normalizedCommand.length === 0) return null;
 
   return {
@@ -391,6 +391,15 @@ function verifierSpecFromObject(value: Record<string, unknown>): VerifierExecuti
     artifactPath: nonEmptyString(value.artifactPath),
     timeoutMs: Math.max(1000, integerValue(value.timeoutMs, 30_000))
   };
+}
+
+function shellCommandForScript(script: string): string[] {
+  return [scriptRequestsBash(script) ? 'bash' : 'sh', '-lc', script];
+}
+
+function scriptRequestsBash(script: string): boolean {
+  const firstLine = script.split(/\r?\n/, 1)[0] ?? '';
+  return /^#!.*\bbash\b/.test(firstLine) || /\bpipefail\b/.test(script);
 }
 
 function verifierVerdict(result: GuestExecuteResult, spec: VerifierExecutionSpec): { status: 'pass' | 'fail'; checks: Record<string, unknown> } {
