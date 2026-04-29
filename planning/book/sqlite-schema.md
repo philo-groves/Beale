@@ -15,6 +15,7 @@ workspace scope
   -> evidence
   -> hypotheses
   -> findings
+  -> weakness mappings
   -> verifier contracts and results
   -> artifacts
 ```
@@ -44,6 +45,7 @@ Use stable text IDs for entities that appear in the UI or reports:
 - `artifact_...`
 - `hyp_...`
 - `finding_...`
+- `weakness_...`
 - `verifier_...`
 - `approval_...`
 - `vm_...`
@@ -129,11 +131,15 @@ Fields:
 - `attempt_strategy`
 - `network_profile`
 - `sandbox_profile`
+- `target_asset_id`
+- `target_path`
 - `budget_json`
 - `summary`
 - `created_at`
 - `started_at`
 - `ended_at`
+
+`target_asset_id` and `target_path` store the session's selected research target. They should be set when the run is created, then used by host/guest execution and artifact policy instead of repeatedly inferring the target from prompt text.
 
 ### `attempts`
 
@@ -290,6 +296,65 @@ Fields:
 - `created_at`
 - `updated_at`
 
+Primary and alternate CWE mappings live in `weakness_mappings`.
+
+### `cwe_catalogs`
+
+Purpose:
+
+- Record the source metadata for the local CWE catalog used by Beale.
+
+Fields:
+
+- `id`
+- `source_url`
+- `catalog_version`
+- `view_id`
+- `imported_at`
+- `metadata_json`
+
+### `cwe_entries`
+
+Purpose:
+
+- Cache CWE entries used for hypothesis and finding classification.
+
+Fields:
+
+- `cwe_id`
+- `name`
+- `abstraction`
+- `status`
+- `description`
+- `parent_ids_json`
+- `view_ids_json`
+- `mapping_status`: `allowed`, `discouraged`, `prohibited`, `unknown`
+- `catalog_version`
+- `updated_at`
+
+### `weakness_mappings`
+
+Purpose:
+
+- Link hypotheses and findings to primary or alternate CWE classifications.
+
+Fields:
+
+- `id`
+- `entity_kind`: `hypothesis`, `finding`
+- `entity_id`
+- `cwe_id`
+- `cwe_name`
+- `mapping_role`: `primary`, `alternate`
+- `mapping_status`: `allowed`, `discouraged`, `prohibited`, `unknown`
+- `confidence`: `low`, `medium`, `high`
+- `rationale_markdown`
+- `source`: `model`, `user`, `import`, `system`
+- `created_at`
+- `updated_at`
+
+CWE mappings guide triage and export. They do not promote findings or replace evidence.
+
 ### `evidence`
 
 Purpose:
@@ -419,7 +484,7 @@ Fields:
 
 Required early:
 
-- Indexes over run status, attempt status, trace sequence, artifact hash, hypothesis state, finding state, verifier status, and scope asset kind/value.
+- Indexes over run status, attempt status, trace sequence, artifact hash, hypothesis state, finding state, weakness mapping entity/CWE, verifier status, and scope asset kind/value.
 - SQLite FTS over selected summaries, notes, hypotheses, findings, report drafts, and tool-output summaries.
 
 Optional later:

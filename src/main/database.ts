@@ -14,6 +14,7 @@ import type {
   BenchmarkTaskMode,
   BenchmarkTaskResultRecord,
   ContextCompactionRecord,
+  EvidenceRecord,
   ExportRecord,
   ExportReviewDecision,
   FindingRecord,
@@ -40,10 +41,28 @@ import type {
   VerifierContractEditInput,
   VerifierContractRecord,
   VerifierRunRecord,
+  WeaknessMappingEntityKind,
+  WeaknessMappingInput,
+  WeaknessMappingRecord,
+  WeaknessMappingConfidence,
+  WeaknessMappingRole,
+  WeaknessMappingSource,
+  WeaknessMappingStatus,
   VmContextRecord,
   WorkspaceExportResult,
   WorkspaceRecoveryReport
 } from '@shared/types';
+import { selectRunTarget } from './runTarget';
+import {
+  DEFAULT_CWE_CATALOG,
+  DEFAULT_CWE_CATALOG_ID,
+  DEFAULT_CWE_CATALOG_VERSION,
+  DEFAULT_CWE_SOURCE_URL,
+  cweEntryForId,
+  normalizeCweConfidence,
+  normalizeCweId,
+  normalizeCweMappingStatus
+} from './cweCatalog';
 
 type SqlPrimitive = string | number | bigint | null;
 type SqlRow = Record<string, SqlPrimitive>;
@@ -95,6 +114,7 @@ export interface CreateHypothesisInput {
   evidenceConfidence: string;
   exploitPracticality: string;
   scopeConfidence: string;
+  cweMappings?: WeaknessMappingInput[];
 }
 
 export interface CreateFindingInput {
@@ -108,6 +128,7 @@ export interface CreateFindingInput {
   impactMarkdown: string;
   priorityScore: number;
   verifiedByVerifierRunId?: string | null;
+  cweMappings?: WeaknessMappingInput[];
 }
 
 export interface CreateVerifierContractInput {
@@ -147,6 +168,17 @@ export interface CreateArtifactInput {
   source: string;
   metadata?: Record<string, unknown>;
   content: string | Buffer;
+}
+
+export interface CreateEvidenceInput {
+  runId: string;
+  hypothesisId?: string | null;
+  findingId?: string | null;
+  kind: string;
+  summary: string;
+  observationTraceEventId?: string | null;
+  artifactId?: string | null;
+  verifierRunId?: string | null;
 }
 
 export interface CreateApprovalInput {
@@ -224,6 +256,8 @@ export interface StartRunRecordInput {
   attemptStrategy: string;
   networkProfile: string;
   sandboxProfile: string;
+  targetAssetId?: string | null;
+  targetPath?: string | null;
   budget: Record<string, unknown>;
   vmBackend?: string;
   vmImageId?: string;
@@ -274,7 +308,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -347,6 +381,45 @@ function rows(value: unknown[]): SqlRow[] {
   return value as SqlRow[];
 }
 
+function normalizeWeaknessMappingInputs(mappings: WeaknessMappingInput[]): Array<Required<WeaknessMappingInput>> {
+  const normalized: Array<Required<WeaknessMappingInput>> = [];
+  const seen = new Set<string>();
+
+  for (const mapping of mappings) {
+    const cweId = normalizeCweId(mapping.cweId);
+    if (!cweId) continue;
+    const entry = cweEntryForId(cweId);
+    const mappingRole = mapping.mappingRole === 'alternate' ? 'alternate' : 'primary';
+    const key = `${mappingRole}:${cweId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({
+      cweId,
+      cweName: (mapping.cweName?.trim() || entry?.name || cweId).slice(0, 240),
+      mappingRole,
+      mappingStatus: normalizeCweMappingStatus(mapping.mappingStatus, entry?.mappingStatus ?? 'unknown'),
+      confidence: normalizeCweConfidence(mapping.confidence, 'low'),
+      rationaleMarkdown: (mapping.rationaleMarkdown?.trim() || 'No CWE mapping rationale provided.').slice(0, 2000),
+      source: normalizeWeaknessMappingSource(mapping.source)
+    });
+  }
+
+  const primaryIndex = normalized.findIndex((mapping) => mapping.mappingRole === 'primary');
+  if (primaryIndex > 0) {
+    const [primary] = normalized.splice(primaryIndex, 1);
+    normalized.unshift(primary);
+  }
+  if (!normalized.some((mapping) => mapping.mappingRole === 'primary') && normalized[0]) {
+    normalized[0].mappingRole = 'primary';
+  }
+  return normalized;
+}
+
+function normalizeWeaknessMappingSource(value: unknown): WeaknessMappingSource {
+  if (value === 'model' || value === 'user' || value === 'import' || value === 'system') return value;
+  return 'model';
+}
+
 function jsonFromScopeDraft(draft: ProgramScopeDraft): Record<string, unknown> {
   const inScope = draft.assets.filter((asset) => asset.direction === 'in_scope').map((asset) => asset.value);
   const outOfScope = draft.assets.filter((asset) => asset.direction === 'out_of_scope').map((asset) => asset.value);
@@ -373,6 +446,7 @@ export class WorkspaceDatabase {
   public initialize(): void {
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.applyMigrations();
+    this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
   }
@@ -630,6 +704,8 @@ export class WorkspaceDatabase {
     const attemptId = createId('attempt');
     const vmContextId = createId('vm');
     const createdAt = nowIso();
+    const scope = this.getScopeVersion(input.scopeVersionId);
+    const target = selectRunTarget(scope.assets, input);
 
     this.transaction(() => {
       this.db
@@ -656,9 +732,9 @@ export class WorkspaceDatabase {
         .prepare(
           `INSERT INTO runs (
             id, scope_version_id, mode, status, title, prompt_markdown, model, reasoning_effort,
-            attempt_strategy, network_profile, sandbox_profile, budget_json, summary,
-            created_at, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            attempt_strategy, network_profile, sandbox_profile, target_asset_id, target_path,
+            budget_json, summary, created_at, started_at, ended_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           runId,
@@ -672,6 +748,8 @@ export class WorkspaceDatabase {
           input.attemptStrategy,
           input.networkProfile,
           input.sandboxProfile,
+          target.targetAssetId,
+          target.targetPath,
           toJson(input.budget),
           'Starting simulated research run.',
           createdAt,
@@ -1138,6 +1216,9 @@ export class WorkspaceDatabase {
         createdAt,
         createdAt
       );
+    if (input.cweMappings) {
+      this.replaceWeaknessMappings('hypothesis', id, input.cweMappings);
+    }
     const hypothesis = this.getHypothesis(id);
     if (!hypothesis) throw new Error('Failed to create hypothesis');
     return hypothesis;
@@ -1145,6 +1226,65 @@ export class WorkspaceDatabase {
 
   public setHypothesisTrace(hypothesisId: string, traceEventId: string): void {
     this.db.prepare('UPDATE hypotheses SET created_trace_event_id = ?, updated_at = ? WHERE id = ?').run(traceEventId, nowIso(), hypothesisId);
+  }
+
+  public updateHypothesis(
+    hypothesisId: string,
+    patch: {
+      state?: string;
+      title?: string;
+      descriptionMarkdown?: string;
+      component?: string;
+      bugClass?: string;
+      priorityScore?: number;
+      attackerReachability?: string;
+      impact?: string;
+      evidenceConfidence?: string;
+      exploitPracticality?: string;
+      scopeConfidence?: string;
+      cweMappings?: WeaknessMappingInput[];
+    }
+  ): HypothesisRecord {
+    const existing = this.getHypothesis(hypothesisId);
+    if (!existing) throw new Error(`Hypothesis not found: ${hypothesisId}`);
+    this.db
+      .prepare(
+        `UPDATE hypotheses
+         SET state = ?,
+             title = ?,
+             description_markdown = ?,
+             component = ?,
+             bug_class = ?,
+             priority_score = ?,
+             attacker_reachability = ?,
+             impact = ?,
+             evidence_confidence = ?,
+             exploit_practicality = ?,
+             scope_confidence = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        patch.state ?? existing.state,
+        patch.title ?? existing.title,
+        patch.descriptionMarkdown ?? existing.descriptionMarkdown,
+        patch.component ?? existing.component,
+        patch.bugClass ?? existing.bugClass,
+        patch.priorityScore ?? existing.priorityScore,
+        patch.attackerReachability ?? existing.attackerReachability,
+        patch.impact ?? existing.impact,
+        patch.evidenceConfidence ?? existing.evidenceConfidence,
+        patch.exploitPracticality ?? existing.exploitPracticality,
+        patch.scopeConfidence ?? existing.scopeConfidence,
+        nowIso(),
+        hypothesisId
+      );
+    if (patch.cweMappings) {
+      this.replaceWeaknessMappings('hypothesis', hypothesisId, patch.cweMappings);
+    }
+    const updated = this.getHypothesis(hypothesisId);
+    if (!updated) throw new Error(`Hypothesis not found after update: ${hypothesisId}`);
+    return updated;
   }
 
   public updateHypothesisState(hypothesisId: string, state: string): void {
@@ -1239,7 +1379,7 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE artifacts SET sensitivity = ?, model_visible = ? WHERE id = ?').run('sensitive', 0, artifactId);
   }
 
-  public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
+  public createEvidence(input: CreateEvidenceInput): EvidenceRecord {
     const id = createId('evidence');
     this.db
       .prepare(
@@ -1248,8 +1388,32 @@ export class WorkspaceDatabase {
           artifact_id, verifier_run_id, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, runId, hypothesisId ?? null, findingId ?? null, 'artifact', summary, null, artifactId, null, nowIso());
-    return id;
+      .run(
+        id,
+        input.runId,
+        input.hypothesisId ?? null,
+        input.findingId ?? null,
+        input.kind,
+        input.summary,
+        input.observationTraceEventId ?? null,
+        input.artifactId ?? null,
+        input.verifierRunId ?? null,
+        nowIso()
+      );
+    const evidence = this.getEvidence(id);
+    if (!evidence) throw new Error('Failed to create evidence');
+    return evidence;
+  }
+
+  public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
+    return this.createEvidence({
+      runId,
+      hypothesisId,
+      findingId,
+      kind: 'artifact',
+      summary,
+      artifactId
+    }).id;
   }
 
   public createVerifierContract(input: CreateVerifierContractInput): VerifierContractRecord {
@@ -1376,6 +1540,9 @@ export class WorkspaceDatabase {
         createdAt,
         createdAt
       );
+    if (input.cweMappings) {
+      this.replaceWeaknessMappings('finding', id, input.cweMappings);
+    }
     const finding = this.getFinding(id);
     if (!finding) throw new Error('Failed to create finding');
     return finding;
@@ -1388,6 +1555,64 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
   }
 
+  public updateFinding(
+    findingId: string,
+    patch: {
+      hypothesisId?: string | null;
+      state?: string;
+      title?: string;
+      summaryMarkdown?: string;
+      affectedAssets?: Record<string, unknown>;
+      affectedVersions?: Record<string, unknown>;
+      impactMarkdown?: string;
+      priorityScore?: number;
+      verifiedByVerifierRunId?: string | null;
+      cweMappings?: WeaknessMappingInput[];
+    }
+  ): FindingRecord {
+    const existing = this.getFinding(findingId);
+    if (!existing) throw new Error(`Finding not found: ${findingId}`);
+    const nextState = patch.state ?? existing.state;
+    const nextVerifierRunId = patch.verifiedByVerifierRunId ?? existing.verifiedByVerifierRunId;
+    if (nextState === 'verified') {
+      this.assertVerifierRunCanVerify(nextVerifierRunId ?? null, existing.runId);
+    }
+    this.db
+      .prepare(
+        `UPDATE findings
+         SET hypothesis_id = ?,
+             state = ?,
+             title = ?,
+             summary_markdown = ?,
+             affected_assets_json = ?,
+             affected_versions_json = ?,
+             impact_markdown = ?,
+             priority_score = ?,
+             verified_by_verifier_run_id = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        patch.hypothesisId === undefined ? existing.hypothesisId : patch.hypothesisId,
+        nextState,
+        patch.title ?? existing.title,
+        patch.summaryMarkdown ?? existing.summaryMarkdown,
+        toJson(patch.affectedAssets ?? existing.affectedAssets),
+        toJson(patch.affectedVersions ?? existing.affectedVersions),
+        patch.impactMarkdown ?? existing.impactMarkdown,
+        patch.priorityScore ?? existing.priorityScore,
+        nextVerifierRunId ?? null,
+        nowIso(),
+        findingId
+      );
+    if (patch.cweMappings) {
+      this.replaceWeaknessMappings('finding', findingId, patch.cweMappings);
+    }
+    const updated = this.getFinding(findingId);
+    if (!updated) throw new Error(`Finding not found after update: ${findingId}`);
+    return updated;
+  }
+
   public verifyFindingWithVerifierRun(findingId: string, verifierRunId: string): FindingRecord {
     const finding = this.getFinding(findingId);
     if (!finding) throw new Error(`Finding not found: ${findingId}`);
@@ -1398,6 +1623,48 @@ export class WorkspaceDatabase {
     const updated = this.getFinding(findingId);
     if (!updated) throw new Error(`Finding not found after verification update: ${findingId}`);
     return updated;
+  }
+
+  public replaceWeaknessMappings(entityKind: WeaknessMappingEntityKind, entityId: string, mappings: WeaknessMappingInput[]): WeaknessMappingRecord[] {
+    const normalized = normalizeWeaknessMappingInputs(mappings);
+    this.db.prepare('DELETE FROM weakness_mappings WHERE entity_kind = ? AND entity_id = ?').run(entityKind, entityId);
+    const createdAt = nowIso();
+    for (const mapping of normalized) {
+      this.db
+        .prepare(
+          `INSERT INTO weakness_mappings (
+            id, entity_kind, entity_id, cwe_id, cwe_name, mapping_role, mapping_status,
+            confidence, rationale_markdown, source, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          createId('weakness'),
+          entityKind,
+          entityId,
+          mapping.cweId,
+          mapping.cweName,
+          mapping.mappingRole,
+          mapping.mappingStatus,
+          mapping.confidence,
+          mapping.rationaleMarkdown,
+          mapping.source,
+          createdAt,
+          createdAt
+        );
+    }
+    return this.listWeaknessMappings(entityKind, entityId);
+  }
+
+  public listWeaknessMappings(entityKind: WeaknessMappingEntityKind, entityId: string): WeaknessMappingRecord[] {
+    return rows(
+      this.db
+        .prepare(
+          `SELECT * FROM weakness_mappings
+           WHERE entity_kind = ? AND entity_id = ?
+           ORDER BY CASE mapping_role WHEN 'primary' THEN 0 ELSE 1 END, cwe_id ASC, created_at ASC`
+        )
+        .all(entityKind, entityId)
+    ).map((row) => this.mapWeaknessMapping(row));
   }
 
   public createExportRecord(input: CreateExportInput): string {
@@ -1656,6 +1923,7 @@ export class WorkspaceDatabase {
           )
           .all(runId)
       ).map((row) => this.mapArtifact(row)),
+      evidence: rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapEvidence(row)),
       findings: rows(this.db.prepare('SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapFinding(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
       verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
@@ -1758,6 +2026,14 @@ export class WorkspaceDatabase {
         this.applyTranscriptMessagesMigration();
         this.insertMigration(7, 'session_transcript_messages');
       }
+      if (currentVersion < 8) {
+        this.applyRunTargetMigration();
+        this.insertMigration(8, 'run_session_target');
+      }
+      if (currentVersion < 9) {
+        this.applyCweClassificationMigration();
+        this.insertMigration(9, 'cwe_guided_classification');
+      }
     });
   }
 
@@ -1836,10 +2112,95 @@ export class WorkspaceDatabase {
     }
   }
 
+  private applyRunTargetMigration(): void {
+    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
+    if (!runsTable) return;
+    this.addColumnIfMissing('runs', 'target_asset_id', 'target_asset_id TEXT REFERENCES scope_assets(id)');
+    this.addColumnIfMissing('runs', 'target_path', 'target_path TEXT');
+    const runRows = rows(
+      this.db
+        .prepare(
+          `SELECT id, scope_version_id, title, prompt_markdown, target_asset_id, target_path
+           FROM runs
+           ORDER BY created_at ASC`
+        )
+        .all()
+    );
+    for (const row of runRows) {
+      if (nullableText(row, 'target_asset_id') || nullableText(row, 'target_path')) continue;
+      const scope = this.getScopeVersion(text(row, 'scope_version_id'));
+      const target = selectRunTarget(scope.assets, {
+        title: text(row, 'title'),
+        promptMarkdown: text(row, 'prompt_markdown')
+      });
+      if (!target.targetAssetId && !target.targetPath) continue;
+      this.db.prepare('UPDATE runs SET target_asset_id = ?, target_path = ? WHERE id = ?').run(target.targetAssetId, target.targetPath, text(row, 'id'));
+    }
+  }
+
+  private applyCweClassificationMigration(): void {
+    this.db.exec(CWE_CLASSIFICATION_SCHEMA_SQL);
+  }
+
   private addColumnIfMissing(table: string, column: string, definition: string): void {
     const columns = new Set(rows(this.db.prepare(`PRAGMA table_info(${table})`).all()).map((row) => text(row, 'name')));
     if (!columns.has(column)) {
       this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
+    }
+  }
+
+  private ensureCweCatalog(): void {
+    const importedAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO cwe_catalogs (
+          id, source_url, catalog_version, view_id, imported_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          source_url = excluded.source_url,
+          catalog_version = excluded.catalog_version,
+          view_id = excluded.view_id,
+          metadata_json = excluded.metadata_json`
+      )
+      .run(
+        DEFAULT_CWE_CATALOG_ID,
+        DEFAULT_CWE_SOURCE_URL,
+        DEFAULT_CWE_CATALOG_VERSION,
+        '1003',
+        importedAt,
+        toJson({ bundled: true, source: 'MITRE CWE View-1003 seed', entryCount: DEFAULT_CWE_CATALOG.length })
+      );
+
+    for (const entry of DEFAULT_CWE_CATALOG) {
+      this.db
+        .prepare(
+          `INSERT INTO cwe_entries (
+            cwe_id, name, abstraction, status, description, parent_ids_json,
+            view_ids_json, mapping_status, catalog_version, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(cwe_id) DO UPDATE SET
+            name = excluded.name,
+            abstraction = excluded.abstraction,
+            status = excluded.status,
+            description = excluded.description,
+            parent_ids_json = excluded.parent_ids_json,
+            view_ids_json = excluded.view_ids_json,
+            mapping_status = excluded.mapping_status,
+            catalog_version = excluded.catalog_version,
+            updated_at = excluded.updated_at`
+        )
+        .run(
+          entry.cweId,
+          entry.name,
+          entry.abstraction,
+          entry.status,
+          entry.description,
+          toJson(entry.parentIds),
+          toJson(entry.viewIds),
+          entry.mappingStatus,
+          DEFAULT_CWE_CATALOG_VERSION,
+          importedAt
+        );
     }
   }
 
@@ -1947,6 +2308,11 @@ export class WorkspaceDatabase {
     return row ? this.mapArtifact(row) : null;
   }
 
+  private getEvidence(evidenceId: string): EvidenceRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM evidence WHERE id = ?').get(evidenceId));
+    return row ? this.mapEvidence(row) : null;
+  }
+
   private getVerifierContract(contractId: string): VerifierContractRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM verifier_contracts WHERE id = ?').get(contractId));
     return row ? this.mapVerifierContract(row) : null;
@@ -2040,6 +2406,8 @@ export class WorkspaceDatabase {
       attemptStrategy: text(row, 'attempt_strategy'),
       networkProfile: text(row, 'network_profile'),
       sandboxProfile: text(row, 'sandbox_profile'),
+      targetAssetId: nullableText(row, 'target_asset_id'),
+      targetPath: nullableText(row, 'target_path'),
       budget: parseJson(row.budget_json),
       summary: text(row, 'summary'),
       createdAt: text(row, 'created_at'),
@@ -2114,9 +2482,27 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapHypothesis(row: SqlRow): HypothesisRecord {
+  private mapWeaknessMapping(row: SqlRow): WeaknessMappingRecord {
     return {
       id: text(row, 'id'),
+      entityKind: text(row, 'entity_kind') as WeaknessMappingEntityKind,
+      entityId: text(row, 'entity_id'),
+      cweId: text(row, 'cwe_id'),
+      cweName: text(row, 'cwe_name'),
+      mappingRole: text(row, 'mapping_role') as WeaknessMappingRole,
+      mappingStatus: text(row, 'mapping_status') as WeaknessMappingStatus,
+      confidence: text(row, 'confidence') as WeaknessMappingConfidence,
+      rationaleMarkdown: text(row, 'rationale_markdown'),
+      source: text(row, 'source') as WeaknessMappingSource,
+      createdAt: text(row, 'created_at'),
+      updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private mapHypothesis(row: SqlRow): HypothesisRecord {
+    const id = text(row, 'id');
+    return {
+      id,
       runId: text(row, 'run_id'),
       parentHypothesisId: nullableText(row, 'parent_hypothesis_id'),
       state: text(row, 'state'),
@@ -2130,6 +2516,7 @@ export class WorkspaceDatabase {
       evidenceConfidence: text(row, 'evidence_confidence'),
       exploitPracticality: text(row, 'exploit_practicality'),
       scopeConfidence: text(row, 'scope_confidence'),
+      cweMappings: this.listWeaknessMappings('hypothesis', id),
       createdTraceEventId: nullableText(row, 'created_trace_event_id'),
       createdAt: text(row, 'created_at'),
       updatedAt: text(row, 'updated_at')
@@ -2153,9 +2540,25 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapFinding(row: SqlRow): FindingRecord {
+  private mapEvidence(row: SqlRow): EvidenceRecord {
     return {
       id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      hypothesisId: nullableText(row, 'hypothesis_id'),
+      findingId: nullableText(row, 'finding_id'),
+      kind: text(row, 'kind'),
+      summary: text(row, 'summary'),
+      observationTraceEventId: nullableText(row, 'observation_trace_event_id'),
+      artifactId: nullableText(row, 'artifact_id'),
+      verifierRunId: nullableText(row, 'verifier_run_id'),
+      createdAt: text(row, 'created_at')
+    };
+  }
+
+  private mapFinding(row: SqlRow): FindingRecord {
+    const id = text(row, 'id');
+    return {
+      id,
       runId: text(row, 'run_id'),
       hypothesisId: nullableText(row, 'hypothesis_id'),
       state: text(row, 'state'),
@@ -2166,6 +2569,7 @@ export class WorkspaceDatabase {
       impactMarkdown: text(row, 'impact_markdown'),
       priorityScore: numberValue(row, 'priority_score'),
       verifiedByVerifierRunId: nullableText(row, 'verified_by_verifier_run_id'),
+      cweMappings: this.listWeaknessMappings('finding', id),
       createdAt: text(row, 'created_at'),
       updatedAt: text(row, 'updated_at')
     };
@@ -2419,6 +2823,50 @@ CREATE INDEX IF NOT EXISTS idx_transcript_messages_run_created ON transcript_mes
 CREATE INDEX IF NOT EXISTS idx_transcript_messages_trace ON transcript_messages(trace_event_id);
 `;
 
+const CWE_CLASSIFICATION_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS cwe_catalogs (
+  id TEXT PRIMARY KEY,
+  source_url TEXT NOT NULL,
+  catalog_version TEXT NOT NULL,
+  view_id TEXT NOT NULL,
+  imported_at TEXT NOT NULL,
+  metadata_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cwe_entries (
+  cwe_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  abstraction TEXT NOT NULL,
+  status TEXT NOT NULL,
+  description TEXT NOT NULL,
+  parent_ids_json TEXT NOT NULL,
+  view_ids_json TEXT NOT NULL,
+  mapping_status TEXT NOT NULL,
+  catalog_version TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS weakness_mappings (
+  id TEXT PRIMARY KEY,
+  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('hypothesis', 'finding')),
+  entity_id TEXT NOT NULL,
+  cwe_id TEXT NOT NULL,
+  cwe_name TEXT NOT NULL,
+  mapping_role TEXT NOT NULL CHECK (mapping_role IN ('primary', 'alternate')),
+  mapping_status TEXT NOT NULL CHECK (mapping_status IN ('allowed', 'discouraged', 'prohibited', 'unknown')),
+  confidence TEXT NOT NULL CHECK (confidence IN ('low', 'medium', 'high')),
+  rationale_markdown TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('model', 'user', 'import', 'system')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(entity_kind, entity_id, cwe_id, mapping_role)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cwe_entries_mapping_status ON cwe_entries(mapping_status);
+CREATE INDEX IF NOT EXISTS idx_weakness_mappings_entity ON weakness_mappings(entity_kind, entity_id);
+CREATE INDEX IF NOT EXISTS idx_weakness_mappings_cwe ON weakness_mappings(cwe_id);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
@@ -2464,6 +2912,8 @@ CREATE TABLE IF NOT EXISTS runs (
   attempt_strategy TEXT NOT NULL,
   network_profile TEXT NOT NULL,
   sandbox_profile TEXT NOT NULL,
+  target_asset_id TEXT REFERENCES scope_assets(id),
+  target_path TEXT,
   budget_json TEXT NOT NULL,
   summary TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -2580,6 +3030,8 @@ ${CONTEXT_COMPACTIONS_SCHEMA_SQL}
 ${NOTIFICATIONS_SCHEMA_SQL}
 
 ${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
+
+${CWE_CLASSIFICATION_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS hypotheses (
   id TEXT PRIMARY KEY,

@@ -104,13 +104,22 @@ export function contextCompactionRanges(detail: RunDetail, recentModelVisibleEve
 
 export function representedCompactionState(detail: RunDetail): Record<string, unknown> {
   return {
-    hypotheses: detail.hypotheses.map((hypothesis) => ({ id: hypothesis.id, state: hypothesis.state })),
-    findings: detail.findings.map((finding) => ({ id: finding.id, state: finding.state, verifiedByVerifierRunId: finding.verifiedByVerifierRunId })),
+    hypotheses: detail.hypotheses.map((hypothesis) => ({ id: hypothesis.id, state: hypothesis.state, cweMappings: cweMappingSnapshot(hypothesis.cweMappings) })),
+    findings: detail.findings.map((finding) => ({
+      id: finding.id,
+      state: finding.state,
+      verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+      cweMappings: cweMappingSnapshot(finding.cweMappings)
+    })),
     artifacts: detail.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, modelVisible: artifact.modelVisible })),
     verifierRuns: detail.verifierRuns.map((run) => ({ id: run.id, status: run.status, contractId: run.contractId })),
     policyEvents: detail.policyEvents.map((event) => ({ id: event.id, decision: event.decision, requestKind: event.requestKind })),
     vmContexts: detail.vmContexts.map((context) => ({ id: context.id, backend: context.backend, state: context.state, networkProfile: context.networkProfile }))
   };
+}
+
+function cweMappingSnapshot(mappings: Array<{ cweId: string; mappingRole: string; confidence: string }>): Array<Record<string, string>> {
+  return mappings.map((mapping) => ({ cweId: mapping.cweId, mappingRole: mapping.mappingRole, confidence: mapping.confidence }));
 }
 
 export function inputTokensFromOpenAiEvent(event: OpenAiStreamEvent): number | null {

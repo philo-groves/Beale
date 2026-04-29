@@ -414,6 +414,9 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('previousResearch');
         expect(serialized).toContain('likelyUnderexploredInScopeAssets');
         expect(serialized).toContain('chain existing findings');
+        expect(serialized).toContain('requestedSession');
+        expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
+        expect(serialized).toContain('\\"sandboxProfile\\": \\"host_research_only\\"');
         return new Response(
           sse(
             event('response.output_text.done', {
@@ -440,7 +443,16 @@ describe('Beale workbench skeleton', () => {
     });
     startRunForTest(service, runInput('verified_finding'));
 
-    const result = await service.generateResearchPrompt();
+    const result = await service.generateResearchPrompt({
+      mode: 'dynamic',
+      attemptStrategy: 'single_path',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      networkProfile: 'scoped',
+      sandboxProfile: 'host_research_only',
+      targetAssetId: null,
+      targetPath: null
+    });
     expect(result.promptMarkdown).toBe('# Kernel parser audit\nFocus on the least explored kernel parser surface and collect verifier-backed evidence.');
     expect(modelRequests).toHaveLength(1);
     service.close();
@@ -537,16 +549,22 @@ describe('Beale workbench skeleton', () => {
     const notificationsMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 5').get();
     const contextCompactionMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 6').get();
     const transcriptMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 7').get();
+    const cweMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 9').get();
     const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
     const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
+    const weaknessTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'weakness_mappings'").get();
+    const cweEntry = migrated.prepare("SELECT name FROM cwe_entries WHERE cwe_id = 'CWE-862'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
     expect(migration).toBeTruthy();
     expect(notificationsMigration).toBeTruthy();
     expect(contextCompactionMigration).toBeTruthy();
     expect(transcriptMigration).toBeTruthy();
+    expect(cweMigration).toBeTruthy();
     expect(notificationsTable).toBeTruthy();
     expect(transcriptTable).toBeTruthy();
+    expect(weaknessTable).toBeTruthy();
+    expect(cweEntry).toBeTruthy();
   });
 
   it('recovers interrupted active state on workspace reopen', () => {

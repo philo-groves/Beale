@@ -83,6 +83,7 @@ import type {
   StartRunInput,
   TraceEventRecord,
   TranscriptMessageRecord,
+  WeaknessMappingRecord,
   VmPreference,
   VmPreferenceInput,
   WorkspaceSnapshot
@@ -1770,7 +1771,10 @@ function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: Hy
       title={disabled ? 'No trace provenance available' : 'Inspect hypothesis trace'}
       onClick={onSelect}
     >
-      <strong>{hypothesis.title}</strong>
+      <div className="main-research-topline">
+        <strong>{hypothesis.title}</strong>
+        <CwePill mappings={hypothesis.cweMappings} />
+      </div>
       <p>
         {traceLabel(hypothesis.state)} · Priority {hypothesis.priorityScore.toFixed(2)}
       </p>
@@ -1853,7 +1857,10 @@ function MainFindingItem({
     >
       <div className="main-finding-topline">
         <strong>{finding.title}</strong>
-        <FindingPowerMeter score={finding.priorityScore} level={power} tone={tone} />
+        <span className="main-finding-badges">
+          <CwePill mappings={finding.cweMappings} />
+          <FindingPowerMeter score={finding.priorityScore} level={power} tone={tone} />
+        </span>
       </div>
       <p>
         {traceLabel(finding.state)} · Priority {finding.priorityScore.toFixed(2)}
@@ -1870,6 +1877,24 @@ function FindingPowerMeter({ score, level, tone }: { score: number; level: numbe
       {Array.from({ length: 5 }, (_, index) => (
         <span className={`finding-power-star ${index < level ? 'active' : ''}`} key={index} aria-hidden="true" />
       ))}
+    </span>
+  );
+}
+
+function CwePill({ mappings }: { mappings: WeaknessMappingRecord[] }): JSX.Element | null {
+  const primary = mappings.find((mapping) => mapping.mappingRole === 'primary') ?? mappings[0];
+  if (!primary) return null;
+  const title = [
+    `${primary.cweId}: ${primary.cweName}`,
+    `Confidence: ${traceLabel(primary.confidence)}`,
+    `Mapping: ${traceLabel(primary.mappingStatus)}`,
+    primary.rationaleMarkdown
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return (
+    <span className={`cwe-pill confidence-${primary.confidence} status-${primary.mappingStatus}`} title={title}>
+      {primary.cweId}
     </span>
   );
 }
@@ -2382,6 +2407,8 @@ function toolArgumentParts(toolName: string | null, args: Record<string, unknown
   if (toolName === 'python') return [quotedPart('task', stringRecordValue(args, 'task')), pathPart('artifact', stringRecordValue(args, 'artifact_path'))];
   if (toolName === 'debugger') return [tracePart('operation', stringRecordValue(args, 'operation')), pathPart('target', stringRecordValue(args, 'target')), pathPart('input', stringRecordValue(args, 'input_path'))];
   if (toolName === 'artifact') return [quotedPart('name', stringRecordValue(args, 'name')), tracePart('kind', stringRecordValue(args, 'kind'))];
+  if (toolName === 'hypothesis') return [quotedPart('title', stringRecordValue(args, 'title')), tracePart('state', stringRecordValue(args, 'state')), tracePart('cwe', stringRecordValue(args, 'primary_cwe_id'))];
+  if (toolName === 'finding') return [quotedPart('title', stringRecordValue(args, 'title')), tracePart('state', stringRecordValue(args, 'state')), tracePart('cwe', stringRecordValue(args, 'primary_cwe_id'))];
   if (toolName === 'verifier') return [quotedPart('hypothesis', stringRecordValue(args, 'hypothesis')), pathPart('artifact', stringRecordValue(args, 'artifact_id')), pathPart('trace', stringRecordValue(args, 'trace_event_id'))];
   return Object.entries(args)
     .slice(0, 3)
@@ -2558,6 +2585,7 @@ function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
     pathPart('finding', tracePayloadPrimitive(payload, 'findingId')),
     tracePart('title', tracePayloadPrimitive(payload, 'title')),
     tracePart('component', tracePayloadPrimitive(payload, 'component')),
+    tracePart('cwe', cweMappingLabel(payload)),
     tracePart('severity', tracePayloadPrimitive(payload, 'severity')),
     tracePart('state', tracePayloadPrimitive(payload, 'findingState') ?? tracePayloadPrimitive(payload, 'state')),
     traceNumberPart('priority', tracePayloadPrimitive(payload, 'priorityScore')),
@@ -2569,6 +2597,17 @@ function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
     traceBooleanPart('reversible', tracePayloadPrimitive(payload, 'reversible')),
     tracePayloadPrimitive(payload, 'note')
   ].filter((part): part is string => Boolean(part));
+}
+
+function cweMappingLabel(payload: Record<string, unknown>): string | null {
+  const mappings = tracePayloadArray(payload, 'cweMappings');
+  if (!mappings) return null;
+  const records = mappings
+    .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null))
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+  const selected = records.find((item) => stringRecordValue(item, 'mappingRole') === 'primary') ?? records[0];
+  if (!selected) return null;
+  return stringRecordValue(selected, 'cweId');
 }
 
 function detailPartsForReviewEvent(event: TraceEventRecord): string[] | null {
@@ -3968,7 +4007,16 @@ function StartRunForm({
   const generatePrompt = (): void => {
     setGeneratingPrompt(true);
     void runAction(async () => {
-      const generated = await window.beale.generateResearchPrompt();
+      const generated = await window.beale.generateResearchPrompt({
+        mode: input.mode,
+        attemptStrategy: input.attemptStrategy,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+        networkProfile: input.networkProfile,
+        sandboxProfile: input.sandboxProfile,
+        targetAssetId: input.targetAssetId ?? null,
+        targetPath: input.targetPath ?? null
+      });
       setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
     }).finally(() => setGeneratingPrompt(false));
   };
@@ -4651,7 +4699,10 @@ function HypothesisPanel({
       {hypotheses.map((hypothesis) => (
         <div className={`entity-row state-${stateClass(hypothesis.state)}`} key={hypothesis.id}>
           <div>
-            <strong>{hypothesis.title}</strong>
+            <div className="entity-title-row">
+              <strong>{hypothesis.title}</strong>
+              <CwePill mappings={hypothesis.cweMappings} />
+            </div>
             <p>{hypothesis.state} · priority {hypothesis.priorityScore.toFixed(2)} · {hypothesis.bugClass} · {hypothesis.component}</p>
             <p>{hypothesis.evidenceConfidence} · {hypothesis.scopeConfidence}</p>
           </div>
@@ -4815,7 +4866,10 @@ function FindingPanel({
       {detail.findings.map((finding) => (
         <div className={`entity-row state-${stateClass(finding.state)} ${finding.verifiedByVerifierRunId ? 'verified-finding' : ''}`} key={finding.id}>
           <div>
-            <strong>{finding.title}</strong>
+            <div className="entity-title-row">
+              <strong>{finding.title}</strong>
+              <CwePill mappings={finding.cweMappings} />
+            </div>
             <p>
               {finding.state} · priority {finding.priorityScore.toFixed(2)}
               {finding.verifiedByVerifierRunId ? ` · verifier ${finding.verifiedByVerifierRunId.slice(0, 12)}` : ''}

@@ -75,7 +75,7 @@ describe('plan conformance', () => {
   });
 
   it('keeps the first model-facing tool surface to one setup tool plus the planned structured research tools', () => {
-    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual(['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier']);
+    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual(['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier']);
   });
 
   it('keeps the OpenAI adapter aligned with the planned defaults and host-only credential state', () => {

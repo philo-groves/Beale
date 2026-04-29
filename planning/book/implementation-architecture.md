@@ -170,6 +170,9 @@ Responsibilities:
   - `python`
   - `debugger`
   - `artifact`
+  - `evidence`
+  - `hypothesis`
+  - `finding`
   - `verifier`
 - Validate tool inputs.
 - Attach policy metadata.

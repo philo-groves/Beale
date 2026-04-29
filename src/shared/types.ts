@@ -323,6 +323,8 @@ export interface StartRunInput {
   reasoningEffort: string;
   networkProfile: string;
   sandboxProfile: string;
+  targetAssetId?: string | null;
+  targetPath?: string | null;
   budget: {
     maxMinutes: number;
     maxAttempts: number;
@@ -333,6 +335,17 @@ export interface StartRunInput {
 
 export interface GeneratedResearchPrompt {
   promptMarkdown: string;
+}
+
+export interface ResearchPromptGenerationInput {
+  mode: string;
+  attemptStrategy: string;
+  model: string;
+  reasoningEffort: string;
+  networkProfile: string;
+  sandboxProfile: string;
+  targetAssetId?: string | null;
+  targetPath?: string | null;
 }
 
 export interface RunRecord {
@@ -347,6 +360,8 @@ export interface RunRecord {
   attemptStrategy: string;
   networkProfile: string;
   sandboxProfile: string;
+  targetAssetId: string | null;
+  targetPath: string | null;
   budget: Record<string, unknown>;
   summary: string;
   createdAt: string;
@@ -416,6 +431,37 @@ export interface NotificationRecord {
   dismissedAt: string | null;
 }
 
+export type WeaknessMappingEntityKind = 'hypothesis' | 'finding';
+export type WeaknessMappingRole = 'primary' | 'alternate';
+export type WeaknessMappingStatus = 'allowed' | 'discouraged' | 'prohibited' | 'unknown';
+export type WeaknessMappingConfidence = 'low' | 'medium' | 'high';
+export type WeaknessMappingSource = 'model' | 'user' | 'import' | 'system';
+
+export interface WeaknessMappingInput {
+  cweId: string;
+  cweName?: string;
+  mappingRole?: WeaknessMappingRole;
+  mappingStatus?: WeaknessMappingStatus;
+  confidence?: WeaknessMappingConfidence;
+  rationaleMarkdown?: string;
+  source?: WeaknessMappingSource;
+}
+
+export interface WeaknessMappingRecord {
+  id: string;
+  entityKind: WeaknessMappingEntityKind;
+  entityId: string;
+  cweId: string;
+  cweName: string;
+  mappingRole: WeaknessMappingRole;
+  mappingStatus: WeaknessMappingStatus;
+  confidence: WeaknessMappingConfidence;
+  rationaleMarkdown: string;
+  source: WeaknessMappingSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface HypothesisRecord {
   id: string;
   runId: string;
@@ -431,6 +477,7 @@ export interface HypothesisRecord {
   evidenceConfidence: string;
   exploitPracticality: string;
   scopeConfidence: string;
+  cweMappings: WeaknessMappingRecord[];
   createdTraceEventId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -451,6 +498,19 @@ export interface ArtifactRecord {
   createdAt: string;
 }
 
+export interface EvidenceRecord {
+  id: string;
+  runId: string;
+  hypothesisId: string | null;
+  findingId: string | null;
+  kind: string;
+  summary: string;
+  observationTraceEventId: string | null;
+  artifactId: string | null;
+  verifierRunId: string | null;
+  createdAt: string;
+}
+
 export interface FindingRecord {
   id: string;
   runId: string;
@@ -463,6 +523,7 @@ export interface FindingRecord {
   impactMarkdown: string;
   priorityScore: number;
   verifiedByVerifierRunId: string | null;
+  cweMappings: WeaknessMappingRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -611,6 +672,7 @@ export interface RunDetail {
   transcriptMessages: TranscriptMessageRecord[];
   hypotheses: HypothesisRecord[];
   artifacts: ArtifactRecord[];
+  evidence: EvidenceRecord[];
   findings: FindingRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
@@ -819,7 +881,7 @@ export interface BealeApi {
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
-  generateResearchPrompt(): Promise<GeneratedResearchPrompt>;
+  generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;

@@ -385,12 +385,14 @@ describe('OpenAI Responses run engine', () => {
     expect(detail.transcriptMessages.map((message) => message.contentMarkdown)).toEqual([
       '# OpenAI test\nUse Beale tools before making observations.',
       'I need to inspect scoped metadata before choosing a tool.',
+      'I should record concrete hypotheses as state.',
       'I will search scoped metadata first.',
       'No verified finding yet.'
     ]);
-    expect(detail.transcriptMessages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant', 'assistant']);
+    expect(detail.transcriptMessages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant', 'assistant', 'assistant']);
     expect(detail.transcriptMessages.map((message) => message.source)).toEqual([
       'run_prompt',
+      'openai_reasoning_summary',
       'openai_reasoning_summary',
       'openai_response_output',
       'openai_response_output'
@@ -739,6 +741,13 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
       summary_index: 0,
       text: 'I need to inspect scoped metadata before choosing a tool.'
     }),
+    event('response.reasoning_summary_text.done', {
+      type: 'response.reasoning_summary_text.done',
+      response_id: responseId,
+      item_id: 'rs_1',
+      summary_index: 1,
+      text: 'I should record concrete hypotheses as state.'
+    }),
     event('response.output_item.done', {
       type: 'response.output_item.done',
       response_id: responseId,
@@ -746,7 +755,10 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
         type: 'reasoning',
         id: 'rs_1',
         status: 'completed',
-        summary: [{ type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' }]
+        summary: [
+          { type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' },
+          { type: 'summary_text', text: 'I should record concrete hypotheses as state.' }
+        ]
       }
     }),
     event('response.output_text.delta', { type: 'response.output_text.delta', response_id: responseId, delta: 'Checking scope.' }),
@@ -789,7 +801,10 @@ function toolCallEvents(responseId = 'resp_1', callId = 'call_1'): string {
             type: 'reasoning',
             id: 'rs_1',
             status: 'completed',
-            summary: [{ type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' }]
+            summary: [
+              { type: 'summary_text', text: 'I need to inspect scoped metadata before choosing a tool.' },
+              { type: 'summary_text', text: 'I should record concrete hypotheses as state.' }
+            ]
           },
           {
             type: 'message',

@@ -9,6 +9,7 @@ import type {
   ProgramOnboardingInput,
   ProgramRegistryState,
   ProgramScopeDraft,
+  ResearchPromptGenerationInput,
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
@@ -62,8 +63,8 @@ const api: BealeApi = {
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
   },
-  generateResearchPrompt(): Promise<GeneratedResearchPrompt> {
-    return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt);
+  generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
+    return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);
   },
   saveProgramScope(scope: ProgramScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);

@@ -1,7 +1,16 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { BenchmarkRunInput, ProgramOnboardingInput, ProgramScopeDraft, StartRunInput, SteeringAction, VmPreferenceInput, WorkspacePickerMode } from '@shared/types';
+import type {
+  BenchmarkRunInput,
+  ProgramOnboardingInput,
+  ProgramScopeDraft,
+  ResearchPromptGenerationInput,
+  StartRunInput,
+  SteeringAction,
+  VmPreferenceInput,
+  WorkspacePickerMode
+} from '@shared/types';
 import { getHostEnvironment, WorkspaceService } from './workspaceService';
 
 let mainWindow: BrowserWindow | null = null;
@@ -83,7 +92,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
-  ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, () => workspaceService.generateResearchPrompt());
+  ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (_event, input?: ResearchPromptGenerationInput) => workspaceService.generateResearchPrompt(input));
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
   ipcMain.handle(IPC_CHANNELS.runBenchmarkSuite, (_event, input: BenchmarkRunInput) => workspaceService.runBenchmarkSuite(input));

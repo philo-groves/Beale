@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
+import { localRunTargetPath } from './runTarget';
 import type { ScopeAsset } from '@shared/types';
 
 interface HostExecutionOutcome {
@@ -15,7 +16,6 @@ interface HostExecutionOutcome {
   targetPath: string | null;
 }
 
-const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
 const MAX_HOST_OUTPUT_CHARS = 16_000;
 const MAX_HOST_ARTIFACT_BYTES = 512 * 1024;
 
@@ -42,13 +42,18 @@ export function executeHostOperation(
     windowsHide: true
   });
   const endedAt = new Date();
-  const timedOut = result.error?.name === 'TimeoutError';
+  const timedOut = isSpawnTimeout(result.error);
   const exitCode = typeof result.status === 'number' ? result.status : null;
   const status = timedOut ? 'timeout' : exitCode === 0 ? 'success' : 'failure';
   const stdoutSummary = boundedText(result.stdout ?? '');
   const stderrSummary = boundedText(result.stderr || result.error?.message || '');
   const resolvedArtifactPath = artifactPath ? resolveHostArtifactPath(db, cwd, hostTarget, artifactPath) : null;
-  const artifact = resolvedArtifactPath ? collectHostArtifact(db, context, resolvedArtifactPath, artifactKind) : null;
+  const collectedArtifact = resolvedArtifactPath ? collectHostArtifact(db, context, resolvedArtifactPath, artifactKind) : null;
+  const artifact =
+    collectedArtifact ??
+    (resolvedArtifactPath && status !== 'success' && stdoutSummary
+      ? createHostTextArtifact(db, context, resolvedArtifactPath, artifactKind, stdoutSummary, stderrSummary, status)
+      : null);
 
   return {
     result: {
@@ -127,6 +132,41 @@ function collectHostArtifact(db: WorkspaceDatabase, context: CreatedRunContext, 
   });
 }
 
+function createHostTextArtifact(
+  db: WorkspaceDatabase,
+  context: CreatedRunContext,
+  requestedPath: string,
+  kind: string,
+  stdoutSummary: string,
+  stderrSummary: string,
+  status: string
+): ReturnType<WorkspaceDatabase['createArtifact']> | null {
+  const content = [`# Partial host tool output`, `status: ${status}`, `requested_artifact_path: ${requestedPath}`, '', '## stdout', stdoutSummary, '', '## stderr', stderrSummary].join('\n');
+  if (!content.trim()) return null;
+  return db.createArtifact({
+    kind,
+    mimeType: 'text/plain',
+    sensitivity: 'internal',
+    modelVisible: true,
+    source: 'host_tool_output',
+    metadata: {
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      hostExecution: true,
+      requestedPath,
+      partialOutputFallback: true
+    },
+    content: Buffer.from(content, 'utf8')
+  });
+}
+
+function isSpawnTimeout(error: Error | undefined): boolean {
+  if (!error) return false;
+  const record = error as Error & { code?: unknown };
+  const code = typeof record.code === 'string' ? record.code : '';
+  return error.name === 'TimeoutError' || code === 'ETIMEDOUT' || /\bETIMEDOUT\b/i.test(error.message);
+}
+
 function resolveHostArtifactPath(db: WorkspaceDatabase, cwd: string, hostTarget: string | null, path: string): string {
   const trimmed = path.trim();
   if (!trimmed) return '';
@@ -163,23 +203,8 @@ function hostToolEnv(input: Record<string, string>, hostTarget: string | null): 
 }
 
 function firstScopedLocalTarget(db: WorkspaceDatabase, context?: CreatedRunContext): string | null {
-  const targets = scopedAssetsForHostSelection(db, context).filter((candidate) => isScopedLocalAsset(candidate));
-  if (targets.length === 0) return null;
-
-  let selected = targets[0];
-  let selectedScore = scoreHostTarget(selected, context);
-  for (const candidate of targets.slice(1)) {
-    const score = scoreHostTarget(candidate, context);
-    if (score > selectedScore) {
-      selected = candidate;
-      selectedScore = score;
-    }
-  }
-  return resolve(selected.value);
-}
-
-function isScopedLocalAsset(asset: ScopeAsset): boolean {
-  return asset.direction === 'in_scope' && LOCAL_ASSET_KINDS.has(asset.kind) && isAbsolute(asset.value) && existsSync(asset.value) && !looksLikeUrl(asset.value);
+  const assets = scopedAssetsForHostSelection(db, context);
+  return context ? localRunTargetPath(assets, context.run) : null;
 }
 
 function cwdForTarget(path: string): string {
@@ -212,40 +237,6 @@ function safeScopeAssets(read: () => ScopeAsset[]): ScopeAsset[] {
   }
 }
 
-function scoreHostTarget(asset: ScopeAsset, context?: CreatedRunContext): number {
-  if (!context) return 0;
-  const haystack = `${context.run.title}\n${context.run.promptMarkdown}`.toLowerCase();
-  const normalizedHaystack = normalizeMatchText(haystack);
-  let score = 0;
-  for (const alias of hostTargetAliases(asset)) {
-    const normalizedAlias = normalizeMatchText(alias);
-    if (alias.length >= 8 && haystack.includes(alias.toLowerCase())) score = Math.max(score, 1000);
-    if (normalizedAlias.length >= 4 && normalizedHaystack.includes(normalizedAlias)) score = Math.max(score, 500 + Math.min(normalizedAlias.length, 200));
-  }
-  return score;
-}
-
-function hostTargetAliases(asset: ScopeAsset): string[] {
-  const aliases = new Set<string>();
-  const path = resolve(asset.value);
-  aliases.add(path);
-  aliases.add(basename(path));
-  for (const value of Object.values(asset.attributes ?? {})) {
-    if (typeof value !== 'string') continue;
-    aliases.add(value);
-    if (looksLikeUrl(value)) aliases.add(repositoryNameFromUrl(value));
-  }
-  for (const part of basename(path).split(/[^A-Za-z0-9]+/)) {
-    if (part.length >= 4) aliases.add(part);
-  }
-  return [...aliases].filter(Boolean);
-}
-
-function repositoryNameFromUrl(value: string): string {
-  const trimmed = value.replace(/\.git$/i, '').replace(/\/+$/g, '');
-  return trimmed.split('/').at(-1) ?? trimmed;
-}
-
 function isCollectableTempArtifactName(name: string, hostTarget: string | null): boolean {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,160}$/.test(name)) return false;
   const normalized = name.toLowerCase();
@@ -262,10 +253,6 @@ function isCollectableTempArtifactName(name: string, hostTarget: string | null):
 
 function sanitizePrefix(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-}
-
-function normalizeMatchText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function workspaceRoot(db: WorkspaceDatabase): string {
@@ -291,8 +278,4 @@ function isWithinPath(candidate: string, parent: string): boolean {
 
 function pathContainsSegment(path: string, segment: string): boolean {
   return path.split(/[\\/]+/).includes(segment);
-}
-
-function looksLikeUrl(value: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }

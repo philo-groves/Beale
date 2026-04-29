@@ -53,6 +53,7 @@ interface RunLoopState {
 interface StreamTraceState {
   lastOutputDeltaTraceAt: number;
   persistedTranscriptKeys: Set<string>;
+  reasoningSummaryTextsByItemId: Map<string, string[]>;
 }
 
 export class OpenAiRunEngine {
@@ -78,6 +79,8 @@ export class OpenAiRunEngine {
       attemptStrategy: input.attemptStrategy,
       networkProfile: input.networkProfile,
       sandboxProfile: input.sandboxProfile,
+      targetAssetId: input.targetAssetId,
+      targetPath: input.targetPath,
       budget: { ...input.budget, runEngine: 'openai_responses' },
       vmBackend: isHostResearchSandbox(input.sandboxProfile) ? 'host' : undefined,
       vmImageId: isHostResearchSandbox(input.sandboxProfile) ? 'host-machine' : undefined,
@@ -177,7 +180,8 @@ export class OpenAiRunEngine {
 
     const controller = new AbortController();
     this.controllers.set(context.run.id, controller);
-    const completion = this.runLoop(context, input, controller).finally(() => {
+    const runInput = { ...input, targetAssetId: context.run.targetAssetId, targetPath: context.run.targetPath };
+    const completion = this.runLoop(context, runInput, controller).finally(() => {
       this.controllers.delete(context.run.id);
       this.onChange();
     });
@@ -371,7 +375,7 @@ export class OpenAiRunEngine {
         this.onChange();
 
         const functionCalls: OpenAiFunctionCall[] = [];
-        const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0, persistedTranscriptKeys: new Set() };
+        const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0, persistedTranscriptKeys: new Set(), reasoningSummaryTextsByItemId: new Map() };
         latestCompletedModelOutput = null;
         let streamEventSeen = false;
         try {
@@ -766,6 +770,7 @@ export class OpenAiRunEngine {
         if (!text) return [];
         const key = transcriptKeyFromEvent(event, 'reasoning_summary', text);
         if (streamTraceState.persistedTranscriptKeys.has(key)) return [];
+        rememberReasoningSummary(streamTraceState, stringEventValue(event, 'item_id'), text);
         return [
           this.db.appendTraceEvent({
             runId: context.run.id,
@@ -838,8 +843,11 @@ export class OpenAiRunEngine {
 
         const reasoningSummary = item ? reasoningSummaryTextFromItem(item) : '';
         if (reasoningSummary) {
+          const itemId = item && typeof item.id === 'string' ? item.id : stringEventValue(event, 'item_id');
+          if (shouldSkipAggregateReasoningSummary(streamTraceState, itemId, reasoningSummary)) return [];
           const key = transcriptKeyFromOutputItem(event, 'reasoning_summary', reasoningSummary);
           if (streamTraceState.persistedTranscriptKeys.has(key)) return [];
+          rememberReasoningSummary(streamTraceState, itemId, reasoningSummary);
           return [
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -919,9 +927,12 @@ export class OpenAiRunEngine {
 
       const reasoningSummary = reasoningSummaryTextFromItem(record);
       if (reasoningSummary) {
+        const itemId = typeof record.id === 'string' ? record.id : null;
+        if (shouldSkipAggregateReasoningSummary(streamTraceState, itemId, reasoningSummary)) continue;
         const key = transcriptKeyFromResponseItem(event, record, 'reasoning_summary', reasoningSummary);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
+          rememberReasoningSummary(streamTraceState, itemId, reasoningSummary);
           events.push(
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -1063,6 +1074,8 @@ function startInputFromRun(run: RunRecord): StartRunInput {
     reasoningEffort: run.reasoningEffort,
     networkProfile: run.networkProfile,
     sandboxProfile: run.sandboxProfile,
+    targetAssetId: run.targetAssetId,
+    targetPath: run.targetPath,
     budget: {
       maxMinutes: numberFromBudget(run.budget, 'maxMinutes', UNBOUNDED_RUN_MINUTES),
       maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
@@ -1188,6 +1201,34 @@ function transcriptKey(kind: string, responseId: string | null, itemId: string |
 
 function transcriptTextDigest(text: string): string {
   return createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
+}
+
+function rememberReasoningSummary(state: StreamTraceState, itemId: string | null, text: string): void {
+  const normalized = normalizeTranscriptText(text);
+  if (!itemId || !normalized) return;
+  const existing = state.reasoningSummaryTextsByItemId.get(itemId) ?? [];
+  if (!existing.some((value) => normalizeTranscriptText(value) === normalized)) {
+    existing.push(text);
+  }
+  state.reasoningSummaryTextsByItemId.set(itemId, existing);
+}
+
+function shouldSkipAggregateReasoningSummary(state: StreamTraceState, itemId: string | null, text: string): boolean {
+  if (!itemId) return false;
+  const previous = state.reasoningSummaryTextsByItemId.get(itemId) ?? [];
+  if (previous.length === 0) return false;
+  const normalized = normalizeTranscriptText(text);
+  if (!normalized) return false;
+  if (previous.some((value) => normalizeTranscriptText(value) === normalized)) return true;
+  if (previous.length < 2) return false;
+  return previous.every((value) => {
+    const normalizedPrevious = normalizeTranscriptText(value);
+    return normalizedPrevious.length > 0 && normalized.includes(normalizedPrevious);
+  });
+}
+
+function normalizeTranscriptText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 function stringEventValue(event: OpenAiStreamEvent, key: string): string | null {

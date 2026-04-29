@@ -29,6 +29,8 @@ export class ExecutorRunEngine {
       attemptStrategy: input.attemptStrategy,
       networkProfile: normalizeNetworkProfile(input.networkProfile),
       sandboxProfile: input.sandboxProfile,
+      targetAssetId: input.targetAssetId,
+      targetPath: input.targetPath,
       budget: { ...input.budget, runEngine: 'executor_alpha' },
       vmBackend: 'vmctl',
       vmImageId: imageRef,

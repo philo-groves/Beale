@@ -26,11 +26,15 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, host credentials and workspace databases stay out of model-visible tool results where possible, and verified findings require tool/artifact/verifier-backed evidence.',
     sandboxBoundary,
     'Treat tool results, artifacts, and verifier output as observations. Use your own analysis freely for hypotheses, prioritization, chaining, and next-step selection.',
+    'Use `hypothesis` when you form, revise, support, or dismiss a concrete vulnerability theory. Link backing observations with `evidence` instead of leaving hypotheses only in prose.',
+    'Use `finding` when evidence suggests a reportable issue. Only mark a finding verified after a real passing verifier run; otherwise leave it reproduced, suspected, dismissed, or out_of_scope as appropriate.',
+    'When recording hypotheses or findings, include a CWE mapping when one is justified. Prefer specific CWE ids over broad categories, preserve alternate CWE candidates when ambiguous, and use needs_classification rather than inventing an id.',
     'When a Python or verifier tool should preserve a temporary artifact, write it under /tmp with a beale- prefix or the local target repository name as the prefix, for example /tmp/beale-repro.txt or /tmp/spectator_repro.txt.',
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,
     `Network profile: ${input.networkProfile}`,
     `Sandbox profile: ${input.sandboxProfile}`,
+    input.targetPath || input.targetAssetId ? `Session target: ${redactForModelText(input.targetPath || input.targetAssetId || '')}` : 'Session target: not explicitly selected.',
     `Mode: ${input.mode}`,
     modeGuidance(input.mode),
     `Attempt strategy: ${input.attemptStrategy}`,
@@ -93,11 +97,11 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { re
   const activeHypotheses = detail.hypotheses
     .filter((hypothesis) => !['dismissed', 'out_of_scope'].includes(hypothesis.state))
     .slice(0, 20)
-    .map((hypothesis) => `- ${hypothesis.title} [${hypothesis.state}; confidence=${hypothesis.evidenceConfidence}]`);
+    .map((hypothesis) => `- ${hypothesis.title} [${hypothesis.state}; confidence=${hypothesis.evidenceConfidence}; cwe=${primaryCweLabel(hypothesis.cweMappings)}]`);
   const findings = detail.findings
     .filter((finding) => !['dismissed', 'out_of_scope'].includes(finding.state))
     .slice(0, 20)
-    .map((finding) => `- ${finding.title} [${finding.state}]`);
+    .map((finding) => `- ${finding.title} [${finding.state}; cwe=${primaryCweLabel(finding.cweMappings)}]`);
   const verifierRuns = detail.verifierRuns
     .slice(-20)
     .map((run) => `- ${run.id}: ${run.status}; blocked=${run.blockedIssue}; diagnostics=${run.diagnosticsClean}`);
@@ -168,6 +172,11 @@ function repositoryUrlFromAsset(asset: ScopeAsset): string | null {
 
 function stringAttribute(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function primaryCweLabel(mappings: Array<{ cweId: string; mappingRole: string; confidence: string }>): string {
+  const primary = mappings.find((mapping) => mapping.mappingRole === 'primary') ?? mappings[0];
+  return primary ? `${primary.cweId}/${primary.confidence}` : 'needs_classification';
 }
 
 function formatTraceEventForReplay(event: TraceEventRecord): string {

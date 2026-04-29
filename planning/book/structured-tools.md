@@ -11,6 +11,9 @@ Beale's first model-facing structured research tool set should be minimal:
 - `python`
 - `debugger`
 - `artifact`
+- `evidence`
+- `hypothesis`
+- `finding`
 - `verifier`
 
 Beale also exposes one setup tool:
@@ -37,6 +40,9 @@ The operating rule:
 - `python` creates and mutates inputs.
 - `debugger` observes runtime truth.
 - `artifact` preserves evidence.
+- `evidence` links observations into reusable evidence records.
+- `hypothesis` records candidate vulnerability theories.
+- `finding` records promoted vulnerability findings.
 - `verifier` decides whether evidence is strong enough.
 
 ## Tool: `source`
@@ -158,6 +164,53 @@ Artifact types:
 Artifacts are collected from the active sandbox through Beale-controlled channels, stored in the workspace artifact store, and referenced by content hash and metadata in SQLite.
 
 The model should not treat stdout as durable evidence when an artifact is more appropriate.
+
+## Tool: `evidence`
+
+Purpose:
+
+- Link artifacts, trace observations, and verifier runs to hypotheses or findings.
+
+Capabilities:
+
+- Create reusable evidence records from artifact ids.
+- Create evidence records from non-model trace events.
+- Create evidence records from verifier runs.
+- Attach evidence to a hypothesis, finding, or both.
+
+Evidence records must not be backed only by model prose. A model message can explain why evidence matters, but the evidence record itself should point to a tool, artifact, or verifier observation.
+
+## Tool: `hypothesis`
+
+Purpose:
+
+- Create or update candidate vulnerability theories during model-led research.
+
+Capabilities:
+
+- Store title, description, affected component, bug class, state, CWE mappings, and scoring factors.
+- Keep hypotheses visible to compaction, UI triage, and later verifier work.
+- Preserve the distinction between a model-proposed theory and an observed target behavior.
+
+Hypotheses are not findings. User-provided claims and model reasoning can seed hypotheses, but Beale should not treat them as observations until tool, artifact, or verifier evidence exists.
+
+The model should include a primary CWE when the weakness class is clear, alternate CWE candidates when ambiguity is useful, and `needs_classification` when uncertain. CWE guides triage but does not make a hypothesis evidence-backed.
+
+## Tool: `finding`
+
+Purpose:
+
+- Create or update vulnerability findings after a hypothesis has enough evidence to be worth triage.
+
+Capabilities:
+
+- Store summary, affected assets, affected versions, impact, state, CWE mappings, and priority.
+- Link findings to hypotheses and evidence.
+- Promote a finding to `verified` only when a passing real verifier run is supplied.
+
+Finding records may be model-proposed, reproduced, disclosure-ready, or verified. The verified state remains gated by the verifier service.
+
+Findings approaching disclosure should have a primary CWE mapping unless classification is explicitly unresolved. The mapping should be specific, evidence-consistent, and included in exports as classification rather than proof.
 
 ## Tool: `verifier`
 

@@ -9,7 +9,8 @@ import { runVerifierContract } from './verifierRunner';
 import { materializeGitRepository, normalizeGitHubRepositoryUrl, selectSourceRepository, sourceRepositoryCandidates, type SourceRepositoryCandidate } from './sourceMaterializer';
 import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
-import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource } from '@shared/types';
+import { cweEntryForId, inferCweMapping, normalizeCweConfidence, normalizeCweId } from './cweCatalog';
+import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource, WeaknessMappingInput, WeaknessMappingRecord } from '@shared/types';
 
 export interface OpenAiToolDefinition {
   type: 'function';
@@ -86,7 +87,7 @@ interface DebuggerSummary {
   targetMissing: boolean;
 }
 
-const TOOL_NAMES = ['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'verifier'] as const;
+const TOOL_NAMES = ['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
 const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
@@ -126,6 +127,51 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       name: stringProp('Artifact name'),
       content: stringProp('Artifact content or bounded summary'),
       kind: stringProp('Artifact kind')
+    }),
+    tool('evidence', 'Create an evidence record that links a tool observation, artifact, or verifier run to a hypothesis or finding.', {
+      kind: stringProp('Evidence kind, such as artifact, trace, verifier, reproduction, static_analysis, or dynamic_observation'),
+      summary: stringProp('Short evidence summary. Must describe the actual artifact, trace, or verifier observation.'),
+      hypothesis_id: stringProp('Hypothesis id to link; use an empty string when not linked'),
+      finding_id: stringProp('Finding id to link; use an empty string when not linked'),
+      artifact_id: stringProp('Artifact id backing this evidence; use an empty string when not applicable'),
+      trace_event_id: stringProp('Non-model trace event id backing this evidence; use an empty string when not applicable'),
+      verifier_run_id: stringProp('Verifier run id backing this evidence; use an empty string when not applicable')
+    }),
+    tool('hypothesis', 'Create or update a vulnerability hypothesis in Beale state. This records model-proposed research state, not verified target truth.', {
+      hypothesis_id: stringProp('Existing hypothesis id to update; use an empty string to create a new hypothesis'),
+      state: stringProp('State, such as needs_evidence, reproduced, dismissed, out_of_scope, duplicate, or open'),
+      title: stringProp('Short hypothesis title'),
+      description: stringProp('Hypothesis details and rationale'),
+      component: stringProp('Affected component or surface'),
+      bug_class: stringProp('Bug class, such as authz, injection, secret_leak, memory_corruption, or resource_exhaustion'),
+      primary_cwe_id: stringProp('Primary CWE id, such as CWE-862. Use an empty string or needs_classification when uncertain. Do not invent CWE ids.'),
+      primary_cwe_name: stringProp('Primary CWE name when known; use an empty string to let Beale fill from its local catalog.'),
+      alternate_cwe_ids_json: stringProp('JSON array of alternate CWE ids or objects with cwe_id/cwe_name; use [] when none.'),
+      cwe_mapping_confidence: stringProp('CWE mapping confidence: low, medium, or high. Use low when uncertain.'),
+      cwe_mapping_rationale: stringProp('Short rationale for the CWE mapping; use an empty string when no mapping is proposed.'),
+      attacker_reachability: stringProp('Reachability label, preferably prefixed with 0-4'),
+      impact: stringProp('Impact label, preferably prefixed with 0-4'),
+      evidence_confidence: stringProp('Evidence confidence label, preferably prefixed with 0-4'),
+      exploit_practicality: stringProp('Exploit practicality label, preferably prefixed with 0-4'),
+      scope_confidence: stringProp('Scope confidence label, preferably prefixed with 0-4'),
+      priority_score: numberProp('Priority score. Use 0 when unknown.')
+    }),
+    tool('finding', 'Create or update a finding record. Verified findings require a passing real verifier run id.', {
+      finding_id: stringProp('Existing finding id to update; use an empty string to create a new finding'),
+      hypothesis_id: stringProp('Linked hypothesis id; use an empty string when not linked'),
+      state: stringProp('State, such as needs_evidence, reproduced, verified, disclosure_ready, false_positive, out_of_scope, dismissed, or duplicate'),
+      title: stringProp('Short finding title'),
+      summary: stringProp('Finding summary'),
+      primary_cwe_id: stringProp('Primary CWE id, such as CWE-862. Use an empty string or needs_classification when uncertain. Do not invent CWE ids.'),
+      primary_cwe_name: stringProp('Primary CWE name when known; use an empty string to let Beale fill from its local catalog.'),
+      alternate_cwe_ids_json: stringProp('JSON array of alternate CWE ids or objects with cwe_id/cwe_name; use [] when none.'),
+      cwe_mapping_confidence: stringProp('CWE mapping confidence: low, medium, or high. Findings approaching disclosure should use medium or high only when justified.'),
+      cwe_mapping_rationale: stringProp('Short rationale for the CWE mapping; use an empty string when no mapping is proposed.'),
+      affected_assets_json: stringProp('JSON object describing affected assets or components; use {} when unknown'),
+      affected_versions_json: stringProp('JSON object describing affected versions or commits; use {} when unknown'),
+      impact: stringProp('Impact explanation'),
+      priority_score: numberProp('Priority score. Use 0 when unknown.'),
+      verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified; otherwise use an empty string')
     }),
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
       hypothesis: stringProp('Hypothesis or finding identifier'),
@@ -244,6 +290,9 @@ export class BealeToolRouter {
     if (result.artifactId) {
       this.db.setArtifactProvenance(result.artifactId, event.id);
     }
+    if (event.type === 'hypothesis_event' && typeof result.payload.hypothesisId === 'string') {
+      this.db.setHypothesisTrace(result.payload.hypothesisId, event.id);
+    }
     return { ...result, traceEventId: event.id };
   }
 
@@ -261,6 +310,12 @@ export class BealeToolRouter {
         return this.runDebuggerWrapper(context, call, args);
       case 'artifact':
         return this.preserveArtifact(args);
+      case 'evidence':
+        return this.recordEvidence(context, args);
+      case 'hypothesis':
+        return this.recordHypothesis(context, args);
+      case 'finding':
+        return this.recordFinding(context, args);
       case 'verifier':
         return this.recordVerifier(context, args);
     }
@@ -467,7 +522,7 @@ export class BealeToolRouter {
       env: {
         BEALE_TARGET_PATH: '/workspace/target'
       },
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
       networkProfile,
       expectedOutput: artifactPath ? 'artifact' : 'summary'
     }, artifactPath || null);
@@ -633,6 +688,225 @@ export class BealeToolRouter {
         relativePath: artifact.relativePath,
         name,
         kind
+      }
+    };
+  }
+
+  private recordEvidence(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+    const detail = this.db.getRunDetail(context.run.id);
+    const hypothesisId = nonEmptyStringValue(args.hypothesis_id);
+    const findingId = nonEmptyStringValue(args.finding_id);
+    const artifactId = nonEmptyStringValue(args.artifact_id);
+    const traceEventId = nonEmptyStringValue(args.trace_event_id);
+    const verifierRunId = nonEmptyStringValue(args.verifier_run_id);
+    const summary = stringValue(args.summary, '').trim() || 'Evidence recorded by model.';
+    const kind = stringValue(args.kind, 'evidence').trim() || 'evidence';
+
+    if (hypothesisId && !detail.hypotheses.some((hypothesis) => hypothesis.id === hypothesisId)) {
+      return { status: 'error', summary: 'Evidence references an unknown hypothesis.', payload: { observationBacked: false, error: 'unknown_hypothesis', hypothesisId } };
+    }
+    if (findingId && !detail.findings.some((finding) => finding.id === findingId)) {
+      return { status: 'error', summary: 'Evidence references an unknown finding.', payload: { observationBacked: false, error: 'unknown_finding', findingId } };
+    }
+    if (artifactId && !detail.artifacts.some((artifact) => artifact.id === artifactId)) {
+      return { status: 'error', summary: 'Evidence references an unknown artifact.', payload: { observationBacked: false, error: 'unknown_artifact', artifactId } };
+    }
+    const traceEvent = traceEventId ? detail.traceEvents.find((event) => event.id === traceEventId) ?? null : null;
+    if (traceEventId && !traceEvent) {
+      return { status: 'error', summary: 'Evidence references an unknown trace event.', payload: { observationBacked: false, error: 'unknown_trace_event', traceEventId } };
+    }
+    if (traceEvent && traceEvent.source === 'model' && !traceEvent.artifactId) {
+      return { status: 'error', summary: 'Evidence cannot be backed only by a model message.', payload: { observationBacked: false, error: 'model_trace_not_evidence', traceEventId } };
+    }
+    if (verifierRunId && !detail.verifierRuns.some((run) => run.id === verifierRunId)) {
+      return { status: 'error', summary: 'Evidence references an unknown verifier run.', payload: { observationBacked: false, error: 'unknown_verifier_run', verifierRunId } };
+    }
+    if (!artifactId && !traceEventId && !verifierRunId) {
+      return { status: 'error', summary: 'Evidence requires an artifact, trace event, or verifier run reference.', payload: { observationBacked: false, error: 'missing_evidence_reference' } };
+    }
+
+    const evidence = this.db.createEvidence({
+      runId: context.run.id,
+      hypothesisId,
+      findingId,
+      kind,
+      summary,
+      artifactId,
+      observationTraceEventId: traceEventId,
+      verifierRunId
+    });
+
+    return {
+      status: 'success',
+      summary: `Evidence recorded: ${summaryForTitle(summary)}.`,
+      eventType: 'artifact_created',
+      source: 'tool',
+      payload: {
+        observationBacked: true,
+        evidenceId: evidence.id,
+        kind: evidence.kind,
+        summary: evidence.summary,
+        hypothesisId,
+        findingId,
+        artifactId,
+        traceEventId,
+        verifierRunId
+      }
+    };
+  }
+
+  private recordHypothesis(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+    const detail = this.db.getRunDetail(context.run.id);
+    const hypothesisId = nonEmptyStringValue(args.hypothesis_id);
+    const existing = hypothesisId ? detail.hypotheses.find((hypothesis) => hypothesis.id === hypothesisId) ?? null : null;
+    if (hypothesisId && !existing) {
+      return { status: 'error', summary: 'Hypothesis update references an unknown hypothesis.', payload: { observationBacked: false, error: 'unknown_hypothesis', hypothesisId } };
+    }
+
+    const state = stringValue(args.state, existing?.state ?? 'needs_evidence').trim() || existing?.state || 'needs_evidence';
+    const title = stringValue(args.title, existing?.title ?? '').trim() || existing?.title || 'Untitled hypothesis';
+    const descriptionMarkdown = stringValue(args.description, existing?.descriptionMarkdown ?? '').trim() || existing?.descriptionMarkdown || 'No description provided.';
+    const component = stringValue(args.component, existing?.component ?? '').trim() || existing?.component || 'Unknown component';
+    const bugClass = stringValue(args.bug_class, existing?.bugClass ?? '').trim() || existing?.bugClass || 'unclassified';
+    const priorityScore = numberValue(args.priority_score, existing?.priorityScore ?? 0);
+    const attackerReachability = stringValue(args.attacker_reachability, existing?.attackerReachability ?? '').trim() || existing?.attackerReachability || '1 unspecified reachability';
+    const impact = stringValue(args.impact, existing?.impact ?? '').trim() || existing?.impact || '1 unspecified impact';
+    const evidenceConfidence = stringValue(args.evidence_confidence, existing?.evidenceConfidence ?? '').trim() || existing?.evidenceConfidence || '0 hypothesis only';
+    const exploitPracticality = stringValue(args.exploit_practicality, existing?.exploitPracticality ?? '').trim() || existing?.exploitPracticality || '1 unspecified practicality';
+    const scopeConfidence = stringValue(args.scope_confidence, existing?.scopeConfidence ?? '').trim() || existing?.scopeConfidence || '1 likely in scope';
+    const cweMappings = cweMappingsForToolArgs(args, existing?.cweMappings, {
+      bugClass,
+      title,
+      descriptionMarkdown,
+      impactMarkdown: impact
+    });
+
+    const hypothesis = existing
+      ? this.db.updateHypothesis(existing.id, {
+          state,
+          title,
+          descriptionMarkdown,
+          component,
+          bugClass,
+          priorityScore,
+          attackerReachability,
+          impact,
+          evidenceConfidence,
+          exploitPracticality,
+          scopeConfidence,
+          ...(cweMappings ? { cweMappings } : {})
+        })
+      : this.db.createHypothesis({
+          runId: context.run.id,
+          state,
+          title,
+          descriptionMarkdown,
+          component,
+          bugClass,
+          priorityScore,
+          attackerReachability,
+          impact,
+          evidenceConfidence,
+          exploitPracticality,
+          scopeConfidence,
+          ...(cweMappings ? { cweMappings } : {})
+        });
+
+    return {
+      status: 'success',
+      summary: `${existing ? 'Hypothesis updated' : 'Hypothesis created'}: ${hypothesis.title}.`,
+      eventType: 'hypothesis_event',
+      source: 'model',
+      payload: {
+        observationBacked: false,
+        claimStatus: 'model_proposed_hypothesis',
+        action: existing ? 'update' : 'create',
+        hypothesisId: hypothesis.id,
+        title: hypothesis.title,
+        state: hypothesis.state,
+        component: hypothesis.component,
+        bugClass: hypothesis.bugClass,
+        cweMappings: cwePayload(hypothesis.cweMappings),
+        priorityScore: hypothesis.priorityScore
+      }
+    };
+  }
+
+  private recordFinding(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+    const detail = this.db.getRunDetail(context.run.id);
+    const findingId = nonEmptyStringValue(args.finding_id);
+    const hypothesisId = nonEmptyStringValue(args.hypothesis_id);
+    const verifierRunId = nonEmptyStringValue(args.verified_by_verifier_run_id);
+    const existing = findingId ? detail.findings.find((finding) => finding.id === findingId) ?? null : null;
+    if (findingId && !existing) {
+      return { status: 'error', summary: 'Finding update references an unknown finding.', payload: { observationBacked: false, error: 'unknown_finding', findingId } };
+    }
+    if (hypothesisId && !detail.hypotheses.some((hypothesis) => hypothesis.id === hypothesisId)) {
+      return { status: 'error', summary: 'Finding references an unknown hypothesis.', payload: { observationBacked: false, error: 'unknown_hypothesis', hypothesisId } };
+    }
+
+    const state = stringValue(args.state, existing?.state ?? 'needs_evidence').trim() || existing?.state || 'needs_evidence';
+    if (state === 'verified' && !verifierRunId && !existing?.verifiedByVerifierRunId) {
+      return { status: 'error', summary: 'Verified findings require a passing real verifier run id.', payload: { observationBacked: false, error: 'missing_verified_by_verifier_run_id' } };
+    }
+
+    const title = stringValue(args.title, existing?.title ?? '').trim() || existing?.title || 'Untitled finding';
+    const summaryMarkdown = stringValue(args.summary, existing?.summaryMarkdown ?? '').trim() || existing?.summaryMarkdown || 'No summary provided.';
+    const affectedAssets = jsonRecordFromString(args.affected_assets_json, existing?.affectedAssets ?? {});
+    const affectedVersions = jsonRecordFromString(args.affected_versions_json, existing?.affectedVersions ?? {});
+    const impactMarkdown = stringValue(args.impact, existing?.impactMarkdown ?? '').trim() || existing?.impactMarkdown || 'Impact not yet assessed.';
+    const priorityScore = numberValue(args.priority_score, existing?.priorityScore ?? 0);
+    const linkedHypothesis = hypothesisId ? detail.hypotheses.find((hypothesis) => hypothesis.id === hypothesisId) ?? null : null;
+    const cweMappings = cweMappingsForToolArgs(args, existing?.cweMappings, {
+      bugClass: linkedHypothesis?.bugClass ?? '',
+      title,
+      descriptionMarkdown: summaryMarkdown,
+      impactMarkdown
+    });
+
+    const finding = existing
+      ? this.db.updateFinding(existing.id, {
+          hypothesisId: hypothesisId || existing.hypothesisId,
+          state,
+          title,
+          summaryMarkdown,
+          affectedAssets,
+          affectedVersions,
+          impactMarkdown,
+          priorityScore,
+          verifiedByVerifierRunId: verifierRunId || existing.verifiedByVerifierRunId,
+          ...(cweMappings ? { cweMappings } : {})
+        })
+      : this.db.createFinding({
+          runId: context.run.id,
+          hypothesisId,
+          state,
+          title,
+          summaryMarkdown,
+          affectedAssets,
+          affectedVersions,
+          impactMarkdown,
+          priorityScore,
+          verifiedByVerifierRunId: verifierRunId,
+          ...(cweMappings ? { cweMappings } : {})
+        });
+
+    return {
+      status: 'success',
+      summary: `${existing ? 'Finding updated' : 'Finding created'}: ${finding.title}.`,
+      eventType: 'finding_event',
+      source: 'model',
+      payload: {
+        observationBacked: state === 'verified' || state === 'reproduced',
+        claimStatus: state === 'verified' ? 'verifier_backed_finding' : 'model_proposed_finding',
+        action: existing ? 'update' : 'create',
+        findingId: finding.id,
+        hypothesisId: finding.hypothesisId,
+        title: finding.title,
+        state: finding.state,
+        priorityScore: finding.priorityScore,
+        cweMappings: cwePayload(finding.cweMappings),
+        verifiedByVerifierRunId: finding.verifiedByVerifierRunId
       }
     };
   }
@@ -1027,6 +1301,12 @@ export class BealeToolRouter {
         return { execution: 'active_session_sandbox', defaultExecution: 'host_research_only', vmOption: 'local_disposable_vm', hostDatabaseMounted: false, openAiCredentialsMounted: false };
       case 'artifact':
         return { execution: 'host_artifact_store', contentAddressed: true, modelGeneratedContentIsNotObservation: true };
+      case 'evidence':
+        return { execution: 'host_evidence_record', requiresArtifactTraceOrVerifierReference: true };
+      case 'hypothesis':
+        return { execution: 'host_hypothesis_record', modelProposed: true, targetObservation: false };
+      case 'finding':
+        return { execution: 'host_finding_record', verifiedStateRequiresRealVerifierPass: true };
       case 'verifier':
         return { execution: 'host_verifier_records', promotionRequiresTraceOrArtifactEvidence: true };
     }
@@ -1135,6 +1415,10 @@ function stringProp(description: string): Record<string, unknown> {
   return { type: 'string', description };
 }
 
+function numberProp(description: string): Record<string, unknown> {
+  return { type: 'number', description };
+}
+
 function parseArguments(argumentsJson: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(argumentsJson || '{}');
@@ -1156,6 +1440,111 @@ function extractDestination(toolName: ToolName, args: Record<string, unknown>): 
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function nonEmptyStringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function jsonRecordFromString(value: unknown, fallback: Record<string, unknown>): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function cweMappingsForToolArgs(
+  args: Record<string, unknown>,
+  existing: WeaknessMappingRecord[] | undefined,
+  context: { bugClass: string; title: string; descriptionMarkdown: string; impactMarkdown: string }
+): WeaknessMappingInput[] | undefined {
+  const explicitMappings = explicitCweMappingsFromArgs(args);
+  if (explicitMappings.length > 0) return explicitMappings;
+  if (existing && existing.length > 0) return undefined;
+  const inferred = inferCweMapping(context);
+  return inferred ? [inferred] : undefined;
+}
+
+function explicitCweMappingsFromArgs(args: Record<string, unknown>): WeaknessMappingInput[] {
+  const primaryCweId = normalizeCweId(args.primary_cwe_id);
+  const confidence = normalizeCweConfidence(args.cwe_mapping_confidence, 'low');
+  const rationale = stringValue(args.cwe_mapping_rationale, '').trim();
+  const mappings: WeaknessMappingInput[] = [];
+
+  if (primaryCweId) {
+    const entry = cweEntryForId(primaryCweId);
+    mappings.push({
+      cweId: primaryCweId,
+      cweName: stringValue(args.primary_cwe_name, '').trim() || entry?.name,
+      mappingRole: 'primary',
+      mappingStatus: entry?.mappingStatus ?? 'unknown',
+      confidence,
+      rationaleMarkdown: rationale || 'Mapped by the model from the observed weakness pattern.',
+      source: 'model'
+    });
+  }
+
+  for (const alternate of alternateCweInputs(args.alternate_cwe_ids_json)) {
+    const cweId = normalizeCweId(alternate.cweId);
+    if (!cweId || cweId === primaryCweId) continue;
+    const entry = cweEntryForId(cweId);
+    mappings.push({
+      cweId,
+      cweName: alternate.cweName || entry?.name,
+      mappingRole: 'alternate',
+      mappingStatus: entry?.mappingStatus ?? 'unknown',
+      confidence,
+      rationaleMarkdown: rationale || 'Alternate CWE candidate preserved for review.',
+      source: 'model'
+    });
+  }
+
+  return mappings;
+}
+
+function alternateCweInputs(value: unknown): Array<{ cweId: string; cweName?: string }> {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (typeof item === 'string' || typeof item === 'number') return { cweId: String(item) };
+        if (item && typeof item === 'object') {
+          const record = item as Record<string, unknown>;
+          const cweId = stringValue(record.cwe_id ?? record.cweId ?? record.id, '').trim();
+          const cweName = stringValue(record.cwe_name ?? record.cweName ?? record.name, '').trim();
+          return cweId ? { cweId, ...(cweName ? { cweName } : {}) } : null;
+        }
+        return null;
+      })
+      .filter((item): item is { cweId: string; cweName?: string } => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function cwePayload(mappings: WeaknessMappingRecord[]): Array<Record<string, string>> {
+  return mappings.map((mapping) => ({
+    cweId: mapping.cweId,
+    cweName: mapping.cweName,
+    mappingRole: mapping.mappingRole,
+    mappingStatus: mapping.mappingStatus,
+    confidence: mapping.confidence,
+    rationale: mapping.rationaleMarkdown
+  }));
+}
+
+function summaryForTitle(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact.length > 96 ? `${compact.slice(0, 93)}...` : compact;
 }
 
 function stringAttribute(value: unknown): string {
