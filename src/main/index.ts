@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
@@ -20,6 +21,10 @@ const smokeTestMode = process.argv.includes('--smoke-test');
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
+  const appIcon = createAppIcon();
+  if (appIcon && isMac && app.dock) {
+    app.dock.setIcon(appIcon);
+  }
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -31,6 +36,7 @@ function createWindow(): void {
     transparent: true,
     hasShadow: true,
     roundedCorners: true,
+    ...(appIcon ? { icon: appIcon } : {}),
     ...(isMac
       ? {
           titleBarStyle: 'hiddenInset' as const,
@@ -55,6 +61,35 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+}
+
+function createAppIcon(): Electron.NativeImage | null {
+  const sourcePath = appIconSourcePath();
+  if (!sourcePath) return null;
+  const source = nativeImage.createFromPath(sourcePath);
+  if (source.isEmpty()) return null;
+
+  const size = source.getSize();
+  const cropSize = Math.min(size.width, size.height);
+  if (cropSize <= 0) return null;
+  const cropped = source.crop({
+    x: Math.max(0, Math.floor((size.width - cropSize) / 2)),
+    y: Math.max(0, Math.floor((size.height - cropSize) / 2)),
+    width: cropSize,
+    height: cropSize
+  });
+  return cropped.resize({ width: 256, height: 256, quality: 'best' });
+}
+
+function appIconSourcePath(): string | null {
+  const candidates = [
+    join(app.getAppPath(), 'resources/app-icon.png'),
+    join(process.cwd(), 'resources/app-icon.png'),
+    join(__dirname, '../../resources/app-icon.png'),
+    join(process.resourcesPath, 'app-icon.png'),
+    join(process.resourcesPath, 'resources/app-icon.png')
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
 function windowForEvent(event: IpcMainInvokeEvent): BrowserWindow | null {

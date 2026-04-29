@@ -92,6 +92,17 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import { displaySessionTitle } from '../shared/sessionTitle';
+import {
+  isToolCallNamed,
+  stringRecordValue,
+  toolNameFromSummary,
+  traceCategoryForEvent,
+  traceEventOutcome,
+  tracePayloadArray,
+  tracePayloadPrimitive,
+  tracePayloadRecord
+} from './traceClassification';
+import type { TraceCategoryId } from './traceClassification';
 
 interface ScopeFormState {
   programName: string;
@@ -122,19 +133,6 @@ interface ProgramOnboardingFormState {
 
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 type SettingsSection = 'general' | 'providers';
-type TraceCategoryId =
-  | 'agent_output'
-  | 'reasoning'
-  | 'tools'
-  | 'vm_execution'
-  | 'hypotheses'
-  | 'evidence'
-  | 'verifier'
-  | 'policy_scope'
-  | 'code_navigation'
-  | 'failure_recovery'
-  | 'events';
-
 interface TraceCategoryOption {
   id: TraceCategoryId;
   label: string;
@@ -175,15 +173,6 @@ interface ResearchMomentum {
   reason: string;
   since: string | null;
   supportingTraceEventIds: string[];
-}
-
-interface ResearchMomentumWaveform {
-  path: string;
-  animateValues: string | null;
-  duration: string;
-  calcMode: 'linear' | 'spline';
-  keyTimes: string;
-  keySplines?: string;
 }
 
 interface PythonToolCallPreview {
@@ -1244,28 +1233,194 @@ function StatusBar({
 function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX.Element {
   const label = researchMomentumLabel(momentum.state);
   const title = `Research momentum: ${label}. ${momentum.reason}`;
-  const waveform = researchMomentumWaveform(momentum.state);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reduceMotion = usePrefersReducedMotion();
+  const momentumValue = researchMomentumValue(momentum.state);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return undefined;
+
+    let frameId = 0;
+    let lastTimestamp: number | null = null;
+    let elapsed = 0;
+    let width = 0;
+    let height = 0;
+    const dpr = window.devicePixelRatio || 1;
+
+    const resize = (): void => {
+      const rect = canvas.getBoundingClientRect();
+      width = Math.max(1, rect.width);
+      height = Math.max(1, Math.min(36, rect.height || 30));
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (reduceMotion) {
+        drawMomentumWorm(context, width, height, momentumValue / 100, elapsed);
+      }
+    };
+
+    const draw = (timestamp: number): void => {
+      if (lastTimestamp === null) {
+        lastTimestamp = timestamp;
+      }
+      const deltaSeconds = Math.min((timestamp - lastTimestamp) / 1000, 0.05);
+      lastTimestamp = timestamp;
+
+      if (!reduceMotion) {
+        elapsed += deltaSeconds;
+      }
+      drawMomentumWorm(context, width, height, momentumValue / 100, elapsed);
+
+      if (!reduceMotion) {
+        frameId = window.requestAnimationFrame(draw);
+      }
+    };
+
+    resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
+    frameId = window.requestAnimationFrame(draw);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [momentumValue, reduceMotion]);
 
   return (
     <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
-      <svg aria-hidden="true" focusable="false" preserveAspectRatio="none" viewBox="0 0 420 24">
-        <path d={waveform.path}>
-          {!reduceMotion && waveform.animateValues ? (
-            <animate
-              attributeName="d"
-              calcMode={waveform.calcMode}
-              dur={waveform.duration}
-              keySplines={waveform.keySplines}
-              keyTimes={waveform.keyTimes}
-              repeatCount="indefinite"
-              values={waveform.animateValues}
-            />
-          ) : null}
-        </path>
-      </svg>
+      <canvas className="momentum-worm-canvas" ref={canvasRef} aria-hidden="true" />
     </div>
   );
+}
+
+function drawMomentumWorm(context: CanvasRenderingContext2D, width: number, height: number, momentum: number, elapsed: number): void {
+  if (width <= 0 || height <= 0) return;
+  const pointCount = 200;
+  const clampedMomentum = Math.max(0, Math.min(1, momentum));
+  const maxAmplitude = height / 2 - 5;
+  const amplitude = clampedMomentum === 0 ? 0 : 1 + clampedMomentum * maxAmplitude;
+  const speed = 0.8 + clampedMomentum * 5;
+  const centerY = height / 2;
+  const phase = elapsed * speed;
+  const startX = 22;
+  const endX = Math.max(startX + 24, width - 32);
+  const points: Array<[number, number]> = [];
+
+  context.clearRect(0, 0, width, height);
+
+  for (let index = 0; index <= pointCount; index += 1) {
+    const fraction = index / pointCount;
+    const x = startX + (endX - startX) * fraction;
+    const taper = 0.1 + 0.9 * fraction;
+    const wave =
+      Math.sin(fraction * Math.PI * 5 - phase) * amplitude * taper +
+      Math.sin(fraction * Math.PI * 2.1 - phase * 0.65) * amplitude * 0.2 * taper;
+    points.push([x, Math.max(3, Math.min(height - 3, centerY + wave))]);
+  }
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  drawMomentumWormPath(context, points);
+  context.strokeStyle = clampedMomentum === 0 ? 'rgba(68, 68, 65, 0.34)' : 'rgba(68, 68, 65, 0.6)';
+  context.lineWidth = 7;
+  context.stroke();
+
+  drawMomentumWormPath(context, points);
+  context.strokeStyle = clampedMomentum === 0 ? 'rgba(180, 178, 169, 0.42)' : '#b4b2a9';
+  context.lineWidth = clampedMomentum > 0.85 ? 4.8 : 4;
+  context.stroke();
+
+  drawMomentumWormPath(context, points);
+  context.strokeStyle = 'rgba(209, 207, 199, 0.15)';
+  context.lineWidth = 1.5;
+  context.stroke();
+  context.restore();
+
+  drawMomentumWormTicks(context, points);
+  drawMomentumWormHead(context, points, pointCount, phase, clampedMomentum);
+}
+
+function drawMomentumWormPath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
+  context.beginPath();
+  context.moveTo(points[0][0], points[0][1]);
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const midpointX = (points[index][0] + points[index + 1][0]) / 2;
+    const midpointY = (points[index][1] + points[index + 1][1]) / 2;
+    context.quadraticCurveTo(points[index][0], points[index][1], midpointX, midpointY);
+  }
+  const last = points[points.length - 1];
+  context.lineTo(last[0], last[1]);
+}
+
+function drawMomentumWormTicks(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
+  const step = 10;
+  for (let index = step; index < points.length - step; index += step) {
+    const [x, y] = points[index];
+    context.beginPath();
+    context.moveTo(x, y - 2.5);
+    context.lineTo(x, y + 2.5);
+    context.strokeStyle = 'rgba(60, 60, 58, 0.9)';
+    context.lineWidth = 0.8;
+    context.stroke();
+  }
+}
+
+function drawMomentumWormHead(context: CanvasRenderingContext2D, points: Array<[number, number]>, pointCount: number, phase: number, momentum: number): void {
+  const [headX, headY] = points[pointCount];
+  const previous = points[Math.max(0, pointCount - 4)];
+  const angle = Math.atan2(headY - previous[1], headX - previous[0]);
+  const tongueVisible = momentum > 0.18 && Math.sin(phase * 3.5) > 0.3;
+
+  context.save();
+  context.translate(headX, headY);
+  context.rotate(angle);
+
+  context.beginPath();
+  context.ellipse(7, 0, 9, 6, 0, 0, Math.PI * 2);
+  context.fillStyle = momentum === 0 ? 'rgba(180, 178, 169, 0.42)' : '#b4b2a9';
+  context.fill();
+
+  context.beginPath();
+  context.ellipse(5, -1.5, 4, 3, -0.2, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(209, 207, 199, 0.15)';
+  context.fill();
+
+  context.beginPath();
+  context.arc(13, -2.5, 2, 0, Math.PI * 2);
+  context.fillStyle = '#111318';
+  context.fill();
+  context.beginPath();
+  context.arc(13, -2.5, 1.3, 0, Math.PI * 2);
+  context.fillStyle = '#d3d1c7';
+  context.fill();
+  context.beginPath();
+  context.arc(13.5, -3, 0.5, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  context.fill();
+
+  if (tongueVisible) {
+    context.strokeStyle = '#ff5370';
+    context.lineWidth = 1;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(16, 0);
+    context.lineTo(22, 0);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(22, 0);
+    context.lineTo(26, -3);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(22, 0);
+    context.lineTo(26, 3);
+    context.stroke();
+  }
+
+  context.restore();
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -2693,7 +2848,7 @@ function buildTraceTimelineEntries(events: TraceDisplayEvent[], visibleCategorie
     if (category === 'agent_output' || category === 'reasoning') {
       group.modelCount += 1;
     }
-    if (category === 'failure_recovery') {
+    if (traceEventOutcome(event) === 'failure') {
       group.failureCount += 1;
     }
     entries.push({ event, group });
@@ -3242,30 +3397,6 @@ function formatTraceDetailParts(parts: string[]): string {
   return parts.map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' · ');
 }
 
-function tracePayloadPrimitive(payload: Record<string, unknown>, key: string): string | null {
-  const value = payload[key];
-  if (typeof value === 'string') return value.trim() || null;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return null;
-}
-
-function tracePayloadRecord(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
-  const value = payload[key];
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function tracePayloadArray(payload: Record<string, unknown>, key: string): unknown[] | null {
-  const value = payload[key];
-  return Array.isArray(value) ? value : null;
-}
-
-function stringRecordValue(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key];
-  if (typeof value === 'string') return value.trim() || null;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return null;
-}
-
 function primitiveValuePart(key: string, value: unknown): string | null {
   if (typeof value === 'string') return value.trim() ? `${traceLabel(key)} ${truncateText(value.trim(), 72)}` : null;
   if (typeof value === 'number' || typeof value === 'boolean') return `${traceLabel(key)} ${String(value)}`;
@@ -3441,18 +3572,6 @@ function compactTracePath(value: string): string {
   return `.../${parts.slice(-3).join('/')}`;
 }
 
-function toolNameFromSummary(summary: string): string | null {
-  const requested = summary.match(/OpenAI requested Beale tool: ([^.]+)\./);
-  if (requested) return requested[1];
-  const completed = summary.match(/OpenAI completed function call arguments for ([^.]+)\./);
-  return completed ? completed[1] : null;
-}
-
-function isToolCallNamed(event: TraceEventRecord, toolName: string): boolean {
-  if (event.type !== 'tool_call') return false;
-  return (tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary)) === toolName;
-}
-
 function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
   return cweTitleToolCallDetail(event, 'hypothesis', 'Untitled hypothesis') ?? cweTitleToolCallDetail(event, 'finding', 'Untitled finding');
 }
@@ -3516,44 +3635,6 @@ function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview |
   if (!task && scriptLines.length === 0) return null;
 
   return { task, scriptLines, truncated };
-}
-
-function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
-  const searchable = `${event.source} ${event.type} ${event.summary} ${JSON.stringify(event.payload)}`.toLowerCase();
-  const transcriptRole = tracePayloadPrimitive(event.payload, 'transcriptRole');
-  const transcriptSource = tracePayloadPrimitive(event.payload, 'transcriptSource');
-  if (transcriptSource === 'openai_reasoning_summary') return 'reasoning';
-  if (transcriptRole === 'assistant') return 'agent_output';
-  if (transcriptRole === 'user' || transcriptRole === 'system') return 'events';
-  if (isToolCallNamed(event, 'hypothesis')) return 'hypotheses';
-  if (isToolCallNamed(event, 'finding')) return 'evidence';
-  if (event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope') return 'policy_scope';
-  if (traceEventOutcome(event) === 'success') {
-    if (event.source === 'executor' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
-    if (event.source === 'tool' || event.type === 'tool_result') return 'tools';
-  }
-  if (/\b(error|failed|failure|retry|recover|recovery|blocked|timeout|destroy failed)\b/.test(searchable)) return 'failure_recovery';
-  if (event.type === 'verifier_result' || event.source === 'verifier') return 'verifier';
-  if (event.type === 'hypothesis_event') return 'hypotheses';
-  if (event.type === 'artifact_created' || event.type === 'finding_event' || /\b(evidence|artifact|export|finding)\b/.test(searchable)) return 'evidence';
-  if (event.source === 'executor' || event.type === 'vm_event' || /\b(vm|guest|firecracker|docker|snapshot|sandbox)\b/.test(searchable)) return 'vm_execution';
-  if (event.source === 'tool' || event.type === 'tool_call' || event.type === 'tool_result') {
-    if (/\b(search|code browser|symbol|file|repository|repo|line|bounded text)\b/.test(searchable)) return 'code_navigation';
-    return 'tools';
-  }
-  if (event.source === 'model' || event.type === 'model_message') {
-    if (/\b(plan|planned|prepared|objective|rationale|reason|strategy|hypothesis|intent)\b/.test(searchable)) return 'reasoning';
-    return 'agent_output';
-  }
-  return 'events';
-}
-
-function traceEventOutcome(event: TraceEventRecord): 'success' | 'failure' | null {
-  const status = tracePayloadPrimitive(event.payload, 'status')?.toLowerCase() ?? '';
-  if (status === 'success' || /\bfinished with success\b/i.test(event.summary)) return 'success';
-  if (['failure', 'failed', 'timeout', 'policy_blocked', 'executor_error', 'error'].includes(status)) return 'failure';
-  if (/\b(failed|failure|timeout|blocked|errored)\b/i.test(event.summary)) return 'failure';
-  return null;
 }
 
 function traceCategoryOption(category: TraceCategoryId): TraceCategoryOption {
@@ -3713,19 +3794,19 @@ function isMomentumWaitingEvent(event: TraceEventRecord): boolean {
 function isMomentumFailureEvent(event: TraceEventRecord): boolean {
   const category = traceCategoryForEvent(event);
   if (category === 'failure_recovery' || traceEventOutcome(event) === 'failure') return true;
-  return /\b(error|failed|failure|retry|unavailable|unsupported|missing|no local source|not found|blocked)\b/.test(momentumEventText(event));
+  return /\b(retry|unavailable|unsupported|missing|no local source|not found|blocked)\b/.test(momentumOperationalText(event));
 }
 
 function isMomentumStuck(recent: TraceEventRecord[], failureEvents: TraceEventRecord[]): boolean {
   if (failureEvents.length >= 3) return true;
   const latest = recent.at(-1);
   if (failureEvents.length >= 2 && latest && isMomentumFailureEvent(latest)) return true;
-  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumEventText(event))).length;
+  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumOperationalText(event))).length;
   return sourceUnavailableCount >= 2;
 }
 
 function momentumStuckReason(recent: TraceEventRecord[], failureEvents: TraceEventRecord[]): string {
-  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumEventText(event))).length;
+  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumOperationalText(event))).length;
   if (sourceUnavailableCount >= 2) return 'Repeated source availability blockers detected.';
   const latestFailure = failureEvents.at(-1) ?? recent.at(-1) ?? null;
   return momentumReasonFromEvent('Repeated errors detected', latestFailure);
@@ -3784,6 +3865,23 @@ function momentumEventText(event: TraceEventRecord): string {
   return `${event.source}\n${event.type}\n${event.summary}\n${payload}`.toLowerCase();
 }
 
+function momentumOperationalText(event: TraceEventRecord): string {
+  return [
+    event.source,
+    event.type,
+    event.summary,
+    tracePayloadPrimitive(event.payload, 'status'),
+    tracePayloadPrimitive(event.payload, 'error'),
+    tracePayloadPrimitive(event.payload, 'reason'),
+    tracePayloadPrimitive(event.payload, 'message'),
+    tracePayloadPrimitive(event.payload, 'blockedIssue'),
+    tracePayloadPrimitive(event.payload, 'sourceAcquisitionHint')
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join('\n')
+    .toLowerCase();
+}
+
 function researchMomentumLabel(state: ResearchMomentumState): string {
   switch (state) {
     case 'idle':
@@ -3803,103 +3901,22 @@ function researchMomentumLabel(state: ResearchMomentumState): string {
   }
 }
 
-function researchMomentumWaveform(state: ResearchMomentumState): ResearchMomentumWaveform {
+function researchMomentumValue(state: ResearchMomentumState): number {
   switch (state) {
     case 'idle':
     case 'waiting':
-      return {
-        path: 'M0 12 L420 12',
-        animateValues: null,
-        duration: '0s',
-        calcMode: 'linear',
-        keyTimes: '0;1'
-      };
+      return 0;
     case 'exploring':
-      return smoothMomentumWaveform(9, 1.25, 1, 3.6);
+      return 30;
     case 'building':
-      return smoothMomentumWaveform(13, 3.1, 1.35, 1.65);
+      return 50;
     case 'verifying':
-      return smoothMomentumWaveform(21, 4.2, 3.35, 0.7);
+      return 72;
     case 'hot':
-      return smoothMomentumWaveform(25, 7.2, 4.15, 0.44, 0.38);
+      return 96;
     case 'stuck':
-      return jaggedMomentumWaveform();
+      return 68;
   }
-}
-
-function smoothMomentumWaveform(pointCount: number, amplitude: number, frequency: number, durationSeconds: number, overtone = 0.18): ResearchMomentumWaveform {
-  const phases = [0, Math.PI * 0.58, Math.PI * 1.12, Math.PI * 1.67];
-  const paths = phases.map((phase) => smoothMomentumPath(momentumWaveYs(pointCount, amplitude, frequency, phase, overtone)));
-  paths.push(paths[0]);
-  return {
-    path: paths[0],
-    animateValues: paths.join(';'),
-    duration: `${durationSeconds}s`,
-    calcMode: 'spline',
-    keyTimes: '0;0.25;0.5;0.75;1',
-    keySplines: '0.45 0 0.55 1;0.45 0 0.55 1;0.45 0 0.55 1;0.45 0 0.55 1'
-  };
-}
-
-function jaggedMomentumWaveform(): ResearchMomentumWaveform {
-  const frames = [
-    [12, 12, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 18, 9, 15, 12],
-    [12, 7, 17, 10, 16, 16, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 12],
-    [12, 18, 8, 16, 16, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 12],
-    [12, 12, 6, 18, 9, 15, 15, 7, 17, 10, 16, 16, 6, 18, 9, 15, 12]
-  ];
-  const paths = frames.map(jaggedMomentumPath);
-  return {
-    path: paths[0],
-    animateValues: paths.join(';'),
-    duration: '0.88s',
-    calcMode: 'linear',
-    keyTimes: '0;0.33;0.66;1'
-  };
-}
-
-function momentumWaveYs(pointCount: number, amplitude: number, frequency: number, phase: number, overtone: number): number[] {
-  return Array.from({ length: pointCount }, (_, index) => {
-    const progress = index / (pointCount - 1);
-    const envelope = Math.sin(Math.PI * progress);
-    const base = Math.sin(progress * Math.PI * 2 * frequency + phase);
-    const upper = Math.sin(progress * Math.PI * 2 * (frequency * 2 + 0.35) + phase * 0.7);
-    return clampMomentumY(12 + envelope * amplitude * (base + upper * overtone));
-  });
-}
-
-function smoothMomentumPath(ys: number[]): string {
-  const points = ys.map((y, index) => ({ x: (420 / (ys.length - 1)) * index, y }));
-  const commands = [`M${formatMomentumNumber(points[0].x)} ${formatMomentumNumber(points[0].y)}`];
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const previous = points[Math.max(0, index - 1)];
-    const current = points[index];
-    const next = points[index + 1];
-    const following = points[Math.min(points.length - 1, index + 2)];
-    const cp1x = current.x + (next.x - previous.x) / 6;
-    const cp1y = current.y + (next.y - previous.y) / 6;
-    const cp2x = next.x - (following.x - current.x) / 6;
-    const cp2y = next.y - (following.y - current.y) / 6;
-    commands.push(
-      `C${formatMomentumNumber(cp1x)} ${formatMomentumNumber(cp1y)} ${formatMomentumNumber(cp2x)} ${formatMomentumNumber(cp2y)} ${formatMomentumNumber(next.x)} ${formatMomentumNumber(next.y)}`
-    );
-  }
-
-  return commands.join(' ');
-}
-
-function jaggedMomentumPath(ys: number[]): string {
-  const step = 420 / (ys.length - 1);
-  return ys.map((y, index) => `${index === 0 ? 'M' : 'L'}${formatMomentumNumber(index * step)} ${formatMomentumNumber(y)}`).join(' ');
-}
-
-function clampMomentumY(value: number): number {
-  return Math.max(1.8, Math.min(22.2, value));
-}
-
-function formatMomentumNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {

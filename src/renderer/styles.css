@@ -4009,8 +4009,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     animation: none;
   }
 
-  .research-momentum-line svg,
-  .research-momentum-line path {
+  .research-momentum-line canvas {
     animation: none;
   }
 }
@@ -4018,57 +4017,20 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .research-momentum-line {
   min-width: 0;
   grid-column: 2;
-  height: 22px;
+  height: 30px;
   display: grid;
   align-items: center;
   overflow: hidden;
   padding: 0 12px 0 10px;
-  color: rgba(255, 255, 255, 0.82);
 }
 
-.research-momentum-line svg {
+.momentum-worm-canvas {
   width: 100%;
-  height: 18px;
+  height: 30px;
+  max-height: 36px;
   display: block;
-  overflow: visible;
-}
-
-.research-momentum-line path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.35;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.research-momentum-line.momentum-idle,
-.research-momentum-line.momentum-waiting {
-  color: rgba(255, 255, 255, 0.36);
-}
-
-.research-momentum-line.momentum-exploring {
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.research-momentum-line.momentum-building {
-  color: rgba(255, 255, 255, 0.74);
-}
-
-.research-momentum-line.momentum-verifying {
-  color: rgba(255, 255, 255, 0.86);
-}
-
-.research-momentum-line.momentum-hot {
-  color: rgba(255, 255, 255, 0.96);
-}
-
-.research-momentum-line.momentum-hot path {
-  stroke-width: 1.55;
-}
-
-.research-momentum-line.momentum-stuck {
-  color: rgba(255, 255, 255, 0.68);
+  background: transparent;
+  border-radius: 4px;
 }
 
 .status-actions {
