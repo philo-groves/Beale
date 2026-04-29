@@ -1922,6 +1922,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .main-hypothesis-item,
 .main-finding-item {
   min-height: 70px;
+  grid-template-rows: minmax(0, 1fr) auto;
   border: 0;
   padding: 10px 11px;
 }
@@ -2027,7 +2028,20 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-hypothesis-item .main-hypothesis-meta {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   padding-top: 0;
+}
+
+.main-finding-item .main-hypothesis-meta {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+.main-hypothesis-item .main-hypothesis-meta .cwe-pill,
+.main-finding-item .main-hypothesis-meta .cwe-pill {
+  grid-column: 4;
+  justify-self: end;
 }
 
 .hypothesis-pill {
@@ -3189,6 +3203,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin-right: auto;
 }
 
+.generate-prompt-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 .generate-prompt-button {
   border-color: transparent;
   background: transparent;
@@ -3199,6 +3220,24 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-color: transparent;
   background: #181818;
   color: var(--text);
+}
+
+.generate-prompt-status,
+.generate-prompt-error {
+  min-width: 0;
+  max-width: min(390px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.generate-prompt-status {
+  color: var(--muted);
+}
+
+.generate-prompt-error {
+  color: #ff6b6b;
 }
 
 .modal-form {

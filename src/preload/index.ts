@@ -67,6 +67,9 @@ const api: BealeApi = {
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);
   },
+  cancelResearchPromptGeneration(requestId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cancelResearchPromptGeneration, requestId);
+  },
   saveProgramScope(scope: ProgramScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);
   },

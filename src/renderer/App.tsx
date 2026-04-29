@@ -213,6 +213,7 @@ const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
 const DEFAULT_CONTEXT_TOKEN_LIMIT = 225_000;
+const CONTEXT_COMPACTION_LICK_MS = 2200;
 const APP_BACKGROUND_PULSES = Array.from({ length: 18 }, (_, index) => index);
 const MOMENTUM_SNAKE_BODY = '#0e0c0d';
 const MOMENTUM_SNAKE_EDGE = 'rgba(55, 40, 50, 0.9)';
@@ -1330,8 +1331,25 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
   const title = `Momentum: ${label}\nContext: ${contextMeter.label}`;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextFractionRef = useRef(contextMeter.fraction);
+  const latestCompaction = detail?.contextCompactions.at(-1) ?? null;
+  const latestCompactionKey = latestCompaction ? `${latestCompaction.id}:${latestCompaction.createdAt}` : '';
+  const compactionKeyRef = useRef(latestCompactionKey);
+  const compactionLickStartedAtRef = useRef<number | null>(null);
   const reduceMotion = usePrefersReducedMotion();
   const momentumValue = researchMomentumValue(momentum.state);
+
+  useEffect(() => {
+    if (compactionKeyRef.current === latestCompactionKey) return;
+    const hadPreviousCompaction = Boolean(compactionKeyRef.current);
+    compactionKeyRef.current = latestCompactionKey;
+    if (!latestCompactionKey) return;
+
+    const createdAt = latestCompaction ? Date.parse(latestCompaction.createdAt) : Number.NaN;
+    const recentEnough = Number.isFinite(createdAt) && Date.now() - createdAt >= 0 && Date.now() - createdAt <= CONTEXT_COMPACTION_LICK_MS * 2;
+    if (hadPreviousCompaction || recentEnough) {
+      compactionLickStartedAtRef.current = performance.now();
+    }
+  }, [latestCompaction, latestCompactionKey]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1354,7 +1372,7 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (reduceMotion) {
         contextFractionRef.current = contextMeter.fraction;
-        drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, contextFractionRef.current);
+        drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, contextFractionRef.current, 0);
       }
     };
 
@@ -1372,7 +1390,8 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
         ? contextMeter.fraction
         : contextFractionRef.current + (contextMeter.fraction - contextFractionRef.current) * Math.min(1, deltaSeconds * 2.4);
       contextFractionRef.current = nextContextFraction;
-      drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, nextContextFraction);
+      const lickProgress = reduceMotion ? 0 : compactionLickProgress(timestamp, compactionLickStartedAtRef);
+      drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, nextContextFraction, lickProgress);
 
       if (!reduceMotion) {
         frameId = window.requestAnimationFrame(draw);
@@ -1397,11 +1416,55 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
   );
 }
 
-function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, height: number, momentum: number, elapsed: number, contextFraction: number): void {
+function compactionLickProgress(timestamp: number, startedAtRef: { current: number | null }): number {
+  const startedAt = startedAtRef.current;
+  if (startedAt === null) return 0;
+  const progress = Math.max(0, Math.min(1, (timestamp - startedAt) / CONTEXT_COMPACTION_LICK_MS));
+  if (progress >= 1) {
+    startedAtRef.current = null;
+    return 0;
+  }
+  return progress;
+}
+
+function compactionLickContextFraction(contextFraction: number, lickProgress: number): number {
+  if (lickProgress <= 0) return contextFraction;
+  if (lickProgress < 0.36) {
+    const eased = easeOutCubic(lickProgress / 0.36);
+    return contextFraction + (1 - contextFraction) * eased;
+  }
+  if (lickProgress < 0.56) return 1;
+
+  const recoil = easeOutBack((lickProgress - 0.56) / 0.44);
+  return 1 - (1 - contextFraction) * recoil;
+}
+
+function easeOutCubic(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  return 1 - Math.pow(1 - clamped, 3);
+}
+
+function easeOutBack(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(clamped - 1, 3) + c1 * Math.pow(clamped - 1, 2);
+}
+
+function drawMomentumSnake(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  momentum: number,
+  elapsed: number,
+  contextFraction: number,
+  lickProgress: number
+): void {
   if (width <= 0 || height <= 0) return;
   const pointCount = 200;
   const clampedMomentum = Math.max(0, Math.min(1, momentum));
-  const clampedContext = Math.max(0, Math.min(1, contextFraction));
+  const lickContextFraction = compactionLickContextFraction(contextFraction, lickProgress);
+  const clampedContext = Math.max(0, Math.min(1, lickContextFraction));
   const maxAmplitude = height / 2 - 5;
   const amplitude = clampedMomentum === 0 ? 0 : 1 + clampedMomentum * maxAmplitude;
   const speed = 0.8 + clampedMomentum * 5;
@@ -1416,7 +1479,7 @@ function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, hei
   const points: Array<[number, number]> = [];
 
   context.clearRect(0, 0, width, height);
-  drawContextGoalStrawberry(context, strawberryX, centerY, clampedContext);
+  drawContextGoalStrawberry(context, strawberryX, centerY, clampedContext, lickProgress);
 
   for (let index = 0; index <= pointCount; index += 1) {
     const fraction = index / pointCount;
@@ -1448,7 +1511,7 @@ function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, hei
   context.restore();
 
   drawMomentumSnakeTicks(context, points);
-  drawMomentumSnakeHead(context, points, pointCount, phase, clampedMomentum, clampedContext);
+  drawMomentumSnakeHead(context, points, pointCount, phase, clampedMomentum, clampedContext, lickProgress);
 }
 
 function drawMomentumSnakePath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
@@ -1476,11 +1539,20 @@ function drawMomentumSnakeTicks(context: CanvasRenderingContext2D, points: Array
   }
 }
 
-function drawMomentumSnakeHead(context: CanvasRenderingContext2D, points: Array<[number, number]>, pointCount: number, phase: number, momentum: number, contextFraction: number): void {
+function drawMomentumSnakeHead(
+  context: CanvasRenderingContext2D,
+  points: Array<[number, number]>,
+  pointCount: number,
+  phase: number,
+  momentum: number,
+  contextFraction: number,
+  lickProgress: number
+): void {
   const [headX, headY] = points[pointCount];
   const previous = points[Math.max(0, pointCount - 4)];
   const angle = Math.atan2(headY - previous[1], headX - previous[0]);
-  const tongueVisible = (momentum > 0.18 || contextFraction > 0.94) && Math.sin(phase * 3.5) > 0.3;
+  const forcedLick = lickProgress >= 0.28 && lickProgress <= 0.62;
+  const tongueVisible = forcedLick || ((momentum > 0.18 || contextFraction > 0.94) && Math.sin(phase * 3.5) > 0.3);
 
   context.save();
   context.translate(headX, headY);
@@ -1524,25 +1596,26 @@ function drawMomentumSnakeHead(context: CanvasRenderingContext2D, points: Array<
     context.lineCap = 'round';
     context.beginPath();
     context.moveTo(16, 0);
-    context.lineTo(22, 0);
+    context.lineTo(forcedLick ? 25 : 22, 0);
     context.stroke();
     context.beginPath();
-    context.moveTo(22, 0);
-    context.lineTo(26, -3);
+    context.moveTo(forcedLick ? 25 : 22, 0);
+    context.lineTo(forcedLick ? 30 : 26, -3);
     context.stroke();
     context.beginPath();
-    context.moveTo(22, 0);
-    context.lineTo(26, 3);
+    context.moveTo(forcedLick ? 25 : 22, 0);
+    context.lineTo(forcedLick ? 30 : 26, 3);
     context.stroke();
   }
 
   context.restore();
 }
 
-function drawContextGoalStrawberry(context: CanvasRenderingContext2D, x: number, y: number, contextFraction: number): void {
-  const active = contextFraction >= 0.94;
+function drawContextGoalStrawberry(context: CanvasRenderingContext2D, x: number, y: number, contextFraction: number, lickProgress: number): void {
+  const active = contextFraction >= 0.94 || (lickProgress >= 0.28 && lickProgress <= 0.72);
   const iconColor = MOMENTUM_GOAL_ICON;
   const shadowColor = active ? MOMENTUM_GOAL_SHADOW_ACTIVE : MOMENTUM_GOAL_SHADOW;
+  const pulse = lickProgress > 0 ? Math.sin(Math.min(1, lickProgress) * Math.PI) : 0;
 
   const drawBerryOutline = () => {
     context.beginPath();
@@ -1569,6 +1642,7 @@ function drawContextGoalStrawberry(context: CanvasRenderingContext2D, x: number,
 
   context.save();
   context.translate(x, y - 2);
+  context.scale(1 + pulse * 0.07, 1 + pulse * 0.07);
   context.lineCap = 'round';
   context.lineJoin = 'round';
 
@@ -5461,14 +5535,28 @@ function StartRunForm({
     sandboxProfile
   }));
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [startingRun, setStartingRun] = useState(false);
+  const generationRequestIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
   }, [sandboxProfile, snapshot.activeScope.id]);
 
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      const requestId = generationRequestIdRef.current;
+      if (requestId) {
+        void window.beale.cancelResearchPromptGeneration(requestId);
+      }
+    };
+  }, []);
+
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => ({ ...current, [key]: value }));
+    if (key === 'promptMarkdown') setGenerateError(null);
   };
 
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
@@ -5476,8 +5564,9 @@ function StartRunForm({
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
   const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
-  const canStart = input.promptMarkdown.trim().length > 0 && !openAiBlocked;
-  const showGeneratePrompt = input.promptMarkdown.length === 0;
+  const hasPromptDraft = input.promptMarkdown.trim().length > 0;
+  const canStart = hasPromptDraft && !openAiBlocked;
+  const promptGenerationLabel = hasPromptDraft ? 'Refine' : 'Generate';
 
   const start = (): void => {
     if (startingRun) return;
@@ -5490,10 +5579,30 @@ function StartRunForm({
     }).finally(() => setStartingRun(false));
   };
 
+  const cancelGeneratePrompt = (): void => {
+    const requestId = generationRequestIdRef.current;
+    if (!requestId) return;
+    generationRequestIdRef.current = null;
+    setGeneratingPrompt(false);
+    void window.beale.cancelResearchPromptGeneration(requestId);
+  };
+
   const generatePrompt = (): void => {
+    if (generatingPrompt) {
+      cancelGeneratePrompt();
+      return;
+    }
+    const requestId = clientRequestId('research_prompt');
+    const draftPromptMarkdown = input.promptMarkdown;
+    const operation = draftPromptMarkdown.trim().length > 0 ? 'refine' : 'generate';
+    generationRequestIdRef.current = requestId;
     setGeneratingPrompt(true);
-    void runAction(async () => {
-      const generated = await window.beale.generateResearchPrompt({
+    setGenerateError(null);
+    void window.beale
+      .generateResearchPrompt({
+        requestId,
+        operation,
+        draftPromptMarkdown: operation === 'refine' ? draftPromptMarkdown : null,
         mode: input.mode,
         attemptStrategy: input.attemptStrategy,
         model: input.model,
@@ -5502,30 +5611,55 @@ function StartRunForm({
         sandboxProfile: input.sandboxProfile,
         targetAssetId: input.targetAssetId ?? null,
         targetPath: input.targetPath ?? null
+      })
+      .then((generated) => {
+        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
+        setInput((current) => (current.promptMarkdown === draftPromptMarkdown ? { ...current, promptMarkdown: generated.promptMarkdown } : current));
+      })
+      .catch((caught: unknown) => {
+        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
+        const message = errorMessage(caught);
+        if (!/canceled/i.test(message)) {
+          setGenerateError(message);
+        }
+      })
+      .finally(() => {
+        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
+        generationRequestIdRef.current = null;
+        setGeneratingPrompt(false);
       });
-      setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
-    }).finally(() => setGeneratingPrompt(false));
+  };
+
+  const closeModal = (): void => {
+    cancelGeneratePrompt();
+    onCancel();
   };
 
   return (
     <Modal
       title="New Research Session"
       wide
-      onClose={onCancel}
+      onClose={closeModal}
       footer={
         <>
-          {showGeneratePrompt ? (
-            <button type="button" className="modal-footer-leading generate-prompt-button" disabled={busy || generatingPrompt} onClick={generatePrompt}>
-              <Sparkles size={16} />
-              {generatingPrompt ? 'Generating...' : 'Generate'}
+          <div className="modal-footer-leading generate-prompt-footer">
+            <button type="button" className="generate-prompt-button" disabled={!generatingPrompt && (busy || openAiBlocked)} onClick={generatePrompt}>
+              {generatingPrompt ? <X size={16} /> : <Sparkles size={16} />}
+              {generatingPrompt ? 'Cancel' : promptGenerationLabel}
             </button>
-          ) : null}
-          <button type="button" disabled={busy} onClick={onCancel}>
+            {generatingPrompt ? <span className="generate-prompt-status">Generating plan, this may take several moments</span> : null}
+            {generateError ? (
+              <span className="generate-prompt-error" title={generateError}>
+                {generateError}
+              </span>
+            ) : null}
+          </div>
+          <button type="button" disabled={busy} onClick={closeModal}>
             Cancel
           </button>
-          <button className="primary-button" type="button" disabled={busy || startingRun || !canStart} onClick={start}>
+          <button className="primary-button" type="button" disabled={busy || startingRun || generatingPrompt || !canStart} onClick={start}>
             <Play size={16} />
-            {startingRun ? 'Generating Title...' : 'Start'}
+            Start
           </button>
         </>
       }
@@ -6781,6 +6915,10 @@ function optionalPositiveInteger(rawValue: string, fallback: number): number {
   if (!trimmed) return fallback;
   const value = Math.floor(Number(trimmed));
   return Number.isFinite(value) ? Math.max(1, value) : fallback;
+}
+
+function clientRequestId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function extendBudgetLimit(value: unknown, unboundedValue: number, step: number): number {

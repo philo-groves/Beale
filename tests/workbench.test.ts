@@ -406,9 +406,9 @@ describe('Beale workbench skeleton', () => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         modelRequests.push(request);
         const serialized = JSON.stringify(request);
-        expect(request.model).toBe('gpt-5.5');
+        expect(request.model).toBe('gpt-5.4');
         expect(request.tools).toEqual([]);
-        expect(request.reasoning).toEqual({ effort: 'medium' });
+        expect(request.reasoning).toEqual({ effort: 'xhigh' });
         expect(serialized).toContain('Kernel Audit Program');
         expect(serialized).toContain('/src/kernel');
         expect(serialized).toContain('previousResearch');
@@ -446,7 +446,7 @@ describe('Beale workbench skeleton', () => {
     const result = await service.generateResearchPrompt({
       mode: 'dynamic',
       attemptStrategy: 'single_path',
-      model: 'gpt-5.5',
+      model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       networkProfile: 'scoped',
       sandboxProfile: 'host_research_only',
@@ -455,6 +455,47 @@ describe('Beale workbench skeleton', () => {
     });
     expect(result.promptMarkdown).toBe('# Kernel parser audit\nFocus on the least explored kernel parser surface and collect verifier-backed evidence.');
     expect(modelRequests).toHaveLength(1);
+    service.close();
+  });
+
+  it('cancels an in-flight research prompt generation request', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
+    let resolveFetchStarted: (() => void) | null = null;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        const signal = init.signal;
+        if (!signal) throw new Error('Expected prompt generation to pass an AbortSignal.');
+        resolveFetchStarted?.();
+        return await new Promise<Response>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        });
+      }
+    });
+
+    service.createWorkspace(tempWorkspace());
+    const pending = service.generateResearchPrompt({
+      requestId: 'cancel_test',
+      operation: 'generate',
+      mode: 'dynamic',
+      attemptStrategy: 'single_path',
+      model: 'gpt-5.5',
+      reasoningEffort: 'medium',
+      networkProfile: 'scoped',
+      sandboxProfile: 'host_research_only',
+      targetAssetId: null,
+      targetPath: null
+    });
+    await fetchStarted;
+    service.cancelResearchPromptGeneration('cancel_test');
+
+    await expect(pending).rejects.toThrow(/canceled/i);
     service.close();
   });
 
