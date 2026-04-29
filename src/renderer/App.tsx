@@ -187,6 +187,7 @@ interface ResearchMomentumWaveform {
 interface PythonToolCallPreview {
   task: string;
   scriptLines: string[];
+  truncated: boolean;
 }
 
 const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
@@ -2300,7 +2301,7 @@ function MainTraceEvent({
             <PythonTracePreview preview={pythonPreview} />
           ) : hasDetail ? (
             proseDetail ? (
-              <span className="main-trace-prose">{renderInlineCodeText(detailText)}</span>
+              <span className="main-trace-prose">{renderTraceProseText(detailText, category)}</span>
             ) : (
               <code>{detailText}</code>
             )
@@ -2316,9 +2317,16 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
     <div className="main-trace-python-preview">
       {preview.task ? <p>{preview.task}</p> : null}
       {preview.scriptLines.length > 0 ? (
-        <pre>
-          <code>{preview.scriptLines.join('\n')}</code>
-        </pre>
+        <>
+          <pre>
+            <code className="syntax-code language-python">{highlightPythonCode(preview.scriptLines.join('\n'))}</code>
+          </pre>
+          {preview.truncated ? (
+            <div className="main-trace-python-more" aria-hidden="true">
+              <span>View More</span>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -2327,6 +2335,7 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
 function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (securityRecordToolCallDetail(event)) return true;
   if (hypothesisEventDetailText(event, detail)) return true;
+  if (findingEventDetailText(event, detail)) return true;
 
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if (!text) return false;
@@ -2355,6 +2364,193 @@ function renderInlineCodeText(text: string): ReactNode[] {
   }
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes.length > 0 ? nodes : [text];
+}
+
+function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
+  return category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text);
+}
+
+function renderMarkdownTraceText(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const lines = text.split('\n');
+
+  lines.forEach((line, lineIndex) => {
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      nodes.push(
+        <strong className="main-trace-markdown-heading" key={`heading-${lineIndex}`}>
+          {renderMarkdownInlineText(heading[1] ?? '', `heading-${lineIndex}`)}
+        </strong>
+      );
+    } else {
+      nodes.push(...renderMarkdownInlineText(line, `line-${lineIndex}`));
+    }
+
+    if (lineIndex < lines.length - 1) nodes.push('\n');
+  });
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function renderMarkdownInlineText(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let buffer = '';
+  let index = 0;
+  let tokenIndex = 0;
+
+  const flushBuffer = (): void => {
+    if (!buffer) return;
+    nodes.push(buffer);
+    buffer = '';
+  };
+
+  const pushToken = (className: string, content: string, wrapper: 'code' | 'em' | 'strong' | 'strong-em'): void => {
+    flushBuffer();
+    const key = `${keyPrefix}-${tokenIndex}`;
+    tokenIndex += 1;
+    if (wrapper === 'code') {
+      nodes.push(
+        <code className="main-trace-inline-code" key={key}>
+          {content}
+        </code>
+      );
+      return;
+    }
+    if (wrapper === 'strong-em') {
+      nodes.push(
+        <strong className={className} key={key}>
+          <em>{content}</em>
+        </strong>
+      );
+      return;
+    }
+    const Wrapper = wrapper;
+    nodes.push(
+      <Wrapper className={className} key={key}>
+        {content}
+      </Wrapper>
+    );
+  };
+
+  while (index < text.length) {
+    if (text[index] === '`') {
+      const tickMatch = text.slice(index).match(/^`+/);
+      const ticks = tickMatch?.[0] ?? '`';
+      const end = text.indexOf(ticks, index + ticks.length);
+      if (end > index + ticks.length) {
+        pushToken('main-trace-inline-code', text.slice(index + ticks.length, end), 'code');
+        index = end + ticks.length;
+        continue;
+      }
+    }
+
+    if (text.startsWith('***', index)) {
+      const end = text.indexOf('***', index + 3);
+      const content = end > index + 3 ? text.slice(index + 3, end) : '';
+      if (content.trim()) {
+        pushToken('main-trace-markdown-strong main-trace-markdown-em', content, 'strong-em');
+        index = end + 3;
+        continue;
+      }
+    }
+
+    if (text.startsWith('**', index)) {
+      const end = text.indexOf('**', index + 2);
+      const content = end > index + 2 ? text.slice(index + 2, end) : '';
+      if (content.trim()) {
+        pushToken('main-trace-markdown-strong', content, 'strong');
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (text[index] === '*' && text[index + 1] !== '*' && text[index + 1] !== ' ') {
+      const end = text.indexOf('*', index + 1);
+      const content = end > index + 1 ? text.slice(index + 1, end) : '';
+      if (content.trim()) {
+        pushToken('main-trace-markdown-em', content, 'em');
+        index = end + 1;
+        continue;
+      }
+    }
+
+    buffer += text[index];
+    index += 1;
+  }
+
+  flushBuffer();
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function highlightPythonCode(code: string): ReactNode[] {
+  return highlightCode(
+    code,
+    /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
+    pythonTokenKind
+  );
+}
+
+function pythonTokenKind(token: string): string {
+  if (token.startsWith('#')) return 'comment';
+  if (/^[rRuUbBfF]{0,2}("""|'''|"|')/.test(token)) return 'string';
+  if (/^(False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)$/.test(token)) {
+    return 'keyword';
+  }
+  if (/^(abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)$/.test(token)) return 'builtin';
+  if (/^\d/.test(token)) return 'number';
+  if ([...token].every((char) => '()[]{}.,:;'.includes(char))) return 'punctuation';
+  return 'operator';
+}
+
+function highlightJsonCode(code: string): ReactNode[] {
+  return highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind);
+}
+
+function jsonTokenKind(token: string): string {
+  if (token.endsWith(':') && token.startsWith('"')) return 'key';
+  if (token.startsWith('"')) return 'string';
+  if (token === 'true' || token === 'false') return 'boolean';
+  if (token === 'null') return 'null';
+  if (/^-?\d/.test(token)) return 'number';
+  return 'punctuation';
+}
+
+function highlightCode(code: string, pattern: RegExp, tokenKind: (token: string) => string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let index = 0;
+
+  for (const match of code.matchAll(pattern)) {
+    const token = match[0];
+    const tokenIndex = match.index ?? 0;
+    if (tokenIndex > lastIndex) nodes.push(code.slice(lastIndex, tokenIndex));
+
+    if (match[2] && token.endsWith(match[2])) {
+      const value = token.slice(0, token.length - match[2].length);
+      nodes.push(
+        <span className={`syntax-token ${tokenKind(token)}`} key={`token-${index}`}>
+          {value}
+        </span>
+      );
+      nodes.push(
+        <span className="syntax-token punctuation" key={`token-${index}-separator`}>
+          {match[2]}
+        </span>
+      );
+    } else {
+      nodes.push(
+        <span className={`syntax-token ${tokenKind(token)}`} key={`token-${index}`}>
+          {token}
+        </span>
+      );
+    }
+
+    lastIndex = tokenIndex + token.length;
+    index += 1;
+  }
+
+  if (lastIndex < code.length) nodes.push(code.slice(lastIndex));
+  return nodes.length > 0 ? nodes : [code];
 }
 
 function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
@@ -2551,14 +2747,15 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (event.type === 'tool_call') {
     const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(summary);
     if (toolName === 'python') return 'Run Python';
-    if (toolName === 'hypothesis') return 'Formulate Hypothesis';
-    if (toolName === 'finding') return 'Document Finding';
+    if (toolName === 'hypothesis') return 'Prepare Hypothesis';
+    if (toolName === 'finding') return 'Prepare Finding';
   }
 
   if (summary === 'OpenAI streamed model output delta.') return 'Stream model output';
-  if (summary === 'OpenAI response completed.') return 'Complete response';
-  if (summary === 'OpenAI response created.') return 'Start model turn';
+  if (summary === 'OpenAI response completed.') return 'Response Completed';
+  if (summary === 'OpenAI response created.') return 'Turn Start';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
+  if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
   if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
   if (summary === 'OpenAI completed thought.' || isLegacyThoughtSummary(summary)) return 'Thought';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
@@ -2585,11 +2782,11 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'VM executor alpha run started from markdown prompt.') return 'Start VM executor run';
 
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
-  if (match) return `Send request for turn ${match[1]}`;
+  if (match) return `Request for Turn ${match[1]}`;
   match = summary.match(/^OpenAI completed function call arguments for ([^.]+)\.$/);
   if (match?.[1] === 'python') return 'Run Python';
-  if (match?.[1] === 'hypothesis') return 'Formulate Hypothesis';
-  if (match?.[1] === 'finding') return 'Document Finding';
+  if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
+  if (match?.[1] === 'finding') return 'Prepare Finding';
   if (match) return `Call ${match[1]}`;
   match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
@@ -2616,9 +2813,15 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   match = summary.match(/^Artifact recorded: (.+)\.$/);
   if (match) return `Record artifact: ${match[1]}`;
   match = summary.match(/^Hypothesis created: (.+)\.$/);
-  if (match) return `Create hypothesis: ${match[1]}`;
+  if (match) return 'Hypothesis Created';
   match = summary.match(/^Hypothesis updated: (.+)\.$/);
   if (match) return 'Hypothesis Updated';
+  match = summary.match(/^Finding created: (.+)\.$/);
+  if (match) return 'Finding Created';
+  match = summary.match(/^Finding updated: (.+)\.$/);
+  if (match) return 'Finding Updated';
+  match = summary.match(/^Finding created from reproduced verifier-backed hypothesis: (.+)\.$/);
+  if (match) return 'Finding Created';
   match = summary.match(/^Policy engine blocked (.+)\.$/);
   if (match) return `Block ${match[1]}`;
   match = summary.match(/^Paused after (.+)\.$/);
@@ -2660,6 +2863,9 @@ function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId
 
   const hypothesisDetail = hypothesisEventDetailText(event, detail);
   if (hypothesisDetail) return hypothesisDetail;
+
+  const findingDetail = findingEventDetailText(event, detail);
+  if (findingDetail) return findingDetail;
 
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if ((category === 'agent_output' || category === 'reasoning') && text) {
@@ -3214,12 +3420,25 @@ function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
 
 function hypothesisEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
   if (event.type !== 'hypothesis_event') return null;
-  const finding = findingForTraceEvent(detail, event);
   const hypothesis = hypothesisForTraceEvent(detail, event);
-  const title = finding?.title ?? tracePayloadPrimitive(event.payload, 'title') ?? hypothesis?.title;
-  const impact = finding?.impactMarkdown ?? tracePayloadPrimitive(event.payload, 'impact') ?? hypothesis?.impact;
-  const lines = [title, impact].map((line) => line?.trim()).filter((line): line is string => Boolean(line));
+  const title = hypothesis?.title ?? tracePayloadPrimitive(event.payload, 'title');
+  const description = hypothesis?.descriptionMarkdown ?? tracePayloadPrimitive(event.payload, 'description');
+  const lines = [boldTraceTitle(title), description?.trim()].filter((line): line is string => Boolean(line));
   return lines.length > 0 ? lines.join('\n') : null;
+}
+
+function findingEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
+  if (event.type !== 'finding_event') return null;
+  const finding = findingForTraceEvent(detail, event);
+  const title = finding?.title ?? tracePayloadPrimitive(event.payload, 'title');
+  const impact = finding?.impactMarkdown ?? tracePayloadPrimitive(event.payload, 'impact');
+  const lines = [boldTraceTitle(title), impact?.trim()].filter((line): line is string => Boolean(line));
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
+function boldTraceTitle(value: string | null | undefined): string | null {
+  const title = value?.trim();
+  return title ? `**${title}**` : null;
 }
 
 function cweTitleToolCallDetail(event: TraceEventRecord, toolName: string, fallbackTitle: string): string | null {
@@ -3252,10 +3471,12 @@ function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview |
   const task = stringRecordValue(args, 'task') ?? '';
   const scriptValue = args.script;
   const script = typeof scriptValue === 'string' ? scriptValue.replace(/\r\n?/g, '\n').trim() : '';
-  const scriptLines = script ? script.split('\n').slice(0, 8) : [];
+  const allScriptLines = script ? script.split('\n') : [];
+  const scriptLines = allScriptLines.slice(0, 8);
+  const truncated = allScriptLines.length > scriptLines.length;
   if (!task && scriptLines.length === 0) return null;
 
-  return { task, scriptLines };
+  return { task, scriptLines, truncated };
 }
 
 function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
@@ -3929,7 +4150,13 @@ function TraceInspector({
       </div>
       <div className="trace-inspector-payload">
         <span>Payload</span>
-        <pre>{payload === '{}' ? 'No payload recorded.' : payload}</pre>
+        <pre>
+          {payload === '{}' ? (
+            'No payload recorded.'
+          ) : (
+            <code className="syntax-code language-json">{highlightJsonCode(payload)}</code>
+          )}
+        </pre>
       </div>
     </div>
   );

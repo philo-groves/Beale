@@ -2069,8 +2069,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding-bottom: 9px;
 }
 
-.main-trace-event.category-agent_output .main-trace-event-body strong,
-.main-trace-event.category-reasoning .main-trace-event-body strong {
+.main-trace-event.category-agent_output .main-trace-title strong,
+.main-trace-event.category-reasoning .main-trace-title strong {
   display: -webkit-box;
   overflow: hidden;
   color: #f0f0f0;
@@ -2163,6 +2163,24 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: pre-wrap;
 }
 
+.main-trace-markdown-heading,
+.main-trace-markdown-strong {
+  display: inline;
+  margin: 0;
+  overflow: visible;
+  color: #d4d4d4;
+  font-size: inherit;
+  font-weight: 820;
+  line-height: inherit;
+  white-space: inherit;
+  -webkit-line-clamp: unset;
+}
+
+.main-trace-markdown-em {
+  color: #bcbcbc;
+  font-style: italic;
+}
+
 .main-trace-event.trace-compact-sublabel .main-trace-context > code {
   display: block;
   overflow: hidden;
@@ -2219,6 +2237,80 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0;
   font: inherit;
   text-overflow: ellipsis;
+}
+
+.main-trace-python-more {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 3px;
+}
+
+.main-trace-python-more span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: #111111;
+  color: #a8a8a8;
+  padding: 0 8px;
+  font-size: 0.64rem;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.syntax-code {
+  display: block;
+  min-width: 0;
+  overflow: inherit;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: inherit;
+  white-space: inherit;
+}
+
+.syntax-token.comment {
+  color: #6f7378;
+  font-style: italic;
+}
+
+.syntax-token.keyword {
+  color: #d9a66b;
+  font-weight: 700;
+}
+
+.syntax-token.builtin {
+  color: #8cb8d8;
+}
+
+.syntax-token.string {
+  color: #91b982;
+}
+
+.syntax-token.key {
+  color: #86a9df;
+}
+
+.syntax-token.number {
+  color: #c79ad8;
+}
+
+.syntax-token.boolean {
+  color: #d69b75;
+}
+
+.syntax-token.null {
+  color: #858585;
+}
+
+.syntax-token.operator,
+.syntax-token.punctuation {
+  color: #8c8c8c;
 }
 
 .trace-filter-grid {
