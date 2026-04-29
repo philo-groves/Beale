@@ -342,6 +342,167 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('blocks duplicate hypotheses against prior program findings', () => {
+    const { db, context } = openStructuredToolDb();
+    const router = new BealeToolRouter(db);
+
+    const priorHypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'reproduced',
+      title: 'Header value disclosure',
+      description: 'Sensitive headers are serialized without redaction in IPC logging.',
+      component: 'ipc logging',
+      bug_class: 'secret_leak',
+      primary_cwe_id: 'CWE-200',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'Sensitive header values are exposed to unauthorized log readers.',
+      attacker_reachability: '2 authenticated/user-assisted',
+      impact: '3 credential exposure',
+      evidence_confidence: '2 dynamic evidence',
+      exploit_practicality: '2 moderate constraints',
+      scope_confidence: '2 in-scope asset'
+    });
+    const priorHypothesisId = priorHypothesis.payload.hypothesisId as string;
+    const priorFinding = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: priorHypothesisId,
+      state: 'reproduced',
+      title: 'Sensitive header values are logged unredacted',
+      summary: 'A local reproduction artifact shows sensitive header values serialized without redaction.',
+      primary_cwe_id: 'CWE-200',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The reproduced behavior exposes sensitive header values through logs.',
+      affected_assets_json: '{"component":"ipc logging"}',
+      affected_versions_json: '{}',
+      impact: 'Credential material may be exposed through logs when the integration records request headers.',
+      verified_by_verifier_run_id: ''
+    });
+    const priorFindingId = priorFinding.payload.findingId as string;
+    const followUp = createStructuredRun(db, 'Follow-up duplicate sweep');
+
+    const duplicate = callTool(router, followUp, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'needs_evidence',
+      title: 'Sensitive header values are logged unredacted',
+      description: 'IPC logging still appears to serialize sensitive request headers without redaction.',
+      component: 'ipc logging',
+      bug_class: 'secret_leak',
+      primary_cwe_id: 'CWE-200',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'medium',
+      cwe_mapping_rationale: 'Sensitive header values are exposed to unauthorized log readers.',
+      attacker_reachability: '2 authenticated/user-assisted',
+      impact: '3 credential exposure',
+      evidence_confidence: '1 static/tool-backed lead',
+      exploit_practicality: '2 moderate constraints',
+      scope_confidence: '2 in-scope asset'
+    });
+
+    expect(duplicate.status).toBe('success');
+    expect(duplicate.payload.action).toBe('duplicate_blocked');
+    expect((duplicate.payload.duplicateReview as { outcome: string; matchedEntityId: string }).outcome).toBe('duplicate');
+    expect((duplicate.payload.duplicateReview as { outcome: string; matchedEntityId: string }).matchedEntityId).toBe(priorFindingId);
+    expect(db.getRunDetail(followUp.run.id).hypotheses).toHaveLength(0);
+    expect(db.getRunDetail(followUp.run.id).traceEvents.some((event) => event.type === 'hypothesis_event' && event.payload.action === 'duplicate_blocked')).toBe(true);
+    db.close();
+  });
+
+  it('blocks duplicate findings and links new evidence to the existing program finding', () => {
+    const { db, context } = openStructuredToolDb();
+    const router = new BealeToolRouter(db);
+
+    const priorHypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'reproduced',
+      title: 'Exported provider exposes token store',
+      description: 'The exported provider returns sensitive token-store rows to local IPC callers.',
+      component: 'android content provider',
+      bug_class: 'ipc_authz',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The issue concerns missing authorization on IPC access.',
+      attacker_reachability: '2 local app IPC',
+      impact: '3 token store exposure',
+      evidence_confidence: '2 dynamic evidence',
+      exploit_practicality: '2 moderate constraints',
+      scope_confidence: '2 in-scope asset'
+    });
+    const priorHypothesisId = priorHypothesis.payload.hypothesisId as string;
+    const priorFinding = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: priorHypothesisId,
+      state: 'reproduced',
+      title: 'Exported provider exposes token store',
+      summary: 'The exported provider returns sensitive token-store rows to local IPC callers.',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The issue concerns missing authorization on IPC access.',
+      affected_assets_json: '{"component":"android content provider"}',
+      affected_versions_json: '{}',
+      impact: 'Token store rows are exposed to local applications through IPC.',
+      verified_by_verifier_run_id: ''
+    });
+    const priorFindingId = priorFinding.payload.findingId as string;
+    const followUp = createStructuredRun(db, 'Duplicate finding sanity check');
+    const currentHypothesis = db.createHypothesis({
+      runId: followUp.run.id,
+      state: 'reproduced',
+      title: 'Provider token store exposure',
+      descriptionMarkdown: 'The exported provider returns sensitive token-store rows to local IPC callers.',
+      component: 'android content provider',
+      bugClass: 'ipc_authz',
+      priorityScore: 27,
+      attackerReachability: '2 local app IPC',
+      impact: '3 token store exposure',
+      evidenceConfidence: '2 dynamic evidence',
+      exploitPracticality: '2 moderate constraints',
+      scopeConfidence: '2 in-scope asset',
+      cweMappings: [{ cweId: 'CWE-862', confidence: 'high', rationaleMarkdown: 'Missing authorization on IPC access.', source: 'model' }]
+    });
+    const evidence = db.createEvidence({
+      runId: followUp.run.id,
+      hypothesisId: currentHypothesis.id,
+      kind: 'dynamic_observation',
+      summary: 'Follow-up reproduction reached the same token-store provider path.'
+    });
+
+    const duplicate = callTool(router, followUp, 'finding', {
+      finding_id: '',
+      hypothesis_id: currentHypothesis.id,
+      state: 'reproduced',
+      title: 'Exported provider exposes token store',
+      summary: 'The exported provider returns sensitive token-store rows to local IPC callers.',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The issue concerns missing authorization on IPC access.',
+      affected_assets_json: '{"component":"android content provider"}',
+      affected_versions_json: '{}',
+      impact: 'Token store rows are exposed to local applications through IPC.',
+      verified_by_verifier_run_id: ''
+    });
+
+    expect(duplicate.status).toBe('success');
+    expect(duplicate.payload.action).toBe('duplicate_blocked');
+    expect(duplicate.payload.findingId).toBe(priorFindingId);
+    const followUpDetail = db.getRunDetail(followUp.run.id);
+    expect(followUpDetail.findings).toHaveLength(0);
+    expect(followUpDetail.hypotheses.find((item) => item.id === currentHypothesis.id)?.state).toBe('duplicate');
+    expect(followUpDetail.evidence.find((item) => item.id === evidence.id)?.findingId).toBe(priorFindingId);
+    expect(followUpDetail.traceEvents.some((event) => event.type === 'finding_event' && event.payload.action === 'duplicate_blocked')).toBe(true);
+    db.close();
+  });
+
   it('runs Python and the debugger wrapper through the disposable VM controller boundary', () => {
     const { db, context, logPath } = openStructuredToolDb();
     context.run.networkProfile = 'elevated';
@@ -603,6 +764,21 @@ function callTool(router: BealeToolRouter, context: CreatedRunContext, name: str
       argumentsJson: JSON.stringify(args)
     }).output
   ) as ToolOutput;
+}
+
+function createStructuredRun(db: WorkspaceDatabase, title: string): CreatedRunContext {
+  return db.createRun({
+    scopeVersionId: db.getActiveScope().id,
+    title,
+    promptMarkdown: `# ${title}`,
+    mode: 'open_discovery',
+    model: 'gpt-5.5',
+    reasoningEffort: 'xhigh',
+    attemptStrategy: 'single_path',
+    networkProfile: 'offline',
+    sandboxProfile: 'local_disposable_vm',
+    budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
+  });
 }
 
 interface StructuredToolDbOptions {

@@ -11,6 +11,14 @@ import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } fro
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import { cweEntryForId, inferCweMapping, normalizeCweConfidence, normalizeCweId } from './cweCatalog';
 import { clampPriorityScore, priorityFactorsFromLabels, scorePriority } from './discoveryScoring';
+import {
+  claimCandidateFromFinding,
+  claimCandidateFromHypothesis,
+  duplicateReviewPayload,
+  reviewClaimDuplicate,
+  type ClaimCandidate,
+  type DuplicateReview
+} from './duplicateReview';
 import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource, WeaknessMappingInput, WeaknessMappingRecord } from '@shared/types';
 
 export interface OpenAiToolDefinition {
@@ -318,6 +326,39 @@ export class BealeToolRouter {
       case 'verifier':
         return this.recordVerifier(context, args);
     }
+  }
+
+  private programClaimCandidates(context: CreatedRunContext): ClaimCandidate[] {
+    const hypotheses = this.db.listProgramHypothesesForRun(context.run.id);
+    const hypothesesById = new Map(hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
+    const findings = this.db.listProgramFindingsForRun(context.run.id);
+    return [
+      ...findings.map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null)),
+      ...hypotheses.map((hypothesis) => claimCandidateFromHypothesis(hypothesis))
+    ];
+  }
+
+  private programFindingCandidates(context: CreatedRunContext): ClaimCandidate[] {
+    const hypotheses = this.db.listProgramHypothesesForRun(context.run.id);
+    const hypothesesById = new Map(hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
+    return this.db
+      .listProgramFindingsForRun(context.run.id)
+      .map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null));
+  }
+
+  private preferFindingAnchorForDuplicateReview(context: CreatedRunContext, review: DuplicateReview): DuplicateReview {
+    if (review.outcome !== 'duplicate' || review.matchedEntityKind !== 'hypothesis' || !review.matchedEntityId) return review;
+    const linkedFinding = this.db
+      .listProgramFindingsForRun(context.run.id)
+      .find((finding) => finding.hypothesisId === review.matchedEntityId && !negativeClaimState(finding.state));
+    if (!linkedFinding) return review;
+    return {
+      ...review,
+      matchedEntityKind: 'finding',
+      matchedEntityId: linkedFinding.id,
+      rationale: `${review.rationale} Anchored duplicate feedback to linked finding ${linkedFinding.id}.`,
+      recommendedNextAction: `Do not create a new record. Add evidence to finding ${linkedFinding.id}, test a distinct variant, or investigate chaining.`
+    };
   }
 
   private searchScopedMaterial(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
@@ -788,6 +829,42 @@ export class BealeToolRouter {
       impactMarkdown: impact
     });
 
+    const duplicateReview =
+      existing === null
+        ? reviewClaimDuplicate(
+            {
+              entityKind: 'hypothesis',
+              title,
+              bodyMarkdown: descriptionMarkdown,
+              component,
+              bugClass,
+              impactMarkdown: impact,
+              cweMappings: cweMappings ?? []
+            },
+            this.programClaimCandidates(context)
+          )
+        : null;
+    const effectiveDuplicateReview = duplicateReview ? this.preferFindingAnchorForDuplicateReview(context, duplicateReview) : null;
+    if (effectiveDuplicateReview?.outcome === 'duplicate') {
+      return {
+        status: 'success',
+        summary: `Duplicate hypothesis blocked before creation: ${title}.`,
+        eventType: 'hypothesis_event',
+        source: 'system',
+        payload: {
+          observationBacked: false,
+          claimStatus: 'duplicate_review',
+          action: 'duplicate_blocked',
+          proposedTitle: title,
+          proposedComponent: component,
+          proposedBugClass: bugClass,
+          matchedEntityKind: effectiveDuplicateReview.matchedEntityKind,
+          matchedEntityId: effectiveDuplicateReview.matchedEntityId,
+          duplicateReview: duplicateReviewPayload(effectiveDuplicateReview)
+        }
+      };
+    }
+
     const hypothesis = existing
       ? this.db.updateHypothesis(existing.id, {
           state,
@@ -842,6 +919,7 @@ export class BealeToolRouter {
         impact: hypothesis.impact,
         cweMappings: cwePayload(hypothesis.cweMappings),
         priorityScore: hypothesis.priorityScore,
+        duplicateReview: duplicateReview ? duplicateReviewPayload(duplicateReview) : null,
         autoPromotedFindingIds: promotedFindings.map((finding) => finding.id)
       }
     };
@@ -879,6 +957,46 @@ export class BealeToolRouter {
       descriptionMarkdown: summaryMarkdown,
       impactMarkdown
     });
+
+    const duplicateReview =
+      existing === null
+        ? reviewClaimDuplicate(
+            {
+              entityKind: 'finding',
+              title,
+              bodyMarkdown: summaryMarkdown,
+              component: componentFromAffectedAssets(affectedAssets) || linkedHypothesis?.component || '',
+              bugClass: linkedHypothesis?.bugClass ?? '',
+              impactMarkdown,
+              affectedAssets,
+              cweMappings: cweMappings ?? []
+            },
+            this.programFindingCandidates(context)
+          )
+        : null;
+    if (duplicateReview?.outcome === 'duplicate' && duplicateReview.matchedEntityKind === 'finding' && duplicateReview.matchedEntityId) {
+      if (linkedHypothesisId) {
+        this.db.linkHypothesisEvidenceToFinding(context.run.id, linkedHypothesisId, duplicateReview.matchedEntityId);
+        this.db.updateHypothesisReview(linkedHypothesisId, { state: 'duplicate' });
+      }
+      return {
+        status: 'success',
+        summary: `Duplicate finding blocked before creation: ${title}.`,
+        eventType: 'finding_event',
+        source: 'system',
+        payload: {
+          observationBacked: state === 'verified' || state === 'reproduced',
+          claimStatus: 'duplicate_review',
+          action: 'duplicate_blocked',
+          findingId: duplicateReview.matchedEntityId,
+          hypothesisId: linkedHypothesisId || null,
+          proposedTitle: title,
+          state,
+          matchedFindingId: duplicateReview.matchedEntityId,
+          duplicateReview: duplicateReviewPayload(duplicateReview)
+        }
+      };
+    }
 
     const finding = existing
       ? this.db.updateFinding(existing.id, {
@@ -922,7 +1040,8 @@ export class BealeToolRouter {
         state: finding.state,
         priorityScore: finding.priorityScore,
         cweMappings: cwePayload(finding.cweMappings),
-        verifiedByVerifierRunId: finding.verifiedByVerifierRunId
+        verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+        duplicateReview: duplicateReview ? duplicateReviewPayload(duplicateReview) : null
       }
     };
   }
@@ -1470,6 +1589,28 @@ function jsonRecordFromString(value: unknown, fallback: Record<string, unknown>)
   } catch {
     return fallback;
   }
+}
+
+function componentFromAffectedAssets(value: Record<string, unknown>): string {
+  const direct = value.component ?? value.asset ?? value.endpoint ?? value.path ?? value.package;
+  if (typeof direct === 'string') return direct.trim();
+  const strings = flattenJsonStrings(value);
+  return strings.slice(0, 4).join(' ');
+}
+
+function flattenJsonStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+  if (Array.isArray(value)) return value.flatMap((item) => flattenJsonStrings(item));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, entry]) => [key, ...flattenJsonStrings(entry)]);
+  }
+  return [];
+}
+
+function negativeClaimState(value: string): boolean {
+  const state = value.trim().toLowerCase().replace(/-/g, '_');
+  return state === 'dismissed' || state === 'false_positive' || state === 'out_of_scope';
 }
 
 function cweMappingsForToolArgs(

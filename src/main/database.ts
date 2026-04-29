@@ -64,6 +64,13 @@ import {
   normalizeCweMappingStatus
 } from './cweCatalog';
 import { clampPriorityScore, MAX_PRIORITY_SCORE } from './discoveryScoring';
+import {
+  claimCandidateFromFinding,
+  duplicateReviewPayload,
+  reviewClaimDuplicate,
+  type ClaimCandidate,
+  type ClaimDraft
+} from './duplicateReview';
 
 type SqlPrimitive = string | number | bigint | null;
 type SqlRow = Record<string, SqlPrimitive>;
@@ -358,6 +365,19 @@ function weaknessMappingInputs(records: WeaknessMappingRecord[]): WeaknessMappin
     rationaleMarkdown: record.rationaleMarkdown,
     source: record.source
   }));
+}
+
+function findingClaimDraftFromHypothesis(hypothesis: HypothesisRecord, evidenceSummary: string): ClaimDraft {
+  return {
+    entityKind: 'finding',
+    title: hypothesis.title,
+    bodyMarkdown: `${hypothesis.descriptionMarkdown}\n\nEvidence: ${evidenceSummary}`,
+    component: hypothesis.component,
+    bugClass: hypothesis.bugClass,
+    impactMarkdown: hypothesis.impact,
+    affectedAssets: { component: hypothesis.component },
+    cweMappings: hypothesis.cweMappings
+  };
 }
 
 function text(row: SqlRow, key: string): string {
@@ -1418,6 +1438,18 @@ export class WorkspaceDatabase {
     return evidence;
   }
 
+  public linkHypothesisEvidenceToFinding(runId: string, hypothesisId: string, findingId: string): void {
+    this.db
+      .prepare(
+        `UPDATE evidence
+         SET finding_id = ?
+         WHERE run_id = ?
+           AND hypothesis_id = ?
+           AND finding_id IS NULL`
+      )
+      .run(findingId, runId, hypothesisId);
+  }
+
   public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
     return this.createEvidence({
       runId,
@@ -1996,6 +2028,40 @@ export class WorkspaceDatabase {
       });
       if (!verifierEvidence?.verifierRunId) continue;
 
+      const duplicateReview = reviewClaimDuplicate(findingClaimDraftFromHypothesis(hypothesis, verifierEvidence.summary), this.listProgramFindingCandidates(runId));
+      if (duplicateReview.outcome === 'duplicate' && duplicateReview.matchedEntityKind === 'finding' && duplicateReview.matchedEntityId) {
+        this.createEvidence({
+          runId,
+          hypothesisId: hypothesis.id,
+          findingId: duplicateReview.matchedEntityId,
+          kind: verifierEvidence.kind,
+          summary: verifierEvidence.summary,
+          observationTraceEventId: verifierEvidence.observationTraceEventId,
+          artifactId: verifierEvidence.artifactId,
+          verifierRunId: verifierEvidence.verifierRunId
+        });
+        this.updateHypothesisReview(hypothesis.id, { state: 'duplicate' });
+        this.appendTraceEvent({
+          runId,
+          attemptId: options.attemptId ?? null,
+          type: 'finding_event',
+          source: 'system',
+          summary: `Duplicate finding blocked before auto-promotion: ${hypothesis.title}.`,
+          payload: {
+            observationBacked: true,
+            claimStatus: 'duplicate_review',
+            action: 'auto_duplicate_blocked',
+            hypothesisId: hypothesis.id,
+            matchedFindingId: duplicateReview.matchedEntityId,
+            duplicateReview: duplicateReviewPayload(duplicateReview),
+            reason: options.reason ?? 'reproduced_hypothesis_matched_existing_program_finding'
+          },
+          vmContextId: options.vmContextId ?? null,
+          modelVisible: options.modelVisible ?? false
+        });
+        continue;
+      }
+
       const finding = this.createFinding({
         runId,
         hypothesisId: hypothesis.id,
@@ -2046,6 +2112,21 @@ export class WorkspaceDatabase {
     }
 
     return created;
+  }
+
+  public listProgramHypothesesForRun(runId: string): HypothesisRecord[] {
+    if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
+    return rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all()).map((row) => this.mapHypothesis(row));
+  }
+
+  public listProgramFindingsForRun(runId: string): FindingRecord[] {
+    if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
+    return rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all()).map((row) => this.mapFinding(row));
+  }
+
+  private listProgramFindingCandidates(runId: string): ClaimCandidate[] {
+    const hypothesesById = new Map(this.listProgramHypothesesForRun(runId).map((hypothesis) => [hypothesis.id, hypothesis]));
+    return this.listProgramFindingsForRun(runId).map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null));
   }
 
   public getRun(runId: string): RunRecord | null {
