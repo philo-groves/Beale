@@ -38,6 +38,7 @@ This book is the working planning document for the Beale rewrite.
 
 - [Electron GUI](electron-gui.md)
 - [Session Heat](session-heat.md)
+- [Research Momentum](research-momentum.md)
 - [First Vertical Slice](vertical-slice.md)
 - [Roadmap](roadmap.md)
 

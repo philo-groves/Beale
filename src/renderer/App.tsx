@@ -166,6 +166,15 @@ interface RenderedTraceGroup {
   entries: TraceTimelineEntry[];
 }
 
+type ResearchMomentumState = 'idle' | 'exploring' | 'building' | 'verifying' | 'hot' | 'stuck' | 'waiting';
+
+interface ResearchMomentum {
+  state: ResearchMomentumState;
+  reason: string;
+  since: string | null;
+  supportingTraceEventIds: string[];
+}
+
 const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
   { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
@@ -184,6 +193,11 @@ const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id)
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
+const TRACE_REVEAL_ANIMATION_MS = 180;
+const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
+const TRACE_REVEAL_INTERVAL_MS = 64;
+const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
+const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
   'accept',
   'accepted',
@@ -365,7 +379,6 @@ export function App(): JSX.Element {
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
-  const [statusMessage, setStatusMessage] = useState<{ tone: 'error' | 'info'; text: string } | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
@@ -425,9 +438,6 @@ export function App(): JSX.Element {
     setSnapshot(next);
     if (next) {
       setOpenAiStatus(next.openAi);
-      if (next.openAi.readiness === 'oauth_ready') {
-        setStatusMessage(null);
-      }
     }
     setSelectedRunId((current) => selectRunId(current, next));
   }, []);
@@ -635,7 +645,6 @@ export function App(): JSX.Element {
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
     setError(null);
-    setStatusMessage(null);
     try {
       if (snapshot) {
         const next = await window.beale.refreshOpenAiStatus();
@@ -656,10 +665,9 @@ export function App(): JSX.Element {
     try {
       const result = await window.beale.startOpenAiOAuth();
       setOpenAiOAuthResult(result);
-      setStatusMessage({ tone: 'info', text: result.detail });
       setOpenAiStatus(await window.beale.getOpenAiStatus());
     } catch (caught) {
-      setStatusMessage({ tone: 'error', text: errorMessage(caught) });
+      setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -766,6 +774,7 @@ export function App(): JSX.Element {
   const selectedTraceFinding = selectedTraceEvent ? findingForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const sessionHeat = sessionHeatForDetail(activeRunDetail);
+  const researchMomentum = researchMomentumForDetail(activeRunDetail, sessionHeat);
   const appShellClassName = [
     'app-shell',
     `session-heat-${sessionHeat}`,
@@ -938,7 +947,7 @@ export function App(): JSX.Element {
         executor={snapshot?.executor ?? null}
         vmPreference={vmPreference}
         activity={environmentActivityForDetail(activeRunDetail)}
-        message={statusMessage ?? openAiFooterMessage(snapshot?.openAi ?? openAiStatus)}
+        momentum={researchMomentum}
         notificationCount={snapshot?.notifications.length ?? 0}
         onConfigureVm={() => {
           setSettingsSection('general');
@@ -1133,7 +1142,7 @@ function StatusBar({
   executor,
   vmPreference,
   activity,
-  message,
+  momentum,
   notificationCount,
   onConfigureVm
 }: {
@@ -1141,7 +1150,7 @@ function StatusBar({
   executor: ExecutorStatus | null;
   vmPreference: VmPreference;
   activity: EnvironmentActivity;
-  message: { tone: 'error' | 'info'; text: string } | null;
+  momentum: ResearchMomentum;
   notificationCount: number;
   onConfigureVm: () => void;
 }): JSX.Element {
@@ -1166,12 +1175,25 @@ function StatusBar({
           ) : null}
         </div>
       </div>
-      <div className={`status-message ${message ? `tone-${message.tone}` : ''}`}>{message ? message.text : null}</div>
+      <ResearchMomentumLine momentum={momentum} />
       <button type="button" className="notification-button" title={`${notificationCount} unread notification${notificationCount === 1 ? '' : 's'}`}>
         <Bell size={15} />
         {notificationCount > 0 ? <span>{notificationCount}</span> : null}
       </button>
     </footer>
+  );
+}
+
+function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX.Element {
+  const label = researchMomentumLabel(momentum.state);
+  const title = `Research momentum: ${label}. ${momentum.reason}`;
+
+  return (
+    <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
+      <svg aria-hidden="true" focusable="false" preserveAspectRatio="none" viewBox="0 0 420 24">
+        <path d={researchMomentumPath(momentum.state)} />
+      </svg>
+    </div>
   );
 }
 
@@ -1635,22 +1657,34 @@ function MainTraceView({
   const loading = !detail;
   const events = detail ? buildTraceDisplayEvents(detail) : [];
   const timelineEntries = buildTraceTimelineEntries(events, visibleTraceCategories);
-  const latestEventId = events.at(-1)?.id ?? '';
   const traceFilterKey = visibleTraceCategories.join('|');
-  const maxWindowStart = Math.max(0, timelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
+  const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceFilterKey}`;
+  const timelineEntryIds = timelineEntries.map((entry) => entry.event.id);
+  const timelineEntryKey = timelineEntryIds.join('|');
+  const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
+  const [enteringTraceEntryIds, setEnteringTraceEntryIds] = useState<Set<string>>(() => new Set());
+  const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
+  const presentedTimelineEntries = timelineEntries.filter((entry) => revealedTraceEntryIds.has(entry.event.id));
+  const presentedEvents = presentedTimelineEntries.map((entry) => entry.event);
+  const latestPresentedEventId = presentedEvents.at(-1)?.id ?? '';
+  const maxWindowStart = Math.max(0, presentedTimelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
   const normalizedWindowStart = Math.min(traceWindowStart, maxWindowStart);
-  const renderedEntries = timelineEntries.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
+  const renderedEntries = presentedTimelineEntries.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
   const renderedGroups = groupRenderedTraceEntries(renderedEntries);
-  const latestGroupKey = latestTraceGroupKey(events);
+  const latestGroupKey = latestTraceGroupKey(presentedEvents);
   const topSpacerHeight = normalizedWindowStart * TRACE_ESTIMATED_EVENT_HEIGHT;
-  const bottomSpacerHeight = Math.max(0, timelineEntries.length - normalizedWindowStart - renderedEntries.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, presentedTimelineEntries.length - normalizedWindowStart - renderedEntries.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
   const traceScrollRef = useRef<HTMLDivElement | null>(null);
   const traceListRef = useRef<HTMLDivElement | null>(null);
   const traceFollowLatestRef = useRef(true);
   const traceAutoScrollingRef = useRef(false);
   const traceAutoScrollFrameRef = useRef<number | null>(null);
   const traceAutoScrollSettledFrameRef = useRef<number | null>(null);
+  const traceKnownEntryIdsRef = useRef<Set<string>>(new Set(timelineEntryIds));
+  const tracePresentationKeyRef = useRef(tracePresentationKey);
+  const traceRevealQueueRef = useRef<string[]>([]);
+  const traceRevealCleanupTimersRef = useRef<number[]>([]);
   const latestRenderedEvent = renderedEntries.at(-1)?.event;
   const latestRenderedPayloadLength = latestRenderedEvent ? (JSON.stringify(latestRenderedEvent.payload)?.length ?? 0) : 0;
   const latestRenderedEventVersion = latestRenderedEvent ? `${latestRenderedEvent.id}:${latestRenderedEvent.summary.length}:${latestRenderedPayloadLength}` : '';
@@ -1667,13 +1701,13 @@ function MainTraceView({
     const scrollableDistance = traceList.scrollHeight - traceList.clientHeight;
     const canScroll = scrollableDistance > 8;
     const hasVirtualTop = normalizedWindowStart > 0;
-    const hasVirtualBottom = normalizedWindowStart + renderedEntries.length < timelineEntries.length;
+    const hasVirtualBottom = normalizedWindowStart + renderedEntries.length < presentedTimelineEntries.length;
     const showTopFade = canScroll && (hasVirtualTop || traceList.scrollTop > 8);
     const showBottomFade = canScroll && (hasVirtualBottom || traceList.scrollTop < scrollableDistance - 8);
 
     traceScroll.classList.toggle('has-top-fade', showTopFade);
     traceScroll.classList.toggle('has-bottom-fade', showBottomFade);
-  }, [normalizedWindowStart, renderedEntries.length, timelineEntries.length]);
+  }, [normalizedWindowStart, presentedTimelineEntries.length, renderedEntries.length]);
 
   const cancelPendingTraceAutoScroll = useCallback(() => {
     if (traceAutoScrollFrameRef.current !== null) {
@@ -1710,6 +1744,84 @@ function MainTraceView({
     });
   }, [cancelPendingTraceAutoScroll, updateTraceScrollEdges]);
 
+  useEffect(() => {
+    if (tracePresentationKeyRef.current !== tracePresentationKey) {
+      tracePresentationKeyRef.current = tracePresentationKey;
+      traceKnownEntryIdsRef.current = new Set(timelineEntryIds);
+      traceRevealQueueRef.current = [];
+      for (const timer of traceRevealCleanupTimersRef.current.splice(0)) {
+        window.clearTimeout(timer);
+      }
+      setRevealedTraceEntryIds(new Set(timelineEntryIds));
+      setEnteringTraceEntryIds(new Set());
+      traceFollowLatestRef.current = true;
+      return;
+    }
+
+    const knownEntryIds = traceKnownEntryIdsRef.current;
+    const newEntryIds = timelineEntryIds.filter((id) => !knownEntryIds.has(id));
+    if (newEntryIds.length === 0) return;
+
+    for (const id of newEntryIds) {
+      knownEntryIds.add(id);
+    }
+
+    const shouldQueue = traceFollowLatestRef.current && revealedTraceEntryIds.size > 0;
+    if (!shouldQueue) {
+      setRevealedTraceEntryIds((current) => {
+        const next = new Set(current);
+        for (const id of newEntryIds) next.add(id);
+        return next;
+      });
+      return;
+    }
+
+    const queued = new Set(traceRevealQueueRef.current);
+    for (const id of newEntryIds) {
+      if (!queued.has(id)) {
+        traceRevealQueueRef.current.push(id);
+      }
+    }
+    setTraceRevealQueueVersion((version) => version + 1);
+  }, [revealedTraceEntryIds.size, timelineEntryKey, tracePresentationKey]);
+
+  useEffect(() => {
+    const queueLength = traceRevealQueueRef.current.length;
+    if (queueLength === 0) return undefined;
+
+    const timer = window.setTimeout(() => {
+      const batch = traceRevealQueueRef.current.splice(0, traceRevealBatchSize(traceRevealQueueRef.current.length));
+      if (batch.length === 0) return;
+
+      setRevealedTraceEntryIds((current) => {
+        const next = new Set(current);
+        for (const id of batch) next.add(id);
+        return next;
+      });
+      setEnteringTraceEntryIds((current) => {
+        const next = new Set(current);
+        for (const id of batch) next.add(id);
+        return next;
+      });
+
+      const cleanupTimer = window.setTimeout(() => {
+        setEnteringTraceEntryIds((current) => {
+          const next = new Set(current);
+          for (const id of batch) next.delete(id);
+          return next;
+        });
+        traceRevealCleanupTimersRef.current = traceRevealCleanupTimersRef.current.filter((timerId) => timerId !== cleanupTimer);
+      }, TRACE_REVEAL_RECENT_MS);
+      traceRevealCleanupTimersRef.current.push(cleanupTimer);
+
+      if (traceRevealQueueRef.current.length > 0) {
+        setTraceRevealQueueVersion((version) => version + 1);
+      }
+    }, traceRevealDelayMs(queueLength));
+
+    return () => window.clearTimeout(timer);
+  }, [traceRevealQueueVersion, tracePresentationKey]);
+
   useLayoutEffect(() => {
     if (!traceFollowLatestRef.current) return;
     if (normalizedWindowStart !== maxWindowStart) {
@@ -1717,15 +1829,18 @@ function MainTraceView({
       return;
     }
     scrollTraceToBottom();
-  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, maxWindowStart, normalizedWindowStart, renderedEntries.length, scrollTraceToBottom, selectedRunId]);
+  }, [bottomSpacerHeight, latestPresentedEventId, latestRenderedEventVersion, maxWindowStart, normalizedWindowStart, renderedEntries.length, scrollTraceToBottom, selectedRunId]);
 
   useEffect(() => () => {
     cancelPendingTraceAutoScroll();
+    for (const timer of traceRevealCleanupTimersRef.current.splice(0)) {
+      window.clearTimeout(timer);
+    }
   }, [cancelPendingTraceAutoScroll]);
 
   useEffect(() => {
     traceFollowLatestRef.current = true;
-    setTraceWindowStart(Math.max(0, timelineEntries.length - TRACE_RENDER_WINDOW_SIZE));
+    setTraceWindowStart(0);
   }, [selectedRunId, traceFilterKey]);
 
   useEffect(() => {
@@ -1735,7 +1850,7 @@ function MainTraceView({
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateTraceScrollEdges);
     return () => window.cancelAnimationFrame(frame);
-  }, [bottomSpacerHeight, latestEventId, latestRenderedEventVersion, renderedEntries.length, selectedRunId, topSpacerHeight, updateTraceScrollEdges]);
+  }, [bottomSpacerHeight, latestPresentedEventId, latestRenderedEventVersion, renderedEntries.length, selectedRunId, topSpacerHeight, updateTraceScrollEdges]);
 
   useEffect(() => {
     const traceList = traceListRef.current;
@@ -1756,7 +1871,7 @@ function MainTraceView({
     const distanceFromBottom = traceList.scrollHeight - traceList.clientHeight - traceList.scrollTop;
     const nearBottom = distanceFromBottom <= TRACE_AUTO_FOLLOW_THRESHOLD;
     traceFollowLatestRef.current = nearBottom;
-    if (timelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
+    if (presentedTimelineEntries.length <= TRACE_RENDER_WINDOW_SIZE) return;
     if (nearBottom) {
       if (normalizedWindowStart !== maxWindowStart) {
         setTraceWindowStart(maxWindowStart);
@@ -1768,7 +1883,7 @@ function MainTraceView({
     if (nextStart !== normalizedWindowStart) {
       setTraceWindowStart(nextStart);
     }
-  }, [maxWindowStart, normalizedWindowStart, timelineEntries.length, updateTraceScrollEdges]);
+  }, [maxWindowStart, normalizedWindowStart, presentedTimelineEntries.length, updateTraceScrollEdges]);
 
   if (!selectedRunId) return null;
 
@@ -1785,6 +1900,7 @@ function MainTraceView({
               <MainTraceTurnGroup
                 group={group.group}
                 entries={group.entries}
+                enteringTraceEventIds={enteringTraceEntryIds}
                 key={group.key}
                 latest={group.group.key === latestGroupKey}
                 runStatus={detail.run.status}
@@ -2032,6 +2148,7 @@ function findingForTraceEvent(detail: RunDetail | null, event: TraceEventRecord)
 function MainTraceTurnGroup({
   group,
   entries,
+  enteringTraceEventIds,
   latest,
   runStatus,
   selectedTraceEventId,
@@ -2039,6 +2156,7 @@ function MainTraceTurnGroup({
 }: {
   group: TraceTimelineGroup;
   entries: TraceTimelineEntry[];
+  enteringTraceEventIds: Set<string>;
   latest: boolean;
   runStatus: RunStatus;
   selectedTraceEventId: string | null;
@@ -2046,9 +2164,10 @@ function MainTraceTurnGroup({
 }): JSX.Element {
   const status = traceGroupStatusLabel(group, latest, runStatus);
   const activitySummary = group.toolCount > 0 ? `${group.toolCount} ops` : group.modelCount > 0 ? `${group.modelCount} model` : 'system';
+  const headerEntering = entries[0] ? enteringTraceEventIds.has(entries[0].event.id) : false;
 
   return (
-    <section className="main-trace-turn" aria-label={group.label}>
+    <section className={`main-trace-turn ${headerEntering ? 'trace-turn-entering' : ''}`} aria-label={group.label}>
       <div className="main-trace-turn-header">
         <div>
           <span className="main-trace-turn-label">{group.label}</span>
@@ -2065,14 +2184,30 @@ function MainTraceTurnGroup({
       </div>
       <div className="main-trace-turn-events">
         {entries.map(({ event }) => (
-          <MainTraceEvent event={event} key={event.id} selected={event.id === selectedTraceEventId} onSelect={onSelectTraceEvent} />
+          <MainTraceEvent
+            entering={enteringTraceEventIds.has(event.id)}
+            event={event}
+            key={event.id}
+            selected={event.id === selectedTraceEventId}
+            onSelect={onSelectTraceEvent}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function MainTraceEvent({ event, selected, onSelect }: { event: TraceDisplayEvent; selected: boolean; onSelect: (event: TraceDisplayEvent) => void }): JSX.Element {
+function MainTraceEvent({
+  entering,
+  event,
+  selected,
+  onSelect
+}: {
+  entering: boolean;
+  event: TraceDisplayEvent;
+  selected: boolean;
+  onSelect: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
   const category = traceCategoryForEvent(event);
   const outcome = traceEventOutcome(event);
   const detail = traceEventDetailText(event, category);
@@ -2084,6 +2219,8 @@ function MainTraceEvent({ event, selected, onSelect }: { event: TraceDisplayEven
       type="button"
       className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
         selected ? 'selected' : ''
+      } ${
+        entering ? 'trace-entering' : ''
       }`}
       aria-pressed={selected}
       onClick={() => onSelect(event)}
@@ -2302,6 +2439,20 @@ function latestTraceGroupKey(events: TraceDisplayEvent[]): string {
     }
   }
   return key;
+}
+
+function traceRevealBatchSize(queueLength: number): number {
+  if (queueLength > 90) return 12;
+  if (queueLength > 45) return 8;
+  if (queueLength > 18) return 4;
+  if (queueLength > 6) return 2;
+  return 1;
+}
+
+function traceRevealDelayMs(queueLength: number): number {
+  if (queueLength > 45) return 20;
+  if (queueLength > 18) return 32;
+  return TRACE_REVEAL_INTERVAL_MS;
 }
 
 function traceTurnNumber(event: TraceEventRecord): number | null {
@@ -3081,6 +3232,187 @@ function environmentActivityForDetail(detail: RunDetail | null): EnvironmentActi
   }
 
   return { host: true, guest: false };
+}
+
+function researchMomentumForDetail(detail: RunDetail | null, heat: SessionHeat): ResearchMomentum {
+  if (!detail) return momentumState('idle', 'No research session is selected.');
+  if (detail.run.status === 'queued') return momentumState('waiting', 'The research session is queued.');
+  if (detail.run.status !== 'active') return momentumState('idle', `The research session is ${traceLabel(detail.run.status)}.`);
+
+  const recent = recentMomentumTraceEvents(detail.traceEvents);
+  const latest = recent.at(-1) ?? null;
+  if (recent.length === 0) return momentumState('waiting', 'Waiting for the first trace event.');
+
+  const waitingEvents = recent.filter(isMomentumWaitingEvent);
+  if (waitingEvents.length > 0 && latest && isMomentumWaitingEvent(latest)) {
+    return momentumState('waiting', momentumReasonFromEvent('Waiting on setup or approval', latest), waitingEvents);
+  }
+
+  const failureEvents = recent.filter(isMomentumFailureEvent);
+  if (isMomentumStuck(recent, failureEvents)) {
+    return momentumState('stuck', momentumStuckReason(recent, failureEvents), failureEvents);
+  }
+
+  if (hasMomentumHotLead(detail, heat, recent)) {
+    const supporting = recent.filter((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'evidence');
+    return momentumState('hot', `Evidence-backed ${traceLabel(heat)} lead is active.`, supporting.length > 0 ? supporting : recent.slice(-3));
+  }
+
+  const verifyingEvents = recent.filter(isMomentumVerifyingEvent);
+  if (verifyingEvents.length > 0) {
+    return momentumState('verifying', momentumReasonFromEvent('Verifying evidence', verifyingEvents.at(-1) ?? latest), verifyingEvents);
+  }
+
+  const buildingEvents = recent.filter(isMomentumBuildingEvent);
+  if (buildingEvents.length > 0) {
+    return momentumState('building', momentumReasonFromEvent('Building hypotheses or experiments', buildingEvents.at(-1) ?? latest), buildingEvents);
+  }
+
+  const exploringEvents = recent.filter(isMomentumExploringEvent);
+  if (exploringEvents.length > 0) {
+    return momentumState('exploring', momentumReasonFromEvent('Exploring target surface', exploringEvents.at(-1) ?? latest), exploringEvents);
+  }
+
+  return momentumState('exploring', momentumReasonFromEvent('Active session is producing trace events', latest), recent.slice(-3));
+}
+
+function recentMomentumTraceEvents(events: TraceEventRecord[]): TraceEventRecord[] {
+  const now = Date.now();
+  const recent = events.filter((event) => {
+    const created = Date.parse(event.createdAt);
+    return Number.isFinite(created) && now - created >= 0 && now - created <= RESEARCH_MOMENTUM_WINDOW_MS;
+  });
+  return recent.length > 0 ? recent : events.slice(-RESEARCH_MOMENTUM_RECENT_LIMIT);
+}
+
+function momentumState(state: ResearchMomentumState, reason: string, events: TraceEventRecord[] = []): ResearchMomentum {
+  return {
+    state,
+    reason,
+    since: events[0]?.createdAt ?? null,
+    supportingTraceEventIds: events.map((event) => event.id)
+  };
+}
+
+function momentumReasonFromEvent(prefix: string, event: TraceEventRecord | null): string {
+  if (!event) return `${prefix}.`;
+  return `${prefix}: ${trimTraceLabelPeriod(traceEventSummary(event, traceCategoryForEvent(event)))}.`;
+}
+
+function isMomentumWaitingEvent(event: TraceEventRecord): boolean {
+  const text = momentumEventText(event);
+  return /\b(waiting|approval|approve|authenticate|credential|authorization|permission|not configured|configure|blocked by|requires setup|user input)\b/.test(text);
+}
+
+function isMomentumFailureEvent(event: TraceEventRecord): boolean {
+  const category = traceCategoryForEvent(event);
+  if (category === 'failure_recovery' || traceEventOutcome(event) === 'failure') return true;
+  return /\b(error|failed|failure|retry|unavailable|unsupported|missing|no local source|not found|blocked)\b/.test(momentumEventText(event));
+}
+
+function isMomentumStuck(recent: TraceEventRecord[], failureEvents: TraceEventRecord[]): boolean {
+  if (failureEvents.length >= 3) return true;
+  const latest = recent.at(-1);
+  if (failureEvents.length >= 2 && latest && isMomentumFailureEvent(latest)) return true;
+  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumEventText(event))).length;
+  return sourceUnavailableCount >= 2;
+}
+
+function momentumStuckReason(recent: TraceEventRecord[], failureEvents: TraceEventRecord[]): string {
+  const sourceUnavailableCount = recent.filter((event) => /\b(source unavailable|no local source|materialize source|clone failed)\b/.test(momentumEventText(event))).length;
+  if (sourceUnavailableCount >= 2) return 'Repeated source availability blockers detected.';
+  const latestFailure = failureEvents.at(-1) ?? recent.at(-1) ?? null;
+  return momentumReasonFromEvent('Repeated errors detected', latestFailure);
+}
+
+function hasMomentumHotLead(detail: RunDetail, heat: SessionHeat, recent: TraceEventRecord[]): boolean {
+  if (heat !== 'high' && heat !== 'critical') return false;
+  const recentProgress = recent.some((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'evidence');
+  if (recentProgress) return true;
+
+  return (
+    detail.findings.some((finding) => !isIgnoredHeatState(finding.state) && isMomentumRecentIso(finding.updatedAt)) ||
+    detail.hypotheses.some((hypothesis) => {
+      const state = stateClass(hypothesis.state);
+      return (state === 'reproduced' || state === 'promoted' || state === 'verified') && isMomentumRecentIso(hypothesis.updatedAt);
+    })
+  );
+}
+
+function isMomentumVerifyingEvent(event: TraceEventRecord): boolean {
+  const category = traceCategoryForEvent(event);
+  if (category === 'verifier') return true;
+  const text = momentumEventText(event);
+  return (
+    category === 'vm_execution' ||
+    /\b(verifier|verify|verified|repro|reproduction|debugger|poc|proof|crash|sanitizer|exploit|execute|test|assert)\b/.test(text)
+  );
+}
+
+function isMomentumBuildingEvent(event: TraceEventRecord): boolean {
+  const category = traceCategoryForEvent(event);
+  if (category === 'hypotheses' || category === 'evidence') return true;
+  return /\b(hypothesis|finding|artifact|experiment|prepare|construct|build|created|promote|chain)\b/.test(momentumEventText(event));
+}
+
+function isMomentumExploringEvent(event: TraceEventRecord): boolean {
+  const category = traceCategoryForEvent(event);
+  if (category === 'code_navigation' || category === 'tools') return true;
+  return /\b(search|inspect|read|list|grep|repository|source|import|clone|map|enumerate)\b/.test(momentumEventText(event));
+}
+
+function isMomentumRecentIso(value: string): boolean {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  const age = Date.now() - timestamp;
+  return age >= 0 && age <= RESEARCH_MOMENTUM_WINDOW_MS;
+}
+
+function momentumEventText(event: TraceEventRecord): string {
+  let payload = '';
+  try {
+    payload = JSON.stringify(event.payload);
+  } catch {
+    payload = '';
+  }
+  return `${event.source}\n${event.type}\n${event.summary}\n${payload}`.toLowerCase();
+}
+
+function researchMomentumLabel(state: ResearchMomentumState): string {
+  switch (state) {
+    case 'idle':
+      return 'Idle';
+    case 'exploring':
+      return 'Exploring';
+    case 'building':
+      return 'Building';
+    case 'verifying':
+      return 'Verifying';
+    case 'hot':
+      return 'Hot Lead';
+    case 'stuck':
+      return 'Stuck';
+    case 'waiting':
+      return 'Waiting';
+  }
+}
+
+function researchMomentumPath(state: ResearchMomentumState): string {
+  switch (state) {
+    case 'exploring':
+      return 'M-80 12 C-56 8 -32 16 -8 12 S40 8 64 12 S112 16 136 12 S184 8 208 12 S256 16 280 12 S328 8 352 12 S400 16 424 12 S472 8 500 12';
+    case 'building':
+      return 'M-80 12 C-68 5 -56 19 -44 12 S-20 5 -8 12 S16 19 28 12 S52 5 64 12 S88 19 100 12 S124 5 136 12 S160 19 172 12 S196 5 208 12 S232 19 244 12 S268 5 280 12 S304 19 316 12 S340 5 352 12 S376 19 388 12 S412 5 424 12 S448 19 460 12 S484 5 500 12';
+    case 'verifying':
+      return 'M-80 12 L-68 7 L-56 17 L-44 8 L-32 16 L-20 6 L-8 18 L4 7 L16 17 L28 8 L40 16 L52 6 L64 18 L76 7 L88 17 L100 8 L112 16 L124 6 L136 18 L148 7 L160 17 L172 8 L184 16 L196 6 L208 18 L220 7 L232 17 L244 8 L256 16 L268 6 L280 18 L292 7 L304 17 L316 8 L328 16 L340 6 L352 18 L364 7 L376 17 L388 8 L400 16 L412 6 L424 18 L436 7 L448 17 L460 8 L472 16 L484 6 L500 12';
+    case 'hot':
+      return 'M-80 12 L-70 2 L-58 22 L-47 5 L-35 20 L-24 1 L-12 23 L0 6 L12 19 L24 3 L36 22 L48 4 L60 21 L72 2 L84 23 L96 5 L108 20 L120 1 L132 22 L144 6 L156 19 L168 3 L180 23 L192 4 L204 21 L216 2 L228 22 L240 5 L252 20 L264 1 L276 23 L288 6 L300 19 L312 3 L324 22 L336 4 L348 21 L360 2 L372 23 L384 5 L396 20 L408 1 L420 22 L432 6 L444 19 L456 3 L468 22 L480 4 L500 12';
+    case 'stuck':
+      return 'M-80 12 L-64 12 L-58 5 L-50 19 L-42 9 L-34 15 L-20 15 L-14 6 L-6 18 L2 10 L10 16 L24 16 L30 5 L38 19 L46 9 L54 15 L68 15 L74 6 L82 18 L90 10 L98 16 L112 16 L118 5 L126 19 L134 9 L142 15 L156 15 L162 6 L170 18 L178 10 L186 16 L200 16 L206 5 L214 19 L222 9 L230 15 L244 15 L250 6 L258 18 L266 10 L274 16 L288 16 L294 5 L302 19 L310 9 L318 15 L332 15 L338 6 L346 18 L354 10 L362 16 L376 16 L382 5 L390 19 L398 9 L406 15 L420 15 L426 6 L434 18 L442 10 L450 16 L464 16 L470 5 L478 19 L486 9 L500 12';
+    case 'idle':
+    case 'waiting':
+      return 'M-80 12 L500 12';
+  }
 }
 
 function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {
@@ -5257,14 +5589,6 @@ function openAiStatusLabel(status: OpenAiAccountStatus): string {
     case 'not_configured':
       return 'Missing';
   }
-}
-
-function openAiFooterMessage(status: OpenAiAccountStatus | null): { tone: 'error' | 'info'; text: string } | null {
-  if (!status || status.readiness === 'oauth_ready') return null;
-  return {
-    tone: 'error',
-    text: 'Not authenticated with OpenAI. Authenticate by going to Settings > Providers.'
-  };
 }
 
 function StatusPill({ status }: { status: string }): JSX.Element {
