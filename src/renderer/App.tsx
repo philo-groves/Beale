@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
@@ -85,6 +85,7 @@ import type {
   StartRunInput,
   TraceEventRecord,
   TranscriptMessageRecord,
+  VerifierRunRecord,
   WeaknessMappingRecord,
   VmPreference,
   VmPreferenceInput,
@@ -175,6 +176,14 @@ interface ResearchMomentum {
   supportingTraceEventIds: string[];
 }
 
+interface ContextMeter {
+  fraction: number;
+  inputTokens: number | null;
+  tokenLimit: number;
+  label: string;
+  source: string;
+}
+
 interface PythonToolCallPreview {
   task: string;
   scriptLines: string[];
@@ -203,6 +212,7 @@ const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
+const DEFAULT_CONTEXT_TOKEN_LIMIT = 225_000;
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -398,6 +408,7 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
+  const [traceDetailOpen, setTraceDetailOpen] = useState(false);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
   const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -408,6 +419,7 @@ export function App(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const previousRunIdRef = useRef<string | null>(null);
   const runDetailRequestSeqRef = useRef(0);
+  const runDetailVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
     const timers = new Map<Element, number>();
@@ -489,8 +501,12 @@ export function App(): JSX.Element {
       .then(setWindowChromeState)
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
-    const unsubscribeSnapshot = window.beale.onSnapshot(applySnapshot);
-    const unsubscribeProgramRegistry = window.beale.onProgramRegistry(setProgramRegistry);
+    const unsubscribeSnapshot = window.beale.onSnapshot((next) => {
+      startTransition(() => applySnapshot(next));
+    });
+    const unsubscribeProgramRegistry = window.beale.onProgramRegistry((next) => {
+      startTransition(() => setProgramRegistry(next));
+    });
     const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
     return () => {
       unsubscribeSnapshot();
@@ -502,10 +518,12 @@ export function App(): JSX.Element {
   useEffect(() => {
     const requestSeq = ++runDetailRequestSeqRef.current;
     if (!selectedRunId) {
+      runDetailVersionRef.current = null;
       setRunDetail(null);
       return undefined;
     }
 
+    runDetailVersionRef.current = null;
     let disposed = false;
     let inFlight = false;
     const refreshRunDetail = (): void => {
@@ -515,7 +533,11 @@ export function App(): JSX.Element {
         .getRunDetail(selectedRunId)
         .then((detail) => {
           if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
-            setRunDetail(detail);
+            const detailVersion = runDetailRenderVersion(detail);
+            if (detailVersion !== runDetailVersionRef.current) {
+              runDetailVersionRef.current = detailVersion;
+              startTransition(() => setRunDetail(detail));
+            }
           }
         })
         .catch((caught: unknown) => {
@@ -552,6 +574,7 @@ export function App(): JSX.Element {
     if (!selectedTraceEventId || !runDetail) return;
     if (!buildTraceDisplayEvents(runDetail).some((event) => event.id === selectedTraceEventId)) {
       setSelectedTraceEventId(null);
+      setTraceDetailOpen(false);
     }
   }, [runDetail, selectedTraceEventId]);
 
@@ -758,6 +781,18 @@ export function App(): JSX.Element {
     );
   };
 
+  const handleSelectTraceEvent = useCallback((event: TraceDisplayEvent): void => {
+    setSelectedTraceEventId(event.id);
+    setTraceDetailOpen(true);
+  }, []);
+
+  const handleSteerInstruction = useCallback(
+    (runId: string, instruction: string): void => {
+      void runAction(() => window.beale.steerRun({ type: 'fork', runId, instruction }));
+    },
+    [runAction]
+  );
+
   const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
     event.preventDefault();
     const pointerId = event.pointerId;
@@ -784,18 +819,16 @@ export function App(): JSX.Element {
   };
 
   const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
-  const activeTraceEvents = activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : [];
-  const selectedTraceEvent = activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null;
+  const activeTraceEvents = useMemo(() => (activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : []), [activeRunDetail]);
+  const selectedTraceEvent = useMemo(() => activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null, [activeTraceEvents, selectedTraceEventId]);
   const selectedTraceFinding = selectedTraceEvent ? findingForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const sessionHeat = sessionHeatForDetail(activeRunDetail);
   const researchMomentum = researchMomentumForDetail(activeRunDetail, sessionHeat);
-  const researchActive = activeRunDetail?.run.status === 'active';
   const appShellClassName = [
     'app-shell',
     `session-heat-${sessionHeat}`,
     `momentum-${researchMomentum.state}`,
-    researchActive ? 'research-active' : '',
     windowChromeState.isMaximized || windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     sidebarCollapsed ? 'sidebar-collapsed' : '',
     inspectorOpen ? 'inspector-open' : ''
@@ -941,28 +974,28 @@ export function App(): JSX.Element {
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
+            events={activeTraceEvents}
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
-            onSelectTraceEvent={(event) => {
-              setSelectedTraceEventId(event.id);
-              setInspectorOpen(true);
-            }}
-            onSteerInstruction={(runId, instruction) => {
-              void runAction(() => window.beale.steerRun({ type: 'fork', runId, instruction }));
-            }}
+            onSelectTraceEvent={handleSelectTraceEvent}
+            onSteerInstruction={handleSteerInstruction}
           />
         </div>
       </main>
-      <aside className="inspector-sidebar" aria-label="Inspector" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
-        <TraceInspector event={selectedTraceEvent} finding={selectedTraceFinding} hypothesis={selectedTraceHypothesis} />
+      <aside className="inspector-sidebar" aria-label="Evidence" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
+        <EvidenceSidebar
+          detail={activeRunDetail}
+          onSelectTraceEvent={handleSelectTraceEvent}
+        />
       </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         executor={snapshot?.executor ?? null}
         vmPreference={vmPreference}
         activity={environmentActivityForDetail(activeRunDetail)}
+        detail={activeRunDetail}
         momentum={researchMomentum}
         notificationCount={snapshot?.notifications.length ?? 0}
         inspectorOpen={inspectorOpen}
@@ -1035,6 +1068,15 @@ export function App(): JSX.Element {
         />
       ) : null}
       {researchPromptDetail ? <ResearchPromptModal detail={researchPromptDetail} onClose={() => setResearchPromptDetail(null)} /> : null}
+      {traceDetailOpen && selectedTraceEvent ? (
+        <TraceDetailModal
+          detail={activeRunDetail}
+          event={selectedTraceEvent}
+          finding={selectedTraceFinding}
+          hypothesis={selectedTraceHypothesis}
+          onClose={() => setTraceDetailOpen(false)}
+        />
+      ) : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
       {sessionHistoryProgram ? (
         <ProgramSessionHistoryModal
@@ -1056,6 +1098,36 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   if (!snapshot) return null;
   if (current && snapshot.runs.some(({ run }) => run.id === current)) return current;
   return snapshot.runs[0]?.run.id ?? null;
+}
+
+function runDetailRenderVersion(detail: RunDetail): string {
+  return [
+    detail.run.id,
+    detail.run.status,
+    detail.run.title,
+    detail.run.summary,
+    detail.run.endedAt ?? '',
+    collectionVersion(detail.attempts, (attempt) => `${attempt.id}:${attempt.status}:${attempt.shortState}:${attempt.endedAt ?? ''}`),
+    collectionVersion(detail.traceEvents, (event) => `${event.id}:${event.sequence}:${event.summary}:${JSON.stringify(event.payload).length}`),
+    collectionVersion(detail.transcriptMessages, (message) => `${message.id}:${message.contentMarkdown.length}:${message.createdAt}`),
+    collectionVersion(detail.hypotheses, (hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.updatedAt}`),
+    collectionVersion(detail.artifacts, (artifact) => `${artifact.id}:${artifact.relativePath}:${artifact.createdAt}`),
+    collectionVersion(detail.evidence, (evidence) => `${evidence.id}:${evidence.summary}:${evidence.createdAt}`),
+    collectionVersion(detail.findings, (finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.updatedAt}`),
+    collectionVersion(detail.verifierContracts, (contract) => `${contract.id}:${contract.status}:${contract.updatedAt}`),
+    collectionVersion(detail.verifierRuns, (run) => `${run.id}:${run.status}:${run.endedAt ?? ''}`),
+    collectionVersion(detail.vmContexts, (context) => `${context.id}:${context.state}:${context.destroyedAt ?? ''}`),
+    collectionVersion(detail.modelSessions, (session) => `${session.id}:${session.status}:${session.updatedAt ?? ''}`),
+    collectionVersion(detail.contextCompactions, (compaction) => `${compaction.id}:${compaction.createdAt}`),
+    collectionVersion(detail.policyEvents, (event) => `${event.id}:${event.decision}:${event.decidedAt ?? ''}`),
+    collectionVersion(detail.exports, (exportRecord) => `${exportRecord.id}:${exportRecord.status}:${exportRecord.reviewedAt ?? ''}`)
+  ].join('|');
+}
+
+function collectionVersion<T>(items: T[], itemVersion: (item: T) => string): string {
+  const first = items[0];
+  const last = items.at(-1);
+  return `${items.length}:${first ? itemVersion(first) : ''}:${last && last !== first ? itemVersion(last) : ''}`;
 }
 
 function researchSessionsForProgram(registry: ProgramRegistryState, program: ProgramRegistryEntry): ResearchSessionSummary[] {
@@ -1153,6 +1225,7 @@ function StatusBar({
   executor,
   vmPreference,
   activity,
+  detail,
   momentum,
   notificationCount,
   inspectorOpen,
@@ -1166,6 +1239,7 @@ function StatusBar({
   executor: ExecutorStatus | null;
   vmPreference: VmPreference;
   activity: EnvironmentActivity;
+  detail: RunDetail | null;
   momentum: ResearchMomentum;
   notificationCount: number;
   inspectorOpen: boolean;
@@ -1197,7 +1271,7 @@ function StatusBar({
           ) : null}
         </div>
       </div>
-      <ResearchMomentumLine momentum={momentum} />
+      <ResearchMomentumLine detail={detail} momentum={momentum} />
       <div className="status-actions" aria-label="Application actions">
         <button
           type="button"
@@ -1218,8 +1292,8 @@ function StatusBar({
         <button
           type="button"
           className="status-icon-button"
-          title={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
-          aria-label={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+          title={inspectorOpen ? 'Hide evidence pane' : 'Show evidence pane'}
+          aria-label={inspectorOpen ? 'Hide evidence pane' : 'Show evidence pane'}
           aria-pressed={inspectorOpen}
           onClick={onToggleInspector}
         >
@@ -1230,10 +1304,12 @@ function StatusBar({
   );
 }
 
-function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX.Element {
+function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; momentum: ResearchMomentum }): JSX.Element {
   const label = researchMomentumLabel(momentum.state);
-  const title = `Research momentum: ${label}. ${momentum.reason}`;
+  const contextMeter = contextMeterForDetail(detail);
+  const title = `Research momentum: ${label}. ${momentum.reason} Context: ${contextMeter.label} from ${contextMeter.source}; strawberry marks ${formatCompactContextNumber(contextMeter.tokenLimit)} tokens.`;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const contextFractionRef = useRef(contextMeter.fraction);
   const reduceMotion = usePrefersReducedMotion();
   const momentumValue = researchMomentumValue(momentum.state);
 
@@ -1257,7 +1333,8 @@ function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX
       canvas.height = Math.round(height * dpr);
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (reduceMotion) {
-        drawMomentumWorm(context, width, height, momentumValue / 100, elapsed);
+        contextFractionRef.current = contextMeter.fraction;
+        drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, contextFractionRef.current);
       }
     };
 
@@ -1271,7 +1348,11 @@ function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX
       if (!reduceMotion) {
         elapsed += deltaSeconds;
       }
-      drawMomentumWorm(context, width, height, momentumValue / 100, elapsed);
+      const nextContextFraction = reduceMotion
+        ? contextMeter.fraction
+        : contextFractionRef.current + (contextMeter.fraction - contextFractionRef.current) * Math.min(1, deltaSeconds * 2.4);
+      contextFractionRef.current = nextContextFraction;
+      drawMomentumSnake(context, width, height, momentumValue / 100, elapsed, nextContextFraction);
 
       if (!reduceMotion) {
         frameId = window.requestAnimationFrame(draw);
@@ -1287,29 +1368,35 @@ function ResearchMomentumLine({ momentum }: { momentum: ResearchMomentum }): JSX
       resizeObserver.disconnect();
       window.cancelAnimationFrame(frameId);
     };
-  }, [momentumValue, reduceMotion]);
+  }, [contextMeter.fraction, momentumValue, reduceMotion]);
 
   return (
     <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
-      <canvas className="momentum-worm-canvas" ref={canvasRef} aria-hidden="true" />
+      <canvas className="momentum-snake-canvas" ref={canvasRef} aria-hidden="true" />
     </div>
   );
 }
 
-function drawMomentumWorm(context: CanvasRenderingContext2D, width: number, height: number, momentum: number, elapsed: number): void {
+function drawMomentumSnake(context: CanvasRenderingContext2D, width: number, height: number, momentum: number, elapsed: number, contextFraction: number): void {
   if (width <= 0 || height <= 0) return;
   const pointCount = 200;
   const clampedMomentum = Math.max(0, Math.min(1, momentum));
+  const clampedContext = Math.max(0, Math.min(1, contextFraction));
   const maxAmplitude = height / 2 - 5;
   const amplitude = clampedMomentum === 0 ? 0 : 1 + clampedMomentum * maxAmplitude;
   const speed = 0.8 + clampedMomentum * 5;
   const centerY = height / 2;
   const phase = elapsed * speed;
-  const startX = 22;
-  const endX = Math.max(startX + 24, width - 32);
+  const startX = 18;
+  const strawberryX = Math.max(startX + 86, width - 18);
+  const maxHeadX = Math.max(startX + 34, strawberryX - 25);
+  const minimumFraction = width < 180 ? 0.24 : 0.12;
+  const visibleContextFraction = Math.max(minimumFraction, clampedContext);
+  const endX = startX + (maxHeadX - startX) * visibleContextFraction;
   const points: Array<[number, number]> = [];
 
   context.clearRect(0, 0, width, height);
+  drawContextGoalStrawberry(context, strawberryX, centerY, clampedContext);
 
   for (let index = 0; index <= pointCount; index += 1) {
     const fraction = index / pointCount;
@@ -1324,27 +1411,27 @@ function drawMomentumWorm(context: CanvasRenderingContext2D, width: number, heig
   context.save();
   context.lineCap = 'round';
   context.lineJoin = 'round';
-  drawMomentumWormPath(context, points);
-  context.strokeStyle = clampedMomentum === 0 ? 'rgba(68, 68, 65, 0.34)' : 'rgba(68, 68, 65, 0.6)';
+  drawMomentumSnakePath(context, points);
+  context.strokeStyle = 'rgba(68, 68, 65, 0.6)';
   context.lineWidth = 7;
   context.stroke();
 
-  drawMomentumWormPath(context, points);
-  context.strokeStyle = clampedMomentum === 0 ? 'rgba(180, 178, 169, 0.42)' : '#b4b2a9';
+  drawMomentumSnakePath(context, points);
+  context.strokeStyle = '#b4b2a9';
   context.lineWidth = clampedMomentum > 0.85 ? 4.8 : 4;
   context.stroke();
 
-  drawMomentumWormPath(context, points);
+  drawMomentumSnakePath(context, points);
   context.strokeStyle = 'rgba(209, 207, 199, 0.15)';
   context.lineWidth = 1.5;
   context.stroke();
   context.restore();
 
-  drawMomentumWormTicks(context, points);
-  drawMomentumWormHead(context, points, pointCount, phase, clampedMomentum);
+  drawMomentumSnakeTicks(context, points);
+  drawMomentumSnakeHead(context, points, pointCount, phase, clampedMomentum, clampedContext);
 }
 
-function drawMomentumWormPath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
+function drawMomentumSnakePath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
   context.beginPath();
   context.moveTo(points[0][0], points[0][1]);
   for (let index = 1; index < points.length - 1; index += 1) {
@@ -1356,7 +1443,7 @@ function drawMomentumWormPath(context: CanvasRenderingContext2D, points: Array<[
   context.lineTo(last[0], last[1]);
 }
 
-function drawMomentumWormTicks(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
+function drawMomentumSnakeTicks(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
   const step = 10;
   for (let index = step; index < points.length - step; index += step) {
     const [x, y] = points[index];
@@ -1369,11 +1456,11 @@ function drawMomentumWormTicks(context: CanvasRenderingContext2D, points: Array<
   }
 }
 
-function drawMomentumWormHead(context: CanvasRenderingContext2D, points: Array<[number, number]>, pointCount: number, phase: number, momentum: number): void {
+function drawMomentumSnakeHead(context: CanvasRenderingContext2D, points: Array<[number, number]>, pointCount: number, phase: number, momentum: number, contextFraction: number): void {
   const [headX, headY] = points[pointCount];
   const previous = points[Math.max(0, pointCount - 4)];
   const angle = Math.atan2(headY - previous[1], headX - previous[0]);
-  const tongueVisible = momentum > 0.18 && Math.sin(phase * 3.5) > 0.3;
+  const tongueVisible = (momentum > 0.18 || contextFraction > 0.94) && Math.sin(phase * 3.5) > 0.3;
 
   context.save();
   context.translate(headX, headY);
@@ -1381,7 +1468,7 @@ function drawMomentumWormHead(context: CanvasRenderingContext2D, points: Array<[
 
   context.beginPath();
   context.ellipse(7, 0, 9, 6, 0, 0, Math.PI * 2);
-  context.fillStyle = momentum === 0 ? 'rgba(180, 178, 169, 0.42)' : '#b4b2a9';
+  context.fillStyle = '#b4b2a9';
   context.fill();
 
   context.beginPath();
@@ -1418,6 +1505,89 @@ function drawMomentumWormHead(context: CanvasRenderingContext2D, points: Array<[
     context.moveTo(22, 0);
     context.lineTo(26, 3);
     context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawContextGoalStrawberry(context: CanvasRenderingContext2D, x: number, y: number, contextFraction: number): void {
+  const active = contextFraction >= 0.94;
+  const iconColor = '#b4b2a9';
+  const shadowColor = active ? 'rgba(68, 68, 65, 0.9)' : 'rgba(68, 68, 65, 0.68)';
+
+  const drawBerryOutline = () => {
+    context.beginPath();
+    context.moveTo(0, -6.2);
+    context.bezierCurveTo(5.7, -8.1, 10.2, -3.9, 9.1, 2.4);
+    context.bezierCurveTo(8.2, 7.4, 3.4, 10.8, 0, 12.8);
+    context.bezierCurveTo(-3.4, 10.8, -8.2, 7.4, -9.1, 2.4);
+    context.bezierCurveTo(-10.2, -3.9, -5.7, -8.1, 0, -6.2);
+    context.closePath();
+  };
+
+  const drawLeafCap = () => {
+    context.beginPath();
+    context.moveTo(-7.2, -7);
+    context.quadraticCurveTo(-4.4, -6.6, -2.6, -4.5);
+    context.quadraticCurveTo(-1.3, -7.2, 0, -8.8);
+    context.quadraticCurveTo(1.3, -7.2, 2.6, -4.5);
+    context.quadraticCurveTo(4.4, -6.6, 7.2, -7);
+    context.quadraticCurveTo(5.2, -4.8, 2.9, -3.4);
+    context.quadraticCurveTo(1.4, -3.8, 0, -3.4);
+    context.quadraticCurveTo(-1.4, -3.8, -2.9, -3.4);
+    context.quadraticCurveTo(-5.2, -4.8, -7.2, -7);
+  };
+
+  context.save();
+  context.translate(x, y - 2);
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  drawBerryOutline();
+  context.fillStyle = active ? 'rgba(180, 178, 169, 0.14)' : 'rgba(180, 178, 169, 0.07)';
+  context.fill();
+
+  drawBerryOutline();
+  context.strokeStyle = shadowColor;
+  context.lineWidth = 4.2;
+  context.stroke();
+
+  drawBerryOutline();
+  context.strokeStyle = iconColor;
+  context.lineWidth = 1.8;
+  context.stroke();
+
+  drawLeafCap();
+  context.strokeStyle = shadowColor;
+  context.lineWidth = 3.8;
+  context.stroke();
+
+  drawLeafCap();
+  context.strokeStyle = iconColor;
+  context.lineWidth = 1.5;
+  context.stroke();
+
+  const seeds: Array<[number, number, number]> = [
+    [-3.8, -1, -0.34],
+    [3.7, -0.6, 0.34],
+    [-4.2, 3.2, -0.18],
+    [0.1, 4.8, 0],
+    [4.1, 3.2, 0.18],
+    [-1.7, 8.2, -0.12],
+    [1.7, 8.2, 0.12]
+  ];
+  context.strokeStyle = iconColor;
+  context.lineWidth = 1.2;
+  for (const [seedX, seedY, rotation] of seeds) {
+    context.save();
+    context.translate(seedX, seedY);
+    context.rotate(rotation);
+    context.beginPath();
+    context.moveTo(0, -0.9);
+    context.quadraticCurveTo(1.1, 0.1, 0, 1.2);
+    context.quadraticCurveTo(-1.1, 0.1, 0, -0.9);
+    context.stroke();
+    context.restore();
   }
 
   context.restore();
@@ -1701,6 +1871,7 @@ const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 
 
 function MainSessionWorkspace({
   detail,
+  events,
   selectedRunId,
   selectedTraceEventId,
   visibleTraceCategories,
@@ -1709,6 +1880,7 @@ function MainSessionWorkspace({
   onSteerInstruction
 }: {
   detail: RunDetail | null;
+  events: TraceDisplayEvent[];
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
@@ -1723,30 +1895,33 @@ function MainSessionWorkspace({
       <MainTraceView
         busy={busy}
         detail={detail}
+        events={events}
         selectedRunId={selectedRunId}
         selectedTraceEventId={selectedTraceEventId}
         visibleTraceCategories={visibleTraceCategories}
         onSelectTraceEvent={onSelectTraceEvent}
         onSteerInstruction={onSteerInstruction}
       />
-      <MainSessionSidePanel detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+      <MainSessionSidePanel detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }
 
 function MainSessionSidePanel({
   detail,
+  events,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
   detail: RunDetail | null;
+  events: TraceDisplayEvent[];
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   return (
     <div className="main-session-side">
-      <MainHypothesisList detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-      <MainFindingList detail={detail} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+      <MainHypothesisList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+      <MainFindingList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }
@@ -1830,22 +2005,24 @@ function MainSideScrollRegion({
   );
 }
 
-function MainSteerArea({
-  detail,
+const MainSteerArea = memo(function MainSteerArea({
+  runId,
+  modelLabel,
   busy,
   onSteerInstruction
 }: {
-  detail: RunDetail | null;
+  runId: string | null;
+  modelLabel: string;
   busy: boolean;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
   const trimmedInstruction = instruction.trim();
-  const disabled = busy || !detail || !trimmedInstruction;
+  const disabled = busy || !runId || !trimmedInstruction;
 
   const submit = (): void => {
-    if (disabled || !detail) return;
-    onSteerInstruction(detail.run.id, trimmedInstruction);
+    if (disabled || !runId) return;
+    onSteerInstruction(runId, trimmedInstruction);
     setInstruction('');
   };
 
@@ -1866,7 +2043,7 @@ function MainSteerArea({
             }}
           />
           <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
-            {detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
+            {modelLabel}
           </button>
           <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
             <ChevronRight size={17} />
@@ -1875,11 +2052,12 @@ function MainSteerArea({
       </div>
     </footer>
   );
-}
+});
 
 function MainTraceView({
   busy,
   detail,
+  events,
   selectedRunId,
   selectedTraceEventId,
   visibleTraceCategories,
@@ -1888,6 +2066,7 @@ function MainTraceView({
 }: {
   busy: boolean;
   detail: RunDetail | null;
+  events: TraceDisplayEvent[];
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
@@ -1895,12 +2074,11 @@ function MainTraceView({
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   const loading = !detail;
-  const events = detail ? buildTraceDisplayEvents(detail) : [];
-  const timelineEntries = buildTraceTimelineEntries(events, visibleTraceCategories);
   const traceFilterKey = visibleTraceCategories.join('|');
+  const timelineEntries = useMemo(() => buildTraceTimelineEntries(events, visibleTraceCategories), [events, traceFilterKey]);
   const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceFilterKey}`;
-  const timelineEntryIds = timelineEntries.map((entry) => entry.event.id);
-  const timelineEntryKey = timelineEntryIds.join('|');
+  const timelineEntryIds = useMemo(() => timelineEntries.map((entry) => entry.event.id), [timelineEntries]);
+  const timelineEntryKey = useMemo(() => timelineEntryIds.join('|'), [timelineEntryIds]);
   const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
   const [enteringTraceEntryIds, setEnteringTraceEntryIds] = useState<Set<string>>(() => new Set());
   const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
@@ -2008,10 +2186,12 @@ function MainTraceView({
 
     const shouldQueue = traceFollowLatestRef.current && revealedTraceEntryIds.size > 0;
     if (!shouldQueue) {
-      setRevealedTraceEntryIds((current) => {
-        const next = new Set(current);
-        for (const id of newEntryIds) next.add(id);
-        return next;
+      startTransition(() => {
+        setRevealedTraceEntryIds((current) => {
+          const next = new Set(current);
+          for (const id of newEntryIds) next.add(id);
+          return next;
+        });
       });
       return;
     }
@@ -2022,7 +2202,7 @@ function MainTraceView({
         traceRevealQueueRef.current.push(id);
       }
     }
-    setTraceRevealQueueVersion((version) => version + 1);
+    startTransition(() => setTraceRevealQueueVersion((version) => version + 1));
   }, [revealedTraceEntryIds.size, timelineEntryKey, tracePresentationKey]);
 
   useEffect(() => {
@@ -2033,29 +2213,33 @@ function MainTraceView({
       const batch = traceRevealQueueRef.current.splice(0, traceRevealBatchSize(traceRevealQueueRef.current.length));
       if (batch.length === 0) return;
 
-      setRevealedTraceEntryIds((current) => {
-        const next = new Set(current);
-        for (const id of batch) next.add(id);
-        return next;
-      });
-      setEnteringTraceEntryIds((current) => {
-        const next = new Set(current);
-        for (const id of batch) next.add(id);
-        return next;
+      startTransition(() => {
+        setRevealedTraceEntryIds((current) => {
+          const next = new Set(current);
+          for (const id of batch) next.add(id);
+          return next;
+        });
+        setEnteringTraceEntryIds((current) => {
+          const next = new Set(current);
+          for (const id of batch) next.add(id);
+          return next;
+        });
       });
 
       const cleanupTimer = window.setTimeout(() => {
-        setEnteringTraceEntryIds((current) => {
-          const next = new Set(current);
-          for (const id of batch) next.delete(id);
-          return next;
+        startTransition(() => {
+          setEnteringTraceEntryIds((current) => {
+            const next = new Set(current);
+            for (const id of batch) next.delete(id);
+            return next;
+          });
         });
         traceRevealCleanupTimersRef.current = traceRevealCleanupTimersRef.current.filter((timerId) => timerId !== cleanupTimer);
       }, TRACE_REVEAL_RECENT_MS);
       traceRevealCleanupTimersRef.current.push(cleanupTimer);
 
       if (traceRevealQueueRef.current.length > 0) {
-        setTraceRevealQueueVersion((version) => version + 1);
+        startTransition(() => setTraceRevealQueueVersion((version) => version + 1));
       }
     }, traceRevealDelayMs(queueLength));
 
@@ -2153,23 +2337,29 @@ function MainTraceView({
           </div>
         </div>
       ) : null}
-      <MainSteerArea busy={busy} detail={detail} onSteerInstruction={onSteerInstruction} />
+      <MainSteerArea
+        busy={busy}
+        modelLabel={detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
+        runId={detail?.run.id ?? null}
+        onSteerInstruction={onSteerInstruction}
+      />
     </section>
   );
 }
 
 function MainHypothesisList({
   detail,
+  events,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
   detail: RunDetail | null;
+  events: TraceDisplayEvent[];
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const loading = !detail;
   const hypotheses = detail?.hypotheses ?? [];
-  const events = detail ? buildTraceDisplayEvents(detail) : [];
   const hypothesisScrollKey = hypotheses
     .map((hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.title}:${hypothesis.descriptionMarkdown.length}`)
     .join('|');
@@ -2228,17 +2418,18 @@ function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: Hy
 
 function MainFindingList({
   detail,
+  events,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
   detail: RunDetail | null;
+  events: TraceDisplayEvent[];
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const loading = !detail;
   const findings = detail?.findings ?? [];
   const hypotheses = detail?.hypotheses ?? [];
-  const events = detail ? buildTraceDisplayEvents(detail) : [];
   const findingScrollKey = findings
     .map((finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.title}:${finding.summaryMarkdown.length}`)
     .join('|');
@@ -3919,6 +4110,89 @@ function researchMomentumValue(state: ResearchMomentumState): number {
   }
 }
 
+function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
+  const tokenLimit = contextTokenLimitForDetail(detail);
+  const candidate = latestContextTokenCandidate(detail);
+  const inputTokens = candidate?.tokens ?? null;
+  const fraction = inputTokens === null ? 0 : Math.max(0, Math.min(1, inputTokens / tokenLimit));
+  return {
+    fraction,
+    inputTokens,
+    tokenLimit,
+    label: inputTokens === null ? `0/${formatCompactContextNumber(tokenLimit)}` : `${formatCompactContextNumber(inputTokens)}/${formatCompactContextNumber(tokenLimit)}`,
+    source: candidate?.source ?? 'no context measured'
+  };
+}
+
+function contextTokenLimitForDetail(detail: RunDetail | null): number {
+  if (!detail) return DEFAULT_CONTEXT_TOKEN_LIMIT;
+  for (const compaction of [...detail.contextCompactions].reverse()) {
+    const limit = numberRecordValue(compaction.tokenPressure, 'inputTokenLimit');
+    if (limit && limit > 0) return limit;
+  }
+  return DEFAULT_CONTEXT_TOKEN_LIMIT;
+}
+
+function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number; timestamp: number; source: string } | null {
+  if (!detail) return null;
+  const candidates: Array<{ tokens: number; timestamp: number; source: string }> = [];
+  const pushCandidate = (tokens: number | null, timestampValue: string, source: string): void => {
+    if (tokens === null || !Number.isFinite(tokens) || tokens <= 0) return;
+    const timestamp = Date.parse(timestampValue);
+    candidates.push({ tokens, timestamp: Number.isFinite(timestamp) ? timestamp : 0, source });
+  };
+
+  for (const event of detail.traceEvents) {
+    const usage = tracePayloadRecord(event.payload, 'usage');
+    pushCandidate(numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens'), event.createdAt, 'reported input tokens');
+    pushCandidate(numberRecordValue(event.payload, 'serializedSizeBytes') ? Math.ceil((numberRecordValue(event.payload, 'serializedSizeBytes') ?? 0) / 4) : null, event.createdAt, 'serialized replay estimate');
+  }
+
+  for (const session of detail.modelSessions) {
+    pushCandidate(numberRecordValue(session.metadata, 'latestReportedInputTokens'), session.updatedAt, 'reported input tokens');
+    pushCandidate(estimatedTokensFromSerializedValue(session.metadata.manualConversationInput), session.updatedAt, 'manual replay estimate');
+    pushCandidate(estimatedTokensFromSerializedValue(session.metadata.pendingInput), session.updatedAt, 'pending input estimate');
+  }
+
+  for (const compaction of detail.contextCompactions) {
+    pushCandidate(numberRecordValue(compaction.tokenPressure, 'latestReportedInputTokens'), compaction.createdAt, 'compaction pressure');
+    pushCandidate(compaction.serializedSizeBytes > 0 ? Math.ceil(compaction.serializedSizeBytes / 4) : null, compaction.createdAt, 'serialized replay estimate');
+  }
+
+  return candidates.sort((left, right) => right.timestamp - left.timestamp)[0] ?? null;
+}
+
+function numberRecordValue(record: Record<string, unknown> | null, key: string): number | null {
+  if (!record) return null;
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function estimatedTokensFromSerializedValue(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized ? Math.ceil(serialized.length / 4) : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatCompactContextNumber(value: number): string {
+  if (value >= 1_000_000) return `${trimCompactDecimal(value / 1_000_000)}m`;
+  if (value >= 1_000) return `${trimCompactDecimal(value / 1_000)}k`;
+  return `${Math.max(0, Math.round(value))}`;
+}
+
+function trimCompactDecimal(value: number): string {
+  return value >= 10 ? `${Math.round(value)}` : value.toFixed(1).replace(/\.0$/, '');
+}
+
 function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {
   if (!vmPreference.enabled || !vmPreference.backendKind) {
     return {
@@ -4133,88 +4407,287 @@ function TraceFilterModal({
   );
 }
 
-function TraceInspector({
-  event,
-  finding,
-  hypothesis
+function EvidenceSidebar({
+  detail,
+  onSelectTraceEvent
 }: {
-  event: TraceEventRecord | null;
-  finding: FindingRecord | null;
-  hypothesis: HypothesisRecord | null;
+  detail: RunDetail | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
-  if (!event) {
+  if (!detail) {
     return (
       <div className="inspector-empty-state">
-        <span>Inspector</span>
-        <p>Select a trace item to inspect its details.</p>
+        <span>Evidence</span>
+        <p>Open a research session to review evidence.</p>
       </div>
     );
   }
 
+  const events = buildTraceDisplayEvents(detail);
+  const evidence = [...detail.evidence].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const evidenceKey = evidence.map((item) => `${item.id}:${item.kind}:${item.summary}:${item.createdAt}`).join('|');
+
+  return (
+    <div className="evidence-sidebar">
+      <div className="evidence-sidebar-heading">
+        <span>Evidence</span>
+        <strong>{evidence.length}</strong>
+      </div>
+      {evidence.length === 0 ? (
+        <div className="inspector-empty-state evidence-empty-state">
+          <span>No Evidence</span>
+          <p>Evidence promoted from tools, artifacts, and verifier runs will appear here.</p>
+        </div>
+      ) : (
+        <MainSideScrollRegion listClassName="evidence-sidebar-list" updateKey={evidenceKey}>
+          {evidence.map((item) => {
+            const hypothesis = item.hypothesisId ? detail.hypotheses.find((candidate) => candidate.id === item.hypothesisId) ?? null : null;
+            const finding = item.findingId ? detail.findings.find((candidate) => candidate.id === item.findingId) ?? null : null;
+            const artifact = item.artifactId ? detail.artifacts.find((candidate) => candidate.id === item.artifactId) ?? null : null;
+            const verifierRun = item.verifierRunId ? detail.verifierRuns.find((candidate) => candidate.id === item.verifierRunId) ?? null : null;
+            const observationEvent = item.observationTraceEventId ? events.find((event) => event.id === item.observationTraceEventId) ?? null : null;
+            return (
+              <EvidenceSidebarItem
+                artifact={artifact}
+                evidence={item}
+                finding={finding}
+                hypothesis={hypothesis}
+                key={item.id}
+                observationEvent={observationEvent}
+                verifierRun={verifierRun}
+                onSelectTraceEvent={onSelectTraceEvent}
+              />
+            );
+          })}
+        </MainSideScrollRegion>
+      )}
+    </div>
+  );
+}
+
+function EvidenceSidebarItem({
+  artifact,
+  evidence,
+  finding,
+  hypothesis,
+  observationEvent,
+  verifierRun,
+  onSelectTraceEvent
+}: {
+  artifact: ArtifactRecord | null;
+  evidence: EvidenceRecord;
+  finding: FindingRecord | null;
+  hypothesis: HypothesisRecord | null;
+  observationEvent: TraceDisplayEvent | null;
+  verifierRun: VerifierRunRecord | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const title = finding?.title ?? hypothesis?.title ?? traceLabel(evidence.kind);
+  const disabled = !observationEvent;
+  return (
+    <button
+      type="button"
+      className={`evidence-sidebar-item ${verifierRun ? `verifier-${stateClass(verifierRun.status)}` : ''}`}
+      disabled={disabled}
+      title={disabled ? 'No observation trace is linked to this evidence' : 'Open observation trace'}
+      onClick={() => observationEvent && onSelectTraceEvent(observationEvent)}
+    >
+      <div className="evidence-sidebar-topline">
+        <span>
+          <ClipboardCheck size={13} />
+          {traceLabel(evidence.kind)}
+        </span>
+        <span>{formatTraceTimestamp(evidence.createdAt)}</span>
+      </div>
+      <strong>{title}</strong>
+      <p>{evidence.summary || 'No evidence summary recorded.'}</p>
+      <div className="evidence-sidebar-meta" aria-label="Evidence references">
+        {finding ? <span>{traceLabel(finding.state)}</span> : null}
+        {hypothesis ? <span>{formatPriorityPill(hypothesis.priorityScore)}</span> : null}
+        {artifact ? <span>{traceLabel(artifact.kind)}</span> : null}
+        {verifierRun ? <span>{traceLabel(verifierRun.status)}</span> : null}
+      </div>
+    </button>
+  );
+}
+
+function TraceDetailModal({
+  detail,
+  event,
+  finding,
+  hypothesis,
+  onClose
+}: {
+  detail: RunDetail | null;
+  event: TraceEventRecord;
+  finding: FindingRecord | null;
+  hypothesis: HypothesisRecord | null;
+  onClose: () => void;
+}): JSX.Element {
   const category = traceCategoryForEvent(event);
   const payload = JSON.stringify(event.payload, null, 2);
 
   return (
-    <div className="trace-inspector">
-      <div className="trace-inspector-heading">
-        <span>Inspector</span>
-        <h3>Trace Detail</h3>
+    <Modal
+      title={traceEventSummary(event, category)}
+      wide
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="modal-footer-leading" onClick={() => void copyTextToClipboard(event.id)}>
+            Copy Trace ID
+          </button>
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+        </>
+      }
+    >
+      <div className="trace-detail">
+        <div className="trace-inspector-summary trace-detail-summary">
+          <span className={`trace-filter-icon category-${category}`}>{traceCategoryIcon(category)}</span>
+          <div>
+            <strong>{traceCategoryLabel(category)}</strong>
+            <p>{event.summary}</p>
+          </div>
+        </div>
+        {finding ? <FindingInspectorContext finding={finding} hypothesis={hypothesis} /> : null}
+        {!finding && hypothesis ? <HypothesisInspectorContext hypothesis={hypothesis} /> : null}
+        <TraceTypedDetail detail={detail} event={event} />
+        <div className="trace-inspector-grid">
+          <div>
+            <span>Time</span>
+            <strong>{formatSessionStart(new Date(event.createdAt))}</strong>
+          </div>
+          <div>
+            <span>Event</span>
+            <strong>{event.sequence}</strong>
+          </div>
+          <div>
+            <span>Source</span>
+            <strong>{traceLabel(event.source)}</strong>
+          </div>
+          <div>
+            <span>Type</span>
+            <strong>{traceTypeLabel(event.type)}</strong>
+          </div>
+          <div>
+            <span>Model Visible</span>
+            <strong>{event.modelVisible ? 'Yes' : 'No'}</strong>
+          </div>
+          <div>
+            <span>Sensitivity</span>
+            <strong>{traceLabel(event.sensitivity)}</strong>
+          </div>
+        </div>
+        <div className="trace-inspector-links">
+          <span>References</span>
+          <InspectorReference label="id" value={event.id} />
+          {event.attemptId ? <InspectorReference label="attempt" value={event.attemptId} /> : null}
+          {event.vmContextId ? <InspectorReference label="vm" value={event.vmContextId} /> : null}
+          {event.artifactId ? <InspectorReference label="artifact" value={event.artifactId} /> : null}
+          {event.toolCallId ? <InspectorReference label="tool" value={event.toolCallId} /> : null}
+          {event.approvalId ? <InspectorReference label="approval" value={event.approvalId} /> : null}
+        </div>
+        <details className="trace-inspector-payload">
+          <summary>Payload JSON</summary>
+          <pre>
+            {payload === '{}' ? (
+              'No payload recorded.'
+            ) : (
+              <code className="syntax-code language-json">{highlightJsonCode(payload)}</code>
+            )}
+          </pre>
+        </details>
       </div>
-      {finding ? <FindingInspectorContext finding={finding} hypothesis={hypothesis} /> : null}
-      {hypothesis ? <HypothesisInspectorContext hypothesis={hypothesis} /> : null}
-      <div className="trace-inspector-summary">
-        <span className={`trace-filter-icon category-${category}`}>{traceCategoryIcon(category)}</span>
-        <div>
-          <strong>{traceCategoryLabel(category)}</strong>
-          <p>{event.summary}</p>
-        </div>
+    </Modal>
+  );
+}
+
+function TraceTypedDetail({ detail, event }: { detail: RunDetail | null; event: TraceEventRecord }): JSX.Element | null {
+  const category = traceCategoryForEvent(event);
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (toolName === 'python' || /^Host python|^Guest python/i.test(event.summary)) return <PythonTraceDetail event={event} />;
+  if (category === 'code_navigation') return <CodeNavigationTraceDetail event={event} />;
+
+  const detailText = traceEventDetailText(event, category, detail);
+  if (!detailText) return null;
+  const prose = isProseTraceEvent(event, category, detail);
+  return (
+    <section className="trace-detail-section" aria-label="Trace content">
+      <span>Content</span>
+      <div className={prose ? 'trace-detail-prose' : 'trace-detail-compact'}>{prose ? renderTraceProseText(detailText, category) : <code>{detailText}</code>}</div>
+    </section>
+  );
+}
+
+function PythonTraceDetail({ event }: { event: TraceEventRecord }): JSX.Element {
+  const args = tracePayloadRecord(event.payload, 'arguments');
+  const task = args ? stringRecordValue(args, 'task') : tracePayloadPrimitive(event.payload, 'task');
+  const script = args && typeof args.script === 'string' ? args.script.replace(/\r\n?/g, '\n').trim() : '';
+  const status = tracePayloadPrimitive(event.payload, 'status');
+  const stdout = tracePayloadPrimitive(event.payload, 'stdoutSummary');
+  const stderr = tracePayloadPrimitive(event.payload, 'stderrSummary');
+
+  return (
+    <section className="trace-detail-section" aria-label="Python trace detail">
+      <span>Python</span>
+      {task ? <p>{task}</p> : null}
+      <div className="trace-detail-facts">
+        {status ? <span>Status {traceLabel(status)}</span> : null}
+        {tracePayloadPrimitive(event.payload, 'exitCode') ? <span>Exit {tracePayloadPrimitive(event.payload, 'exitCode')}</span> : null}
+        {tracePayloadPrimitive(event.payload, 'durationMs') ? <span>{tracePayloadPrimitive(event.payload, 'durationMs')}ms</span> : null}
       </div>
-      <div className="trace-inspector-grid">
-        <div>
-          <span>Time</span>
-          <strong>{formatSessionStart(new Date(event.createdAt))}</strong>
-        </div>
-        <div>
-          <span>Event</span>
-          <strong>{event.sequence}</strong>
-        </div>
-        <div>
-          <span>Source</span>
-          <strong>{traceLabel(event.source)}</strong>
-        </div>
-        <div>
-          <span>Type</span>
-          <strong>{traceTypeLabel(event.type)}</strong>
-        </div>
-        <div>
-          <span>Model Visible</span>
-          <strong>{event.modelVisible ? 'Yes' : 'No'}</strong>
-        </div>
-        <div>
-          <span>Sensitivity</span>
-          <strong>{traceLabel(event.sensitivity)}</strong>
-        </div>
-      </div>
-      <div className="trace-inspector-links">
-        <span>References</span>
-        <InspectorReference label="id" value={event.id} />
-        {event.attemptId ? <InspectorReference label="attempt" value={event.attemptId} /> : null}
-        {event.vmContextId ? <InspectorReference label="vm" value={event.vmContextId} /> : null}
-        {event.artifactId ? <InspectorReference label="artifact" value={event.artifactId} /> : null}
-        {event.toolCallId ? <InspectorReference label="tool" value={event.toolCallId} /> : null}
-        {event.approvalId ? <InspectorReference label="approval" value={event.approvalId} /> : null}
-      </div>
-      <div className="trace-inspector-payload">
-        <span>Payload</span>
-        <pre>
-          {payload === '{}' ? (
-            'No payload recorded.'
-          ) : (
-            <code className="syntax-code language-json">{highlightJsonCode(payload)}</code>
-          )}
+      {script ? (
+        <pre className="trace-detail-code">
+          <code className="syntax-code language-python">{highlightPythonCode(script)}</code>
         </pre>
+      ) : null}
+      {stdout || stderr ? (
+        <div className="trace-detail-output">
+          {stdout ? (
+            <div>
+              <span>Stdout</span>
+              <pre>{stdout}</pre>
+            </div>
+          ) : null}
+          {stderr ? (
+            <div>
+              <span>Stderr</span>
+              <pre>{stderr}</pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CodeNavigationTraceDetail({ event }: { event: TraceEventRecord }): JSX.Element {
+  const sourcePath = tracePayloadPrimitive(event.payload, 'sourcePath') ?? tracePayloadPrimitive(event.payload, 'path');
+  const excerpt = tracePayloadPrimitive(event.payload, 'excerpt');
+  const query = tracePayloadPrimitive(event.payload, 'query');
+  const matches = tracePayloadPrimitive(event.payload, 'matches');
+
+  return (
+    <section className="trace-detail-section" aria-label="Code navigation trace detail">
+      <span>Code Nav</span>
+      <div className="trace-detail-facts">
+        {sourcePath ? <span>{compactTracePath(sourcePath)}</span> : null}
+        {query ? <span>Query {query}</span> : null}
+        {matches ? <span>{matches} matches</span> : null}
+        {lineRangePart(event.payload) ? <span>{lineRangePart(event.payload)}</span> : null}
       </div>
-    </div>
+      {excerpt ? (
+        <pre className="trace-detail-code">
+          <code>{excerpt}</code>
+        </pre>
+      ) : (
+        <div className="trace-detail-compact">
+          <code>{traceEventDetailText(event, traceCategoryForEvent(event)) || 'No source excerpt recorded.'}</code>
+        </div>
+      )}
+    </section>
   );
 }
 
