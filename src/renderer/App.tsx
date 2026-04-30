@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   HostEnvironment,
@@ -34,6 +34,8 @@ import { TraceDetailModal } from './features/traces/TraceDetailModal';
 import { TraceFilterModal } from './features/traces/TraceFilterModal';
 import { TraceView } from './features/traces/TraceView';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
+import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
+import { useResizableSidebar } from './hooks/useResizableSidebar';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import { environmentActivityForDetail, type EnvironmentActivity } from './view-models/environmentDisplay';
@@ -64,22 +66,6 @@ import {
   shortMetricId,
   snapshotMetricDetail
 } from './view-models/runDetailUpdates';
-
-const INSET_SCROLLBAR_ACTIVE_MS = 900;
-const INSET_SCROLLBAR_SELECTOR = [
-  '.sidebar',
-  '.inspector-sidebar',
-  '.main-trace-list',
-  '.main-hypothesis-list',
-  '.main-finding-list',
-  '.modal-body',
-  '.session-history-list',
-  '.trace-inspector-payload pre',
-  '.center-column',
-  '.tracker-panel',
-  '.timeline',
-  '.notification-detail pre'
-].join(', ');
 
 const DEFAULT_VM_PREFERENCE: VmPreference = {
   enabled: false,
@@ -112,8 +98,7 @@ export function App(): JSX.Element {
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(292);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const previousRunIdRef = useRef<string | null>(null);
   const runDetailRequestSeqRef = useRef(0);
   const runDetailVersionRef = useRef<string | null>(null);
@@ -132,43 +117,11 @@ export function App(): JSX.Element {
     sessions: programRegistry?.researchSessions.length ?? 0
   }));
   useDevInputLatencyProbe();
+  useInsetScrollbarActivation();
 
   useEffect(() => {
     runDetailRef.current = runDetail;
   }, [runDetail]);
-
-  useEffect(() => {
-    const timers = new Map<Element, number>();
-
-    const handleScroll = (event: Event): void => {
-      if (!(event.target instanceof Element) || !event.target.matches(INSET_SCROLLBAR_SELECTOR)) {
-        return;
-      }
-
-      const target = event.target;
-      target.classList.add('scrollbar-active');
-      const existingTimer = timers.get(target);
-      if (existingTimer !== undefined) {
-        window.clearTimeout(existingTimer);
-      }
-      timers.set(
-        target,
-        window.setTimeout(() => {
-          target.classList.remove('scrollbar-active');
-          timers.delete(target);
-        }, INSET_SCROLLBAR_ACTIVE_MS)
-      );
-    };
-
-    document.addEventListener('scroll', handleScroll, true);
-    return () => {
-      document.removeEventListener('scroll', handleScroll, true);
-      for (const timer of timers.values()) {
-        window.clearTimeout(timer);
-      }
-      timers.clear();
-    };
-  }, []);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
@@ -546,31 +499,6 @@ export function App(): JSX.Element {
     [runAction]
   );
 
-  const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    event.preventDefault();
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startWidth = sidebarWidth;
-    const target = event.currentTarget;
-    target.setPointerCapture(pointerId);
-    document.body.classList.add('is-resizing-sidebar');
-
-    const handlePointerMove = (moveEvent: PointerEvent): void => {
-      setSidebarWidth(Math.max(240, Math.min(420, startWidth + moveEvent.clientX - startX)));
-    };
-    const handlePointerUp = (): void => {
-      document.body.classList.remove('is-resizing-sidebar');
-      target.releasePointerCapture(pointerId);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
-  };
-
   const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
@@ -599,7 +527,6 @@ export function App(): JSX.Element {
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
   const vmPreference = programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
   const windowControlPlatform = (snapshot?.workspace.hostEnvironment ?? hostEnvironment)?.platform ?? 'linux';
-  const toggleSidebar = useCallback(() => setSidebarCollapsed((current) => !current), []);
   const configureVm = useCallback(() => {
     setSettingsSection('general');
     setSettingsOpen(true);
