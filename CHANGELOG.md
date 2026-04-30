@@ -61,6 +61,7 @@
 ### Fixed
 
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
+- Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
 - Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.

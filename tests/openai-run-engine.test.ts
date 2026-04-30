@@ -447,6 +447,42 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
+  it('retries retryable OpenAI transport failures after response creation but before committed content', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS = '0';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        return new Response(failingSseAfter(event('response.created', { type: 'response.created', response: { id: 'resp_created_then_terminated' } }), new TypeError('terminated')), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' }
+        });
+      }
+      return new Response(sse(finalResponseEvents('resp_after_created_retry')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    const retryTrace = detail.traceEvents.find((event) => event.summary === 'OpenAI transport error was retryable; retrying request.');
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(retryTrace?.payload).toMatchObject({
+      retryAttempt: 1,
+      streamEventSeen: true,
+      retryAfterResponseCreatedOnly: true
+    });
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses run failed.')).toBe(false);
+    db.close();
+  });
+
   it('uses manual response replay for Codex OAuth tool outputs', async () => {
     const authDir = mkdtempSync(join(tmpdir(), 'beale-codex-engine-'));
     createdDirs.push(authDir);
@@ -919,6 +955,21 @@ function sse(text: string): ReadableStream<Uint8Array> {
     start(controller) {
       controller.enqueue(new TextEncoder().encode(text));
       controller.close();
+    }
+  });
+}
+
+function failingSseAfter(text: string, error: Error): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let sent = false;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sent) {
+        sent = true;
+        controller.enqueue(encoder.encode(text));
+        return;
+      }
+      controller.error(error);
     }
   });
 }

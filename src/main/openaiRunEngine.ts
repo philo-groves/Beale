@@ -439,9 +439,13 @@ export class OpenAiRunEngine {
         const streamTraceState: StreamTraceState = { lastOutputDeltaTraceAt: 0, persistedTranscriptKeys: new Set(), reasoningSummaryTextsByItemId: new Map() };
         latestCompletedModelOutput = null;
         let streamEventSeen = false;
+        let streamRetrySafe = true;
         try {
           for await (const event of this.adapter.streamResponse({ body, signal: controller.signal })) {
             streamEventSeen = true;
+            if (event.type !== 'response.created') {
+              streamRetrySafe = false;
+            }
             const persistedTraceEvents = this.handleStreamEvent(context, event, functionCalls, streamTraceState);
             for (const persistedTraceEvent of persistedTraceEvents) {
               const transcript = this.recordTranscriptFromTraceEvent(context, persistedTraceEvent, event, streamTraceState);
@@ -482,7 +486,7 @@ export class OpenAiRunEngine {
             this.onChange();
           }
         } catch (error) {
-          if (isRetryableOpenAiTransportError(error) && !streamEventSeen && !controller.signal.aborted && transportRetryAttempts < transportRetryLimit) {
+          if (isRetryableOpenAiTransportError(error) && streamRetrySafe && !controller.signal.aborted && transportRetryAttempts < transportRetryLimit) {
             transportRetryAttempts += 1;
             this.db.appendTraceEvent({
               runId: context.run.id,
@@ -494,6 +498,8 @@ export class OpenAiRunEngine {
                 error: errorMessage(error),
                 retryAttempt: transportRetryAttempts,
                 retryLimit: transportRetryLimit,
+                streamEventSeen,
+                retryAfterResponseCreatedOnly: streamEventSeen,
                 replayMode
               },
               vmContextId: context.vmContext.id
