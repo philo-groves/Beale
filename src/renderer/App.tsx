@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
@@ -26,6 +26,7 @@ import { useProgramOverlayState } from './hooks/useProgramOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
+import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
@@ -45,6 +46,7 @@ import { buildTraceDisplayEvents } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 
 export function App(): JSX.Element {
+  const appShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const handleError = useCallback((message: string) => setError(message), []);
   const {
@@ -73,7 +75,7 @@ export function App(): JSX.Element {
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
   const [busy, setBusy] = useState(false);
-  const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
+  const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
     openProgramMenuId,
     setOpenProgramMenuId,
@@ -105,6 +107,7 @@ export function App(): JSX.Element {
     transcripts: runDetail?.transcriptMessages.length ?? 0
   }));
   useDevInputLatencyProbe();
+  useSidebarPerformanceProbe({ appShellRef, profile: sidebarToggleProfile });
   useInsetScrollbarActivation();
 
   const runAction = useCallback(
@@ -284,7 +287,7 @@ export function App(): JSX.Element {
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
 
   return (
-    <div className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+    <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}

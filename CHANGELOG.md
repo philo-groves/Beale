@@ -14,6 +14,7 @@
 - Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
 - Added a sampled pointer-move next-frame latency probe to measure hover responsiveness during active trace streams.
+- Added sidebar collapse/expand profiling for toggle request latency, React state commit, next-frame latency, and transition-end timing.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
@@ -82,6 +83,7 @@
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
 - Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.
 - Reduced trace and side-panel paint scope with CSS containment to make hover feedback less sensitive to active trace updates.
+- Fixed sidebar transition profiling so unrelated later CSS transitions do not pollute collapse/expand timing.
 
 ### Documentation
 
