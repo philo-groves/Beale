@@ -36,6 +36,7 @@
 - Extracted trace detail modal rendering and typed trace inspection panels from `App.tsx` into the trace feature module.
 - Extracted trace filter modal and trace turn group rendering from `App.tsx` into trace feature modules.
 - Extracted transcript-to-trace display event synthesis from `App.tsx` into the trace display view-model.
+- Extracted the virtualized trace view and steering footer from `App.tsx` into the trace feature module.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 
