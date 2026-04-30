@@ -32,6 +32,7 @@
 - Extracted trace timeline grouping and turn status helpers from `App.tsx` into the trace display view-model.
 - Extracted trace label, detail text, provenance lookup, and path compaction helpers from `App.tsx` into the trace content view-model.
 - Extracted trace row rendering, trace prose/code markup rendering, and trace category visual helpers from `App.tsx` into trace feature modules.
+- Extracted trace detail modal rendering and typed trace inspection panels from `App.tsx` into the trace feature module.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 
