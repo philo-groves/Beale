@@ -229,6 +229,8 @@ Implementation note, 2026-04-30:
 - Trace prose/code markup rendering moved into `src/renderer/features/traces/traceMarkup.tsx`.
 - Trace category filter metadata and icon/label helpers moved into `src/renderer/features/traces/traceVisuals.tsx`.
 - Virtualized trace view and steering footer rendering moved into `src/renderer/features/traces/TraceView.tsx`.
+- Settings modal rendering, OpenAI provider status, and local VM enablement controls moved into `src/renderer/features/settings/SettingsModal.tsx`.
+- Shared status pill rendering moved into `src/renderer/app/StatusPill.tsx`.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
 - Evidence sidebar rendering moved into `src/renderer/features/research/EvidenceSidebar.tsx`.
 - CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
