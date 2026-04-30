@@ -8,6 +8,8 @@ import type {
   HackerOneProgramLookupResult,
   ProgramOnboardingInput,
   ProgramRegistryState,
+  ProfilingReport,
+  ProfilingState,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
@@ -64,6 +66,15 @@ const api: BealeApi = {
   },
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
+  },
+  getProfilingState(): Promise<ProfilingState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProfilingState);
+  },
+  setProfilingEnabled(enabled: boolean): Promise<ProfilingState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setProfilingEnabled, enabled);
+  },
+  recordProfilingReport(report: ProfilingReport): Promise<ProfilingState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.recordProfilingReport, report);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

@@ -674,7 +674,7 @@ code {
 }
 
 .top-bar-darwin {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 76px minmax(0, 1fr) auto;
 }
 
 .top-bar-custom-controls {
@@ -772,6 +772,28 @@ code {
   color: var(--muted-strong);
   padding: 0;
   -webkit-app-region: no-drag;
+}
+
+.window-debug-button {
+  height: 38px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 0 11px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  -webkit-app-region: no-drag;
+}
+
+.window-debug-button:hover:not(:disabled) {
+  border: 0;
+  background: #242424;
+  color: var(--text);
 }
 
 .window-control-button:hover:not(:disabled) {
@@ -3426,6 +3448,27 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 12px;
 }
 
+.profiling-settings-card {
+  gap: 10px;
+}
+
+.settings-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.settings-switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--text);
+}
+
 .provider-heading {
   min-width: 0;
   display: grid;
@@ -3472,6 +3515,88 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: block;
   margin-top: 2px;
   overflow-wrap: anywhere;
+}
+
+.profiling-overview {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.profiling-card {
+  gap: 12px;
+}
+
+.profiling-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.profiling-path-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.profiling-path-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-strong);
+}
+
+.profiling-columns {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profiling-table-card {
+  min-width: 0;
+  border-radius: 8px;
+  background: #101010;
+  padding: 12px;
+}
+
+.profiling-table-card h4 {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.profiling-table-card table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.profiling-table-card th,
+.profiling-table-card td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--panel-border);
+  padding: 6px 5px;
+  text-align: left;
+}
+
+.profiling-table-card th {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profiling-table-card td {
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+}
+
+.profiling-table-card p {
+  color: var(--muted);
 }
 
 .vm-provider-grid {

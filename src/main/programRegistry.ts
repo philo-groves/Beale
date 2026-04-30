@@ -73,6 +73,14 @@ export class ProgramRegistry {
     return next;
   }
 
+  public getProfilingEnabled(): boolean {
+    return this.getMeta('profiling_enabled') === '1';
+  }
+
+  public setProfilingEnabled(enabled: boolean): void {
+    this.setMeta('profiling_enabled', enabled ? '1' : '0');
+  }
+
   public inspectDirectory(path: string): ProgramDirectorySelection {
     const workspacePath = resolve(path);
     const knownProgram = this.getProgramByPath(workspacePath);

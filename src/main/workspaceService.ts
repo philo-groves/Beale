@@ -12,6 +12,7 @@ import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
+import { ProfilingService } from './profilingService';
 import { extractSourceRepositoryUrls } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
@@ -45,6 +46,9 @@ import type {
   HostEnvironment,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ProfilingMetricDetail,
+  ProfilingReport,
+  ProfilingState,
   ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -214,6 +218,7 @@ export class WorkspaceService {
   private executorRunEngine: ExecutorRunEngine | null = null;
   private benchmarkRunner: BenchmarkRunner | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
+  private readonly profiling = new ProfilingService();
   private programRegistry: ProgramRegistry | null = null;
   private workspacePath: string | null = null;
   private openedAt: string | null = null;
@@ -259,6 +264,23 @@ export class WorkspaceService {
     registry.setVmPreference(input);
     this.onChange();
     return registry.getState();
+  }
+
+  public getProfilingState(): ProfilingState {
+    return this.profiling.applyPreference(this.getProgramRegistry().getProfilingEnabled());
+  }
+
+  public setProfilingEnabled(enabled: boolean): ProfilingState {
+    this.getProgramRegistry().setProfilingEnabled(enabled);
+    return this.profiling.setEnabled(enabled);
+  }
+
+  public recordProfilingReport(report: ProfilingReport): ProfilingState {
+    return this.profiling.recordRendererReport(report);
+  }
+
+  public recordProfilingMainTiming(name: string, durationMs: number, detail: ProfilingMetricDetail = {}): ProfilingState {
+    return this.profiling.recordMainTiming(name, durationMs, detail);
   }
 
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {
@@ -409,7 +431,14 @@ export class WorkspaceService {
       this.researchPromptControllers.set(requestId, controller);
     }
     const model = input?.model?.trim() || status.defaultModel;
-    const adapter = new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch ?? (fetch as FetchLike), process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1', null);
+    const adapter = new OpenAiResponsesAdapter(
+      this.openAiAuth,
+      this.options.openAiFetch ?? (fetch as FetchLike),
+      process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+      null,
+      undefined,
+      (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+    );
     const body = adapter.buildRequest({
       model,
       instructions: RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS,
@@ -456,7 +485,14 @@ export class WorkspaceService {
 
   private async reviewHackerOneProgramImport(facts: HackerOneProgramImportFacts): Promise<HackerOneProgramImportReview> {
     const status = this.openAiAuth.getStatus();
-    const adapter = new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch ?? (fetch as FetchLike), process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1', null);
+    const adapter = new OpenAiResponsesAdapter(
+      this.openAiAuth,
+      this.options.openAiFetch ?? (fetch as FetchLike),
+      process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+      null,
+      undefined,
+      (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+    );
     const body = adapter.buildRequest({
       model: status.defaultModel,
       instructions: HACKERONE_IMPORT_REVIEW_INSTRUCTIONS,
@@ -1166,6 +1202,7 @@ export class WorkspaceService {
 
   public dispose(): void {
     this.close();
+    this.profiling.dispose();
     this.openAiAuth.dispose();
     this.programRegistry?.close();
     this.programRegistry = null;
@@ -1219,7 +1256,15 @@ export class WorkspaceService {
       lastRecovery: db.recoverInterruptedState('workspace_open'),
       db,
       engine: new FakeRunEngine(db, () => this.emitRuntimeChange(workspacePath)),
-      openAiEngine: new OpenAiRunEngine(db, this.openAiAuth, new OpenAiResponsesAdapter(this.openAiAuth), executorManager, () => this.emitRuntimeChange(workspacePath)),
+      openAiEngine: new OpenAiRunEngine(
+        db,
+        this.openAiAuth,
+        new OpenAiResponsesAdapter(this.openAiAuth, undefined, undefined, undefined, undefined, (name, durationMs, detail) =>
+          this.recordProfilingMainTiming(name, durationMs, detail)
+        ),
+        executorManager,
+        () => this.emitRuntimeChange(workspacePath)
+      ),
       executorManager,
       executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),
       benchmarkRunner: new BenchmarkRunner(db, workspacePath, this.options.benchmarkDockerCommand)

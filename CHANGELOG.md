@@ -8,6 +8,8 @@
 - Added dev-only renderer DevTools shortcuts and launch opt-ins for debugging performance instrumentation.
 - Added a cheap run-detail version IPC path and main-process timing logs for active-session performance diagnosis.
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
+- Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > General.
+- Added a profiling overview modal and Debug header button while profiling is enabled.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
@@ -19,6 +21,7 @@
 - Added renderer trace content tests for trace labels, structured detail text, reasoning text cleanup, provenance lookup, and path compaction.
 - Added renderer trace visual tests for trace category filter metadata and trace type labels.
 - Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
+- Added main profiling service tests for structured JSONL output.
 
 ### Changed
 

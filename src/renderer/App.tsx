@@ -23,6 +23,7 @@ import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useProgramActions } from './hooks/useProgramActions';
 import { useProgramOverlayState } from './hooks/useProgramOverlayState';
+import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useTraceSelection } from './hooks/useTraceSelection';
@@ -37,9 +38,7 @@ import {
   vmPreferenceForState,
   windowControlPlatformForState
 } from './view-models/appShell';
-import {
-  type ProgramOnboardingFormState
-} from './view-models/programOnboarding';
+import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents } from './view-models/traceDisplay';
@@ -68,6 +67,7 @@ export function App(): JSX.Element {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
+  const [profilingOpen, setProfilingOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
@@ -83,6 +83,12 @@ export function App(): JSX.Element {
     sessionHistoryProgram,
     sessionHistorySessions
   } = useProgramOverlayState(programRegistry);
+  const {
+    profilingState,
+    lastProfilingReport,
+    setProfilingEnabled,
+    flushProfilingReport
+  } = useProfilingRuntime(handleError);
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
@@ -276,6 +282,8 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
+        profilingEnabled={profilingState?.enabled ?? false}
+        onOpenProfiling={() => setProfilingOpen(true)}
         onToggleSidebar={toggleSidebar}
       />
       <ProgramSidebar
@@ -349,6 +357,9 @@ export function App(): JSX.Element {
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
+        profilingOpen={profilingOpen}
+        profilingState={profilingState}
+        lastProfilingReport={lastProfilingReport}
         programDraft={programDraft}
         programInfo={programInfo}
         researchPromptDetail={researchPromptDetail}
@@ -371,6 +382,7 @@ export function App(): JSX.Element {
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
+        onCloseProfiling={() => setProfilingOpen(false)}
         onCloseProgramInfo={() => setProgramInfo(null)}
         onCloseResearchPrompt={() => setResearchPromptDetail(null)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
@@ -384,6 +396,10 @@ export function App(): JSX.Element {
         }}
         onProgramTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
+        onFlushProfilingReport={() => {
+          flushProfilingReport();
+        }}
+        onSetProfilingEnabled={setProfilingEnabled}
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartedNewResearch={(runId) => {

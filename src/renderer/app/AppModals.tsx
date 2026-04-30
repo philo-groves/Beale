@@ -5,6 +5,8 @@ import type {
   NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ProfilingReport,
+  ProfilingState,
   ProgramRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
@@ -18,6 +20,7 @@ import { ProgramInformationModal, ProgramSessionHistoryModal } from '../features
 import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingModal';
 import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
+import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
@@ -31,6 +34,9 @@ export function AppModals({
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
+  profilingOpen,
+  profilingState,
+  lastProfilingReport,
   programDraft,
   programInfo,
   researchPromptDetail,
@@ -53,6 +59,7 @@ export function AppModals({
   onChangeSettingsSection,
   onChangeVisibleTraceCategories,
   onCloseNotification,
+  onCloseProfiling,
   onCloseProgramInfo,
   onCloseResearchPrompt,
   onCloseSessionHistory,
@@ -63,6 +70,8 @@ export function AppModals({
   onOpenSessionHistorySession,
   onProgramTemplate,
   onRefreshOpenAi,
+  onFlushProfilingReport,
+  onSetProfilingEnabled,
   onSetVmPreference,
   onStartOpenAiOAuth,
   onStartedNewResearch,
@@ -76,6 +85,9 @@ export function AppModals({
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
+  profilingOpen: boolean;
+  profilingState: ProfilingState | null;
+  lastProfilingReport: ProfilingReport | null;
   programDraft: ProgramOnboardingFormState | null;
   programInfo: ProgramRegistryEntry | null;
   researchPromptDetail: RunDetail | null;
@@ -98,6 +110,7 @@ export function AppModals({
   onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
+  onCloseProfiling: () => void;
   onCloseProgramInfo: () => void;
   onCloseResearchPrompt: () => void;
   onCloseSessionHistory: () => void;
@@ -108,6 +121,8 @@ export function AppModals({
   onOpenSessionHistorySession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
   onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
+  onFlushProfilingReport: () => void;
+  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
@@ -145,12 +160,22 @@ export function AppModals({
           vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
+          profilingState={profilingState}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetVmPreference={onSetVmPreference}
+          onSetProfilingEnabled={onSetProfilingEnabled}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
+        />
+      ) : null}
+      {profilingOpen ? (
+        <ProfilingModal
+          state={profilingState}
+          report={lastProfilingReport}
+          onClose={onCloseProfiling}
+          onFlush={onFlushProfilingReport}
         />
       ) : null}
       {traceFilterOpen ? (

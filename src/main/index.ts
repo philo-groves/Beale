@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BenchmarkRunInput,
+  ProfilingReport,
   ProgramOnboardingInput,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
@@ -165,9 +166,24 @@ function timedMainIpc<T>(name: string, detail: Record<string, string | number | 
   try {
     return operation();
   } finally {
+    const durationMs = performance.now() - startedAt;
     if (mainPerformanceLoggingEnabled()) {
-      console.info(`[Beale main perf] ${name} ${roundMetricMs(performance.now() - startedAt)}ms ${formatMainMetricDetail(detail)}`);
+      console.info(`[Beale main perf] ${name} ${roundMetricMs(durationMs)}ms ${formatMainMetricDetail(detail)}`);
     }
+    workspaceService?.recordProfilingMainTiming(name, durationMs, detail);
+  }
+}
+
+async function timedMainIpcAsync<T>(name: string, detail: Record<string, string | number | boolean>, operation: () => Promise<T>): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await operation();
+  } finally {
+    const durationMs = performance.now() - startedAt;
+    if (mainPerformanceLoggingEnabled()) {
+      console.info(`[Beale main perf] ${name} ${roundMetricMs(durationMs)}ms ${formatMainMetricDetail(detail)}`);
+    }
+    workspaceService?.recordProfilingMainTiming(name, durationMs, detail);
   }
 }
 
@@ -239,12 +255,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
+  ipcMain.handle(IPC_CHANNELS.getProfilingState, () => workspaceService.getProfilingState());
+  ipcMain.handle(IPC_CHANNELS.setProfilingEnabled, (_event, enabled: boolean) => workspaceService.setProfilingEnabled(enabled));
+  ipcMain.handle(IPC_CHANNELS.recordProfilingReport, (_event, report: ProfilingReport) => workspaceService.recordProfilingReport(report));
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
-    workspaceService.generateResearchPrompt(input, (update) => event.sender.send(IPC_CHANNELS.researchPromptGenerationUpdated, update))
+    timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>
+      workspaceService.generateResearchPrompt(input, (update) => event.sender.send(IPC_CHANNELS.researchPromptGenerationUpdated, update))
+    )
   );
   ipcMain.handle(IPC_CHANNELS.cancelResearchPromptGeneration, (_event, requestId: string) => workspaceService.cancelResearchPromptGeneration(requestId));
   ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
-  ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
+  ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) =>
+    timedMainIpc('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () => workspaceService.startRun(input))
+  );
   ipcMain.handle(IPC_CHANNELS.runBenchmarkSuite, (_event, input: BenchmarkRunInput) => workspaceService.runBenchmarkSuite(input));
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
@@ -258,7 +281,9 @@ function registerIpc(): void {
       workspaceService.getRunDetailUpdate(runId, cursor)
     )
   );
-  ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) => workspaceService.steerRun(action));
+  ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) =>
+    timedMainIpc('steerRun', { type: action.type, run: shortMetricId(action.runId) }, () => workspaceService.steerRun(action))
+  );
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, (event) => {

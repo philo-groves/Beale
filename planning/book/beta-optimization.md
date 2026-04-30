@@ -258,6 +258,9 @@ Implemented:
 
 - Renderer dev instrumentation for render counts, trace derivation timing, markdown/syntax timing, IPC timing, payload size estimates, and input next-frame latency.
 - Dev-only renderer DevTools controls so the instrumentation can be enabled from the renderer console.
+- Production-capable profiling opt-in from Settings > General that enables the same renderer probes without requiring `npm run dev`.
+- Structured local JSONL profiling output in the temp directory, containing renderer reports plus main IPC and OpenAI stream timing records.
+- A Debug header button and profiling overview modal while profiling is enabled.
 - Main-process opt-in timing logs for `getRunDetail` and `getRunDetailVersion` through `BEALE_MAIN_PERF=1` or `BEALE_DEV_PERFORMANCE=1`.
 - A cheap `RunDetailVersion` IPC path that lets active polling check whether a run changed before transferring full run detail.
 - An incremental `RunDetailUpdate` IPC path that transfers only new trace/transcript rows plus small current collections when the renderer already has full detail.

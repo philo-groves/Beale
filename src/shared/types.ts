@@ -172,6 +172,50 @@ export interface WindowChromeState {
   isFullScreen: boolean;
 }
 
+export type ProfilingMetricValue = string | number | boolean | null | undefined;
+export type ProfilingMetricDetail = Record<string, ProfilingMetricValue>;
+
+export interface ProfilingRenderReportRow {
+  surface: string;
+  renders: number;
+  lastRender: number;
+  detail: ProfilingMetricDetail;
+}
+
+export interface ProfilingTimingReportRow {
+  name: string;
+  count: number;
+  avgMs: number;
+  maxMs: number;
+  lastMs: number;
+  detail: ProfilingMetricDetail;
+}
+
+export interface ProfilingEventReportRow {
+  name: string;
+  count: number;
+  detail: ProfilingMetricDetail;
+}
+
+export interface ProfilingReport {
+  enabled: boolean;
+  empty: boolean;
+  reason: 'manual' | 'interval' | 'disabled';
+  generatedAt: string;
+  renders: ProfilingRenderReportRow[];
+  timings: ProfilingTimingReportRow[];
+  events: ProfilingEventReportRow[];
+}
+
+export interface ProfilingState {
+  enabled: boolean;
+  outputPath: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  lastReportAt: string | null;
+  reportCount: number;
+}
+
 export interface ProgramRegistryEntry {
   id: string;
   workspacePath: string;
@@ -926,6 +970,9 @@ export interface BealeApi {
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
+  getProfilingState(): Promise<ProfilingState>;
+  setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
+  recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

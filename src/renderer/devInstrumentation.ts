@@ -1,7 +1,15 @@
 import { useEffect, useRef } from 'react';
+import type {
+  ProfilingEventReportRow,
+  ProfilingMetricDetail,
+  ProfilingMetricValue,
+  ProfilingReport,
+  ProfilingRenderReportRow,
+  ProfilingTimingReportRow
+} from '@shared/types';
 
-export type DevMetricValue = string | number | boolean | null | undefined;
-export type DevMetricDetail = Record<string, DevMetricValue>;
+export type DevMetricValue = ProfilingMetricValue;
+export type DevMetricDetail = ProfilingMetricDetail;
 
 const DEV_INSTRUMENTATION_STORAGE_KEY = 'beale.devInstrumentation';
 const DEV_INSTRUMENTATION_QUERY_KEY = 'bealePerf';
@@ -26,37 +34,7 @@ interface EventStat {
   detail: DevMetricDetail;
 }
 
-interface DevRenderReportRow {
-  surface: string;
-  renders: number;
-  lastRender: number;
-  detail: DevMetricDetail;
-}
-
-interface DevTimingReportRow {
-  name: string;
-  count: number;
-  avgMs: number;
-  maxMs: number;
-  lastMs: number;
-  detail: DevMetricDetail;
-}
-
-interface DevEventReportRow {
-  name: string;
-  count: number;
-  detail: DevMetricDetail;
-}
-
-export interface DevPerformanceReport {
-  enabled: boolean;
-  empty: boolean;
-  reason: 'manual' | 'interval' | 'disabled';
-  generatedAt: string;
-  renders: DevRenderReportRow[];
-  timings: DevTimingReportRow[];
-  events: DevEventReportRow[];
-}
+export type DevPerformanceReport = ProfilingReport;
 
 interface BealeDevPerformanceControls {
   enable(): void;
@@ -71,16 +49,20 @@ type BealeDevPerformanceWindow = Window & {
 
 class RendererDevInstrumentation {
   private enabled = false;
+  private devConsoleEnabled = false;
+  private profilingEnabled = false;
   private announced = false;
   private flushTimer: number | null = null;
+  private reportSink: ((report: ProfilingReport) => void) | null = null;
   private readonly renderStats = new Map<string, RenderStat>();
   private readonly timingStats = new Map<string, TimingStat>();
   private readonly eventStats = new Map<string, EventStat>();
-  private lastReport: DevPerformanceReport | null = null;
+  private lastReport: ProfilingReport | null = null;
 
   public constructor() {
     if (typeof window === 'undefined') return;
-    this.enabled = this.computeEnabled();
+    this.devConsoleEnabled = this.computeDevConsoleEnabled();
+    this.syncEnabled();
     this.installControls();
     if (this.enabled) {
       this.announce();
@@ -90,6 +72,18 @@ class RendererDevInstrumentation {
 
   public isEnabled(): boolean {
     return this.enabled;
+  }
+
+  public configureProfiling({
+    enabled,
+    onReport
+  }: {
+    enabled: boolean;
+    onReport: ((report: ProfilingReport) => void) | null;
+  }): void {
+    this.profilingEnabled = enabled;
+    this.reportSink = enabled ? onReport : null;
+    this.syncEnabled();
   }
 
   public recordRender(surface: string, renderCount: number, detail: DevMetricDetail = {}): void {
@@ -166,7 +160,7 @@ class RendererDevInstrumentation {
     return this.lastReport ?? emptyPerformanceReport('manual');
   }
 
-  private computeEnabled(): boolean {
+  private computeDevConsoleEnabled(): boolean {
     if (!isDevRendererRuntime()) return false;
     const queryValue = queryOptInValue();
     if (queryValue === '1' || queryValue === 'true') {
@@ -186,24 +180,41 @@ class RendererDevInstrumentation {
     target.bealeDevPerformance = {
       enable: () => {
         writeOptIn(true);
-        this.enabled = true;
+        this.devConsoleEnabled = true;
+        this.syncEnabled();
         this.announce();
         this.ensureFlushTimer();
         console.info('[Beale perf] Enabled. Reload to capture mount-time render probes.');
       },
       disable: () => {
         writeOptIn(false);
-        this.enabled = false;
-        this.clearFlushTimer();
-        this.renderStats.clear();
-        this.timingStats.clear();
-        this.eventStats.clear();
-        this.lastReport = null;
+        this.devConsoleEnabled = false;
+        this.syncEnabled();
         console.info('[Beale perf] Disabled.');
       },
       report: () => this.report(),
       status: () => ({ available: isDevRendererRuntime(), enabled: this.enabled, optIn: readOptIn() })
     };
+  }
+
+  private syncEnabled(): void {
+    const nextEnabled = this.devConsoleEnabled || this.profilingEnabled;
+    if (nextEnabled === this.enabled) {
+      if (nextEnabled) this.ensureFlushTimer();
+      return;
+    }
+
+    this.enabled = nextEnabled;
+    if (this.enabled) {
+      this.ensureFlushTimer();
+      return;
+    }
+
+    this.clearFlushTimer();
+    this.renderStats.clear();
+    this.timingStats.clear();
+    this.eventStats.clear();
+    this.lastReport = null;
   }
 
   private announce(): void {
@@ -232,48 +243,51 @@ class RendererDevInstrumentation {
     if (!this.hasStats()) return this.lastReport ?? emptyPerformanceReport(reason);
 
     const report = this.buildReport(reason);
-    console.groupCollapsed(`[Beale perf] ${reason} ${new Date().toLocaleTimeString()}`);
-    if (report.renders.length > 0) {
-      console.table(
-        report.renders.map((row) => ({
-          ...row,
-          detail: formatDetail(row.detail)
-        }))
-      );
+    if (this.devConsoleEnabled) {
+      console.groupCollapsed(`[Beale perf] ${reason} ${new Date().toLocaleTimeString()}`);
+      if (report.renders.length > 0) {
+        console.table(
+          report.renders.map((row) => ({
+            ...row,
+            detail: formatDetail(row.detail)
+          }))
+        );
+      }
+      if (report.timings.length > 0) {
+        console.table(
+          report.timings.map((row) => ({
+            ...row,
+            detail: formatDetail(row.detail)
+          }))
+        );
+      }
+      if (report.events.length > 0) {
+        console.table(
+          report.events.map((row) => ({
+            ...row,
+            detail: formatDetail(row.detail)
+          }))
+        );
+      }
+      console.groupEnd();
     }
-    if (report.timings.length > 0) {
-      console.table(
-        report.timings.map((row) => ({
-          ...row,
-          detail: formatDetail(row.detail)
-        }))
-      );
-    }
-    if (report.events.length > 0) {
-      console.table(
-        report.events.map((row) => ({
-          ...row,
-          detail: formatDetail(row.detail)
-        }))
-      );
-    }
-    console.groupEnd();
 
     this.renderStats.clear();
     this.timingStats.clear();
     this.eventStats.clear();
     this.lastReport = report;
+    this.reportSink?.(report);
     return report;
   }
 
-  private buildReport(reason: 'interval' | 'manual'): DevPerformanceReport {
-    const renders = Array.from(this.renderStats.entries()).map(([surface, stat]) => ({
+  private buildReport(reason: 'interval' | 'manual'): ProfilingReport {
+    const renders: ProfilingRenderReportRow[] = Array.from(this.renderStats.entries()).map(([surface, stat]) => ({
       surface,
       renders: stat.count,
       lastRender: stat.lastRender,
       detail: stat.detail
     }));
-    const timings = Array.from(this.timingStats.entries()).map(([name, stat]) => ({
+    const timings: ProfilingTimingReportRow[] = Array.from(this.timingStats.entries()).map(([name, stat]) => ({
       name,
       count: stat.count,
       avgMs: roundMs(stat.totalMs / stat.count),
@@ -281,7 +295,7 @@ class RendererDevInstrumentation {
       lastMs: roundMs(stat.lastMs),
       detail: stat.detail
     }));
-    const events = Array.from(this.eventStats.entries()).map(([name, stat]) => ({
+    const events: ProfilingEventReportRow[] = Array.from(this.eventStats.entries()).map(([name, stat]) => ({
       name,
       count: stat.count,
       detail: stat.detail
@@ -312,10 +326,11 @@ export function useDevRenderProbe(surface: string, detail?: DevMetricDetail | ((
 
 export function useDevInputLatencyProbe(): void {
   useEffect(() => {
-    if (!devInstrumentation.isEnabled() || typeof window === 'undefined') return undefined;
+    if (typeof window === 'undefined') return undefined;
     let pending = false;
 
     const handleInputSignal = (event: Event): void => {
+      if (!devInstrumentation.isEnabled()) return;
       if (pending) return;
       pending = true;
       const startedAt = performance.now();

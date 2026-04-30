@@ -1,4 +1,4 @@
-import type { OpenAiTransport } from '@shared/types';
+import type { OpenAiTransport, ProfilingMetricDetail } from '@shared/types';
 import { arch, platform, release } from 'node:os';
 import { OpenAiAuthService, type OpenAiCredential, resolveOpenAiTransport } from './openaiAuth';
 import type { OpenAiToolDefinition } from './openaiTools';
@@ -88,6 +88,10 @@ export interface WebSocketConstructorLike {
   new (url: string, options: { headers: Record<string, string> }): WebSocketLike;
 }
 
+export interface OpenAiProfilingRecorder {
+  (name: string, durationMs: number, detail: ProfilingMetricDetail): void;
+}
+
 export class OpenAiApiError extends Error {
   public constructor(
     message: string,
@@ -108,7 +112,8 @@ export class OpenAiResponsesAdapter {
     private readonly fetchImpl: FetchLike = fetch,
     baseUrl = process.env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL,
     private readonly webSocketImpl: WebSocketConstructorLike | null = NodeWebSocket as unknown as WebSocketConstructorLike,
-    codexBaseUrl = process.env.BEALE_OPENAI_CODEX_BASE_URL ?? DEFAULT_CODEX_BASE_URL
+    codexBaseUrl = process.env.BEALE_OPENAI_CODEX_BASE_URL ?? DEFAULT_CODEX_BASE_URL,
+    private readonly profilingRecorder: OpenAiProfilingRecorder | null = null
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.codexBaseUrl = codexBaseUrl.replace(/\/$/, '');
@@ -144,43 +149,97 @@ export class OpenAiResponsesAdapter {
   }
 
   private async *streamSseResponse(input: StreamResponseInput): AsyncGenerator<OpenAiStreamEvent> {
-    const credential = this.auth.getCredentialOrThrow();
-    const sessionId = input.body.metadata.beale_run_id;
-    const response = await this.fetchImpl(this.responsesHttpUrl(credential), {
-      method: 'POST',
-      headers: this.sseHeaders(credential, sessionId),
-      body: JSON.stringify(wireBodyForCredential(credential, input.body, sessionId)),
-      signal: input.signal
-    });
+    const startedAt = performance.now();
+    let source = 'unknown';
+    let status = 'completed';
+    let eventCount = 0;
+    let firstEventMs = -1;
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw openAiApiErrorFromBody(response.status, body);
-    }
+    try {
+      const credential = this.auth.getCredentialOrThrow();
+      source = credential.source;
+      const sessionId = input.body.metadata.beale_run_id;
+      const response = await this.fetchImpl(this.responsesHttpUrl(credential), {
+        method: 'POST',
+        headers: this.sseHeaders(credential, sessionId),
+        body: JSON.stringify(wireBodyForCredential(credential, input.body, sessionId)),
+        signal: input.signal
+      });
 
-    if (!response.body) {
-      throw new Error('OpenAI Responses API returned an empty stream body.');
-    }
+      if (!response.ok) {
+        status = `http_${response.status}`;
+        const body = await response.text().catch(() => '');
+        throw openAiApiErrorFromBody(response.status, body);
+      }
 
-    for await (const event of parseSseStream(response.body)) {
-      yield normalizeOpenAiStreamEvent(event);
+      if (!response.body) {
+        status = 'empty_body';
+        throw new Error('OpenAI Responses API returned an empty stream body.');
+      }
+
+      for await (const event of parseSseStream(response.body)) {
+        eventCount += 1;
+        if (firstEventMs < 0) {
+          firstEventMs = performance.now() - startedAt;
+        }
+        yield normalizeOpenAiStreamEvent(event);
+      }
+    } catch (error) {
+      if (status === 'completed') status = error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'error';
+      throw error;
+    } finally {
+      this.recordProfilingTiming('openai.responses.stream', performance.now() - startedAt, {
+        transport: 'sse_http',
+        model: input.body.model,
+        source,
+        status,
+        events: eventCount,
+        firstEventMs: roundMs(firstEventMs)
+      });
     }
   }
 
   private async *streamWebSocketResponse(input: StreamResponseInput): AsyncGenerator<OpenAiStreamEvent> {
+    const startedAt = performance.now();
+    let source = 'unknown';
+    let status = 'completed';
+    let eventCount = 0;
+    let firstEventMs = -1;
+
     if (!this.webSocketImpl) {
       throw new Error('OpenAI Responses WebSocket transport is not available in this host process.');
     }
 
-    const credential = this.auth.getCredentialOrThrow();
-    const sessionKey = input.body.metadata.beale_run_id || 'default';
-    const session = this.getWebSocketSession(sessionKey, credential);
     try {
-      yield* session.stream(wireBodyForCredential(credential, input.body, sessionKey), input.signal);
-    } finally {
-      if (session.isClosed()) {
-        this.webSocketSessions.delete(sessionKey);
+      const credential = this.auth.getCredentialOrThrow();
+      source = credential.source;
+      const sessionKey = input.body.metadata.beale_run_id || 'default';
+      const session = this.getWebSocketSession(sessionKey, credential);
+      try {
+        for await (const event of session.stream(wireBodyForCredential(credential, input.body, sessionKey), input.signal)) {
+          eventCount += 1;
+          if (firstEventMs < 0) {
+            firstEventMs = performance.now() - startedAt;
+          }
+          yield event;
+        }
+      } finally {
+        if (session.isClosed()) {
+          this.webSocketSessions.delete(sessionKey);
+        }
       }
+    } catch (error) {
+      status = error instanceof Error && error.message.includes('aborted') ? 'aborted' : 'error';
+      throw error;
+    } finally {
+      this.recordProfilingTiming('openai.responses.stream', performance.now() - startedAt, {
+        transport: 'websocket',
+        model: input.body.model,
+        source,
+        status,
+        events: eventCount,
+        firstEventMs: roundMs(firstEventMs)
+      });
     }
   }
 
@@ -255,6 +314,10 @@ export class OpenAiResponsesAdapter {
     const session = new OpenAiWebSocketSession(this.responsesWebSocketUrl(credential), this.webSocketHeaders(credential, sessionKey), this.webSocketImpl as WebSocketConstructorLike);
     this.webSocketSessions.set(sessionKey, session);
     return session;
+  }
+
+  private recordProfilingTiming(name: string, durationMs: number, detail: ProfilingMetricDetail): void {
+    this.profilingRecorder?.(name, roundMs(durationMs), detail);
   }
 }
 
@@ -341,6 +404,10 @@ function webSocketDataToString(data: unknown): string {
     return Buffer.concat(data).toString('utf8');
   }
   return '';
+}
+
+function roundMs(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 class OpenAiWebSocketSession {

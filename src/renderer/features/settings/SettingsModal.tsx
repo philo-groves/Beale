@@ -1,10 +1,11 @@
 import type { JSX } from 'react';
-import { KeyRound, RefreshCw, Server, Terminal } from 'lucide-react';
+import { Activity, KeyRound, RefreshCw, Server, Terminal } from 'lucide-react';
 import type {
   ExecutorBackendStatus,
   ExecutorStatus,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ProfilingState,
   VmPreference,
   VmPreferenceInput
 } from '@shared/types';
@@ -21,10 +22,12 @@ export function SettingsModal({
   vmPreference,
   openAiStatus,
   openAiOAuthResult,
+  profilingState,
   busy,
   onChangeSection,
   onClose,
   onSetVmPreference,
+  onSetProfilingEnabled,
   onRefreshOpenAi,
   onStartOpenAiOAuth
 }: {
@@ -33,10 +36,12 @@ export function SettingsModal({
   vmPreference: VmPreference;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
+  profilingState: ProfilingState | null;
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
+  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
 }): JSX.Element {
@@ -61,7 +66,14 @@ export function SettingsModal({
         </nav>
         <section className="settings-view">
           {section === 'general' ? (
-            <GeneralSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetVmPreference={onSetVmPreference} />
+            <GeneralSettingsView
+              busy={busy}
+              executor={executor}
+              profilingState={profilingState}
+              vmPreference={vmPreference}
+              onSetProfilingEnabled={onSetProfilingEnabled}
+              onSetVmPreference={onSetVmPreference}
+            />
           ) : (
             <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
           )}
@@ -74,12 +86,16 @@ export function SettingsModal({
 function GeneralSettingsView({
   executor,
   vmPreference,
+  profilingState,
   busy,
+  onSetProfilingEnabled,
   onSetVmPreference
 }: {
   executor: ExecutorStatus | null;
   vmPreference: VmPreference;
+  profilingState: ProfilingState | null;
   busy: boolean;
+  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
 }): JSX.Element {
   const selection = vmSelectionStatus(executor, vmPreference);
@@ -154,6 +170,29 @@ function GeneralSettingsView({
             <code>{executorVmSetupCommand(executor)}</code>
           </div>
         </div>
+      </section>
+      <section className="provider-card profiling-settings-card">
+        <div className="provider-heading">
+          <div className="status-icon">
+            <Activity size={18} />
+          </div>
+          <div>
+            <h4>Profiling</h4>
+            <p>Capture renderer reports and main IPC timings to a local JSONL file.</p>
+          </div>
+          <label className="settings-switch">
+            <input
+              type="checkbox"
+              checked={profilingState?.enabled ?? false}
+              disabled={busy}
+              onChange={(event) => void onSetProfilingEnabled(event.target.checked)}
+            />
+            <span>{profilingState?.enabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <p className="provider-detail">
+          {profilingState?.outputPath ? `Output: ${profilingState.outputPath}` : 'Enable profiling to create a temporary output file.'}
+        </p>
       </section>
     </div>
   );
