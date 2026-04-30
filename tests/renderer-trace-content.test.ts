@@ -1,0 +1,168 @@
+import { describe, expect, it } from 'vitest';
+import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
+import {
+  compactTracePath,
+  findingForTraceEvent,
+  formatReasoningTraceText,
+  hypothesisForTraceEvent,
+  traceEventDetailText,
+  traceEventSummary
+} from '../src/renderer/view-models/traceContent';
+
+describe('renderer trace content view models', () => {
+  it('normalizes trace summaries into skimmable verb-led labels', () => {
+    expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI response completed.' }), 'agent_output')).toBe('Response Completed');
+    expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI Responses request sent for turn 12.' }), 'agent_output')).toBe('Request for Turn 12');
+    expect(
+      traceEventSummary(
+        traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for python.', payload: { toolName: 'python' } }),
+        'tools'
+      )
+    ).toBe('Run Python');
+    expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
+    expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
+  });
+
+  it('formats reasoning summaries while preserving thought boundaries', () => {
+    expect(formatReasoningTraceText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toBe(
+      'Focus: Check parser with range checks\nRisk: Validate index use'
+    );
+  });
+
+  it('formats key trace detail content without raw JSON noise', () => {
+    const search = traceEvent({
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Search returned results.',
+      payload: { query: 'decodeToken', matches: ['a', 'b'], filesConsidered: 14, target: 'auth' }
+    });
+    expect(traceEventDetailText(search, 'code_navigation')).toBe('query "decodeToken" · 2 matches · files 14 · target auth');
+
+    const hypothesisTool = traceEvent({
+      type: 'tool_call',
+      source: 'model',
+      summary: 'OpenAI completed function call arguments for hypothesis.',
+      payload: {
+        toolName: 'hypothesis',
+        arguments: {
+          title: 'Reflected callback parameter reaches HTML',
+          primary_cwe_id: '79',
+          primary_cwe_name: 'Cross-site Scripting'
+        }
+      }
+    });
+    expect(traceEventDetailText(hypothesisTool, 'hypotheses')).toBe('Cross-site Scripting (CWE-79): Reflected callback parameter reaches HTML');
+  });
+
+  it('uses session records for hypothesis and finding trace details when available', () => {
+    const detail = runDetail({
+      hypotheses: [
+        hypothesisRecord({
+          id: 'hypothesis_one',
+          createdTraceEventId: 'trace_hypothesis_created',
+          title: 'Stored hypothesis title',
+          descriptionMarkdown: 'Stored hypothesis description.'
+        })
+      ],
+      findings: [
+        findingRecord({
+          id: 'finding_one',
+          hypothesisId: 'hypothesis_one',
+          title: 'Stored finding title',
+          impactMarkdown: 'Stored finding impact.'
+        })
+      ]
+    });
+
+    const hypothesisEvent = traceEvent({ id: 'trace_hypothesis_created', type: 'hypothesis_event', payload: { title: 'Payload title' } });
+    const findingEvent = traceEvent({ id: 'trace_finding', type: 'finding_event', payload: { findingId: 'finding_one', title: 'Payload finding' } });
+
+    expect(hypothesisForTraceEvent(detail, hypothesisEvent)?.id).toBe('hypothesis_one');
+    expect(findingForTraceEvent(detail, findingEvent)?.id).toBe('finding_one');
+    expect(traceEventDetailText(hypothesisEvent, 'hypotheses', detail)).toBe('**Stored hypothesis title**\nStored hypothesis description.');
+    expect(traceEventDetailText(findingEvent, 'evidence', detail)).toBe('**Stored finding title**\nStored finding impact.');
+  });
+
+  it('compacts long trace paths from the right-hand side', () => {
+    expect(compactTracePath('/repo/services/payments/src/main/java/com/example/security/Decoder.java')).toBe('.../example/security/Decoder.java');
+  });
+});
+
+function runDetail(input: { hypotheses?: HypothesisRecord[]; findings?: FindingRecord[] } = {}): RunDetail {
+  return {
+    run: {
+      id: 'run_test',
+      status: 'completed',
+      createdAt: '2026-04-30T10:00:00.000Z',
+      startedAt: '2026-04-30T10:00:00.000Z',
+      endedAt: null,
+      mode: 'dynamic',
+      attemptStrategy: 'breadth_first',
+      networkProfile: 'scoped',
+      title: '',
+      promptMarkdown: ''
+    },
+    attempts: [],
+    traceEvents: [],
+    transcriptMessages: [],
+    hypotheses: input.hypotheses ?? [],
+    artifacts: [],
+    evidence: [],
+    findings: input.findings ?? [],
+    verifierContracts: [],
+    verifierRuns: [],
+    vmContexts: [],
+    modelSessions: [],
+    contextCompactions: [],
+    policyEvents: [],
+    exports: []
+  } as unknown as RunDetail;
+}
+
+function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisRecord {
+  return {
+    id: 'hypothesis_test',
+    title: 'Hypothesis',
+    state: 'needs_evidence',
+    priorityScore: 10,
+    descriptionMarkdown: '',
+    createdTraceEventId: null,
+    cweMappings: [],
+    ...input
+  } as unknown as HypothesisRecord;
+}
+
+function findingRecord(input: Partial<FindingRecord> = {}): FindingRecord {
+  return {
+    id: 'finding_test',
+    hypothesisId: 'hypothesis_test',
+    title: 'Finding',
+    state: 'verified',
+    priorityScore: 50,
+    impactMarkdown: '',
+    summaryMarkdown: '',
+    cweMappings: [],
+    ...input
+  } as unknown as FindingRecord;
+}
+
+function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
+  return {
+    id: 'trace_test',
+    runId: 'run_test',
+    attemptId: null,
+    sequence: 1,
+    source: 'system',
+    type: 'user_note',
+    summary: 'Trace event.',
+    payload: {},
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: '2026-04-30T10:00:00.000Z',
+    vmContextId: null,
+    artifactId: null,
+    toolCallId: null,
+    approvalId: null,
+    ...input
+  };
+}

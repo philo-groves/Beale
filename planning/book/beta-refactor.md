@@ -220,6 +220,7 @@ Implementation note, 2026-04-30:
 - Session header timing/status helpers moved into `src/renderer/view-models/sessionHeader.ts`.
 - Trace turn helpers moved into `src/renderer/view-models/traceDisplay.ts`.
 - Trace timeline grouping and turn status helpers moved into `src/renderer/view-models/traceDisplay.ts`.
+- Trace label, detail text, provenance lookup, and path compaction helpers moved into `src/renderer/view-models/traceContent.ts`.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
 - Evidence sidebar rendering moved into `src/renderer/features/research/EvidenceSidebar.tsx`.
 - CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
@@ -228,4 +229,4 @@ Implementation note, 2026-04-30:
 - Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, research item provenance, evidence sidebar ordering, and session heat scoring.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, trace content labels/details, research item provenance, evidence sidebar ordering, and session heat scoring.
