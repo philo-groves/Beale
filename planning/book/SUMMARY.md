@@ -42,6 +42,7 @@ This book is the working planning document for the Beale rewrite.
 - [Research Momentum](research-momentum.md)
 - [Beta Refactor Plan](beta-refactor.md)
 - [Beta Optimization Plan](beta-optimization.md)
+- [Beta Readiness and Incomplete Surfaces](beta-readiness.md)
 - [First Vertical Slice](vertical-slice.md)
 - [Roadmap](roadmap.md)
 
