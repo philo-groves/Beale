@@ -47,6 +47,7 @@
 - Extracted inset scrollbar activation and resizable sidebar state from `App.tsx` into renderer hooks.
 - Extracted the main session workspace grid from `App.tsx` into the session feature module.
 - Extracted app shell class, selected run detail/status, VM preference, and window platform derivation from `App.tsx`.
+- Extracted active run-detail polling, version checks, and incremental update application from `App.tsx` into a renderer hook.
 - Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
 
 ### Fixed

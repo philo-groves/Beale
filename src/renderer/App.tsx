@@ -33,6 +33,7 @@ import { TraceFilterModal } from './features/traces/TraceFilterModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
+import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import { environmentActivityForDetail } from './view-models/environmentDisplay';
@@ -62,10 +63,7 @@ import {
   type TraceDisplayEvent
 } from './view-models/traceDisplay';
 import {
-  mergeRunDetailUpdate,
   runDetailMetricDetail,
-  runDetailUpdateCursor,
-  runDetailUpdateMetricDetail,
   selectRunId,
   shortMetricId,
   snapshotMetricDetail
@@ -93,14 +91,17 @@ export function App(): JSX.Element {
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
   const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const previousRunIdRef = useRef<string | null>(null);
-  const runDetailRequestSeqRef = useRef(0);
-  const runDetailVersionRef = useRef<string | null>(null);
-  const runDetailRef = useRef<RunDetail | null>(null);
+  const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
+  const handleRunDetailError = useCallback((message: string) => setError(message), []);
+  const { runDetail, clearRunDetail } = useRunDetailPolling({
+    selectedRunId,
+    selectedRunState,
+    onError: handleRunDetailError
+  });
 
   useDevRenderProbe('app.shell', () => ({
     selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
@@ -116,10 +117,6 @@ export function App(): JSX.Element {
   }));
   useDevInputLatencyProbe();
   useInsetScrollbarActivation();
-
-  useEffect(() => {
-    runDetailRef.current = runDetail;
-  }, [runDetail]);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
     devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
@@ -138,8 +135,6 @@ export function App(): JSX.Element {
   const loadProgramRegistry = useCallback(async () => {
     setProgramRegistry(await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry()));
   }, []);
-
-  const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
 
   useEffect(() => {
     window.beale
@@ -183,89 +178,6 @@ export function App(): JSX.Element {
       unsubscribeWindowChromeState();
     };
   }, [applySnapshot]);
-
-  useEffect(() => {
-    const requestSeq = ++runDetailRequestSeqRef.current;
-    if (!selectedRunId) {
-      runDetailVersionRef.current = null;
-      runDetailRef.current = null;
-      setRunDetail(null);
-      return undefined;
-    }
-
-    runDetailVersionRef.current = null;
-    runDetailRef.current = null;
-    let disposed = false;
-    let inFlight = false;
-    const refreshRunDetail = (): void => {
-      if (inFlight) return;
-      inFlight = true;
-      devInstrumentation
-        .timeAsync('ipc.getRunDetailVersion', () => window.beale.getRunDetailVersion(selectedRunId), { run: shortMetricId(selectedRunId) })
-        .then(async (version) => {
-          devInstrumentation.recordEvent('ipc.getRunDetailVersion.payload', {
-            run: shortMetricId(version.runId),
-            databaseMs: version.databaseMs,
-            version: shortMetricId(version.version)
-          });
-          if (!disposed && requestSeq === runDetailRequestSeqRef.current && version.version === runDetailVersionRef.current) {
-            return null;
-          }
-          const currentDetail = runDetailRef.current;
-          if (currentDetail?.run.id === selectedRunId && runDetailVersionRef.current) {
-            const update = await devInstrumentation.timeAsync(
-              'ipc.getRunDetailUpdate',
-              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
-              { run: shortMetricId(selectedRunId) }
-            );
-            return { detail: mergeRunDetailUpdate(currentDetail, update), version: update.version.version, update };
-          }
-          const detail = await devInstrumentation.timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) });
-          return { detail, version: version.version, update: null };
-        })
-        .then((result) => {
-          if (!result) return;
-          const { detail, version, update } = result;
-          if (update) {
-            devInstrumentation.recordPayload('ipc.getRunDetailUpdate.payload', update, runDetailUpdateMetricDetail(update));
-          } else {
-            devInstrumentation.recordPayload('ipc.getRunDetail.payload', detail, runDetailMetricDetail(detail));
-          }
-          if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
-            if (version !== runDetailVersionRef.current) {
-              runDetailVersionRef.current = version;
-              runDetailRef.current = detail;
-              startTransition(() => setRunDetail(detail));
-            } else {
-              devInstrumentation.recordEvent('ipc.getRunDetail.versionRaceSkipped', {
-                run: shortMetricId(detail.run.id)
-              });
-            }
-          }
-        })
-        .catch((caught: unknown) => {
-          if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
-            setError(errorMessage(caught));
-          }
-        })
-        .finally(() => {
-          inFlight = false;
-        });
-    };
-
-    refreshRunDetail();
-    if (selectedRunState !== 'active') {
-      return () => {
-        disposed = true;
-      };
-    }
-
-    const interval = window.setInterval(refreshRunDetail, 750);
-    return () => {
-      disposed = true;
-      window.clearInterval(interval);
-    };
-  }, [selectedRunId, selectedRunState]);
 
   useEffect(() => {
     if (previousRunIdRef.current === selectedRunId) return;
@@ -437,7 +349,7 @@ export function App(): JSX.Element {
 
   const openResearchSession = (program: ProgramRegistryEntry, session: ResearchSessionSummary): void => {
     void runProgramAction(async () => {
-      setRunDetail(null);
+      clearRunDetail();
       const activeProgram = snapshot?.workspace.workspacePath === program.workspacePath;
       const next = activeProgram ? await window.beale.getSnapshot() : await window.beale.openProgram(program.id);
       applySnapshot(next);
@@ -620,7 +532,7 @@ export function App(): JSX.Element {
           runAction={runAction}
           onCancel={() => setNewResearchOpen(false)}
           onStarted={(runId) => {
-            setRunDetail(null);
+            clearRunDetail();
             setSelectedRunId(runId);
             setNewResearchOpen(false);
           }}
