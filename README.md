@@ -1,181 +1,91 @@
 # Beale
 
-Beale is an authorized vulnerability research workbench.
+**Not a coding agent; a decoding agent.**
 
-It is being built for open-ended security research on targets where the user has explicit permission: local codebases, authorized bounty programs, internal assessments, and controlled benchmark targets.
+An Electron-based desktop workbench for authorized vulnerability research.
 
-Beale is not production-ready yet. The repository is public-facing enough to inspect and run, but several beta-facing controls and workflows are still incomplete.
+---
 
-## Current Status
+## Status
 
-Working vertical slice:
+**Very early stage / pre-alpha.**
 
-- Electron desktop workbench.
-- Multi-program local workspace registry.
-- Local SQLite-backed research session state.
-- OpenAI-backed research session execution.
-- Trace timeline with model, tool, system, hypothesis, finding, evidence, and compaction events.
-- Session transcripts persisted separately from trace metadata.
-- Hypothesis and finding side panels.
-- Steering for active sessions.
-- OpenAI provider onboarding/status UI.
-- Firecracker setup tooling and live test path on WSL/Linux.
-- Opt-in local profiling that writes structured JSONL reports.
+This project is still under heavy development. There is a lot left to do before it's ready for real use. I wouldn't recommend trying to use the agent yet — it's more of a workbench-in-progress than a polished tool.
 
-Known incomplete surfaces:
+If you're curious about the direction or want to follow along, you're welcome to explore the repo. Feedback and ideas are appreciated, but expect things to be incomplete, unstable, and subject to frequent change.
 
-- The baked-in File/Edit/View/Window menu buttons are placeholders.
-- Sidebar Search and Schedules are not complete product flows.
-- Export, disclosure draft, and redacted trace review are incomplete.
-- Full pause/resume/stop/fork/restart run controls are incomplete.
-- Full verifier contract, artifact review, and evidence bundle controls are incomplete.
-- Hyper-V and Tart VM backends are not implemented yet.
-- Settings coverage is still narrow.
+---
 
-See [planning/book/beta-readiness.md](planning/book/beta-readiness.md) for the current beta-readiness checklist.
+## What is Beale?
 
-## Safety Boundary
+Beale is a specialized research environment designed to help security researchers explore, hypothesize about, and verify vulnerabilities in **authorized targets only**.
 
-Use Beale only for authorized research.
+It combines:
+- A structured, auditable workbench for mapping architecture, trust boundaries, and attack surfaces
+- Model-assisted (currently OpenAI) reasoning and discovery loops
+- Strong emphasis on evidence, verification, provenance, and responsible disclosure
+- Sandboxed execution of tools, fuzzing, debugging, and target binaries
 
-Beale is designed around these invariants:
+The guiding philosophy is **human-steered, verifiable research** rather than fully autonomous scanning or benchmark chasing.
 
-- Program authorization and scope should be recorded before live-target testing.
-- Model claims are hypotheses until backed by tool, artifact, or verifier evidence.
-- OpenAI credentials stay on the host.
-- Workspace databases are local.
-- Guest VM exports are candidate artifacts until accepted by the host.
-- Live-target testing must remain inside the recorded program scope and network profile.
+### Core Principles
+- **Authorization first** — everything stays within scoped, permitted programs/targets
+- **Evidence over claims** — model reasoning must be backed by observable tool results and artifacts
+- **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
+- **Isolation** — execution happens in controlled environments (with plans for strong VM sandboxing)
+- **Human in the loop** — steering, review, hypothesis validation, and patch checking remain researcher-driven
 
-Host execution is currently supported for product practicality, but VM-backed execution remains the safer default direction for target code, generated PoCs, fuzzing, debugging, and closed-source executables.
+---
 
-## Repository Layout
+## Key Concepts
 
-- `src/main/`: Electron main process, workspace service, persistence, OpenAI adapter, executor integration.
-- `src/preload/`: Electron preload bridge.
-- `src/renderer/`: React renderer, workbench UI, trace views, settings, modals, profiling UI.
-- `tests/`: unit, integration, renderer view-model, benchmark, and live-test harness tests.
-- `scripts/`: Firecracker setup and VM controller scripts.
-- `resources/`: app icon and packaged resources.
-- `planning/book/`: product, architecture, security, UX, and beta planning docs.
-- `planning/research/`: research notes and source synthesis.
+- **Workspaces**: Local folders containing your target programs with `.beale/` metadata
+- **Runs / Sessions**: Research sessions with adaptive planning, steering, and forking
+- **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
+- **Tools**: Structured, typed tools for code search, execution, debugging, artifact handling, verifiers, etc.
+- **Harness**: Trusted Electron main process manages credentials, policy, persistence, and coordination
 
-## Requirements
+---
 
-- Node.js compatible with the checked-in dependencies.
-- npm.
-- Linux/WSL, Windows, or macOS for the Electron shell.
-- Optional: Firecracker on Linux/WSL for the VM-backed live executor path.
-- Optional: OpenAI API-capable credentials for live model runs.
+## Architecture (High-Level)
 
-The current development machine path is WSL Ubuntu, so Linux/WSL setup is the most exercised path.
+- **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
+- **Renderer UI**: React-like TypeScript interface for visualization and interaction
+- **Execution Sandbox**: Targets and tools run isolated (initially host with warnings; aiming for Firecracker/etc.)
+- **Model Integration**: Tool-calling loop with strict verification requirements
 
-## Install
+---
 
-```bash
-npm install
-```
+## Current State
 
-## Run The App
+- Electron + Vite + TypeScript foundation
+- Basic workspace, run tracking, and trace UI
+- Planning documents and architecture notes in the `planning/` directory
+- Early tool router and model integration
+- No public releases yet
 
-```bash
-npm run dev
-```
+See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on direction and recent changes.
 
-For a production-style local build:
+---
 
-```bash
-npm run build
-npm run preview
-```
+## Disclaimer & Safety
 
-## Checks
+This tool is intended **only** for authorized vulnerability research and testing. Always respect scope, legal boundaries, and responsible disclosure practices.
 
-```bash
-npm run typecheck
-npm test
-```
+The project includes strong policy and isolation intentions, but as it is pre-alpha, those safeguards are incomplete.
 
-Plan-conformance checks:
-
-```bash
-npm run test:plan
-```
-
-## Firecracker Setup
-
-Initialize local Firecracker config and assets:
-
-```bash
-npm run firecracker:init
-npm run firecracker:doctor
-```
-
-Install paths are intentionally split so privileged operations are explicit:
-
-```bash
-npm run firecracker:install-binary
-npm run firecracker:install-ci-images
-npm run firecracker:install-privileged-helper
-```
-
-The privileged helper install may require `sudo`. Review the script output before running privileged commands.
-
-Live Firecracker tests are opt-in:
-
-```bash
-npm run test:firecracker:live
-```
-
-## OpenAI Credentials
-
-Live OpenAI runs require OpenAI credentials with Responses API access.
-
-The app supports provider status in Settings > Providers. Local development can also use environment/configured credentials used by the main process. Live OpenAI tests are opt-in:
-
-```bash
-npm run test:openai:live
-```
-
-OpenAI credentials should stay on the host. They should not be mounted into guest VMs.
-
-## Profiling
-
-Local profiling is opt-in from Settings > General.
-
-When enabled, Beale writes structured JSONL reports to a temp directory such as:
-
-```text
-/tmp/beale-profiling/
-```
-
-Profiling is intended for local development and beta hardening, not remote telemetry.
-
-## Planning Docs
-
-Start with:
-
-- [Product Scope](planning/book/product-scope.md)
-- [First Release Mode](planning/book/first-release-mode.md)
-- [Roadmap](planning/book/roadmap.md)
-- [Beta Readiness and Incomplete Surfaces](planning/book/beta-readiness.md)
-- [Book Summary](planning/book/SUMMARY.md)
+---
 
 ## Contributing
 
-Beale is planning-first. Before changing a subsystem, read the relevant planning docs under `planning/book/`.
+Contributions are welcome, but because the project is so early, it's best to start with a discussion (open an issue) before submitting large changes.
 
-Keep changes aligned with the security model:
-
-- Beale is the trusted host harness.
-- Workspace data remains local.
-- Findings require evidence.
-- Authorization and scope are product state, not comments.
-- Target execution should remain explicit and traceable.
-
-Do not add silent no-op controls. If a feature is not ready, hide it, disable it with a clear reason, or document it as a preview.
+---
 
 ## License
 
-No license has been selected yet.
+[To be determined — check LICENSE file if present]
 
+---
+
+*Built with curiosity and care for the vulnerability research craft.*
