@@ -1,6 +1,6 @@
 # Beta Refactor Plan
 
-Status: proposed beta-hardening direction, 2026-04-29.
+Status: beta-hardening direction, first renderer extraction slice started 2026-04-30.
 
 ## Decision
 
@@ -205,3 +205,11 @@ The first implementation slice should extract the footer/status system:
 - related formatting helpers.
 
 This surface is visible, self-contained, and currently changing often. It is a good proving ground for the refactor pattern before extracting the trace system.
+
+Implementation note, 2026-04-30:
+
+- Footer/status rendering moved out of `src/renderer/App.tsx` into `src/renderer/app/StatusBar.tsx`.
+- Top bar and window control rendering moved into `src/renderer/app/TopBar.tsx`.
+- Momentum snake/context rendering moved into `src/renderer/features/momentum/`.
+- Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
+- Direct renderer view-model tests now cover context meter formatting and host/VM footer label behavior.
