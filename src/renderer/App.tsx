@@ -11,7 +11,6 @@ import type {
   ProgramRegistryState,
   ResearchSessionSummary,
   RunDetail,
-  VmPreference,
   VmPreferenceInput,
   WindowChromeState,
   WorkspaceSnapshot
@@ -29,7 +28,6 @@ import { SessionHeader } from './features/sessions/SessionHeader';
 import { StartRunForm } from './features/sessions/StartRunForm';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import { SettingsModal, type SettingsSection } from './features/settings/SettingsModal';
-import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import { TraceDetailModal } from './features/traces/TraceDetailModal';
 import { TraceFilterModal } from './features/traces/TraceFilterModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
@@ -37,8 +35,15 @@ import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
-import { environmentActivityForDetail, type EnvironmentActivity } from './view-models/environmentDisplay';
+import { environmentActivityForDetail } from './view-models/environmentDisplay';
 import { researchSessionsForProgram } from './view-models/programDisplay';
+import {
+  activeRunDetailForSelection,
+  appShellClassName,
+  selectedRunStatus,
+  vmPreferenceForState,
+  windowControlPlatformForState
+} from './view-models/appShell';
 import {
   applyProgramTemplate,
   onboardingFormFromDefaults,
@@ -47,7 +52,7 @@ import {
   type ProgramTemplateKind
 } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
-import { sessionHeatForDetail, type SessionHeat } from './view-models/sessionHeat';
+import { sessionHeatForDetail } from './view-models/sessionHeat';
 import {
   findingForTraceEvent,
   hypothesisForTraceEvent
@@ -65,12 +70,6 @@ import {
   shortMetricId,
   snapshotMetricDetail
 } from './view-models/runDetailUpdates';
-
-const DEFAULT_VM_PREFERENCE: VmPreference = {
-  enabled: false,
-  backendKind: null,
-  updatedAt: null
-};
 
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
@@ -140,7 +139,7 @@ export function App(): JSX.Element {
     setProgramRegistry(await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry()));
   }, []);
 
-  const selectedRunStatus = selectedRunId ? snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run.status ?? null : null;
+  const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
 
   useEffect(() => {
     window.beale
@@ -255,7 +254,7 @@ export function App(): JSX.Element {
     };
 
     refreshRunDetail();
-    if (selectedRunStatus !== 'active') {
+    if (selectedRunState !== 'active') {
       return () => {
         disposed = true;
       };
@@ -266,7 +265,7 @@ export function App(): JSX.Element {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [selectedRunId, selectedRunStatus]);
+  }, [selectedRunId, selectedRunState]);
 
   useEffect(() => {
     if (previousRunIdRef.current === selectedRunId) return;
@@ -498,7 +497,7 @@ export function App(): JSX.Element {
     [runAction]
   );
 
-  const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
+  const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
@@ -509,23 +508,19 @@ export function App(): JSX.Element {
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
   const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
-  const sessionActive = activeRunDetail?.run.status === 'active';
-  const appShellClassName = [
-    'app-shell',
-    `session-heat-${sessionHeat}`,
-    `momentum-${researchMomentum.state}`,
-    sessionActive ? 'session-active' : '',
-    windowChromeState.isMaximized || windowChromeState.isFullScreen ? 'window-edge-flush' : '',
-    sidebarCollapsed ? 'sidebar-collapsed' : '',
-    inspectorOpen ? 'inspector-open' : ''
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const shellClassName = appShellClassName({
+    sessionHeat,
+    momentumState: researchMomentum.state,
+    sessionActive: activeRunDetail?.run.status === 'active',
+    windowChromeState,
+    sidebarCollapsed,
+    inspectorOpen
+  });
   const sessionHistoryProgram =
     sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
-  const vmPreference = programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
-  const windowControlPlatform = (snapshot?.workspace.hostEnvironment ?? hostEnvironment)?.platform ?? 'linux';
+  const vmPreference = vmPreferenceForState(programRegistry, snapshot);
+  const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const configureVm = useCallback(() => {
     setSettingsSection('general');
     setSettingsOpen(true);
@@ -535,7 +530,7 @@ export function App(): JSX.Element {
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
 
   return (
-    <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+    <div className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
