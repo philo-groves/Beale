@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
@@ -34,6 +34,7 @@ import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
+import { useTraceSelection } from './hooks/useTraceSelection';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import { environmentActivityForDetail } from './view-models/environmentDisplay';
@@ -54,14 +55,7 @@ import {
 } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
-import {
-  findingForTraceEvent,
-  hypothesisForTraceEvent
-} from './view-models/traceContent';
-import {
-  buildTraceDisplayEvents,
-  type TraceDisplayEvent
-} from './view-models/traceDisplay';
+import { buildTraceDisplayEvents } from './view-models/traceDisplay';
 import {
   runDetailMetricDetail,
   selectRunId,
@@ -87,14 +81,11 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
-  const [traceDetailOpen, setTraceDetailOpen] = useState(false);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
-  const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
-  const previousRunIdRef = useRef<string | null>(null);
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
@@ -178,21 +169,6 @@ export function App(): JSX.Element {
       unsubscribeWindowChromeState();
     };
   }, [applySnapshot]);
-
-  useEffect(() => {
-    if (previousRunIdRef.current === selectedRunId) return;
-    previousRunIdRef.current = selectedRunId;
-    setSelectedTraceEventId(null);
-  }, [selectedRunId]);
-
-  useEffect(() => {
-    if (!selectedTraceEventId || !runDetail) return;
-    const traceEvents = devInstrumentation.time('trace.buildDisplayEvents.selectionGuard', () => buildTraceDisplayEvents(runDetail), runDetailMetricDetail(runDetail));
-    if (!traceEvents.some((event) => event.id === selectedTraceEventId)) {
-      setSelectedTraceEventId(null);
-      setTraceDetailOpen(false);
-    }
-  }, [runDetail, selectedTraceEventId]);
 
   useEffect(() => {
     if (!openProgramMenuId) return undefined;
@@ -397,11 +373,6 @@ export function App(): JSX.Element {
     );
   };
 
-  const handleSelectTraceEvent = useCallback((event: TraceDisplayEvent): void => {
-    setSelectedTraceEventId(event.id);
-    setTraceDetailOpen(true);
-  }, []);
-
   const handleSteerInstruction = useCallback(
     (runId: string, instruction: string): void => {
       void runAction(() => window.beale.steerRun({ type: 'steer', runId, instruction }));
@@ -414,9 +385,19 @@ export function App(): JSX.Element {
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
   );
-  const selectedTraceEvent = useMemo(() => activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null, [activeTraceEvents, selectedTraceEventId]);
-  const selectedTraceFinding = selectedTraceEvent ? findingForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
-  const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
+  const {
+    selectedTraceEventId,
+    traceDetailOpen,
+    selectedTraceEvent,
+    selectedTraceFinding,
+    selectedTraceHypothesis,
+    selectTraceEvent,
+    closeTraceDetail
+  } = useTraceSelection({
+    detail: activeRunDetail,
+    events: activeTraceEvents,
+    selectedRunId
+  });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
   const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
@@ -484,7 +465,7 @@ export function App(): JSX.Element {
             selectedTraceEventId={selectedTraceEventId}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
-            onSelectTraceEvent={handleSelectTraceEvent}
+            onSelectTraceEvent={selectTraceEvent}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>
@@ -493,7 +474,7 @@ export function App(): JSX.Element {
         <EvidenceSidebar
           detail={activeRunDetail}
           events={activeTraceEvents}
-          onSelectTraceEvent={handleSelectTraceEvent}
+          onSelectTraceEvent={selectTraceEvent}
         />
       </aside>
       <StatusBar
@@ -578,7 +559,7 @@ export function App(): JSX.Element {
           event={selectedTraceEvent}
           finding={selectedTraceFinding}
           hypothesis={selectedTraceHypothesis}
-          onClose={() => setTraceDetailOpen(false)}
+          onClose={closeTraceDetail}
         />
       ) : null}
       {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
