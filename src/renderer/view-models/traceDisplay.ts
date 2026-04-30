@@ -1,5 +1,10 @@
 import type { TraceEventRecord } from '@shared/types';
 
+export interface TraceDisplayEvent extends TraceEventRecord {
+  transcriptMessageId?: string;
+  displayOnly?: boolean;
+}
+
 export function traceTurnNumber(event: TraceEventRecord): number | null {
   const turn = event.payload.turn;
   if (typeof turn === 'number' && Number.isInteger(turn) && turn > 0) return turn;

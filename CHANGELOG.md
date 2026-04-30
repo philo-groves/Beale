@@ -13,6 +13,7 @@
 - Added renderer notification preview tests for extracted notification display helpers.
 - Added renderer formatting tests for shared label, date, duration, priority, and truncation helpers.
 - Added renderer session header tests for status, configuration, timing, and trace turn display helpers.
+- Added renderer research item and session heat tests for hypothesis/finding provenance, scroll keys, and severity display helpers.
 
 ### Changed
 
@@ -24,6 +25,7 @@
 - Extracted shared modal infrastructure, notification modals, and the research prompt modal from `App.tsx`.
 - Extracted shared renderer formatting helpers from `App.tsx` into `src/renderer/lib/formatting.ts`.
 - Extracted the workbench session header and trace turn helpers from `App.tsx` into session feature and view-model modules.
+- Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 
 ### Fixed
 

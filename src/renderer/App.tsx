@@ -76,18 +76,20 @@ import type {
   TraceEventRecord,
   TranscriptMessageRecord,
   VerifierRunRecord,
-  WeaknessMappingRecord,
   VmPreference,
   VmPreferenceInput,
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
+import { MainSideScrollRegion } from './app/MainSideScrollRegion';
 import { Modal } from './app/Modal';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationDetailModal, NotificationStack } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
+import { CwePill } from './features/research/CwePill';
+import { ResearchSidePanel } from './features/research/ResearchSidePanel';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
@@ -116,7 +118,8 @@ import {
 import type { TraceCategoryId } from './traceClassification';
 import { findBackendByKind, type EnvironmentActivity } from './view-models/environmentDisplay';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from './view-models/programDisplay';
-import { latestTraceGroupKey, traceTurnNumber } from './view-models/traceDisplay';
+import { isIgnoredHeatState, sessionHeatForDetail, type SessionHeat } from './view-models/sessionHeat';
+import { latestTraceGroupKey, traceTurnNumber, type TraceDisplayEvent } from './view-models/traceDisplay';
 
 interface ScopeFormState {
   programName: string;
@@ -167,11 +170,6 @@ interface TraceTimelineGroup {
 interface TraceTimelineEntry {
   event: TraceDisplayEvent;
   group: TraceTimelineGroup;
-}
-
-interface TraceDisplayEvent extends TraceEventRecord {
-  transcriptMessageId?: string;
-  displayOnly?: boolean;
 }
 
 interface RenderedTraceGroup {
@@ -1198,105 +1196,7 @@ function MainSessionWorkspace({
         onSelectTraceEvent={onSelectTraceEvent}
         onSteerInstruction={onSteerInstruction}
       />
-      <MainSessionSidePanel detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-    </div>
-  );
-}
-
-function MainSessionSidePanel({
-  detail,
-  events,
-  selectedTraceEventId,
-  onSelectTraceEvent
-}: {
-  detail: RunDetail | null;
-  events: TraceDisplayEvent[];
-  selectedTraceEventId: string | null;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  return (
-    <div className="main-session-side">
-      <MainHypothesisList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-      <MainFindingList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-    </div>
-  );
-}
-
-function MainSideScrollRegion({
-  children,
-  className,
-  listClassName,
-  stickToEnd = false,
-  updateKey
-}: {
-  children: ReactNode;
-  className?: string;
-  listClassName: string;
-  stickToEnd?: boolean;
-  updateKey: string;
-}): JSX.Element {
-  const regionRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const followEndRef = useRef(true);
-
-  const updateScrollEdges = useCallback(() => {
-    const region = regionRef.current;
-    const list = listRef.current;
-    if (!region || !list) return;
-
-    const scrollableDistance = list.scrollHeight - list.clientHeight;
-    const canScroll = scrollableDistance > 8;
-    const showTopFade = canScroll && list.scrollTop > 8;
-    const showBottomFade = canScroll && list.scrollTop < scrollableDistance - 8;
-
-    region.classList.toggle('has-top-fade', showTopFade);
-    region.classList.toggle('has-bottom-fade', showBottomFade);
-  }, []);
-
-  const scrollToEnd = useCallback(() => {
-    const list = listRef.current;
-    if (!list) return;
-    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-    updateScrollEdges();
-  }, [updateScrollEdges]);
-
-  const syncScrollState = useCallback(() => {
-    if (stickToEnd && followEndRef.current) {
-      scrollToEnd();
-      return;
-    }
-    updateScrollEdges();
-  }, [scrollToEnd, stickToEnd, updateScrollEdges]);
-
-  useLayoutEffect(() => {
-    const frame = window.requestAnimationFrame(syncScrollState);
-    return () => window.cancelAnimationFrame(frame);
-  }, [syncScrollState, updateKey]);
-
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list || typeof ResizeObserver === 'undefined') return undefined;
-
-    const observer = new ResizeObserver(syncScrollState);
-    observer.observe(list);
-    Array.from(list.children).forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
-  }, [syncScrollState, updateKey]);
-
-  const handleScroll = useCallback(() => {
-    const list = listRef.current;
-    if (stickToEnd && list) {
-      const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
-      followEndRef.current = distanceFromBottom <= 12;
-    }
-    updateScrollEdges();
-  }, [stickToEnd, updateScrollEdges]);
-
-  return (
-    <div className={`main-side-scroll ${className ?? ''}`.trim()} ref={regionRef}>
-      <div className={listClassName} ref={listRef} onScroll={handleScroll}>
-        {children}
-      </div>
+      <ResearchSidePanel detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }
@@ -1756,214 +1656,6 @@ function MainTraceView({
       />
     </section>
   );
-}
-
-function MainHypothesisList({
-  detail,
-  events,
-  selectedTraceEventId,
-  onSelectTraceEvent
-}: {
-  detail: RunDetail | null;
-  events: TraceDisplayEvent[];
-  selectedTraceEventId: string | null;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  const loading = !detail;
-  const hypotheses = detail?.hypotheses ?? [];
-  useDevRenderProbe('hypotheses.list', () => ({
-    loading,
-    hypotheses: hypotheses.length,
-    events: events.length
-  }));
-  const hypothesisScrollKey = hypotheses
-    .map((hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.title}:${hypothesis.descriptionMarkdown.length}`)
-    .join('|');
-
-  return (
-    <section className="main-side-section main-hypothesis-view" aria-label="Hypotheses">
-      <div className="main-surface-header">
-        <div>
-          <Bug size={14} />
-          <span>Hypotheses</span>
-        </div>
-        <span>{loading ? 'Loading' : `${hypotheses.length}`}</span>
-      </div>
-      {loading ? <div className="main-trace-empty">Loading hypotheses.</div> : null}
-      {!loading && hypotheses.length === 0 ? <div className="main-trace-empty">No hypotheses recorded.</div> : null}
-      {!loading && hypotheses.length > 0 ? (
-        <MainSideScrollRegion listClassName="main-hypothesis-list" updateKey={hypothesisScrollKey}>
-          {hypotheses.map((hypothesis) => {
-            const event = traceEventForHypothesis(events, hypothesis);
-            return (
-              <MainHypothesisItem
-                hypothesis={hypothesis}
-                key={hypothesis.id}
-                selected={event?.id === selectedTraceEventId}
-                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
-              />
-            );
-          })}
-        </MainSideScrollRegion>
-      ) : null}
-    </section>
-  );
-}
-
-function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: HypothesisRecord; selected: boolean; onSelect?: () => void }): JSX.Element {
-  const disabled = !onSelect;
-  return (
-    <button
-      type="button"
-      className={`main-research-item main-hypothesis-item state-${stateClass(hypothesis.state)} ${selected ? 'selected' : ''}`}
-      disabled={disabled}
-      title={disabled ? 'No trace provenance available' : 'Inspect hypothesis trace'}
-      onClick={onSelect}
-    >
-      <div className="main-research-topline">
-        <strong>{hypothesis.title}</strong>
-      </div>
-      <div className="main-hypothesis-meta" aria-label="Hypothesis state, priority, and CWE">
-        <span className="hypothesis-pill state-pill">{traceLabel(hypothesis.state)}</span>
-        <span className="hypothesis-pill priority-pill">{formatPriorityPill(hypothesis.priorityScore)}</span>
-        <CwePill mappings={hypothesis.cweMappings} />
-      </div>
-    </button>
-  );
-}
-
-function MainFindingList({
-  detail,
-  events,
-  selectedTraceEventId,
-  onSelectTraceEvent
-}: {
-  detail: RunDetail | null;
-  events: TraceDisplayEvent[];
-  selectedTraceEventId: string | null;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  const loading = !detail;
-  const findings = detail?.findings ?? [];
-  const hypotheses = detail?.hypotheses ?? [];
-  useDevRenderProbe('findings.list', () => ({
-    loading,
-    findings: findings.length,
-    hypotheses: hypotheses.length,
-    events: events.length
-  }));
-  const findingScrollKey = findings
-    .map((finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.title}:${finding.summaryMarkdown.length}`)
-    .join('|');
-
-  return (
-    <section className="main-side-section main-finding-view" aria-label="Findings">
-      <div className="main-surface-header">
-        <div>
-          <FileOutput size={14} />
-          <span>Findings</span>
-        </div>
-        <span>{loading ? 'Loading' : `${findings.length}`}</span>
-      </div>
-      {loading ? <div className="main-trace-empty">Loading findings.</div> : null}
-      {!loading && findings.length === 0 ? <div className="main-trace-empty">No findings recorded.</div> : null}
-      {!loading && findings.length > 0 ? (
-        <MainSideScrollRegion listClassName="main-finding-list" stickToEnd={true} updateKey={findingScrollKey}>
-          {findings.map((finding) => {
-            const hypothesis = finding.hypothesisId ? hypotheses.find((candidate) => candidate.id === finding.hypothesisId) ?? null : null;
-            const event = traceEventForFinding(events, finding, hypothesis);
-            return (
-              <MainFindingItem
-                finding={finding}
-                hypothesis={hypothesis}
-                key={finding.id}
-                selected={event?.id === selectedTraceEventId}
-                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
-              />
-            );
-          })}
-        </MainSideScrollRegion>
-      ) : null}
-    </section>
-  );
-}
-
-function MainFindingItem({
-  finding,
-  hypothesis,
-  selected,
-  onSelect
-}: {
-  finding: FindingRecord;
-  hypothesis: HypothesisRecord | null;
-  selected: boolean;
-  onSelect?: () => void;
-}): JSX.Element {
-  const disabled = !onSelect;
-  const tone = sessionHeatForFinding(finding, hypothesis);
-
-  return (
-    <button
-      type="button"
-      className={`main-research-item main-finding-item state-${stateClass(finding.state)} power-${tone} ${selected ? 'selected' : ''}`}
-      disabled={disabled}
-      title={disabled ? 'No trace provenance available' : 'Inspect finding trace'}
-      onClick={onSelect}
-    >
-      <div className="main-finding-topline">
-        <strong>{finding.title}</strong>
-      </div>
-      <div className="main-hypothesis-meta main-finding-meta" aria-label="Finding state, priority, and CWE">
-        <span className="hypothesis-pill state-pill">{traceLabel(finding.state)}</span>
-        <span className="hypothesis-pill priority-pill">{formatPriorityPill(finding.priorityScore)}</span>
-        <CwePill mappings={finding.cweMappings} />
-      </div>
-    </button>
-  );
-}
-
-function CwePill({ mappings }: { mappings: WeaknessMappingRecord[] }): JSX.Element | null {
-  const primary = mappings.find((mapping) => mapping.mappingRole === 'primary') ?? mappings[0];
-  if (!primary) return null;
-  const title = [
-    `${primary.cweId}: ${primary.cweName}`,
-    `Confidence: ${traceLabel(primary.confidence)}`,
-    `Mapping: ${traceLabel(primary.mappingStatus)}`,
-    primary.rationaleMarkdown
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return (
-    <span className={`cwe-pill confidence-${primary.confidence} status-${primary.mappingStatus}`} title={title}>
-      {primary.cweId}
-    </span>
-  );
-}
-
-function traceEventForHypothesis(events: TraceDisplayEvent[], hypothesis: HypothesisRecord): TraceDisplayEvent | null {
-  if (hypothesis.createdTraceEventId) {
-    const createdEvent = events.find((event) => event.id === hypothesis.createdTraceEventId);
-    if (createdEvent) return createdEvent;
-  }
-
-  return (
-    [...events]
-      .reverse()
-      .find(
-        (event) =>
-          event.type === 'hypothesis_event' &&
-          (tracePayloadPrimitive(event.payload, 'hypothesisId') === hypothesis.id ||
-            tracePayloadPrimitive(event.payload, 'sourceHypothesisId') === hypothesis.id ||
-            tracePayloadPrimitive(event.payload, 'targetHypothesisId') === hypothesis.id)
-      ) ?? null
-  );
-}
-
-function traceEventForFinding(events: TraceDisplayEvent[], finding: FindingRecord, hypothesis: HypothesisRecord | null): TraceDisplayEvent | null {
-  const directEvent =
-    [...events].reverse().find((event) => event.type === 'finding_event' && tracePayloadPrimitive(event.payload, 'findingId') === finding.id) ?? null;
-  if (directEvent) return directEvent;
-  return hypothesis ? traceEventForHypothesis(events, hypothesis) : null;
 }
 
 function hypothesisForTraceEvent(detail: RunDetail | null, event: TraceEventRecord): HypothesisRecord | null {
@@ -5864,151 +5556,6 @@ function bumpedPriorityFactors(hypothesis: HypothesisRecord): PriorityFactorInpu
     exploitPracticality: factorFromText(hypothesis.exploitPracticality),
     scopeConfidence: factorFromText(hypothesis.scopeConfidence)
   };
-}
-
-type SessionHeat = 'none' | 'low' | 'medium' | 'high' | 'critical';
-
-const SESSION_HEAT_LEVELS: SessionHeat[] = ['none', 'low', 'medium', 'high', 'critical'];
-const SESSION_HEAT_IGNORED_STATES = new Set(['dismissed', 'duplicate', 'false_positive', 'false-positive', 'out_of_scope', 'out-of-scope']);
-
-function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
-  if (!detail) return 'none';
-
-  const hypothesesById = new Map(detail.hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
-  const evidenceByHypothesisId = new Map<string, EvidenceRecord[]>();
-  for (const evidence of detail.evidence) {
-    if (!evidence.hypothesisId) continue;
-    const existing = evidenceByHypothesisId.get(evidence.hypothesisId) ?? [];
-    existing.push(evidence);
-    evidenceByHypothesisId.set(evidence.hypothesisId, existing);
-  }
-  let heat: SessionHeat = 'none';
-
-  for (const finding of detail.findings) {
-    if (isIgnoredHeatState(finding.state)) continue;
-    const hypothesis = finding.hypothesisId ? (hypothesesById.get(finding.hypothesisId) ?? null) : null;
-    heat = maxSessionHeat(heat, sessionHeatForFinding(finding, hypothesis));
-  }
-
-  for (const hypothesis of detail.hypotheses) {
-    if (isIgnoredHeatState(hypothesis.state)) continue;
-    heat = maxSessionHeat(heat, sessionHeatForHypothesis(hypothesis, evidenceByHypothesisId.get(hypothesis.id) ?? []));
-  }
-
-  return heat;
-}
-
-function sessionHeatForFinding(finding: FindingRecord, hypothesis: HypothesisRecord | null): SessionHeat {
-  const impactScore = hypothesis ? heatFactorFromText(hypothesis.impact) : heatImpactFromText(`${finding.title}\n${finding.summaryMarkdown}\n${finding.impactMarkdown}`);
-  const reachabilityScore = hypothesis ? heatFactorFromText(hypothesis.attackerReachability) : 1;
-  const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(finding.priorityScore));
-  return gateSessionHeat(baseHeat, findingEvidenceScore(finding, hypothesis));
-}
-
-function sessionHeatForHypothesis(hypothesis: HypothesisRecord, evidence: EvidenceRecord[] = []): SessionHeat {
-  const impactScore = heatFactorFromText(hypothesis.impact);
-  const reachabilityScore = heatFactorFromText(hypothesis.attackerReachability);
-  const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(hypothesis.priorityScore));
-  return minSessionHeat(gateSessionHeat(baseHeat, hypothesisEvidenceScore(hypothesis)), hypothesisHeatCap(hypothesis, evidence));
-}
-
-function findingEvidenceScore(finding: FindingRecord, hypothesis: HypothesisRecord | null): number {
-  const state = stateClass(finding.state);
-  if (finding.verifiedByVerifierRunId || state === 'verified') return 3;
-  if (state === 'reproduced' || state === 'promoted') return Math.max(2, hypothesis ? hypothesisEvidenceScore(hypothesis) : 2);
-  if (state === 'needs_evidence' || state === 'needs-evidence') return hypothesis ? Math.max(1, hypothesisEvidenceScore(hypothesis)) : 1;
-  return hypothesis ? hypothesisEvidenceScore(hypothesis) : 1;
-}
-
-function hypothesisEvidenceScore(hypothesis: HypothesisRecord): number {
-  const state = stateClass(hypothesis.state);
-  if (state === 'verified') return 3;
-  if (state === 'promoted' || state === 'reproduced') return Math.max(2, heatFactorFromText(hypothesis.evidenceConfidence));
-  return heatFactorFromText(hypothesis.evidenceConfidence);
-}
-
-function hypothesisHeatCap(hypothesis: HypothesisRecord, evidence: EvidenceRecord[]): SessionHeat {
-  const state = stateClass(hypothesis.state);
-  if (state === 'verified') return 'critical';
-  if (state === 'promoted' || state === 'reproduced') return 'high';
-  if (hasVerifierEvidence(evidence)) return 'critical';
-  if (hasDynamicEvidence(evidence) || evidenceTextLooksDynamic(hypothesis.evidenceConfidence)) return 'high';
-  if (evidence.length > 0 || evidenceTextLooksStatic(hypothesis.evidenceConfidence)) return 'medium';
-  return 'low';
-}
-
-function hasVerifierEvidence(evidence: EvidenceRecord[]): boolean {
-  return evidence.some((item) => Boolean(item.verifierRunId) || /\bverifier\b/i.test(item.kind));
-}
-
-function hasDynamicEvidence(evidence: EvidenceRecord[]): boolean {
-  return evidence.some((item) => /\b(dynamic|runtime|repro|reproduction|debugger|crash|sanitizer|poc|exploit)\b/i.test(`${item.kind}\n${item.summary}`));
-}
-
-function evidenceTextLooksDynamic(value: string): boolean {
-  return /\b(dynamic|runtime|reproduced|controlled reproduction|debugger|crash|sanitizer|poc|exploit)\b/i.test(value);
-}
-
-function evidenceTextLooksStatic(value: string): boolean {
-  return /\b(static|tool-backed|lead|plausible|identified|present|not proven|not reproduced|hypothesis only)\b/i.test(value);
-}
-
-function gateSessionHeat(heat: SessionHeat, evidenceScore: number): SessionHeat {
-  if (heat === 'none') return 'none';
-  if (evidenceScore <= 0) return 'low';
-  if (evidenceScore === 1) return minSessionHeat(heat, 'medium');
-  if (evidenceScore === 2) return minSessionHeat(heat, 'high');
-  return heat;
-}
-
-function sessionHeatFromImpact(impactScore: number, reachabilityScore: number): SessionHeat {
-  if (impactScore >= 4 && reachabilityScore >= 3) return 'critical';
-  if (impactScore >= 4 || (impactScore >= 3 && reachabilityScore >= 3)) return 'high';
-  if (impactScore >= 2) return 'medium';
-  if (impactScore >= 1) return 'low';
-  return 'none';
-}
-
-function sessionHeatFromPriority(priorityScore: number): SessionHeat {
-  const score = clampPriorityScoreForDisplay(priorityScore);
-  if (score >= 42) return 'critical';
-  if (score >= 24) return 'high';
-  if (score >= 10) return 'medium';
-  if (score > 0) return 'low';
-  return 'none';
-}
-
-function maxSessionHeat(left: SessionHeat, right: SessionHeat): SessionHeat {
-  return SESSION_HEAT_LEVELS[Math.max(SESSION_HEAT_LEVELS.indexOf(left), SESSION_HEAT_LEVELS.indexOf(right))];
-}
-
-function minSessionHeat(left: SessionHeat, right: SessionHeat): SessionHeat {
-  return SESSION_HEAT_LEVELS[Math.min(SESSION_HEAT_LEVELS.indexOf(left), SESSION_HEAT_LEVELS.indexOf(right))];
-}
-
-function isIgnoredHeatState(state: string): boolean {
-  return SESSION_HEAT_IGNORED_STATES.has(stateClass(state));
-}
-
-function heatFactorFromText(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isFinite(parsed)) return Math.max(0, Math.min(4, parsed));
-  const lower = value.toLowerCase();
-  if (lower.includes('critical') || lower.includes('compromise') || lower.includes('code execution') || lower.includes('privilege escalation')) return 4;
-  if (lower.includes('verified') || lower.includes('verifier')) return 3;
-  if (lower.includes('dynamic') || lower.includes('reproduced') || lower.includes('controlled')) return 2;
-  if (lower.includes('static') || lower.includes('tool-backed') || lower.includes('plausible') || lower.includes('lead')) return 1;
-  if (lower.includes('hypothesis only') || lower.includes('out_of_scope') || lower.includes('out-of-scope') || lower.includes('none')) return 0;
-  return 1;
-}
-
-function heatImpactFromText(value: string): number {
-  const lower = value.toLowerCase();
-  if (/\b(rce|remote code execution|code execution|sandbox escape|privilege escalation|credential compromise|cross-tenant|critical compromise)\b/.test(lower)) return 4;
-  if (/\b(authorization bypass|data integrity|sensitive data|service compromise|account takeover|tenant)\b/.test(lower)) return 3;
-  if (/\b(denial of service|dos|limited data exposure|limited exposure|integrity violation)\b/.test(lower)) return 2;
-  if (/\b(crash|info leak|information leak|limited impact)\b/.test(lower)) return 1;
-  return 1;
 }
 
 function factorFromText(value: string): number {

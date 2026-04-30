@@ -219,6 +219,11 @@ Implementation note, 2026-04-30:
 - Workbench session header rendering moved into `src/renderer/features/sessions/SessionHeader.tsx`.
 - Session header timing/status helpers moved into `src/renderer/view-models/sessionHeader.ts`.
 - Trace turn helpers moved into `src/renderer/view-models/traceDisplay.ts`.
+- Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
+- CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
+- Shared side-column scroll/fade behavior moved into `src/renderer/app/MainSideScrollRegion.tsx`.
+- Research item provenance helpers moved into `src/renderer/view-models/researchItems.ts`.
+- Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, shared renderer formatting, session header display, and trace turn detection.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, shared renderer formatting, session header display, trace turn detection, research item provenance, and session heat scoring.
