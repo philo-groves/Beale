@@ -32,13 +32,13 @@ import { TraceDetailModal } from './features/traces/TraceDetailModal';
 import { TraceFilterModal } from './features/traces/TraceFilterModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
+import { useProgramOverlayState } from './hooks/useProgramOverlayState';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import { environmentActivityForDetail } from './view-models/environmentDisplay';
-import { researchSessionsForProgram } from './view-models/programDisplay';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -73,9 +73,6 @@ export function App(): JSX.Element {
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const [programInfo, setProgramInfo] = useState<ProgramRegistryEntry | null>(null);
-  const [sessionHistoryProgramId, setSessionHistoryProgramId] = useState<string | null>(null);
-  const [openProgramMenuId, setOpenProgramMenuId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
@@ -86,6 +83,15 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
+  const {
+    openProgramMenuId,
+    setOpenProgramMenuId,
+    programInfo,
+    setProgramInfo,
+    setSessionHistoryProgramId,
+    sessionHistoryProgram,
+    sessionHistorySessions
+  } = useProgramOverlayState(programRegistry);
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
@@ -169,41 +175,6 @@ export function App(): JSX.Element {
       unsubscribeWindowChromeState();
     };
   }, [applySnapshot]);
-
-  useEffect(() => {
-    if (!openProgramMenuId) return undefined;
-
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (event.target instanceof Element && !event.target.closest('[data-program-menu-root]')) {
-        setOpenProgramMenuId(null);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setOpenProgramMenuId(null);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [openProgramMenuId]);
-
-  useEffect(() => {
-    if (!programRegistry) return;
-    if (openProgramMenuId && !programRegistry.programs.some((program) => program.id === openProgramMenuId)) {
-      setOpenProgramMenuId(null);
-    }
-    if (programInfo && !programRegistry.programs.some((program) => program.id === programInfo.id)) {
-      setProgramInfo(null);
-    }
-    if (sessionHistoryProgramId && !programRegistry.programs.some((program) => program.id === sessionHistoryProgramId)) {
-      setSessionHistoryProgramId(null);
-    }
-  }, [openProgramMenuId, programInfo, programRegistry, sessionHistoryProgramId]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -409,9 +380,6 @@ export function App(): JSX.Element {
     sidebarCollapsed,
     inspectorOpen
   });
-  const sessionHistoryProgram =
-    sessionHistoryProgramId && programRegistry ? programRegistry.programs.find((program) => program.id === sessionHistoryProgramId) ?? null : null;
-  const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
   const vmPreference = vmPreferenceForState(programRegistry, snapshot);
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const configureVm = useCallback(() => {

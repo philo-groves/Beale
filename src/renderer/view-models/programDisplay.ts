@@ -5,6 +5,26 @@ export function researchSessionsForProgram(registry: ProgramRegistryState, progr
   return registry.researchSessions.filter((session) => session.programId === program.id || (!session.programId && session.workspacePath === program.workspacePath));
 }
 
+export function programById(registry: ProgramRegistryState | null, programId: string | null): ProgramRegistryEntry | null {
+  if (!registry || !programId) return null;
+  return registry.programs.find((program) => program.id === programId) ?? null;
+}
+
+export function programExists(registry: ProgramRegistryState | null, programId: string | null): boolean {
+  return Boolean(programById(registry, programId));
+}
+
+export function sessionHistoryForProgramId(
+  registry: ProgramRegistryState | null,
+  programId: string | null
+): { program: ProgramRegistryEntry | null; sessions: ResearchSessionSummary[] } {
+  const program = programById(registry, programId);
+  return {
+    program,
+    sessions: program && registry ? researchSessionsForProgram(registry, program) : []
+  };
+}
+
 export function promptSessionTitle(session: ResearchSessionSummary): string {
   return displaySessionTitle(session.title, session.promptMarkdown);
 }

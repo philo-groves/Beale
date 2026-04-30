@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary } from '@shared/types';
-import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../src/renderer/view-models/programDisplay';
+import {
+  programById,
+  programExists,
+  promptSessionTitle,
+  researchSessionsForProgram,
+  sessionHistoryForProgramId,
+  shortRelativeAge
+} from '../src/renderer/view-models/programDisplay';
 
 describe('renderer program display view models', () => {
   afterEach(() => {
@@ -22,6 +29,14 @@ describe('renderer program display view models', () => {
 
     expect(researchSessionsForProgram(registry, first).map((item) => item.id)).toEqual(['session_first', 'session_legacy_first']);
     expect(researchSessionsForProgram(registry, second).map((item) => item.id)).toEqual(['session_second']);
+    expect(programById(registry, first.id)).toBe(first);
+    expect(programExists(registry, second.id)).toBe(true);
+    expect(programExists(registry, 'missing')).toBe(false);
+    expect(sessionHistoryForProgramId(registry, first.id)).toMatchObject({
+      program: first,
+      sessions: [firstSession, legacyFirstSession]
+    });
+    expect(sessionHistoryForProgramId(registry, 'missing')).toEqual({ program: null, sessions: [] });
   });
 
   it('formats session titles and compact relative ages for sidebar rows', () => {

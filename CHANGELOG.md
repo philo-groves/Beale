@@ -49,6 +49,7 @@
 - Extracted app shell class, selected run detail/status, VM preference, and window platform derivation from `App.tsx`.
 - Extracted active run-detail polling, version checks, and incremental update application from `App.tsx` into a renderer hook.
 - Extracted trace selection state and selected trace finding/hypothesis context from `App.tsx`.
+- Extracted program menu, program information modal, and session history modal state from `App.tsx`.
 - Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
 
 ### Fixed
