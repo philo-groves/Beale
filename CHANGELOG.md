@@ -45,6 +45,7 @@
 - Extracted research momentum and host/guest activity derivation from `App.tsx` into renderer view-model modules.
 - Extracted run detail selection, incremental update merge, cursor, and instrumentation summary helpers from `App.tsx`.
 - Extracted inset scrollbar activation and resizable sidebar state from `App.tsx` into renderer hooks.
+- Extracted the main session workspace grid from `App.tsx` into the session feature module.
 - Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
 
 ### Fixed

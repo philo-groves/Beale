@@ -24,7 +24,7 @@ import { ProgramInformationModal, ProgramSessionHistoryModal } from './features/
 import { ProgramOnboardingModal } from './features/programs/ProgramOnboardingModal';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
-import { ResearchSidePanel } from './features/research/ResearchSidePanel';
+import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { StartRunForm } from './features/sessions/StartRunForm';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
@@ -32,7 +32,6 @@ import { SettingsModal, type SettingsSection } from './features/settings/Setting
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import { TraceDetailModal } from './features/traces/TraceDetailModal';
 import { TraceFilterModal } from './features/traces/TraceFilterModal';
-import { TraceView } from './features/traces/TraceView';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
@@ -688,44 +687,6 @@ export function App(): JSX.Element {
           }}
         />
       ) : null}
-    </div>
-  );
-}
-
-function MainSessionWorkspace({
-  detail,
-  events,
-  selectedRunId,
-  selectedTraceEventId,
-  visibleTraceCategories,
-  busy,
-  onSelectTraceEvent,
-  onSteerInstruction
-}: {
-  detail: RunDetail | null;
-  events: TraceDisplayEvent[];
-  selectedRunId: string | null;
-  selectedTraceEventId: string | null;
-  visibleTraceCategories: TraceCategoryId[];
-  busy: boolean;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
-}): JSX.Element | null {
-  if (!selectedRunId) return null;
-
-  return (
-    <div className="main-session-grid">
-      <TraceView
-        busy={busy}
-        detail={detail}
-        events={events}
-        selectedRunId={selectedRunId}
-        selectedTraceEventId={selectedTraceEventId}
-        visibleTraceCategories={visibleTraceCategories}
-        onSelectTraceEvent={onSelectTraceEvent}
-        onSteerInstruction={onSteerInstruction}
-      />
-      <ResearchSidePanel detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
     </div>
   );
 }

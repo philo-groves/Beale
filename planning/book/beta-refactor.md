@@ -250,4 +250,5 @@ Implementation note, 2026-04-30:
 - Run detail selection, incremental update merge, cursor, and instrumentation summary helpers moved into `src/renderer/view-models/runDetailUpdates.ts`.
 - Inset scrollbar activation moved into `src/renderer/hooks/useInsetScrollbarActivation.ts`.
 - Resizable sidebar state and width clamping moved into `src/renderer/hooks/useResizableSidebar.ts`.
+- Main session workspace grid composition moved into `src/renderer/features/sessions/MainSessionWorkspace.tsx`.
 - Direct renderer view-model and helper tests now cover context meter formatting, host/VM footer label behavior, host/guest activity, fixed program/session ownership, sidebar age formatting, sidebar width clamping, program onboarding templates, run-setting defaults, research momentum states, run detail update merging, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.
