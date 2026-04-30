@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
@@ -34,11 +34,9 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Terminal,
   Trash2,
-  X,
   XCircle
 } from 'lucide-react';
 import type {
@@ -46,7 +44,6 @@ import type {
   BenchmarkOverview,
   BenchmarkSuiteKind,
   ExportRecord,
-  ExecutorStatus,
   FindingRecord,
   HypothesisRecord,
   HostEnvironment,
@@ -54,8 +51,6 @@ import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   PriorityFactorInput,
-  ProgramOnboardingDefaults,
-  ProgramOnboardingInput,
   ProgramRegistryEntry,
   ProgramRegistryState,
   ProgramScopeDraft,
@@ -65,9 +60,7 @@ import type {
   RunDetailUpdate,
   RunRow,
   ScopeAssetDirection,
-  ScopeAssetInput,
   ScopeAssetKind,
-  StartRunInput,
   TraceEventRecord,
   TranscriptMessageRecord,
   VmPreference,
@@ -81,11 +74,14 @@ import { StatusPill } from './app/StatusPill';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationDetailModal, NotificationStack } from './features/notifications/Notifications';
+import { ProgramInformationModal, ProgramSessionHistoryModal } from './features/programs/ProgramModals';
+import { ProgramOnboardingModal } from './features/programs/ProgramOnboardingModal';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { CwePill } from './features/research/CwePill';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { ResearchSidePanel } from './features/research/ResearchSidePanel';
 import { SessionHeader } from './features/sessions/SessionHeader';
+import { StartRunForm } from './features/sessions/StartRunForm';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import { SettingsModal, type SettingsSection } from './features/settings/SettingsModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
@@ -95,8 +91,8 @@ import { TraceView } from './features/traces/TraceView';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import {
   clampPriorityScoreForDisplay,
+  emptyDateClass,
   formatPercent,
-  networkProfileLabel,
   shortDate,
   stateClass,
   traceLabel,
@@ -108,8 +104,22 @@ import {
   tracePayloadPrimitive
 } from './traceClassification';
 import type { TraceCategoryId } from './traceClassification';
+import { errorMessage } from './lib/errors';
 import { findBackendByKind, type EnvironmentActivity } from './view-models/environmentDisplay';
-import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from './view-models/programDisplay';
+import { researchSessionsForProgram } from './view-models/programDisplay';
+import {
+  applyProgramTemplate,
+  onboardingFormFromDefaults,
+  onboardingInputFromForm,
+  type ProgramOnboardingFormState,
+  type ProgramTemplateKind
+} from './view-models/programOnboarding';
+import {
+  budgetNumber,
+  extendBudgetLimit,
+  UNBOUNDED_ATTEMPTS,
+  UNBOUNDED_MINUTES
+} from './view-models/runSettings';
 import { isIgnoredHeatState, sessionHeatForDetail, type SessionHeat } from './view-models/sessionHeat';
 import {
   findingForTraceEvent,
@@ -137,20 +147,6 @@ interface ScopeFormState {
   outOfScope: string;
 }
 
-interface ProgramOnboardingFormState {
-  templateKind: ProgramTemplateKind;
-  workspacePath: string;
-  programName: string;
-  organizationName: string;
-  descriptionMarkdown: string;
-  rulesMarkdown: string;
-  networkProfile: string;
-  expiresAt: string;
-  assets: ScopeAssetInput[];
-}
-
-type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
-
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const INSET_SCROLLBAR_ACTIVE_MS = 900;
@@ -169,92 +165,10 @@ const INSET_SCROLLBAR_SELECTOR = [
   '.notification-detail pre'
 ].join(', ');
 
-const UNBOUNDED_MINUTES = 999_999;
-const UNBOUNDED_ATTEMPTS = 999_999;
-const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 const DEFAULT_VM_PREFERENCE: VmPreference = {
   enabled: false,
   backendKind: null,
   updatedAt: null
-};
-
-const APPLE_PROGRAM_DESCRIPTION =
-  'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
-
-const APPLE_SCOPE_AND_RULES = [
-  '## Source of truth',
-  'Verify current Apple Security Bounty scope, categories, guidelines, Target Flags, and submission requirements before testing or submitting.',
-  '',
-  '- Categories: https://security.apple.com/bounty/categories/',
-  '- Guidelines: https://security.apple.com/bounty/guidelines/',
-  '- Target Flags: https://security.apple.com/bounty/target-flags/',
-  '',
-  '## Authorized scope',
-  '- Product research must affect the latest publicly available version, including beta versions, of iOS, iPadOS, macOS, tvOS, visionOS, or watchOS with standard configuration on publicly available Apple hardware or a Security Research Device.',
-  '- Services research must relate to a web server or service owned by Apple or an Apple subsidiary.',
-  '- Bounty categories include product exploit chains, Apple-designed radio proximity attacks, unauthorized physical device access, app and browser sandbox issues, macOS-only issues, Private Cloud Compute, and eligible Apple services issues such as iCloud data access, remote code execution, unrestricted file system or database access, logic flaws bypassing security controls, client/server code execution, sensitive data exposure, and domain or subdomain takeover.',
-  '',
-  '## Evidence and reporting requirements',
-  '- Provide a complete and actionable report with observed behavior, expected behavior, the security or privacy mechanism bypassed, and attacker impact.',
-  '- Include a reliable exploit or proof of concept, plus concise numbered reproduction steps.',
-  '- For zero-click, one-click, or multi-exploit issues, submit the full chain as one report with everything needed to execute it and a nondestructive payload when needed.',
-  '- Include crash logs, sysdiagnose output, or video demonstrations when applicable.',
-  '- Use Target Flags when they apply to the category or reward level. For kernel or user-level privilege escalation, include a Commpage Target Flag PoC and crash log. For TCC database modification, use the `tccutil flag check` and `tccutil flag reset` workflow to confirm impact.',
-  '',
-  '## Boundaries',
-  '- Do not publicly disclose before Apple releases an update with a security advisory or otherwise completes investigation.',
-  '- Do not submit reports about third-party hardware, software, or services to Apple.',
-  '- Do not rely on theoretical, unvalidated, incomplete, or AI-discovered claims without reproducible validation.',
-  '- Do not brute force Target Flags.'
-].join('\n');
-
-const MSRC_PROGRAM_DESCRIPTION =
-  'Authorized research under Microsoft Security Response Center bounty programs for eligible Microsoft cloud, endpoint, on-premises, developer, AI, identity, and service vulnerabilities described by MSRC.';
-
-const MSRC_SCOPE_AND_RULES = [
-  '## Source of truth',
-  'Verify current Microsoft bounty scope, rules of engagement, coordinated vulnerability disclosure requirements, safe harbor, bounty guidelines, and individual program rules before testing or submitting.',
-  '',
-  '- Bounty overview: https://www.microsoft.com/en-us/msrc/bounty',
-  '- Cloud programs: https://www.microsoft.com/en-us/msrc/bounty-programs#cloud',
-  '- Endpoint and on-prem programs: https://www.microsoft.com/en-us/msrc/bounty-programs#endpoints',
-  '- Researcher Portal: https://msrc.microsoft.com/report/vulnerability',
-  '',
-  '## Authorized scope',
-  '- Cloud bounty programs include Microsoft Identity, Microsoft Azure, Microsoft Copilot, Xbox Live network and services, Azure DevOps Services, Dynamics 365 and Power Platform, Microsoft Defender for Endpoint APIs, Microsoft 365 including Office 365, .NET Core and ASP.NET Core, and selected Microsoft-owned open-source repositories.',
-  '- Endpoint and on-prem bounty programs include Microsoft Hyper-V, Windows Insider Preview, Microsoft Applications and On-Premises Servers, Microsoft Edge Chromium channels, and Microsoft 365 Insider.',
-  '- Zero Day Quest focuses on high-impact vulnerabilities in Azure, Copilot, Dynamics 365 and Power Platform, Microsoft Identity, and Microsoft 365 bounty programs, subject to the applicable bounty program and event terms.',
-  '- Always confirm the specific product, service, build, tenant, account type, and test asset are in scope on the individual bounty program page before live testing.',
-  '',
-  '## Evidence and reporting requirements',
-  '- Submit privately through the MSRC Researcher Portal under Coordinated Vulnerability Disclosure.',
-  '- Provide clear reproduction steps, proof-of-concept code when safe, detailed technical analysis, affected assets, expected and observed behavior, security impact, prerequisites, and remediation-relevant details.',
-  '- Prioritize new, unique vulnerabilities with meaningful real-world customer security impact.',
-  '- Include enough detail for Microsoft to validate, triage, reproduce, and fix the issue quickly.',
-  '',
-  '## Boundaries',
-  '- Follow Microsoft Security Testing Rules of Engagement and the rules on the applicable individual bounty program page.',
-  '- Do not access, modify, exfiltrate, disclose, or share customer data.',
-  '- Do not disrupt Microsoft services, compromise uptime, degrade availability, or harm other customers or infrastructure.',
-  '- If unauthorized or sensitive data is encountered, stop immediately, notify MSRC with details, delete the data, and acknowledge this in the report.',
-  '- Do not publicly disclose before Microsoft has had time to remediate under CVD.'
-].join('\n');
-
-const defaultRunInput: StartRunInput = {
-  runEngine: 'openai_responses',
-  promptMarkdown: '',
-  mode: 'dynamic',
-  attemptStrategy: 'adaptive_portfolio',
-  model: 'gpt-5.5',
-  reasoningEffort: 'xhigh',
-  networkProfile: 'elevated',
-  sandboxProfile: 'host_research_only',
-  budget: {
-    maxMinutes: UNBOUNDED_MINUTES,
-    maxAttempts: 1,
-    maxCostUsd: 0
-  },
-  fakeScenario: 'adaptive_portfolio'
 };
 
 export function App(): JSX.Element {
@@ -1243,664 +1157,6 @@ function momentumOperationalText(event: TraceEventRecord): string {
     .filter((part): part is string => Boolean(part))
     .join('\n')
     .toLowerCase();
-}
-
-function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
-  const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
-  return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
-}
-
-function ProgramInformationModal({ program, onClose }: { program: ProgramRegistryEntry; onClose: () => void }): JSX.Element {
-  return (
-    <Modal title="Program Information" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
-      <div className="program-info-grid">
-        <div>
-          <span>Program</span>
-          <strong>{program.programName}</strong>
-        </div>
-        <div>
-          <span>Organization</span>
-          <strong>{program.organizationName || 'None'}</strong>
-        </div>
-        <div>
-          <span>Workspace</span>
-          <strong>{program.workspacePath}</strong>
-        </div>
-        <div>
-          <span>Network</span>
-          <strong>{program.networkProfile}</strong>
-        </div>
-        <div>
-          <span>Authorization Expires</span>
-          <strong>{program.expiresAt ?? 'Never'}</strong>
-        </div>
-        <div>
-          <span>Research Sessions</span>
-          <strong>{program.runCount}</strong>
-        </div>
-        <div className="program-info-block">
-          <span>Description</span>
-          <p>{program.descriptionMarkdown || 'No description recorded.'}</p>
-        </div>
-        <div className="program-info-block">
-          <span>Scope and Rules</span>
-          <p>{program.rulesMarkdown || 'No scope or rules recorded.'}</p>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function ProgramSessionHistoryModal({
-  program,
-  sessions,
-  selectedRunId,
-  onClose,
-  onOpenSession
-}: {
-  program: ProgramRegistryEntry;
-  sessions: ResearchSessionSummary[];
-  selectedRunId: string | null;
-  onClose: () => void;
-  onOpenSession: (session: ResearchSessionSummary) => void;
-}): JSX.Element {
-  return (
-    <Modal title={`${program.programName} Sessions`} wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
-      <div className="session-history-list">
-        {sessions.length > 0 ? (
-          sessions.map((session) => (
-            <button
-              type="button"
-              className={`session-history-item ${selectedRunId === session.runId ? 'active' : ''}`}
-              key={session.id}
-              onClick={() => onOpenSession(session)}
-            >
-              <span className="session-history-title">{promptSessionTitle(session)}</span>
-              <span className="session-history-meta">
-                {session.status} · Updated {shortRelativeAge(session.updatedAt)}
-              </span>
-            </button>
-          ))
-        ) : (
-          <span className="session-history-empty">No Session Yet...</span>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-function ProgramOnboardingModal({
-  form,
-  busy,
-  onChange,
-  onCancel,
-  onLookupHackerOne,
-  onTemplate,
-  onSubmit
-}: {
-  form: ProgramOnboardingFormState;
-  busy: boolean;
-  onChange: (next: ProgramOnboardingFormState) => void;
-  onCancel: () => void;
-  onLookupHackerOne: (identifier: string) => Promise<void>;
-  onTemplate: (templateKind: ProgramTemplateKind) => void;
-  onSubmit: () => void;
-}): JSX.Element {
-  const [hackerOneIdentifier, setHackerOneIdentifier] = useState('');
-  const [lookupBusy, setLookupBusy] = useState(false);
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const update = (key: keyof ProgramOnboardingFormState, value: string): void => {
-    onChange({ ...form, [key]: value });
-  };
-  const canSubmit = form.programName.trim().length > 0;
-  const lookupHackerOne = (): void => {
-    if (!hackerOneIdentifier.trim()) return;
-    setLookupBusy(true);
-    setLookupError(null);
-    onLookupHackerOne(hackerOneIdentifier)
-      .catch((caught: unknown) => setLookupError(errorMessage(caught)))
-      .finally(() => setLookupBusy(false));
-  };
-
-  return (
-    <Modal
-      title="New Program"
-      onClose={onCancel}
-      footer={
-        <>
-          <button type="button" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="primary-button" type="submit" form="program-onboarding-form" disabled={busy || lookupBusy || !canSubmit}>
-            {lookupBusy ? 'Importing Program...' : 'Create Program'}
-          </button>
-        </>
-      }
-    >
-      <form
-        id="program-onboarding-form"
-        className="modal-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (canSubmit) onSubmit();
-        }}
-      >
-        <label>
-          Workspace directory
-          <input value={form.workspacePath} readOnly />
-        </label>
-        <div className="template-toggle-row" role="group" aria-label="Program template">
-          {(['manual', 'hackerone', 'apple', 'msrc'] as ProgramTemplateKind[]).map((templateKind) => (
-            <button
-              type="button"
-              className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
-              key={templateKind}
-              onClick={() => onTemplate(templateKind)}
-            >
-              {templateLabel(templateKind)}
-            </button>
-          ))}
-        </div>
-        {form.templateKind === 'hackerone' ? (
-          <div className="hackerone-lookup">
-            <label>
-              Program Identifier
-              <input value={hackerOneIdentifier} placeholder="github" onChange={(event) => setHackerOneIdentifier(event.target.value)} />
-            </label>
-            <button type="button" disabled={busy || lookupBusy || !hackerOneIdentifier.trim()} onClick={lookupHackerOne}>
-              {lookupBusy ? 'Loading...' : 'Look Up'}
-            </button>
-            {lookupError ? <div className="error-box">{lookupError}</div> : null}
-          </div>
-        ) : null}
-        <div className="form-grid">
-          <label>
-            Program name
-            <input value={form.programName} onChange={(event) => update('programName', event.target.value)} autoFocus />
-          </label>
-          <label>
-            Organization (optional)
-            <input value={form.organizationName} onChange={(event) => update('organizationName', event.target.value)} />
-          </label>
-        </div>
-        <label>
-          Description
-          <textarea rows={3} value={form.descriptionMarkdown} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
-        </label>
-        <div className="form-grid">
-          <label>
-            Network
-            <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
-              <option value="offline">offline</option>
-              <option value="scoped">scoped</option>
-              <option value="elevated">elevated</option>
-            </select>
-          </label>
-          <label>
-            Authorization expires (empty = never)
-            <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
-          </label>
-        </div>
-        <label>
-          Scope and Rules
-          <textarea rows={3} value={form.rulesMarkdown} onChange={(event) => update('rulesMarkdown', event.target.value)} />
-        </label>
-      </form>
-    </Modal>
-  );
-}
-
-function ScopeEditor({
-  snapshot,
-  busy,
-  runAction
-}: {
-  snapshot: WorkspaceSnapshot;
-  busy: boolean;
-  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
-}): JSX.Element {
-  const [form, setForm] = useState<ScopeFormState>(() => scopeToForm(snapshot.activeScope));
-
-  useEffect(() => {
-    setForm(scopeToForm(snapshot.activeScope));
-  }, [snapshot.activeScope.id]);
-
-  const update = (key: keyof ScopeFormState, value: string): void => {
-    setForm((current) => ({ ...current, [key]: value }));
-  };
-
-  const saveScope = (): void => {
-    const draft = formToScopeDraft(form);
-    void runAction(() => window.beale.saveProgramScope(draft));
-  };
-
-  return (
-    <section className="panel scope-panel">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Program</p>
-          <h3>Scope</h3>
-        </div>
-        <button type="button" title="Save scope version" disabled={busy} onClick={saveScope}>
-          <Save size={16} />
-          Save
-        </button>
-      </div>
-
-      <div className="form-grid">
-        <label>
-          Program
-          <input value={form.programName} onChange={(event) => update('programName', event.target.value)} />
-        </label>
-        <label>
-          Organization (optional)
-          <input value={form.organizationName} onChange={(event) => update('organizationName', event.target.value)} />
-        </label>
-      </div>
-      <label>
-        Description
-        <textarea rows={4} value={form.descriptionMarkdown} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
-      </label>
-      <div className="form-grid">
-        <label>
-          Network
-          <select value={form.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
-            <option value="offline">offline</option>
-            <option value="scoped">scoped</option>
-            <option value="elevated">elevated</option>
-          </select>
-        </label>
-        <label>
-          Authorization expires (empty = never)
-          <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} />
-        </label>
-      </div>
-
-      <div className="asset-grid">
-        <label>
-          Domains and hosts
-          <textarea rows={4} value={form.domains} onChange={(event) => update('domains', event.target.value)} />
-        </label>
-        <label>
-          Repositories
-          <textarea rows={4} value={form.repositories} onChange={(event) => update('repositories', event.target.value)} />
-        </label>
-        <label>
-          Executables
-          <textarea rows={4} value={form.executables} onChange={(event) => update('executables', event.target.value)} />
-        </label>
-        <label>
-          Local paths
-          <textarea rows={4} value={form.localPaths} onChange={(event) => update('localPaths', event.target.value)} />
-        </label>
-        <label>
-          Credential references
-          <textarea rows={3} value={form.credentialRefs} onChange={(event) => update('credentialRefs', event.target.value)} />
-        </label>
-        <label>
-          Out of scope
-          <textarea rows={3} value={form.outOfScope} onChange={(event) => update('outOfScope', event.target.value)} />
-        </label>
-      </div>
-      <label>
-        Scope and Rules
-        <textarea rows={4} value={form.rulesMarkdown} onChange={(event) => update('rulesMarkdown', event.target.value)} />
-      </label>
-    </section>
-  );
-}
-
-function OpenAiAccountPanel({
-  snapshot,
-  busy,
-  runAction
-}: {
-  snapshot: WorkspaceSnapshot;
-  busy: boolean;
-  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
-}): JSX.Element {
-  const status = snapshot.openAi;
-  const refresh = (): void => {
-    void runAction(() => window.beale.refreshOpenAiStatus());
-  };
-
-  return (
-    <section className={`panel openai-panel readiness-${stateClass(status.readiness)}`}>
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">OpenAI</p>
-          <h3>Account</h3>
-        </div>
-        <button type="button" title="Refresh OpenAI account status" disabled={busy} onClick={refresh}>
-          <RefreshCw size={16} />
-          Refresh
-        </button>
-      </div>
-
-      <div className="openai-status-row">
-        <div className="status-icon">
-          <KeyRound size={18} />
-        </div>
-        <div>
-          <StatusPill status={status.readiness} />
-          <strong>{status.label}</strong>
-          <p>{status.statusDetail}</p>
-        </div>
-      </div>
-
-      <div className="openai-grid">
-        <div>
-          <span>Source</span>
-          <strong>{status.source}</strong>
-        </div>
-        <div>
-          <span>Transport</span>
-          <strong>{status.preferredTransport}</strong>
-        </div>
-        <div>
-          <span>Model</span>
-          <strong>{status.defaultModel}</strong>
-        </div>
-        <div>
-          <span>Reasoning</span>
-          <strong>{status.defaultReasoningEffort}</strong>
-        </div>
-      </div>
-
-      <div className="openai-isolation">
-        <LockKeyhole size={15} />
-        <span>{status.credentialsHostOnly ? 'Host-only credential boundary' : 'Credential boundary needs review'}</span>
-      </div>
-
-      {status.setupCommand ? (
-        <div className="command-row">
-          <Terminal size={15} />
-          <code>{status.setupCommand}</code>
-        </div>
-      ) : null}
-
-      {status.userAction ? (
-        <div className="policy-line">
-          <ShieldAlert size={15} />
-          {status.userAction}
-        </div>
-      ) : null}
-
-      <div className="onboarding-list">
-        {status.onboardingSteps.map((step) => (
-          <div className={`onboarding-step step-${step.status}`} key={step.id}>
-            <span>{step.status}</span>
-            <div>
-              <strong>{step.label}</strong>
-              <p>{step.detail}</p>
-              {step.command ? <code>{step.command}</code> : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function StartRunForm({
-  snapshot,
-  vmPreference,
-  busy,
-  runAction,
-  onCancel,
-  onStarted
-}: {
-  snapshot: WorkspaceSnapshot;
-  vmPreference: VmPreference;
-  busy: boolean;
-  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
-  onCancel: () => void;
-  onStarted: (runId: string) => void;
-}): JSX.Element {
-  const sandboxProfile = preferredSandboxProfile(snapshot.executor, vmPreference);
-  const [input, setInput] = useState<StartRunInput>(() => ({
-    ...defaultRunInput,
-    networkProfile: 'elevated',
-    sandboxProfile
-  }));
-  const [generatingPrompt, setGeneratingPrompt] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [startingRun, setStartingRun] = useState(false);
-  const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
-  const generationRequestIdRef = useRef<string | null>(null);
-  const mountedRef = useRef(true);
-  const promptStreamAutoScrollRef = useRef(false);
-
-  useEffect(() => {
-    setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
-  }, [sandboxProfile, snapshot.activeScope.id]);
-
-  useEffect(() => {
-    const unsubscribe = window.beale.onResearchPromptGenerationUpdate((update) => {
-      if (!mountedRef.current || generationRequestIdRef.current !== update.requestId) return;
-      promptStreamAutoScrollRef.current = true;
-      setInput((current) => ({ ...current, promptMarkdown: update.promptMarkdown }));
-    });
-    return () => {
-      unsubscribe();
-      mountedRef.current = false;
-      const requestId = generationRequestIdRef.current;
-      if (requestId) {
-        void window.beale.cancelResearchPromptGeneration(requestId);
-      }
-    };
-  }, []);
-
-  const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
-    if (key === 'promptMarkdown') promptStreamAutoScrollRef.current = false;
-    setInput((current) => ({ ...current, [key]: value }));
-    if (key === 'promptMarkdown') setGenerateError(null);
-  };
-
-  useLayoutEffect(() => {
-    if (!generatingPrompt || !promptStreamAutoScrollRef.current) return;
-    const promptBox = promptBoxRef.current;
-    if (!promptBox) return;
-    promptBox.scrollTop = promptBox.scrollHeight;
-  }, [generatingPrompt, input.promptMarkdown]);
-
-  const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
-    setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
-  };
-  const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
-  const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
-  const hasPromptDraft = input.promptMarkdown.trim().length > 0;
-  const canStart = hasPromptDraft && !openAiBlocked;
-  const promptGenerationLabel = hasPromptDraft ? 'Refine' : 'Generate';
-
-  const start = (): void => {
-    if (startingRun) return;
-    setStartingRun(true);
-    void runAction(async () => {
-      const next = await window.beale.startRun(input);
-      const latestRunId = next.runs[0]?.run.id;
-      if (latestRunId) onStarted(latestRunId);
-      return next;
-    }).finally(() => setStartingRun(false));
-  };
-
-  const cancelGeneratePrompt = (): void => {
-    const requestId = generationRequestIdRef.current;
-    if (!requestId) return;
-    generationRequestIdRef.current = null;
-    setGeneratingPrompt(false);
-    void window.beale.cancelResearchPromptGeneration(requestId);
-  };
-
-  const generatePrompt = (): void => {
-    if (generatingPrompt) {
-      cancelGeneratePrompt();
-      return;
-    }
-    const requestId = clientRequestId('research_prompt');
-    const draftPromptMarkdown = input.promptMarkdown;
-    const operation = draftPromptMarkdown.trim().length > 0 ? 'refine' : 'generate';
-    generationRequestIdRef.current = requestId;
-    promptStreamAutoScrollRef.current = true;
-    setGeneratingPrompt(true);
-    setGenerateError(null);
-    void window.beale
-      .generateResearchPrompt({
-        requestId,
-        operation,
-        draftPromptMarkdown: operation === 'refine' ? draftPromptMarkdown : null,
-        mode: input.mode,
-        attemptStrategy: input.attemptStrategy,
-        model: input.model,
-        reasoningEffort: input.reasoningEffort,
-        networkProfile: input.networkProfile,
-        sandboxProfile: input.sandboxProfile,
-        targetAssetId: input.targetAssetId ?? null,
-        targetPath: input.targetPath ?? null
-      })
-      .then((generated) => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
-      })
-      .catch((caught: unknown) => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        const message = userFacingErrorMessage(caught);
-        if (!/canceled/i.test(message)) {
-          setGenerateError(message);
-        }
-      })
-      .finally(() => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        generationRequestIdRef.current = null;
-        setGeneratingPrompt(false);
-      });
-  };
-
-  const closeModal = (): void => {
-    cancelGeneratePrompt();
-    onCancel();
-  };
-
-  return (
-    <Modal
-      title="New Research Session"
-      wide
-      onClose={closeModal}
-      footer={
-        <>
-          <div className="modal-footer-leading generate-prompt-footer">
-            <button type="button" className="generate-prompt-button" disabled={!generatingPrompt && (busy || openAiBlocked)} onClick={generatePrompt}>
-              {generatingPrompt ? <X size={16} /> : <Sparkles size={16} />}
-              {generatingPrompt ? 'Cancel' : promptGenerationLabel}
-            </button>
-            {generatingPrompt ? <span className="generate-prompt-status">Generating plan, thinking may take several minutes...</span> : null}
-          </div>
-          <button type="button" disabled={busy} onClick={closeModal}>
-            Nevermind
-          </button>
-          <button className="primary-button" type="button" disabled={busy || startingRun || generatingPrompt || !canStart} onClick={start}>
-            <Play size={16} />
-            Start
-          </button>
-        </>
-      }
-    >
-      <div className="start-run-modal-body">
-        {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
-          <div className="policy-line">
-            <ShieldAlert size={15} />
-            {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
-          </div>
-        ) : null}
-        {input.sandboxProfile === 'host_research_only' ? (
-          <div className="policy-line host-sandbox-warning">
-            <ShieldAlert size={15} />
-            Commands and executables will run on this host machine. A disposable VM is recommended.
-          </div>
-        ) : null}
-        {generateError ? (
-          <div className="generate-prompt-error-box" role="alert">
-            <ShieldAlert size={15} />
-            <div>
-              <strong>Could not generate plan</strong>
-              <p>{generateError}</p>
-            </div>
-          </div>
-        ) : null}
-        <textarea
-          ref={promptBoxRef}
-          className="prompt-box"
-          rows={6}
-          placeholder="Enter a prompt or press Generate."
-          value={input.promptMarkdown}
-          onChange={(event) => update('promptMarkdown', event.target.value)}
-        />
-        <div className="start-grid">
-          <label>
-            Mode
-            <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
-              <option value="dynamic">Dynamic</option>
-              <option value="open_discovery">Open Discovery</option>
-              <option value="targeted_reproduction">Targeted Reproduction</option>
-              <option value="patch_validation">Patch Validation</option>
-              <option value="variant_analysis">Variant Analysis</option>
-            </select>
-          </label>
-          <label>
-            Strategy
-            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-              <option value="adaptive_portfolio">Adaptive Portfolio</option>
-              <option value="single_path">Single Path</option>
-              <option value="reproduction_first">Reproduction First</option>
-            </select>
-          </label>
-          <label>
-            Network
-            <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
-              {NETWORK_PROFILE_OPTIONS.map((profile) => (
-                <option value={profile} key={profile}>
-                  {networkProfileLabel(profile)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <details className="advanced-run-options">
-          <summary>Session Settings</summary>
-          <div className="form-grid">
-            <label>
-              Minutes
-              <input
-                type="number"
-                min={1}
-                placeholder="Unlimited"
-                value={minuteLimitValue}
-                onChange={(event) => updateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
-              />
-            </label>
-            <label>
-              Max Research Branches
-              <input
-                type="number"
-                min={1}
-                value={1}
-                disabled
-                onChange={() => undefined}
-              />
-            </label>
-            <label>
-              Model
-              <input value={input.model} onChange={(event) => update('model', event.target.value)} />
-            </label>
-            <label>
-              Reasoning
-              <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
-            </label>
-          </div>
-        </details>
-      </div>
-    </Modal>
-  );
 }
 
 function HardeningPanel({
@@ -2899,96 +2155,6 @@ function factorFromText(value: string): number {
   return 1;
 }
 
-function budgetNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function optionalPositiveInteger(rawValue: string, fallback: number): number {
-  const trimmed = rawValue.trim();
-  if (!trimmed) return fallback;
-  const value = Math.floor(Number(trimmed));
-  return Number.isFinite(value) ? Math.max(1, value) : fallback;
-}
-
-function clientRequestId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function extendBudgetLimit(value: unknown, unboundedValue: number, step: number): number {
-  const current = budgetNumber(value, unboundedValue);
-  return current >= unboundedValue ? unboundedValue : current + step;
-}
-
-function onboardingFormFromDefaults(defaults: ProgramOnboardingDefaults): ProgramOnboardingFormState {
-  return {
-    templateKind: 'manual',
-    workspacePath: defaults.workspacePath,
-    programName: defaults.programName,
-    organizationName: defaults.organizationName,
-    descriptionMarkdown: defaults.descriptionMarkdown,
-    rulesMarkdown: defaults.rulesMarkdown,
-    networkProfile: defaults.networkProfile,
-    expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
-    assets: defaults.assets
-  };
-}
-
-function onboardingInputFromForm(form: ProgramOnboardingFormState): ProgramOnboardingInput {
-  return {
-    workspacePath: form.workspacePath,
-    programName: form.programName,
-    organizationName: form.organizationName,
-    descriptionMarkdown: form.descriptionMarkdown,
-    rulesMarkdown: form.rulesMarkdown,
-    networkProfile: form.networkProfile,
-    expiresAt: optionalDateOrNever(form.expiresAt),
-    assets: form.assets
-  };
-}
-
-function templateLabel(templateKind: ProgramTemplateKind): string {
-  switch (templateKind) {
-    case 'manual':
-      return 'Manual';
-    case 'hackerone':
-      return 'HackerOne';
-    case 'apple':
-      return 'Apple';
-    case 'msrc':
-      return 'MSRC';
-  }
-}
-
-function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: ProgramTemplateKind): ProgramOnboardingFormState {
-  if (templateKind === 'manual' || templateKind === 'hackerone') {
-    return { ...form, templateKind };
-  }
-  if (templateKind === 'apple') {
-    return {
-      ...form,
-      templateKind,
-      programName: 'Apple Security Bounty',
-      organizationName: 'Apple',
-      descriptionMarkdown: APPLE_PROGRAM_DESCRIPTION,
-      rulesMarkdown: APPLE_SCOPE_AND_RULES,
-      networkProfile: 'elevated',
-      expiresAt: '',
-      assets: []
-    };
-  }
-  return {
-    ...form,
-    templateKind,
-    programName: 'Microsoft Security Response Center',
-    organizationName: 'Microsoft',
-    descriptionMarkdown: MSRC_PROGRAM_DESCRIPTION,
-    rulesMarkdown: MSRC_SCOPE_AND_RULES,
-    networkProfile: 'elevated',
-    expiresAt: '',
-    assets: []
-  };
-}
-
 function scopeToForm(scope: ProgramScopeVersion): ScopeFormState {
   return {
     programName: scope.programName,
@@ -3033,10 +2199,6 @@ function optionalDateOrNever(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function emptyDateClass(value: string): string | undefined {
-  return value.trim() ? undefined : 'date-input-empty';
-}
-
 function linesFor(scope: ProgramScopeVersion, direction: ScopeAssetDirection, kind: ScopeAssetKind): string {
   return scope.assets
     .filter((asset) => asset.direction === direction && asset.kind === kind)
@@ -3061,16 +2223,4 @@ function assetsFromLines(text: string, direction: ScopeAssetDirection, kind: Sco
 function compactJson(value: Record<string, unknown>): string {
   const text = JSON.stringify(value, null, 2);
   return text.length > 600 ? `${text.slice(0, 600)}\n...` : text;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function userFacingErrorMessage(error: unknown): string {
-  const message = errorMessage(error)
-    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
-    .replace(/^Error:\s*/i, '')
-    .trim();
-  return message || 'An unknown error occurred.';
 }

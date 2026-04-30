@@ -38,6 +38,8 @@
 - Extracted transcript-to-trace display event synthesis from `App.tsx` into the trace display view-model.
 - Extracted the virtualized trace view and steering footer from `App.tsx` into the trace feature module.
 - Extracted the settings modal, provider status view, and local VM enablement view from `App.tsx` into the settings feature module.
+- Extracted program information, session history, and onboarding modals plus onboarding template helpers from `App.tsx`.
+- Extracted the new research session modal and shared run-setting helpers from `App.tsx`.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 

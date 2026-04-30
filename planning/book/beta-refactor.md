@@ -231,6 +231,11 @@ Implementation note, 2026-04-30:
 - Virtualized trace view and steering footer rendering moved into `src/renderer/features/traces/TraceView.tsx`.
 - Settings modal rendering, OpenAI provider status, and local VM enablement controls moved into `src/renderer/features/settings/SettingsModal.tsx`.
 - Shared status pill rendering moved into `src/renderer/app/StatusPill.tsx`.
+- Program information/session history modals moved into `src/renderer/features/programs/ProgramModals.tsx`.
+- Program onboarding modal rendering moved into `src/renderer/features/programs/ProgramOnboardingModal.tsx`.
+- Program onboarding template defaults and form conversion moved into `src/renderer/view-models/programOnboarding.ts`.
+- New research session modal rendering moved into `src/renderer/features/sessions/StartRunForm.tsx`.
+- Shared run-setting defaults, unbounded budget constants, and request-id helpers moved into `src/renderer/view-models/runSettings.ts`.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
 - Evidence sidebar rendering moved into `src/renderer/features/research/EvidenceSidebar.tsx`.
 - CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
@@ -239,4 +244,4 @@ Implementation note, 2026-04-30:
 - Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, program onboarding templates, run-setting defaults, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.

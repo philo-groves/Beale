@@ -67,3 +67,7 @@ export function formatPercent(value: number): string {
 export function shortDate(value: string): string {
   return value.slice(0, 10);
 }
+
+export function emptyDateClass(value: string): string | undefined {
+  return value.trim() ? undefined : 'date-input-empty';
+}
