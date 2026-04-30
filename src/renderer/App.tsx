@@ -1,18 +1,14 @@
-import { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
-  HostEnvironment,
   NotificationRecord,
-  OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ProgramRegistryEntry,
-  ProgramRegistryState,
   ResearchSessionSummary,
   RunDetail,
   VmPreferenceInput,
-  WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
@@ -31,6 +27,7 @@ import { useProgramOverlayState } from './hooks/useProgramOverlayState';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useTraceSelection } from './hooks/useTraceSelection';
+import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
 import { environmentActivityForDetail } from './view-models/environmentDisplay';
@@ -51,19 +48,25 @@ import {
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents } from './view-models/traceDisplay';
-import {
-  runDetailMetricDetail,
-  selectRunId,
-  shortMetricId,
-  snapshotMetricDetail
-} from './view-models/runDetailUpdates';
+import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 
 export function App(): JSX.Element {
-  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
-  const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
-  const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
-  const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const handleError = useCallback((message: string) => setError(message), []);
+  const {
+    snapshot,
+    programRegistry,
+    hostEnvironment,
+    windowChromeState,
+    openAiStatus,
+    selectedRunId,
+    setProgramRegistry,
+    setOpenAiStatus,
+    setSelectedRunId,
+    applySnapshot,
+    loadSnapshot,
+    loadProgramRegistry
+  } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -74,8 +77,6 @@ export function App(): JSX.Element {
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
@@ -109,67 +110,6 @@ export function App(): JSX.Element {
   }));
   useDevInputLatencyProbe();
   useInsetScrollbarActivation();
-
-  const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
-    devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
-    setSnapshot(next);
-    if (next) {
-      setOpenAiStatus(next.openAi);
-    }
-    setSelectedRunId((current) => selectRunId(current, next));
-  }, []);
-
-  const loadSnapshot = useCallback(async () => {
-    const next = await devInstrumentation.timeAsync('ipc.getSnapshot', () => window.beale.getSnapshot());
-    applySnapshot(next);
-  }, [applySnapshot]);
-
-  const loadProgramRegistry = useCallback(async () => {
-    setProgramRegistry(await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry()));
-  }, []);
-
-  useEffect(() => {
-    window.beale
-      .getHostEnvironment()
-      .then(setHostEnvironment)
-      .catch((caught: unknown) => setError(errorMessage(caught)));
-
-    devInstrumentation
-      .timeAsync('ipc.getSnapshot.initial', () => window.beale.getSnapshot())
-      .then((initial) => {
-        applySnapshot(initial);
-      })
-      .catch((caught: unknown) => setError(errorMessage(caught)));
-
-    devInstrumentation
-      .timeAsync('ipc.getProgramRegistry.initial', () => window.beale.getProgramRegistry())
-      .then(setProgramRegistry)
-      .catch((caught: unknown) => setError(errorMessage(caught)));
-
-    window.beale
-      .getOpenAiStatus()
-      .then(setOpenAiStatus)
-      .catch((caught: unknown) => setError(errorMessage(caught)));
-
-    window.beale
-      .getWindowChromeState()
-      .then(setWindowChromeState)
-      .catch((caught: unknown) => setError(errorMessage(caught)));
-
-    const unsubscribeSnapshot = window.beale.onSnapshot((next) => {
-      devInstrumentation.recordPayload('ipc.snapshot.event', next, snapshotMetricDetail(next));
-      startTransition(() => applySnapshot(next));
-    });
-    const unsubscribeProgramRegistry = window.beale.onProgramRegistry((next) => {
-      startTransition(() => setProgramRegistry(next));
-    });
-    const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
-    return () => {
-      unsubscribeSnapshot();
-      unsubscribeProgramRegistry();
-      unsubscribeWindowChromeState();
-    };
-  }, [applySnapshot]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
