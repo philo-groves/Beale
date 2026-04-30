@@ -9,7 +9,6 @@ import {
   Bug,
   ChevronRight,
   CheckCircle2,
-  Clock,
   ClipboardCheck,
   ClipboardX,
   Edit3,
@@ -83,21 +82,19 @@ import type {
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
-import { displaySessionTitle } from '../shared/sessionTitle';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { Modal } from './app/Modal';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationDetailModal, NotificationStack } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
+import { SessionHeader } from './features/sessions/SessionHeader';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import {
   clampPriorityScoreForDisplay,
-  formatDurationHms,
   formatPercent,
   formatPriorityPill,
-  formatSessionDateTime,
   formatSessionStart,
   formatSessionTime,
   networkProfileLabel,
@@ -119,6 +116,7 @@ import {
 import type { TraceCategoryId } from './traceClassification';
 import { findBackendByKind, type EnvironmentActivity } from './view-models/environmentDisplay';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from './view-models/programDisplay';
+import { latestTraceGroupKey, traceTurnNumber } from './view-models/traceDisplay';
 
 interface ScopeFormState {
   programName: string;
@@ -941,24 +939,13 @@ export function App(): JSX.Element {
       />
 
       <main className="workbench" data-session-heat={sessionHeat}>
-        <div className="workbench-header">
-          <div className="workbench-program">
-            <RunStatusIndicator detail={activeRunDetail} />
-            <span className="workbench-title">{snapshot?.activeScope.programName ?? 'No Program Selected'}</span>
-            {activeRunDetail ? (
-              <button
-                type="button"
-                className="workbench-session-title"
-                title="View original research prompt"
-                onClick={() => setResearchPromptDetail(activeRunDetail)}
-              >
-                <span>{displaySessionTitle(activeRunDetail.run.title, activeRunDetail.run.promptMarkdown)}</span>
-              </button>
-            ) : null}
-            {activeRunDetail ? <SessionConfigPills detail={activeRunDetail} /> : null}
-          </div>
-          <SessionTimestamps detail={activeRunDetail} events={activeTraceEvents} visibleTraceCategories={visibleTraceCategories} />
-        </div>
+        <SessionHeader
+          detail={activeRunDetail}
+          events={activeTraceEvents}
+          programName={snapshot?.activeScope.programName ?? 'No Program Selected'}
+          visibleTraceCategories={visibleTraceCategories}
+          onOpenResearchPrompt={setResearchPromptDetail}
+        />
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
@@ -1176,135 +1163,6 @@ function shortMetricId(id: string): string {
 
 function countLines(value: string): number {
   return value.length === 0 ? 0 : value.split('\n').length;
-}
-
-function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Element | null {
-  if (!detail) return null;
-  const status = detail.run.status;
-  const statusClass = runStatusClass(status);
-  const label = traceLabel(status);
-  const icon =
-    statusClass === 'active' ? (
-      <RefreshCw size={13} />
-    ) : statusClass === 'paused' ? (
-      <Pause size={17} strokeWidth={2.8} />
-    ) : statusClass === 'completed' ? (
-      <Square size={16} strokeWidth={2.6} />
-    ) : statusClass === 'failed' ? (
-      <X size={17} strokeWidth={3.2} />
-    ) : null;
-
-  if (!icon) return null;
-  return (
-    <span className={`workbench-run-status run-status-${statusClass}`} title={`Run status: ${label}`} aria-label={`Run status: ${label}`}>
-      {icon}
-    </span>
-  );
-}
-
-function runStatusClass(status: RunStatus): 'active' | 'completed' | 'failed' | 'paused' | 'queued' {
-  if (status === 'completed') return 'completed';
-  if (status === 'failed') return 'failed';
-  if (status === 'active') return 'active';
-  if (status === 'queued') return 'queued';
-  return 'paused';
-}
-
-function SessionConfigPills({ detail }: { detail: RunDetail }): JSX.Element {
-  const pills = [
-    { label: traceLabel(detail.run.mode), tooltip: `Mode: ${traceLabel(detail.run.mode)}` },
-    { label: traceLabel(detail.run.attemptStrategy), tooltip: `Strategy: ${traceLabel(detail.run.attemptStrategy)}` },
-    { label: traceLabel(detail.run.networkProfile), tooltip: `Network: ${traceLabel(detail.run.networkProfile)}` }
-  ];
-
-  return (
-    <div className="session-config-pills" aria-label="Session configuration">
-      {pills.map((pill) => (
-        <span className="session-config-pill" title={pill.tooltip} aria-label={pill.tooltip} key={pill.tooltip}>
-          {pill.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function SessionTimestamps({
-  detail,
-  events,
-  visibleTraceCategories
-}: {
-  detail: RunDetail | null;
-  events: TraceDisplayEvent[];
-  visibleTraceCategories: TraceCategoryId[];
-}): JSX.Element | null {
-  const active = detail?.run.status === 'active';
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!active) return undefined;
-    setNowMs(Date.now());
-    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [active, detail?.run.id]);
-
-  if (!detail) return null;
-  const updated = latestRunDetailDate(detail);
-  if (!updated) return null;
-  const createdMs = Date.parse(detail.run.createdAt);
-  const durationEndMs = active ? nowMs : updated.getTime();
-  const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
-  const latestTurn = latestTraceTurnNumber(events) ?? 0;
-  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
-  const eventMetric = `${visibleEventCount}/${events.length}`;
-  const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
-  const durationTooltip = `Created ${formatSessionDateTime(detail.run.createdAt)}\nUpdated ${formatSessionStart(updated)}`;
-
-  return (
-    <div className="session-start-time">
-      <span className="session-header-metric" title={turnTooltip} aria-label={`Current model turn ${latestTurn}`}>
-        <GitFork size={13} />
-        <span>{latestTurn}</span>
-      </span>
-      <span
-        className="session-header-metric"
-        title="Visible trace events after filters, followed by total trace events when filters are active."
-        aria-label={`${visibleEventCount} visible trace events out of ${events.length} total trace events`}
-      >
-        <FileText size={13} />
-        <span>{eventMetric}</span>
-      </span>
-      <span className="session-header-metric session-duration-metric" title={durationTooltip} aria-label={`Session duration ${formatDurationHms(durationMs)}`}>
-        <Clock size={13} />
-        <span>{formatDurationHms(durationMs)}</span>
-      </span>
-    </div>
-  );
-}
-
-function latestRunDetailDate(detail: RunDetail): Date | null {
-  const timestamps = [
-    detail.run.createdAt,
-    detail.run.startedAt,
-    detail.run.endedAt,
-    ...detail.attempts.flatMap((attempt) => [attempt.startedAt, attempt.endedAt]),
-    ...detail.traceEvents.map((event) => event.createdAt),
-    ...detail.hypotheses.flatMap((hypothesis) => [hypothesis.createdAt, hypothesis.updatedAt]),
-    ...detail.artifacts.map((artifact) => artifact.createdAt),
-    ...detail.findings.flatMap((finding) => [finding.createdAt, finding.updatedAt]),
-    ...detail.verifierContracts.flatMap((contract) => [contract.createdAt, contract.updatedAt]),
-    ...detail.verifierRuns.flatMap((run) => [run.startedAt, run.endedAt]),
-    ...detail.vmContexts.flatMap((context) => [context.createdAt, context.destroyedAt]),
-    ...detail.modelSessions.flatMap((session) => [session.createdAt, session.updatedAt]),
-    ...detail.policyEvents.flatMap((event) => [event.createdAt, event.decidedAt]),
-    ...detail.exports.flatMap((exportRecord) => [exportRecord.createdAt, exportRecord.reviewedAt])
-  ];
-  const latestTimestamp = timestamps.reduce<number | null>((latest, value) => {
-    if (!value) return latest;
-    const timestamp = Date.parse(value);
-    if (!Number.isFinite(timestamp)) return latest;
-    return latest === null ? timestamp : Math.max(latest, timestamp);
-  }, null);
-  return latestTimestamp === null ? null : new Date(latestTimestamp);
 }
 
 function MainSessionWorkspace({
@@ -2643,25 +2501,6 @@ function groupRenderedTraceEntries(entries: TraceTimelineEntry[]): RenderedTrace
   return groups;
 }
 
-function latestTraceTurnNumber(events: TraceDisplayEvent[]): number | null {
-  let latest: number | null = null;
-  for (const event of events) {
-    latest = traceTurnNumber(event) ?? latest;
-  }
-  return latest;
-}
-
-function latestTraceGroupKey(events: TraceDisplayEvent[]): string {
-  let key = 'setup';
-  for (const event of events) {
-    const turnNumber = traceTurnNumber(event);
-    if (turnNumber !== null) {
-      key = `turn-${turnNumber}-${event.sequence}`;
-    }
-  }
-  return key;
-}
-
 function traceRevealBatchSize(queueLength: number): number {
   if (queueLength > 90) return 12;
   if (queueLength > 45) return 8;
@@ -2674,14 +2513,6 @@ function traceRevealDelayMs(queueLength: number): number {
   if (queueLength > 45) return 20;
   if (queueLength > 18) return 32;
   return TRACE_REVEAL_INTERVAL_MS;
-}
-
-function traceTurnNumber(event: TraceEventRecord): number | null {
-  const turn = event.payload.turn;
-  if (typeof turn === 'number' && Number.isInteger(turn) && turn > 0) return turn;
-  if (typeof turn === 'string' && /^\d+$/.test(turn)) return Number(turn);
-  const match = event.summary.match(/\bturn\s+(\d+)\b/i);
-  return match ? Number(match[1]) : null;
 }
 
 function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): { kind: string; label: string } {

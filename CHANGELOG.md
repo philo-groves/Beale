@@ -12,6 +12,7 @@
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
 - Added renderer formatting tests for shared label, date, duration, priority, and truncation helpers.
+- Added renderer session header tests for status, configuration, timing, and trace turn display helpers.
 
 ### Changed
 
@@ -22,6 +23,7 @@
 - Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
 - Extracted shared modal infrastructure, notification modals, and the research prompt modal from `App.tsx`.
 - Extracted shared renderer formatting helpers from `App.tsx` into `src/renderer/lib/formatting.ts`.
+- Extracted the workbench session header and trace turn helpers from `App.tsx` into session feature and view-model modules.
 
 ### Fixed
 
