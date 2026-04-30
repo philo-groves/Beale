@@ -14,6 +14,7 @@ import {
 } from '../../view-models/runSettings';
 
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
+const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 
 export function StartRunForm({
   snapshot,
@@ -43,6 +44,28 @@ export function StartRunForm({
   const generationRequestIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const promptStreamAutoScrollRef = useRef(false);
+  const pendingPromptMarkdownRef = useRef<string | null>(null);
+  const promptStreamFlushTimerRef = useRef<number | null>(null);
+
+  const flushPendingPromptStream = (): void => {
+    const promptMarkdown = pendingPromptMarkdownRef.current;
+    pendingPromptMarkdownRef.current = null;
+    if (promptStreamFlushTimerRef.current !== null) {
+      window.clearTimeout(promptStreamFlushTimerRef.current);
+      promptStreamFlushTimerRef.current = null;
+    }
+    if (promptMarkdown === null || !mountedRef.current) return;
+    promptStreamAutoScrollRef.current = true;
+    setInput((current) => (current.promptMarkdown === promptMarkdown ? current : { ...current, promptMarkdown }));
+  };
+
+  const clearPendingPromptStream = (): void => {
+    pendingPromptMarkdownRef.current = null;
+    if (promptStreamFlushTimerRef.current !== null) {
+      window.clearTimeout(promptStreamFlushTimerRef.current);
+      promptStreamFlushTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
@@ -51,12 +74,14 @@ export function StartRunForm({
   useEffect(() => {
     const unsubscribe = window.beale.onResearchPromptGenerationUpdate((update) => {
       if (!mountedRef.current || generationRequestIdRef.current !== update.requestId) return;
-      promptStreamAutoScrollRef.current = true;
-      setInput((current) => ({ ...current, promptMarkdown: update.promptMarkdown }));
+      pendingPromptMarkdownRef.current = update.promptMarkdown;
+      if (promptStreamFlushTimerRef.current !== null) return;
+      promptStreamFlushTimerRef.current = window.setTimeout(flushPendingPromptStream, PROMPT_STREAM_RENDER_INTERVAL_MS);
     });
     return () => {
       unsubscribe();
       mountedRef.current = false;
+      clearPendingPromptStream();
       const requestId = generationRequestIdRef.current;
       if (requestId) {
         void window.beale.cancelResearchPromptGeneration(requestId);
@@ -102,6 +127,7 @@ export function StartRunForm({
     if (!requestId) return;
     generationRequestIdRef.current = null;
     setGeneratingPrompt(false);
+    clearPendingPromptStream();
     void window.beale.cancelResearchPromptGeneration(requestId);
   };
 
@@ -133,6 +159,7 @@ export function StartRunForm({
       })
       .then((generated) => {
         if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
+        clearPendingPromptStream();
         setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
       })
       .catch((caught: unknown) => {

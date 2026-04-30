@@ -1,32 +1,39 @@
+import { memo, useMemo } from 'react';
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import { traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
+import { tracePayloadPrimitive } from '../../traceClassification';
 import { isProseTraceEvent, pythonToolCallPreview, traceEventDetailText, traceEventSummary, type PythonToolCallPreview } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
 import { traceCategoryLabel, traceEventIcon } from './traceVisuals';
 
-export function TraceEventRow({
-  detail,
-  entering,
-  event,
-  selected,
-  onSelect
-}: {
+interface TraceEventRowProps {
   detail: RunDetail | null;
   entering: boolean;
   event: TraceDisplayEvent;
   selected: boolean;
   onSelect: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  const category = traceCategoryForEvent(event);
-  const outcome = traceEventOutcome(event);
-  const detailText = traceEventDetailText(event, category, detail);
+}
+
+export const TraceEventRow = memo(function TraceEventRow({
+  detail,
+  entering,
+  event,
+  selected,
+  onSelect
+}: TraceEventRowProps): JSX.Element {
+  const detailForEvent = traceEventNeedsRunDetail(event) ? detail : null;
+  const category = useMemo(() => traceCategoryForEvent(event), [event]);
+  const outcome = useMemo(() => traceEventOutcome(event), [event]);
+  const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
+  const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
+  const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
   const hasDetail = detailText.length > 0;
-  const proseDetail = isProseTraceEvent(event, category, detail);
+  const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
-  const pythonPreview = pythonToolCallPreview(event);
+  const pythonPreview = useMemo(() => pythonToolCallPreview(event), [event]);
   return (
     <button
       type="button"
@@ -40,12 +47,12 @@ export function TraceEventRow({
       onClick={() => onSelect(event)}
     >
       <div className="main-trace-marker" aria-hidden="true">
-        <span>{traceEventIcon(event, category)}</span>
+        <span>{icon}</span>
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
           <div className="main-trace-title">
-            <strong>{traceEventSummary(event, category)}</strong>
+            <strong>{summary}</strong>
             <span className="main-trace-source-label">{traceLabel(event.source)}</span>
           </div>
           <div className="main-trace-flags">
@@ -69,7 +76,7 @@ export function TraceEventRow({
       </div>
     </button>
   );
-}
+}, traceEventRowPropsEqual);
 
 function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JSX.Element {
   return (
@@ -87,4 +94,33 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
       ) : null}
     </div>
   );
+}
+
+function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventRowProps): boolean {
+  if (previous.selected !== next.selected || previous.entering !== next.entering || previous.onSelect !== next.onSelect) return false;
+  if (!sameTraceDisplayEvent(previous.event, next.event)) return false;
+  if (!traceEventNeedsRunDetail(previous.event) && !traceEventNeedsRunDetail(next.event)) return true;
+  return previous.detail?.hypotheses === next.detail?.hypotheses && previous.detail?.findings === next.detail?.findings;
+}
+
+function sameTraceDisplayEvent(previous: TraceDisplayEvent, next: TraceDisplayEvent): boolean {
+  if (previous === next) return true;
+  if (
+    previous.id !== next.id ||
+    previous.sequence !== next.sequence ||
+    previous.summary !== next.summary ||
+    previous.source !== next.source ||
+    previous.type !== next.type ||
+    previous.modelVisible !== next.modelVisible ||
+    previous.createdAt !== next.createdAt ||
+    previous.displayOnly !== next.displayOnly
+  ) {
+    return false;
+  }
+  if (!previous.displayOnly && previous.payload !== next.payload) return false;
+  return tracePayloadPrimitive(previous.payload, 'text') === tracePayloadPrimitive(next.payload, 'text');
+}
+
+function traceEventNeedsRunDetail(event: TraceDisplayEvent): boolean {
+  return event.type === 'hypothesis_event' || event.type === 'finding_event';
 }

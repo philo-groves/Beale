@@ -14,7 +14,7 @@ import {
   sourceRepositoryCandidates,
   type SourceRepositoryCandidate
 } from './sourceMaterializer';
-import { executeHostOperation, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
+import { executeHostOperation, executeHostOperationAsync, isHostResearchSandbox, mapSandboxPathToHost } from './hostToolExecutor';
 import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
 import { cweEntryForId, inferCweMapping, normalizeCweConfidence, normalizeCweId } from './cweCatalog';
 import { clampPriorityScore, priorityFactorsFromLabels, scorePriority } from './discoveryScoring';
@@ -208,6 +208,16 @@ export class BealeToolRouter {
   public execute(context: CreatedRunContext, call: OpenAiFunctionCall): FunctionCallOutputItem {
     const args = parseArguments(call.argumentsJson);
     const result = this.executeInternal(context, call, args);
+    return this.functionCallOutput(call, result);
+  }
+
+  public async executeAsync(context: CreatedRunContext, call: OpenAiFunctionCall): Promise<FunctionCallOutputItem> {
+    const args = parseArguments(call.argumentsJson);
+    const result = await this.executeInternalAsync(context, call, args);
+    return this.functionCallOutput(call, result);
+  }
+
+  private functionCallOutput(call: OpenAiFunctionCall, result: ToolResult): FunctionCallOutputItem {
     return {
       type: 'function_call_output',
       call_id: call.callId,
@@ -221,6 +231,70 @@ export class BealeToolRouter {
         })
       )
     };
+  }
+
+  private async executeInternalAsync(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): Promise<ToolResult> {
+    if (!isToolName(call.name)) {
+      return this.recordError(context, call, args, `Unknown Beale tool requested: ${call.name}`);
+    }
+
+    const toolName = call.name;
+    const destination = extractDestination(toolName, args);
+    if (destination && !this.destinationAllowed(destination)) {
+      return this.recordToolPolicyBlock(context, call, args, `Blocked out-of-scope tool destination: ${destination}`, {
+        destination
+      });
+    }
+    const policy = this.toolPolicy(toolName);
+
+    const toolCallId = this.db.createToolCall({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      toolName,
+      toolVersion: 'structured-tools-v1',
+      input: {
+        openaiCallId: call.callId,
+        responseItemId: call.responseItemId ?? null,
+        arguments: args,
+        policy
+      },
+      status: 'completed',
+      resultSummary: `Structured ${toolName} call accepted by Beale tool router.`,
+      result: { toolName, normalizedInTrace: true },
+      vmContextId: context.vmContext.id
+    });
+
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'tool_call',
+      source: 'model',
+      summary: `OpenAI requested Beale tool: ${toolName}.`,
+      payload: {
+        openaiCallId: call.callId,
+        responseItemId: call.responseItemId ?? null,
+        arguments: args,
+        policy
+      },
+      toolCallId,
+      vmContextId: context.vmContext.id
+    });
+
+    let result: ToolResult;
+    try {
+      result = await this.dispatchAsync(context, toolName, call, args);
+    } catch (error) {
+      result = {
+        status: 'error',
+        summary: `${toolName} failed: ${errorMessage(error)}`,
+        payload: {
+          observationBacked: false,
+          error: errorMessage(error)
+        }
+      };
+    }
+
+    return this.finishToolResult(context, toolCallId, result);
   }
 
   private executeInternal(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
@@ -284,11 +358,14 @@ export class BealeToolRouter {
       };
     }
 
+    return this.finishToolResult(context, toolCallId, result);
+  }
+
+  private finishToolResult(context: CreatedRunContext, toolCallId: string, result: ToolResult): ToolResult {
     if (result.traceEventId) {
       this.db.linkToolCallTrace(toolCallId, result.traceEventId);
       return result;
     }
-
     const event = this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -308,6 +385,11 @@ export class BealeToolRouter {
       this.db.setHypothesisTrace(result.payload.hypothesisId, event.id);
     }
     return { ...result, traceEventId: event.id };
+  }
+
+  private async dispatchAsync(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): Promise<ToolResult> {
+    if (toolName === 'python') return this.runPythonAsync(context, call, args);
+    return this.dispatch(context, toolName, call, args);
   }
 
   private dispatch(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
@@ -577,6 +659,36 @@ export class BealeToolRouter {
       expectedOutput: artifactPath ? 'artifact' : 'summary'
     }, artifactPath || null);
 
+    return this.pythonExecutionResult(context, args, script, execution);
+  }
+
+  private async runPythonAsync(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): Promise<ToolResult> {
+    const script = stringValue(args.script, '').trim();
+    if (!script) {
+      return {
+        status: 'error',
+        summary: 'Python requires a non-empty guest script.',
+        payload: { observationBacked: false, error: 'missing_script' }
+      };
+    }
+    const artifactPath = stringValue(args.artifact_path, '').trim();
+    const networkProfile = guestToolNetworkProfile(context);
+    const execution = await this.executeInActiveSandboxAsync(context, {
+      operationKind: 'python',
+      command: ['python3', '-c', script],
+      cwd: '/workspace',
+      env: {
+        BEALE_TARGET_PATH: '/workspace/target'
+      },
+      timeoutMs: 60_000,
+      networkProfile,
+      expectedOutput: artifactPath ? 'artifact' : 'summary'
+    }, artifactPath || null);
+
+    return this.pythonExecutionResult(context, args, script, execution);
+  }
+
+  private pythonExecutionResult(context: CreatedRunContext, args: Record<string, unknown>, script: string, execution: GuestToolResult): ToolResult {
     return {
       status: execution.result.status === 'success' ? 'success' : 'error',
       summary: `${execution.hostExecution ? 'Host' : 'Guest'} python operation finished with ${execution.result.status}.`,
@@ -1244,6 +1356,28 @@ export class BealeToolRouter {
         this.executor.destroyContext(context);
       }
     }
+  }
+
+  private async executeInActiveSandboxAsync(context: CreatedRunContext, request: GuestExecuteRequest, artifactPath: string | null): Promise<GuestToolResult> {
+    const requestedNetworkProfile = request.networkProfile;
+    if (isHostResearchSandbox(context.run.sandboxProfile)) {
+      const artifactKind = request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output';
+      const execution = await executeHostOperationAsync(this.db, context, request, artifactPath, artifactKind);
+      return {
+        result: execution.result,
+        artifactId: execution.artifactId,
+        importedHostPath: null,
+        requestedNetworkProfile,
+        networkProfile: requestedNetworkProfile,
+        hostExecution: true,
+        executionSubstrate: 'host',
+        hostCwd: execution.cwd,
+        hostTargetPath: execution.targetPath,
+        hostArtifactPath: execution.artifactPath
+      };
+    }
+
+    return this.executeInActiveSandbox(context, request, artifactPath);
   }
 
   private collectScopedFiles(targetHint: string): SearchCollection {

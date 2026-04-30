@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { setImmediate as yieldImmediate } from 'node:timers/promises';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import {
   OpenAiResponsesAdapter,
   OpenAiApiError,
+  type OpenAiProfilingRecorder,
   openAiApiErrorFromEvent,
   openAiErrorCode,
   type FunctionCallInputItem,
@@ -27,7 +29,7 @@ import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from '
 import { isHostResearchSandbox } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
 import type { ExecutorManager } from './executorManager';
-import type { FakeScenario, ModelSessionRecord, OpenAiTransport, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
+import type { FakeScenario, ModelSessionRecord, OpenAiTransport, ProfilingMetricDetail, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 
 export interface OpenAiRunHandle {
@@ -67,7 +69,8 @@ export class OpenAiRunEngine {
     private readonly auth: OpenAiAuthService,
     private readonly adapter: OpenAiResponsesAdapter,
     private readonly executor: ExecutorManager | null = null,
-    private readonly onChange: () => void = () => undefined
+    private readonly onChange: () => void = () => undefined,
+    private readonly profilingRecorder: OpenAiProfilingRecorder | null = null
   ) {}
 
   public startRun(input: StartRunInput): OpenAiRunHandle {
@@ -649,7 +652,22 @@ export class OpenAiRunEngine {
           return;
         }
 
-        const toolOutputs: FunctionCallOutputItem[] = functionCalls.map((call) => router.execute(context, call));
+        const toolOutputs: FunctionCallOutputItem[] = [];
+        for (const call of functionCalls) {
+          const startedAt = performance.now();
+          try {
+            toolOutputs.push(await router.executeAsync(context, call));
+          } finally {
+            this.recordProfilingTiming('openai.tool.execute', performance.now() - startedAt, {
+              run: context.run.id,
+              tool: call.name,
+              calls: functionCalls.length,
+              sandboxProfile: context.run.sandboxProfile
+            });
+          }
+          this.onChange();
+          await yieldImmediate();
+        }
         manualConversationInput = [...manualConversationInput, ...functionCalls.map(functionCallInputItem), ...toolOutputs];
         if (previousResponseIdUnsupported) {
           responseInput = manualConversationInput;
@@ -1061,6 +1079,10 @@ export class OpenAiRunEngine {
     });
 
     return { source, text };
+  }
+
+  private recordProfilingTiming(name: string, durationMs: number, detail: ProfilingMetricDetail): void {
+    this.profilingRecorder?.(name, Math.round(durationMs * 10) / 10, detail);
   }
 }
 

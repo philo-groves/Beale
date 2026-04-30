@@ -610,6 +610,32 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('runs host Python through the async OpenAI tool path without blocking the event loop', async () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    const router = new BealeToolRouter(db);
+    const startedAt = performance.now();
+
+    const outputPromise = router.executeAsync(context, {
+      callId: `call_python_${(callSequence += 1)}`,
+      name: 'python',
+      argumentsJson: JSON.stringify({
+        task: 'prove host python does not block the main event loop',
+        script: 'import time\ntime.sleep(1.0)\nprint("async-host")',
+        artifact_path: ''
+      })
+    });
+
+    expect(performance.now() - startedAt).toBeLessThan(200);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(performance.now() - startedAt).toBeLessThan(500);
+
+    const python = JSON.parse((await outputPromise).output) as ToolOutput;
+    expect(python.status).toBe('success');
+    expect(python.payload.hostExecution).toBe(true);
+    expect(python.payload.stdoutSummary).toContain('async-host');
+    db.close();
+  });
+
   it('selects the prompt-referenced host target and collects target-named temporary verifier artifacts', () => {
     const spectatorDir = mkdtempSync(join(tmpdir(), 'beale-spectator-target-'));
     createdDirs.push(spectatorDir);

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,14 @@ interface HostExecutionOutcome {
   artifactPath: string | null;
   cwd: string;
   targetPath: string | null;
+}
+
+interface HostProcessResult {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
 }
 
 const MAX_HOST_OUTPUT_CHARS = 16_000;
@@ -41,7 +49,40 @@ export function executeHostOperation(
     timeout: request.timeoutMs,
     windowsHide: true
   });
-  const endedAt = new Date();
+  return hostExecutionOutcomeFromResult(db, context, request, artifactPath, artifactKind, cwd, hostTarget, startedAt, new Date(), result);
+}
+
+export async function executeHostOperationAsync(
+  db: WorkspaceDatabase,
+  context: CreatedRunContext,
+  request: GuestExecuteRequest,
+  artifactPath: string | null,
+  artifactKind: string
+): Promise<HostExecutionOutcome> {
+  const hostTarget = firstScopedLocalTarget(db, context);
+  const cwd = hostTarget ? cwdForTarget(hostTarget) : workspaceRoot(db);
+  const env = hostToolEnv(request.env ?? {}, hostTarget);
+  const startedAt = new Date();
+  const result = await spawnHostProcess(request.command[0], request.command.slice(1), {
+    cwd,
+    env,
+    timeoutMs: request.timeoutMs
+  });
+  return hostExecutionOutcomeFromResult(db, context, request, artifactPath, artifactKind, cwd, hostTarget, startedAt, new Date(), result);
+}
+
+function hostExecutionOutcomeFromResult(
+  db: WorkspaceDatabase,
+  context: CreatedRunContext,
+  request: GuestExecuteRequest,
+  artifactPath: string | null,
+  artifactKind: string,
+  cwd: string,
+  hostTarget: string | null,
+  startedAt: Date,
+  endedAt: Date,
+  result: HostProcessResult
+): HostExecutionOutcome {
   const timedOut = isSpawnTimeout(result.error);
   const exitCode = typeof result.status === 'number' ? result.status : null;
   const status = timedOut ? 'timeout' : exitCode === 0 ? 'success' : 'failure';
@@ -93,6 +134,65 @@ export function executeHostOperation(
     cwd,
     targetPath: hostTarget
   };
+}
+
+function spawnHostProcess(
+  command: string,
+  args: string[],
+  {
+    cwd,
+    env,
+    timeoutMs
+  }: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+  }
+): Promise<HostProcessResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    let timeout: NodeJS.Timeout | null = null;
+    let timeoutError: Error | undefined;
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    const settle = (result: HostProcessResult): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(result);
+    };
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout = appendBoundedOutput(stdout, chunk);
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr = appendBoundedOutput(stderr, chunk);
+    });
+    child.on('error', (error) => {
+      settle({ status: null, signal: null, stdout, stderr, error });
+    });
+    child.on('close', (status, signal) => {
+      settle({ status, signal, stdout, stderr, error: timeoutError });
+    });
+
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timeoutError = new Error(`Process timed out after ${timeoutMs}ms`);
+        timeoutError.name = 'TimeoutError';
+        child.kill('SIGKILL');
+      }, timeoutMs);
+      timeout.unref?.();
+    }
+  });
 }
 
 export function mapSandboxPathToHost(db: WorkspaceDatabase, value: string, context?: CreatedRunContext): string {
@@ -269,6 +369,11 @@ function safeStat(path: string): ReturnType<typeof statSync> | null {
 
 function boundedText(value: string): string {
   return value.length > MAX_HOST_OUTPUT_CHARS ? `${value.slice(0, MAX_HOST_OUTPUT_CHARS)}\n[truncated]` : value;
+}
+
+function appendBoundedOutput(current: string, chunk: string): string {
+  if (current.length >= MAX_HOST_OUTPUT_CHARS) return current;
+  return boundedText(`${current}${chunk}`);
 }
 
 function isWithinPath(candidate: string, parent: string): boolean {

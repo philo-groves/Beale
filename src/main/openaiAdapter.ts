@@ -1,5 +1,6 @@
 import type { OpenAiTransport, ProfilingMetricDetail } from '@shared/types';
 import { arch, platform, release } from 'node:os';
+import { setImmediate as yieldImmediate } from 'node:timers/promises';
 import { OpenAiAuthService, type OpenAiCredential, resolveOpenAiTransport } from './openaiAuth';
 import type { OpenAiToolDefinition } from './openaiTools';
 import NodeWebSocket from 'ws';
@@ -8,6 +9,7 @@ const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CODEX_SSE_BETA_HEADER = 'responses=experimental';
 const CODEX_WEBSOCKET_BETA_HEADER = 'responses_websockets=2026-02-06';
+const STREAM_EVENT_LOOP_YIELD_BATCH = 25;
 
 export interface ResponseInputMessage {
   type: 'message';
@@ -154,6 +156,7 @@ export class OpenAiResponsesAdapter {
     let status = 'completed';
     let eventCount = 0;
     let firstEventMs = -1;
+    let yieldCount = 0;
 
     try {
       const credential = this.auth.getCredentialOrThrow();
@@ -183,6 +186,10 @@ export class OpenAiResponsesAdapter {
           firstEventMs = performance.now() - startedAt;
         }
         yield normalizeOpenAiStreamEvent(event);
+        if (shouldYieldOpenAiStream(eventCount)) {
+          yieldCount += 1;
+          await yieldImmediate();
+        }
       }
     } catch (error) {
       if (status === 'completed') status = error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'error';
@@ -194,6 +201,7 @@ export class OpenAiResponsesAdapter {
         source,
         status,
         events: eventCount,
+        yields: yieldCount,
         firstEventMs: roundMs(firstEventMs)
       });
     }
@@ -205,6 +213,7 @@ export class OpenAiResponsesAdapter {
     let status = 'completed';
     let eventCount = 0;
     let firstEventMs = -1;
+    let yieldCount = 0;
 
     if (!this.webSocketImpl) {
       throw new Error('OpenAI Responses WebSocket transport is not available in this host process.');
@@ -222,6 +231,10 @@ export class OpenAiResponsesAdapter {
             firstEventMs = performance.now() - startedAt;
           }
           yield event;
+          if (shouldYieldOpenAiStream(eventCount)) {
+            yieldCount += 1;
+            await yieldImmediate();
+          }
         }
       } finally {
         if (session.isClosed()) {
@@ -238,6 +251,7 @@ export class OpenAiResponsesAdapter {
         source,
         status,
         events: eventCount,
+        yields: yieldCount,
         firstEventMs: roundMs(firstEventMs)
       });
     }
@@ -408,6 +422,10 @@ function webSocketDataToString(data: unknown): string {
 
 function roundMs(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function shouldYieldOpenAiStream(eventCount: number): boolean {
+  return eventCount > 0 && eventCount % STREAM_EVENT_LOOP_YIELD_BATCH === 0;
 }
 
 class OpenAiWebSocketSession {

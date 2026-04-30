@@ -2,11 +2,21 @@ import type { ReactNode } from 'react';
 import { devInstrumentation } from '../../devInstrumentation';
 import type { TraceCategoryId } from '../../traceClassification';
 
+const TRACE_MARKUP_CACHE_MAX_ENTRIES = 320;
+const TRACE_MARKUP_CACHE_MAX_CHARS = 50_000;
+const proseMarkupCache = new Map<string, ReactNode[]>();
+const inlineMarkupCache = new Map<string, ReactNode[]>();
+const pythonMarkupCache = new Map<string, ReactNode[]>();
+const jsonMarkupCache = new Map<string, ReactNode[]>();
+
 export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
-  return devInstrumentation.time(
-    'trace.renderProseText',
-    () => (category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
-    { category, chars: text.length, lines: countLines(text) }
+  const cache = category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? proseMarkupCache : inlineMarkupCache;
+  return cachedMarkup(cache, `${category}\0${text}`, () =>
+    devInstrumentation.time(
+      'trace.renderProseText',
+      () => (category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
+      { category, chars: text.length, lines: countLines(text) }
+    )
   );
 }
 
@@ -30,24 +40,47 @@ export function renderInlineCodeText(text: string): ReactNode[] {
 }
 
 export function highlightPythonCode(code: string): ReactNode[] {
-  return devInstrumentation.time(
-    'syntax.python',
-    () =>
-      highlightCode(
-        code,
-        /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
-        pythonTokenKind
-      ),
-    { chars: code.length, lines: countLines(code) }
+  return cachedMarkup(pythonMarkupCache, code, () =>
+    devInstrumentation.time(
+      'syntax.python',
+      () =>
+        highlightCode(
+          code,
+          /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
+          pythonTokenKind
+        ),
+      { chars: code.length, lines: countLines(code) }
+    )
   );
 }
 
 export function highlightJsonCode(code: string): ReactNode[] {
-  return devInstrumentation.time(
-    'syntax.json',
-    () => highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind),
-    { chars: code.length, lines: countLines(code) }
+  return cachedMarkup(jsonMarkupCache, code, () =>
+    devInstrumentation.time(
+      'syntax.json',
+      () => highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind),
+      { chars: code.length, lines: countLines(code) }
+    )
   );
+}
+
+function cachedMarkup(cache: Map<string, ReactNode[]>, key: string, create: () => ReactNode[]): ReactNode[] {
+  if (key.length > TRACE_MARKUP_CACHE_MAX_CHARS) return create();
+  const cached = cache.get(key);
+  if (cached) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
+
+  const nodes = create();
+  cache.set(key, nodes);
+  while (cache.size > TRACE_MARKUP_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return nodes;
 }
 
 function renderMarkdownTraceText(text: string): ReactNode[] {

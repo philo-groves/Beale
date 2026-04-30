@@ -13,6 +13,7 @@
 - Added main-process profiling timings for `getProgramRegistry`, `getSnapshot`, and `openProgram`, plus renderer payload sizing for program-registry updates.
 - Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
+- Added a sampled pointer-move next-frame latency probe to measure hover responsiveness during active trace streams.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
@@ -33,9 +34,13 @@
 - Changed production profiling so background JSONL flushes no longer update React state unless the Debug/Settings UI is observing reports.
 - Changed research session selection to avoid full snapshot and global program-registry refreshes when only the selected session changes.
 - Changed workspace switching to keep a small cache of recently opened program runtimes, reducing repeated cross-program session switch cold-open cost.
+- Changed streamed research prompt generation to throttle textarea renders while preserving live text updates.
+- Changed OpenAI stream consumption to yield back to the Electron main loop between event batches, reducing active-session IPC stalls.
+- Changed OpenAI host Python tool execution to use a non-blocking child process path and report per-tool execution timings.
 - Changed run-row snapshot construction to use grouped SQLite aggregate queries instead of per-run lookups.
 - Changed vmctl capability status checks to use a short cache instead of spawning the controller on every snapshot render.
 - Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
+- Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.
 - Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
@@ -73,8 +78,10 @@
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
+- Reduced active trace-list churn by memoizing stable trace rows and cached syntax/prose markup.
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
 - Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.
+- Reduced trace and side-panel paint scope with CSS containment to make hover feedback less sensitive to active trace updates.
 
 ### Documentation
 

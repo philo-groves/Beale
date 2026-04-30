@@ -233,6 +233,26 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('does not broadcast full workspace snapshots for active trace-only runtime updates', async () => {
+    const workspace = tempWorkspace();
+    const changes: boolean[] = [];
+    const service = new WorkspaceService((change) => changes.push(change.programRegistryChanged));
+
+    service.createWorkspace(workspace);
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    changes.length = 0;
+
+    const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const runId = snapshot.runs[0]?.run.id ?? '';
+    const initialTraceCount = service.getRunDetail(runId).traceEvents.length;
+    expect(changes).toEqual([true]);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 950));
+    expect(service.getRunDetail(runId).traceEvents.length).toBeGreaterThan(initialTraceCount);
+    expect(changes).toEqual([true]);
+    service.close();
+  });
+
   it('removes programs from the global registry without deleting workspaces', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();

@@ -14,6 +14,7 @@ export type DevMetricDetail = ProfilingMetricDetail;
 const DEV_INSTRUMENTATION_STORAGE_KEY = 'beale.devInstrumentation';
 const DEV_INSTRUMENTATION_QUERY_KEY = 'bealePerf';
 const DEV_INSTRUMENTATION_FLUSH_MS = 3_000;
+const POINTER_MOVE_LATENCY_SAMPLE_MS = 180;
 
 interface RenderStat {
   count: number;
@@ -335,6 +336,8 @@ export function useDevInputLatencyProbe(): void {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     let pending = false;
+    let pointerMovePending = false;
+    let lastPointerMoveSampleAt = 0;
 
     const handleInputSignal = (event: Event): void => {
       if (!devInstrumentation.isEnabled()) return;
@@ -350,13 +353,29 @@ export function useDevInputLatencyProbe(): void {
       });
     };
 
+    const handlePointerMoveSignal = (event: PointerEvent): void => {
+      if (!devInstrumentation.isEnabled()) return;
+      const now = performance.now();
+      if (pointerMovePending || now - lastPointerMoveSampleAt < POINTER_MOVE_LATENCY_SAMPLE_MS) return;
+      pointerMovePending = true;
+      lastPointerMoveSampleAt = now;
+      window.requestAnimationFrame(() => {
+        pointerMovePending = false;
+        devInstrumentation.recordTiming('input.pointerMove.nextFrameLatency', performance.now() - now, {
+          target: eventTargetLabel(event.target)
+        });
+      });
+    };
+
     window.addEventListener('beforeinput', handleInputSignal, true);
     window.addEventListener('keydown', handleInputSignal, true);
     window.addEventListener('pointerdown', handleInputSignal, true);
+    window.addEventListener('pointermove', handlePointerMoveSignal, true);
     return () => {
       window.removeEventListener('beforeinput', handleInputSignal, true);
       window.removeEventListener('keydown', handleInputSignal, true);
       window.removeEventListener('pointerdown', handleInputSignal, true);
+      window.removeEventListener('pointermove', handlePointerMoveSignal, true);
     };
   }, []);
 }

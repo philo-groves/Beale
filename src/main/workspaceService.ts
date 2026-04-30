@@ -168,6 +168,15 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
 
+export interface WorkspaceChange {
+  programRegistryChanged: boolean;
+}
+
+interface EmitChangeOptions {
+  syncProgramRegistry?: boolean;
+  programRegistryChanged?: boolean;
+}
+
 export function getHostEnvironment(): HostEnvironment {
   const platform = hostPlatform(process.platform);
   const kernelRelease = platform === 'linux' ? release().toLowerCase() : '';
@@ -226,11 +235,13 @@ export class WorkspaceService {
   private openedAt: string | null = null;
   private lastRecovery: WorkspaceRecoveryReport | null = null;
   private pendingChangeTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingChangeRequiresProgramRegistrySync = false;
+  private pendingChangeIncludesProgramRegistry = false;
   private readonly researchPromptControllers = new Map<string, AbortController>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
 
   public constructor(
-    private readonly onChange: () => void = () => undefined,
+    private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
     private readonly options: WorkspaceServiceOptions = {}
   ) {}
 
@@ -261,10 +272,14 @@ export class WorkspaceService {
     return registry.getState();
   }
 
+  public getCachedProgramRegistryState(): ProgramRegistryState {
+    return this.getProgramRegistry().getState();
+  }
+
   public setVmPreference(input: VmPreferenceInput): ProgramRegistryState {
     const registry = this.getProgramRegistry();
     registry.setVmPreference(input);
-    this.onChange();
+    this.onChange({ programRegistryChanged: true });
     return registry.getState();
   }
 
@@ -396,7 +411,7 @@ export class WorkspaceService {
         this.disposeRuntime(background);
       }
     }
-    this.onChange();
+    this.onChange({ programRegistryChanged: true });
     return this.getSnapshot();
   }
 
@@ -1265,7 +1280,8 @@ export class WorkspaceService {
           this.recordProfilingMainTiming(name, durationMs, detail)
         ),
         executorManager,
-        () => this.emitRuntimeChange(workspacePath)
+        () => this.emitRuntimeChange(workspacePath),
+        (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
       ),
       executorManager,
       executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),
@@ -1356,14 +1372,25 @@ export class WorkspaceService {
 
   private emitRuntimeChange(workspacePath: string): void {
     if (this.workspacePath === workspacePath) {
-      this.emitChange();
+      const runtime = this.getForegroundRuntime();
+      if (runtime && this.hasActiveRuntimeWork(runtime)) {
+        return;
+      }
+      this.emitChange({
+        syncProgramRegistry: Boolean(runtime),
+        programRegistryChanged: Boolean(runtime)
+      });
       return;
     }
     const runtime = this.backgroundRuntimes.get(workspacePath);
     if (runtime) {
-      this.syncProgramRegistryForRuntime(runtime, false);
+      if (!this.hasActiveRuntimeWork(runtime)) {
+        this.syncProgramRegistryForRuntime(runtime, false);
+        this.onChange({ programRegistryChanged: true });
+      }
+      return;
     }
-    this.onChange();
+    this.onChange({ programRegistryChanged: false });
   }
 
   private getProgramRegistry(): ProgramRegistry {
@@ -1476,22 +1503,39 @@ export class WorkspaceService {
     };
   }
 
-  private emitChange(): void {
+  private emitChange(options: EmitChangeOptions = {}): void {
+    const syncProgramRegistry = options.syncProgramRegistry ?? true;
+    const programRegistryChanged = options.programRegistryChanged ?? syncProgramRegistry;
+    this.pendingChangeRequiresProgramRegistrySync ||= syncProgramRegistry;
+    this.pendingChangeIncludesProgramRegistry ||= programRegistryChanged;
     if (this.pendingChangeTimer) return;
-    this.pendingChangeTimer = setTimeout(() => this.emitChangeNow(), CHANGE_BROADCAST_DELAY_MS);
+    this.pendingChangeTimer = setTimeout(() => this.flushPendingChange(), CHANGE_BROADCAST_DELAY_MS);
     this.pendingChangeTimer.unref?.();
   }
 
-  private emitChangeNow(): void {
+  private flushPendingChange(): void {
+    const syncProgramRegistry = this.pendingChangeRequiresProgramRegistrySync;
+    const programRegistryChanged = this.pendingChangeIncludesProgramRegistry || syncProgramRegistry;
+    this.emitChangeNow({ syncProgramRegistry, programRegistryChanged });
+  }
+
+  private emitChangeNow(options: EmitChangeOptions = {}): void {
+    const syncProgramRegistry = options.syncProgramRegistry ?? true;
+    const programRegistryChanged = options.programRegistryChanged ?? syncProgramRegistry;
     this.clearPendingChange();
-    this.syncProgramRegistry();
-    this.onChange();
+    if (syncProgramRegistry) {
+      this.syncProgramRegistry();
+    }
+    this.onChange({ programRegistryChanged });
   }
 
   private clearPendingChange(): void {
-    if (!this.pendingChangeTimer) return;
-    clearTimeout(this.pendingChangeTimer);
+    if (this.pendingChangeTimer) {
+      clearTimeout(this.pendingChangeTimer);
+    }
     this.pendingChangeTimer = null;
+    this.pendingChangeRequiresProgramRegistrySync = false;
+    this.pendingChangeIncludesProgramRegistry = false;
   }
 
   private profileMainTiming<T>(name: string, detail: ProfilingMetricDetail, operation: () => T): T {

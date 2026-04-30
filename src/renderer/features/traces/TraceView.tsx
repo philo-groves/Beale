@@ -18,8 +18,6 @@ const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
 const TRACE_WINDOW_SLIDE_STEP = 12;
 const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_WINDOW_ANCHOR_BUFFER = 8;
-const TRACE_REVEAL_ANIMATION_MS = 240;
-const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 
 export function TraceView({
@@ -87,7 +85,6 @@ export function TraceView({
   const traceKnownEntryIdsRef = useRef<Set<string>>(new Set(timelineEntryIds));
   const tracePresentationKeyRef = useRef(tracePresentationKey);
   const traceRevealQueueRef = useRef<string[]>([]);
-  const traceRevealCleanupTimersRef = useRef<number[]>([]);
   const latestRenderedEvent = renderedEntries.at(-1)?.event;
   const latestRenderedPayloadLength = latestRenderedEvent ? (JSON.stringify(latestRenderedEvent.payload)?.length ?? 0) : 0;
   const latestRenderedEventVersion = latestRenderedEvent ? `${latestRenderedEvent.id}:${latestRenderedEvent.summary.length}:${latestRenderedPayloadLength}` : '';
@@ -161,9 +158,6 @@ export function TraceView({
       tracePresentationKeyRef.current = tracePresentationKey;
       traceKnownEntryIdsRef.current = new Set(timelineEntryIds);
       traceRevealQueueRef.current = [];
-      for (const timer of traceRevealCleanupTimersRef.current.splice(0)) {
-        window.clearTimeout(timer);
-      }
       setRevealedTraceEntryIds(new Set(timelineEntryIds));
       setEnteringTraceEntryIds(new Set());
       traceFollowLatestRef.current = true;
@@ -242,22 +236,15 @@ export function TraceView({
         setEnteringTraceEntryIds((current) => {
           const next = new Set(current);
           for (const id of batch) next.add(id);
+          while (next.size > TRACE_RENDER_WINDOW_SIZE * 2) {
+            const oldest = next.values().next().value;
+            if (oldest === undefined) break;
+            next.delete(oldest);
+          }
           return next;
         });
       });
       recordNextFrameTiming('trace.list.revealBatch.nextFrameLatency', applyStartedAt, revealDetail);
-
-      const cleanupTimer = window.setTimeout(() => {
-        startTransition(() => {
-          setEnteringTraceEntryIds((current) => {
-            const next = new Set(current);
-            for (const id of batch) next.delete(id);
-            return next;
-          });
-        });
-        traceRevealCleanupTimersRef.current = traceRevealCleanupTimersRef.current.filter((timerId) => timerId !== cleanupTimer);
-      }, TRACE_REVEAL_RECENT_MS);
-      traceRevealCleanupTimersRef.current.push(cleanupTimer);
 
       if (traceRevealQueueRef.current.length > 0) {
         startTransition(() => setTraceRevealQueueVersion((version) => version + 1));
@@ -307,9 +294,6 @@ export function TraceView({
 
   useEffect(() => () => {
     cancelPendingTraceAutoScroll();
-    for (const timer of traceRevealCleanupTimersRef.current.splice(0)) {
-      window.clearTimeout(timer);
-    }
   }, [cancelPendingTraceAutoScroll]);
 
   useEffect(() => {
@@ -511,6 +495,7 @@ function traceRevealBatchSize(queueLength: number): number {
   if (queueLength > 45) return 8;
   if (queueLength > 18) return 4;
   if (queueLength > 6) return 2;
+  if (queueLength > 1) return 2;
   return 1;
 }
 

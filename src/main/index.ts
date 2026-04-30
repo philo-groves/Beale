@@ -18,7 +18,7 @@ import type {
   WorkspaceSnapshot,
   WorkspacePickerMode
 } from '@shared/types';
-import { getHostEnvironment, WorkspaceService } from './workspaceService';
+import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
 
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
@@ -207,22 +207,27 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function broadcastSnapshot(): void {
-  timedMainIpc('broadcastSnapshot.total', {}, () => {
+function broadcastSnapshot(change: WorkspaceChange = { programRegistryChanged: true }): void {
+  timedMainIpc('broadcastSnapshot.total', { registry: change.programRegistryChanged }, () => {
     const snapshot = timedMainIpc('broadcastSnapshot.getSnapshot', {}, () => workspaceService.getSnapshot());
-    const programRegistry = timedMainIpc('broadcastSnapshot.getProgramRegistry', snapshotBroadcastMetricDetail(snapshot), () => workspaceService.getProgramRegistryState());
+    const programRegistry = change.programRegistryChanged
+      ? timedMainIpc('broadcastSnapshot.getProgramRegistry', snapshotBroadcastMetricDetail(snapshot), () => workspaceService.getCachedProgramRegistryState())
+      : null;
     const windows = BrowserWindow.getAllWindows();
     timedMainIpc(
       'broadcastSnapshot.sendAll',
       {
         ...snapshotBroadcastMetricDetail(snapshot),
-        ...programRegistryBroadcastMetricDetail(programRegistry),
+        ...(programRegistry ? programRegistryBroadcastMetricDetail(programRegistry) : { registryPrograms: 0, registrySessions: 0 }),
+        registry: Boolean(programRegistry),
         windows: windows.length
       },
       () => {
         for (const window of windows) {
           window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
-          window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
+          if (programRegistry) {
+            window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
+          }
         }
       }
     );
