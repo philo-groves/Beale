@@ -67,7 +67,6 @@ import type {
   RunDetail,
   RunDetailUpdate,
   RunRow,
-  RunStatus,
   ScopeAssetDirection,
   ScopeAssetInput,
   ScopeAssetKind,
@@ -92,13 +91,9 @@ import { SessionHeader } from './features/sessions/SessionHeader';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import { TraceDetailModal } from './features/traces/TraceDetailModal';
-import { TraceEventRow } from './features/traces/TraceEventRow';
-import {
-  ALL_TRACE_CATEGORY_IDS,
-  TRACE_CATEGORY_OPTIONS,
-  formatTraceTimestamp,
-  traceCategoryIcon
-} from './features/traces/traceVisuals';
+import { TraceFilterModal } from './features/traces/TraceFilterModal';
+import { TraceTurnGroup } from './features/traces/TraceTurnGroup';
+import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import {
   clampPriorityScoreForDisplay,
   formatPercent,
@@ -128,10 +123,7 @@ import {
   buildTraceTimelineEntries,
   groupRenderedTraceEntries,
   latestTraceGroupKey,
-  traceGroupStatusLabel,
-  type TraceDisplayEvent,
-  type TraceTimelineEntry,
-  type TraceTimelineGroup
+  type TraceDisplayEvent
 } from './view-models/traceDisplay';
 
 interface ScopeFormState {
@@ -1525,7 +1517,7 @@ function MainTraceView({
           <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
             {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
             {renderedGroups.map((group) => (
-              <MainTraceTurnGroup
+              <TraceTurnGroup
                 detail={detail}
                 group={group.group}
                 entries={group.entries}
@@ -1547,61 +1539,6 @@ function MainTraceView({
         runId={detail?.run.id ?? null}
         onSteerInstruction={onSteerInstruction}
       />
-    </section>
-  );
-}
-
-function MainTraceTurnGroup({
-  detail,
-  group,
-  entries,
-  enteringTraceEventIds,
-  latest,
-  runStatus,
-  selectedTraceEventId,
-  onSelectTraceEvent
-}: {
-  detail: RunDetail;
-  group: TraceTimelineGroup;
-  entries: TraceTimelineEntry[];
-  enteringTraceEventIds: Set<string>;
-  latest: boolean;
-  runStatus: RunStatus;
-  selectedTraceEventId: string | null;
-  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  const status = traceGroupStatusLabel(group, latest, runStatus);
-  const activitySummary = group.toolCount > 0 ? `${group.toolCount} ops` : group.modelCount > 0 ? `${group.modelCount} model` : 'system';
-  const headerEntering = entries[0] ? enteringTraceEventIds.has(entries[0].event.id) : false;
-
-  return (
-    <section className={`main-trace-turn ${headerEntering ? 'trace-turn-entering' : ''}`} aria-label={group.label}>
-      <div className="main-trace-turn-header">
-        <div>
-          <span className="main-trace-turn-label">{group.label}</span>
-          <span>
-            {formatTraceTimestamp(group.startedAt)}
-            {group.updatedAt !== group.startedAt ? ` - ${formatTraceTimestamp(group.updatedAt)}` : ''}
-          </span>
-        </div>
-        <div>
-          <span>{group.visibleCount} events</span>
-          <span>{activitySummary}</span>
-          <span className={`main-trace-turn-state state-${status.kind}`}>{status.label}</span>
-        </div>
-      </div>
-      <div className="main-trace-turn-events">
-        {entries.map(({ event }) => (
-          <TraceEventRow
-            detail={detail}
-            entering={enteringTraceEventIds.has(event.id)}
-            event={event}
-            key={event.id}
-            selected={event.id === selectedTraceEventId}
-            onSelect={onSelectTraceEvent}
-          />
-        ))}
-      </div>
     </section>
   );
 }
@@ -1971,62 +1908,6 @@ function executorVmSetupCommand(executor: ExecutorStatus | null): string {
 function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
   const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
   return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
-}
-
-function TraceFilterModal({
-  visibleCategories,
-  onChange,
-  onClose
-}: {
-  visibleCategories: TraceCategoryId[];
-  onChange: (categories: TraceCategoryId[]) => void;
-  onClose: () => void;
-}): JSX.Element {
-  const visibleSet = new Set(visibleCategories);
-  const updateCategory = (category: TraceCategoryId, visible: boolean): void => {
-    if (visible) {
-      onChange(ALL_TRACE_CATEGORY_IDS.filter((candidate) => candidate === category || visibleSet.has(candidate)));
-      return;
-    }
-    onChange(visibleCategories.filter((candidate) => candidate !== category));
-  };
-
-  return (
-    <Modal
-      title="Trace Filters"
-      wide
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="modal-footer-leading" onClick={() => onChange(ALL_TRACE_CATEGORY_IDS)}>
-            Select All
-          </button>
-          <button type="button" onClick={() => onChange([])}>
-            Clear
-          </button>
-          <button type="button" onClick={onClose}>
-            Done
-          </button>
-        </>
-      }
-    >
-      <div className="trace-filter-grid">
-        {TRACE_CATEGORY_OPTIONS.map((option) => {
-          const active = visibleSet.has(option.id);
-          return (
-            <button type="button" className={`trace-filter-option ${active ? 'active' : ''}`} key={option.id} aria-pressed={active} onClick={() => updateCategory(option.id, !active)}>
-              <span className={`trace-filter-icon category-${option.id}`}>{traceCategoryIcon(option.id)}</span>
-              <span>
-                <strong>{option.label}</strong>
-                <small>{option.description}</small>
-              </span>
-              <span className="trace-filter-state">{active ? 'Shown' : 'Hidden'}</span>
-            </button>
-          );
-        })}
-      </div>
-    </Modal>
-  );
 }
 
 function ProgramInformationModal({ program, onClose }: { program: ProgramRegistryEntry; onClose: () => void }): JSX.Element {

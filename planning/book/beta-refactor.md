@@ -223,6 +223,8 @@ Implementation note, 2026-04-30:
 - Trace label, detail text, provenance lookup, and path compaction helpers moved into `src/renderer/view-models/traceContent.ts`.
 - Trace row rendering moved into `src/renderer/features/traces/TraceEventRow.tsx`.
 - Trace detail modal rendering moved into `src/renderer/features/traces/TraceDetailModal.tsx`.
+- Trace filter modal rendering moved into `src/renderer/features/traces/TraceFilterModal.tsx`.
+- Trace turn group rendering moved into `src/renderer/features/traces/TraceTurnGroup.tsx`.
 - Trace prose/code markup rendering moved into `src/renderer/features/traces/traceMarkup.tsx`.
 - Trace category filter metadata and icon/label helpers moved into `src/renderer/features/traces/traceVisuals.tsx`.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
