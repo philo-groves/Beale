@@ -315,20 +315,22 @@ function drawMomentumSnakeHead(
   context.fill();
 
   if (tongueVisible) {
+    const tongueStemEndX = forcedLick ? 21 : 22;
+    const tongueForkEndX = forcedLick ? 25 : 26;
     context.strokeStyle = MOMENTUM_SNAKE_TONGUE;
     context.lineWidth = 1;
     context.lineCap = 'round';
     context.beginPath();
     context.moveTo(16, 0);
-    context.lineTo(forcedLick ? 25 : 22, 0);
+    context.lineTo(tongueStemEndX, 0);
     context.stroke();
     context.beginPath();
-    context.moveTo(forcedLick ? 25 : 22, 0);
-    context.lineTo(forcedLick ? 30 : 26, -3);
+    context.moveTo(tongueStemEndX, 0);
+    context.lineTo(tongueForkEndX, -3);
     context.stroke();
     context.beginPath();
-    context.moveTo(forcedLick ? 25 : 22, 0);
-    context.lineTo(forcedLick ? 30 : 26, 3);
+    context.moveTo(tongueStemEndX, 0);
+    context.lineTo(tongueForkEndX, 3);
     context.stroke();
   }
 

@@ -10,6 +10,7 @@
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
+- Added renderer notification preview tests for extracted notification display helpers.
 
 ### Changed
 
@@ -18,11 +19,13 @@
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.
 - Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
+- Extracted shared modal infrastructure, notification modals, and the research prompt modal from `App.tsx`.
 
 ### Fixed
 
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
+- Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
 
 ### Documentation
 

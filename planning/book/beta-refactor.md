@@ -213,5 +213,8 @@ Implementation note, 2026-04-30:
 - App background pulse rendering moved into `src/renderer/app/AppBackgroundPulses.tsx`.
 - Program/sidebar rendering moved into `src/renderer/features/programs/ProgramSidebar.tsx`.
 - Momentum snake/context rendering moved into `src/renderer/features/momentum/`.
+- Shared modal rendering moved into `src/renderer/app/Modal.tsx`.
+- Notification stack/detail rendering moved into `src/renderer/features/notifications/Notifications.tsx`.
+- Original research prompt modal rendering moved into `src/renderer/features/sessions/ResearchPromptModal.tsx`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, and sidebar age formatting.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, and notification preview text.

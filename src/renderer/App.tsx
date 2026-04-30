@@ -85,9 +85,12 @@ import type {
 } from '@shared/types';
 import { displaySessionTitle } from '../shared/sessionTitle';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
+import { Modal } from './app/Modal';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
+import { NotificationDetailModal, NotificationStack } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
+import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import {
   isToolCallNamed,
@@ -1158,17 +1161,6 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function firstPromptSentence(promptMarkdown: string): string {
-  const rawLines = promptMarkdown.split(/\r?\n/);
-  const contentLines = rawLines.length > 1 && /^#{1,6}\s+/.test(rawLines[0]?.trim() ?? '') ? rawLines.slice(1) : rawLines;
-  const lines = contentLines
-    .map((line) => line.replace(/^#{1,6}\s+/, '').replace(/^[*\-\d.]+\s+/, '').trim())
-    .filter(Boolean);
-  const text = lines.join(' ').replace(/\s+/g, ' ').trim();
-  const match = text.match(/^(.+?[.!?])(?:\s|$)/);
-  return (match?.[1] ?? text).trim();
-}
-
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
@@ -1176,103 +1168,6 @@ function truncateText(value: string, maxLength: number): string {
 
 function countLines(value: string): number {
   return value.length === 0 ? 0 : value.split('\n').length;
-}
-
-function NotificationStack({
-  notifications,
-  onOpen,
-  onDismiss
-}: {
-  notifications: NotificationRecord[];
-  onOpen: (notification: NotificationRecord) => void;
-  onDismiss: (notificationId: string) => void;
-}): JSX.Element | null {
-  if (notifications.length === 0) return null;
-  return (
-    <div className="notification-stack" aria-label="Notifications">
-      {notifications.map((notification) => (
-        <article className="notification-toast" key={notification.id}>
-          <button type="button" className="notification-toast-main" onClick={() => onOpen(notification)}>
-            <span className="notification-toast-title">{notification.title}</span>
-            <span className="notification-toast-body">{truncateText(firstNotificationSentence(notification.bodyMarkdown), 140)}</span>
-          </button>
-          <button
-            type="button"
-            className="notification-toast-close"
-            title="Dismiss notification"
-            aria-label="Dismiss notification"
-            onClick={() => onDismiss(notification.id)}
-          >
-            <XCircle size={15} />
-          </button>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function NotificationDetailModal({
-  notification,
-  busy,
-  onClose,
-  onSteer
-}: {
-  notification: NotificationRecord;
-  busy: boolean;
-  onClose: () => void;
-  onSteer: (instruction: string) => void;
-}): JSX.Element {
-  const [instruction, setInstruction] = useState('');
-  const trimmedInstruction = instruction.trim();
-  return (
-    <Modal
-      title={notification.title}
-      wide
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" onClick={onClose}>
-            Close
-          </button>
-          <button type="button" className="primary-button" disabled={busy || !trimmedInstruction} onClick={() => onSteer(trimmedInstruction)}>
-            <ChevronRight size={15} />
-            Steer
-          </button>
-        </>
-      }
-    >
-      <div className="notification-detail">
-        <pre>{notification.bodyMarkdown}</pre>
-        <label>
-          Steer
-          <textarea
-            rows={4}
-            value={instruction}
-            placeholder="Add direction for this research session"
-            onChange={(event) => setInstruction(event.target.value)}
-          />
-        </label>
-      </div>
-    </Modal>
-  );
-}
-
-function ResearchPromptModal({ detail, onClose }: { detail: RunDetail; onClose: () => void }): JSX.Element {
-  return (
-    <Modal title="Original Research Prompt" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
-      <div className="research-prompt-detail">
-        <div className="research-prompt-title">
-          <span>Session</span>
-          <strong>{displaySessionTitle(detail.run.title, detail.run.promptMarkdown)}</strong>
-        </div>
-        <pre>{detail.run.promptMarkdown || 'No prompt recorded.'}</pre>
-      </div>
-    </Modal>
-  );
-}
-
-function firstNotificationSentence(markdown: string): string {
-  return firstPromptSentence(markdown) || markdown.replace(/\s+/g, ' ').trim();
 }
 
 function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Element | null {
@@ -3854,36 +3749,6 @@ function executorVmSetupCommand(executor: ExecutorStatus | null): string {
 function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
   const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
   return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
-}
-
-function Modal({
-  title,
-  children,
-  footer,
-  onClose,
-  wide = false
-}: {
-  title: string;
-  children: ReactNode;
-  footer: ReactNode;
-  onClose: () => void;
-  wide?: boolean;
-}): JSX.Element {
-  useDevRenderProbe('modal', () => ({ title, wide: Boolean(wide) }));
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <section className={`modal-panel ${wide ? 'wide-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <header className="modal-header">
-          <h2 id="modal-title">{title}</h2>
-          <button type="button" title="Close" onClick={onClose}>
-            <XCircle size={16} />
-          </button>
-        </header>
-        <div className="modal-body">{children}</div>
-        <footer className="modal-footer">{footer}</footer>
-      </section>
-    </div>
-  );
 }
 
 function TraceFilterModal({
