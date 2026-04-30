@@ -133,6 +133,30 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('reports a cheap run detail version for active polling', () => {
+    const service = openService();
+    const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
+    const runId = snapshot.runs[0]?.run.id ?? '';
+
+    const initial = service.getRunDetailVersion(runId);
+    const unchanged = service.getRunDetailVersion(runId);
+    expect(initial.version).toBe(unchanged.version);
+    expect(initial.databaseMs).toBeGreaterThanOrEqual(0);
+
+    const detail = service.getRunDetail(runId);
+    const afterTraceSequence = detail.traceEvents.at(-1)?.sequence ?? -1;
+    const afterTranscriptCount = detail.transcriptMessages.length;
+    service.steerRun({ type: 'update_run_budget', runId, budgetPatch: { maxMinutes: 60 }, note: 'version test' });
+
+    const updated = service.getRunDetailVersion(runId);
+    expect(updated.version).not.toBe(initial.version);
+    const update = service.getRunDetailUpdate(runId, { afterTraceSequence, afterTranscriptCount });
+    expect(update.version.version).toBe(updated.version);
+    expect(update.traceEvents.every((event) => event.sequence > afterTraceSequence)).toBe(true);
+    expect(update.traceEvents.length).toBeGreaterThan(0);
+    service.close();
+  });
+
   it('keeps program sidebar order stable when programs are opened', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
@@ -451,13 +475,14 @@ describe('Beale workbench skeleton', () => {
         const serialized = JSON.stringify(request);
         expect(request.model).toBe('gpt-5.4');
         expect(request.tools).toEqual([]);
-        expect(request.reasoning).toEqual({ effort: 'xhigh' });
+        expect(request.reasoning).toEqual({ effort: 'medium' });
         expect(serialized).toContain('Kernel Audit Program');
         expect(serialized).toContain('/src/kernel');
         expect(serialized).toContain('previousResearch');
         expect(serialized).toContain('likelyUnderexploredInScopeAssets');
         expect(serialized).toContain('chain existing findings');
         expect(serialized).toContain('requestedSession');
+        expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
         expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
         expect(serialized).toContain('\\"sandboxProfile\\": \\"host_research_only\\"');
         return new Response(

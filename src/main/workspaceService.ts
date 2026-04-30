@@ -31,6 +31,9 @@ import type {
   ProgramScopeVersion,
   ResearchPromptGenerationInput,
   RunDetail,
+  RunDetailUpdate,
+  RunDetailUpdateCursor,
+  RunDetailVersion,
   ScopeAssetInput,
   StartRunInput,
   SteeringAction,
@@ -52,6 +55,7 @@ import type {
 const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
+const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
 const DEFAULT_VM_PREFERENCE: VmPreference = {
   enabled: false,
   backendKind: null,
@@ -405,7 +409,6 @@ export class WorkspaceService {
       this.researchPromptControllers.set(requestId, controller);
     }
     const model = input?.model?.trim() || status.defaultModel;
-    const reasoningEffort = input?.reasoningEffort?.trim() || status.defaultReasoningEffort;
     const adapter = new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch ?? (fetch as FetchLike), process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1', null);
     const body = adapter.buildRequest({
       model,
@@ -423,7 +426,7 @@ export class WorkspaceService {
         }
       ],
       tools: [],
-      reasoning: { effort: reasoningEffort },
+      reasoning: { effort: RESEARCH_PROMPT_GENERATION_REASONING_EFFORT },
       text: { verbosity: 'medium' },
       metadata: {
         beale_run_id: requestId ? `prompt_generation_${requestId}` : `prompt_generation_${db.getWorkspaceId()}`,
@@ -523,6 +526,14 @@ export class WorkspaceService {
 
   public getRunDetail(runId: string): RunDetail {
     return this.requireDb().getRunDetail(runId);
+  }
+
+  public getRunDetailVersion(runId: string): RunDetailVersion {
+    return this.requireDb().getRunDetailVersion(runId);
+  }
+
+  public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
+    return this.requireDb().getRunDetailUpdate(runId, cursor);
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {

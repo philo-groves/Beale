@@ -91,6 +91,12 @@ const api: BealeApi = {
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
   },
+  getRunDetailVersion(runId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailVersion, runId);
+  },
+  getRunDetailUpdate(runId: string, cursor) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailUpdate, runId, cursor);
+  },
   steerRun(action: SteeringAction) {
     return ipcRenderer.invoke(IPC_CHANNELS.steerRun, action);
   },

@@ -696,6 +696,37 @@ export interface RunDetail {
   exports: ExportRecord[];
 }
 
+export interface RunDetailVersion {
+  runId: string;
+  version: string;
+  generatedAt: string;
+  databaseMs: number;
+}
+
+export interface RunDetailUpdateCursor {
+  afterTraceSequence: number;
+  afterTranscriptCount: number;
+}
+
+export interface RunDetailUpdate {
+  run: RunRecord;
+  version: RunDetailVersion;
+  attempts: AttemptRecord[];
+  traceEvents: TraceEventRecord[];
+  transcriptMessages: TranscriptMessageRecord[];
+  hypotheses: HypothesisRecord[];
+  artifacts: ArtifactRecord[];
+  evidence: EvidenceRecord[];
+  findings: FindingRecord[];
+  verifierContracts: VerifierContractRecord[];
+  verifierRuns: VerifierRunRecord[];
+  vmContexts: VmContextRecord[];
+  modelSessions: ModelSessionRecord[];
+  contextCompactions: ContextCompactionRecord[];
+  policyEvents: ApprovalRecord[];
+  exports: ExportRecord[];
+}
+
 export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';
 
 export type BenchmarkTaskMode = 'discovery' | 'reproduction' | 'patch_validation' | 'variant_analysis' | 'benchmark' | 'safety';
@@ -903,6 +934,8 @@ export interface BealeApi {
   runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
+  getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
+  getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;

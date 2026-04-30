@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import type {
   ApprovalRecord,
@@ -26,6 +27,9 @@ import type {
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
+  RunDetailUpdate,
+  RunDetailUpdateCursor,
+  RunDetailVersion,
   RunEngineKind,
   RunRecord,
   RunRow,
@@ -400,6 +404,10 @@ function numberValue(row: SqlRow, key: string): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'bigint') return Number(value);
   return Number(value ?? 0);
+}
+
+function roundMetricMs(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function booleanValue(row: SqlRow, key: string): boolean {
@@ -1990,6 +1998,244 @@ export class WorkspaceDatabase {
       policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
       exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
     };
+  }
+
+  public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    this.ensureFindingsForReproducedHypotheses(runId);
+    const afterTraceSequence = Number.isFinite(cursor.afterTraceSequence) ? Math.max(-1, Math.floor(cursor.afterTraceSequence)) : -1;
+    const afterTranscriptCount = Number.isFinite(cursor.afterTranscriptCount) ? Math.max(0, Math.floor(cursor.afterTranscriptCount)) : 0;
+
+    return {
+      run,
+      version: this.getRunDetailVersion(runId),
+      attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
+      traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? AND sequence > ? ORDER BY sequence ASC').all(runId, afterTraceSequence)).map((row) =>
+        this.mapTraceEvent(row)
+      ),
+      transcriptMessages: rows(
+        this.db
+          .prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC LIMIT -1 OFFSET ?')
+          .all(runId, afterTranscriptCount)
+      ).map((row) => this.mapTranscriptMessage(row)),
+      hypotheses: rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC').all(runId)).map((row) => this.mapHypothesis(row)),
+      artifacts: rows(
+        this.db
+          .prepare(
+            `SELECT DISTINCT a.* FROM artifacts a
+             JOIN trace_events t ON t.artifact_id = a.id
+             WHERE t.run_id = ?
+             ORDER BY a.created_at ASC`
+          )
+          .all(runId)
+      ).map((row) => this.mapArtifact(row)),
+      evidence: rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapEvidence(row)),
+      findings: rows(this.db.prepare('SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapFinding(row)),
+      verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
+      verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
+      vmContexts: rows(
+        this.db
+          .prepare(
+            `SELECT DISTINCT v.* FROM vm_contexts v
+             LEFT JOIN attempts a ON a.vm_context_id = v.id
+             WHERE a.run_id = ? OR v.id IN (SELECT vm_context_id FROM trace_events WHERE run_id = ? AND vm_context_id IS NOT NULL)
+             ORDER BY v.created_at ASC`
+          )
+          .all(runId, runId)
+      ).map((row) => this.mapVmContext(row)),
+      modelSessions: rows(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapModelSession(row)),
+      contextCompactions: rows(this.db.prepare('SELECT * FROM context_compactions WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+        this.mapContextCompaction(row)
+      ),
+      policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
+      exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
+    };
+  }
+
+  public getRunDetailVersion(runId: string): RunDetailVersion {
+    const startedAt = performance.now();
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+
+    const parts = [
+      [
+        'run',
+        run.id,
+        run.status,
+        run.title,
+        run.summary,
+        run.mode,
+        run.model,
+        run.reasoningEffort,
+        run.attemptStrategy,
+        run.networkProfile,
+        run.sandboxProfile,
+        run.targetAssetId ?? '',
+        run.targetPath ?? '',
+        run.startedAt ?? '',
+        run.endedAt ?? '',
+        JSON.stringify(run.budget)
+      ].join(':'),
+      this.aggregateVersionPart(
+        'attempts',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(started_at), '') AS max_started,
+                COALESCE(MAX(COALESCE(ended_at, '')), '') AS max_ended,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || short_state || ':' || COALESCE(ended_at, ''), '|'), '') AS rows
+         FROM (SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'trace_events',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(sequence), 0) AS max_sequence,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(SUM(LENGTH(summary) + LENGTH(payload_json)), 0) AS content_size
+         FROM trace_events WHERE run_id = ?`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'transcript_messages',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(SUM(LENGTH(content_markdown) + LENGTH(metadata_json)), 0) AS content_size
+         FROM transcript_messages WHERE run_id = ?`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'hypotheses',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(updated_at), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || title || ':' || priority_score || ':' || updated_at, '|'), '') AS rows
+         FROM (SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'findings',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(updated_at), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || title || ':' || priority_score || ':' || updated_at || ':' || COALESCE(verified_by_verifier_run_id, ''), '|'), '') AS rows
+         FROM (SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'weakness_mappings',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(updated_at), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(entity_kind || ':' || entity_id || ':' || cwe_id || ':' || mapping_role || ':' || mapping_status || ':' || confidence || ':' || updated_at, '|'), '') AS rows
+         FROM (
+           SELECT * FROM weakness_mappings
+           WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT id FROM hypotheses WHERE run_id = ?))
+              OR (entity_kind = 'finding' AND entity_id IN (SELECT id FROM findings WHERE run_id = ?))
+           ORDER BY entity_kind ASC, entity_id ASC, cwe_id ASC, mapping_role ASC
+         )`,
+        runId,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'artifacts',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(SUM(LENGTH(id) + LENGTH(relative_path) + LENGTH(kind) + LENGTH(metadata_json)), 0) AS content_size
+         FROM (
+           SELECT DISTINCT a.* FROM artifacts a
+           JOIN trace_events t ON t.artifact_id = a.id
+           WHERE t.run_id = ?
+         )`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'evidence',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(GROUP_CONCAT(id || ':' || kind || ':' || summary || ':' || COALESCE(hypothesis_id, '') || ':' || COALESCE(finding_id, '') || ':' || COALESCE(artifact_id, '') || ':' || COALESCE(verifier_run_id, ''), '|'), '') AS rows
+         FROM (SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'verifier_contracts',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(updated_at), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || updated_at, '|'), '') AS rows
+         FROM (SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'verifier_runs',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(started_at), '') AS max_started,
+                COALESCE(MAX(COALESCE(ended_at, '')), '') AS max_ended,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(ended_at, '') || ':' || LENGTH(result_json), '|'), '') AS rows
+         FROM (SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'vm_contexts',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(MAX(COALESCE(destroyed_at, '')), '') AS max_destroyed,
+                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || network_profile || ':' || COALESCE(destroyed_at, '') || ':' || LENGTH(metadata_json), '|'), '') AS rows
+         FROM (
+           SELECT DISTINCT v.* FROM vm_contexts v
+           LEFT JOIN attempts a ON a.vm_context_id = v.id
+           WHERE a.run_id = ? OR v.id IN (SELECT vm_context_id FROM trace_events WHERE run_id = ? AND vm_context_id IS NOT NULL)
+           ORDER BY v.created_at ASC, v.id ASC
+         )`,
+        runId,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'model_sessions',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(updated_at), '') AS max_updated,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || updated_at || ':' || LENGTH(metadata_json), '|'), '') AS rows
+         FROM (SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'context_compactions',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(MAX(trace_high_water_mark), 0) AS max_trace_high_water_mark,
+                COALESCE(SUM(serialized_size_bytes + LENGTH(token_pressure_json)), 0) AS content_size
+         FROM context_compactions WHERE run_id = ?`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'policy_events',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(MAX(COALESCE(decided_at, '')), '') AS max_decided,
+                COALESCE(GROUP_CONCAT(id || ':' || decision || ':' || reason || ':' || COALESCE(decided_at, ''), '|'), '') AS rows
+         FROM (SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      ),
+      this.aggregateVersionPart(
+        'exports',
+        `SELECT COUNT(*) AS count,
+                COALESCE(MAX(created_at), '') AS max_created,
+                COALESCE(MAX(COALESCE(reviewed_at, '')), '') AS max_reviewed,
+                COALESCE(GROUP_CONCAT(id || ':' || status || ':' || COALESCE(review_decision, '') || ':' || COALESCE(reviewed_at, ''), '|'), '') AS rows
+         FROM (SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
+        runId
+      )
+    ];
+
+    return {
+      runId,
+      version: createHash('sha256').update(parts.join('\n')).digest('hex'),
+      generatedAt: nowIso(),
+      databaseMs: roundMetricMs(performance.now() - startedAt)
+    };
+  }
+
+  private aggregateVersionPart(label: string, sql: string, ...params: SqlPrimitive[]): string {
+    const row = rowOrUndefined(this.db.prepare(sql).get(...params)) ?? {};
+    return `${label}:${Object.keys(row)
+      .sort()
+      .map((key) => `${key}=${String(row[key] ?? '')}`)
+      .join(';')}`;
   }
 
   public ensureFindingsForReproducedHypotheses(

@@ -22,6 +22,8 @@ export const IPC_CHANNELS = {
   runBenchmarkSuite: 'beale:run-benchmark-suite',
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
+  getRunDetailVersion: 'beale:get-run-detail-version',
+  getRunDetailUpdate: 'beale:get-run-detail-update',
   steerRun: 'beale:steer-run',
   openNotification: 'beale:open-notification',
   dismissNotification: 'beale:dismiss-notification',

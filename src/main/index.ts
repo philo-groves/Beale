@@ -2,12 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron
 import type { IpcMainInvokeEvent } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BenchmarkRunInput,
   ProgramOnboardingInput,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
+  RunDetailUpdateCursor,
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
@@ -55,6 +57,7 @@ function createWindow(): void {
   mainWindow.setBackgroundColor('#00000000');
   mainWindow.setMenuBarVisibility(false);
   registerWindowChromeStateEvents(mainWindow);
+  registerRendererDevToolsControls(mainWindow);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -118,6 +121,74 @@ function registerWindowChromeStateEvents(window: BrowserWindow): void {
   window.webContents.once('did-finish-load', send);
 }
 
+function registerRendererDevToolsControls(window: BrowserWindow): void {
+  if (!rendererDevToolsAllowed()) return;
+
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = input.key.toLowerCase();
+    const toggleRequested = input.key === 'F12' || ((input.control || input.meta) && input.shift && key === 'i');
+    if (!toggleRequested) return;
+
+    event.preventDefault();
+    toggleRendererDevTools(window);
+  });
+
+  window.webContents.once('did-finish-load', () => {
+    if (rendererDevToolsAutoOpen()) {
+      toggleRendererDevTools(window, true);
+    }
+  });
+}
+
+function rendererDevToolsAllowed(): boolean {
+  return !app.isPackaged || process.env.BEALE_ENABLE_DEVTOOLS === '1';
+}
+
+function rendererDevToolsAutoOpen(): boolean {
+  return process.argv.includes('--open-devtools') || process.env.BEALE_OPEN_DEVTOOLS === '1';
+}
+
+function toggleRendererDevTools(window: BrowserWindow, openOnly = false): void {
+  if (window.isDestroyed()) return;
+  if (window.webContents.isDevToolsOpened()) {
+    if (!openOnly) {
+      window.webContents.closeDevTools();
+    }
+    return;
+  }
+  window.webContents.openDevTools({ mode: 'detach' });
+}
+
+function timedMainIpc<T>(name: string, detail: Record<string, string | number | boolean>, operation: () => T): T {
+  const startedAt = performance.now();
+  try {
+    return operation();
+  } finally {
+    if (mainPerformanceLoggingEnabled()) {
+      console.info(`[Beale main perf] ${name} ${roundMetricMs(performance.now() - startedAt)}ms ${formatMainMetricDetail(detail)}`);
+    }
+  }
+}
+
+function mainPerformanceLoggingEnabled(): boolean {
+  return process.env.BEALE_MAIN_PERF === '1' || process.env.BEALE_DEV_PERFORMANCE === '1';
+}
+
+function formatMainMetricDetail(detail: Record<string, string | number | boolean>): string {
+  return Object.entries(detail)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(' ');
+}
+
+function roundMetricMs(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function shortMetricId(id: string): string {
+  return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
+}
+
 function broadcastSnapshot(): void {
   const snapshot = workspaceService.getSnapshot();
   const programRegistry = workspaceService.getProgramRegistryState();
@@ -176,7 +247,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => workspaceService.startRun(input));
   ipcMain.handle(IPC_CHANNELS.runBenchmarkSuite, (_event, input: BenchmarkRunInput) => workspaceService.runBenchmarkSuite(input));
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
-  ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) => workspaceService.getRunDetail(runId));
+  ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
+    timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))
+  );
+  ipcMain.handle(IPC_CHANNELS.getRunDetailVersion, (_event, runId: string) =>
+    timedMainIpc('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersion(runId))
+  );
+  ipcMain.handle(IPC_CHANNELS.getRunDetailUpdate, (_event, runId: string, cursor: RunDetailUpdateCursor) =>
+    timedMainIpc('getRunDetailUpdate', { run: shortMetricId(runId), afterTrace: cursor.afterTraceSequence, afterTranscript: cursor.afterTranscriptCount }, () =>
+      workspaceService.getRunDetailUpdate(runId, cursor)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) => workspaceService.steerRun(action));
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));

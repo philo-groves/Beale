@@ -1,6 +1,8 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { AnimationEvent as ReactAnimationEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
+import type { DevMetricDetail } from './devInstrumentation';
 import {
   Archive,
   ArrowRight,
@@ -77,6 +79,7 @@ import type {
   ProgramScopeVersion,
   ResearchSessionSummary,
   RunDetail,
+  RunDetailUpdate,
   RunRow,
   RunStatus,
   ScopeAssetDirection,
@@ -440,6 +443,25 @@ export function App(): JSX.Element {
   const previousRunIdRef = useRef<string | null>(null);
   const runDetailRequestSeqRef = useRef(0);
   const runDetailVersionRef = useRef<string | null>(null);
+  const runDetailRef = useRef<RunDetail | null>(null);
+
+  useDevRenderProbe('app.shell', () => ({
+    selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
+    programs: programRegistry?.programs.length ?? 0,
+    sessions: programRegistry?.researchSessions.length ?? 0,
+    traceEvents: runDetail?.traceEvents.length ?? 0,
+    transcripts: runDetail?.transcriptMessages.length ?? 0
+  }));
+  useDevRenderProbe('sidebar.programs', () => ({
+    collapsed: sidebarCollapsed,
+    programs: programRegistry?.programs.length ?? 0,
+    sessions: programRegistry?.researchSessions.length ?? 0
+  }));
+  useDevInputLatencyProbe();
+
+  useEffect(() => {
+    runDetailRef.current = runDetail;
+  }, [runDetail]);
 
   useEffect(() => {
     const timers = new Map<Element, number>();
@@ -475,6 +497,7 @@ export function App(): JSX.Element {
   }, []);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null) => {
+    devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
     setSnapshot(next);
     if (next) {
       setOpenAiStatus(next.openAi);
@@ -483,12 +506,12 @@ export function App(): JSX.Element {
   }, []);
 
   const loadSnapshot = useCallback(async () => {
-    const next = await window.beale.getSnapshot();
+    const next = await devInstrumentation.timeAsync('ipc.getSnapshot', () => window.beale.getSnapshot());
     applySnapshot(next);
   }, [applySnapshot]);
 
   const loadProgramRegistry = useCallback(async () => {
-    setProgramRegistry(await window.beale.getProgramRegistry());
+    setProgramRegistry(await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry()));
   }, []);
 
   const selectedRunStatus = selectedRunId ? snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run.status ?? null : null;
@@ -499,15 +522,15 @@ export function App(): JSX.Element {
       .then(setHostEnvironment)
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
-    window.beale
-      .getSnapshot()
+    devInstrumentation
+      .timeAsync('ipc.getSnapshot.initial', () => window.beale.getSnapshot())
       .then((initial) => {
         applySnapshot(initial);
       })
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
-    window.beale
-      .getProgramRegistry()
+    devInstrumentation
+      .timeAsync('ipc.getProgramRegistry.initial', () => window.beale.getProgramRegistry())
       .then(setProgramRegistry)
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
@@ -522,6 +545,7 @@ export function App(): JSX.Element {
       .catch((caught: unknown) => setError(errorMessage(caught)));
 
     const unsubscribeSnapshot = window.beale.onSnapshot((next) => {
+      devInstrumentation.recordPayload('ipc.snapshot.event', next, snapshotMetricDetail(next));
       startTransition(() => applySnapshot(next));
     });
     const unsubscribeProgramRegistry = window.beale.onProgramRegistry((next) => {
@@ -539,24 +563,58 @@ export function App(): JSX.Element {
     const requestSeq = ++runDetailRequestSeqRef.current;
     if (!selectedRunId) {
       runDetailVersionRef.current = null;
+      runDetailRef.current = null;
       setRunDetail(null);
       return undefined;
     }
 
     runDetailVersionRef.current = null;
+    runDetailRef.current = null;
     let disposed = false;
     let inFlight = false;
     const refreshRunDetail = (): void => {
       if (inFlight) return;
       inFlight = true;
-      window.beale
-        .getRunDetail(selectedRunId)
-        .then((detail) => {
+      devInstrumentation
+        .timeAsync('ipc.getRunDetailVersion', () => window.beale.getRunDetailVersion(selectedRunId), { run: shortMetricId(selectedRunId) })
+        .then(async (version) => {
+          devInstrumentation.recordEvent('ipc.getRunDetailVersion.payload', {
+            run: shortMetricId(version.runId),
+            databaseMs: version.databaseMs,
+            version: shortMetricId(version.version)
+          });
+          if (!disposed && requestSeq === runDetailRequestSeqRef.current && version.version === runDetailVersionRef.current) {
+            return null;
+          }
+          const currentDetail = runDetailRef.current;
+          if (currentDetail?.run.id === selectedRunId && runDetailVersionRef.current) {
+            const update = await devInstrumentation.timeAsync(
+              'ipc.getRunDetailUpdate',
+              () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
+              { run: shortMetricId(selectedRunId) }
+            );
+            return { detail: mergeRunDetailUpdate(currentDetail, update), version: update.version.version, update };
+          }
+          const detail = await devInstrumentation.timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) });
+          return { detail, version: version.version, update: null };
+        })
+        .then((result) => {
+          if (!result) return;
+          const { detail, version, update } = result;
+          if (update) {
+            devInstrumentation.recordPayload('ipc.getRunDetailUpdate.payload', update, runDetailUpdateMetricDetail(update));
+          } else {
+            devInstrumentation.recordPayload('ipc.getRunDetail.payload', detail, runDetailMetricDetail(detail));
+          }
           if (!disposed && requestSeq === runDetailRequestSeqRef.current) {
-            const detailVersion = runDetailRenderVersion(detail);
-            if (detailVersion !== runDetailVersionRef.current) {
-              runDetailVersionRef.current = detailVersion;
+            if (version !== runDetailVersionRef.current) {
+              runDetailVersionRef.current = version;
+              runDetailRef.current = detail;
               startTransition(() => setRunDetail(detail));
+            } else {
+              devInstrumentation.recordEvent('ipc.getRunDetail.versionRaceSkipped', {
+                run: shortMetricId(detail.run.id)
+              });
             }
           }
         })
@@ -592,7 +650,8 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (!selectedTraceEventId || !runDetail) return;
-    if (!buildTraceDisplayEvents(runDetail).some((event) => event.id === selectedTraceEventId)) {
+    const traceEvents = devInstrumentation.time('trace.buildDisplayEvents.selectionGuard', () => buildTraceDisplayEvents(runDetail), runDetailMetricDetail(runDetail));
+    if (!traceEvents.some((event) => event.id === selectedTraceEventId)) {
       setSelectedTraceEventId(null);
       setTraceDetailOpen(false);
     }
@@ -839,12 +898,16 @@ export function App(): JSX.Element {
   };
 
   const activeRunDetail = runDetail && runDetail.run.id === selectedRunId ? runDetail : null;
-  const activeTraceEvents = useMemo(() => (activeRunDetail ? buildTraceDisplayEvents(activeRunDetail) : []), [activeRunDetail]);
+  const activeTraceEvents = useMemo(
+    () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
+    [activeRunDetail]
+  );
   const selectedTraceEvent = useMemo(() => activeTraceEvents.find((event) => event.id === selectedTraceEventId) ?? null, [activeTraceEvents, selectedTraceEventId]);
   const selectedTraceFinding = selectedTraceEvent ? findingForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
   const selectedTraceHypothesis = selectedTraceEvent ? hypothesisForTraceEvent(activeRunDetail, selectedTraceEvent) : null;
-  const sessionHeat = sessionHeatForDetail(activeRunDetail);
-  const researchMomentum = researchMomentumForDetail(activeRunDetail, sessionHeat);
+  const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
+  const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
+  const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
   const sessionActive = activeRunDetail?.run.status === 'active';
   const appShellClassName = [
     'app-shell',
@@ -862,6 +925,14 @@ export function App(): JSX.Element {
   const sessionHistorySessions = sessionHistoryProgram && programRegistry ? researchSessionsForProgram(programRegistry, sessionHistoryProgram) : [];
   const vmPreference = programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
   const windowControlPlatform = (snapshot?.workspace.hostEnvironment ?? hostEnvironment)?.platform ?? 'linux';
+  const toggleSidebar = useCallback(() => setSidebarCollapsed((current) => !current), []);
+  const configureVm = useCallback(() => {
+    setSettingsSection('general');
+    setSettingsOpen(true);
+  }, []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
+  const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
 
   return (
     <div className={appShellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -869,7 +940,7 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
-        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+        onToggleSidebar={toggleSidebar}
       />
       <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
         <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
@@ -1017,19 +1088,16 @@ export function App(): JSX.Element {
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         executor={snapshot?.executor ?? null}
         vmPreference={vmPreference}
-        activity={environmentActivityForDetail(activeRunDetail)}
+        activity={environmentActivity}
         detail={activeRunDetail}
         momentum={researchMomentum}
         notificationCount={snapshot?.notifications.length ?? 0}
         inspectorOpen={inspectorOpen}
         traceFilterCount={visibleTraceCategories.length}
-        onConfigureVm={() => {
-          setSettingsSection('general');
-          setSettingsOpen(true);
-        }}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenTraceFilters={() => setTraceFilterOpen(true)}
-        onToggleInspector={() => setInspectorOpen((current) => !current)}
+        onConfigureVm={configureVm}
+        onOpenSettings={openSettings}
+        onOpenTraceFilters={openTraceFilters}
+        onToggleInspector={toggleInspector}
       />
       <NotificationStack notifications={snapshot?.notifications ?? []} onOpen={openNotification} onDismiss={dismissNotification} />
       {programDraft ? (
@@ -1123,7 +1191,8 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
-function AppBackgroundPulses(): JSX.Element {
+const AppBackgroundPulses = memo(function AppBackgroundPulses(): JSX.Element {
+  useDevRenderProbe('background.pulses');
   const [pulses, setPulses] = useState<BackgroundPulse[]>(() =>
     Array.from({ length: APP_BACKGROUND_PULSE_COUNT }, (_, index) => ({
       id: index,
@@ -1154,7 +1223,7 @@ function AppBackgroundPulses(): JSX.Element {
       ))}
     </div>
   );
-}
+});
 
 function randomBackgroundPulseStyle(index: number, initial: boolean): CSSProperties {
   const size = randomInteger(44, 118);
@@ -1180,34 +1249,92 @@ function randomFloat(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
-function runDetailRenderVersion(detail: RunDetail): string {
-  return [
-    detail.run.id,
-    detail.run.status,
-    detail.run.title,
-    detail.run.summary,
-    detail.run.endedAt ?? '',
-    collectionVersion(detail.attempts, (attempt) => `${attempt.id}:${attempt.status}:${attempt.shortState}:${attempt.endedAt ?? ''}`),
-    collectionVersion(detail.traceEvents, (event) => `${event.id}:${event.sequence}:${event.summary}:${JSON.stringify(event.payload).length}`),
-    collectionVersion(detail.transcriptMessages, (message) => `${message.id}:${message.contentMarkdown.length}:${message.createdAt}`),
-    collectionVersion(detail.hypotheses, (hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.updatedAt}`),
-    collectionVersion(detail.artifacts, (artifact) => `${artifact.id}:${artifact.relativePath}:${artifact.createdAt}`),
-    collectionVersion(detail.evidence, (evidence) => `${evidence.id}:${evidence.summary}:${evidence.createdAt}`),
-    collectionVersion(detail.findings, (finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.updatedAt}`),
-    collectionVersion(detail.verifierContracts, (contract) => `${contract.id}:${contract.status}:${contract.updatedAt}`),
-    collectionVersion(detail.verifierRuns, (run) => `${run.id}:${run.status}:${run.endedAt ?? ''}`),
-    collectionVersion(detail.vmContexts, (context) => `${context.id}:${context.state}:${context.destroyedAt ?? ''}`),
-    collectionVersion(detail.modelSessions, (session) => `${session.id}:${session.status}:${session.updatedAt ?? ''}`),
-    collectionVersion(detail.contextCompactions, (compaction) => `${compaction.id}:${compaction.createdAt}`),
-    collectionVersion(detail.policyEvents, (event) => `${event.id}:${event.decision}:${event.decidedAt ?? ''}`),
-    collectionVersion(detail.exports, (exportRecord) => `${exportRecord.id}:${exportRecord.status}:${exportRecord.reviewedAt ?? ''}`)
-  ].join('|');
+function snapshotMetricDetail(snapshot: WorkspaceSnapshot | null): DevMetricDetail {
+  return {
+    active: Boolean(snapshot),
+    runs: snapshot?.runs.length ?? 0,
+    notifications: snapshot?.notifications.length ?? 0,
+    programs: snapshot?.workspace ? 1 : 0
+  };
 }
 
-function collectionVersion<T>(items: T[], itemVersion: (item: T) => string): string {
-  const first = items[0];
-  const last = items.at(-1);
-  return `${items.length}:${first ? itemVersion(first) : ''}:${last && last !== first ? itemVersion(last) : ''}`;
+function runDetailMetricDetail(detail: RunDetail): DevMetricDetail {
+  return {
+    run: shortMetricId(detail.run.id),
+    status: detail.run.status,
+    traceEvents: detail.traceEvents.length,
+    transcripts: detail.transcriptMessages.length,
+    hypotheses: detail.hypotheses.length,
+    findings: detail.findings.length,
+    evidence: detail.evidence.length
+  };
+}
+
+function runDetailUpdateMetricDetail(update: RunDetailUpdate): DevMetricDetail {
+  return {
+    run: shortMetricId(update.run.id),
+    status: update.run.status,
+    versionDatabaseMs: update.version.databaseMs,
+    traceEvents: update.traceEvents.length,
+    transcripts: update.transcriptMessages.length,
+    hypotheses: update.hypotheses.length,
+    findings: update.findings.length,
+    evidence: update.evidence.length
+  };
+}
+
+function runDetailUpdateCursor(detail: RunDetail): { afterTraceSequence: number; afterTranscriptCount: number } {
+  return {
+    afterTraceSequence: detail.traceEvents.at(-1)?.sequence ?? -1,
+    afterTranscriptCount: detail.transcriptMessages.length
+  };
+}
+
+function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate): RunDetail {
+  return {
+    run: update.run,
+    attempts: update.attempts,
+    traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
+    transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),
+    hypotheses: update.hypotheses,
+    artifacts: update.artifacts,
+    evidence: update.evidence,
+    findings: update.findings,
+    verifierContracts: update.verifierContracts,
+    verifierRuns: update.verifierRuns,
+    vmContexts: update.vmContexts,
+    modelSessions: update.modelSessions,
+    contextCompactions: update.contextCompactions,
+    policyEvents: update.policyEvents,
+    exports: update.exports
+  };
+}
+
+function mergeTraceEvents(current: TraceEventRecord[], incoming: TraceEventRecord[]): TraceEventRecord[] {
+  if (incoming.length === 0) return current;
+  const byId = new Map(current.map((event) => [event.id, event]));
+  for (const event of incoming) {
+    byId.set(event.id, event);
+  }
+  return Array.from(byId.values()).sort((left, right) => left.sequence - right.sequence);
+}
+
+function mergeTranscriptMessages(current: TranscriptMessageRecord[], incoming: TranscriptMessageRecord[]): TranscriptMessageRecord[] {
+  if (incoming.length === 0) return current;
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt);
+    const rightTime = Date.parse(right.createdAt);
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function shortMetricId(id: string): string {
+  return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
 function researchSessionsForProgram(registry: ProgramRegistryState, program: ProgramRegistryEntry): ResearchSessionSummary[] {
@@ -1234,6 +1361,10 @@ function truncateText(value: string, maxLength: number): string {
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
+function countLines(value: string): number {
+  return value.length === 0 ? 0 : value.split('\n').length;
+}
+
 function shortRelativeAge(iso: string): string {
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return '';
@@ -1246,7 +1377,7 @@ function shortRelativeAge(iso: string): string {
   return `${Math.max(1, Math.floor(days / 7))}W`;
 }
 
-function TopBar({
+const TopBar = memo(function TopBar({
   sidebarCollapsed,
   platform,
   onToggleSidebar
@@ -1255,6 +1386,7 @@ function TopBar({
   platform: HostEnvironment['platform'];
   onToggleSidebar: () => void;
 }): JSX.Element {
+  useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const isMac = platform === 'darwin';
 
@@ -1298,9 +1430,9 @@ function TopBar({
       ) : null}
     </header>
   );
-}
+});
 
-function StatusBar({
+const StatusBar = memo(function StatusBar({
   hostEnvironment,
   executor,
   vmPreference,
@@ -1329,6 +1461,12 @@ function StatusBar({
   onOpenTraceFilters: () => void;
   onToggleInspector: () => void;
 }): JSX.Element {
+  useDevRenderProbe('footer.statusBar', () => ({
+    host: hostEnvironment?.platform ?? 'unknown',
+    vm: vmPreference.backendKind ?? 'none',
+    momentum: momentum.state,
+    notifications: notificationCount
+  }));
   const osLabel = hostEnvironmentLabel(hostEnvironment);
   const vmTarget = vmTargetStatus(executor, vmPreference);
   const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
@@ -1382,9 +1520,14 @@ function StatusBar({
       </div>
     </footer>
   );
-}
+});
 
-function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; momentum: ResearchMomentum }): JSX.Element {
+const ResearchMomentumLine = memo(function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; momentum: ResearchMomentum }): JSX.Element {
+  useDevRenderProbe('footer.momentum', () => ({
+    state: momentum.state,
+    traceEvents: detail?.traceEvents.length ?? 0,
+    compactions: detail?.contextCompactions.length ?? 0
+  }));
   const label = researchMomentumLabel(momentum.state);
   const contextMeter = contextMeterForDetail(detail);
   const visibleContextLabel = visibleContextMeterLabel(contextMeter);
@@ -1498,7 +1641,7 @@ function ResearchMomentumLine({ detail, momentum }: { detail: RunDetail | null; 
       <span className="momentum-context-label">{visibleContextLabel}</span>
     </div>
   );
-}
+});
 
 function compactionLickProgress(timestamp: number, startedAtRef: { current: number | null }): number {
   const startedAt = startedAtRef.current;
@@ -2262,7 +2405,14 @@ function MainTraceView({
 }): JSX.Element | null {
   const loading = !detail;
   const traceFilterKey = visibleTraceCategories.join('|');
-  const timelineEntries = useMemo(() => buildTraceTimelineEntries(events, visibleTraceCategories), [events, traceFilterKey]);
+  const timelineEntries = useMemo(
+    () =>
+      devInstrumentation.time('trace.buildTimelineEntries', () => buildTraceTimelineEntries(events, visibleTraceCategories), {
+        events: events.length,
+        categories: visibleTraceCategories.length
+      }),
+    [events, traceFilterKey]
+  );
   const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceFilterKey}`;
   const timelineEntryIds = useMemo(() => timelineEntries.map((entry) => entry.event.id), [timelineEntries]);
   const timelineEntryKey = useMemo(() => timelineEntryIds.join('|'), [timelineEntryIds]);
@@ -2276,7 +2426,14 @@ function MainTraceView({
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
   const normalizedWindowStart = Math.min(traceWindowStart, maxWindowStart);
   const renderedEntries = presentedTimelineEntries.slice(normalizedWindowStart, normalizedWindowStart + TRACE_RENDER_WINDOW_SIZE);
-  const renderedGroups = groupRenderedTraceEntries(renderedEntries);
+  const renderedGroups = useMemo(
+    () =>
+      devInstrumentation.time('trace.groupRenderedEntries', () => groupRenderedTraceEntries(renderedEntries), {
+        rendered: renderedEntries.length,
+        windowStart: normalizedWindowStart
+      }),
+    [normalizedWindowStart, renderedEntries]
+  );
   const latestGroupKey = latestTraceGroupKey(presentedEvents);
   const topSpacerHeight = normalizedWindowStart * TRACE_ESTIMATED_EVENT_HEIGHT;
   const bottomSpacerHeight = Math.max(0, presentedTimelineEntries.length - normalizedWindowStart - renderedEntries.length) * TRACE_ESTIMATED_EVENT_HEIGHT;
@@ -2293,6 +2450,15 @@ function MainTraceView({
   const latestRenderedEvent = renderedEntries.at(-1)?.event;
   const latestRenderedPayloadLength = latestRenderedEvent ? (JSON.stringify(latestRenderedEvent.payload)?.length ?? 0) : 0;
   const latestRenderedEventVersion = latestRenderedEvent ? `${latestRenderedEvent.id}:${latestRenderedEvent.summary.length}:${latestRenderedPayloadLength}` : '';
+  useDevRenderProbe('trace.list', () => ({
+    events: events.length,
+    visible: timelineEntries.length,
+    presented: presentedTimelineEntries.length,
+    rendered: renderedEntries.length,
+    groups: renderedGroups.length,
+    windowStart: normalizedWindowStart,
+    following: traceFollowLatestRef.current
+  }));
 
   const updateTraceScrollEdges = useCallback(() => {
     const traceScroll = traceScrollRef.current;
@@ -2547,6 +2713,11 @@ function MainHypothesisList({
 }): JSX.Element {
   const loading = !detail;
   const hypotheses = detail?.hypotheses ?? [];
+  useDevRenderProbe('hypotheses.list', () => ({
+    loading,
+    hypotheses: hypotheses.length,
+    events: events.length
+  }));
   const hypothesisScrollKey = hypotheses
     .map((hypothesis) => `${hypothesis.id}:${hypothesis.state}:${hypothesis.priorityScore}:${hypothesis.title}:${hypothesis.descriptionMarkdown.length}`)
     .join('|');
@@ -2617,6 +2788,12 @@ function MainFindingList({
   const loading = !detail;
   const findings = detail?.findings ?? [];
   const hypotheses = detail?.hypotheses ?? [];
+  useDevRenderProbe('findings.list', () => ({
+    loading,
+    findings: findings.length,
+    hypotheses: hypotheses.length,
+    events: events.length
+  }));
   const findingScrollKey = findings
     .map((finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.title}:${finding.summaryMarkdown.length}`)
     .join('|');
@@ -2939,7 +3116,11 @@ function renderInlineCodeText(text: string): ReactNode[] {
 }
 
 function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
-  return category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text);
+  return devInstrumentation.time(
+    'trace.renderProseText',
+    () => (category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
+    { category, chars: text.length, lines: countLines(text) }
+  );
 }
 
 function renderMarkdownTraceText(text: string): ReactNode[] {
@@ -3055,10 +3236,15 @@ function renderMarkdownInlineText(text: string, keyPrefix: string): ReactNode[] 
 }
 
 function highlightPythonCode(code: string): ReactNode[] {
-  return highlightCode(
-    code,
-    /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
-    pythonTokenKind
+  return devInstrumentation.time(
+    'syntax.python',
+    () =>
+      highlightCode(
+        code,
+        /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
+        pythonTokenKind
+      ),
+    { chars: code.length, lines: countLines(code) }
   );
 }
 
@@ -3075,7 +3261,11 @@ function pythonTokenKind(token: string): string {
 }
 
 function highlightJsonCode(code: string): ReactNode[] {
-  return highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind);
+  return devInstrumentation.time(
+    'syntax.json',
+    () => highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind),
+    { chars: code.length, lines: countLines(code) }
+  );
 }
 
 function jsonTokenKind(token: string): string {
@@ -4532,6 +4722,7 @@ function Modal({
   onClose: () => void;
   wide?: boolean;
 }): JSX.Element {
+  useDevRenderProbe('modal', () => ({ title, wide: Boolean(wide) }));
   return (
     <div className="modal-backdrop" role="presentation">
       <section className={`modal-panel ${wide ? 'wide-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -4611,6 +4802,11 @@ function EvidenceSidebar({
   detail: RunDetail | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
+  useDevRenderProbe('evidence.sidebar', () => ({
+    loaded: Boolean(detail),
+    evidence: detail?.evidence.length ?? 0,
+    traceEvents: detail?.traceEvents.length ?? 0
+  }));
   if (!detail) {
     return (
       <div className="inspector-empty-state">
@@ -4620,7 +4816,7 @@ function EvidenceSidebar({
     );
   }
 
-  const events = buildTraceDisplayEvents(detail);
+  const events = devInstrumentation.time('trace.buildDisplayEvents.evidenceSidebar', () => buildTraceDisplayEvents(detail), runDetailMetricDetail(detail));
   const evidence = [...detail.evidence].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   const evidenceKey = evidence.map((item) => `${item.id}:${item.kind}:${item.summary}:${item.createdAt}`).join('|');
 
