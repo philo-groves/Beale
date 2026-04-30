@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type { DevMetricDetail } from './devInstrumentation';
 import {
@@ -93,12 +93,22 @@ import { ResearchSidePanel } from './features/research/ResearchSidePanel';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
+import { TraceEventRow } from './features/traces/TraceEventRow';
+import { highlightJsonCode, highlightPythonCode, renderTraceProseText } from './features/traces/traceMarkup';
+import {
+  ALL_TRACE_CATEGORY_IDS,
+  TRACE_CATEGORY_OPTIONS,
+  formatTraceTimestamp,
+  traceCategoryIcon,
+  traceCategoryLabel,
+  traceTypeLabel,
+  type TraceCategoryOption
+} from './features/traces/traceVisuals';
 import {
   clampPriorityScoreForDisplay,
   formatPercent,
   formatPriorityPill,
   formatSessionStart,
-  formatSessionTime,
   networkProfileLabel,
   shortDate,
   stateClass,
@@ -121,8 +131,8 @@ import { isIgnoredHeatState, sessionHeatForDetail, type SessionHeat } from './vi
 import {
   compactTracePath,
   findingForTraceEvent,
-  hasStructuredProseTraceDetail,
   hypothesisForTraceEvent,
+  isProseTraceEvent,
   lineRangePart,
   traceEventDetailText,
   traceEventSummary,
@@ -167,38 +177,12 @@ interface ProgramOnboardingFormState {
 
 type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 type SettingsSection = 'general' | 'providers';
-interface TraceCategoryOption {
-  id: TraceCategoryId;
-  label: string;
-  description: string;
-}
 
 interface TraceScrollAnchor {
   eventId: string;
   offsetTop: number;
 }
 
-interface PythonToolCallPreview {
-  task: string;
-  scriptLines: string[];
-  truncated: boolean;
-}
-
-const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
-  { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
-  { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
-  { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
-  { id: 'vm_execution', label: 'VM / Execution', description: 'Guest VM lifecycle, imports, commands, cleanup, and target execution.' },
-  { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
-  { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
-  { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
-  { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
-  { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
-  { id: 'failure_recovery', label: 'Error', description: 'Errors, retries, cleanup issues, recovery notes, and blocked operations.' },
-  { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
-];
-
-const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
@@ -1086,10 +1070,6 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function countLines(value: string): number {
-  return value.length === 0 ? 0 : value.split('\n').length;
-}
-
 function MainSessionWorkspace({
   detail,
   events,
@@ -1626,7 +1606,7 @@ function MainTraceTurnGroup({
       </div>
       <div className="main-trace-turn-events">
         {entries.map(({ event }) => (
-          <MainTraceEvent
+          <TraceEventRow
             detail={detail}
             entering={enteringTraceEventIds.has(event.id)}
             event={event}
@@ -1638,320 +1618,6 @@ function MainTraceTurnGroup({
       </div>
     </section>
   );
-}
-
-function MainTraceEvent({
-  detail,
-  entering,
-  event,
-  selected,
-  onSelect
-}: {
-  detail: RunDetail | null;
-  entering: boolean;
-  event: TraceDisplayEvent;
-  selected: boolean;
-  onSelect: (event: TraceDisplayEvent) => void;
-}): JSX.Element {
-  const category = traceCategoryForEvent(event);
-  const outcome = traceEventOutcome(event);
-  const detailText = traceEventDetailText(event, category, detail);
-  const hasDetail = detailText.length > 0;
-  const proseDetail = isProseTraceEvent(event, category, detail);
-  const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
-  const pythonPreview = pythonToolCallPreview(event);
-  return (
-    <button
-      type="button"
-      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
-        selected ? 'selected' : ''
-      } ${
-        entering ? 'trace-entering' : ''
-      }`}
-      data-trace-event-id={event.id}
-      aria-pressed={selected}
-      onClick={() => onSelect(event)}
-    >
-      <div className="main-trace-marker" aria-hidden="true">
-        <span>{traceEventIcon(event, category)}</span>
-      </div>
-      <div className="main-trace-event-body">
-        <div className="main-trace-line">
-          <div className="main-trace-title">
-            <strong>{traceEventSummary(event, category)}</strong>
-            <span className="main-trace-source-label">{traceLabel(event.source)}</span>
-          </div>
-          <div className="main-trace-flags">
-            <div className="main-trace-badges">
-              <span>{traceCategoryLabel(category)}</span>
-              {!event.modelVisible ? <span>Hidden</span> : null}
-            </div>
-          </div>
-        </div>
-        <div className="main-trace-context">
-          {pythonPreview ? (
-            <PythonTracePreview preview={pythonPreview} />
-          ) : hasDetail ? (
-            proseDetail ? (
-              <span className="main-trace-prose">{renderTraceProseText(detailText, category)}</span>
-            ) : (
-              <code>{detailText}</code>
-            )
-          ) : null}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JSX.Element {
-  return (
-    <div className="main-trace-python-preview">
-      {preview.task ? <p>{preview.task}</p> : null}
-      {preview.scriptLines.length > 0 ? (
-        <pre className={preview.truncated ? 'is-truncated' : undefined}>
-          <code className="syntax-code language-python">{highlightPythonCode(preview.scriptLines.join('\n'))}</code>
-          {preview.truncated ? (
-            <span className="main-trace-python-more" aria-hidden="true">
-              <span>View More</span>
-            </span>
-          ) : null}
-        </pre>
-      ) : null}
-    </div>
-  );
-}
-
-function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
-  if (hasStructuredProseTraceDetail(event, detail)) return true;
-
-  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
-  if (!text) return false;
-  if (tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary') return true;
-  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary') return true;
-  if (tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary') return true;
-  if (tracePayloadPrimitive(event.payload, 'transcriptRole') === 'assistant') return true;
-  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'agent_output') return true;
-  return category === 'agent_output' && event.source === 'model';
-}
-
-function renderInlineCodeText(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(`+)([^`\n]+?)\1/g;
-  let lastIndex = 0;
-  for (const match of text.matchAll(pattern)) {
-    const codeText = match[2] ?? '';
-    const index = match.index ?? 0;
-    if (index > lastIndex) nodes.push(text.slice(lastIndex, index));
-    nodes.push(
-      <code className="main-trace-inline-code" key={`${index}-${codeText}`}>
-        {codeText}
-      </code>
-    );
-    lastIndex = index + match[0].length;
-  }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
-  return devInstrumentation.time(
-    'trace.renderProseText',
-    () => (category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
-    { category, chars: text.length, lines: countLines(text) }
-  );
-}
-
-function renderMarkdownTraceText(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const lines = text.split('\n');
-
-  lines.forEach((line, lineIndex) => {
-    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
-    if (heading) {
-      nodes.push(
-        <strong className="main-trace-markdown-heading" key={`heading-${lineIndex}`}>
-          {renderMarkdownInlineText(heading[1] ?? '', `heading-${lineIndex}`)}
-        </strong>
-      );
-    } else {
-      nodes.push(...renderMarkdownInlineText(line, `line-${lineIndex}`));
-    }
-
-    if (lineIndex < lines.length - 1) nodes.push('\n');
-  });
-
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function renderMarkdownInlineText(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let buffer = '';
-  let index = 0;
-  let tokenIndex = 0;
-
-  const flushBuffer = (): void => {
-    if (!buffer) return;
-    nodes.push(buffer);
-    buffer = '';
-  };
-
-  const pushToken = (className: string, content: string, wrapper: 'code' | 'em' | 'strong' | 'strong-em'): void => {
-    flushBuffer();
-    const key = `${keyPrefix}-${tokenIndex}`;
-    tokenIndex += 1;
-    if (wrapper === 'code') {
-      nodes.push(
-        <code className="main-trace-inline-code" key={key}>
-          {content}
-        </code>
-      );
-      return;
-    }
-    if (wrapper === 'strong-em') {
-      nodes.push(
-        <strong className={className} key={key}>
-          <em>{content}</em>
-        </strong>
-      );
-      return;
-    }
-    const Wrapper = wrapper;
-    nodes.push(
-      <Wrapper className={className} key={key}>
-        {content}
-      </Wrapper>
-    );
-  };
-
-  while (index < text.length) {
-    if (text[index] === '`') {
-      const tickMatch = text.slice(index).match(/^`+/);
-      const ticks = tickMatch?.[0] ?? '`';
-      const end = text.indexOf(ticks, index + ticks.length);
-      if (end > index + ticks.length) {
-        pushToken('main-trace-inline-code', text.slice(index + ticks.length, end), 'code');
-        index = end + ticks.length;
-        continue;
-      }
-    }
-
-    if (text.startsWith('***', index)) {
-      const end = text.indexOf('***', index + 3);
-      const content = end > index + 3 ? text.slice(index + 3, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-strong main-trace-markdown-em', content, 'strong-em');
-        index = end + 3;
-        continue;
-      }
-    }
-
-    if (text.startsWith('**', index)) {
-      const end = text.indexOf('**', index + 2);
-      const content = end > index + 2 ? text.slice(index + 2, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-strong', content, 'strong');
-        index = end + 2;
-        continue;
-      }
-    }
-
-    if (text[index] === '*' && text[index + 1] !== '*' && text[index + 1] !== ' ') {
-      const end = text.indexOf('*', index + 1);
-      const content = end > index + 1 ? text.slice(index + 1, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-em', content, 'em');
-        index = end + 1;
-        continue;
-      }
-    }
-
-    buffer += text[index];
-    index += 1;
-  }
-
-  flushBuffer();
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function highlightPythonCode(code: string): ReactNode[] {
-  return devInstrumentation.time(
-    'syntax.python',
-    () =>
-      highlightCode(
-        code,
-        /([rRuUbBfF]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|#[^\n]*|\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b|\b(?:abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[()[\]{}.,:;=+\-*/%<>!&|^~@]+)/g,
-        pythonTokenKind
-      ),
-    { chars: code.length, lines: countLines(code) }
-  );
-}
-
-function pythonTokenKind(token: string): string {
-  if (token.startsWith('#')) return 'comment';
-  if (/^[rRuUbBfF]{0,2}("""|'''|"|')/.test(token)) return 'string';
-  if (/^(False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)$/.test(token)) {
-    return 'keyword';
-  }
-  if (/^(abs|all|any|bool|dict|enumerate|filter|float|int|len|list|map|max|min|open|print|range|set|sorted|str|sum|tuple|type|zip)$/.test(token)) return 'builtin';
-  if (/^\d/.test(token)) return 'number';
-  if ([...token].every((char) => '()[]{}.,:;'.includes(char))) return 'punctuation';
-  return 'operator';
-}
-
-function highlightJsonCode(code: string): ReactNode[] {
-  return devInstrumentation.time(
-    'syntax.json',
-    () => highlightCode(code, new RegExp('("(?:\\\\.|[^"\\\\])*")(\\s*:)?|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\b(?:true|false|null)\\b|[{}\\[\\],:]', 'g'), jsonTokenKind),
-    { chars: code.length, lines: countLines(code) }
-  );
-}
-
-function jsonTokenKind(token: string): string {
-  if (token.endsWith(':') && token.startsWith('"')) return 'key';
-  if (token.startsWith('"')) return 'string';
-  if (token === 'true' || token === 'false') return 'boolean';
-  if (token === 'null') return 'null';
-  if (/^-?\d/.test(token)) return 'number';
-  return 'punctuation';
-}
-
-function highlightCode(code: string, pattern: RegExp, tokenKind: (token: string) => string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let index = 0;
-
-  for (const match of code.matchAll(pattern)) {
-    const token = match[0];
-    const tokenIndex = match.index ?? 0;
-    if (tokenIndex > lastIndex) nodes.push(code.slice(lastIndex, tokenIndex));
-
-    if (match[2] && token.endsWith(match[2])) {
-      const value = token.slice(0, token.length - match[2].length);
-      nodes.push(
-        <span className={`syntax-token ${tokenKind(token)}`} key={`token-${index}`}>
-          {value}
-        </span>
-      );
-      nodes.push(
-        <span className="syntax-token punctuation" key={`token-${index}-separator`}>
-          {match[2]}
-        </span>
-      );
-    } else {
-      nodes.push(
-        <span className={`syntax-token ${tokenKind(token)}`} key={`token-${index}`}>
-          {token}
-        </span>
-      );
-    }
-
-    lastIndex = tokenIndex + token.length;
-    index += 1;
-  }
-
-  if (lastIndex < code.length) nodes.push(code.slice(lastIndex));
-  return nodes.length > 0 ? nodes : [code];
 }
 
 function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
@@ -2046,64 +1712,6 @@ function traceRevealDelayMs(queueLength: number): number {
   if (queueLength > 45) return 20;
   if (queueLength > 18) return 32;
   return TRACE_REVEAL_INTERVAL_MS;
-}
-
-function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
-  if (event.type !== 'tool_call') return null;
-  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
-  if (toolName !== 'python') return null;
-
-  const args = tracePayloadRecord(event.payload, 'arguments');
-  if (!args) return null;
-
-  const task = stringRecordValue(args, 'task') ?? '';
-  const scriptValue = args.script;
-  const script = typeof scriptValue === 'string' ? scriptValue.replace(/\r\n?/g, '\n').trim() : '';
-  const allScriptLines = script ? script.split('\n') : [];
-  const scriptLines = allScriptLines.slice(0, 8);
-  const truncated = allScriptLines.length > scriptLines.length;
-  if (!task && scriptLines.length === 0) return null;
-
-  return { task, scriptLines, truncated };
-}
-
-function traceCategoryOption(category: TraceCategoryId): TraceCategoryOption {
-  return TRACE_CATEGORY_OPTIONS.find((option) => option.id === category) ?? TRACE_CATEGORY_OPTIONS[TRACE_CATEGORY_OPTIONS.length - 1];
-}
-
-function traceCategoryLabel(category: TraceCategoryId): string {
-  return traceCategoryOption(category).label;
-}
-
-function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
-  const outcome = traceEventOutcome(event);
-  if (outcome === 'success') return <CheckCircle2 size={13} />;
-  if (outcome === 'failure') return <XCircle size={13} />;
-  return traceCategoryIcon(category);
-}
-
-function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
-  if (category === 'agent_output') return <Sparkles size={13} />;
-  if (category === 'reasoning') return <GitFork size={13} />;
-  if (category === 'tools') return <Terminal size={13} />;
-  if (category === 'vm_execution') return <Server size={13} />;
-  if (category === 'hypotheses') return <Bug size={13} />;
-  if (category === 'evidence') return <FileOutput size={13} />;
-  if (category === 'verifier') return <ShieldCheck size={13} />;
-  if (category === 'policy_scope') return <ShieldAlert size={13} />;
-  if (category === 'code_navigation') return <Search size={13} />;
-  if (category === 'failure_recovery') return <XCircle size={13} />;
-  return <Square size={13} />;
-}
-
-function traceTypeLabel(value: string): string {
-  return traceLabel(value);
-}
-
-function formatTraceTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return formatSessionTime(date);
 }
 
 function compactTracePayload(value: Record<string, unknown>): string {

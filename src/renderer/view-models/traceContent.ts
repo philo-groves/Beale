@@ -123,6 +123,44 @@ export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: R
   return Boolean(securityRecordToolCallDetail(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
 }
 
+export interface PythonToolCallPreview {
+  task: string;
+  scriptLines: string[];
+  truncated: boolean;
+}
+
+export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
+  if (hasStructuredProseTraceDetail(event, detail)) return true;
+
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  if (!text) return false;
+  if (tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptRole') === 'assistant') return true;
+  if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'agent_output') return true;
+  return category === 'agent_output' && event.source === 'model';
+}
+
+export function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
+  if (event.type !== 'tool_call') return null;
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (toolName !== 'python') return null;
+
+  const args = tracePayloadRecord(event.payload, 'arguments');
+  if (!args) return null;
+
+  const task = stringRecordValue(args, 'task') ?? '';
+  const scriptValue = args.script;
+  const script = typeof scriptValue === 'string' ? scriptValue.replace(/\r\n?/g, '\n').trim() : '';
+  const allScriptLines = script ? script.split('\n') : [];
+  const scriptLines = allScriptLines.slice(0, 8);
+  const truncated = allScriptLines.length > scriptLines.length;
+  if (!task && scriptLines.length === 0) return null;
+
+  return { task, scriptLines, truncated };
+}
+
 export function formatReasoningTraceText(text: string): string {
   const thoughts: string[] = [];
   let current = '';

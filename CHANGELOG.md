@@ -17,6 +17,7 @@
 - Added evidence sidebar sorting and scroll-key coverage to renderer research item tests.
 - Added renderer trace display tests for trace timeline grouping, filtering, rendered group packing, and turn status labels.
 - Added renderer trace content tests for trace labels, structured detail text, reasoning text cleanup, provenance lookup, and path compaction.
+- Added renderer trace visual tests for trace category filter metadata and trace type labels.
 
 ### Changed
 
@@ -30,6 +31,7 @@
 - Extracted the workbench session header and trace turn helpers from `App.tsx` into session feature and view-model modules.
 - Extracted trace timeline grouping and turn status helpers from `App.tsx` into the trace display view-model.
 - Extracted trace label, detail text, provenance lookup, and path compaction helpers from `App.tsx` into the trace content view-model.
+- Extracted trace row rendering, trace prose/code markup rendering, and trace category visual helpers from `App.tsx` into trace feature modules.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 

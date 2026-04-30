@@ -5,6 +5,9 @@ import {
   findingForTraceEvent,
   formatReasoningTraceText,
   hypothesisForTraceEvent,
+  isProseTraceEvent,
+  lineRangePart,
+  pythonToolCallPreview,
   traceEventDetailText,
   traceEventSummary
 } from '../src/renderer/view-models/traceContent';
@@ -52,6 +55,28 @@ describe('renderer trace content view models', () => {
       }
     });
     expect(traceEventDetailText(hypothesisTool, 'hypotheses')).toBe('Cross-site Scripting (CWE-79): Reflected callback parameter reaches HTML');
+  });
+
+  it('builds python previews and prose decisions for trace rows', () => {
+    const python = traceEvent({
+      type: 'tool_call',
+      summary: 'OpenAI completed function call arguments for python.',
+      payload: {
+        toolName: 'python',
+        arguments: {
+          task: 'Check parser edge cases',
+          script: Array.from({ length: 10 }, (_, index) => `print(${index})`).join('\n')
+        }
+      }
+    });
+
+    expect(pythonToolCallPreview(python)).toMatchObject({
+      task: 'Check parser edge cases',
+      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
+      truncated: true
+    });
+    expect(isProseTraceEvent(traceEvent({ source: 'model', type: 'model_message', payload: { text: 'Agent response', transcriptRole: 'assistant' } }), 'agent_output')).toBe(true);
+    expect(lineRangePart({ lineStart: 12, lineEnd: 19 })).toBe('lines 12-19');
   });
 
   it('uses session records for hypothesis and finding trace details when available', () => {
