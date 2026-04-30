@@ -93,6 +93,20 @@ import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import {
+  clampPriorityScoreForDisplay,
+  formatDurationHms,
+  formatPercent,
+  formatPriorityPill,
+  formatSessionDateTime,
+  formatSessionStart,
+  formatSessionTime,
+  networkProfileLabel,
+  shortDate,
+  stateClass,
+  traceLabel,
+  truncateText
+} from './lib/formatting';
+import {
   isToolCallNamed,
   stringRecordValue,
   toolNameFromSummary,
@@ -203,7 +217,6 @@ const TRACE_WINDOW_ANCHOR_BUFFER = 8;
 const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
-const MAX_PRIORITY_SCORE = 64;
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -1161,11 +1174,6 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function truncateText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
-}
-
 function countLines(value: string): number {
   return value.length === 0 ? 0 : value.split('\n').length;
 }
@@ -1298,34 +1306,6 @@ function latestRunDetailDate(detail: RunDetail): Date | null {
   }, null);
   return latestTimestamp === null ? null : new Date(latestTimestamp);
 }
-
-function formatSessionStart(date: Date): string {
-  return `${SESSION_MONTHS[date.getMonth()]} ${date.getDate()}, ${formatSessionTime(date)}`;
-}
-
-function formatSessionDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Unknown';
-  return formatSessionStart(date);
-}
-
-function formatSessionTime(date: Date): string {
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const hour24 = date.getHours();
-  const hour12 = hour24 % 12 || 12;
-  const suffix = hour24 < 12 ? 'a' : 'p';
-  return `${hour12}:${minutes}${suffix}`;
-}
-
-function formatDurationHms(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60) % 60;
-  const hours = Math.floor(totalSeconds / 3600);
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
-const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function MainSessionWorkspace({
   detail,
@@ -2100,15 +2080,6 @@ function CwePill({ mappings }: { mappings: WeaknessMappingRecord[] }): JSX.Eleme
       {primary.cweId}
     </span>
   );
-}
-
-function formatPriorityPill(priorityScore: number): string {
-  return `P${clampPriorityScoreForDisplay(priorityScore)}`;
-}
-
-function clampPriorityScoreForDisplay(priorityScore: number): number {
-  if (!Number.isFinite(priorityScore)) return 0;
-  return Math.max(0, Math.min(MAX_PRIORITY_SCORE, Math.round(priorityScore)));
 }
 
 function traceEventForHypothesis(events: TraceDisplayEvent[], hypothesis: HypothesisRecord): TraceDisplayEvent | null {
@@ -3453,13 +3424,6 @@ function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
   if (category === 'code_navigation') return <Search size={13} />;
   if (category === 'failure_recovery') return <XCircle size={13} />;
   return <Square size={13} />;
-}
-
-function traceLabel(value: string): string {
-  return value
-    .split('_')
-    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
-    .join(' ');
 }
 
 function traceTypeLabel(value: string): string {
@@ -6244,26 +6208,6 @@ function clientRequestId(prefix: string): string {
 function extendBudgetLimit(value: unknown, unboundedValue: number, step: number): number {
   const current = budgetNumber(value, unboundedValue);
   return current >= unboundedValue ? unboundedValue : current + step;
-}
-
-function networkProfileLabel(profile: string): string {
-  if (profile === 'offline') return 'Offline';
-  if (profile === 'scoped') return 'Scoped';
-  if (profile === 'elevated') return 'Elevated';
-  return profile;
-}
-
-function stateClass(state: string): string {
-  return state.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
-}
-
-function formatPercent(value: number): string {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${Math.round(value * 100)}%`;
-}
-
-function shortDate(value: string): string {
-  return value.slice(0, 10);
 }
 
 function onboardingFormFromDefaults(defaults: ProgramOnboardingDefaults): ProgramOnboardingFormState {

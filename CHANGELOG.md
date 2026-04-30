@@ -11,6 +11,7 @@
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
+- Added renderer formatting tests for shared label, date, duration, priority, and truncation helpers.
 
 ### Changed
 
@@ -20,6 +21,7 @@
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.
 - Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
 - Extracted shared modal infrastructure, notification modals, and the research prompt modal from `App.tsx`.
+- Extracted shared renderer formatting helpers from `App.tsx` into `src/renderer/lib/formatting.ts`.
 
 ### Fixed
 

@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { ChevronRight, XCircle } from 'lucide-react';
 import type { NotificationRecord } from '@shared/types';
 import { Modal } from '../../app/Modal';
+import { truncateText } from '../../lib/formatting';
 
 export function NotificationStack({
   notifications,
@@ -96,9 +97,4 @@ function firstMarkdownSentence(markdown: string): string {
   const text = lines.join(' ').replace(/\s+/g, ' ').trim();
   const match = text.match(/^(.+?[.!?])(?:\s|$)/);
   return (match?.[1] ?? text).trim();
-}
-
-function truncateText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }

@@ -216,5 +216,6 @@ Implementation note, 2026-04-30:
 - Shared modal rendering moved into `src/renderer/app/Modal.tsx`.
 - Notification stack/detail rendering moved into `src/renderer/features/notifications/Notifications.tsx`.
 - Original research prompt modal rendering moved into `src/renderer/features/sessions/ResearchPromptModal.tsx`.
+- Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, and notification preview text.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, notification preview text, and shared renderer formatting.
