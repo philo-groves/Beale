@@ -15,21 +15,16 @@ import type {
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
+import { AppModals } from './app/AppModals';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
-import { NotificationDetailModal, NotificationStack } from './features/notifications/Notifications';
-import { ProgramInformationModal, ProgramSessionHistoryModal } from './features/programs/ProgramModals';
-import { ProgramOnboardingModal } from './features/programs/ProgramOnboardingModal';
+import { NotificationStack } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
-import { StartRunForm } from './features/sessions/StartRunForm';
-import { ResearchPromptModal } from './features/sessions/ResearchPromptModal';
-import { SettingsModal, type SettingsSection } from './features/settings/SettingsModal';
-import { TraceDetailModal } from './features/traces/TraceDetailModal';
-import { TraceFilterModal } from './features/traces/TraceFilterModal';
+import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useProgramOverlayState } from './hooks/useProgramOverlayState';
@@ -462,87 +457,62 @@ export function App(): JSX.Element {
         onToggleInspector={toggleInspector}
       />
       <NotificationStack notifications={snapshot?.notifications ?? []} onOpen={openNotification} onDismiss={dismissNotification} />
-      {programDraft ? (
-        <ProgramOnboardingModal
-          busy={busy}
-          form={programDraft}
-          onCancel={() => setProgramDraft(null)}
-          onChange={setProgramDraft}
-          onLookupHackerOne={lookupHackerOneProgram}
-          onTemplate={applyOnboardingTemplate}
-          onSubmit={submitProgramOnboarding}
-        />
-      ) : null}
-      {newResearchOpen && snapshot ? (
-        <StartRunForm
-          snapshot={snapshot}
-          vmPreference={vmPreference}
-          busy={busy}
-          runAction={runAction}
-          onCancel={() => setNewResearchOpen(false)}
-          onStarted={(runId) => {
-            clearRunDetail();
-            setSelectedRunId(runId);
-            setNewResearchOpen(false);
-          }}
-        />
-      ) : null}
-      {settingsOpen ? (
-        <SettingsModal
-          section={settingsSection}
-          executor={snapshot?.executor ?? null}
-          vmPreference={vmPreference}
-          openAiOAuthResult={openAiOAuthResult}
-          openAiStatus={snapshot?.openAi ?? openAiStatus}
-          busy={busy}
-          onChangeSection={setSettingsSection}
-          onClose={() => setSettingsOpen(false)}
-          onSetVmPreference={updateVmPreference}
-          onRefreshOpenAi={refreshOpenAiProvider}
-          onStartOpenAiOAuth={startOpenAiOAuth}
-        />
-      ) : null}
-      {traceFilterOpen ? (
-        <TraceFilterModal
-          visibleCategories={visibleTraceCategories}
-          onChange={setVisibleTraceCategories}
-          onClose={() => setTraceFilterOpen(false)}
-        />
-      ) : null}
-      {activeNotification ? (
-        <NotificationDetailModal
-          notification={activeNotification}
-          busy={busy}
-          onClose={() => setActiveNotification(null)}
-          onSteer={(instruction) => {
-            void runAction(() => window.beale.steerRun({ type: 'steer', runId: activeNotification.runId, instruction }));
-            setActiveNotification(null);
-          }}
-        />
-      ) : null}
-      {researchPromptDetail ? <ResearchPromptModal detail={researchPromptDetail} onClose={() => setResearchPromptDetail(null)} /> : null}
-      {traceDetailOpen && selectedTraceEvent ? (
-        <TraceDetailModal
-          detail={activeRunDetail}
-          event={selectedTraceEvent}
-          finding={selectedTraceFinding}
-          hypothesis={selectedTraceHypothesis}
-          onClose={closeTraceDetail}
-        />
-      ) : null}
-      {programInfo ? <ProgramInformationModal program={programInfo} onClose={() => setProgramInfo(null)} /> : null}
-      {sessionHistoryProgram ? (
-        <ProgramSessionHistoryModal
-          program={sessionHistoryProgram}
-          sessions={sessionHistorySessions}
-          selectedRunId={selectedRunId}
-          onClose={() => setSessionHistoryProgramId(null)}
-          onOpenSession={(session) => {
-            openResearchSession(sessionHistoryProgram, session);
-            setSessionHistoryProgramId(null);
-          }}
-        />
-      ) : null}
+      <AppModals
+        activeNotification={activeNotification}
+        activeRunDetail={activeRunDetail}
+        busy={busy}
+        newResearchOpen={newResearchOpen}
+        openAiOAuthResult={openAiOAuthResult}
+        openAiStatus={snapshot?.openAi ?? openAiStatus}
+        programDraft={programDraft}
+        programInfo={programInfo}
+        researchPromptDetail={researchPromptDetail}
+        selectedRunId={selectedRunId}
+        selectedTraceEvent={selectedTraceEvent}
+        selectedTraceFinding={selectedTraceFinding}
+        selectedTraceHypothesis={selectedTraceHypothesis}
+        sessionHistoryProgram={sessionHistoryProgram}
+        sessionHistorySessions={sessionHistorySessions}
+        settingsOpen={settingsOpen}
+        settingsSection={settingsSection}
+        snapshot={snapshot}
+        traceDetailOpen={traceDetailOpen}
+        traceFilterOpen={traceFilterOpen}
+        visibleTraceCategories={visibleTraceCategories}
+        vmPreference={vmPreference}
+        onCancelNewResearch={() => setNewResearchOpen(false)}
+        onCancelProgramOnboarding={() => setProgramDraft(null)}
+        onChangeProgramDraft={setProgramDraft}
+        onChangeSettingsSection={setSettingsSection}
+        onChangeVisibleTraceCategories={setVisibleTraceCategories}
+        onCloseNotification={() => setActiveNotification(null)}
+        onCloseProgramInfo={() => setProgramInfo(null)}
+        onCloseResearchPrompt={() => setResearchPromptDetail(null)}
+        onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
+        onCloseSettings={() => setSettingsOpen(false)}
+        onCloseTraceDetail={closeTraceDetail}
+        onCloseTraceFilters={() => setTraceFilterOpen(false)}
+        onLookupHackerOne={lookupHackerOneProgram}
+        onOpenSessionHistorySession={(program, session) => {
+          openResearchSession(program, session);
+          setSessionHistoryProgramId(null);
+        }}
+        onProgramTemplate={applyOnboardingTemplate}
+        onRefreshOpenAi={refreshOpenAiProvider}
+        onSetVmPreference={updateVmPreference}
+        onStartOpenAiOAuth={startOpenAiOAuth}
+        onStartedNewResearch={(runId) => {
+          clearRunDetail();
+          setSelectedRunId(runId);
+          setNewResearchOpen(false);
+        }}
+        onSteerNotification={(notification, instruction) => {
+          void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
+          setActiveNotification(null);
+        }}
+        onSubmitProgramOnboarding={submitProgramOnboarding}
+        runAction={runAction}
+      />
     </div>
   );
 }
