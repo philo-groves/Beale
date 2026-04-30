@@ -210,6 +210,8 @@ Implementation note, 2026-04-30:
 
 - Footer/status rendering moved out of `src/renderer/App.tsx` into `src/renderer/app/StatusBar.tsx`.
 - Top bar and window control rendering moved into `src/renderer/app/TopBar.tsx`.
+- App background pulse rendering moved into `src/renderer/app/AppBackgroundPulses.tsx`.
+- Program/sidebar rendering moved into `src/renderer/features/programs/ProgramSidebar.tsx`.
 - Momentum snake/context rendering moved into `src/renderer/features/momentum/`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting and host/VM footer label behavior.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, and sidebar age formatting.

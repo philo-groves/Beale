@@ -1,13 +1,12 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import type { AnimationEvent as ReactAnimationEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type { DevMetricDetail } from './devInstrumentation';
 import {
   Archive,
   Ban,
   Bug,
-  CalendarClock,
   ChevronRight,
   CheckCircle2,
   Clock,
@@ -19,13 +18,11 @@ import {
   FileJson,
   FileOutput,
   FileText,
-  FolderPlus,
   Gauge,
   GitFork,
   GitMerge,
   KeyRound,
   LockKeyhole,
-  MoreVertical,
   Network,
   PackageCheck,
   Pause,
@@ -87,8 +84,10 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import { displaySessionTitle } from '../shared/sessionTitle';
+import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
+import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import type { ResearchMomentum, ResearchMomentumState } from './features/momentum/types';
 import {
   isToolCallNamed,
@@ -102,6 +101,7 @@ import {
 } from './traceClassification';
 import type { TraceCategoryId } from './traceClassification';
 import { findBackendByKind, type EnvironmentActivity } from './view-models/environmentDisplay';
+import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from './view-models/programDisplay';
 
 interface ScopeFormState {
   programName: string;
@@ -170,12 +170,6 @@ interface TraceScrollAnchor {
   offsetTop: number;
 }
 
-interface BackgroundPulse {
-  id: number;
-  cycle: number;
-  style: CSSProperties;
-}
-
 interface PythonToolCallPreview {
   task: string;
   scriptLines: string[];
@@ -207,7 +201,6 @@ const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const MAX_PRIORITY_SCORE = 64;
-const APP_BACKGROUND_PULSE_COUNT = 18;
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
 const TRACE_SUMMARY_VERBS = new Set([
@@ -382,8 +375,6 @@ const defaultRunInput: StartRunInput = {
   },
   fakeScenario: 'adaptive_portfolio'
 };
-
-const SIDEBAR_SESSION_LIMIT = 4;
 
 export function App(): JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
@@ -914,109 +905,24 @@ export function App(): JSX.Element {
         platform={windowControlPlatform}
         onToggleSidebar={toggleSidebar}
       />
-      <aside className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
-        <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={() => setNewResearchOpen(true)}>
-          <Play size={15} />
-          <span>New Research Session</span>
-        </button>
-        <div className="sidebar-quick-actions">
-          <button type="button" className="sidebar-utility-button" title="Search">
-            <Search size={15} />
-            <span>Search</span>
-          </button>
-          <button type="button" className="sidebar-utility-button" title="Schedules">
-            <CalendarClock size={15} />
-            <span>Schedules</span>
-          </button>
-        </div>
-        <div className="sidebar-section program-list">
-          <div className="section-row">
-            <div className="meta-label">Research Programs</div>
-            <button type="button" title="Add research program" disabled={busy} onClick={addProgram}>
-              <FolderPlus size={15} />
-            </button>
-          </div>
-          {(programRegistry?.programs ?? []).map((program) => {
-            const active = snapshot?.workspace.workspacePath === program.workspacePath;
-            const menuOpen = openProgramMenuId === program.id;
-            const sessions = programRegistry ? researchSessionsForProgram(programRegistry, program) : [];
-            const visibleSessions = sessions.slice(0, SIDEBAR_SESSION_LIMIT);
-            return (
-              <div className="program-group" key={program.id}>
-                <div className={`program-item-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-program-menu-root>
-                  <button type="button" className="program-item" title={program.workspacePath} onClick={() => openRegisteredProgram(program)}>
-                    <Terminal size={15} />
-                    <span>{program.programName}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="program-menu-button"
-                    title={`${program.programName} options`}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setOpenProgramMenuId((current) => (current === program.id ? null : program.id));
-                    }}
-                  >
-                    <MoreVertical size={14} />
-                  </button>
-                  {menuOpen ? (
-                    <div className="program-menu" role="menu">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setProgramInfo(program);
-                          setOpenProgramMenuId(null);
-                        }}
-                      >
-                        Program Information
-                      </button>
-                      <button type="button" role="menuitem" className="danger" onClick={() => removeRegisteredProgram(program)}>
-                        Remove
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="program-session-list">
-                  {visibleSessions.length > 0 ? (
-                    visibleSessions.map((session) => (
-                      <div className="program-session-row" key={session.id}>
-                        <SessionActiveIndicator status={session.status} />
-                        <button
-                          type="button"
-                          className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
-                          title={promptSessionTitle(session)}
-                          onClick={() => openResearchSession(program, session)}
-                        >
-                          <span className="program-session-title">{promptSessionTitle(session)}</span>
-                          <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <span className="program-session-empty">No Session Yet...</span>
-                  )}
-                  {sessions.length > SIDEBAR_SESSION_LIMIT ? (
-                    <button type="button" className="program-session-more" onClick={() => setSessionHistoryProgramId(program.id)}>
-                      More Sessions...
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-          {!programRegistry && snapshot ? (
-            <button type="button" className="program-item active" title={snapshot.workspace.workspacePath}>
-              <Terminal size={15} />
-              <span>{snapshot.activeScope.programName}</span>
-            </button>
-          ) : null}
-        </div>
-        {error ? <div className="error-box">{error}</div> : null}
-        <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={beginSidebarResize} />
-      </aside>
+      <ProgramSidebar
+        busy={busy}
+        collapsed={sidebarCollapsed}
+        error={error}
+        openProgramMenuId={openProgramMenuId}
+        programRegistry={programRegistry}
+        selectedRunId={selectedRunId}
+        snapshot={snapshot}
+        onAddProgram={addProgram}
+        onOpenProgram={openRegisteredProgram}
+        onOpenProgramInfo={setProgramInfo}
+        onOpenResearchSession={openResearchSession}
+        onRemoveProgram={removeRegisteredProgram}
+        onResizePointerDown={beginSidebarResize}
+        onSetOpenProgramMenuId={setOpenProgramMenuId}
+        onShowMoreSessions={setSessionHistoryProgramId}
+        onStartNewResearch={() => setNewResearchOpen(true)}
+      />
 
       <main className="workbench" data-session-heat={sessionHeat}>
         <div className="workbench-header">
@@ -1164,64 +1070,6 @@ function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null)
   return snapshot.runs[0]?.run.id ?? null;
 }
 
-const AppBackgroundPulses = memo(function AppBackgroundPulses(): JSX.Element {
-  useDevRenderProbe('background.pulses');
-  const [pulses, setPulses] = useState<BackgroundPulse[]>(() =>
-    Array.from({ length: APP_BACKGROUND_PULSE_COUNT }, (_, index) => ({
-      id: index,
-      cycle: 0,
-      style: randomBackgroundPulseStyle(index, true)
-    }))
-  );
-
-  const rerollPulse = useCallback((id: number, event: ReactAnimationEvent<HTMLSpanElement>): void => {
-    if (event.animationName !== 'app-background-pulse') return;
-    setPulses((current) =>
-      current.map((pulse) =>
-        pulse.id === id
-          ? {
-              ...pulse,
-              cycle: pulse.cycle + 1,
-              style: randomBackgroundPulseStyle(id, false)
-            }
-          : pulse
-      )
-    );
-  }, []);
-
-  return (
-    <div className="app-background-pulses" aria-hidden="true">
-      {pulses.map((pulse) => (
-        <span className="app-background-pulse" key={`${pulse.id}-${pulse.cycle}`} style={pulse.style} onAnimationEnd={(event) => rerollPulse(pulse.id, event)} />
-      ))}
-    </div>
-  );
-});
-
-function randomBackgroundPulseStyle(index: number, initial: boolean): CSSProperties {
-  const size = randomInteger(44, 118);
-  const delay = initial ? randomFloat(0, 2.8) : randomFloat(0.12, 2.4);
-  const durationScale = randomFloat(0.88, 1.18);
-  return {
-    '--pulse-x': `${randomFloat(3, 97).toFixed(1)}%`,
-    '--pulse-y': `${randomFloat(4, 96).toFixed(1)}%`,
-    '--pulse-size': `${size}px`,
-    '--pulse-radius': `${randomInteger(8, 19)}px`,
-    '--pulse-delay': `${delay.toFixed(2)}s`,
-    '--pulse-duration': `calc(var(--app-pulse-duration) * ${durationScale.toFixed(2)})`,
-    '--pulse-rotation': `${randomInteger(-12, 12)}deg`,
-    '--pulse-seed': String(index)
-  } as CSSProperties;
-}
-
-function randomInteger(min: number, max: number): number {
-  return Math.floor(randomFloat(min, max + 1));
-}
-
-function randomFloat(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
 function snapshotMetricDetail(snapshot: WorkspaceSnapshot | null): DevMetricDetail {
   return {
     active: Boolean(snapshot),
@@ -1310,14 +1158,6 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function researchSessionsForProgram(registry: ProgramRegistryState, program: ProgramRegistryEntry): ResearchSessionSummary[] {
-  return registry.researchSessions.filter((session) => session.programId === program.id || (!session.programId && session.workspacePath === program.workspacePath));
-}
-
-function promptSessionTitle(session: ResearchSessionSummary): string {
-  return displaySessionTitle(session.title, session.promptMarkdown);
-}
-
 function firstPromptSentence(promptMarkdown: string): string {
   const rawLines = promptMarkdown.split(/\r?\n/);
   const contentLines = rawLines.length > 1 && /^#{1,6}\s+/.test(rawLines[0]?.trim() ?? '') ? rawLines.slice(1) : rawLines;
@@ -1336,18 +1176,6 @@ function truncateText(value: string, maxLength: number): string {
 
 function countLines(value: string): number {
   return value.length === 0 ? 0 : value.split('\n').length;
-}
-
-function shortRelativeAge(iso: string): string {
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return '';
-  const minutes = Math.max(1, Math.floor((Date.now() - timestamp) / 60_000));
-  if (minutes < 60) return `${minutes}M`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}H`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}D`;
-  return `${Math.max(1, Math.floor(days / 7))}W`;
 }
 
 function NotificationStack({
@@ -1467,14 +1295,6 @@ function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Eleme
   return (
     <span className={`workbench-run-status run-status-${statusClass}`} title={`Run status: ${label}`} aria-label={`Run status: ${label}`}>
       {icon}
-    </span>
-  );
-}
-
-function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element {
-  return (
-    <span className="program-session-status" title={traceLabel(status)} aria-label={`Session status: ${traceLabel(status)}`}>
-      {status === 'active' ? <RefreshCw size={10} /> : null}
     </span>
   );
 }

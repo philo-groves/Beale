@@ -9,6 +9,7 @@
 - Added a cheap run-detail version IPC path and main-process timing logs for active-session performance diagnosis.
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
+- Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 
 ### Changed
 
@@ -16,6 +17,7 @@
 - Changed active run-detail polling to check a cheap version first and use incremental updates instead of full detail refreshes when possible.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.
+- Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
 
 ### Fixed
 
