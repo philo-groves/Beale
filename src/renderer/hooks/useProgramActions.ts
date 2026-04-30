@@ -20,6 +20,11 @@ export interface ProgramActions {
   lookupHackerOneProgram: (identifier: string) => Promise<void>;
 }
 
+export interface ProgramActionOptions {
+  markBusy?: boolean;
+  reloadRegistry?: boolean;
+}
+
 export function useProgramActions({
   snapshot,
   programDraft,
@@ -33,7 +38,7 @@ export function useProgramActions({
 }: {
   snapshot: WorkspaceSnapshot | null;
   programDraft: ProgramOnboardingFormState | null;
-  runProgramAction: (action: () => Promise<void>) => Promise<void>;
+  runProgramAction: (action: () => Promise<void>, options?: ProgramActionOptions) => Promise<void>;
   applySnapshot: (next: WorkspaceSnapshot | null) => void;
   clearRunDetail: () => void;
   setSelectedRunId: Dispatch<SetStateAction<string | null>>;
@@ -69,10 +74,11 @@ export function useProgramActions({
       void runProgramAction(async () => {
         clearRunDetail();
         const activeProgram = snapshot?.workspace.workspacePath === program.workspacePath;
-        const next = activeProgram ? await window.beale.getSnapshot() : await window.beale.openProgram(program.id);
-        applySnapshot(next);
+        if (!activeProgram) {
+          applySnapshot(await window.beale.openProgram(program.id));
+        }
         setSelectedRunId(session.runId);
-      });
+      }, { markBusy: false, reloadRegistry: false });
     },
     [applySnapshot, clearRunDetail, runProgramAction, setSelectedRunId, snapshot]
   );

@@ -10,6 +10,9 @@
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
 - Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > General.
 - Added a profiling overview modal and Debug header button while profiling is enabled.
+- Added main-process profiling timings for `getProgramRegistry`, `getSnapshot`, and `openProgram`, plus renderer payload sizing for program-registry updates.
+- Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
+- Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
@@ -27,6 +30,12 @@
 
 - Changed research prompt generation and refinement to use medium reasoning effort while preserving the selected session effort for actual run execution.
 - Changed active run-detail polling to check a cheap version first and use incremental updates instead of full detail refreshes when possible.
+- Changed production profiling so background JSONL flushes no longer update React state unless the Debug/Settings UI is observing reports.
+- Changed research session selection to avoid full snapshot and global program-registry refreshes when only the selected session changes.
+- Changed workspace switching to keep a small cache of recently opened program runtimes, reducing repeated cross-program session switch cold-open cost.
+- Changed run-row snapshot construction to use grouped SQLite aggregate queries instead of per-run lookups.
+- Changed vmctl capability status checks to use a short cache instead of spawning the controller on every snapshot render.
+- Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.
 - Extracted app background pulses and program sidebar rendering from `App.tsx` into app/program feature modules.
@@ -61,6 +70,7 @@
 ### Fixed
 
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
+- Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.

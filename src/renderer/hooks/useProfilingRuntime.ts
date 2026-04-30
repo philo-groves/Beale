@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProfilingReport, ProfilingState } from '@shared/types';
 import { devInstrumentation } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 
-export function useProfilingRuntime(onError: (message: string) => void): {
+export function useProfilingRuntime(
+  onError: (message: string) => void,
+  { observeReports = false }: { observeReports?: boolean } = {}
+): {
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
   setProfilingEnabled: (enabled: boolean) => Promise<void>;
@@ -11,6 +14,11 @@ export function useProfilingRuntime(onError: (message: string) => void): {
 } {
   const [profilingState, setProfilingState] = useState<ProfilingState | null>(null);
   const [lastProfilingReport, setLastProfilingReport] = useState<ProfilingReport | null>(null);
+  const observeReportsRef = useRef(observeReports);
+
+  useEffect(() => {
+    observeReportsRef.current = observeReports;
+  }, [observeReports]);
 
   useEffect(() => {
     window.beale
@@ -21,10 +29,17 @@ export function useProfilingRuntime(onError: (message: string) => void): {
 
   const recordReport = useCallback(
     (report: ProfilingReport): void => {
-      setLastProfilingReport(report);
+      const shouldUpdateUi = observeReportsRef.current || report.reason === 'manual';
+      if (shouldUpdateUi) {
+        setLastProfilingReport(report);
+      }
       window.beale
         .recordProfilingReport(report)
-        .then(setProfilingState)
+        .then((next) => {
+          if (observeReportsRef.current || report.reason === 'manual') {
+            setProfilingState(next);
+          }
+        })
         .catch((caught: unknown) => onError(errorMessage(caught)));
     },
     [onError]

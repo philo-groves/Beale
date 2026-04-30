@@ -2,7 +2,7 @@ import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo
 import type { JSX } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { RunDetail } from '@shared/types';
-import { devInstrumentation, useDevRenderProbe } from '../../devInstrumentation';
+import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import type { TraceCategoryId } from '../../traceClassification';
 import { buildTraceTimelineEntries, groupRenderedTraceEntries, latestTraceGroupKey, type TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { TraceTurnGroup } from './TraceTurnGroup';
@@ -179,7 +179,18 @@ export function TraceView({
     }
 
     const shouldQueue = traceFollowLatestRef.current && revealedTraceEntryIds.size > 0;
+    const receiveDetail = {
+      run: selectedRunId ?? 'none',
+      newEntries: newEntryIds.length,
+      timelineEntries: timelineEntryIds.length,
+      revealedEntries: revealedTraceEntryIds.size,
+      queueBefore: traceRevealQueueRef.current.length,
+      following: traceFollowLatestRef.current,
+      queued: shouldQueue
+    };
+    devInstrumentation.recordEvent('trace.list.newEntries', receiveDetail);
     if (!shouldQueue) {
+      const applyStartedAt = performance.now();
       startTransition(() => {
         setRevealedTraceEntryIds((current) => {
           const next = new Set(current);
@@ -187,6 +198,7 @@ export function TraceView({
           return next;
         });
       });
+      recordNextFrameTiming('trace.list.revealImmediate.nextFrameLatency', applyStartedAt, receiveDetail);
       return;
     }
 
@@ -196,8 +208,12 @@ export function TraceView({
         traceRevealQueueRef.current.push(id);
       }
     }
+    devInstrumentation.recordEvent('trace.list.queuedEntries', {
+      ...receiveDetail,
+      queueAfter: traceRevealQueueRef.current.length
+    });
     startTransition(() => setTraceRevealQueueVersion((version) => version + 1));
-  }, [revealedTraceEntryIds.size, timelineEntryKey, tracePresentationKey]);
+  }, [revealedTraceEntryIds.size, selectedRunId, timelineEntryIds, timelineEntryKey, tracePresentationKey]);
 
   useEffect(() => {
     const queueLength = traceRevealQueueRef.current.length;
@@ -207,6 +223,16 @@ export function TraceView({
       const batch = traceRevealQueueRef.current.splice(0, traceRevealBatchSize(traceRevealQueueRef.current.length));
       if (batch.length === 0) return;
 
+      const applyStartedAt = performance.now();
+      const revealDetail = {
+        run: selectedRunId ?? 'none',
+        batch: batch.length,
+        queueBefore: queueLength,
+        queueAfter: traceRevealQueueRef.current.length,
+        presented: presentedTimelineEntries.length,
+        timelineEntries: timelineEntries.length
+      };
+      devInstrumentation.recordEvent('trace.list.revealBatch', revealDetail);
       startTransition(() => {
         setRevealedTraceEntryIds((current) => {
           const next = new Set(current);
@@ -219,6 +245,7 @@ export function TraceView({
           return next;
         });
       });
+      recordNextFrameTiming('trace.list.revealBatch.nextFrameLatency', applyStartedAt, revealDetail);
 
       const cleanupTimer = window.setTimeout(() => {
         startTransition(() => {
@@ -238,7 +265,7 @@ export function TraceView({
     }, traceRevealDelayMs(queueLength));
 
     return () => window.clearTimeout(timer);
-  }, [traceRevealQueueVersion, tracePresentationKey]);
+  }, [presentedTimelineEntries.length, selectedRunId, timelineEntries.length, traceRevealQueueVersion, tracePresentationKey]);
 
   useLayoutEffect(() => {
     const anchor = pendingTraceScrollAnchorRef.current;

@@ -35,8 +35,20 @@ export class VmctlExecutorProvider implements ExecutorProvider {
   private readonly command = this.controller.command;
   private readonly args = this.controller.args;
   private readonly timeoutMs = positiveIntegerFromEnv('BEALE_VMCTL_TIMEOUT_MS', 15_000);
+  private readonly statusCacheMs = positiveIntegerFromEnv('BEALE_VMCTL_STATUS_CACHE_MS', 10_000);
+  private statusCache: { expiresAt: number; status: ExecutorCapabilities } | null = null;
 
   public getStatus(): ExecutorCapabilities {
+    const now = Date.now();
+    if (this.statusCache && this.statusCache.expiresAt > now) {
+      return this.statusCache.status;
+    }
+    const status = this.readStatus();
+    this.statusCache = { expiresAt: now + this.statusCacheMs, status };
+    return status;
+  }
+
+  private readStatus(): ExecutorCapabilities {
     if (!this.command) {
       return unavailableCapabilities(
         'No local VM controller is configured. Set BEALE_VMCTL_COMMAND to a VM controller that implements the Beale vmctl JSON protocol.',

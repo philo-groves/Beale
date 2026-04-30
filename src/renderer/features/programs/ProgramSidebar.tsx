@@ -1,11 +1,13 @@
+import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
 import { CalendarClock, FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
+import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
 
 const SIDEBAR_SESSION_LIMIT = 4;
 
-export function ProgramSidebar({
+export const ProgramSidebar = memo(function ProgramSidebar({
   busy,
   collapsed,
   error,
@@ -40,6 +42,12 @@ export function ProgramSidebar({
   onShowMoreSessions: (programId: string) => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
+  useDevRenderProbe('sidebar.programs', () => ({
+    collapsed,
+    programs: programRegistry?.programs.length ?? 0,
+    sessions: programRegistry?.researchSessions.length ?? 0
+  }));
+
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
       <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={onStartNewResearch}>
@@ -145,7 +153,7 @@ export function ProgramSidebar({
       <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={onResizePointerDown} />
     </aside>
   );
-}
+});
 
 function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element {
   return (

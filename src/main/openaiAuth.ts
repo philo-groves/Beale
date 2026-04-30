@@ -38,16 +38,22 @@ export class OpenAiAuthService {
   private commandCredential: CachedCommandCredential | null = null;
   private oauthLoginProcess: ChildProcessWithoutNullStreams | null = null;
   private latestOAuthStart: OpenAiOAuthStartResult | null = null;
+  private readonly statusCacheMs = positiveIntegerFromEnv('BEALE_OPENAI_STATUS_CACHE_MS', 10_000);
+  private statusCache: { expiresAt: number; status: OpenAiAccountStatus } | null = null;
 
   public constructor(private readonly options: OpenAiAuthServiceOptions = {}) {}
 
   public getStatus(): OpenAiAccountStatus {
+    const now = Date.now();
+    if (this.statusCache && this.statusCache.expiresAt > now) {
+      return this.statusCache.status;
+    }
     const probe = this.resolveCredential();
     const credential = probe.credential;
     const supportsWebSocket = true;
     const readiness = readinessFor(probe);
     const codexCliAvailable = commandExists(this.codexCommand());
-    return {
+    const status: OpenAiAccountStatus = {
       configured: credential !== null,
       source: credential?.source ?? 'not_configured',
       label: labelFor(credential?.source ?? null, readiness),
@@ -65,6 +71,8 @@ export class OpenAiAuthService {
       codexCliAvailable,
       onboardingSteps: onboardingStepsFor(probe, readiness, codexCliAvailable)
     };
+    this.statusCache = { expiresAt: now + this.statusCacheMs, status };
+    return status;
   }
 
   public getCredential(): OpenAiCredential | null {
@@ -81,9 +89,11 @@ export class OpenAiAuthService {
 
   public clearCachedCredential(): void {
     this.commandCredential = null;
+    this.statusCache = null;
   }
 
   public async startOAuthLogin(): Promise<OpenAiOAuthStartResult> {
+    this.clearCachedCredential();
     const command = this.codexCommand();
     const displayCommand = `${command} login --device-auth`;
     if (!commandExists(command)) {

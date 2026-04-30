@@ -7,7 +7,7 @@ import type {
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
-import { devInstrumentation } from '../devInstrumentation';
+import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 import {
   selectRunId,
@@ -50,7 +50,9 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   }, [applySnapshot]);
 
   const loadProgramRegistry = useCallback(async () => {
-    setProgramRegistry(await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry()));
+    const next = await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry());
+    devInstrumentation.recordPayload('ipc.programRegistry.apply', next, programRegistryMetricDetail(next));
+    setProgramRegistry(next);
   }, []);
 
   useEffect(() => {
@@ -68,7 +70,10 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
 
     devInstrumentation
       .timeAsync('ipc.getProgramRegistry.initial', () => window.beale.getProgramRegistry())
-      .then(setProgramRegistry)
+      .then((initial) => {
+        devInstrumentation.recordPayload('ipc.programRegistry.initial', initial, programRegistryMetricDetail(initial));
+        setProgramRegistry(initial);
+      })
       .catch((caught: unknown) => onError(errorMessage(caught)));
 
     window.beale
@@ -82,11 +87,18 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       .catch((caught: unknown) => onError(errorMessage(caught)));
 
     const unsubscribeSnapshot = window.beale.onSnapshot((next) => {
-      devInstrumentation.recordPayload('ipc.snapshot.event', next, snapshotMetricDetail(next));
+      const applyStartedAt = performance.now();
+      const detail = snapshotMetricDetail(next);
+      devInstrumentation.recordPayload('ipc.snapshot.event', next, detail);
       startTransition(() => applySnapshot(next));
+      recordNextFrameTiming('ipc.snapshot.event.apply.nextFrameLatency', applyStartedAt, detail);
     });
     const unsubscribeProgramRegistry = window.beale.onProgramRegistry((next) => {
+      const applyStartedAt = performance.now();
+      const detail = programRegistryMetricDetail(next);
+      devInstrumentation.recordPayload('ipc.programRegistry.event', next, detail);
       startTransition(() => setProgramRegistry(next));
+      recordNextFrameTiming('ipc.programRegistry.event.apply.nextFrameLatency', applyStartedAt, detail);
     });
     const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
     return () => {
@@ -109,5 +121,12 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
     applySnapshot,
     loadSnapshot,
     loadProgramRegistry
+  };
+}
+
+function programRegistryMetricDetail(registry: ProgramRegistryState | null): Record<string, number> {
+  return {
+    programs: registry?.programs.length ?? 0,
+    sessions: registry?.researchSessions.length ?? 0
   };
 }

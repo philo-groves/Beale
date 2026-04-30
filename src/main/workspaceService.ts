@@ -1,5 +1,6 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { release, tmpdir } from 'node:os';
+import { performance } from 'node:perf_hooks';
 import { join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
@@ -65,6 +66,7 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   backendKind: null,
   updatedAt: null
 };
+const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 
@@ -1327,16 +1329,23 @@ export class WorkspaceService {
     this.clearPendingChange();
     const runtime = this.detachForegroundRuntime();
     if (!runtime) return;
-    if (this.hasActiveRuntimeWork(runtime)) {
-      this.backgroundRuntimes.set(runtime.workspacePath, runtime);
-      this.syncProgramRegistryForRuntime(runtime, false);
-      return;
-    }
-    this.disposeRuntime(runtime);
+    this.backgroundRuntimes.set(runtime.workspacePath, runtime);
+    this.syncProgramRegistryForRuntime(runtime, false);
+    this.pruneBackgroundRuntimeCache();
   }
 
   private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
     return runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active');
+  }
+
+  private pruneBackgroundRuntimeCache(): void {
+    if (this.backgroundRuntimes.size <= MAX_CACHED_BACKGROUND_RUNTIMES) return;
+    for (const [workspacePath, runtime] of this.backgroundRuntimes) {
+      if (this.backgroundRuntimes.size <= MAX_CACHED_BACKGROUND_RUNTIMES) return;
+      if (this.hasActiveRuntimeWork(runtime)) continue;
+      this.backgroundRuntimes.delete(workspacePath);
+      this.disposeRuntime(runtime);
+    }
   }
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
@@ -1437,18 +1446,19 @@ export class WorkspaceService {
   }
 
   private snapshotForRuntime(runtime: WorkspaceRuntime): WorkspaceSnapshot {
-    const activeScope = runtime.db.getActiveScope();
+    const detail = { workspace: runtime.workspacePath.split(/[\\/]/).pop() ?? 'workspace' };
+    const activeScope = this.profileMainTiming('snapshot.activeScope', detail, () => runtime.db.getActiveScope());
     return {
-      workspace: this.getWorkspaceSummary(runtime),
-      openAi: this.openAiAuth.getStatus(),
-      executor: runtime.executorManager.getStatus(),
-      vmPreference: this.getVmPreferenceForSnapshot(),
+      workspace: this.profileMainTiming('snapshot.workspaceSummary', detail, () => this.getWorkspaceSummary(runtime)),
+      openAi: this.profileMainTiming('snapshot.openAiStatus', detail, () => this.openAiAuth.getStatus()),
+      executor: this.profileMainTiming('snapshot.executorStatus', detail, () => runtime.executorManager.getStatus()),
+      vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
-      policyReview: buildPolicyReview(activeScope),
-      runs: runtime.db.listRunRows(),
-      notifications: runtime.db.listNotifications(),
-      benchmark: runtime.benchmarkRunner.getOverview()
+      policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
+      runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
+      notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications()),
+      benchmark: this.profileMainTiming('snapshot.benchmark', detail, () => runtime.benchmarkRunner.getOverview())
     };
   }
 
@@ -1482,6 +1492,15 @@ export class WorkspaceService {
     if (!this.pendingChangeTimer) return;
     clearTimeout(this.pendingChangeTimer);
     this.pendingChangeTimer = null;
+  }
+
+  private profileMainTiming<T>(name: string, detail: ProfilingMetricDetail, operation: () => T): T {
+    const startedAt = performance.now();
+    try {
+      return operation();
+    } finally {
+      this.recordProfilingMainTiming(name, performance.now() - startedAt, detail);
+    }
   }
 
   private exportEvidenceBundle(runId: string, findingId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
