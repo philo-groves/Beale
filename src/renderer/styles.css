@@ -3221,8 +3221,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--text);
 }
 
-.generate-prompt-status,
-.generate-prompt-error {
+.generate-prompt-status {
   min-width: 0;
   max-width: min(390px, 42vw);
   overflow: hidden;
@@ -3235,10 +3234,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--muted);
 }
 
-.generate-prompt-error {
-  color: #ff6b6b;
-}
-
 .modal-form {
   display: grid;
   gap: 10px;
@@ -3248,6 +3243,32 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   display: grid;
   gap: 10px;
+}
+
+.generate-prompt-error-box {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: start;
+  border: 1px solid rgba(255, 107, 107, 0.28);
+  background: rgba(255, 107, 107, 0.08);
+  color: #ff9a9a;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.generate-prompt-error-box strong {
+  display: block;
+  color: #ffc1c1;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.generate-prompt-error-box p {
+  margin: 3px 0 0;
+  color: #ff9a9a;
 }
 
 .program-info-grid {

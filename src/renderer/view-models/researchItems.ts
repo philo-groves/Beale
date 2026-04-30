@@ -1,4 +1,4 @@
-import type { FindingRecord, HypothesisRecord, TraceEventRecord } from '@shared/types';
+import type { EvidenceRecord, FindingRecord, HypothesisRecord, TraceEventRecord } from '@shared/types';
 import { tracePayloadPrimitive } from '../traceClassification';
 
 export function hypothesisScrollKey(hypotheses: HypothesisRecord[]): string {
@@ -9,6 +9,14 @@ export function hypothesisScrollKey(hypotheses: HypothesisRecord[]): string {
 
 export function findingScrollKey(findings: FindingRecord[]): string {
   return findings.map((finding) => `${finding.id}:${finding.state}:${finding.priorityScore}:${finding.title}:${finding.summaryMarkdown.length}`).join('|');
+}
+
+export function sortedEvidence(evidence: EvidenceRecord[]): EvidenceRecord[] {
+  return [...evidence].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+export function evidenceScrollKey(evidence: EvidenceRecord[]): string {
+  return evidence.map((item) => `${item.id}:${item.kind}:${item.summary}:${item.createdAt}`).join('|');
 }
 
 export function traceEventForHypothesis<T extends TraceEventRecord>(events: T[], hypothesis: HypothesisRecord): T | null {

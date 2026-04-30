@@ -5,7 +5,7 @@ import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
 import { WorkspaceDatabase } from './database';
-import { OpenAiApiError, OpenAiResponsesAdapter, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
+import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
@@ -2429,7 +2429,7 @@ async function collectResearchPromptText(
         emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(doneText), onUpdate);
       }
       if (event.type === 'error') {
-        throw new Error('OpenAI returned an error while generating the research prompt.');
+        throw openAiApiErrorFromEvent(event);
       }
     }
   } catch (error) {

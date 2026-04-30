@@ -567,6 +567,44 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('surfaces OpenAI stream error reasons during research prompt generation', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () =>
+        new Response(
+          sse(
+            event('error', {
+              type: 'error',
+              status: 429,
+              error: {
+                message: 'The model is temporarily overloaded.',
+                code: 'rate_limit_exceeded'
+              }
+            })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+    });
+
+    service.createWorkspace(tempWorkspace());
+
+    await expect(
+      service.generateResearchPrompt({
+        requestId: 'stream_error_test',
+        operation: 'generate',
+        mode: 'dynamic',
+        attemptStrategy: 'single_path',
+        model: 'gpt-5.5',
+        reasoningEffort: 'medium',
+        networkProfile: 'scoped',
+        sandboxProfile: 'host_research_only',
+        targetAssetId: null,
+        targetPath: null
+      })
+    ).rejects.toThrow(/temporarily overloaded/);
+    service.close();
+  });
+
   it('keeps generated research prompts up to the 25k character cap', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
     const generatedPromptPrefix = '# Long generated plan\n';

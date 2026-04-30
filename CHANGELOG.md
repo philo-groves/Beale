@@ -14,6 +14,7 @@
 - Added renderer formatting tests for shared label, date, duration, priority, and truncation helpers.
 - Added renderer session header tests for status, configuration, timing, and trace turn display helpers.
 - Added renderer research item and session heat tests for hypothesis/finding provenance, scroll keys, and severity display helpers.
+- Added evidence sidebar sorting and scroll-key coverage to renderer research item tests.
 
 ### Changed
 
@@ -26,12 +27,14 @@
 - Extracted shared renderer formatting helpers from `App.tsx` into `src/renderer/lib/formatting.ts`.
 - Extracted the workbench session header and trace turn helpers from `App.tsx` into session feature and view-model modules.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
+- Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 
 ### Fixed
 
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
+- Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.
 
 ### Documentation
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { FindingRecord, HypothesisRecord, TraceEventRecord } from '@shared/types';
-import { findingScrollKey, hypothesisScrollKey, traceEventForFinding, traceEventForHypothesis } from '../src/renderer/view-models/researchItems';
+import type { EvidenceRecord, FindingRecord, HypothesisRecord, TraceEventRecord } from '@shared/types';
+import { evidenceScrollKey, findingScrollKey, hypothesisScrollKey, sortedEvidence, traceEventForFinding, traceEventForHypothesis } from '../src/renderer/view-models/researchItems';
 
 describe('renderer research item view models', () => {
   it('finds hypothesis provenance by created event and payload references', () => {
@@ -24,6 +24,14 @@ describe('renderer research item view models', () => {
   it('builds stable scroll keys from visible card fields', () => {
     expect(hypothesisScrollKey([hypothesisRecord({ title: 'A', descriptionMarkdown: 'abc' })])).toContain('hypothesis_test:needs_evidence:12:A:3');
     expect(findingScrollKey([findingRecord({ title: 'B', summaryMarkdown: 'abcd' })])).toContain('finding_test:verified:42:B:4');
+    expect(evidenceScrollKey([evidenceRecord({ summary: 'Runtime crash' })])).toContain('evidence_test:runtime:Runtime crash:2026-04-30T10:00:00.000Z');
+  });
+
+  it('sorts evidence newest first for the evidence sidebar', () => {
+    const older = evidenceRecord({ id: 'older', createdAt: '2026-04-30T10:00:00.000Z' });
+    const newer = evidenceRecord({ id: 'newer', createdAt: '2026-04-30T11:00:00.000Z' });
+
+    expect(sortedEvidence([older, newer]).map((item) => item.id)).toEqual(['newer', 'older']);
   });
 });
 
@@ -51,6 +59,16 @@ function findingRecord(input: Partial<FindingRecord> = {}): FindingRecord {
     cweMappings: [],
     ...input
   } as unknown as FindingRecord;
+}
+
+function evidenceRecord(input: Partial<EvidenceRecord> = {}): EvidenceRecord {
+  return {
+    id: 'evidence_test',
+    kind: 'runtime',
+    summary: 'Evidence',
+    createdAt: '2026-04-30T10:00:00.000Z',
+    ...input
+  } as unknown as EvidenceRecord;
 }
 
 function traceEvent(input: Partial<TraceEventRecord>): TraceEventRecord {
