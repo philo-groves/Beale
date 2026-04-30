@@ -40,7 +40,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ## Key Concepts
 
 - **Workspaces**: Local folders containing your target programs with `.beale/` metadata
-- **Runs / Sessions**: Research sessions with adaptive planning, steering, and forking
+- **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
 - **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
 - **Tools**: Structured, typed tools for code search, execution, debugging, artifact handling, verifiers, etc.
 - **Harness**: Trusted Electron main process manages credentials, policy, persistence, and coordination
@@ -50,8 +50,8 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ## Architecture (High-Level)
 
 - **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
-- **Renderer UI**: React-like TypeScript interface for visualization and interaction
-- **Execution Sandbox**: Targets and tools run isolated (initially host with warnings; aiming for Firecracker/etc.)
+- **Renderer UI**: React + TypeScript interface for visualization and interaction
+- **Execution Sandbox**: Targets and tools can run on the host with warnings today; Firecracker is the most exercised VM path
 - **Model Integration**: Tool-calling loop with strict verification requirements
 
 ---
@@ -59,12 +59,103 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ## Current State
 
 - Electron + Vite + TypeScript foundation
-- Basic workspace, run tracking, and trace UI
+- Multi-program local workspace registry
+- SQLite-backed research session persistence under `.beale/`
+- OpenAI-backed research session execution
+- Trace UI with model, tool, system, hypothesis, finding, evidence, and compaction events
+- Session transcripts persisted separately from trace metadata
+- Hypothesis and finding side panels
+- Steering for active sessions
+- OpenAI provider onboarding/status UI
+- Firecracker setup tooling and live test path on WSL/Linux
+- Opt-in local profiling that writes structured JSONL reports
 - Planning documents and architecture notes in the `planning/` directory
-- Early tool router and model integration
 - No public releases yet
 
 See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on direction and recent changes.
+
+### Known Incomplete Surfaces
+
+- The baked-in File/Edit/View/Window menu buttons are placeholders.
+- Sidebar Search and Schedules are not complete product flows.
+- Export, disclosure draft, and redacted trace review are incomplete.
+- Full pause/resume/stop/fork/restart run controls are incomplete.
+- Full verifier contract, artifact review, and evidence bundle controls are incomplete.
+- Hyper-V and Tart VM backends are not implemented yet.
+- Settings coverage is still narrow.
+
+See `planning/book/beta-readiness.md` for the current beta-readiness checklist.
+
+---
+
+## Running Locally
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the Electron app in development mode:
+
+```bash
+npm run dev
+```
+
+Build and preview a production-style local bundle:
+
+```bash
+npm run build
+npm run preview
+```
+
+Run local checks:
+
+```bash
+npm run typecheck
+npm test
+```
+
+Live OpenAI and Firecracker tests are opt-in because they require local credentials or host setup.
+
+---
+
+## Firecracker / VM Notes
+
+The Linux/WSL Firecracker path is the most exercised VM backend today.
+
+```bash
+npm run firecracker:init
+npm run firecracker:doctor
+```
+
+Privileged helper installation is intentionally explicit and may require `sudo`:
+
+```bash
+npm run firecracker:install-privileged-helper
+```
+
+Host execution is currently supported for product practicality, but VM-backed execution remains the safer direction for target code, generated PoCs, fuzzing, debugging, and closed-source executables.
+
+---
+
+## OpenAI Notes
+
+Live model runs require OpenAI credentials with Responses API access.
+
+OpenAI credentials should stay on the host. They should not be mounted into guest VMs.
+
+---
+
+## Planning Docs
+
+Good starting points:
+
+- `planning/book/product-scope.md`
+- `planning/book/first-release-mode.md`
+- `planning/book/roadmap.md`
+- `planning/book/beta-readiness.md`
+- `planning/book/SUMMARY.md`
 
 ---
 
@@ -80,11 +171,13 @@ The project includes strong policy and isolation intentions, but as it is pre-al
 
 Contributions are welcome, but because the project is so early, it's best to start with a discussion (open an issue) before submitting large changes.
 
+Before changing a subsystem, read the relevant planning docs under `planning/book/`.
+
 ---
 
 ## License
 
-[To be determined — check LICENSE file if present]
+MIT. See `LICENSE`.
 
 ---
 

@@ -78,4 +78,7 @@
 
 ### Documentation
 
+- Added a beta-readiness chapter for non-functional buttons, placeholder surfaces, and incomplete beta-facing controls.
+- Expanded the root README for human readers with current status, setup, safety boundaries, known incomplete surfaces, and planning links.
+- Added MIT licensing metadata and a root `LICENSE`.
 - Added a beta optimization planning chapter for renderer responsiveness, trace performance, animation budget, and performance-aware refactor sequencing.
