@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
 import type { TraceCategoryId } from '../src/renderer/traceClassification';
-import { buildTraceTimelineEntries, groupRenderedTraceEntries, traceGroupStatusLabel, type TraceTimelineGroup } from '../src/renderer/view-models/traceDisplay';
+import { buildTraceDisplayEvents, buildTraceTimelineEntries, groupRenderedTraceEntries, traceGroupStatusLabel, type TraceTimelineGroup } from '../src/renderer/view-models/traceDisplay';
 
 const ALL_CATEGORIES: TraceCategoryId[] = [
   'agent_output',
@@ -91,6 +91,71 @@ describe('renderer trace display view models', () => {
     expect(traceGroupStatusLabel(group({ modelCount: 1 }), false, 'completed')).toEqual({ kind: 'complete', label: 'Complete' });
     expect(traceGroupStatusLabel(group(), false, 'completed')).toEqual({ kind: 'events', label: 'Events' });
   });
+
+  it('builds display events from transcripts while replacing linked trace rows', () => {
+    const linkedTrace = traceEvent({
+      id: 'trace_linked',
+      sequence: 20,
+      source: 'model',
+      type: 'model_message',
+      payload: { turn: 3 },
+      vmContextId: 'vm_test',
+      createdAt: '2026-04-30T10:02:00.000Z'
+    });
+    const detail = runDetail({
+      traceEvents: [traceEvent({ id: 'trace_setup', sequence: 1, createdAt: '2026-04-30T10:00:00.000Z' }), linkedTrace],
+      transcriptMessages: [
+        transcriptMessage({
+          id: 'message_reasoning',
+          traceEventId: 'trace_linked',
+          role: 'assistant',
+          source: 'openai_reasoning_summary',
+          contentMarkdown: '**Focus** inspect auth',
+          createdAt: '2026-04-30T10:02:00.000Z'
+        })
+      ]
+    });
+
+    const events = buildTraceDisplayEvents(detail);
+
+    expect(events.map((event) => event.id)).toEqual(['trace_setup', 'transcript:message_reasoning']);
+    expect(events[1]).toMatchObject({
+      attemptId: null,
+      displayOnly: true,
+      modelVisible: true,
+      sequence: 20.01,
+      source: 'model',
+      summary: 'Thought.',
+      transcriptMessageId: 'message_reasoning',
+      vmContextId: 'vm_test',
+      payload: {
+        linkedTraceEventId: 'trace_linked',
+        text: '**Focus** inspect auth',
+        transcriptRole: 'assistant',
+        transcriptSource: 'openai_reasoning_summary',
+        turn: 3
+      }
+    });
+  });
+
+  it('deduplicates transcript display events by source, response item, and normalized text', () => {
+    const detail = runDetail({
+      transcriptMessages: [
+        transcriptMessage({ id: 'message_one', contentMarkdown: 'Hello   world', metadata: { responseId: 'resp_1', itemId: 'item_1' } }),
+        transcriptMessage({ id: 'message_duplicate', contentMarkdown: 'Hello world', metadata: { responseId: 'resp_1', itemId: 'item_1' } }),
+        transcriptMessage({ id: 'message_distinct', contentMarkdown: 'Hello world', metadata: { responseId: 'resp_1', itemId: 'item_2' } }),
+        transcriptMessage({ id: 'message_unkeyed', contentMarkdown: 'Hello world', metadata: {} }),
+        transcriptMessage({ id: 'message_unkeyed_duplicate', contentMarkdown: 'Hello world', metadata: {} })
+      ]
+    });
+
+    expect(buildTraceDisplayEvents(detail).map((event) => event.id)).toEqual([
+      'transcript:message_one',
+      'transcript:message_distinct',
+      'transcript:message_unkeyed',
+      'transcript:message_unkeyed_duplicate'
+    ]);
+  });
 });
 
 function group(input: Partial<TraceTimelineGroup> = {}): TraceTimelineGroup {
@@ -124,6 +189,52 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
     artifactId: null,
     toolCallId: null,
     approvalId: null,
+    ...input
+  };
+}
+
+function runDetail(input: { traceEvents?: TraceEventRecord[]; transcriptMessages?: TranscriptMessageRecord[] } = {}): RunDetail {
+  return {
+    run: {
+      id: 'run_test',
+      status: 'completed',
+      createdAt: '2026-04-30T10:00:00.000Z',
+      startedAt: '2026-04-30T10:00:00.000Z',
+      endedAt: null,
+      mode: 'dynamic',
+      attemptStrategy: 'breadth_first',
+      networkProfile: 'scoped',
+      title: '',
+      promptMarkdown: ''
+    },
+    attempts: [],
+    traceEvents: input.traceEvents ?? [],
+    transcriptMessages: input.transcriptMessages ?? [],
+    hypotheses: [],
+    artifacts: [],
+    evidence: [],
+    findings: [],
+    verifierContracts: [],
+    verifierRuns: [],
+    vmContexts: [],
+    modelSessions: [],
+    contextCompactions: [],
+    policyEvents: [],
+    exports: []
+  } as unknown as RunDetail;
+}
+
+function transcriptMessage(input: Partial<TranscriptMessageRecord> = {}): TranscriptMessageRecord {
+  return {
+    id: 'message_test',
+    runId: 'run_test',
+    attemptId: null,
+    traceEventId: null,
+    role: 'assistant',
+    contentMarkdown: 'Agent response.',
+    source: 'openai_output_text',
+    metadata: {},
+    createdAt: '2026-04-30T10:00:00.000Z',
     ...input
   };
 }

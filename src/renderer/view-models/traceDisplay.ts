@@ -1,5 +1,5 @@
-import type { RunStatus, TraceEventRecord } from '@shared/types';
-import { traceCategoryForEvent, traceEventOutcome } from '../traceClassification';
+import type { RunDetail, RunStatus, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
+import { stringRecordValue, traceCategoryForEvent, traceEventOutcome } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
 export interface TraceDisplayEvent extends TraceEventRecord {
@@ -111,6 +111,23 @@ export function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean
   return { kind: 'events', label: 'Events' };
 }
 
+export function buildTraceDisplayEvents(detail: RunDetail): TraceDisplayEvent[] {
+  const transcriptTraceIds = new Set(detail.transcriptMessages.map((message) => message.traceEventId).filter((id): id is string => Boolean(id)));
+  const traceById = new Map(detail.traceEvents.map((event) => [event.id, event]));
+  const baseEvents = detail.traceEvents.filter((event) => !transcriptTraceIds.has(event.id));
+  const transcriptEvents = uniqueTranscriptMessages(detail.transcriptMessages).map((message, index) =>
+    transcriptMessageToTraceEvent(message, index, traceById.get(message.traceEventId ?? ''))
+  );
+
+  return [...baseEvents, ...transcriptEvents].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt);
+    const rightTime = Date.parse(right.createdAt);
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+    if (left.sequence !== right.sequence) return left.sequence - right.sequence;
+    return left.id.localeCompare(right.id);
+  });
+}
+
 function createTraceTimelineGroup(key: string, label: string, startedAt: string): TraceTimelineGroup {
   return {
     key,
@@ -121,5 +138,68 @@ function createTraceTimelineGroup(key: string, label: string, startedAt: string)
     toolCount: 0,
     modelCount: 0,
     failureCount: 0
+  };
+}
+
+function uniqueTranscriptMessages(messages: TranscriptMessageRecord[]): TranscriptMessageRecord[] {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    const key = transcriptMessageDisplayKey(message);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function transcriptMessageDisplayKey(message: TranscriptMessageRecord): string | null {
+  const text = message.contentMarkdown.replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const responseId = stringRecordValue(message.metadata, 'responseId') ?? '';
+  const itemId = stringRecordValue(message.metadata, 'itemId') ?? '';
+  if (!responseId && !itemId) return null;
+  return [message.source, responseId, itemId, text].join('\u0000');
+}
+
+function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: number, linkedTraceEvent?: TraceEventRecord): TraceDisplayEvent {
+  const source: TraceEventRecord['source'] = message.role === 'assistant' ? 'model' : message.role === 'user' ? 'user' : 'system';
+  const type: TraceEventRecord['type'] = message.role === 'user' ? 'user_note' : 'model_message';
+  const summary =
+    message.source === 'openai_reasoning_summary'
+      ? 'Thought.'
+      : message.role === 'assistant'
+        ? 'Report agent output.'
+        : message.role === 'user'
+          ? 'Ask agent.'
+          : 'Record system message.';
+  const linkedTurn = linkedTraceEvent?.payload.turn;
+  const payload: Record<string, unknown> = {
+    text: message.contentMarkdown,
+    transcriptMessageId: message.id,
+    transcriptRole: message.role,
+    transcriptSource: message.source,
+    ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
+    ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
+    metadata: message.metadata
+  };
+
+  return {
+    id: `transcript:${message.id}`,
+    runId: message.runId,
+    attemptId: message.attemptId,
+    sequence: linkedTraceEvent ? linkedTraceEvent.sequence + 0.01 + index / 100_000 : -100_000 + index,
+    type,
+    source,
+    summary,
+    payload,
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: message.createdAt,
+    vmContextId: linkedTraceEvent?.vmContextId ?? null,
+    artifactId: null,
+    toolCallId: null,
+    approvalId: null,
+    transcriptMessageId: message.id,
+    displayOnly: true
   };
 }

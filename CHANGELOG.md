@@ -18,6 +18,7 @@
 - Added renderer trace display tests for trace timeline grouping, filtering, rendered group packing, and turn status labels.
 - Added renderer trace content tests for trace labels, structured detail text, reasoning text cleanup, provenance lookup, and path compaction.
 - Added renderer trace visual tests for trace category filter metadata and trace type labels.
+- Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
 
 ### Changed
 
@@ -34,6 +35,7 @@
 - Extracted trace row rendering, trace prose/code markup rendering, and trace category visual helpers from `App.tsx` into trace feature modules.
 - Extracted trace detail modal rendering and typed trace inspection panels from `App.tsx` into the trace feature module.
 - Extracted trace filter modal and trace turn group rendering from `App.tsx` into trace feature modules.
+- Extracted transcript-to-trace display event synthesis from `App.tsx` into the trace display view-model.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 
