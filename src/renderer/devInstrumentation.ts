@@ -324,6 +324,13 @@ export function useDevRenderProbe(surface: string, detail?: DevMetricDetail | ((
   });
 }
 
+export function recordNextFrameTiming(name: string, startedAt: number, detail: DevMetricDetail = {}): void {
+  if (!devInstrumentation.isEnabled() || typeof window === 'undefined') return;
+  window.requestAnimationFrame(() => {
+    devInstrumentation.recordTiming(name, performance.now() - startedAt, detail);
+  });
+}
+
 export function useDevInputLatencyProbe(): void {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;

@@ -21,7 +21,7 @@ import { SessionHeader } from './features/sessions/SessionHeader';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
-import { useProgramActions } from './hooks/useProgramActions';
+import { useProgramActions, type ProgramActionOptions } from './hooks/useProgramActions';
 import { useProgramOverlayState } from './hooks/useProgramOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
@@ -88,7 +88,7 @@ export function App(): JSX.Element {
     lastProfilingReport,
     setProfilingEnabled,
     flushProfilingReport
-  } = useProfilingRuntime(handleError);
+  } = useProfilingRuntime(handleError, { observeReports: profilingOpen || settingsOpen });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
@@ -103,11 +103,6 @@ export function App(): JSX.Element {
     sessions: programRegistry?.researchSessions.length ?? 0,
     traceEvents: runDetail?.traceEvents.length ?? 0,
     transcripts: runDetail?.transcriptMessages.length ?? 0
-  }));
-  useDevRenderProbe('sidebar.programs', () => ({
-    collapsed: sidebarCollapsed,
-    programs: programRegistry?.programs.length ?? 0,
-    sessions: programRegistry?.researchSessions.length ?? 0
   }));
   useDevInputLatencyProbe();
   useInsetScrollbarActivation();
@@ -154,16 +149,22 @@ export function App(): JSX.Element {
   );
 
   const runProgramAction = useCallback(
-    async (action: () => Promise<void>) => {
-      setBusy(true);
+    async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: ProgramActionOptions = {}) => {
+      if (markBusy) {
+        setBusy(true);
+      }
       setError(null);
       try {
         await action();
-        await loadProgramRegistry();
+        if (reloadRegistry) {
+          await loadProgramRegistry();
+        }
       } catch (caught) {
         setError(errorMessage(caught));
       } finally {
-        setBusy(false);
+        if (markBusy) {
+          setBusy(false);
+        }
       }
     },
     [loadProgramRegistry]
@@ -273,7 +274,13 @@ export function App(): JSX.Element {
     setSettingsOpen(true);
   }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openProfiling = useCallback(() => {
+    flushProfilingReport();
+    setProfilingOpen(true);
+  }, [flushProfilingReport]);
+  const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
+  const startNewResearch = useCallback(() => setNewResearchOpen(true), []);
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
 
   return (
@@ -283,7 +290,7 @@ export function App(): JSX.Element {
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
         profilingEnabled={profilingState?.enabled ?? false}
-        onOpenProfiling={() => setProfilingOpen(true)}
+        onOpenProfiling={openProfiling}
         onToggleSidebar={toggleSidebar}
       />
       <ProgramSidebar
@@ -302,7 +309,7 @@ export function App(): JSX.Element {
         onResizePointerDown={beginSidebarResize}
         onSetOpenProgramMenuId={setOpenProgramMenuId}
         onShowMoreSessions={setSessionHistoryProgramId}
-        onStartNewResearch={() => setNewResearchOpen(true)}
+        onStartNewResearch={startNewResearch}
       />
 
       <main className="workbench" data-session-heat={sessionHeat}>
@@ -382,7 +389,7 @@ export function App(): JSX.Element {
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
-        onCloseProfiling={() => setProfilingOpen(false)}
+        onCloseProfiling={closeProfiling}
         onCloseProgramInfo={() => setProgramInfo(null)}
         onCloseResearchPrompt={() => setResearchPromptDetail(null)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
@@ -396,9 +403,7 @@ export function App(): JSX.Element {
         }}
         onProgramTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
-        onFlushProfilingReport={() => {
-          flushProfilingReport();
-        }}
+        onFlushProfilingReport={flushProfilingReport}
         onSetProfilingEnabled={setProfilingEnabled}
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}

@@ -266,22 +266,35 @@ Implemented:
 - An incremental `RunDetailUpdate` IPC path that transfers only new trace/transcript rows plus small current collections when the renderer already has full detail.
 - Renderer polling that checks the cheap version first, uses incremental updates when possible, and falls back to full `RunDetail` for initial load or session switch.
 - Initial memo boundaries and stable callbacks for background pulses, top bar, footer/status bar, and the momentum/context meter.
+- A profiling self-noise reduction so background JSONL flushes keep writing reports but do not update app React state unless Settings or the Debug profiling modal is observing them.
+- Corrected sidebar render attribution by moving the `sidebar.programs` probe into the sidebar component instead of measuring it from `App`.
+- A lighter research-session selection path that no longer reloads the full snapshot or global program registry when the user only changes the selected session.
+- Additional profiling visibility for `getProgramRegistry`, `getSnapshot`, `openProgram`, and program-registry payload size.
+- A small recently opened workspace-runtime cache so repeated cross-program session switching can reuse initialized SQLite/runtime state instead of cold-opening each program.
+- Grouped run-row summary queries for snapshot construction, replacing per-run lookups for attempt counts, latest attempts, top hypotheses/findings, verifier state, policy blocks, and artifact counts.
+- Internal snapshot construction timings for workspace summary, OpenAI status, executor status, VM preference, policy review, run rows, notifications, and benchmark overview.
+- A short vmctl capability-status cache so regular snapshot rendering does not spawn the controller for every program switch.
+- A short OpenAI provider-status cache so regular snapshot rendering does not re-read credentials and re-check Codex CLI availability on every program switch.
+- Active trace-stream profiling for main-process snapshot broadcast work, renderer snapshot apply latency, incremental run-detail merge/apply latency, and trace reveal queue batches.
 
 The first measured sample showed that visible trace rendering was not the primary cost. The larger cost was full run-detail refresh: about 2 MB over IPC and roughly half a second for a completed session with 876 trace events and 35 transcript messages. The cheap-version polling path is the first correction for that specific bottleneck.
+
+The first post-profiling sample with session switching showed the main process run-detail work was cheap, with `getRunDetail` between roughly 3 and 20 ms and `getRunDetailVersion` between roughly 3 and 12 ms. Renderer-side waits were much larger, including hundreds of milliseconds around session switching, so the next work should focus on renderer invalidation, payload handoff, and component boundaries rather than SQLite query cost.
 
 ## Remaining Work
 
 Remaining beta optimization work should proceed in this order:
 
-1. Re-measure active sessions with the cheap-version polling path enabled.
-2. If `getRunDetailVersion` is still expensive, collapse its aggregate queries or add targeted indexes for version checks.
-3. If `getRunDetailUpdate` still grows too large, split its small collections into separate on-demand slices.
-4. Replace active polling with pushed incremental updates where practical, while keeping full snapshots for startup, recovery, and session switch.
-5. Split full run detail into stable summary, visible trace window, transcript slices, and modal-on-demand payloads for inactive and large historical sessions.
-6. Memoize trace display events, turn grouping, trace labels, and hypothesis/finding/evidence lookups by stable version keys.
-7. Cache markdown parsing and syntax highlighting by trace event id or transcript message id.
-8. Extract sidebar session summaries so active run updates do not rerender the full program list.
-9. Add focused tests for trace window continuity, memoized trace labels, and markdown/syntax output equivalence.
+1. Re-measure active sessions while trace events stream, with attention to `broadcastSnapshot.*`, `trace.runDetail.*`, `ipc.snapshot.event.apply.nextFrameLatency`, and `trace.list.revealBatch.nextFrameLatency`.
+2. If renderer-side IPC waits stay high while main timings remain low, profile payload handoff and React commit pressure around session switching.
+3. If `getRunDetailVersion` is still expensive in main-process timing, collapse its aggregate queries or add targeted indexes for version checks.
+4. If `getRunDetailUpdate` still grows too large, split its small collections into separate on-demand slices.
+5. Replace active polling with pushed incremental updates where practical, while keeping full snapshots for startup, recovery, and session switch.
+6. Split full run detail into stable summary, visible trace window, transcript slices, and modal-on-demand payloads for inactive and large historical sessions.
+7. Memoize trace display events, turn grouping, trace labels, and hypothesis/finding/evidence lookups by stable version keys.
+8. Cache markdown parsing and syntax highlighting by trace event id or transcript message id.
+9. Extract sidebar session summaries so active run updates do not rerender the full program list.
+10. Add focused tests for trace window continuity, memoized trace labels, and markdown/syntax output equivalence.
 
 ## First Practical Slice
 

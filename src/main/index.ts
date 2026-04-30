@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BenchmarkRunInput,
   ProfilingReport,
+  ProgramRegistryState,
   ProgramOnboardingInput,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
@@ -14,6 +15,7 @@ import type {
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
+  WorkspaceSnapshot,
   WorkspacePickerMode
 } from '@shared/types';
 import { getHostEnvironment, WorkspaceService } from './workspaceService';
@@ -206,12 +208,41 @@ function shortMetricId(id: string): string {
 }
 
 function broadcastSnapshot(): void {
-  const snapshot = workspaceService.getSnapshot();
-  const programRegistry = workspaceService.getProgramRegistryState();
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
-    window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
-  }
+  timedMainIpc('broadcastSnapshot.total', {}, () => {
+    const snapshot = timedMainIpc('broadcastSnapshot.getSnapshot', {}, () => workspaceService.getSnapshot());
+    const programRegistry = timedMainIpc('broadcastSnapshot.getProgramRegistry', snapshotBroadcastMetricDetail(snapshot), () => workspaceService.getProgramRegistryState());
+    const windows = BrowserWindow.getAllWindows();
+    timedMainIpc(
+      'broadcastSnapshot.sendAll',
+      {
+        ...snapshotBroadcastMetricDetail(snapshot),
+        ...programRegistryBroadcastMetricDetail(programRegistry),
+        windows: windows.length
+      },
+      () => {
+        for (const window of windows) {
+          window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
+          window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
+        }
+      }
+    );
+  });
+}
+
+function snapshotBroadcastMetricDetail(snapshot: WorkspaceSnapshot | null): Record<string, string | number | boolean> {
+  return {
+    active: Boolean(snapshot),
+    runs: snapshot?.runs.length ?? 0,
+    notifications: snapshot?.notifications.length ?? 0,
+    workspace: Boolean(snapshot?.workspace)
+  };
+}
+
+function programRegistryBroadcastMetricDetail(programRegistry: ProgramRegistryState): Record<string, string | number | boolean> {
+  return {
+    registryPrograms: programRegistry.programs.length,
+    registrySessions: programRegistry.researchSessions.length
+  };
 }
 
 function registerIpc(): void {
@@ -242,14 +273,16 @@ function registerIpc(): void {
         }
       : workspaceService.inspectProgramDirectory(path);
   });
-  ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => workspaceService.getProgramRegistryState());
+  ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => timedMainIpc('getProgramRegistry', {}, () => workspaceService.getProgramRegistryState()));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
   ipcMain.handle(IPC_CHANNELS.createProgram, (_event, input: ProgramOnboardingInput) => workspaceService.createProgram(input));
-  ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) => workspaceService.openProgram(programId));
+  ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) =>
+    timedMainIpc('openProgram', { program: shortMetricId(programId) }, () => workspaceService.openProgram(programId))
+  );
   ipcMain.handle(IPC_CHANNELS.removeProgram, (_event, programId: string) => workspaceService.removeProgram(programId));
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
-  ipcMain.handle(IPC_CHANNELS.getSnapshot, () => workspaceService.getSnapshot());
+  ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
   ipcMain.handle(IPC_CHANNELS.setVmPreference, (_event, input: VmPreferenceInput) => workspaceService.setVmPreference(input));
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());

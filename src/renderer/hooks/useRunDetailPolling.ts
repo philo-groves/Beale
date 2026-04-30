@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import type { RunDetail, RunStatus } from '@shared/types';
-import { devInstrumentation } from '../devInstrumentation';
+import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 import {
   mergeRunDetailUpdate,
@@ -71,7 +71,13 @@ export function useRunDetailPolling({
               () => window.beale.getRunDetailUpdate(selectedRunId, runDetailUpdateCursor(currentDetail)),
               { run: shortMetricId(selectedRunId) }
             );
-            return { detail: mergeRunDetailUpdate(currentDetail, update), version: update.version.version, update };
+            const updateMetricDetail = runDetailUpdateMetricDetail(update);
+            const detail = devInstrumentation.time('trace.mergeRunDetailUpdate', () => mergeRunDetailUpdate(currentDetail, update), {
+              ...updateMetricDetail,
+              currentTraceEvents: currentDetail.traceEvents.length,
+              currentTranscripts: currentDetail.transcriptMessages.length
+            });
+            return { detail, version: update.version.version, update };
           }
           const detail = await devInstrumentation.timeAsync('ipc.getRunDetail', () => window.beale.getRunDetail(selectedRunId), { run: shortMetricId(selectedRunId) });
           return { detail, version: version.version, update: null };
@@ -86,9 +92,13 @@ export function useRunDetailPolling({
           }
           if (!disposed && requestSeq === requestSeqRef.current) {
             if (version !== versionRef.current) {
+              const applyStartedAt = performance.now();
+              const applyDetail = runDetailApplyMetricDetail(detail, update);
               versionRef.current = version;
               detailRef.current = detail;
               startTransition(() => setRunDetail(detail));
+              devInstrumentation.recordEvent(update ? 'trace.runDetail.incrementalApply' : 'trace.runDetail.fullApply', applyDetail);
+              recordNextFrameTiming('trace.runDetail.apply.nextFrameLatency', applyStartedAt, applyDetail);
             } else {
               devInstrumentation.recordEvent('ipc.getRunDetail.versionRaceSkipped', {
                 run: shortMetricId(detail.run.id)
@@ -121,4 +131,16 @@ export function useRunDetailPolling({
   }, [clearRunDetail, onError, selectedRunId, selectedRunState]);
 
   return { runDetail, clearRunDetail };
+}
+
+function runDetailApplyMetricDetail(detail: RunDetail, update: { traceEvents: unknown[]; transcriptMessages: unknown[] } | null): Record<string, string | number | boolean> {
+  return {
+    run: shortMetricId(detail.run.id),
+    status: detail.run.status,
+    incremental: Boolean(update),
+    addedTraceEvents: update?.traceEvents.length ?? detail.traceEvents.length,
+    addedTranscripts: update?.transcriptMessages.length ?? detail.transcriptMessages.length,
+    totalTraceEvents: detail.traceEvents.length,
+    totalTranscripts: detail.transcriptMessages.length
+  };
 }
