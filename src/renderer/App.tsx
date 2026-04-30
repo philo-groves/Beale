@@ -119,7 +119,15 @@ import type { TraceCategoryId } from './traceClassification';
 import { findBackendByKind, type EnvironmentActivity } from './view-models/environmentDisplay';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from './view-models/programDisplay';
 import { isIgnoredHeatState, sessionHeatForDetail, type SessionHeat } from './view-models/sessionHeat';
-import { latestTraceGroupKey, traceTurnNumber, type TraceDisplayEvent } from './view-models/traceDisplay';
+import {
+  buildTraceTimelineEntries,
+  groupRenderedTraceEntries,
+  latestTraceGroupKey,
+  traceGroupStatusLabel,
+  type TraceDisplayEvent,
+  type TraceTimelineEntry,
+  type TraceTimelineGroup
+} from './view-models/traceDisplay';
 
 interface ScopeFormState {
   programName: string;
@@ -154,28 +162,6 @@ interface TraceCategoryOption {
   id: TraceCategoryId;
   label: string;
   description: string;
-}
-
-interface TraceTimelineGroup {
-  key: string;
-  label: string;
-  startedAt: string;
-  updatedAt: string;
-  visibleCount: number;
-  toolCount: number;
-  modelCount: number;
-  failureCount: number;
-}
-
-interface TraceTimelineEntry {
-  event: TraceDisplayEvent;
-  group: TraceTimelineGroup;
-}
-
-interface RenderedTraceGroup {
-  key: string;
-  group: TraceTimelineGroup;
-  entries: TraceTimelineEntry[];
 }
 
 interface TraceScrollAnchor {
@@ -2138,62 +2124,6 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
   };
 }
 
-function buildTraceTimelineEntries(events: TraceDisplayEvent[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry[] {
-  const entries: TraceTimelineEntry[] = [];
-  let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
-
-  for (const event of events) {
-    const turnNumber = traceTurnNumber(event);
-    if (turnNumber !== null) {
-      group = createTraceTimelineGroup(`turn-${turnNumber}-${event.sequence}`, `Turn ${turnNumber}`, event.createdAt);
-    }
-
-    group.updatedAt = event.createdAt;
-    const category = traceCategoryForEvent(event);
-    if (!visibleCategories.includes(category)) continue;
-
-    group.visibleCount += 1;
-    if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
-      group.toolCount += 1;
-    }
-    if (category === 'agent_output' || category === 'reasoning') {
-      group.modelCount += 1;
-    }
-    if (traceEventOutcome(event) === 'failure') {
-      group.failureCount += 1;
-    }
-    entries.push({ event, group });
-  }
-
-  return entries;
-}
-
-function createTraceTimelineGroup(key: string, label: string, startedAt: string): TraceTimelineGroup {
-  return {
-    key,
-    label,
-    startedAt,
-    updatedAt: startedAt,
-    visibleCount: 0,
-    toolCount: 0,
-    modelCount: 0,
-    failureCount: 0
-  };
-}
-
-function groupRenderedTraceEntries(entries: TraceTimelineEntry[]): RenderedTraceGroup[] {
-  const groups: RenderedTraceGroup[] = [];
-  for (const entry of entries) {
-    const current = groups.at(-1);
-    if (current && current.group === entry.group) {
-      current.entries.push(entry);
-      continue;
-    }
-    groups.push({ key: `${entry.group.key}-${entry.event.id}`, group: entry.group, entries: [entry] });
-  }
-  return groups;
-}
-
 function traceRevealBatchSize(queueLength: number): number {
   if (queueLength > 90) return 12;
   if (queueLength > 45) return 8;
@@ -2206,13 +2136,6 @@ function traceRevealDelayMs(queueLength: number): number {
   if (queueLength > 45) return 20;
   if (queueLength > 18) return 32;
   return TRACE_REVEAL_INTERVAL_MS;
-}
-
-function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): { kind: string; label: string } {
-  if (group.failureCount > 0) return { kind: 'review', label: `${group.failureCount} ${group.failureCount === 1 ? 'Error' : 'Errors'}` };
-  if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
-  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Complete' };
-  return { kind: 'events', label: 'Events' };
 }
 
 function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {

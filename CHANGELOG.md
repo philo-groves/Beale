@@ -15,6 +15,7 @@
 - Added renderer session header tests for status, configuration, timing, and trace turn display helpers.
 - Added renderer research item and session heat tests for hypothesis/finding provenance, scroll keys, and severity display helpers.
 - Added evidence sidebar sorting and scroll-key coverage to renderer research item tests.
+- Added renderer trace display tests for trace timeline grouping, filtering, rendered group packing, and turn status labels.
 
 ### Changed
 
@@ -26,6 +27,7 @@
 - Extracted shared modal infrastructure, notification modals, and the research prompt modal from `App.tsx`.
 - Extracted shared renderer formatting helpers from `App.tsx` into `src/renderer/lib/formatting.ts`.
 - Extracted the workbench session header and trace turn helpers from `App.tsx` into session feature and view-model modules.
+- Extracted trace timeline grouping and turn status helpers from `App.tsx` into the trace display view-model.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
 
