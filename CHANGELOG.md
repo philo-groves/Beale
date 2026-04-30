@@ -18,6 +18,7 @@
 ### Fixed
 
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
+- Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 
 ### Documentation
 

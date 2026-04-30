@@ -170,6 +170,11 @@ interface RenderedTraceGroup {
   entries: TraceTimelineEntry[];
 }
 
+interface TraceScrollAnchor {
+  eventId: string;
+  offsetTop: number;
+}
+
 type ResearchMomentumState = 'idle' | 'exploring' | 'building' | 'verifying' | 'hot' | 'stuck' | 'waiting';
 
 interface ResearchMomentum {
@@ -217,6 +222,9 @@ const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id)
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
+const TRACE_WINDOW_SLIDE_STEP = 12;
+const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
+const TRACE_WINDOW_ANCHOR_BUFFER = 8;
 const TRACE_REVEAL_ANIMATION_MS = 240;
 const TRACE_REVEAL_RECENT_MS = TRACE_REVEAL_ANIMATION_MS + 280;
 const TRACE_REVEAL_INTERVAL_MS = 64;
@@ -2384,6 +2392,39 @@ const MainSteerArea = memo(function MainSteerArea({
   );
 });
 
+function traceEventNodes(list: HTMLDivElement): HTMLElement[] {
+  return Array.from(list.querySelectorAll<HTMLElement>('[data-trace-event-id]'));
+}
+
+function captureTraceScrollAnchor(list: HTMLDivElement): TraceScrollAnchor | null {
+  const viewportTop = list.scrollTop;
+  const viewportBottom = viewportTop + list.clientHeight;
+
+  for (const node of traceEventNodes(list)) {
+    const eventId = node.dataset.traceEventId;
+    if (!eventId) continue;
+    const nodeTop = node.offsetTop;
+    const nodeBottom = nodeTop + node.offsetHeight;
+    if (nodeBottom < viewportTop) continue;
+    if (nodeTop > viewportBottom) break;
+    return {
+      eventId,
+      offsetTop: nodeTop - viewportTop
+    };
+  }
+
+  return null;
+}
+
+function clampTraceWindowStartForAnchor(nextStart: number, anchorIndex: number | null, maxWindowStart: number): number {
+  const clampedStart = Math.max(0, Math.min(maxWindowStart, nextStart));
+  if (anchorIndex === null) return clampedStart;
+
+  const minStart = Math.max(0, anchorIndex - TRACE_RENDER_WINDOW_SIZE + TRACE_WINDOW_ANCHOR_BUFFER);
+  const maxStart = Math.max(0, Math.min(maxWindowStart, anchorIndex - TRACE_WINDOW_ANCHOR_BUFFER));
+  return Math.max(minStart, Math.min(maxStart, clampedStart));
+}
+
 function MainTraceView({
   busy,
   detail,
@@ -2419,8 +2460,9 @@ function MainTraceView({
   const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
   const [enteringTraceEntryIds, setEnteringTraceEntryIds] = useState<Set<string>>(() => new Set());
   const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
-  const presentedTimelineEntries = timelineEntries.filter((entry) => revealedTraceEntryIds.has(entry.event.id));
-  const presentedEvents = presentedTimelineEntries.map((entry) => entry.event);
+  const presentedTimelineEntries = useMemo(() => timelineEntries.filter((entry) => revealedTraceEntryIds.has(entry.event.id)), [revealedTraceEntryIds, timelineEntries]);
+  const presentedEvents = useMemo(() => presentedTimelineEntries.map((entry) => entry.event), [presentedTimelineEntries]);
+  const presentedEntryIndexById = useMemo(() => new Map(presentedTimelineEntries.map((entry, index) => [entry.event.id, index])), [presentedTimelineEntries]);
   const latestPresentedEventId = presentedEvents.at(-1)?.id ?? '';
   const maxWindowStart = Math.max(0, presentedTimelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
@@ -2441,8 +2483,10 @@ function MainTraceView({
   const traceListRef = useRef<HTMLDivElement | null>(null);
   const traceFollowLatestRef = useRef(true);
   const traceAutoScrollingRef = useRef(false);
+  const traceRestoringAnchorRef = useRef(false);
   const traceAutoScrollFrameRef = useRef<number | null>(null);
   const traceAutoScrollSettledFrameRef = useRef<number | null>(null);
+  const pendingTraceScrollAnchorRef = useRef<TraceScrollAnchor | null>(null);
   const traceKnownEntryIdsRef = useRef<Set<string>>(new Set(timelineEntryIds));
   const tracePresentationKeyRef = useRef(tracePresentationKey);
   const traceRevealQueueRef = useRef<string[]>([]);
@@ -2600,6 +2644,35 @@ function MainTraceView({
   }, [traceRevealQueueVersion, tracePresentationKey]);
 
   useLayoutEffect(() => {
+    const anchor = pendingTraceScrollAnchorRef.current;
+    if (!anchor) return undefined;
+    const traceList = traceListRef.current;
+    if (!traceList) {
+      pendingTraceScrollAnchorRef.current = null;
+      return undefined;
+    }
+
+    const anchorNode = traceEventNodes(traceList).find((node) => node.dataset.traceEventId === anchor.eventId);
+    pendingTraceScrollAnchorRef.current = null;
+    if (!anchorNode) {
+      updateTraceScrollEdges();
+      return undefined;
+    }
+
+    traceRestoringAnchorRef.current = true;
+    traceList.scrollTop = Math.max(0, anchorNode.offsetTop - anchor.offsetTop);
+    updateTraceScrollEdges();
+    const frame = window.requestAnimationFrame(() => {
+      traceRestoringAnchorRef.current = false;
+      updateTraceScrollEdges();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      traceRestoringAnchorRef.current = false;
+    };
+  }, [normalizedWindowStart, renderedEntries.length, updateTraceScrollEdges]);
+
+  useLayoutEffect(() => {
     if (!traceFollowLatestRef.current) return;
     if (normalizedWindowStart !== maxWindowStart) {
       setTraceWindowStart(maxWindowStart);
@@ -2641,6 +2714,7 @@ function MainTraceView({
     const traceList = traceListRef.current;
     updateTraceScrollEdges();
     if (!traceList) return;
+    if (traceRestoringAnchorRef.current) return;
     if (traceAutoScrollingRef.current) {
       traceFollowLatestRef.current = true;
       return;
@@ -2656,11 +2730,37 @@ function MainTraceView({
       return;
     }
 
-    const nextStart = Math.max(0, Math.min(maxWindowStart, Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT)));
+    const eventNodes = traceEventNodes(traceList);
+    const anchor = captureTraceScrollAnchor(traceList);
+    const anchorIndex = anchor ? presentedEntryIndexById.get(anchor.eventId) ?? null : null;
+    const viewportTop = traceList.scrollTop;
+    const viewportBottom = viewportTop + traceList.clientHeight;
+    let nextStart = normalizedWindowStart;
+
+    if (eventNodes.length === 0 || !anchor) {
+      nextStart = Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT);
+    } else {
+      const firstRenderedTop = eventNodes[0]?.offsetTop ?? 0;
+      const lastNode = eventNodes.at(-1);
+      const lastRenderedBottom = lastNode ? lastNode.offsetTop + lastNode.offsetHeight : firstRenderedTop;
+      const edgeBuffer = Math.max(TRACE_WINDOW_EDGE_BUFFER, traceList.clientHeight * 0.35);
+      const viewportMissedRenderedWindow = viewportBottom < firstRenderedTop - edgeBuffer || viewportTop > lastRenderedBottom + edgeBuffer;
+
+      if (viewportMissedRenderedWindow) {
+        nextStart = Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT);
+      } else if (viewportTop < firstRenderedTop + edgeBuffer && normalizedWindowStart > 0) {
+        nextStart = normalizedWindowStart - TRACE_WINDOW_SLIDE_STEP;
+      } else if (viewportBottom > lastRenderedBottom - edgeBuffer && normalizedWindowStart < maxWindowStart) {
+        nextStart = normalizedWindowStart + TRACE_WINDOW_SLIDE_STEP;
+      }
+    }
+
+    nextStart = clampTraceWindowStartForAnchor(nextStart, anchorIndex, maxWindowStart);
     if (nextStart !== normalizedWindowStart) {
+      pendingTraceScrollAnchorRef.current = anchor;
       setTraceWindowStart(nextStart);
     }
-  }, [maxWindowStart, normalizedWindowStart, presentedTimelineEntries.length, updateTraceScrollEdges]);
+  }, [maxWindowStart, normalizedWindowStart, presentedEntryIndexById, presentedTimelineEntries.length, updateTraceScrollEdges]);
 
   if (!selectedRunId) return null;
 
@@ -3028,6 +3128,7 @@ function MainTraceEvent({
       } ${
         entering ? 'trace-entering' : ''
       }`}
+      data-trace-event-id={event.id}
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >
