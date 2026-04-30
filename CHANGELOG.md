@@ -42,6 +42,7 @@
 - Extracted the new research session modal and shared run-setting helpers from `App.tsx`.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
+- Extracted research momentum and host/guest activity derivation from `App.tsx` into renderer view-model modules.
 - Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
 
 ### Fixed

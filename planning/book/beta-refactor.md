@@ -237,6 +237,8 @@ Implementation note, 2026-04-30:
 - New research session modal rendering moved into `src/renderer/features/sessions/StartRunForm.tsx`.
 - Shared run-setting defaults, unbounded budget constants, and request-id helpers moved into `src/renderer/view-models/runSettings.ts`.
 - Unreachable legacy run tracker, run detail, inspector, hardening, and benchmark panels were removed from `src/renderer/App.tsx` instead of moved.
+- Research momentum derivation moved into `src/renderer/view-models/researchMomentum.ts`.
+- Host/guest activity derivation moved into `src/renderer/view-models/environmentDisplay.ts`.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
 - Evidence sidebar rendering moved into `src/renderer/features/research/EvidenceSidebar.tsx`.
 - CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
@@ -245,4 +247,4 @@ Implementation note, 2026-04-30:
 - Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
 - Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
-- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, fixed program/session ownership, sidebar age formatting, program onboarding templates, run-setting defaults, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.
+- Direct renderer view-model tests now cover context meter formatting, host/VM footer label behavior, host/guest activity, fixed program/session ownership, sidebar age formatting, program onboarding templates, run-setting defaults, research momentum states, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.
