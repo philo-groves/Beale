@@ -5,8 +5,6 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   NotificationRecord,
   OpenAiOAuthStartResult,
-  ProgramRegistryEntry,
-  ResearchSessionSummary,
   RunDetail,
   VmPreferenceInput,
   WorkspaceSnapshot
@@ -23,6 +21,7 @@ import { SessionHeader } from './features/sessions/SessionHeader';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
+import { useProgramActions } from './hooks/useProgramActions';
 import { useProgramOverlayState } from './hooks/useProgramOverlayState';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
@@ -39,11 +38,7 @@ import {
   windowControlPlatformForState
 } from './view-models/appShell';
 import {
-  applyProgramTemplate,
-  onboardingFormFromDefaults,
-  onboardingInputFromForm,
-  type ProgramOnboardingFormState,
-  type ProgramTemplateKind
+  type ProgramOnboardingFormState
 } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
@@ -209,75 +204,25 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const addProgram = (): void => {
-    void runProgramAction(async () => {
-      const selection = await window.beale.selectProgramDirectory();
-      if (selection.canceled) return;
-      if (selection.knownProgram) {
-        applySnapshot(await window.beale.openProgram(selection.knownProgram.id));
-        return;
-      }
-      if (selection.defaults) {
-        setProgramDraft(onboardingFormFromDefaults(selection.defaults));
-      }
-    });
-  };
-
-  const openRegisteredProgram = (program: ProgramRegistryEntry): void => {
-    void runProgramAction(async () => {
-      applySnapshot(await window.beale.openProgram(program.id));
-    });
-  };
-
-  const openResearchSession = (program: ProgramRegistryEntry, session: ResearchSessionSummary): void => {
-    void runProgramAction(async () => {
-      clearRunDetail();
-      const activeProgram = snapshot?.workspace.workspacePath === program.workspacePath;
-      const next = activeProgram ? await window.beale.getSnapshot() : await window.beale.openProgram(program.id);
-      applySnapshot(next);
-      setSelectedRunId(session.runId);
-    });
-  };
-
-  const removeRegisteredProgram = (program: ProgramRegistryEntry): void => {
-    void runProgramAction(async () => {
-      setProgramInfo((current) => (current?.id === program.id ? null : current));
-      setOpenProgramMenuId(null);
-      applySnapshot(await window.beale.removeProgram(program.id));
-    });
-  };
-
-  const submitProgramOnboarding = (): void => {
-    if (!programDraft) return;
-    void runProgramAction(async () => {
-      const next = await window.beale.createProgram(onboardingInputFromForm(programDraft));
-      setProgramDraft(null);
-      applySnapshot(next);
-    });
-  };
-
-  const applyOnboardingTemplate = (templateKind: ProgramTemplateKind): void => {
-    setProgramDraft((current) => (current ? applyProgramTemplate(current, templateKind) : current));
-  };
-
-  const lookupHackerOneProgram = async (identifier: string): Promise<void> => {
-    const lookup = await window.beale.lookupHackerOneProgram(identifier);
-    setProgramDraft((current) =>
-      current
-        ? {
-            ...current,
-            templateKind: 'hackerone',
-            programName: lookup.programName,
-            organizationName: lookup.organizationName,
-            descriptionMarkdown: lookup.descriptionMarkdown,
-            rulesMarkdown: lookup.rulesMarkdown,
-            networkProfile: lookup.networkProfile,
-            expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
-            assets: lookup.assets
-          }
-        : current
-    );
-  };
+  const {
+    addProgram,
+    openRegisteredProgram,
+    openResearchSession,
+    removeRegisteredProgram,
+    submitProgramOnboarding,
+    applyOnboardingTemplate,
+    lookupHackerOneProgram
+  } = useProgramActions({
+    snapshot,
+    programDraft,
+    runProgramAction,
+    applySnapshot,
+    clearRunDetail,
+    setSelectedRunId,
+    setProgramDraft,
+    setProgramInfo,
+    setOpenProgramMenuId
+  });
 
   const handleSteerInstruction = useCallback(
     (runId: string, instruction: string): void => {

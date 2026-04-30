@@ -52,6 +52,7 @@
 - Extracted program menu, program information modal, and session history modal state from `App.tsx`.
 - Extracted app modal rendering from `App.tsx` into an app-level modal layer component.
 - Extracted workspace bootstrap, live snapshot subscriptions, and selected-run preservation from `App.tsx` into a renderer hook.
+- Extracted program action handlers and HackerOne onboarding lookup application from `App.tsx`.
 - Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
 
 ### Fixed

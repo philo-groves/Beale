@@ -3,6 +3,7 @@ import type { ProgramOnboardingDefaults } from '@shared/types';
 import {
   applyProgramTemplate,
   onboardingFormFromDefaults,
+  onboardingFormFromHackerOneLookup,
   onboardingInputFromForm
 } from '../src/renderer/view-models/programOnboarding';
 
@@ -33,6 +34,34 @@ describe('renderer program onboarding view model', () => {
     expect(apple.rulesMarkdown).toContain('Target Flags');
     expect(msrc.programName).toBe('Microsoft Security Response Center');
     expect(msrc.rulesMarkdown).toContain('Researcher Portal');
+  });
+
+  it('applies a HackerOne lookup without changing the workspace directory', () => {
+    const form = onboardingFormFromHackerOneLookup(onboardingFormFromDefaults(defaults()), {
+      handle: 'example',
+      sourceUrl: 'https://hackerone.com/example',
+      programName: 'Example Bounty',
+      organizationName: 'Example Inc.',
+      descriptionMarkdown: 'Authorized research under Example.',
+      rulesMarkdown: 'Verify current HackerOne scope.',
+      networkProfile: 'scoped',
+      expiresAt: null,
+      assets: [
+        {
+          direction: 'in_scope',
+          kind: 'domain',
+          value: 'example.test',
+          sensitivity: 'normal'
+        }
+      ],
+      importedScopeCount: 1
+    });
+
+    expect(form.templateKind).toBe('hackerone');
+    expect(form.workspacePath).toBe('/bounty/example');
+    expect(form.programName).toBe('Example Bounty');
+    expect(form.expiresAt).toBe('');
+    expect(form.assets).toHaveLength(1);
   });
 });
 

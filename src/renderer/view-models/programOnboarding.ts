@@ -1,4 +1,9 @@
-import type { ProgramOnboardingDefaults, ProgramOnboardingInput, ScopeAssetInput } from '@shared/types';
+import type {
+  HackerOneProgramLookupResult,
+  ProgramOnboardingDefaults,
+  ProgramOnboardingInput,
+  ScopeAssetInput
+} from '@shared/types';
 
 export interface ProgramOnboardingFormState {
   templateKind: ProgramTemplateKind;
@@ -100,6 +105,23 @@ export function onboardingInputFromForm(form: ProgramOnboardingFormState): Progr
     networkProfile: form.networkProfile,
     expiresAt: optionalDateOrNever(form.expiresAt),
     assets: form.assets
+  };
+}
+
+export function onboardingFormFromHackerOneLookup(
+  form: ProgramOnboardingFormState,
+  lookup: HackerOneProgramLookupResult
+): ProgramOnboardingFormState {
+  return {
+    ...form,
+    templateKind: 'hackerone',
+    programName: lookup.programName,
+    organizationName: lookup.organizationName,
+    descriptionMarkdown: lookup.descriptionMarkdown,
+    rulesMarkdown: lookup.rulesMarkdown,
+    networkProfile: lookup.networkProfile,
+    expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
+    assets: lookup.assets
   };
 }
 
