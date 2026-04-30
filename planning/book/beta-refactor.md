@@ -236,6 +236,7 @@ Implementation note, 2026-04-30:
 - Program onboarding template defaults and form conversion moved into `src/renderer/view-models/programOnboarding.ts`.
 - New research session modal rendering moved into `src/renderer/features/sessions/StartRunForm.tsx`.
 - Shared run-setting defaults, unbounded budget constants, and request-id helpers moved into `src/renderer/view-models/runSettings.ts`.
+- Unreachable legacy run tracker, run detail, inspector, hardening, and benchmark panels were removed from `src/renderer/App.tsx` instead of moved.
 - Hypotheses/findings side panel rendering moved into `src/renderer/features/research/ResearchSidePanel.tsx`.
 - Evidence sidebar rendering moved into `src/renderer/features/research/EvidenceSidebar.tsx`.
 - CWE pill rendering moved into `src/renderer/features/research/CwePill.tsx`.
