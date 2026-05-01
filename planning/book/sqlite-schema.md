@@ -185,7 +185,7 @@ Fields:
 - `scope_version_id`
 - `inventory_item_id`
 - `asset_id`
-- `entity_kind`: examples include `function`, `method`, `class`, `type`, `route`, `import`, `export`, `call_site`, `security_marker`, and `sink`
+- `entity_kind`: examples include `function`, `method`, `class`, `type`, `route`, `import`, `export`, `call_site`, `security_marker`, `sink`, `mobile_permission`, `mobile_component`, `url_scheme`, `web_endpoint`, `graphql_operation`, `binary_url`, and `binary_symbol`
 - `name`
 - `signature`
 - `path`
@@ -207,7 +207,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_entity_id`
-- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`
+- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `declares_permission`, `declares_component`, `declares_endpoint`, `requests_endpoint`, `contains_url`, `contains_symbol`, and `contains_endpoint`
 - `target_kind`
 - `target_name`
 - `target_entity_id`

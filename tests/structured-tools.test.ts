@@ -115,6 +115,8 @@ describe('structured research tools', () => {
     expect(JSON.stringify(refreshedManifestSearch)).toContain('freshdependency');
 
     const structure = db.getProjectStructureSummary(context.run.scopeVersionId);
+    expect(structure.status).toBe('ready');
+    expect(structure.indexedFileCount).toBeGreaterThanOrEqual(5);
     expect(structure.definitionCount).toBeGreaterThanOrEqual(1);
     expect(structure.routeCount).toBeGreaterThanOrEqual(1);
     expect(structure.importCount).toBeGreaterThanOrEqual(1);
@@ -149,6 +151,15 @@ describe('structured research tools', () => {
     expect(routeRead.status).toBe('success');
     expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('handles_with');
     expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('listUsers');
+    expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('scope_name_match');
+    expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('auth.js');
+
+    const mobileStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'android.permission.CAMERA');
+    expect(mobileStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'mobile_permission')).toBe(true);
+    const webStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'declares_endpoint /v1/widgets');
+    expect(webStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'web_endpoint')).toBe(true);
+    const binaryStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'Java_com_example_Native');
+    expect(binaryStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_symbol')).toBe(true);
 
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {
@@ -1006,15 +1017,35 @@ function openStructuredToolDb(
 
   const sourceFile = join(targetDir, 'src', 'access.c');
   const routeFile = join(targetDir, 'src', 'routes.js');
+  const authFile = join(targetDir, 'src', 'auth.js');
   const binaryFile = join(targetDir, 'bin', 'target.bin');
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
+  writeFileSync(authFile, "export function sharedGuard(req, res, next) {\n  authorize(req.user);\n  next();\n}\n");
   writeFileSync(
     routeFile,
-    "import express from 'express';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', requireUser, listUsers);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports.listUsers = listUsers;\n"
+    "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers };\n"
   );
-  writeFileSync(binaryFile, Buffer.from([0, 1, 2, ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'), 0, 3]));
+  writeFileSync(
+    binaryFile,
+    Buffer.from([
+      0,
+      1,
+      2,
+      ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'),
+      0,
+      ...Buffer.from('https://example.com/api/mobile', 'utf8'),
+      0,
+      ...Buffer.from('android.permission.CAMERA', 'utf8'),
+      0,
+      ...Buffer.from('Java_com_example_Native', 'utf8'),
+      0,
+      3
+    ])
+  );
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ dependencies: { bealetestdependency: '1.0.0' } }, null, 2));
+  writeFileSync(join(targetDir, 'AndroidManifest.xml'), '<manifest><uses-permission android:name="android.permission.CAMERA" /><activity android:name=".MainActivity" android:exported="true" /></manifest>\n');
+  writeFileSync(join(targetDir, 'openapi.yaml'), "openapi: 3.0.0\npaths:\n  /v1/widgets:\n    get:\n      responses: {}\n");
 
   const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
   db.initialize();

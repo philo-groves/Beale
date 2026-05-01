@@ -42,6 +42,8 @@
 - Added the first structural index pass with normalized source entities, imports, routes, line ranges, lightweight relationships, and mirrored `structure_entity` metadata search documents.
 - Added richer structural relationship extraction for exports, call sites, route middleware/handler links, permission markers, and sink markers.
 - Added structural-index navigation to `code_browser` so symbol reads can use stable entity ranges and return nearby entities, outgoing relationships, and incoming references.
+- Added parser-light structural indexing for Next.js route files, Express middleware routes, Android manifest records, OpenAPI-style endpoints, client-request endpoints, GraphQL operations, and binary-derived URLs, permissions, endpoints, and JNI symbols.
+- Added post-scan structural relation target resolution and structure summary status fields for indexed files, unresolved relations, and truncated entities.
 
 ### Changed
 

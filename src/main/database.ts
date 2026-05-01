@@ -437,6 +437,7 @@ const PROJECT_INVENTORY_BINARY_STRINGS_MAX_CHARS = 16 * 1024;
 const PROJECT_STRUCTURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
 const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
+const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -773,7 +774,7 @@ function readProjectSearchPreview(path: string, resourceKind: string, sizeBytes:
 }
 
 function readProjectStructureText(path: string, resourceKind: string, sizeBytes: number): { text: string; truncated: boolean } | null {
-  if (resourceKind !== 'source' && resourceKind !== 'text') return null;
+  if (resourceKind !== 'source' && resourceKind !== 'text' && resourceKind !== 'manifest') return null;
   if (sizeBytes <= 0) return null;
   const bytesToRead = Math.min(sizeBytes, PROJECT_STRUCTURE_MAX_FILE_BYTES);
   let fd: number | null = null;
@@ -920,6 +921,64 @@ function parsePomXmlManifest(preview: string): Record<string, unknown> {
   };
 }
 
+function binaryStructureCandidate(value: string, lineStart: number): ProjectStructureCandidate | null {
+  const trimmed = value.trim();
+  if (trimmed.length < 4 || trimmed.length > 300) return null;
+  const url = /https?:\/\/[A-Za-z0-9_~:/?#[\]@!$&'()*+,;=.%.-]+/.exec(trimmed)?.[0];
+  if (url) {
+    return {
+      entityKind: 'binary_url',
+      name: url.slice(0, 240),
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'contains_url', binaryStringKind: 'url' },
+      relations: [{ relationKind: 'contains_url', targetKind: 'url', targetName: url.slice(0, 240) }]
+    };
+  }
+
+  const endpoint = /\/(?:api|oauth|auth|graphql|v\d)[A-Za-z0-9_./{}:*-]*/.exec(trimmed)?.[0];
+  if (endpoint && endpoint.length > 4) {
+    return {
+      entityKind: 'web_endpoint',
+      name: endpoint.slice(0, 240),
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'contains_endpoint', endpointStyle: 'binary_string' },
+      relations: [{ relationKind: 'contains_endpoint', targetKind: 'endpoint', targetName: endpoint.slice(0, 240) }]
+    };
+  }
+
+  const permission = /android\.permission\.[A-Z0-9_.]+/.exec(trimmed)?.[0];
+  if (permission) {
+    return {
+      entityKind: 'mobile_permission',
+      name: permission,
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { platform: 'android', relationKind: 'contains_permission', binaryStringKind: 'permission' },
+      relations: [{ relationKind: 'contains_permission', targetKind: 'permission', targetName: permission }]
+    };
+  }
+
+  const jniSymbol = /Java_[A-Za-z0-9_]+/.exec(trimmed)?.[0];
+  if (jniSymbol) {
+    return {
+      entityKind: 'binary_symbol',
+      name: jniSymbol.slice(0, 240),
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'contains_symbol', binaryStringKind: 'jni_symbol' },
+      relations: [{ relationKind: 'contains_symbol', targetKind: 'symbol', targetName: jniSymbol.slice(0, 240) }]
+    };
+  }
+
+  return null;
+}
+
 function extractProjectStructureCandidates(path: string, language: string, text: string, truncatedFile: boolean): ProjectStructureCandidate[] {
   const lines = text.split('\n');
   const candidates: ProjectStructureCandidate[] = [];
@@ -943,10 +1002,13 @@ function extractProjectStructureCandidates(path: string, language: string, text:
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
     extractImportCandidate(line, language, lineStart, add);
     extractExportCandidate(line, language, lineStart, add);
+    extractFileBackedRouteCandidate(path, line, language, lineStart, add);
     extractRouteCandidate(line, language, lineStart, add);
     extractDefinitionCandidate(line, language, lineStart, add);
     extractSecurityMarkerCandidate(line, language, lineStart, add);
     extractSinkCandidate(line, language, lineStart, add);
+    extractMobileManifestCandidate(path, line, language, lineStart, add);
+    extractWebEndpointCandidate(path, line, language, lineStart, add);
     extractCallSiteCandidate(line, language, lineStart, add);
   }
 
@@ -1013,9 +1075,9 @@ function extractImportCandidate(line: string, language: string, lineStart: numbe
 
 function extractExportCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
   if (language === 'javascript' || language === 'typescript') {
-    const namedExport = /^\s*export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    const namedExport = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/.exec(line);
     const exportList = /^\s*export\s*\{([^}]+)}/.exec(line);
-    const commonJsExport = /^\s*(?:module\.)?exports(?:\.([A-Za-z_$][\w$]*))?\s*=/.exec(line);
+    const commonJsExport = /^\s*(?:module\.)?exports(?:\.([A-Za-z_$][\w$]*))?\s*=\s*(.*)$/.exec(line);
     if (namedExport?.[1]) {
       add({
         entityKind: 'export',
@@ -1043,6 +1105,21 @@ function extractExportCandidate(line: string, language: string, lineStart: numbe
       return;
     }
     if (commonJsExport) {
+      const objectExports = commonJsExport[2] ? commonJsObjectExportNames(commonJsExport[2]) : [];
+      if (objectExports.length > 0) {
+        for (const exportedName of objectExports) {
+          add({
+            entityKind: 'export',
+            name: exportedName,
+            signature: line,
+            lineStart,
+            lineEnd: lineStart,
+            metadata: { exportedName, exportStyle: 'commonjs_object' },
+            relations: [{ relationKind: 'exports', targetKind: 'symbol', targetName: exportedName }]
+          });
+        }
+        return;
+      }
       const exportedName = commonJsExport[1] ?? 'module.exports';
       add({
         entityKind: 'export',
@@ -1054,6 +1131,49 @@ function extractExportCandidate(line: string, language: string, lineStart: numbe
         relations: [{ relationKind: 'exports', targetKind: 'symbol', targetName: exportedName }]
       });
     }
+  }
+}
+
+function commonJsObjectExportNames(value: string): string[] {
+  const match = /^\s*\{(.+)}\s*;?\s*$/.exec(value);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((part) => part.trim().split(/\s*:\s*/)[0]?.trim())
+    .filter((part): part is string => Boolean(part && /^[A-Za-z_$][\w$]*$/.test(part)));
+}
+
+function extractFileBackedRouteCandidate(path: string, line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  if (language !== 'javascript' && language !== 'typescript') return;
+  const nextRoutePath = routePathFromNextRouteFile(path);
+  const nextMethod = /^\s*export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*\(/.exec(line)?.[1];
+  if (nextRoutePath && nextMethod) {
+    add({
+      entityKind: 'route',
+      name: `${nextMethod} ${nextRoutePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method: nextMethod, routePath: nextRoutePath, routeStyle: 'nextjs_app_route', relationKinds: ['routes_to', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `${nextMethod} ${nextRoutePath}` },
+        { relationKind: 'handles_with', targetKind: 'function', targetName: nextMethod }
+      ]
+    });
+    return;
+  }
+
+  const pagesRoutePath = routePathFromPagesApiFile(path);
+  if (pagesRoutePath && /^\s*export\s+default\s+(?:async\s+)?function\b/.test(line)) {
+    add({
+      entityKind: 'route',
+      name: `ANY ${pagesRoutePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method: 'ANY', routePath: pagesRoutePath, routeStyle: 'nextjs_pages_api', relationKinds: ['routes_to'] },
+      relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `ANY ${pagesRoutePath}` }]
+    });
   }
 }
 
@@ -1079,9 +1199,28 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
     return;
   }
 
+  const jsUseRoute = /\b(?:app|router|server)\.use\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && jsUseRoute) {
+    const routePath = jsUseRoute[1];
+    const participants = routeParticipantsFromCall(line);
+    add({
+      entityKind: 'route',
+      name: `USE ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method: 'USE', routePath, routeStyle: 'express_middleware', middleware: participants.middleware, handlers: participants.handlers, relationKinds: ['routes_to', 'uses_middleware'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `USE ${routePath}` },
+        ...[...participants.middleware, ...participants.handlers].map((name) => ({ relationKind: 'uses_middleware', targetKind: 'function', targetName: name }))
+      ]
+    });
+    return;
+  }
+
   const pyRoute = /^\s*@\w+(?:\.\w+)?\.(get|post|put|patch|delete|options|head|route)\s*\(\s*['"]([^'"]+)['"]/i.exec(line);
   if (language === 'python' && pyRoute) {
-    const method = pyRoute[1].toLowerCase() === 'route' ? 'ANY' : pyRoute[1].toUpperCase();
+    const method = pyRoute[1].toLowerCase() === 'route' ? pythonRouteMethodFromDecorator(line) : pyRoute[1].toUpperCase();
     const routePath = pyRoute[2];
     add({
       entityKind: 'route',
@@ -1098,8 +1237,8 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
   const javaRoute = /^\s*@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\s*(?:\(\s*(?:value\s*=\s*)?["']([^"']+)["'])?/i.exec(line);
   if ((language === 'java' || language === 'kotlin') && javaRoute) {
     const annotation = javaRoute[1];
-    const method = annotation === 'RequestMapping' ? 'ANY' : annotation.replace('Mapping', '').toUpperCase();
-    const routePath = javaRoute[2] ?? '';
+    const method = annotation === 'RequestMapping' ? jvmRequestMappingMethod(line) : annotation.replace('Mapping', '').toUpperCase();
+    const routePath = javaRoute[2] ?? jvmRequestMappingPath(line);
     add({
       entityKind: 'route',
       name: `${method}${routePath ? ` ${routePath}` : ''}`,
@@ -1124,6 +1263,51 @@ function routeParticipantsFromCall(line: string): { middleware: string[]; handle
     middleware: symbolArgs.slice(0, -1),
     handlers: symbolArgs.slice(-1)
   };
+}
+
+function routePathFromNextRouteFile(path: string): string | null {
+  const parts = path.split(/[\\/]+/);
+  const routeIndex = parts.findIndex((part) => /^route\.[cm]?[jt]sx?$/.test(part));
+  if (routeIndex < 0) return null;
+  const appIndex = parts.lastIndexOf('app', routeIndex);
+  if (appIndex < 0 || parts[appIndex + 1] !== 'api') return null;
+  return routePathFromSegments(parts.slice(appIndex + 1, routeIndex));
+}
+
+function routePathFromPagesApiFile(path: string): string | null {
+  const parts = path.split(/[\\/]+/);
+  const apiIndex = parts.findIndex((part, index) => part === 'api' && parts[index - 1] === 'pages');
+  if (apiIndex < 0) return null;
+  const segments = parts.slice(apiIndex, -1);
+  const fileBase = basename(path).replace(/\.[cm]?[jt]sx?$/, '');
+  if (fileBase !== 'index') segments.push(fileBase);
+  return routePathFromSegments(segments);
+}
+
+function routePathFromSegments(segments: string[]): string {
+  const normalized = segments
+    .filter((segment) => segment && !/^\(.+\)$/.test(segment))
+    .map((segment) => {
+      if (/^\[\.\.\.[^\]]+\]$/.test(segment)) return `*${segment.slice(4, -1)}`;
+      if (/^\[[^\]]+\]$/.test(segment)) return `:${segment.slice(1, -1)}`;
+      return segment;
+    });
+  return `/${normalized.join('/')}`.replace(/\/+/g, '/');
+}
+
+function pythonRouteMethodFromDecorator(line: string): string {
+  const methods = /methods\s*=\s*\[([^\]]+)]/i.exec(line)?.[1];
+  const method = methods?.match(/['"]([A-Z]+)['"]/i)?.[1];
+  return method ? method.toUpperCase() : 'ANY';
+}
+
+function jvmRequestMappingMethod(line: string): string {
+  const method = /method\s*=\s*RequestMethod\.([A-Z]+)/i.exec(line)?.[1];
+  return method ? method.toUpperCase() : 'ANY';
+}
+
+function jvmRequestMappingPath(line: string): string {
+  return /(?:path|value)\s*=\s*["']([^"']+)["']/i.exec(line)?.[1] ?? '';
 }
 
 function extractDefinitionCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
@@ -1201,7 +1385,7 @@ function extractDefinitionCandidate(line: string, language: string, lineStart: n
 }
 
 function extractSecurityMarkerCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
-  const marker = /\b(requireAuth|requireUser|authorize|authorized|authorization|authenticate|authenticated|permission|hasRole|check_access|accessControl|csrf|validateToken)\b/i.exec(line);
+  const marker = /\b(requireAuth|requireUser|authorize!?|authorized|authorization|authenticate|authenticated|permission|permissions|hasRole|check_access|accessControl|csrf|validateToken|before_action|skip_before_action|policy|permit|allowed\?)\b/i.exec(line);
   if (!marker) return;
   const name = marker[1];
   add({
@@ -1216,7 +1400,7 @@ function extractSecurityMarkerCandidate(line: string, language: string, lineStar
 }
 
 function extractSinkCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
-  const sink = /\b(eval|exec|spawn|system|popen|innerHTML|dangerouslySetInnerHTML|deserialize|unserialize|pickle\.loads|yaml\.load|query|rawQuery|sendFile|redirect|setHeader)\b/.exec(line);
+  const sink = /\b(eval|exec|spawn|system|popen|innerHTML|dangerouslySetInnerHTML|deserialize|unserialize|pickle\.loads|yaml\.load|query|rawQuery|sendFile|redirect|setHeader|render|send_data|open|readFile|writeFile|createReadStream|fetch|request|axios)\b/.exec(line);
   if (!sink) return;
   const name = sink[1];
   add({
@@ -1228,6 +1412,99 @@ function extractSinkCandidate(line: string, language: string, lineStart: number,
     metadata: { sinkKind: classifyProjectSink(name), language, relationKind: 'reaches_sink' },
     relations: [{ relationKind: 'reaches_sink', targetKind: 'sink', targetName: name }]
   });
+}
+
+function extractMobileManifestCandidate(path: string, line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const lowerName = basename(path).toLowerCase();
+  if (lowerName !== 'androidmanifest.xml' && lowerName !== 'info.plist' && language !== 'plist') return;
+
+  const permission = /android:name\s*=\s*["'](android\.permission\.[^"']+)["']/i.exec(line);
+  if (lowerName === 'androidmanifest.xml' && /<uses-permission\b/i.test(line) && permission?.[1]) {
+    add({
+      entityKind: 'mobile_permission',
+      name: permission[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { platform: 'android', manifestKind: 'uses_permission', relationKind: 'declares_permission' },
+      relations: [{ relationKind: 'declares_permission', targetKind: 'permission', targetName: permission[1] }]
+    });
+    return;
+  }
+
+  const androidComponent = /<(activity|service|receiver|provider)\b/i.exec(line);
+  const componentName = /android:name\s*=\s*["']([^"']+)["']/i.exec(line)?.[1];
+  if (lowerName === 'androidmanifest.xml' && androidComponent?.[1] && componentName) {
+    const exported = /android:exported\s*=\s*["']true["']/i.test(line) ? true : /android:exported\s*=\s*["']false["']/i.test(line) ? false : null;
+    add({
+      entityKind: 'mobile_component',
+      name: componentName,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { platform: 'android', componentKind: androidComponent[1].toLowerCase(), exported, relationKind: 'declares_component' },
+      relations: [{ relationKind: 'declares_component', targetKind: 'mobile_component', targetName: componentName }]
+    });
+    return;
+  }
+
+  const scheme = /android:scheme\s*=\s*["']([^"']+)["']/i.exec(line)?.[1];
+  if (lowerName === 'androidmanifest.xml' && scheme) {
+    add({
+      entityKind: 'url_scheme',
+      name: scheme,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { platform: 'android', relationKind: 'declares_url_scheme' },
+      relations: [{ relationKind: 'declares_url_scheme', targetKind: 'url_scheme', targetName: scheme }]
+    });
+  }
+}
+
+function extractWebEndpointCandidate(path: string, line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const lowerName = basename(path).toLowerCase();
+  const openApiPath = /^\s*["']?(\/[A-Za-z0-9_./{}:*-]+)["']?\s*:\s*$/.exec(line)?.[1];
+  if ((language === 'yaml' || language === 'json' || lowerName.includes('openapi') || lowerName.includes('swagger')) && openApiPath) {
+    add({
+      entityKind: 'web_endpoint',
+      name: openApiPath,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { endpointStyle: 'api_schema_path', routePath: openApiPath, relationKind: 'declares_endpoint' },
+      relations: [{ relationKind: 'declares_endpoint', targetKind: 'endpoint', targetName: openApiPath }]
+    });
+    return;
+  }
+
+  const clientRequest = /\b(?:fetch|request|axios\.(?:get|post|put|patch|delete)|http\.(?:get|post|request))\s*\(\s*['"`]((?:https?:\/\/|\/)[^'"`]+)['"`]/i.exec(line);
+  if (clientRequest?.[1]) {
+    const endpoint = clientRequest[1];
+    add({
+      entityKind: 'web_endpoint',
+      name: endpoint,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { endpointStyle: 'client_request', routePath: endpoint, relationKind: 'requests_endpoint' },
+      relations: [{ relationKind: 'requests_endpoint', targetKind: 'endpoint', targetName: endpoint }]
+    });
+    return;
+  }
+
+  const graphqlOperation = /^\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/.exec(line);
+  if (language === 'graphql' && graphqlOperation?.[1]) {
+    add({
+      entityKind: 'graphql_operation',
+      name: graphqlOperation[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { endpointStyle: 'graphql_operation', relationKind: 'declares_operation' },
+      relations: [{ relationKind: 'declares_operation', targetKind: 'graphql_operation', targetName: graphqlOperation[1] }]
+    });
+  }
 }
 
 function extractCallSiteCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
@@ -1259,7 +1536,9 @@ function classifyProjectSink(name: string): string {
   if (['innerhtml', 'dangerouslysetinnerhtml'].includes(normalized)) return 'html_dom_injection';
   if (['deserialize', 'unserialize', 'pickle.loads', 'yaml.load'].includes(normalized)) return 'deserialization';
   if (['query', 'rawquery'].includes(normalized)) return 'database_query';
-  if (['sendfile', 'redirect', 'setheader'].includes(normalized)) return 'http_response';
+  if (['sendfile', 'redirect', 'setheader', 'render', 'send_data'].includes(normalized)) return 'http_response';
+  if (['open', 'readfile', 'writefile', 'createreadstream'].includes(normalized)) return 'filesystem';
+  if (['fetch', 'request', 'axios'].includes(normalized)) return 'network_request';
   return 'sensitive_sink';
 }
 
@@ -1319,6 +1598,35 @@ function projectStructureCandidateMatchesRelationTarget(candidate: ProjectStruct
   if (relation.targetKind === 'sink') return candidate.entityKind === 'sink';
   if (relation.targetKind === 'security_control') return candidate.entityKind === 'security_marker';
   return true;
+}
+
+function projectStructureTargetEntityKinds(targetKind: string): string[] {
+  switch (targetKind) {
+    case 'function':
+      return ['function', 'method'];
+    case 'symbol':
+      return ['function', 'method', 'class', 'type', 'export', 'binary_symbol'];
+    case 'route':
+      return ['route'];
+    case 'sink':
+      return ['sink'];
+    case 'security_control':
+      return ['security_marker'];
+    case 'endpoint':
+      return ['web_endpoint', 'route'];
+    case 'permission':
+      return ['mobile_permission'];
+    case 'mobile_component':
+      return ['mobile_component'];
+    case 'url':
+      return ['binary_url', 'web_endpoint'];
+    case 'url_scheme':
+      return ['url_scheme'];
+    case 'graphql_operation':
+      return ['graphql_operation'];
+    default:
+      return [];
+  }
 }
 
 function isControlKeyword(value: string): boolean {
@@ -3180,20 +3488,37 @@ export class WorkspaceDatabase {
         .prepare(
           `SELECT
              COUNT(*) AS entity_count,
+             COUNT(DISTINCT path) AS indexed_file_count,
              SUM(CASE WHEN entity_kind IN ('function', 'method', 'class', 'type') THEN 1 ELSE 0 END) AS definition_count,
              SUM(CASE WHEN entity_kind = 'route' THEN 1 ELSE 0 END) AS route_count,
              SUM(CASE WHEN entity_kind = 'import' THEN 1 ELSE 0 END) AS import_count,
+             SUM(CASE WHEN metadata_json LIKE '%"truncatedFile":true%' THEN 1 ELSE 0 END) AS truncated_entity_count,
              MAX(indexed_at) AS indexed_at
            FROM project_structure_entities
            WHERE scope_version_id = ?`
         )
         .get(scopeVersionId)
     );
-    const relationRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS relation_count FROM project_structure_relations WHERE scope_version_id = ?').get(scopeVersionId));
+    const relationRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             COUNT(*) AS relation_count,
+             SUM(CASE WHEN target_entity_id IS NULL THEN 1 ELSE 0 END) AS unresolved_relation_count
+           FROM project_structure_relations
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    const entityCount = entityRow ? numberValue(entityRow, 'entity_count') : 0;
     return {
       scopeVersionId,
-      entityCount: entityRow ? numberValue(entityRow, 'entity_count') : 0,
+      status: entityCount > 0 ? 'ready' : 'empty',
+      entityCount,
       relationCount: relationRow ? numberValue(relationRow, 'relation_count') : 0,
+      indexedFileCount: entityRow ? numberValue(entityRow, 'indexed_file_count') : 0,
+      unresolvedRelationCount: relationRow ? numberValue(relationRow, 'unresolved_relation_count') : 0,
+      truncatedEntityCount: entityRow ? numberValue(entityRow, 'truncated_entity_count') : 0,
       definitionCount: entityRow ? numberValue(entityRow, 'definition_count') : 0,
       routeCount: entityRow ? numberValue(entityRow, 'route_count') : 0,
       importCount: entityRow ? numberValue(entityRow, 'import_count') : 0,
@@ -3345,6 +3670,8 @@ export class WorkspaceDatabase {
       for (const asset of localAssets) {
         this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
       }
+
+      this.resolveProjectStructureRelationTargets(scopeVersionId);
     });
 
     const summary = this.getProjectInventorySummary(scopeVersionId);
@@ -4229,6 +4556,65 @@ export class WorkspaceDatabase {
     return false;
   }
 
+  private resolveProjectStructureRelationTargets(scopeVersionId: string): void {
+    const unresolved = rows(
+      this.db
+        .prepare(
+          `SELECT r.*, s.path AS source_path
+           FROM project_structure_relations r
+           JOIN project_structure_entities s ON s.id = r.source_entity_id
+           WHERE r.scope_version_id = ?
+             AND r.target_entity_id IS NULL
+           ORDER BY r.indexed_at ASC`
+        )
+        .all(scopeVersionId)
+    );
+
+    for (const relation of unresolved) {
+      const targetKind = text(relation, 'target_kind');
+      const targetName = text(relation, 'target_name');
+      const entityKinds = projectStructureTargetEntityKinds(targetKind);
+      if (entityKinds.length === 0 || !targetName.trim()) continue;
+      const placeholders = entityKinds.map(() => '?').join(', ');
+      const candidates = rows(
+        this.db
+          .prepare(
+            `SELECT *
+             FROM project_structure_entities
+             WHERE scope_version_id = ?
+               AND LOWER(name) = LOWER(?)
+               AND entity_kind IN (${placeholders})
+             ORDER BY
+               CASE WHEN path = ? THEN 0 ELSE 1 END,
+               CASE entity_kind
+                 WHEN 'function' THEN 0
+                 WHEN 'method' THEN 0
+                 WHEN 'class' THEN 1
+                 WHEN 'type' THEN 1
+                 WHEN 'export' THEN 2
+                 WHEN 'route' THEN 3
+                 ELSE 4
+               END,
+               line_start ASC
+             LIMIT 1`
+          )
+          .all(scopeVersionId, targetName, ...entityKinds, text(relation, 'source_path'))
+      );
+      const target = candidates[0];
+      if (!target) continue;
+      const metadata = {
+        ...parseJson(relation.metadata_json),
+        targetResolution: text(target, 'path') === text(relation, 'source_path') ? 'same_file_name_match' : 'scope_name_match',
+        targetPath: text(target, 'path'),
+        targetLineStart: numberValue(target, 'line_start'),
+        targetLineEnd: numberValue(target, 'line_end')
+      };
+      this.db
+        .prepare('UPDATE project_structure_relations SET target_entity_id = ?, metadata_json = ? WHERE id = ?')
+        .run(text(target, 'id'), toJson(metadata), text(relation, 'id'));
+    }
+  }
+
   private scanProjectInventoryPath(path: string, asset: ScopeAsset, state: ProjectInventoryScanState): void {
     if (state.scannedFiles >= PROJECT_INVENTORY_MAX_FILES) {
       state.truncated = true;
@@ -4384,8 +4770,59 @@ export class WorkspaceDatabase {
       updatedAt: input.indexedAt
     });
 
-    if (input.itemKind === 'file' && (input.resourceKind === 'source' || input.resourceKind === 'text') && input.sizeBytes !== null) {
+    if (input.itemKind === 'file' && (input.resourceKind === 'source' || input.resourceKind === 'text' || input.resourceKind === 'manifest') && input.sizeBytes !== null) {
       this.indexProjectStructureForFile(input, id);
+    } else if (input.itemKind === 'file' && input.resourceKind === 'binary' && input.sizeBytes !== null) {
+      this.indexProjectBinaryStructureForFile(input, id);
+    }
+  }
+
+  private indexProjectBinaryStructureForFile(input: ProjectInventoryInsertInput, inventoryItemId: string): void {
+    const preview = readProjectBinaryStringsPreview(input.absolutePath, input.sizeBytes ?? 0);
+    if (!preview.trim()) return;
+    const indexedAt = input.indexedAt;
+    const seen = new Set<string>();
+    let lineStart = 1;
+    for (const value of preview.split(/\r?\n/)) {
+      if (seen.size >= PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE) break;
+      const candidate = binaryStructureCandidate(value, lineStart);
+      lineStart += 1;
+      if (!candidate) continue;
+      const key = `${candidate.entityKind}:${candidate.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const entityId = this.insertProjectStructureEntity({
+        scopeVersionId: input.scopeVersionId,
+        inventoryItemId,
+        assetId: input.asset.id,
+        entityKind: candidate.entityKind,
+        name: candidate.name,
+        signature: candidate.signature,
+        path: input.absolutePath,
+        language: input.language || 'binary',
+        lineStart: candidate.lineStart,
+        lineEnd: candidate.lineEnd ?? candidate.lineStart,
+        metadata: {
+          ...candidate.metadata,
+          relativePath: safeRelativePath(input.asset.value, input.absolutePath),
+          assetKind: input.asset.kind,
+          resourceKind: input.resourceKind,
+          binaryDerived: true
+        },
+        indexedAt
+      });
+      for (const relation of candidate.relations ?? []) {
+        this.insertProjectStructureRelation({
+          scopeVersionId: input.scopeVersionId,
+          sourceEntityId: entityId,
+          relationKind: relation.relationKind,
+          targetKind: relation.targetKind,
+          targetName: relation.targetName,
+          targetEntityId: null,
+          metadata: relation.metadata ?? {},
+          indexedAt
+        });
+      }
     }
   }
 

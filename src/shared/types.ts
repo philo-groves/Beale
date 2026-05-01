@@ -311,8 +311,12 @@ export interface ProjectInventoryRefreshReport extends ProjectInventorySummary {
 
 export interface ProjectStructureSummary {
   scopeVersionId: string;
+  status: string;
   entityCount: number;
   relationCount: number;
+  indexedFileCount: number;
+  unresolvedRelationCount: number;
+  truncatedEntityCount: number;
   definitionCount: number;
   routeCount: number;
   importCount: number;
