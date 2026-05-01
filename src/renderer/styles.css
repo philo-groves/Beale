@@ -2705,7 +2705,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: flex;
   align-items: center;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.25;
 }
 
@@ -2717,7 +2717,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: #777777;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   padding: 0;
-  font-size: 0.71rem;
+  font-size: 0.74rem;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2728,7 +2728,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: -webkit-box;
   overflow: hidden;
   color: #a4a4a4;
-  font-size: 0.76rem;
+  font-size: 0.79rem;
   line-height: 1.35;
   white-space: normal;
   -webkit-box-orient: vertical;
@@ -2753,7 +2753,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: #d8d8d8;
   padding: 0 4px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   line-height: 1.2;
   white-space: pre-wrap;
 }
@@ -2781,7 +2781,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   overflow: hidden;
   color: #777777;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.71rem;
+  font-size: 0.74rem;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2800,7 +2800,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin: 0;
   overflow-wrap: anywhere;
   color: #a9a9a9;
-  font-size: 0.76rem;
+  font-size: 0.79rem;
   line-height: 1.38;
   white-space: normal;
 }
@@ -2818,7 +2818,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin: 0;
   padding: 8px 9px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.32;
   white-space: pre;
 }
