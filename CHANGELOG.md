@@ -44,6 +44,8 @@
 - Added structural-index navigation to `code_browser` so symbol reads can use stable entity ranges and return nearby entities, outgoing relationships, and incoming references.
 - Added parser-light structural indexing for Next.js route files, Express middleware routes, Android manifest records, OpenAPI-style endpoints, client-request endpoints, GraphQL operations, and binary-derived URLs, permissions, endpoints, and JNI symbols.
 - Added post-scan structural relation target resolution and structure summary status fields for indexed files, unresolved relations, and truncated entities.
+- Added a per-program opt-in semantic index table backed by a local deterministic `local_hash` sparse-vector provider.
+- Added semantic index summaries with provider, model, namespace, chunk-count, and remote-embedding status fields.
 
 ### Changed
 
@@ -74,6 +76,7 @@
 - Changed verifier and artifact guidance so models are directed to use returned Beale artifact ids instead of raw temporary artifact paths.
 - Changed search trace rows so the model-side request lifecycle row is non-standard by default, argument rows read as `Prepare Search`, and result rows use shorter `Examined ...` labels.
 - Changed the model-facing `search` tool to augment scoped file and binary-string results with indexed project metadata matches.
+- Changed the model-facing `search` tool to include local semantic chunk matches when semantic indexing is enabled for the active program.
 - Changed model-facing `search` results to dedupe direct file/artifact matches against project metadata matches for the same object.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.

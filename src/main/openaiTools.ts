@@ -33,6 +33,7 @@ import type {
   FindingRecord,
   HypothesisRecord,
   ProjectSearchResult,
+  ProjectSemanticSearchResult,
   RunDetail,
   ScopeAsset,
   ScopeAssetInput,
@@ -169,7 +170,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, and artifact summaries. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
+    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and opt-in local semantic chunks. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
@@ -554,8 +555,11 @@ export class BealeToolRouter {
     matches.push(...artifactMatches);
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
     const metadataMatchesAdded = this.appendUniqueSearchMatches(matches, metadataMatches, MAX_SEARCH_MATCHES);
+    const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
+    const semanticMatchesAdded = this.appendUniqueSearchMatches(matches, semanticMatches, MAX_SEARCH_MATCHES);
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
+    const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
 
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
@@ -587,8 +591,10 @@ export class BealeToolRouter {
         filesConsidered: files.length,
         skippedFiles,
         metadataMatches: metadataMatchesAdded,
+        semanticMatches: semanticMatchesAdded,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
+        projectSemantic: semanticSummary,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
         matches
@@ -1744,6 +1750,11 @@ export class BealeToolRouter {
     return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining).map((result) => this.projectSearchResultToToolMatch(result));
   }
 
+  private searchProjectSemantic(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
+    if (remaining <= 0) return [];
+    return this.db.searchProjectSemanticChunksForRun(context.run.id, query, Math.min(8, remaining)).map((result) => this.projectSemanticSearchResultToToolMatch(result));
+  }
+
   private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {
     let added = 0;
     for (const candidate of candidates) {
@@ -1775,6 +1786,7 @@ export class BealeToolRouter {
     if (kind === 'file') return `file:${stringValue(match.path, '')}:${stringValue(match.range, '')}:${stringValue(match.snippet, '')}`;
     if (kind === 'artifact') return `artifact:${stringValue(match.artifactId, '')}`;
     if (kind === 'metadata') return `metadata:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
+    if (kind === 'semantic') return `semantic:${stringValue(match.chunkId, '')}`;
     return '';
   }
 
@@ -1794,6 +1806,25 @@ export class BealeToolRouter {
       entityKind: result.entityType === 'structure_entity' ? result.metadata.entityKind : undefined,
       structureName: result.entityType === 'structure_entity' ? result.metadata.name : undefined,
       matchedBy: 'project_metadata_fts',
+      snippet: trimSnippet(result.snippet),
+      metadata: result.metadata
+    };
+  }
+
+  private projectSemanticSearchResultToToolMatch(result: ProjectSemanticSearchResult): Record<string, unknown> {
+    return {
+      kind: 'semantic',
+      entityType: result.entityType,
+      entityId: result.entityId,
+      chunkId: result.chunkId,
+      sourceDocumentId: result.sourceDocumentId,
+      namespace: result.namespace,
+      runId: result.runId,
+      title: result.title,
+      sourcePath: result.sourcePath,
+      path: result.sourcePath ?? undefined,
+      matchedBy: 'project_semantic_local_hash',
+      semanticScore: result.score,
       snippet: trimSnippet(result.snippet),
       metadata: result.metadata
     };

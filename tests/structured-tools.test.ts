@@ -161,6 +161,22 @@ describe('structured research tools', () => {
     const binaryStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'Java_com_example_Native');
     expect(binaryStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_symbol')).toBe(true);
 
+    const disabledSemantic = db.getProjectSemanticSummary(context.run.scopeVersionId);
+    expect(disabledSemantic.enabled).toBe(false);
+    expect(disabledSemantic.status).toBe('disabled');
+    const enabledSemantic = db.setProjectSemanticIndexEnabled(true, context.run.scopeVersionId);
+    expect(enabledSemantic.enabled).toBe(true);
+    expect(enabledSemantic.status).toBe('ready');
+    expect(enabledSemantic.remoteEmbeddingEnabled).toBe(false);
+    expect(enabledSemantic.chunkCount).toBeGreaterThan(0);
+    expect(enabledSemantic.namespaceCounts.code).toBeGreaterThan(0);
+    const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
+    expect(semanticResults.some((result) => result.namespace === 'mobile' || result.metadata.entityKind === 'mobile_permission')).toBe(true);
+    const semanticSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
+    expect(semanticSearch.status).toBe('success');
+    expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'ready', remoteEmbeddingEnabled: false });
+    expect((semanticSearch.payload.matches as Array<Record<string, unknown>>).some((match) => match.kind === 'semantic')).toBe(true);
+
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {
       const line = index + 1;

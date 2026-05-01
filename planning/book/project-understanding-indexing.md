@@ -51,6 +51,15 @@ The second implementation starts Layer 2:
 - The structure summary exposes status, indexed-file count, unresolved-relation count, truncated-entity count, and indexed time for tool payloads and future UI status surfaces.
 - This is intentionally parser-light for beta. Tree-sitter, language-server integration, deeper call/reference graphs, binary CFGs, and web route crawls remain future structural work.
 
+The third implementation starts Layer 3:
+
+- Semantic indexing is per-program opt-in and disabled by default.
+- The beta implementation stores bounded chunks derived from existing project search documents in `project_semantic_chunks`.
+- The initial provider is local and deterministic (`local_hash` / `local-hash-v1`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
+- `search` augments direct file, artifact, metadata, and structural matches with semantic chunk matches only when semantic indexing is enabled for the active program.
+- Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed time, and `remoteEmbeddingEnabled: false`.
+- This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
+
 ## Index Layers
 
 Beale should treat indexing as layered capability. Each layer has different cost, latency, and trust properties.
@@ -154,6 +163,7 @@ Policy:
 - Local embedding provider preferred.
 - Remote embedding requires explicit provider consent and a clear "indexed material leaves this machine" warning.
 - Users can disable semantic indexing per program.
+- Beta starts with local sparse semantic vectors only. Remote embedding providers remain future work.
 
 ### Layer 4: Relationship Graph
 
@@ -321,7 +331,7 @@ Long term:
 ## Open Questions
 
 - Which local embedding model is accurate enough for security research without excessive memory cost?
-- Should semantic indexing be per-program opt-in or per-provider opt-in?
+- Which provider consent UI should enable future remote embedding providers without weakening the per-program opt-in default?
 - How much relationship graph can be derived cheaply from Tree-sitter before a language server is needed?
 - Which binary analysis backend should produce stable function and chunk IDs first?
 - Should web crawl snapshots be indexed automatically during live sessions or only after explicit researcher approval?

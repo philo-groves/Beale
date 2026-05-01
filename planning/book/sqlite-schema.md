@@ -173,6 +173,36 @@ Fields:
 - `title`
 - `body`
 
+### `project_semantic_chunks`
+
+Purpose:
+
+- Store per-program opt-in local semantic chunks derived from scoped project search documents.
+- Support concept-level retrieval across project metadata and Beale research memory without sending indexed material to a remote embedding provider.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `run_id`
+- `source_document_id`
+- `namespace`
+- `entity_type`
+- `entity_id`
+- `title`
+- `content`
+- `content_hash`
+- `source_path`
+- `chunk_index`
+- `token_count`
+- `vector_provider`
+- `vector_model`
+- `vector_json`
+- `metadata_json`
+- `indexed_at`
+
+The beta provider is `local_hash` / `local-hash-v1`: a deterministic sparse local vector used for safer first-pass semantic retrieval. Remote embedding providers are not enabled by default and require a separate explicit consent path before indexed material can leave the machine.
+
 ### `project_structure_entities`
 
 Purpose:
@@ -591,7 +621,7 @@ Required early:
 
 Optional later:
 
-- Workspace-local semantic index.
+- Remote semantic embedding providers with explicit per-program consent and clear indexed-material disclosure.
 
 Semantic search must not cross workspace boundaries.
 

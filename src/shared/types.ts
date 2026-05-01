@@ -323,6 +323,35 @@ export interface ProjectStructureSummary {
   indexedAt: string | null;
 }
 
+export interface ProjectSemanticSummary {
+  scopeVersionId: string;
+  enabled: boolean;
+  status: 'disabled' | 'empty' | 'ready';
+  provider: string;
+  model: string;
+  remoteEmbeddingEnabled: boolean;
+  chunkCount: number;
+  embeddedChunkCount: number;
+  namespaceCounts: Record<string, number>;
+  indexedAt: string | null;
+}
+
+export interface ProjectSemanticSearchResult {
+  chunkId: string;
+  scopeVersionId: string;
+  runId: string | null;
+  sourceDocumentId: string;
+  namespace: string;
+  entityType: string;
+  entityId: string;
+  title: string;
+  sourcePath: string | null;
+  snippet: string;
+  score: number;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
 export interface ProjectSearchResult {
   documentId: string;
   scopeVersionId: string;

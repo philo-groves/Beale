@@ -85,10 +85,7 @@ Required:
 
 - Structured search over entity fields, states, timestamps, paths, symbols, CVEs, CWEs, components, tool names, artifact hashes, and run IDs.
 - SQLite full-text search over notes, summaries, hypotheses, findings, reports, and selected tool-output summaries.
-
-Optional later:
-
-- Local semantic search over scoped workspace data.
+- Per-program opt-in local semantic search over scoped workspace data.
 
 Semantic search must stay workspace-local and should never query across independent Beale workspaces.
 

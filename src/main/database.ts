@@ -27,6 +27,8 @@ import type {
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
   ProjectSearchResult,
+  ProjectSemanticSearchResult,
+  ProjectSemanticSummary,
   ProjectStructureSummary,
   ProgramScopeDraft,
   ProgramScopeVersion,
@@ -334,6 +336,39 @@ interface ProjectSearchDocumentInput {
   updatedAt?: string;
 }
 
+interface ProjectSearchDocumentRecord {
+  id: string;
+  scopeVersionId: string;
+  runId: string | null;
+  entityType: string;
+  entityId: string;
+  title: string;
+  body: string;
+  sourcePath: string | null;
+  metadata: Record<string, unknown>;
+  updatedAt: string;
+}
+
+interface ProjectSemanticChunkInput {
+  scopeVersionId: string;
+  runId?: string | null;
+  sourceDocumentId: string;
+  namespace: string;
+  entityType: string;
+  entityId: string;
+  title: string;
+  content: string;
+  contentHash: string;
+  sourcePath?: string | null;
+  chunkIndex: number;
+  tokenCount: number;
+  vectorProvider: string;
+  vectorModel: string;
+  vector: Record<string, number>;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
 interface ProjectInventoryInsertInput {
   scopeVersionId: string;
   asset: ScopeAsset;
@@ -427,7 +462,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -438,6 +473,18 @@ const PROJECT_STRUCTURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
 const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
+const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
+const PROJECT_SEMANTIC_VECTOR_PROVIDER = 'local_hash';
+const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v1';
+const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
+const PROJECT_SEMANTIC_CHUNK_MAX_CHARS = 2400;
+const PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS = 240;
+const PROJECT_SEMANTIC_MAX_CHUNKS_PER_DOCUMENT = 12;
+const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
+
+function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
+  return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}`;
+}
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -513,6 +560,58 @@ const PROJECT_INDEX_TEXT_EXTENSIONS = new Set([
   '.yml'
 ]);
 const PROJECT_INDEX_BINARY_EXTENSIONS = new Set(['.apk', '.aab', '.bin', '.dll', '.dmg', '.dylib', '.elf', '.exe', '.ipa', '.jar', '.o', '.so', '.wasm']);
+const SEMANTIC_STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'that',
+  'this',
+  'into',
+  'onto',
+  'are',
+  'was',
+  'were',
+  'has',
+  'have',
+  'had',
+  'not',
+  'but',
+  'all',
+  'any',
+  'can',
+  'will',
+  'should',
+  'would',
+  'could',
+  'http',
+  'https',
+  'www'
+]);
+const SEMANTIC_SYNONYMS: Record<string, string[]> = {
+  auth: ['authorization', 'authentication', 'permission', 'access'],
+  authorize: ['authorization', 'permission', 'access'],
+  authenticated: ['authentication', 'auth', 'identity'],
+  permission: ['authorization', 'access', 'scope'],
+  token: ['credential', 'secret', 'bearer'],
+  credential: ['secret', 'token', 'password'],
+  secret: ['credential', 'token', 'key'],
+  route: ['endpoint', 'handler', 'controller'],
+  endpoint: ['route', 'api', 'handler'],
+  handler: ['route', 'endpoint', 'controller'],
+  query: ['database', 'sql', 'injection'],
+  sql: ['database', 'query', 'injection'],
+  deserialize: ['unserialize', 'parser', 'object'],
+  parser: ['parse', 'deserialize', 'input'],
+  redirect: ['url', 'navigation', 'response'],
+  file: ['filesystem', 'path', 'read'],
+  path: ['filesystem', 'file', 'traversal'],
+  native: ['jni', 'binary', 'symbol'],
+  jni: ['native', 'android', 'symbol'],
+  mobile: ['android', 'ios', 'permission'],
+  camera: ['permission', 'android', 'mobile']
+};
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -666,6 +765,147 @@ function projectSearchPreview(title: string, body: string, query: string, maxLen
   return `${start > 0 ? '...' : ''}${compact.slice(start, end).trim()}${end < compact.length ? '...' : ''}`;
 }
 
+function semanticSearchPreview(content: string, query: string, maxLength = 300): string {
+  const terms = semanticTokens(query).map((token) => token.term);
+  const compact = content.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  const lower = compact.toLowerCase();
+  const firstMatch = terms.reduce((best, term) => {
+    const index = lower.indexOf(term);
+    if (index < 0) return best;
+    return best < 0 ? index : Math.min(best, index);
+  }, -1);
+  const anchor = firstMatch >= 0 ? firstMatch : 0;
+  const start = Math.max(0, anchor - 90);
+  const end = Math.min(compact.length, start + maxLength);
+  return `${start > 0 ? '...' : ''}${compact.slice(start, end).trim()}${end < compact.length ? '...' : ''}`;
+}
+
+function projectSemanticNamespace(document: ProjectSearchDocumentRecord): string {
+  if (document.entityType === 'structure_entity') {
+    const entityKind = typeof document.metadata.entityKind === 'string' ? document.metadata.entityKind : '';
+    if (entityKind.startsWith('binary_')) return 'binary';
+    if (entityKind.startsWith('mobile_') || entityKind === 'url_scheme') return 'mobile';
+    if (entityKind === 'web_endpoint' || entityKind === 'graphql_operation' || entityKind === 'route') return 'web';
+    return 'code';
+  }
+  if (document.entityType === 'inventory_item') {
+    const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : '';
+    if (resourceKind === 'binary') return 'binary';
+    if (resourceKind === 'manifest') return 'docs';
+    return 'code';
+  }
+  if (['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'artifact', 'trace_event', 'transcript', 'run'].includes(document.entityType)) return 'research_memory';
+  return 'docs';
+}
+
+function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexedAt: string): ProjectSemanticChunkInput[] {
+  const namespace = projectSemanticNamespace(document);
+  const source = `${document.title}\n${document.body}`.trim().slice(0, PROJECT_SEMANTIC_MAX_SOURCE_CHARS);
+  if (!source) return [];
+  const chunks: ProjectSemanticChunkInput[] = [];
+  let offset = 0;
+  let chunkIndex = 0;
+  while (offset < source.length && chunkIndex < PROJECT_SEMANTIC_MAX_CHUNKS_PER_DOCUMENT) {
+    const end = Math.min(source.length, offset + PROJECT_SEMANTIC_CHUNK_MAX_CHARS);
+    const content = source.slice(offset, end).trim();
+    if (content) {
+      const vector = semanticVectorForText(content, namespace);
+      const tokenCount = semanticTokens(content).length;
+      const contentHash = createHash('sha256').update(content).digest('hex');
+      chunks.push({
+        scopeVersionId: document.scopeVersionId,
+        runId: document.runId,
+        sourceDocumentId: document.id,
+        namespace,
+        entityType: document.entityType,
+        entityId: document.entityId,
+        title: document.title,
+        content,
+        contentHash,
+        sourcePath: document.sourcePath,
+        chunkIndex,
+        tokenCount,
+        vectorProvider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
+        vectorModel: PROJECT_SEMANTIC_VECTOR_MODEL,
+        vector,
+        metadata: {
+          ...document.metadata,
+          sourceDocumentId: document.id,
+          namespace,
+          chunkIndex,
+          provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
+          model: PROJECT_SEMANTIC_VECTOR_MODEL,
+          localOnly: true
+        },
+        indexedAt
+      });
+      chunkIndex += 1;
+    }
+    if (end >= source.length) break;
+    offset = Math.max(end - PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS, offset + 1);
+  }
+  return chunks;
+}
+
+function semanticTokens(value: string): Array<{ term: string; weight: number }> {
+  const raw = value
+    .toLowerCase()
+    .split(/[^a-z0-9_.$/@:-]+/i)
+    .map((token) => semanticNormalizeToken(token))
+    .filter((token): token is string => Boolean(token && token.length >= 2 && !SEMANTIC_STOP_WORDS.has(token)));
+  const tokens: Array<{ term: string; weight: number }> = [];
+  for (const term of raw) {
+    tokens.push({ term, weight: 1 });
+    for (const synonym of SEMANTIC_SYNONYMS[term] ?? []) tokens.push({ term: synonym, weight: 0.45 });
+  }
+  return tokens;
+}
+
+function semanticNormalizeToken(value: string): string {
+  const token = value.trim().replace(/^[-_.:/]+|[-_.:/]+$/g, '');
+  if (!token) return '';
+  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
+  if (token.length > 5 && token.endsWith('ing')) return token.slice(0, -3);
+  if (token.length > 4 && token.endsWith('ed')) return token.slice(0, -2);
+  if (token.length > 3 && token.endsWith('s')) return token.slice(0, -1);
+  return token;
+}
+
+function semanticVectorForText(value: string, namespace: string): Record<string, number> {
+  const weights = new Map<string, number>();
+  for (const { term, weight } of semanticTokens(`${namespace} ${value}`)) {
+    weights.set(term, (weights.get(term) ?? 0) + weight);
+  }
+  const sorted = Array.from(weights.entries())
+    .map(([term, weight]) => [term, Math.round((1 + Math.log(weight)) * 1000) / 1000] as const)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, PROJECT_SEMANTIC_MAX_VECTOR_TERMS);
+  return Object.fromEntries(sorted);
+}
+
+function semanticCosineSimilarity(left: Record<string, number>, right: Record<string, number>): number {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (const value of Object.values(left)) leftNorm += value * value;
+  for (const [term, value] of Object.entries(right)) {
+    rightNorm += value * value;
+    dot += (left[term] ?? 0) * value;
+  }
+  if (leftNorm === 0 || rightNorm === 0) return 0;
+  return dot / Math.sqrt(leftNorm * rightNorm);
+}
+
+function parseSemanticVector(value: SqlPrimitive | undefined): Record<string, number> {
+  const parsed = parseJson(value);
+  const vector: Record<string, number> = {};
+  for (const [key, item] of Object.entries(parsed)) {
+    if (typeof item === 'number' && Number.isFinite(item)) vector[key] = item;
+  }
+  return vector;
+}
+
 function projectSearchDocumentId(scopeVersionId: string, entityType: string, entityId: string): string {
   return createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex');
 }
@@ -680,6 +920,10 @@ function projectStructureEntityId(scopeVersionId: string, path: string, entityKi
 
 function projectStructureRelationId(scopeVersionId: string, sourceEntityId: string, relationKind: string, targetKind: string, targetName: string): string {
   return `structure_rel_${createHash('sha256').update(`${scopeVersionId}\n${sourceEntityId}\n${relationKind}\n${targetKind}\n${targetName}`).digest('hex').slice(0, 32)}`;
+}
+
+function projectSemanticChunkId(scopeVersionId: string, sourceDocumentId: string, chunkIndex: number, contentHash: string): string {
+  return `semantic_${createHash('sha256').update(`${scopeVersionId}\n${sourceDocumentId}\n${chunkIndex}\n${contentHash}`).digest('hex').slice(0, 32)}`;
 }
 
 function normalizedProjectPath(path: string): string {
@@ -3620,6 +3864,121 @@ export class WorkspaceDatabase {
     ).map((row) => this.mapProjectStructureRelation(row));
   }
 
+  public getProjectSemanticIndexEnabled(scopeVersionId = this.getActiveScope().id): boolean {
+    return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) === '1';
+  }
+
+  public setProjectSemanticIndexEnabled(enabled: boolean, scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+    this.setMetaValue(projectSemanticEnabledMetaKey(scopeVersionId), enabled ? '1' : '0');
+    if (enabled) return this.refreshProjectSemanticIndex(scopeVersionId);
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public getProjectSemanticSummary(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+    const enabled = this.getProjectSemanticIndexEnabled(scopeVersionId);
+    const rowsByNamespace = rows(
+      this.db
+        .prepare(
+          `SELECT namespace, COUNT(*) AS count
+           FROM project_semantic_chunks
+           WHERE scope_version_id = ?
+           GROUP BY namespace
+           ORDER BY namespace ASC`
+        )
+        .all(scopeVersionId)
+    );
+    const namespaceCounts: Record<string, number> = {};
+    let chunkCount = 0;
+    for (const row of rowsByNamespace) {
+      const count = numberValue(row, 'count');
+      namespaceCounts[text(row, 'namespace')] = count;
+      chunkCount += count;
+    }
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             SUM(CASE WHEN vector_json <> '{}' THEN 1 ELSE 0 END) AS embedded_chunk_count,
+             MAX(indexed_at) AS indexed_at
+           FROM project_semantic_chunks
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    return {
+      scopeVersionId,
+      enabled,
+      status: !enabled ? 'disabled' : chunkCount > 0 ? 'ready' : 'empty',
+      provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
+      model: PROJECT_SEMANTIC_VECTOR_MODEL,
+      remoteEmbeddingEnabled: false,
+      chunkCount,
+      embeddedChunkCount: row ? numberValue(row, 'embedded_chunk_count') : 0,
+      namespaceCounts,
+      indexedAt: row ? nullableText(row, 'indexed_at') : null
+    };
+  }
+
+  public ensureProjectSemanticIndex(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+    const summary = this.getProjectSemanticSummary(scopeVersionId);
+    if (!summary.enabled) return summary;
+    if (summary.chunkCount === 0 || this.projectSemanticIndexLooksStale(scopeVersionId, summary.indexedAt)) {
+      return this.refreshProjectSemanticIndex(scopeVersionId);
+    }
+    return summary;
+  }
+
+  public refreshProjectSemanticIndex(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
+    this.ensureProjectInventory(scopeVersionId);
+    const indexedAt = nowIso();
+    const documents = rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_search_documents
+           WHERE scope_version_id = ?
+           ORDER BY updated_at DESC, entity_type ASC, entity_id ASC`
+        )
+        .all(scopeVersionId)
+    ).map((row) => this.mapProjectSearchDocument(row));
+
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM project_semantic_chunks WHERE scope_version_id = ?').run(scopeVersionId);
+      for (const document of documents) {
+        for (const chunk of semanticChunksForDocument(document, indexedAt)) {
+          this.insertProjectSemanticChunk(chunk);
+        }
+      }
+    });
+
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8): ProjectSemanticSearchResult[] {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const trimmed = query.trim();
+    if (!trimmed || !this.getProjectSemanticIndexEnabled(run.scopeVersionId)) return [];
+    this.ensureProjectSemanticIndex(run.scopeVersionId);
+    const queryVector = semanticVectorForText(trimmed, 'query');
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_semantic_chunks
+           WHERE scope_version_id = ?
+           ORDER BY indexed_at DESC`
+        )
+        .all(run.scopeVersionId)
+    )
+      .map((row) => ({ row, score: semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector) }))
+      .filter((candidate) => candidate.score >= 0.08)
+      .sort((left, right) => right.score - left.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')))
+      .slice(0, Math.max(1, Math.floor(limit)))
+      .map(({ row, score }) => this.mapProjectSemanticSearchResult(row, trimmed, score));
+  }
+
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
     const summary = this.getProjectInventorySummary(scopeVersionId);
     if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
@@ -4247,6 +4606,10 @@ export class WorkspaceDatabase {
         this.applyProjectStructureIndexMigration();
         this.insertMigration(12, 'project_understanding_structural_index');
       }
+      if (currentVersion < 13) {
+        this.applyProjectSemanticIndexMigration();
+        this.insertMigration(13, 'project_understanding_semantic_index');
+      }
     });
   }
 
@@ -4381,6 +4744,15 @@ export class WorkspaceDatabase {
       return;
     }
     this.db.exec(PROJECT_STRUCTURE_SCHEMA_SQL);
+  }
+
+  private applyProjectSemanticIndexMigration(): void {
+    const searchTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get());
+    if (!searchTable) {
+      this.db.exec(SCHEMA_SQL);
+      this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
+    }
+    this.db.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -4554,6 +4926,13 @@ export class WorkspaceDatabase {
     }
 
     return false;
+  }
+
+  private projectSemanticIndexLooksStale(scopeVersionId: string, indexedAt: string | null): boolean {
+    if (!indexedAt) return true;
+    const row = rowOrUndefined(this.db.prepare('SELECT MAX(updated_at) AS document_updated_at FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
+    const documentUpdatedAt = row ? nullableText(row, 'document_updated_at') : null;
+    return Boolean(documentUpdatedAt && Date.parse(documentUpdatedAt) > Date.parse(indexedAt));
   }
 
   private resolveProjectStructureRelationTargets(scopeVersionId: string): void {
@@ -4987,6 +5366,53 @@ export class WorkspaceDatabase {
       );
   }
 
+  private insertProjectSemanticChunk(input: ProjectSemanticChunkInput): void {
+    const id = projectSemanticChunkId(input.scopeVersionId, input.sourceDocumentId, input.chunkIndex, input.contentHash);
+    this.db
+      .prepare(
+        `INSERT INTO project_semantic_chunks (
+          id, scope_version_id, run_id, source_document_id, namespace, entity_type,
+          entity_id, title, content, content_hash, source_path, chunk_index,
+          token_count, vector_provider, vector_model, vector_json, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, source_document_id, chunk_index, content_hash)
+        DO UPDATE SET
+          run_id = excluded.run_id,
+          namespace = excluded.namespace,
+          entity_type = excluded.entity_type,
+          entity_id = excluded.entity_id,
+          title = excluded.title,
+          content = excluded.content,
+          source_path = excluded.source_path,
+          token_count = excluded.token_count,
+          vector_provider = excluded.vector_provider,
+          vector_model = excluded.vector_model,
+          vector_json = excluded.vector_json,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.runId ?? null,
+        input.sourceDocumentId,
+        input.namespace,
+        input.entityType,
+        input.entityId,
+        input.title,
+        input.content,
+        input.contentHash,
+        input.sourcePath ?? null,
+        input.chunkIndex,
+        input.tokenCount,
+        input.vectorProvider,
+        input.vectorModel,
+        toJson(input.vector),
+        toJson(input.metadata),
+        input.indexedAt
+      );
+  }
+
   private deleteProjectSearchDocuments(whereSql: string, params: SqlPrimitive[]): void {
     const docRows = rows(this.db.prepare(`SELECT id FROM project_search_documents WHERE ${whereSql}`).all(...params));
     for (const row of docRows) {
@@ -5309,6 +5735,39 @@ export class WorkspaceDatabase {
       metadata: parseJson(row.metadata_json),
       rank: numberValue(row, 'rank'),
       updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private mapProjectSearchDocument(row: SqlRow): ProjectSearchDocumentRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      runId: nullableText(row, 'run_id'),
+      entityType: text(row, 'entity_type'),
+      entityId: text(row, 'entity_id'),
+      title: text(row, 'title'),
+      body: text(row, 'body'),
+      sourcePath: nullableText(row, 'source_path'),
+      metadata: parseJson(row.metadata_json),
+      updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private mapProjectSemanticSearchResult(row: SqlRow, query: string, score: number): ProjectSemanticSearchResult {
+    return {
+      chunkId: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      runId: nullableText(row, 'run_id'),
+      sourceDocumentId: text(row, 'source_document_id'),
+      namespace: text(row, 'namespace'),
+      entityType: text(row, 'entity_type'),
+      entityId: text(row, 'entity_id'),
+      title: text(row, 'title'),
+      sourcePath: nullableText(row, 'source_path'),
+      snippet: semanticSearchPreview(text(row, 'content'), query),
+      score: Math.round(score * 1000) / 1000,
+      metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
     };
   }
 
@@ -6044,6 +6503,35 @@ CREATE INDEX IF NOT EXISTS idx_project_structure_scope_path ON project_structure
 CREATE INDEX IF NOT EXISTS idx_project_structure_name ON project_structure_entities(scope_version_id, name);
 CREATE INDEX IF NOT EXISTS idx_project_structure_rel_source ON project_structure_relations(source_entity_id, relation_kind);
 CREATE INDEX IF NOT EXISTS idx_project_structure_rel_target ON project_structure_relations(scope_version_id, target_kind, target_name);
+`;
+
+const PROJECT_SEMANTIC_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_semantic_chunks (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+  source_document_id TEXT NOT NULL REFERENCES project_search_documents(id) ON DELETE CASCADE,
+  namespace TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  source_path TEXT,
+  chunk_index INTEGER NOT NULL,
+  token_count INTEGER NOT NULL,
+  vector_provider TEXT NOT NULL,
+  vector_model TEXT NOT NULL,
+  vector_json TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, source_document_id, chunk_index, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_semantic_scope_namespace ON project_semantic_chunks(scope_version_id, namespace);
+CREATE INDEX IF NOT EXISTS idx_project_semantic_source_document ON project_semantic_chunks(source_document_id);
+CREATE INDEX IF NOT EXISTS idx_project_semantic_entity ON project_semantic_chunks(scope_version_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_semantic_updated ON project_semantic_chunks(indexed_at);
 `;
 
 const SCHEMA_SQL = `
