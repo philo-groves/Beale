@@ -129,6 +129,11 @@ export interface PythonToolCallPreview {
   truncated: boolean;
 }
 
+export interface PythonTraceScript {
+  task: string;
+  script: string;
+}
+
 export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (hasStructuredProseTraceDetail(event, detail)) return true;
 
@@ -144,21 +149,59 @@ export function isProseTraceEvent(event: TraceEventRecord, category: TraceCatego
 
 export function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
   if (event.type !== 'tool_call') return null;
-  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
-  if (toolName !== 'python') return null;
+  const script = pythonTraceScript(event, null);
+  return script ? pythonPreviewFromScript(script) : null;
+}
 
-  const args = tracePayloadRecord(event.payload, 'arguments');
+export function pythonTracePreview(event: TraceEventRecord, detail: RunDetail | null = null): PythonToolCallPreview | null {
+  if (!isPythonExecutionTraceEvent(event)) return null;
+  const script = pythonTraceScript(event, detail);
+  return script ? pythonPreviewFromScript(script) : null;
+}
+
+export function pythonTraceScript(event: TraceEventRecord, detail: RunDetail | null = null): PythonTraceScript | null {
+  const args = pythonArgumentsForTraceEvent(event, detail);
   if (!args) return null;
 
-  const task = stringRecordValue(args, 'task') ?? '';
+  const task = tracePayloadPrimitive(event.payload, 'task') ?? stringRecordValue(args, 'task') ?? '';
   const scriptValue = args.script;
   const script = typeof scriptValue === 'string' ? scriptValue.replace(/\r\n?/g, '\n').trim() : '';
+  if (!task && !script) return null;
+
+  return { task, script };
+}
+
+export function isPythonExecutionTraceEvent(event: TraceEventRecord): boolean {
+  if (event.type !== 'tool_result' && event.type !== 'artifact_created') return false;
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  return toolName === 'python' || /^(Host|Guest) python operation finished with /i.test(event.summary);
+}
+
+function pythonPreviewFromScript({ task, script }: PythonTraceScript): PythonToolCallPreview | null {
   const allScriptLines = script ? script.split('\n') : [];
   const scriptLines = allScriptLines.slice(0, 8);
   const truncated = allScriptLines.length > scriptLines.length;
   if (!task && scriptLines.length === 0) return null;
 
   return { task, scriptLines, truncated };
+}
+
+function pythonArgumentsForTraceEvent(event: TraceEventRecord, detail: RunDetail | null): Record<string, unknown> | null {
+  if (isPythonToolCallEvent(event)) return tracePayloadRecord(event.payload, 'arguments');
+  if (!isPythonExecutionTraceEvent(event)) return null;
+
+  const directArgs = tracePayloadRecord(event.payload, 'arguments');
+  if (directArgs) return directArgs;
+  if (!detail || !event.toolCallId) return null;
+
+  const toolCall = detail.traceEvents.find((candidate) => candidate.id !== event.id && candidate.toolCallId === event.toolCallId && isPythonToolCallEvent(candidate));
+  return toolCall ? tracePayloadRecord(toolCall.payload, 'arguments') : null;
+}
+
+function isPythonToolCallEvent(event: TraceEventRecord): boolean {
+  if (event.type !== 'tool_call') return false;
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  return toolName === 'python';
 }
 
 export function formatReasoningTraceText(text: string): string {
@@ -226,7 +269,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (!summary) return traceCategoryFallbackPrefix(category);
   if (event.type === 'tool_call') {
     const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(summary);
-    if (toolName === 'python') return 'Run Python';
+    if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
     if (toolName === 'hypothesis') return 'Prepare Hypothesis';
     if (toolName === 'finding') return 'Prepare Finding';
   }
@@ -264,15 +307,17 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
   if (match) return `Request for Turn ${match[1]}`;
   match = summary.match(/^OpenAI completed function call arguments for ([^.]+)\.$/);
-  if (match?.[1] === 'python') return 'Run Python';
+  if (match?.[1] === 'python') return 'Prepare Python';
   if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
   if (match?.[1] === 'finding') return 'Prepare Finding';
   if (match) return `Call ${match[1]}`;
   match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
   match = summary.match(/^Guest ([\w -]+) operation finished with ([^.]+)\.$/i);
+  if (match?.[1].toLowerCase() === 'python') return `Run Python: ${match[2]}`;
   if (match) return `Finish ${match[1].toLowerCase()} operation: ${match[2]}`;
   match = summary.match(/^Host ([\w -]+) operation finished with ([^.]+)\.$/i);
+  if (match?.[1].toLowerCase() === 'python') return `Run Python: ${match[2]}`;
   if (match) return `Finish host ${match[1].toLowerCase()} operation: ${match[2]}`;
   match = summary.match(/^Host debugger wrapper operation finished with ([^.]+)\.$/i);
   if (match) return `Finish host debugger wrapper: ${match[1]}`;

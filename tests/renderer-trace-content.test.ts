@@ -7,6 +7,7 @@ import {
   hypothesisForTraceEvent,
   isProseTraceEvent,
   lineRangePart,
+  pythonTracePreview,
   pythonToolCallPreview,
   traceEventDetailText,
   traceEventSummary
@@ -21,7 +22,9 @@ describe('renderer trace content view models', () => {
         traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for python.', payload: { toolName: 'python' } }),
         'tools'
       )
-    ).toBe('Run Python');
+    ).toBe('Prepare Python');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }), 'tools')).toBe('Queue Python');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
     expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
   });
@@ -75,6 +78,30 @@ describe('renderer trace content view models', () => {
       scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
       truncated: true
     });
+
+    const result = traceEvent({
+      id: 'trace_result',
+      type: 'tool_result',
+      summary: 'Host python operation finished with success.',
+      toolCallId: 'tool_python'
+    });
+    const detail = runDetail({
+      traceEvents: [
+        traceEvent({
+          id: 'trace_tool_call',
+          type: 'tool_call',
+          summary: 'OpenAI requested Beale tool: python.',
+          toolCallId: 'tool_python',
+          payload: python.payload
+        }),
+        result
+      ]
+    });
+    expect(pythonTracePreview(result, detail)).toMatchObject({
+      task: 'Check parser edge cases',
+      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
+      truncated: true
+    });
     expect(isProseTraceEvent(traceEvent({ source: 'model', type: 'model_message', payload: { text: 'Agent response', transcriptRole: 'assistant' } }), 'agent_output')).toBe(true);
     expect(lineRangePart({ lineStart: 12, lineEnd: 19 })).toBe('lines 12-19');
   });
@@ -113,7 +140,7 @@ describe('renderer trace content view models', () => {
   });
 });
 
-function runDetail(input: { hypotheses?: HypothesisRecord[]; findings?: FindingRecord[] } = {}): RunDetail {
+function runDetail(input: { traceEvents?: TraceEventRecord[]; hypotheses?: HypothesisRecord[]; findings?: FindingRecord[] } = {}): RunDetail {
   return {
     run: {
       id: 'run_test',
@@ -128,7 +155,7 @@ function runDetail(input: { hypotheses?: HypothesisRecord[]; findings?: FindingR
       promptMarkdown: ''
     },
     attempts: [],
-    traceEvents: [],
+    traceEvents: input.traceEvents ?? [],
     transcriptMessages: [],
     hypotheses: input.hypotheses ?? [],
     artifacts: [],

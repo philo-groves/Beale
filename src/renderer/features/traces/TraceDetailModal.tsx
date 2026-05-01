@@ -4,7 +4,7 @@ import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } fro
 import { Modal } from '../../app/Modal';
 import { formatPriorityPill, formatSessionStart, traceLabel } from '../../lib/formatting';
 import { stringRecordValue, toolNameFromSummary, traceCategoryForEvent, tracePayloadPrimitive, tracePayloadRecord } from '../../traceClassification';
-import { compactTracePath, isProseTraceEvent, lineRangePart, traceEventDetailText, traceEventSummary } from '../../view-models/traceContent';
+import { compactTracePath, isProseTraceEvent, lineRangePart, pythonTraceScript, traceEventDetailText, traceEventSummary } from '../../view-models/traceContent';
 import { CwePill } from '../research/CwePill';
 import { highlightJsonCode, highlightPythonCode, renderTraceProseText } from './traceMarkup';
 import { traceCategoryIcon, traceCategoryLabel, traceTypeLabel } from './traceVisuals';
@@ -105,7 +105,7 @@ export function TraceDetailModal({
 function TraceTypedDetail({ detail, event }: { detail: RunDetail | null; event: TraceEventRecord }): JSX.Element | null {
   const category = traceCategoryForEvent(event);
   const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
-  if (toolName === 'python' || /^Host python|^Guest python/i.test(event.summary)) return <PythonTraceDetail event={event} />;
+  if (toolName === 'python' || /^Host python|^Guest python/i.test(event.summary)) return <PythonTraceDetail detail={detail} event={event} />;
   if (category === 'code_navigation') return <CodeNavigationTraceDetail event={event} />;
 
   const detailText = traceEventDetailText(event, category, detail);
@@ -119,10 +119,11 @@ function TraceTypedDetail({ detail, event }: { detail: RunDetail | null; event: 
   );
 }
 
-function PythonTraceDetail({ event }: { event: TraceEventRecord }): JSX.Element {
+function PythonTraceDetail({ detail, event }: { detail: RunDetail | null; event: TraceEventRecord }): JSX.Element {
   const args = tracePayloadRecord(event.payload, 'arguments');
-  const task = args ? stringRecordValue(args, 'task') : tracePayloadPrimitive(event.payload, 'task');
-  const script = args && typeof args.script === 'string' ? args.script.replace(/\r\n?/g, '\n').trim() : '';
+  const scriptDetail = pythonTraceScript(event, detail);
+  const task = scriptDetail?.task || (args ? stringRecordValue(args, 'task') : tracePayloadPrimitive(event.payload, 'task'));
+  const script = scriptDetail?.script ?? '';
   const status = tracePayloadPrimitive(event.payload, 'status');
   const stdout = tracePayloadPrimitive(event.payload, 'stdoutSummary');
   const stderr = tracePayloadPrimitive(event.payload, 'stderrSummary');

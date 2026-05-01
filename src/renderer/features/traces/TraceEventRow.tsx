@@ -4,7 +4,7 @@ import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import { traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
 import { tracePayloadPrimitive } from '../../traceClassification';
-import { isProseTraceEvent, pythonToolCallPreview, traceEventDetailText, traceEventSummary, type PythonToolCallPreview } from '../../view-models/traceContent';
+import { isProseTraceEvent, isPythonExecutionTraceEvent, pythonTracePreview, traceEventDetailText, traceEventSummary, type PythonToolCallPreview } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
@@ -37,7 +37,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const hasDetail = detailText.length > 0;
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
-  const pythonPreview = useMemo(() => pythonToolCallPreview(event), [event]);
+  const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
   return (
     <button
       type="button"
@@ -104,6 +104,9 @@ function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventR
   if (previous.selected !== next.selected || previous.entering !== next.entering || previous.searchHighlightQuery !== next.searchHighlightQuery || previous.onSelect !== next.onSelect) return false;
   if (!sameTraceDisplayEvent(previous.event, next.event)) return false;
   if (!traceEventNeedsRunDetail(previous.event) && !traceEventNeedsRunDetail(next.event)) return true;
+  if (isPythonExecutionTraceEvent(previous.event) || isPythonExecutionTraceEvent(next.event)) {
+    return previous.detail?.traceEvents === next.detail?.traceEvents;
+  }
   return previous.detail?.hypotheses === next.detail?.hypotheses && previous.detail?.findings === next.detail?.findings;
 }
 
@@ -126,5 +129,5 @@ function sameTraceDisplayEvent(previous: TraceDisplayEvent, next: TraceDisplayEv
 }
 
 function traceEventNeedsRunDetail(event: TraceDisplayEvent): boolean {
-  return event.type === 'hypothesis_event' || event.type === 'finding_event';
+  return event.type === 'hypothesis_event' || event.type === 'finding_event' || isPythonExecutionTraceEvent(event);
 }
