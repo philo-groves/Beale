@@ -433,6 +433,7 @@ const MainSteerArea = memo(function MainSteerArea({
   const footerRef = useRef<HTMLElement | null>(null);
   const controlRowRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previousSessionStateRef = useRef<{ runId: string | null; status: RunStatus | null }>({ runId: null, status: null });
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
   const status = detail?.run.status ?? null;
@@ -471,6 +472,18 @@ const MainSteerArea = memo(function MainSteerArea({
     window.addEventListener('resize', resizeTextarea);
     return () => window.removeEventListener('resize', resizeTextarea);
   }, [resizeTextarea]);
+
+  useEffect(() => {
+    const previous = previousSessionStateRef.current;
+    previousSessionStateRef.current = { runId, status };
+    if (!runId || status !== 'active') return undefined;
+    if (previous.runId === runId && previous.status === 'active') return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [runId, status]);
 
   const submit = (): void => {
     if (disabled || !runId) return;
