@@ -392,6 +392,35 @@ interface ProjectStructureCandidate {
   relations?: Array<Omit<ProjectStructureRelationInput, 'scopeVersionId' | 'sourceEntityId' | 'indexedAt'>>;
 }
 
+export interface ProjectStructureEntityRecord {
+  id: string;
+  scopeVersionId: string;
+  inventoryItemId: string;
+  assetId: string;
+  entityKind: string;
+  name: string;
+  signature: string;
+  path: string;
+  language: string;
+  lineStart: number;
+  lineEnd: number;
+  parentId: string | null;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
+export interface ProjectStructureRelationRecord {
+  id: string;
+  scopeVersionId: string;
+  sourceEntityId: string;
+  relationKind: string;
+  targetKind: string;
+  targetName: string;
+  targetEntityId: string | null;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
@@ -1281,6 +1310,15 @@ function finalizeProjectStructureCandidates(candidates: ProjectStructureCandidat
 
 function projectStructureEntityOwnsRange(entityKind: string): boolean {
   return entityKind === 'function' || entityKind === 'method' || entityKind === 'class' || entityKind === 'type';
+}
+
+function projectStructureCandidateMatchesRelationTarget(candidate: ProjectStructureCandidate, relation: Omit<ProjectStructureRelationInput, 'scopeVersionId' | 'sourceEntityId' | 'indexedAt'>): boolean {
+  if (candidate.name.toLowerCase() !== relation.targetName.toLowerCase()) return false;
+  if (relation.targetKind === 'function') return candidate.entityKind === 'function' || candidate.entityKind === 'method';
+  if (relation.targetKind === 'route') return candidate.entityKind === 'route';
+  if (relation.targetKind === 'sink') return candidate.entityKind === 'sink';
+  if (relation.targetKind === 'security_control') return candidate.entityKind === 'security_marker';
+  return true;
 }
 
 function isControlKeyword(value: string): boolean {
@@ -3163,6 +3201,100 @@ export class WorkspaceDatabase {
     };
   }
 
+  public findProjectStructureEntity(scopeVersionId: string, path: string, name: string): ProjectStructureEntityRecord | null {
+    this.ensureProjectInventory(scopeVersionId);
+    const normalizedName = name.trim();
+    if (!normalizedName) return null;
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_entities
+           WHERE scope_version_id = ?
+             AND path = ?
+             AND LOWER(name) = LOWER(?)
+           ORDER BY
+             CASE entity_kind
+               WHEN 'function' THEN 0
+               WHEN 'method' THEN 0
+               WHEN 'class' THEN 1
+               WHEN 'type' THEN 1
+               WHEN 'route' THEN 2
+               WHEN 'export' THEN 3
+               ELSE 4
+             END,
+             line_start ASC
+           LIMIT 1`
+        )
+        .get(scopeVersionId, path, normalizedName)
+    );
+    return row ? this.mapProjectStructureEntity(row) : null;
+  }
+
+  public listProjectStructureEntitiesInRange(scopeVersionId: string, path: string, lineStart: number, lineEnd: number, limit = 40): ProjectStructureEntityRecord[] {
+    this.ensureProjectInventory(scopeVersionId);
+    const start = Math.max(1, Math.floor(lineStart));
+    const end = Math.max(start, Math.floor(lineEnd));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_entities
+           WHERE scope_version_id = ?
+             AND path = ?
+             AND line_start >= ?
+             AND line_start <= ?
+           ORDER BY line_start ASC, entity_kind ASC, name ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, path, start, end, Math.max(1, Math.floor(limit)))
+    ).map((row) => this.mapProjectStructureEntity(row));
+  }
+
+  public listProjectStructureRelationsForEntity(scopeVersionId: string, entityId: string, limit = 40): ProjectStructureRelationRecord[] {
+    this.ensureProjectInventory(scopeVersionId);
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_relations
+           WHERE scope_version_id = ?
+             AND source_entity_id = ?
+           ORDER BY relation_kind ASC, target_kind ASC, target_name ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, entityId, Math.max(1, Math.floor(limit)))
+    ).map((row) => this.mapProjectStructureRelation(row));
+  }
+
+  public listProjectStructureReferencesForTarget(scopeVersionId: string, target: { name: string; entityId?: string | null }, limit = 40): ProjectStructureRelationRecord[] {
+    this.ensureProjectInventory(scopeVersionId);
+    const normalizedName = target.name.trim();
+    if (!normalizedName && !target.entityId) return [];
+    const clauses: string[] = [];
+    const params: SqlPrimitive[] = [scopeVersionId];
+    if (target.entityId) {
+      clauses.push('target_entity_id = ?');
+      params.push(target.entityId);
+    }
+    if (normalizedName) {
+      clauses.push('LOWER(target_name) = LOWER(?)');
+      params.push(normalizedName);
+    }
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_relations
+           WHERE scope_version_id = ?
+             AND (${clauses.join(' OR ')})
+           ORDER BY indexed_at DESC, relation_kind ASC, target_name ASC
+           LIMIT ?`
+        )
+        .all(...params, Math.max(1, Math.floor(limit)))
+    ).map((row) => this.mapProjectStructureRelation(row));
+  }
+
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
     const summary = this.getProjectInventorySummary(scopeVersionId);
     if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
@@ -4261,7 +4393,19 @@ export class WorkspaceDatabase {
     const text = readProjectStructureText(input.absolutePath, input.resourceKind, input.sizeBytes ?? 0);
     if (!text) return;
     const candidates = extractProjectStructureCandidates(input.absolutePath, input.language, text.text, text.truncated);
+    const inserted: Array<{ candidate: ProjectStructureCandidate; entityId: string }> = [];
+    const ownerForCandidate = (candidate: ProjectStructureCandidate): ProjectStructureCandidate | null => {
+      if (projectStructureEntityOwnsRange(candidate.entityKind)) return null;
+      return (
+        candidates
+          .filter((owner) => owner !== candidate && projectStructureEntityOwnsRange(owner.entityKind) && owner.lineStart < candidate.lineStart && (owner.lineEnd ?? owner.lineStart) >= candidate.lineStart)
+          .sort((left, right) => right.lineStart - left.lineStart || (left.lineEnd ?? left.lineStart) - (right.lineEnd ?? right.lineStart))[0] ?? null
+      );
+    };
+
     for (const candidate of candidates) {
+      const owner = ownerForCandidate(candidate);
+      const parentId = owner ? projectStructureEntityId(input.scopeVersionId, input.absolutePath, owner.entityKind, owner.name, owner.lineStart) : null;
       const entityId = this.insertProjectStructureEntity({
         scopeVersionId: input.scopeVersionId,
         inventoryItemId,
@@ -4273,22 +4417,35 @@ export class WorkspaceDatabase {
         language: input.language,
         lineStart: candidate.lineStart,
         lineEnd: candidate.lineEnd ?? candidate.lineStart,
+        parentId,
         metadata: {
           ...candidate.metadata,
           relativePath: safeRelativePath(input.asset.value, input.absolutePath),
           assetKind: input.asset.kind,
-          resourceKind: input.resourceKind
+          resourceKind: input.resourceKind,
+          ownerKind: owner?.entityKind ?? null,
+          ownerName: owner?.name ?? null,
+          ownerLineStart: owner?.lineStart ?? null,
+          ownerLineEnd: owner?.lineEnd ?? null
         },
         indexedAt: input.indexedAt
       });
+      inserted.push({ candidate, entityId });
+    }
+
+    for (const { candidate, entityId } of inserted) {
       for (const relation of candidate.relations ?? []) {
+        const targetEntityId =
+          relation.targetEntityId ??
+          inserted.find((candidateRecord) => projectStructureCandidateMatchesRelationTarget(candidateRecord.candidate, relation))?.entityId ??
+          null;
         this.insertProjectStructureRelation({
           scopeVersionId: input.scopeVersionId,
           sourceEntityId: entityId,
           relationKind: relation.relationKind,
           targetKind: relation.targetKind,
           targetName: relation.targetName,
-          targetEntityId: relation.targetEntityId ?? null,
+          targetEntityId,
           metadata: relation.metadata ?? {},
           indexedAt: input.indexedAt
         });
@@ -4715,6 +4872,39 @@ export class WorkspaceDatabase {
       metadata: parseJson(row.metadata_json),
       rank: numberValue(row, 'rank'),
       updatedAt: text(row, 'updated_at')
+    };
+  }
+
+  private mapProjectStructureEntity(row: SqlRow): ProjectStructureEntityRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      inventoryItemId: text(row, 'inventory_item_id'),
+      assetId: text(row, 'asset_id'),
+      entityKind: text(row, 'entity_kind'),
+      name: text(row, 'name'),
+      signature: text(row, 'signature'),
+      path: text(row, 'path'),
+      language: text(row, 'language'),
+      lineStart: numberValue(row, 'line_start'),
+      lineEnd: numberValue(row, 'line_end'),
+      parentId: nullableText(row, 'parent_id'),
+      metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
+    };
+  }
+
+  private mapProjectStructureRelation(row: SqlRow): ProjectStructureRelationRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      sourceEntityId: text(row, 'source_entity_id'),
+      relationKind: text(row, 'relation_kind'),
+      targetKind: text(row, 'target_kind'),
+      targetName: text(row, 'target_name'),
+      targetEntityId: nullableText(row, 'target_entity_id'),
+      metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
     };
   }
 

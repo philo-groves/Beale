@@ -105,6 +105,7 @@ Capabilities:
 - Show call sites.
 - Show nearby context.
 - Present symbol summaries where available.
+- Use structural index records for stable symbol ranges, nearby contained entities, outgoing relationships, and incoming references when available.
 
 `code_browser` should be the preferred way to inspect source instead of broad shell commands like `cat`.
 When a large file returns a truncated chunk, the model should continue with the returned next line rather than treating the file as unavailable.

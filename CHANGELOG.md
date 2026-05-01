@@ -41,6 +41,7 @@
 - Added inventory freshness checks, structured manifest dependency extraction, and bounded binary-string indexing for project metadata search.
 - Added the first structural index pass with normalized source entities, imports, routes, line ranges, lightweight relationships, and mirrored `structure_entity` metadata search documents.
 - Added richer structural relationship extraction for exports, call sites, route middleware/handler links, permission markers, and sink markers.
+- Added structural-index navigation to `code_browser` so symbol reads can use stable entity ranges and return nearby entities, outgoing relationships, and incoming references.
 
 ### Changed
 

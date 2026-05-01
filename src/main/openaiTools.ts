@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, s
 import type { Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { CreatedRunContext, WorkspaceDatabase } from './database';
+import type { CreatedRunContext, ProjectStructureEntityRecord, ProjectStructureRelationRecord, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
 import { redactJsonForModel } from './redaction';
@@ -737,7 +737,9 @@ export class BealeToolRouter {
     }
 
     const requestedRange = requestedLineRangeFromArgs(args);
-    const selection = readCodeBrowserText(filePath, symbol, requestedRange);
+    const structureEntity = !artifactTarget && symbol ? this.db.findProjectStructureEntity(context.run.scopeVersionId, filePath, symbol) : null;
+    const structureRange = structureEntity && !requestedRange ? requestedLineRangeFromProjectStructureEntity(structureEntity) : null;
+    const selection = readCodeBrowserText(filePath, symbol, requestedRange ?? structureRange);
     if (!selection) {
       const readFailure = codeBrowserReadFailure(filePath, stat.size);
       return {
@@ -758,10 +760,11 @@ export class BealeToolRouter {
     const startLine = selection.lineStart ?? 1;
     const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
     const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
+    const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(context, filePath, symbol, structureEntity, selection);
 
     return {
       status: 'success',
-      summary: `Code browser returned ${Math.max(0, endLine - startLine + 1)} bounded line${endLine === startLine ? '' : 's'}.`,
+      summary: `Code browser returned ${Math.max(0, endLine - startLine + 1)} bounded line${endLine === startLine ? '' : 's'}${structureEntity ? ' from the structural index.' : '.'}`,
       payload: {
         observationBacked: true,
         simulated: false,
@@ -779,6 +782,7 @@ export class BealeToolRouter {
         largeFile: selection.largeFile,
         nextLineStart: selection.nextLineStart,
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
+        structureNavigation,
         excerpt
       }
     };
@@ -1775,6 +1779,8 @@ export class BealeToolRouter {
   }
 
   private projectSearchResultToToolMatch(result: ProjectSearchResult): Record<string, unknown> {
+    const structureLineStart = result.entityType === 'structure_entity' ? numberValue(result.metadata.lineStart, 0) : 0;
+    const structureLineEnd = result.entityType === 'structure_entity' ? numberValue(result.metadata.lineEnd, 0) : 0;
     return {
       kind: 'metadata',
       entityType: result.entityType,
@@ -1782,9 +1788,54 @@ export class BealeToolRouter {
       runId: result.runId,
       title: result.title,
       sourcePath: result.sourcePath,
+      path: result.entityType === 'structure_entity' ? result.sourcePath : undefined,
+      line: structureLineStart > 0 ? structureLineStart : undefined,
+      range: structureLineStart > 0 ? `${structureLineStart}${structureLineEnd > structureLineStart ? `-${structureLineEnd}` : ''}` : undefined,
+      entityKind: result.entityType === 'structure_entity' ? result.metadata.entityKind : undefined,
+      structureName: result.entityType === 'structure_entity' ? result.metadata.name : undefined,
       matchedBy: 'project_metadata_fts',
       snippet: trimSnippet(result.snippet),
       metadata: result.metadata
+    };
+  }
+
+  private projectStructureNavigation(
+    context: CreatedRunContext,
+    filePath: string,
+    symbol: string,
+    matchedEntity: ProjectStructureEntityRecord | null,
+    selection: CodeBrowserTextSelection
+  ): Record<string, unknown> {
+    if (selection.binaryDerived || selection.lineStart === null || selection.lineEnd === null) {
+      return {
+        status: symbol ? 'unavailable' : 'not_requested',
+        reason: selection.binaryDerived ? 'binary_derived_text' : 'missing_line_range'
+      };
+    }
+
+    const rangeEntities = this.db
+      .listProjectStructureEntitiesInRange(context.run.scopeVersionId, filePath, selection.lineStart, selection.lineEnd)
+      .filter((entity) => entity.id !== matchedEntity?.id);
+    const containedEntities = rangeEntities
+      .filter((entity) => entity.parentId === matchedEntity?.id || !matchedEntity)
+      .slice(0, 20)
+      .map(projectStructureEntityPayload);
+    const outgoingRelations = matchedEntity ? this.db.listProjectStructureRelationsForEntity(context.run.scopeVersionId, matchedEntity.id).map(projectStructureRelationPayload) : [];
+    const incomingReferences = matchedEntity
+      ? this.db
+          .listProjectStructureReferencesForTarget(context.run.scopeVersionId, { name: matchedEntity.name, entityId: matchedEntity.id })
+          .filter((relation) => relation.sourceEntityId !== matchedEntity.id)
+          .slice(0, 20)
+          .map(projectStructureRelationPayload)
+      : [];
+
+    return {
+      status: matchedEntity ? 'hit' : symbol ? 'miss' : 'range_context',
+      requestedSymbol: symbol || null,
+      entity: matchedEntity ? projectStructureEntityPayload(matchedEntity) : null,
+      containedEntities,
+      outgoingRelations,
+      incomingReferences
     };
   }
 
@@ -2596,6 +2647,45 @@ function readLargeTextSelection(path: string, symbol: string, requestedRange: Re
   } finally {
     closeSync(fd);
   }
+}
+
+function requestedLineRangeFromProjectStructureEntity(entity: ProjectStructureEntityRecord): RequestedLineRange {
+  const start = Math.max(1, entity.lineStart);
+  const requestedEnd = Math.max(start, entity.lineEnd);
+  const end = Math.min(requestedEnd, start + MAX_BROWSER_LINES - 1);
+  return {
+    start,
+    end,
+    requestedEnd,
+    capped: end < requestedEnd
+  };
+}
+
+function projectStructureEntityPayload(entity: ProjectStructureEntityRecord): Record<string, unknown> {
+  return {
+    id: entity.id,
+    entityKind: entity.entityKind,
+    name: entity.name,
+    signature: entity.signature,
+    path: entity.path,
+    language: entity.language,
+    lineStart: entity.lineStart,
+    lineEnd: entity.lineEnd,
+    parentId: entity.parentId,
+    metadata: entity.metadata
+  };
+}
+
+function projectStructureRelationPayload(relation: ProjectStructureRelationRecord): Record<string, unknown> {
+  return {
+    id: relation.id,
+    sourceEntityId: relation.sourceEntityId,
+    relationKind: relation.relationKind,
+    targetKind: relation.targetKind,
+    targetName: relation.targetName,
+    targetEntityId: relation.targetEntityId,
+    metadata: relation.metadata
+  };
 }
 
 function looksTextual(buffer: Buffer): boolean {

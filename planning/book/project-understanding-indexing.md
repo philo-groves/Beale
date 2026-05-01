@@ -46,6 +46,7 @@ The second implementation starts Layer 2:
 
 - Structural indexing records best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, source line ranges, and simple relationships for cheap source languages.
 - Structural entities are stored in normalized SQLite tables and mirrored into the existing metadata FTS index as `structure_entity` documents.
+- `code_browser` uses matching structural entities for stable symbol ranges and returns nearby contained entities, outgoing relationships, and incoming references with the excerpt.
 - This is intentionally parser-light for beta. Tree-sitter, language-server integration, deeper call/reference graphs, binary CFGs, and web route crawls remain future structural work.
 
 ## Index Layers

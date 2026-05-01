@@ -185,7 +185,7 @@ Fields:
 - `scope_version_id`
 - `inventory_item_id`
 - `asset_id`
-- `entity_kind`: `function`, `method`, `class`, `type`, `route`, `import`, or later structural kinds
+- `entity_kind`: examples include `function`, `method`, `class`, `type`, `route`, `import`, `export`, `call_site`, `security_marker`, and `sink`
 - `name`
 - `signature`
 - `path`
@@ -207,7 +207,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_entity_id`
-- `relation_kind`: examples include `imports` and `routes_to`
+- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`
 - `target_kind`
 - `target_name`
 - `target_entity_id`

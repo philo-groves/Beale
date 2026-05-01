@@ -66,7 +66,7 @@ describe('structured research tools', () => {
   });
 
   it('searches scoped source and binary-derived strings, then reads bounded source chunks', () => {
-    const { db, context, sourceFile, binaryFile, targetDir } = openStructuredToolDb();
+    const { db, context, sourceFile, binaryFile, routeFile, targetDir } = openStructuredToolDb();
     const router = new BealeToolRouter(db);
 
     const search = callTool(router, context, 'search', { query: 'authorization boundary', target: '' });
@@ -135,6 +135,20 @@ describe('structured research tools', () => {
     expect(read.status).toBe('success');
     expect(JSON.stringify(read.payload)).toContain('check_access');
     expect(JSON.stringify(read.payload)).toContain('authorization boundary');
+
+    const structuredRead = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'listUsers' });
+    expect(structuredRead.status).toBe('success');
+    expect(structuredRead.summary).toContain('from the structural index');
+    const structureNavigation = structuredRead.payload.structureNavigation as Record<string, unknown>;
+    expect(structureNavigation.status).toBe('hit');
+    expect(JSON.stringify(structureNavigation.entity)).toContain('function');
+    expect(JSON.stringify(structureNavigation.containedEntities)).toContain('security_marker');
+    expect(JSON.stringify(structureNavigation.containedEntities)).toContain('sink');
+
+    const routeRead = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'GET /api/users' });
+    expect(routeRead.status).toBe('success');
+    expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('handles_with');
+    expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('listUsers');
 
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {
