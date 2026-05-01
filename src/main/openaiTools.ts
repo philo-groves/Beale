@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
@@ -80,6 +80,25 @@ interface SearchQueryPlan {
   mode: 'literal' | 'regex_or_terms' | 'terms';
 }
 
+interface RequestedLineRange {
+  start: number;
+  end: number;
+  requestedEnd: number | null;
+  capped: boolean;
+}
+
+interface CodeBrowserTextSelection {
+  text: string;
+  binaryDerived: boolean;
+  lineStart: number | null;
+  lineEnd: number | null;
+  truncated: boolean;
+  largeFile: boolean;
+  nextLineStart: number | null;
+  contentHash: string | null;
+  contentHashScope: 'full_file' | 'excerpt' | null;
+}
+
 interface GuestToolResult {
   result: GuestExecuteResult;
   artifactId: string | null;
@@ -113,6 +132,7 @@ const MAX_SEARCH_MATCHES = 40;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BROWSER_LINES = 180;
 const MAX_EXCERPT_CHARS = 16_000;
+const MAX_LARGE_BROWSER_SCAN_BYTES = 32 * 1024 * 1024;
 const MAX_MODEL_ARTIFACT_BYTES = 256 * 1024;
 
 export function bealeToolDefinitions(): OpenAiToolDefinition[] {
@@ -125,9 +145,11 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
-    tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings.', {
+    tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings. If a file is large or truncated, continue with line_start/line_end chunks from nextLineStart.', {
       path: stringProp('Scoped file path or artifact id'),
-      symbol: stringProp('Symbol or text anchor; use an empty string when not needed')
+      symbol: stringProp('Symbol or text anchor; use an empty string when not needed'),
+      line_start: stringProp('Optional 1-based start line for chunked reads; use an empty string when not needed'),
+      line_end: stringProp('Optional 1-based inclusive end line for chunked reads; use an empty string when not needed')
     }),
     tool('python', 'Run a small Python analysis operation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       task: stringProp('Analysis task'),
@@ -598,39 +620,46 @@ export class BealeToolRouter {
       });
     }
 
-    const loaded = readScopedText(filePath);
-    if (!loaded) {
+    const requestedRange = requestedLineRangeFromArgs(args);
+    const selection = readCodeBrowserText(filePath, symbol, requestedRange);
+    if (!selection) {
       return {
         status: 'error',
         summary: 'Code browser could not read the requested bounded text.',
         payload: {
           observationBacked: false,
           path: requestedPath,
-          reason: 'unreadable_or_too_large'
+          reason: 'unreadable_or_too_large',
+          recoveryHint: 'For large textual files, retry code_browser with line_start and line_end chunks.'
         }
       };
     }
 
-    const lines = loaded.text.split(/\r?\n/);
-    const range = selectLineRange(lines, symbol);
-    const selected = lines.slice(range.start - 1, range.end);
-    const excerpt = selected.map((line, index) => `${range.start + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
-    const contentHash = createHash('sha256').update(loaded.text).digest('hex');
+    const selected = selection.text ? selection.text.split(/\r?\n/) : [];
+    const startLine = selection.lineStart ?? 1;
+    const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
+    const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
 
     return {
       status: 'success',
-      summary: `Code browser returned ${range.end - range.start + 1} bounded line${range.end === range.start ? '' : 's'}.`,
+      summary: `Code browser returned ${Math.max(0, endLine - startLine + 1)} bounded line${endLine === startLine ? '' : 's'}.`,
       payload: {
         observationBacked: true,
         simulated: false,
         path: artifactTarget?.artifactId ?? filePath,
         sourcePath: filePath,
         symbol,
-        binaryDerived: loaded.binaryDerived,
-        contentHash,
-        lineStart: loaded.binaryDerived ? null : range.start,
-        lineEnd: loaded.binaryDerived ? null : range.end,
-        truncated: excerpt.length >= MAX_EXCERPT_CHARS || lines.length > MAX_BROWSER_LINES,
+        binaryDerived: selection.binaryDerived,
+        contentHash: selection.contentHash,
+        contentHashScope: selection.contentHashScope,
+        lineStart: selection.binaryDerived ? null : selection.lineStart,
+        lineEnd: selection.binaryDerived ? null : selection.lineEnd,
+        requestedLineStart: requestedRange?.start ?? null,
+        requestedLineEnd: requestedRange?.requestedEnd ?? null,
+        rangeCapped: requestedRange?.capped ?? false,
+        largeFile: selection.largeFile,
+        nextLineStart: selection.nextLineStart,
+        truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         excerpt
       }
     };
@@ -1952,6 +1981,140 @@ function readScopedText(path: string): { text: string; binaryDerived: boolean } 
   return strings ? { text: strings, binaryDerived: true } : null;
 }
 
+function readCodeBrowserText(path: string, symbol: string, requestedRange: RequestedLineRange | null): CodeBrowserTextSelection | null {
+  const stat = safeStat(path);
+  if (!stat?.isFile()) return null;
+
+  if (stat.size <= MAX_FILE_BYTES) {
+    const loaded = readScopedText(path);
+    if (!loaded) return null;
+    const lines = loaded.text.split(/\r?\n/);
+    const range = selectLineRange(lines, symbol, requestedRange);
+    const selected = range.end >= range.start ? lines.slice(range.start - 1, range.end) : [];
+    const contentHash = createHash('sha256').update(loaded.text).digest('hex');
+    return {
+      text: selected.join('\n'),
+      binaryDerived: loaded.binaryDerived,
+      lineStart: loaded.binaryDerived ? null : range.start,
+      lineEnd: loaded.binaryDerived ? null : range.end,
+      truncated: selected.length >= MAX_BROWSER_LINES || requestedRange?.capped === true,
+      largeFile: false,
+      nextLineStart: range.end < lines.length ? range.end + 1 : null,
+      contentHash,
+      contentHashScope: 'full_file'
+    };
+  }
+
+  return readLargeTextSelection(path, symbol, requestedRange);
+}
+
+function readLargeTextSelection(path: string, symbol: string, requestedRange: RequestedLineRange | null): CodeBrowserTextSelection | null {
+  const stat = safeStat(path);
+  if (!stat?.isFile()) return null;
+
+  const fd = openSync(path, 'r');
+  try {
+    const fileSize = Number(stat.size);
+    const sample = Buffer.alloc(Math.min(8192, fileSize));
+    const sampleBytes = readSync(fd, sample, 0, sample.length, 0);
+    if (!looksTextual(sample.subarray(0, sampleBytes))) return null;
+
+    const selected: string[] = [];
+    const firstLines: string[] = [];
+    const priorLines: Array<{ lineNo: number; line: string }> = [];
+    let targetStart: number | null = requestedRange?.start ?? (symbol ? null : 1);
+    let targetEnd: number | null = requestedRange?.end ?? (symbol ? null : MAX_BROWSER_LINES);
+    let selectedStart: number | null = null;
+    let selectedEnd: number | null = null;
+    let emittedChars = 0;
+    let lineNo = 0;
+    let position = 0;
+    let leftover = '';
+    let stopped = false;
+    let scannedBytes = 0;
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+
+    const appendSelectedLine = (currentLineNo: number, line: string): void => {
+      if (selected.length >= MAX_BROWSER_LINES || emittedChars >= MAX_EXCERPT_CHARS) {
+        stopped = true;
+        return;
+      }
+      if (selectedStart === null) selectedStart = currentLineNo;
+      selectedEnd = currentLineNo;
+      selected.push(line);
+      emittedChars += line.length + 1;
+      if (selected.length >= MAX_BROWSER_LINES || emittedChars >= MAX_EXCERPT_CHARS || (targetEnd !== null && currentLineNo >= targetEnd)) {
+        stopped = true;
+      }
+    };
+
+    const processLine = (line: string): void => {
+      lineNo += 1;
+      if (firstLines.length < MAX_BROWSER_LINES) firstLines.push(line);
+
+      if (targetStart === null && symbol) {
+        priorLines.push({ lineNo, line });
+        if (priorLines.length > 41) priorLines.shift();
+        if (line.includes(symbol)) {
+          targetStart = Math.max(1, lineNo - 40);
+          targetEnd = targetStart + MAX_BROWSER_LINES - 1;
+          for (const prior of priorLines) {
+            if (prior.lineNo >= targetStart && prior.lineNo <= targetEnd) appendSelectedLine(prior.lineNo, prior.line);
+          }
+        }
+        return;
+      }
+
+      if (targetStart !== null && targetEnd !== null) {
+        if (lineNo >= targetStart && lineNo <= targetEnd) {
+          appendSelectedLine(lineNo, line);
+          return;
+        }
+        if (lineNo > targetEnd) stopped = true;
+      }
+    };
+
+    while (!stopped && scannedBytes < MAX_LARGE_BROWSER_SCAN_BYTES) {
+      const bytes = readSync(fd, buffer, 0, buffer.length, position);
+      if (bytes <= 0) break;
+      position += bytes;
+      scannedBytes += bytes;
+      const chunk = leftover + buffer.subarray(0, bytes).toString('utf8').replace(/\r\n?/g, '\n');
+      const parts = chunk.split('\n');
+      leftover = parts.pop() ?? '';
+      for (const line of parts) {
+        processLine(line);
+        if (stopped) break;
+      }
+    }
+
+    if (!stopped && leftover) processLine(leftover);
+
+    const fallbackToFirstChunk = selected.length === 0 && firstLines.length > 0;
+    const lines = fallbackToFirstChunk ? firstLines : selected;
+    const lineStart = fallbackToFirstChunk ? 1 : selectedStart;
+    const lineEnd = fallbackToFirstChunk ? firstLines.length : selectedEnd;
+    if (!lineStart || !lineEnd) return null;
+
+    const scannedWholeFile = scannedBytes >= fileSize;
+    const hasMore = !scannedWholeFile || lineEnd < lineNo || stopped;
+    const text = lines.join('\n');
+    return {
+      text,
+      binaryDerived: false,
+      lineStart,
+      lineEnd,
+      truncated: hasMore || requestedRange?.capped === true || emittedChars >= MAX_EXCERPT_CHARS || fallbackToFirstChunk,
+      largeFile: true,
+      nextLineStart: hasMore ? lineEnd + 1 : null,
+      contentHash: createHash('sha256').update(`${path}:${lineStart}-${lineEnd}:${text}`).digest('hex'),
+      contentHashScope: 'excerpt'
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function looksTextual(buffer: Buffer): boolean {
   if (buffer.length === 0) return true;
   let suspicious = 0;
@@ -1982,7 +2145,38 @@ function extractPrintableStrings(buffer: Buffer): string {
   return parts.join('\n').slice(0, MAX_EXCERPT_CHARS);
 }
 
-function selectLineRange(lines: string[], symbol: string): { start: number; end: number } {
+function requestedLineRangeFromArgs(args: Record<string, unknown>): RequestedLineRange | null {
+  const start = optionalPositiveInteger(args.line_start ?? args.lineStart);
+  const end = optionalPositiveInteger(args.line_end ?? args.lineEnd);
+  if (!start && !end) return null;
+
+  const normalizedStart = start ?? Math.max(1, (end ?? MAX_BROWSER_LINES) - MAX_BROWSER_LINES + 1);
+  const requestedEnd = end ?? null;
+  const normalizedEnd = Math.max(normalizedStart, end ?? normalizedStart + MAX_BROWSER_LINES - 1);
+  const cappedEnd = Math.min(normalizedEnd, normalizedStart + MAX_BROWSER_LINES - 1);
+  return {
+    start: normalizedStart,
+    end: cappedEnd,
+    requestedEnd,
+    capped: cappedEnd < normalizedEnd
+  };
+}
+
+function optionalPositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function selectLineRange(lines: string[], symbol: string, requestedRange: RequestedLineRange | null): { start: number; end: number } {
+  if (lines.length === 0) return { start: 1, end: 0 };
+  if (requestedRange) {
+    const start = Math.min(requestedRange.start, lines.length);
+    const end = Math.max(start, Math.min(requestedRange.end, lines.length));
+    return { start, end };
+  }
+
   if (symbol) {
     const index = lines.findIndex((line) => line.includes(symbol));
     if (index >= 0) {

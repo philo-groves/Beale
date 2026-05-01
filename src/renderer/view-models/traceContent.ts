@@ -313,6 +313,8 @@ export function codeBrowserTracePreview(event: TraceEventRecord): CodeBrowserTra
       lineRangePart(event.payload),
       boundedLineCount > 0 ? `${boundedLineCount} line${boundedLineCount === 1 ? '' : 's'}` : null,
       symbol ? `symbol ${symbol}` : null,
+      tracePayloadPrimitive(event.payload, 'largeFile') === 'true' ? 'large file' : null,
+      tracePayloadPrimitive(event.payload, 'nextLineStart') ? `next line ${tracePayloadPrimitive(event.payload, 'nextLineStart')}` : null,
       traceBooleanPart('truncated', tracePayloadPrimitive(event.payload, 'truncated'))
     ].filter((part): part is string => Boolean(part)),
     excerptLines: visibleExcerptLines,

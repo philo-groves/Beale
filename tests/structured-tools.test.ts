@@ -66,7 +66,7 @@ describe('structured research tools', () => {
   });
 
   it('searches scoped source and binary-derived strings, then reads bounded source chunks', () => {
-    const { db, context, sourceFile, binaryFile } = openStructuredToolDb();
+    const { db, context, sourceFile, binaryFile, targetDir } = openStructuredToolDb();
     const router = new BealeToolRouter(db);
 
     const search = callTool(router, context, 'search', { query: 'authorization boundary', target: '' });
@@ -95,6 +95,33 @@ describe('structured research tools', () => {
     expect(read.status).toBe('success');
     expect(JSON.stringify(read.payload)).toContain('check_access');
     expect(JSON.stringify(read.payload)).toContain('authorization boundary');
+
+    const largeFile = join(targetDir, 'src', 'large-controller.js');
+    const largeLines = Array.from({ length: 40_000 }, (_, index) => {
+      const line = index + 1;
+      return line === 420 ? 'function dangerousSink(input) { return input.url; }' : `const route_${line} = ${line};`;
+    });
+    writeFileSync(largeFile, largeLines.join('\n'));
+
+    const firstChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '', line_end: '' });
+    expect(firstChunk.status).toBe('success');
+    expect(firstChunk.payload.largeFile).toBe(true);
+    expect(firstChunk.payload.lineStart).toBe(1);
+    expect(firstChunk.payload.lineEnd).toBe(180);
+    expect(firstChunk.payload.nextLineStart).toBe(181);
+
+    const laterChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '400', line_end: '405' });
+    expect(laterChunk.status).toBe('success');
+    expect(laterChunk.payload.lineStart).toBe(400);
+    expect(laterChunk.payload.lineEnd).toBe(405);
+    expect(JSON.stringify(laterChunk.payload)).toContain('route_405');
+    expect(JSON.stringify(laterChunk.payload)).not.toContain('route_1');
+
+    const anchoredChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: 'dangerousSink', line_start: '', line_end: '' });
+    expect(anchoredChunk.status).toBe('success');
+    expect(JSON.stringify(anchoredChunk.payload)).toContain('dangerousSink');
+    expect(anchoredChunk.payload.lineStart).toBeLessThanOrEqual(420);
+    expect(anchoredChunk.payload.lineEnd).toBeGreaterThanOrEqual(420);
 
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
     expect(blocked.status).toBe('policy_blocked');

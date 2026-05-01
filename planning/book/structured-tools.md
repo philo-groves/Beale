@@ -90,6 +90,7 @@ Purpose:
 Capabilities:
 
 - Read file ranges.
+- Continue through large files with explicit `line_start` / `line_end` chunks instead of abandoning the file.
 - Summarize files or functions.
 - Find definitions.
 - Find references.
@@ -98,6 +99,7 @@ Capabilities:
 - Present symbol summaries where available.
 
 `code_browser` should be the preferred way to inspect source instead of broad shell commands like `cat`.
+When a large file returns a truncated chunk, the model should continue with the returned next line rather than treating the file as unavailable.
 
 ## Tool: `python`
 
