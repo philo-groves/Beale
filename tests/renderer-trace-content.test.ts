@@ -129,15 +129,18 @@ describe('renderer trace content view models', () => {
 
     expect(pythonToolCallPreview(python)).toMatchObject({
       task: 'Check parser edge cases',
-      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
-      truncated: true
+      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)'],
+      scriptLineCount: 10,
+      truncated: true,
+      outputLines: []
     });
 
     const result = traceEvent({
       id: 'trace_result',
       type: 'tool_result',
       summary: 'Host python operation finished with success.',
-      toolCallId: 'tool_python'
+      toolCallId: 'tool_python',
+      payload: { exitCode: 0, stdoutSummary: 'ok\nnext', stderrSummary: '' }
     });
     const detail = runDetail({
       traceEvents: [
@@ -153,8 +156,29 @@ describe('renderer trace content view models', () => {
     });
     expect(pythonTracePreview(result, detail)).toMatchObject({
       task: 'Check parser edge cases',
-      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
-      truncated: true
+      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)'],
+      scriptLineCount: 10,
+      truncated: true,
+      outputLines: ['ok', 'next'],
+      outputLineCount: 2,
+      outputTruncated: false,
+      exitCode: '0'
+    });
+
+    expect(
+      pythonTracePreview(
+        traceEvent({
+          id: 'trace_no_output',
+          type: 'tool_result',
+          summary: 'Host python operation finished with success.',
+          toolCallId: 'tool_python',
+          payload: { exitCode: 0 }
+        }),
+        detail
+      )
+    ).toMatchObject({
+      outputLines: ['No output recorded.'],
+      exitCode: '0'
     });
     expect(isProseTraceEvent(traceEvent({ source: 'model', type: 'model_message', payload: { text: 'Agent response', transcriptRole: 'assistant' } }), 'agent_output')).toBe(true);
     expect(lineRangePart({ lineStart: 12, lineEnd: 19 })).toBe('lines 12-19');

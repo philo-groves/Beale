@@ -152,15 +152,43 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
     <div className="main-trace-python-preview">
       {preview.task ? <p>{preview.task}</p> : null}
       {preview.scriptLines.length > 0 ? (
-        <pre className={preview.truncated ? 'is-truncated' : undefined}>
-          <code className="syntax-code language-python">{highlightPythonCode(preview.scriptLines.join('\n'))}</code>
-          {preview.truncated ? (
-            <span className="main-trace-python-more" aria-hidden="true">
-              <span>View More</span>
-            </span>
-          ) : null}
-        </pre>
+        <PythonTraceBlock
+          label="Code"
+          meta={`${preview.scriptLineCount} line${preview.scriptLineCount === 1 ? '' : 's'}`}
+          truncated={preview.truncated}
+          language="python"
+          text={preview.scriptLines.join('\n')}
+        />
       ) : null}
+      {preview.outputLines.length > 0 ? (
+        <PythonTraceBlock label="Output" meta={`Exit ${preview.exitCode ?? '?'}`} truncated={preview.outputTruncated} text={preview.outputLines.join('\n')} />
+      ) : null}
+    </div>
+  );
+}
+
+function PythonTraceBlock({
+  label,
+  language,
+  meta,
+  text,
+  truncated
+}: {
+  label: string;
+  language?: 'python';
+  meta: string;
+  text: string;
+  truncated: boolean;
+}): JSX.Element {
+  return (
+    <div className="main-trace-python-block">
+      <div className="main-trace-python-heading">
+        <span>{label}</span>
+        <span>{meta}</span>
+      </div>
+      <pre className={truncated ? 'is-truncated' : undefined}>
+        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(text) : text}</code>
+      </pre>
     </div>
   );
 }

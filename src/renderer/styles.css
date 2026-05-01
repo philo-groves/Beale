@@ -2833,7 +2833,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   width: 100%;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .main-trace-python-preview p {
@@ -2846,7 +2846,38 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: normal;
 }
 
-.main-trace-python-preview pre {
+.main-trace-python-block {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.main-trace-python-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #8b8b8b;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.main-trace-python-heading span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-python-heading span:last-child {
+  flex: 0 0 auto;
+  color: #747474;
+}
+
+.main-trace-python-block pre {
   min-width: 0;
   max-width: 100%;
   max-height: none;
@@ -2857,18 +2888,26 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #080808;
   color: #cfcfcf;
   margin: 0;
-  padding: 8px 9px;
+  padding: 7px 9px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.75rem;
   line-height: 1.32;
   white-space: pre;
 }
 
-.main-trace-python-preview pre.is-truncated {
-  padding-bottom: 32px;
+.main-trace-python-block pre.is-truncated::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 22px;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(to top, #080808 0%, rgba(8, 8, 8, 0.78) 48%, rgba(8, 8, 8, 0) 100%);
+  pointer-events: none;
 }
 
-.main-trace-python-preview code {
+.main-trace-python-block code {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -2878,28 +2917,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0;
   font: inherit;
   text-overflow: ellipsis;
-}
-
-.main-trace-python-more {
-  position: absolute;
-  right: 0;
-  bottom: 7px;
-  left: 0;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.main-trace-python-more span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 18px;
-  color: #a8a8a8;
-  padding: 0 6px;
-  font-size: 0.64rem;
-  font-weight: 760;
-  line-height: 1;
 }
 
 .syntax-code {

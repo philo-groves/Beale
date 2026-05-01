@@ -36,6 +36,7 @@
 - Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
 - Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.
 - Changed thought trace rows to render title and description as explicit block elements instead of relying on markdown newlines.
+- Changed Python run trace previews to show five code lines with a fade, code/output headers, exit code, and captured output or an explicit no-output note.
 - Changed research prompt generation and refinement to use medium reasoning effort while preserving the selected session effort for actual run execution.
 - Changed active run-detail polling to check a cheap version first and use incremental updates instead of full detail refreshes when possible.
 - Changed production profiling so background JSONL flushes no longer update React state unless the Debug/Settings UI is observing reports.

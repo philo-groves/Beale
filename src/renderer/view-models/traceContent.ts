@@ -129,7 +129,12 @@ export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: R
 export interface PythonToolCallPreview {
   task: string;
   scriptLines: string[];
+  scriptLineCount: number;
   truncated: boolean;
+  outputLines: string[];
+  outputLineCount: number;
+  outputTruncated: boolean;
+  exitCode: string | null;
 }
 
 export interface PythonTraceScript {
@@ -181,13 +186,13 @@ export function reasoningTraceThoughtsForEvent(event: TraceEventRecord, category
 export function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
   if (event.type !== 'tool_call') return null;
   const script = pythonTraceScript(event, null);
-  return script ? pythonPreviewFromScript(script) : null;
+  return script ? pythonPreviewFromScript(script, null) : null;
 }
 
 export function pythonTracePreview(event: TraceEventRecord, detail: RunDetail | null = null): PythonToolCallPreview | null {
   if (!isPythonExecutionTraceEvent(event)) return null;
   const script = pythonTraceScript(event, detail);
-  return script ? pythonPreviewFromScript(script) : null;
+  return script ? pythonPreviewFromScript(script, event) : null;
 }
 
 export function pythonTraceScript(event: TraceEventRecord, detail: RunDetail | null = null): PythonTraceScript | null {
@@ -208,13 +213,46 @@ export function isPythonExecutionTraceEvent(event: TraceEventRecord): boolean {
   return toolName === 'python' || /^(Host|Guest) python operation finished with /i.test(event.summary);
 }
 
-function pythonPreviewFromScript({ task, script }: PythonTraceScript): PythonToolCallPreview | null {
+function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: TraceEventRecord | null): PythonToolCallPreview | null {
   const allScriptLines = script ? script.split('\n') : [];
-  const scriptLines = allScriptLines.slice(0, 8);
+  const scriptLines = allScriptLines.slice(0, 5);
   const truncated = allScriptLines.length > scriptLines.length;
-  if (!task && scriptLines.length === 0) return null;
+  const output = event ? pythonExecutionOutput(event) : null;
+  if (!task && scriptLines.length === 0 && !output) return null;
 
-  return { task, scriptLines, truncated };
+  return {
+    task,
+    scriptLines,
+    scriptLineCount: allScriptLines.length,
+    truncated,
+    outputLines: output?.lines ?? [],
+    outputLineCount: output?.lineCount ?? 0,
+    outputTruncated: output?.truncated ?? false,
+    exitCode: output?.exitCode ?? null
+  };
+}
+
+function pythonExecutionOutput(event: TraceEventRecord): { lines: string[]; lineCount: number; truncated: boolean; exitCode: string | null } {
+  const stdout = tracePayloadPrimitive(event.payload, 'stdoutSummary') ?? '';
+  const stderr = tracePayloadPrimitive(event.payload, 'stderrSummary') ?? '';
+  const text = formatPythonExecutionOutput(stdout, stderr);
+  const allLines = text.split('\n');
+  const lines = allLines.slice(0, 5);
+  return {
+    lines,
+    lineCount: allLines.length,
+    truncated: allLines.length > lines.length,
+    exitCode: tracePayloadPrimitive(event.payload, 'exitCode')
+  };
+}
+
+function formatPythonExecutionOutput(stdout: string, stderr: string): string {
+  const cleanStdout = stdout.replace(/\r\n?/g, '\n').trim();
+  const cleanStderr = stderr.replace(/\r\n?/g, '\n').trim();
+  if (cleanStdout && cleanStderr) return `stdout:\n${cleanStdout}\n\nstderr:\n${cleanStderr}`;
+  if (cleanStdout) return cleanStdout;
+  if (cleanStderr) return cleanStderr;
+  return 'No output recorded.';
 }
 
 function pythonArgumentsForTraceEvent(event: TraceEventRecord, detail: RunDetail | null): Record<string, unknown> | null {
