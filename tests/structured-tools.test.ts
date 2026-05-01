@@ -182,6 +182,16 @@ describe('structured research tools', () => {
     expect(enabledSemantic.indexSizeBytes).toBeGreaterThan(0);
     expect(enabledSemantic.lastRefreshDurationMs).toBeGreaterThanOrEqual(0);
     expect(enabledSemantic.namespaceCounts.code).toBeGreaterThan(0);
+    const directSourceResults = db.searchProjectSemanticChunksForRun(context.run.id, 'authorization boundary check_access return', 10);
+    const directSourceHit = directSourceResults.find((result) => result.sourcePath === sourceFile && result.metadata.semanticSourceKind === 'source_range');
+    expect(directSourceHit).toBeTruthy();
+    expect(directSourceHit?.metadata.lineStart).toBe(1);
+    expect(directSourceHit?.metadata.lineEnd).toBeGreaterThanOrEqual(4);
+    const directEntityResults = db.searchProjectSemanticChunksForRun(context.run.id, 'listUsers database query filter response json', 20);
+    const directEntityHit = directEntityResults.find((result) => result.sourcePath === routeFile && result.metadata.semanticSourceKind === 'entity_range' && result.metadata.entityName === 'listUsers');
+    expect(directEntityHit).toBeTruthy();
+    expect(directEntityHit?.metadata.lineStart).toBeLessThanOrEqual(6);
+    expect(directEntityHit?.metadata.lineEnd).toBeGreaterThanOrEqual(8);
     db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,

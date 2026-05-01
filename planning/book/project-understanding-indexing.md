@@ -78,7 +78,7 @@ The second implementation starts Layer 2:
 The third implementation starts Layer 3:
 
 - Semantic indexing is per-program opt-in and disabled by default.
-- The beta implementation stores bounded chunks derived from existing project search documents in `project_semantic_chunks`.
+- The beta implementation stores bounded chunks in `project_semantic_chunks`, using project search documents as parent records and adding direct source/entity chunks with stable file and line-range provenance for code-heavy targets.
 - The initial provider is local and deterministic (`local_hash` / `local-hash-v2`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
 - Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
 - `search` augments direct file, artifact, metadata, and structural matches with hybrid-ranked semantic chunk matches only when semantic indexing is enabled for the active program.

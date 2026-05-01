@@ -387,6 +387,11 @@ interface ProjectSemanticRankScore {
   rankReason: string;
 }
 
+interface ProjectSemanticDirectSourceText {
+  text: string;
+  truncated: boolean;
+}
+
 interface ProjectInventoryInsertInput {
   scopeVersionId: string;
   asset: ScopeAsset;
@@ -518,6 +523,13 @@ const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
 const PROJECT_SEMANTIC_CHUNK_MAX_CHARS = 2400;
 const PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS = 240;
 const PROJECT_SEMANTIC_MAX_CHUNKS_PER_DOCUMENT = 12;
+const PROJECT_SEMANTIC_SOURCE_CHUNK_BASE_INDEX = 1000;
+const PROJECT_SEMANTIC_ENTITY_CHUNK_BASE_INDEX = 2000;
+const PROJECT_SEMANTIC_SOURCE_CHUNK_MAX_LINES = 80;
+const PROJECT_SEMANTIC_SOURCE_CHUNK_OVERLAP_LINES = 8;
+const PROJECT_SEMANTIC_MAX_SOURCE_CHUNKS_PER_DOCUMENT = 24;
+const PROJECT_SEMANTIC_MAX_ENTITY_CHUNKS_PER_DOCUMENT = 8;
+const PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES = 3;
 const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
 
 function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
@@ -866,10 +878,9 @@ function projectSemanticNamespace(document: ProjectSearchDocumentRecord): string
   return 'docs';
 }
 
-function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexedAt: string): ProjectSemanticChunkInput[] {
+function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexedAt: string, sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>): ProjectSemanticChunkInput[] {
   const namespace = projectSemanticNamespace(document);
   const source = `${document.title}\n${document.body}`.trim().slice(0, PROJECT_SEMANTIC_MAX_SOURCE_CHARS);
-  if (!source) return [];
   const chunks: ProjectSemanticChunkInput[] = [];
   let offset = 0;
   let chunkIndex = 0;
@@ -877,42 +888,222 @@ function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexe
     const end = Math.min(source.length, offset + PROJECT_SEMANTIC_CHUNK_MAX_CHARS);
     const content = source.slice(offset, end).trim();
     if (content) {
-      const vector = semanticVectorForText(content, namespace);
-      const tokenCount = semanticTokens(content).length;
-      const contentHash = createHash('sha256').update(content).digest('hex');
-      chunks.push({
-        scopeVersionId: document.scopeVersionId,
-        runId: document.runId,
-        sourceDocumentId: document.id,
-        namespace,
-        entityType: document.entityType,
-        entityId: document.entityId,
-        title: document.title,
-        content,
-        contentHash,
-        sourcePath: document.sourcePath,
-        chunkIndex,
-        tokenCount,
-        vectorProvider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
-        vectorModel: PROJECT_SEMANTIC_VECTOR_MODEL,
-        vector,
-        metadata: {
-          ...document.metadata,
-          sourceDocumentId: document.id,
+      chunks.push(
+        projectSemanticChunkFromContent(document, {
           namespace,
+          title: document.title,
+          content,
           chunkIndex,
-          provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
-          model: PROJECT_SEMANTIC_VECTOR_MODEL,
-          localOnly: true
-        },
-        indexedAt
-      });
+          metadata: {
+            ...document.metadata,
+            semanticSourceKind: 'search_document'
+          },
+          indexedAt
+        })
+      );
       chunkIndex += 1;
     }
     if (end >= source.length) break;
     offset = Math.max(end - PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS, offset + 1);
   }
+  chunks.push(...semanticDirectSourceChunksForDocument(document, namespace, indexedAt, sourceTextCache));
   return chunks;
+}
+
+function projectSemanticChunkFromContent(
+  document: ProjectSearchDocumentRecord,
+  input: {
+    namespace: string;
+    title: string;
+    content: string;
+    chunkIndex: number;
+    metadata: Record<string, unknown>;
+    indexedAt: string;
+  }
+): ProjectSemanticChunkInput {
+  const content = input.content.trim();
+  const vector = semanticVectorForText(content, input.namespace);
+  const tokenCount = semanticTokens(content).length;
+  const contentHash = createHash('sha256').update(content).digest('hex');
+  return {
+    scopeVersionId: document.scopeVersionId,
+    runId: document.runId,
+    sourceDocumentId: document.id,
+    namespace: input.namespace,
+    entityType: document.entityType,
+    entityId: document.entityId,
+    title: input.title,
+    content,
+    contentHash,
+    sourcePath: document.sourcePath,
+    chunkIndex: input.chunkIndex,
+    tokenCount,
+    vectorProvider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
+    vectorModel: PROJECT_SEMANTIC_VECTOR_MODEL,
+    vector,
+    metadata: {
+      ...input.metadata,
+      sourceDocumentId: document.id,
+      namespace: input.namespace,
+      chunkIndex: input.chunkIndex,
+      provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
+      model: PROJECT_SEMANTIC_VECTOR_MODEL,
+      localOnly: true
+    },
+    indexedAt: input.indexedAt
+  };
+}
+
+function semanticDirectSourceChunksForDocument(
+  document: ProjectSearchDocumentRecord,
+  namespace: string,
+  indexedAt: string,
+  sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>
+): ProjectSemanticChunkInput[] {
+  if (!document.sourcePath || !isAbsolute(document.sourcePath)) return [];
+  if (document.entityType === 'inventory_item') {
+    const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : '';
+    if (!semanticResourceKindSupportsDirectText(resourceKind)) return [];
+    const sourceText = getSemanticDirectSourceText(document.sourcePath, resourceKind, sourceTextCache);
+    if (!sourceText) return [];
+    const lines = sourceText.text.split('\n');
+    return semanticLineRangeChunks(document, {
+      namespace,
+      indexedAt,
+      lines,
+      titlePrefix: `${document.title} source`,
+      lineStart: 1,
+      lineEnd: lines.length,
+      chunkBaseIndex: PROJECT_SEMANTIC_SOURCE_CHUNK_BASE_INDEX,
+      maxChunks: PROJECT_SEMANTIC_MAX_SOURCE_CHUNKS_PER_DOCUMENT,
+      metadata: {
+        ...document.metadata,
+        semanticSourceKind: 'source_range',
+        sourcePath: document.sourcePath,
+        resourceKind,
+        language: typeof document.metadata.language === 'string' ? document.metadata.language : '',
+        truncatedFile: sourceText.truncated
+      }
+    });
+  }
+
+  if (document.entityType !== 'structure_entity') return [];
+  const resourceKind = typeof document.metadata.resourceKind === 'string' ? document.metadata.resourceKind : 'source';
+  if (!semanticResourceKindSupportsDirectText(resourceKind)) return [];
+  const sourceText = getSemanticDirectSourceText(document.sourcePath, resourceKind, sourceTextCache);
+  if (!sourceText) return [];
+  const lines = sourceText.text.split('\n');
+  const lineStart = semanticMetadataNumber(document.metadata.lineStart);
+  const lineEnd = semanticMetadataNumber(document.metadata.lineEnd) ?? lineStart;
+  if (!lineStart || !lineEnd) return [];
+  const entityKind = typeof document.metadata.entityKind === 'string' ? document.metadata.entityKind : '';
+  const contextLines = projectStructureEntityOwnsRange(entityKind) ? PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES : 0;
+  const start = Math.max(1, lineStart - contextLines);
+  const end = Math.min(lines.length, Math.max(lineStart, lineEnd) + contextLines);
+  return semanticLineRangeChunks(document, {
+    namespace,
+    indexedAt,
+    lines,
+    titlePrefix: `${document.title} ${basename(document.sourcePath)}`,
+    lineStart: start,
+    lineEnd: end,
+    chunkBaseIndex: PROJECT_SEMANTIC_ENTITY_CHUNK_BASE_INDEX,
+    maxChunks: PROJECT_SEMANTIC_MAX_ENTITY_CHUNKS_PER_DOCUMENT,
+    metadata: {
+      ...document.metadata,
+      semanticSourceKind: 'entity_range',
+      sourcePath: document.sourcePath,
+      resourceKind,
+      entityKind,
+      entityName: typeof document.metadata.name === 'string' ? document.metadata.name : document.entityId,
+      entityLineStart: lineStart,
+      entityLineEnd: lineEnd,
+      truncatedFile: sourceText.truncated
+    }
+  });
+}
+
+function semanticLineRangeChunks(
+  document: ProjectSearchDocumentRecord,
+  input: {
+    namespace: string;
+    indexedAt: string;
+    lines: string[];
+    titlePrefix: string;
+    lineStart: number;
+    lineEnd: number;
+    chunkBaseIndex: number;
+    maxChunks: number;
+    metadata: Record<string, unknown>;
+  }
+): ProjectSemanticChunkInput[] {
+  const chunks: ProjectSemanticChunkInput[] = [];
+  const firstLine = Math.max(1, Math.min(input.lines.length, Math.floor(input.lineStart)));
+  const lastLine = Math.max(firstLine, Math.min(input.lines.length, Math.floor(input.lineEnd)));
+  let start = firstLine;
+  while (start <= lastLine && chunks.length < input.maxChunks) {
+    const selectedLines: string[] = [];
+    let end = start - 1;
+    while (end < lastLine && selectedLines.length < PROJECT_SEMANTIC_SOURCE_CHUNK_MAX_LINES) {
+      const candidateLine = (input.lines[end] ?? '').slice(0, PROJECT_SEMANTIC_CHUNK_MAX_CHARS);
+      const candidate = [...selectedLines, candidateLine].join('\n');
+      if (selectedLines.length > 0 && candidate.length > PROJECT_SEMANTIC_CHUNK_MAX_CHARS) break;
+      selectedLines.push(candidateLine);
+      end += 1;
+      if (candidate.length >= PROJECT_SEMANTIC_CHUNK_MAX_CHARS) break;
+    }
+    if (selectedLines.length === 0) {
+      selectedLines.push((input.lines[start - 1] ?? '').slice(0, PROJECT_SEMANTIC_CHUNK_MAX_CHARS));
+      end = start;
+    }
+    const excerpt = selectedLines.join('\n').trim();
+    if (excerpt) {
+      const lineTitle = `${input.titlePrefix}:${start}-${end}`;
+      chunks.push(
+        projectSemanticChunkFromContent(document, {
+          namespace: input.namespace,
+          title: lineTitle,
+          content: `${lineTitle}\n${excerpt}`,
+          chunkIndex: input.chunkBaseIndex + chunks.length,
+          metadata: {
+            ...input.metadata,
+            lineStart: start,
+            lineEnd: end,
+            sourceRange: `${start}-${end}`
+          },
+          indexedAt: input.indexedAt
+        })
+      );
+    }
+    if (end >= lastLine) break;
+    start = Math.max(start + 1, end + 1 - PROJECT_SEMANTIC_SOURCE_CHUNK_OVERLAP_LINES);
+  }
+  return chunks;
+}
+
+function semanticResourceKindSupportsDirectText(resourceKind: string): boolean {
+  return resourceKind === 'source' || resourceKind === 'text' || resourceKind === 'manifest';
+}
+
+function getSemanticDirectSourceText(path: string, resourceKind: string, sourceTextCache: Map<string, ProjectSemanticDirectSourceText | null>): ProjectSemanticDirectSourceText | null {
+  const key = `${resourceKind}:${path}`;
+  if (sourceTextCache.has(key)) return sourceTextCache.get(key) ?? null;
+  let result: ProjectSemanticDirectSourceText | null = null;
+  try {
+    const stat = lstatSync(path);
+    if (stat.isFile() && !stat.isSymbolicLink()) {
+      result = readProjectStructureText(path, resourceKind, stat.size);
+    }
+  } catch {
+    result = null;
+  }
+  sourceTextCache.set(key, result);
+  return result;
+}
+
+function semanticMetadataNumber(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) ? Math.max(1, Math.floor(number)) : null;
 }
 
 function semanticTokens(value: string): Array<{ term: string; weight: number }> {
@@ -4202,13 +4393,16 @@ export class WorkspaceDatabase {
     processedCount: number,
     totalCount: number
   ): { processedCount: number; chunkCount: number } {
-    let chunkCount = 0;
+    const sourceTextCache = new Map<string, ProjectSemanticDirectSourceText | null>();
+    const preparedDocuments = documents.map((document) => ({
+      document,
+      chunks: semanticChunksForDocument(document, indexedAt, sourceTextCache)
+    }));
+    const chunkCount = preparedDocuments.reduce((total, prepared) => total + prepared.chunks.length, 0);
     this.transaction(() => {
       const deleteChunks = this.db.prepare('DELETE FROM project_semantic_chunks WHERE scope_version_id = ? AND source_document_id = ?');
-      for (const document of documents) {
+      for (const { document, chunks } of preparedDocuments) {
         deleteChunks.run(scopeVersionId, document.id);
-        const chunks = semanticChunksForDocument(document, indexedAt);
-        chunkCount += chunks.length;
         for (const chunk of chunks) {
           this.insertProjectSemanticChunk(chunk);
         }
