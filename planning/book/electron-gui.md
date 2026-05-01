@@ -28,7 +28,7 @@ The side navigation should support:
 - Creating a new program workspace.
 - Showing basic status for each workspace where practical.
 
-Cross-workspace search should not be a default feature because each workspace database is intentionally isolated.
+Search should default to the current research program because each workspace database is intentionally isolated. The UI may offer an explicit opt-in to search across loaded programs, but broad cross-program search must be visible to the user and must stay local to known Beale workspaces.
 
 ## Program Scope View
 

@@ -420,7 +420,9 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.searchSessionTranscripts, (_event, input: SessionTranscriptSearchInput) =>
-    timedMainIpc('searchSessionTranscripts', { chars: input.query.length, limit: input.limit ?? 24 }, () => workspaceService.searchSessionTranscripts(input))
+    timedMainIpc('searchSessionTranscripts', { chars: input.query.length, limit: input.limit ?? 24, currentProgramOnly: input.currentProgramOnly !== false }, () =>
+      workspaceService.searchSessionTranscripts(input)
+    )
   );
   ipcMain.handle(IPC_CHANNELS.steerRun, (_event, action: SteeringAction) =>
     timedMainIpc('steerRun', { type: action.type, run: shortMetricId(action.runId) }, () => workspaceService.steerRun(action))

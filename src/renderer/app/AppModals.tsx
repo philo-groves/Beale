@@ -32,6 +32,7 @@ import type { ProgramOnboardingFormState, ProgramTemplateKind } from '../view-mo
 export function AppModals({
   activeNotification,
   activeRunDetail,
+  activeProgramName,
   busy,
   newResearchOpen,
   openAiOAuthResult,
@@ -86,6 +87,7 @@ export function AppModals({
 }: {
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
+  activeProgramName: string;
   busy: boolean;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -195,6 +197,7 @@ export function AppModals({
       ) : null}
       {searchOpen ? (
         <TranscriptSearchModal
+          activeProgramName={activeProgramName}
           workspaceOpen={Boolean(snapshot)}
           selectedRunId={selectedRunId}
           onClose={onCloseSearch}

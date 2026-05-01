@@ -28,6 +28,7 @@ import type {
   PriorityFactorInput,
   ProgramDirectorySelection,
   ProgramOnboardingInput,
+  ProgramRegistryEntry,
   ProgramRegistryState,
   ProgramScopeDraft,
   ProgramScopeVersion,
@@ -37,6 +38,7 @@ import type {
   RunDetailUpdateCursor,
   RunDetailVersion,
   SessionTranscriptSearchInput,
+  SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
   ScopeAssetInput,
   StartRunInput,
@@ -591,8 +593,68 @@ export class WorkspaceService {
     return this.requireDb().getRunDetailUpdate(runId, cursor);
   }
 
-  public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResult[] {
-    return this.requireDb().searchTranscriptMessages(input);
+  public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {
+    const requestedLimit = Math.floor(input.limit ?? 24);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 24;
+    const currentProgramOnly = input.currentProgramOnly !== false;
+    const foreground = this.getForegroundRuntime();
+    if (!foreground) {
+      throw new Error('No Beale workspace is open');
+    }
+
+    if (currentProgramOnly) {
+      const program = this.programRegistry?.getProgramByPath(foreground.workspacePath) ?? null;
+      return foreground.db.searchTranscriptMessages({ ...input, limit }, searchProgramContext(foreground.workspacePath, program));
+    }
+
+    const registry = this.getProgramRegistry();
+    const results: SessionTranscriptSearchResult[] = [];
+    const programs: SessionTranscriptSearchResponse['programs'] = [];
+    let totalTranscriptMatches = 0;
+    let programCount = 0;
+    const searchedWorkspacePaths = new Set<string>();
+    const searchWorkspace = (workspacePath: string, program: ProgramRegistryEntry | null): void => {
+      const resolvedPath = resolve(workspacePath);
+      if (searchedWorkspacePaths.has(resolvedPath) || !isExistingWorkspace(resolvedPath)) return;
+      searchedWorkspacePaths.add(resolvedPath);
+
+      const runtime = this.runtimeForWorkspacePath(resolvedPath);
+      if (runtime) {
+        const response = runtime.db.searchTranscriptMessages({ ...input, limit }, searchProgramContext(resolvedPath, program));
+        results.push(...response.results);
+        programs.push(...response.programs);
+        totalTranscriptMatches += response.totalTranscriptMatches;
+        programCount += response.programCount;
+        return;
+      }
+
+      const bealeDir = join(resolvedPath, '.beale');
+      const db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), join(bealeDir, 'artifacts'));
+      try {
+        db.initialize();
+        const response = db.searchTranscriptMessages({ ...input, limit }, searchProgramContext(resolvedPath, program));
+        results.push(...response.results);
+        programs.push(...response.programs);
+        totalTranscriptMatches += response.totalTranscriptMatches;
+        programCount += response.programCount;
+      } finally {
+        db.close();
+      }
+    };
+
+    for (const program of registry.getState().programs) {
+      searchWorkspace(program.workspacePath, program);
+    }
+
+    const activeProgram = registry.getProgramByPath(foreground.workspacePath);
+    searchWorkspace(foreground.workspacePath, activeProgram);
+
+    return {
+      results: results.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)),
+      totalTranscriptMatches,
+      programCount,
+      programs
+    };
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {
@@ -1319,6 +1381,13 @@ export class WorkspaceService {
       executorRunEngine: this.executorRunEngine,
       benchmarkRunner: this.benchmarkRunner
     };
+  }
+
+  private runtimeForWorkspacePath(workspacePath: string): WorkspaceRuntime | null {
+    const resolvedPath = resolve(workspacePath);
+    const foreground = this.getForegroundRuntime();
+    if (foreground?.workspacePath === resolvedPath) return foreground;
+    return this.backgroundRuntimes.get(resolvedPath) ?? null;
   }
 
   private setForegroundRuntime(runtime: WorkspaceRuntime): void {
@@ -2725,6 +2794,14 @@ function isExistingWorkspace(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+function searchProgramContext(workspacePath: string, program: ProgramRegistryEntry | null): { programId: string | null; workspacePath: string; programName: string | null } {
+  return {
+    programId: program?.id ?? null,
+    workspacePath: resolve(workspacePath),
+    programName: program?.programName ?? null
+  };
 }
 
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {

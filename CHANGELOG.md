@@ -27,7 +27,7 @@
 - Added renderer trace visual tests for trace category filter metadata and trace type labels.
 - Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
 - Added main profiling service tests for structured JSONL output.
-- Added a sidebar Search modal with real-time active-workspace session transcript search, clickable session results that focus and scroll to the matching trace row, shared search-term highlighting in the resulting trace list, a single-line search field, and wrapped left-aligned result previews.
+- Added a sidebar Search modal with real-time session transcript search, current-program scoping by default, optional loaded-program search, program-grouped results with full per-program match counts and Show More paging, clickable results that focus and scroll to the matching trace row, shared search-term highlighting in the resulting trace list, a single-line search field, and wrapped left-aligned result previews.
 
 ### Changed
 
@@ -97,6 +97,7 @@
 - Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.
 - Reduced trace and side-panel paint scope with CSS containment to make hover feedback less sensitive to active trace updates.
 - Fixed sidebar transition profiling so unrelated later CSS transitions do not pollute collapse/expand timing.
+- Fixed transcript search status counts so they use the full matching transcript total instead of the capped visible result list.
 
 ### Documentation
 

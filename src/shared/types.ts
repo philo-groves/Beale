@@ -258,9 +258,12 @@ export interface ResearchSessionSummary {
 export interface SessionTranscriptSearchInput {
   query: string;
   limit?: number;
+  currentProgramOnly?: boolean;
 }
 
 export interface SessionTranscriptSearchResult {
+  programId: string | null;
+  workspacePath: string;
   runId: string;
   transcriptMessageId: string;
   traceEventId: string | null;
@@ -270,6 +273,20 @@ export interface SessionTranscriptSearchResult {
   programName: string;
   contentPreview: string;
   createdAt: string;
+}
+
+export interface SessionTranscriptSearchProgramSummary {
+  programId: string | null;
+  workspacePath: string;
+  programName: string;
+  totalTranscriptMatches: number;
+}
+
+export interface SessionTranscriptSearchResponse {
+  results: SessionTranscriptSearchResult[];
+  totalTranscriptMatches: number;
+  programCount: number;
+  programs: SessionTranscriptSearchProgramSummary[];
 }
 
 export interface ProgramRegistryState {
@@ -1000,7 +1017,7 @@ export interface BealeApi {
   getRunDetail(runId: string): Promise<RunDetail>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
   getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
-  searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResult[]>;
+  searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResponse>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;

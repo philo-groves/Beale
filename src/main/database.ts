@@ -37,6 +37,7 @@ import type {
   ScopeAsset,
   ScopeAssetInput,
   SessionTranscriptSearchInput,
+  SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
   StartRunInput,
   TraceEventRecord,
@@ -427,6 +428,15 @@ function transcriptSearchPreview(content: string, terms: string[], maxLength = 3
   const prefix = start > 0 ? '...' : '';
   const suffix = end < compact.length ? '...' : '';
   return `${prefix}${compact.slice(start, end).trim()}${suffix}`;
+}
+
+function emptyTranscriptSearchResponse(): SessionTranscriptSearchResponse {
+  return {
+    results: [],
+    totalTranscriptMatches: 0,
+    programCount: 0,
+    programs: []
+  };
 }
 
 function optionalDateOrNever(value: string | null | undefined): string | null {
@@ -2104,14 +2114,19 @@ export class WorkspaceDatabase {
     };
   }
 
-  public searchTranscriptMessages(input: SessionTranscriptSearchInput): SessionTranscriptSearchResult[] {
+  public searchTranscriptMessages(
+    input: SessionTranscriptSearchInput,
+    context: { programId?: string | null; workspacePath?: string; programName?: string | null } = {}
+  ): SessionTranscriptSearchResponse {
     const query = input.query.trim();
-    if (!query) return [];
+    if (!query) return emptyTranscriptSearchResponse();
     const terms = transcriptSearchTerms(query);
-    if (!terms.length) return [];
-    const limit = Math.max(1, Math.min(50, Math.floor(input.limit ?? 24)));
+    if (!terms.length) return emptyTranscriptSearchResponse();
+    const requestedLimit = Math.floor(input.limit ?? 24);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 24;
     const conditions = terms.map(() => "LOWER(tm.content_markdown) LIKE ? ESCAPE '\\'").join(' AND ');
     const parameters = terms.map((term) => `%${escapeLike(term.toLowerCase())}%`);
+    const countRow = rowOrUndefined(this.db.prepare(`SELECT COUNT(*) AS total_matches FROM transcript_messages tm WHERE ${conditions}`).get(...parameters));
     const resultRows = this.db
       .prepare(
         `SELECT
@@ -2133,17 +2148,37 @@ export class WorkspaceDatabase {
       )
       .all(...parameters, limit);
 
-    return rows(resultRows).map((row) => ({
+    const results = rows(resultRows).map((row) => ({
+      programId: context.programId ?? null,
+      workspacePath: context.workspacePath ?? '',
       runId: text(row, 'run_id'),
       transcriptMessageId: text(row, 'transcript_message_id'),
       traceEventId: nullableText(row, 'trace_event_id'),
       role: text(row, 'role') as SessionTranscriptSearchResult['role'],
       source: text(row, 'source'),
       sessionTitle: text(row, 'session_title'),
-      programName: text(row, 'program_name'),
+      programName: context.programName || text(row, 'program_name'),
       contentPreview: transcriptSearchPreview(text(row, 'content_markdown'), terms),
       createdAt: text(row, 'created_at')
     }));
+    const totalTranscriptMatches = countRow ? numberValue(countRow, 'total_matches') : results.length;
+    const programName = context.programName || results[0]?.programName || 'Unknown Program';
+    return {
+      results,
+      totalTranscriptMatches,
+      programCount: totalTranscriptMatches > 0 ? 1 : 0,
+      programs:
+        totalTranscriptMatches > 0
+          ? [
+              {
+                programId: context.programId ?? null,
+                workspacePath: context.workspacePath ?? '',
+                programName,
+                totalTranscriptMatches
+              }
+            ]
+          : []
+    };
   }
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {

@@ -301,13 +301,24 @@ export function App(): JSX.Element {
     (result: SessionTranscriptSearchResult, query: string): void => {
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
+      const targetProgram = programRegistry?.programs.find((program) => program.id === result.programId || program.workspacePath === result.workspacePath) ?? null;
+      const activeProgram = snapshot?.workspace.workspacePath === result.workspacePath;
+      if (targetProgram && !activeProgram) {
+        void runProgramAction(async () => {
+          clearRunDetail();
+          applySnapshot(await window.beale.openProgram(targetProgram.id));
+          setSelectedRunId(result.runId);
+        }, { markBusy: false, reloadRegistry: false });
+        setSearchOpen(false);
+        return;
+      }
       if (selectedRunId !== result.runId) {
         clearRunDetail();
       }
       setSelectedRunId(result.runId);
       setSearchOpen(false);
     },
-    [clearRunDetail, selectedRunId, setSelectedRunId]
+    [applySnapshot, clearRunDetail, programRegistry, runProgramAction, selectedRunId, setSelectedRunId, snapshot]
   );
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
 
@@ -399,6 +410,7 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
+        activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}

@@ -162,14 +162,92 @@ describe('Beale workbench skeleton', () => {
     const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
     const runId = snapshot.runs[0]?.run.id ?? '';
 
-    const results = service.searchSessionTranscripts({ query: 'fake workbench', limit: 5 });
-    expect(results[0]).toMatchObject({
+    const response = service.searchSessionTranscripts({ query: 'fake workbench', limit: 5 });
+    expect(response.totalTranscriptMatches).toBe(1);
+    expect(response.programCount).toBe(1);
+    expect(response.programs[0]).toMatchObject({
+      programName: 'Untitled Program',
+      totalTranscriptMatches: 1
+    });
+    expect(response.results[0]).toMatchObject({
       runId,
       role: 'user',
       source: 'run_prompt'
     });
-    expect(results[0].contentPreview).toContain('fake workbench');
-    expect(service.searchSessionTranscripts({ query: 'not-present-in-session-transcripts' })).toEqual([]);
+    expect(response.results[0].contentPreview).toContain('fake workbench');
+    expect(service.searchSessionTranscripts({ query: 'not-present-in-session-transcripts' })).toEqual({
+      results: [],
+      totalTranscriptMatches: 0,
+      programCount: 0,
+      programs: []
+    });
+    service.close();
+  });
+
+  it('reports transcript search totals beyond the visible result limit', () => {
+    const service = openService();
+    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# First\nlimitedneedle first transcript.' }, 'complete');
+    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# Second\nlimitedneedle second transcript.' }, 'complete');
+
+    const response = service.searchSessionTranscripts({ query: 'limitedneedle', limit: 1 });
+    expect(response.results).toHaveLength(1);
+    expect(response.totalTranscriptMatches).toBe(2);
+    expect(response.programCount).toBe(1);
+    expect(response.programs[0]).toMatchObject({
+      programName: 'Untitled Program',
+      totalTranscriptMatches: 2
+    });
+    service.close();
+  });
+
+  it('searches the current program by default and can opt into loaded programs', () => {
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    service.createProgram({
+      workspacePath: firstWorkspace,
+      programName: 'First Program',
+      organizationName: '',
+      descriptionMarkdown: 'First persisted program.',
+      rulesMarkdown: 'First rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# First\nsharedneedle first transcript.' }, 'complete');
+    service.createProgram({
+      workspacePath: secondWorkspace,
+      programName: 'Second Program',
+      organizationName: '',
+      descriptionMarkdown: 'Second persisted program.',
+      rulesMarkdown: 'Second rules.',
+      networkProfile: 'offline',
+      expiresAt: null
+    });
+    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# Second\nsharedneedle second transcript.' }, 'complete');
+
+    const currentOnly = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10 });
+    expect(currentOnly.totalTranscriptMatches).toBe(1);
+    expect(currentOnly.programCount).toBe(1);
+    expect(currentOnly.programs).toHaveLength(1);
+    expect(currentOnly.programs[0]).toMatchObject({
+      programName: 'Second Program',
+      totalTranscriptMatches: 1
+    });
+    expect(new Set(currentOnly.results.map((result) => result.programName))).toEqual(new Set(['Second Program']));
+
+    const acrossLoaded = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10, currentProgramOnly: false });
+    expect(acrossLoaded.totalTranscriptMatches).toBe(2);
+    expect(acrossLoaded.programCount).toBe(2);
+    expect(new Map(acrossLoaded.programs.map((program) => [program.programName, program.totalTranscriptMatches]))).toEqual(
+      new Map([
+        ['First Program', 1],
+        ['Second Program', 1]
+      ])
+    );
+    expect(new Set(acrossLoaded.results.map((result) => result.programName))).toEqual(new Set(['First Program', 'Second Program']));
+    expect(acrossLoaded.results.every((result) => result.workspacePath === firstWorkspace || result.workspacePath === secondWorkspace)).toBe(true);
     service.close();
   });
 
