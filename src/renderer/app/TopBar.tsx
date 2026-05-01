@@ -5,19 +5,21 @@ import type { HostEnvironment, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
-type OpenMenu = 'edit' | 'view' | 'window' | null;
+type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   platform,
   profilingEnabled,
   onOpenProfiling,
+  onAddProgram,
   onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
   platform: HostEnvironment['platform'];
   profilingEnabled: boolean;
   onOpenProfiling: () => void;
+  onAddProgram: () => void;
   onToggleSidebar: () => void;
 }): JSX.Element {
   useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled }));
@@ -106,6 +108,11 @@ export const TopBar = memo(function TopBar({
     void window.beale.closeWindow();
   }, []);
 
+  const addProgram = useCallback(() => {
+    setOpenMenu(null);
+    onAddProgram();
+  }, [onAddProgram]);
+
   return (
     <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${openMenu ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
@@ -120,7 +127,25 @@ export const TopBar = memo(function TopBar({
         >
           <SidebarToggleIcon size={14} />
         </button>
-        <button type="button">File</button>
+        <div className="window-menu-item">
+          <button
+            type="button"
+            className={openMenu === 'file' ? 'is-open' : undefined}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === 'file'}
+            onMouseDown={preserveSelection}
+            onClick={() => setOpenMenu((current) => (current === 'file' ? null : 'file'))}
+          >
+            File
+          </button>
+          {openMenu === 'file' ? (
+            <div className="window-menu-dropdown" role="menu" aria-label="File">
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={addProgram}>
+                <span>New Research Program</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
         <div className="window-menu-item">
           <button
             type="button"

@@ -338,6 +338,7 @@ export function App(): JSX.Element {
         platform={windowControlPlatform}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenProfiling={openProfiling}
+        onAddProgram={addProgram}
         onToggleSidebar={toggleSidebar}
       />
       <ProgramSidebar
