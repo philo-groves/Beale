@@ -32,6 +32,7 @@ import type {
   EvidenceRecord,
   FindingRecord,
   HypothesisRecord,
+  ProjectSearchResult,
   RunDetail,
   ScopeAsset,
   ScopeAssetInput,
@@ -549,7 +550,11 @@ export class BealeToolRouter {
       }
     }
 
-    matches.push(...this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES - matches.length));
+    const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES - matches.length);
+    matches.push(...artifactMatches);
+    const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES - matches.length);
+    matches.push(...metadataMatches);
+    const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
 
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
@@ -580,6 +585,8 @@ export class BealeToolRouter {
         })),
         filesConsidered: files.length,
         skippedFiles,
+        metadataMatches: metadataMatches.length,
+        projectInventory: inventorySummary,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
         matches
@@ -1724,6 +1731,25 @@ export class BealeToolRouter {
       if (matches.length >= remaining) return matches;
     }
     return matches;
+  }
+
+  private searchProjectMetadata(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
+    if (remaining <= 0) return [];
+    return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining).map((result) => this.projectSearchResultToToolMatch(result));
+  }
+
+  private projectSearchResultToToolMatch(result: ProjectSearchResult): Record<string, unknown> {
+    return {
+      kind: 'metadata',
+      entityType: result.entityType,
+      entityId: result.entityId,
+      runId: result.runId,
+      title: result.title,
+      sourcePath: result.sourcePath,
+      matchedBy: 'project_metadata_fts',
+      snippet: trimSnippet(result.snippet),
+      metadata: result.metadata
+    };
   }
 
   private artifactReadTarget(context: CreatedRunContext, value: string): { artifactId: string; path: string } | null {

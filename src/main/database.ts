@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, posix } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import type {
@@ -24,6 +24,9 @@ import type {
   NotificationRecord,
   NotificationStatus,
   OpenAiTransport,
+  ProjectInventoryRefreshReport,
+  ProjectInventorySummary,
+  ProjectSearchResult,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
@@ -317,13 +320,125 @@ export interface CreateBenchmarkTaskResultInput {
   agentOutput?: Record<string, unknown>;
 }
 
+interface ProjectSearchDocumentInput {
+  scopeVersionId: string;
+  runId?: string | null;
+  entityType: string;
+  entityId: string;
+  title: string;
+  body: string;
+  sourcePath?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface ProjectInventoryInsertInput {
+  scopeVersionId: string;
+  asset: ScopeAsset;
+  itemKind: string;
+  resourceKind: string;
+  absolutePath: string;
+  language: string;
+  sizeBytes: number | null;
+  mtimeMs: number | null;
+  sha256: string | null;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
+interface ProjectInventoryScanState {
+  indexedAt: string;
+  scannedFiles: number;
+  skippedCount: number;
+  truncated: boolean;
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
+const PROJECT_INVENTORY_MAX_FILES = 10_000;
+const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
+const PROJECT_INVENTORY_PREVIEW_MAX_BYTES = 128 * 1024;
+const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
+const PROJECT_INDEX_MANIFEST_FILES = new Set([
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'cargo.toml',
+  'cargo.lock',
+  'go.mod',
+  'go.sum',
+  'pom.xml',
+  'build.gradle',
+  'build.gradle.kts',
+  'requirements.txt',
+  'pyproject.toml',
+  'poetry.lock',
+  'gemfile',
+  'gemfile.lock',
+  'composer.json',
+  'composer.lock',
+  'dockerfile',
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'androidmanifest.xml',
+  'info.plist',
+  'pubspec.yaml',
+  'mix.exs'
+]);
+const PROJECT_INDEX_SOURCE_EXTENSIONS = new Set([
+  '.c',
+  '.cc',
+  '.cpp',
+  '.cs',
+  '.go',
+  '.h',
+  '.hpp',
+  '.java',
+  '.js',
+  '.jsx',
+  '.kt',
+  '.kts',
+  '.m',
+  '.mm',
+  '.php',
+  '.py',
+  '.rb',
+  '.rs',
+  '.scala',
+  '.swift',
+  '.ts',
+  '.tsx'
+]);
+const PROJECT_INDEX_TEXT_EXTENSIONS = new Set([
+  '.cfg',
+  '.conf',
+  '.css',
+  '.csv',
+  '.env',
+  '.graphql',
+  '.html',
+  '.ini',
+  '.json',
+  '.lock',
+  '.log',
+  '.md',
+  '.properties',
+  '.proto',
+  '.sql',
+  '.toml',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml'
+]);
+const PROJECT_INDEX_BINARY_EXTENSIONS = new Set(['.apk', '.aab', '.bin', '.dll', '.dmg', '.dylib', '.elf', '.exe', '.ipa', '.jar', '.o', '.so', '.wasm']);
 
 export function createId(prefix: string): string {
   const time = Date.now().toString(36);
@@ -443,6 +558,180 @@ function emptyTranscriptSearchResponse(): SessionTranscriptSearchResponse {
   };
 }
 
+function projectSearchTerms(query: string): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const term of query.toLowerCase().split(/[^a-z0-9_.$/@:-]+/i)) {
+    const normalized = term.trim();
+    if (normalized.length < 2 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    terms.push(normalized);
+  }
+  return terms.slice(0, 16);
+}
+
+function projectFtsQuery(query: string): string | null {
+  const terms = projectSearchTerms(query);
+  if (terms.length === 0) return null;
+  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' AND ');
+}
+
+function projectSearchPreview(title: string, body: string, query: string, maxLength = 260): string {
+  const terms = projectSearchTerms(query);
+  const compact = `${title}\n${body}`.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  const lower = compact.toLowerCase();
+  const firstMatch = terms.reduce((best, term) => {
+    const index = lower.indexOf(term);
+    if (index < 0) return best;
+    return best < 0 ? index : Math.min(best, index);
+  }, -1);
+  const anchor = firstMatch >= 0 ? firstMatch : 0;
+  const start = Math.max(0, anchor - 80);
+  const end = Math.min(compact.length, start + maxLength);
+  return `${start > 0 ? '...' : ''}${compact.slice(start, end).trim()}${end < compact.length ? '...' : ''}`;
+}
+
+function projectSearchDocumentId(scopeVersionId: string, entityType: string, entityId: string): string {
+  return createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex');
+}
+
+function projectInventoryItemId(scopeVersionId: string, assetId: string, itemKind: string, value: string): string {
+  return `inventory_${createHash('sha256').update(`${scopeVersionId}\n${assetId}\n${itemKind}\n${value}`).digest('hex').slice(0, 32)}`;
+}
+
+function normalizedProjectPath(path: string): string {
+  return resolve(path);
+}
+
+function shouldSkipProjectIndexEntry(name: string): boolean {
+  return PROJECT_INDEX_SKIPPED_DIRS.has(name.toLowerCase());
+}
+
+function classifyProjectResourceKind(path: string, isDirectory: boolean): string {
+  if (isDirectory) return 'directory';
+  const lowerName = basename(path).toLowerCase();
+  const ext = extname(lowerName);
+  if (PROJECT_INDEX_MANIFEST_FILES.has(lowerName)) return 'manifest';
+  if (PROJECT_INDEX_SOURCE_EXTENSIONS.has(ext)) return 'source';
+  if (PROJECT_INDEX_BINARY_EXTENSIONS.has(ext)) return 'binary';
+  if (PROJECT_INDEX_TEXT_EXTENSIONS.has(ext)) return 'text';
+  if (ext === '.zip' || ext === '.tar' || ext === '.gz' || ext === '.tgz' || ext === '.7z') return 'archive';
+  return 'unknown';
+}
+
+function languageForProjectPath(path: string): string {
+  const lowerName = basename(path).toLowerCase();
+  const ext = extname(lowerName);
+  if (lowerName === 'dockerfile') return 'dockerfile';
+  const byExtension: Record<string, string> = {
+    '.c': 'c',
+    '.cc': 'cpp',
+    '.conf': 'config',
+    '.cpp': 'cpp',
+    '.cs': 'csharp',
+    '.css': 'css',
+    '.go': 'go',
+    '.graphql': 'graphql',
+    '.h': 'c',
+    '.hpp': 'cpp',
+    '.html': 'html',
+    '.ini': 'config',
+    '.java': 'java',
+    '.js': 'javascript',
+    '.json': 'json',
+    '.jsx': 'javascript',
+    '.kt': 'kotlin',
+    '.kts': 'kotlin',
+    '.lock': 'lockfile',
+    '.m': 'objective-c',
+    '.md': 'markdown',
+    '.mm': 'objective-cpp',
+    '.php': 'php',
+    '.plist': 'plist',
+    '.properties': 'properties',
+    '.proto': 'protobuf',
+    '.py': 'python',
+    '.rb': 'ruby',
+    '.rs': 'rust',
+    '.scala': 'scala',
+    '.sql': 'sql',
+    '.swift': 'swift',
+    '.toml': 'toml',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.txt': 'text',
+    '.xml': 'xml',
+    '.yaml': 'yaml',
+    '.yml': 'yaml'
+  };
+  return byExtension[ext] ?? '';
+}
+
+function hashProjectFileIfCheap(path: string, sizeBytes: number): string | null {
+  if (sizeBytes > PROJECT_INVENTORY_HASH_MAX_BYTES) return null;
+  try {
+    return createHash('sha256').update(readFileSync(path)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function readProjectSearchPreview(path: string, resourceKind: string, sizeBytes: number): string {
+  if (sizeBytes <= 0 || sizeBytes > PROJECT_INVENTORY_PREVIEW_MAX_BYTES) return '';
+  if (resourceKind !== 'manifest' && resourceKind !== 'text') return '';
+  try {
+    const buffer = readFileSync(path);
+    if (!projectBufferLooksTextual(buffer)) return '';
+    return buffer.toString('utf8').slice(0, PROJECT_INVENTORY_PREVIEW_MAX_BYTES);
+  } catch {
+    return '';
+  }
+}
+
+function projectBufferLooksTextual(buffer: Buffer): boolean {
+  if (buffer.length === 0) return true;
+  let suspicious = 0;
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+  for (const byte of sample) {
+    if (byte === 0) return false;
+    if (byte < 7 || (byte > 14 && byte < 32)) suspicious += 1;
+  }
+  return suspicious / sample.length < 0.05;
+}
+
+function looksLikeProjectUrl(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function safeRelativePath(root: string, path: string): string {
+  try {
+    return relative(resolve(root), resolve(path)) || '.';
+  } catch {
+    return path;
+  }
+}
+
+function redactSearchPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (/token|secret|credential|authorization|cookie|password/i.test(key)) {
+      redacted[key] = '[redacted]';
+      continue;
+    }
+    if (typeof value === 'string') {
+      redacted[key] = value.length > 1000 ? `${value.slice(0, 1000)}...` : value;
+    } else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+      redacted[key] = value;
+    } else if (Array.isArray(value)) {
+      redacted[key] = value.slice(0, 12);
+    } else if (value && typeof value === 'object') {
+      redacted[key] = '[object]';
+    }
+  }
+  return redacted;
+}
+
 function optionalDateOrNever(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : null;
@@ -539,6 +828,7 @@ export class WorkspaceDatabase {
     this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
+    this.ensureProjectSearchIndexSeeded();
   }
 
   public checkpoint(): void {
@@ -786,7 +1076,9 @@ export class WorkspaceDatabase {
       }
     });
 
-    return this.getActiveScope();
+    const scope = this.getActiveScope();
+    this.refreshProjectInventory(scope.id);
+    return scope;
   }
 
   public createRun(input: StartRunRecordInput): CreatedRunContext {
@@ -796,6 +1088,8 @@ export class WorkspaceDatabase {
     const createdAt = nowIso();
     const scope = this.getScopeVersion(input.scopeVersionId);
     const target = selectRunTarget(scope.assets, input);
+    const promptMarkdown = input.promptMarkdown.trim();
+    const promptTranscriptId = promptMarkdown ? createId('transcript') : null;
 
     this.transaction(() => {
       this.db
@@ -869,8 +1163,7 @@ export class WorkspaceDatabase {
           null
         );
 
-      const promptMarkdown = input.promptMarkdown.trim();
-      if (promptMarkdown) {
+      if (promptMarkdown && promptTranscriptId) {
         this.db
           .prepare(
             `INSERT INTO transcript_messages (
@@ -878,7 +1171,7 @@ export class WorkspaceDatabase {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
-            createId('transcript'),
+            promptTranscriptId,
             runId,
             attemptId,
             null,
@@ -902,6 +1195,11 @@ export class WorkspaceDatabase {
     const vmContext = this.getVmContext(vmContextId);
     if (!run || !attempt || !vmContext) {
       throw new Error('Failed to create run context');
+    }
+    this.indexRunSearchDocument(run);
+    if (promptTranscriptId) {
+      const promptMessage = this.getTranscriptMessage(promptTranscriptId);
+      if (promptMessage) this.indexTranscriptSearchDocument(promptMessage);
     }
     return { run, attempt, vmContext };
   }
@@ -1088,6 +1386,7 @@ export class WorkspaceDatabase {
     if (!event) {
       throw new Error('Failed to append trace event');
     }
+    this.indexTraceSearchDocument(event);
     return event;
   }
 
@@ -1117,6 +1416,7 @@ export class WorkspaceDatabase {
     if (!message) {
       throw new Error('Failed to create transcript message');
     }
+    this.indexTranscriptSearchDocument(message);
     return message;
   }
 
@@ -1208,6 +1508,8 @@ export class WorkspaceDatabase {
   public updateRunStatus(runId: string, status: RunStatus, summary: string): void {
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
     this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
+    const run = this.getRun(runId);
+    if (run) this.indexRunSearchDocument(run);
   }
 
   public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {
@@ -1231,6 +1533,7 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE runs SET budget_json = ? WHERE id = ?').run(toJson(nextBudget), runId);
     const updated = this.getRun(runId);
     if (!updated) throw new Error(`Run not found after budget update: ${runId}`);
+    this.indexRunSearchDocument(updated);
     return updated;
   }
 
@@ -1311,11 +1614,14 @@ export class WorkspaceDatabase {
     }
     const hypothesis = this.getHypothesis(id);
     if (!hypothesis) throw new Error('Failed to create hypothesis');
+    this.indexHypothesisSearchDocument(hypothesis);
     return hypothesis;
   }
 
   public setHypothesisTrace(hypothesisId: string, traceEventId: string): void {
     this.db.prepare('UPDATE hypotheses SET created_trace_event_id = ?, updated_at = ? WHERE id = ?').run(traceEventId, nowIso(), hypothesisId);
+    const hypothesis = this.getHypothesis(hypothesisId);
+    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
   }
 
   public updateHypothesis(
@@ -1374,11 +1680,14 @@ export class WorkspaceDatabase {
     }
     const updated = this.getHypothesis(hypothesisId);
     if (!updated) throw new Error(`Hypothesis not found after update: ${hypothesisId}`);
+    this.indexHypothesisSearchDocument(updated);
     return updated;
   }
 
   public updateHypothesisState(hypothesisId: string, state: string): void {
     this.db.prepare('UPDATE hypotheses SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), hypothesisId);
+    const hypothesis = this.getHypothesis(hypothesisId);
+    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
   }
 
   public updateHypothesisReview(
@@ -1419,6 +1728,8 @@ export class WorkspaceDatabase {
         nowIso(),
         hypothesisId
       );
+    const hypothesis = this.getHypothesis(hypothesisId);
+    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
   }
 
   public createArtifact(input: CreateArtifactInput): ArtifactRecord {
@@ -1458,15 +1769,19 @@ export class WorkspaceDatabase {
 
     const artifact = this.getArtifact(id);
     if (!artifact) throw new Error('Failed to create artifact');
+    this.indexArtifactSearchDocument(artifact);
     return artifact;
   }
 
   public setArtifactProvenance(artifactId: string, traceEventId: string): void {
     this.db.prepare('UPDATE artifacts SET provenance_trace_event_id = ? WHERE id = ?').run(traceEventId, artifactId);
+    const artifact = this.getArtifact(artifactId);
+    if (artifact) this.indexArtifactSearchDocument(artifact);
   }
 
   public markArtifactSensitive(artifactId: string): void {
     this.db.prepare('UPDATE artifacts SET sensitivity = ?, model_visible = ? WHERE id = ?').run('sensitive', 0, artifactId);
+    this.deleteProjectSearchDocuments("entity_type = 'artifact' AND entity_id = ?", [artifactId]);
   }
 
   public createEvidence(input: CreateEvidenceInput): EvidenceRecord {
@@ -1492,6 +1807,7 @@ export class WorkspaceDatabase {
       );
     const evidence = this.getEvidence(id);
     if (!evidence) throw new Error('Failed to create evidence');
+    this.indexEvidenceSearchDocument(evidence);
     return evidence;
   }
 
@@ -1505,6 +1821,9 @@ export class WorkspaceDatabase {
            AND finding_id IS NULL`
       )
       .run(findingId, runId, hypothesisId);
+    for (const row of rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? AND hypothesis_id = ? AND finding_id = ?').all(runId, hypothesisId, findingId))) {
+      this.indexEvidenceSearchDocument(this.mapEvidence(row));
+    }
   }
 
   public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
@@ -1548,6 +1867,7 @@ export class WorkspaceDatabase {
       );
     const contract = this.getVerifierContract(id);
     if (!contract) throw new Error('Failed to create verifier contract');
+    this.indexVerifierContractSearchDocument(contract);
     return contract;
   }
 
@@ -1580,6 +1900,7 @@ export class WorkspaceDatabase {
       );
     const updated = this.getVerifierContract(contractId);
     if (!updated) throw new Error(`Verifier contract not found after update: ${contractId}`);
+    this.indexVerifierContractSearchDocument(updated);
     return updated;
   }
 
@@ -1610,6 +1931,7 @@ export class WorkspaceDatabase {
       );
     const verifierRun = this.getVerifierRun(id);
     if (!verifierRun) throw new Error('Failed to create verifier run');
+    this.indexVerifierRunSearchDocument(verifierRun);
     return verifierRun;
   }
 
@@ -1647,6 +1969,7 @@ export class WorkspaceDatabase {
     }
     const finding = this.getFinding(id);
     if (!finding) throw new Error('Failed to create finding');
+    this.indexFindingSearchDocument(finding);
     return finding;
   }
 
@@ -1655,6 +1978,8 @@ export class WorkspaceDatabase {
       throw new Error('Use verifier-backed finding updates to mark a finding verified or reportable.');
     }
     this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
+    const finding = this.getFinding(findingId);
+    if (finding) this.indexFindingSearchDocument(finding);
   }
 
   public updateFinding(
@@ -1712,6 +2037,7 @@ export class WorkspaceDatabase {
     }
     const updated = this.getFinding(findingId);
     if (!updated) throw new Error(`Finding not found after update: ${findingId}`);
+    this.indexFindingSearchDocument(updated);
     return updated;
   }
 
@@ -1724,6 +2050,7 @@ export class WorkspaceDatabase {
       .run('verified', verifierRunId, nowIso(), findingId);
     const updated = this.getFinding(findingId);
     if (!updated) throw new Error(`Finding not found after verification update: ${findingId}`);
+    this.indexFindingSearchDocument(updated);
     return updated;
   }
 
@@ -2183,6 +2510,178 @@ export class WorkspaceDatabase {
             ]
           : []
     };
+  }
+
+  public getProjectInventorySummary(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             COUNT(*) AS item_count,
+             SUM(CASE WHEN item_kind = 'file' THEN 1 ELSE 0 END) AS file_count,
+             SUM(CASE WHEN resource_kind = 'manifest' THEN 1 ELSE 0 END) AS manifest_count,
+             SUM(CASE WHEN resource_kind = 'binary' THEN 1 ELSE 0 END) AS binary_count,
+             MAX(indexed_at) AS indexed_at
+           FROM project_inventory_items
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    return {
+      scopeVersionId,
+      itemCount: row ? numberValue(row, 'item_count') : 0,
+      fileCount: row ? numberValue(row, 'file_count') : 0,
+      manifestCount: row ? numberValue(row, 'manifest_count') : 0,
+      binaryCount: row ? numberValue(row, 'binary_count') : 0,
+      indexedAt: row ? nullableText(row, 'indexed_at') : null
+    };
+  }
+
+  public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
+    const summary = this.getProjectInventorySummary(scopeVersionId);
+    return summary.itemCount > 0 ? summary : this.refreshProjectInventory(scopeVersionId);
+  }
+
+  public refreshProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventoryRefreshReport {
+    const scope = this.getScopeVersion(scopeVersionId);
+    const indexedAt = nowIso();
+    const state: ProjectInventoryScanState = { indexedAt, scannedFiles: 0, skippedCount: 0, truncated: false };
+    const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
+
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
+      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('scope_asset', 'inventory_item')", [scopeVersionId]);
+
+      for (const asset of scope.assets) {
+        this.upsertProjectSearchDocument({
+          scopeVersionId,
+          entityType: 'scope_asset',
+          entityId: asset.id,
+          title: `${asset.direction} ${asset.kind}: ${asset.value}`,
+          body: [
+            asset.value,
+            asset.kind,
+            asset.direction,
+            asset.sensitivity,
+            JSON.stringify(asset.attributes),
+            scope.programName,
+            scope.organizationName,
+            scope.descriptionMarkdown,
+            scope.rulesMarkdown
+          ].join('\n'),
+          sourcePath: isAbsolute(asset.value) ? asset.value : null,
+          metadata: {
+            direction: asset.direction,
+            kind: asset.kind,
+            sensitivity: asset.sensitivity,
+            attributes: asset.attributes
+          },
+          createdAt: asset.createdAt,
+          updatedAt: indexedAt
+        });
+      }
+
+      for (const asset of localAssets) {
+        this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
+      }
+    });
+
+    const summary = this.getProjectInventorySummary(scopeVersionId);
+    const report: ProjectInventoryRefreshReport = {
+      ...summary,
+      rootCount: localAssets.length,
+      skippedCount: state.skippedCount,
+      truncated: state.truncated
+    };
+    this.setMetaValue(`project_inventory:${scopeVersionId}:last_report`, JSON.stringify(report), indexedAt);
+    return report;
+  }
+
+  public rebuildProjectSearchIndex(options: { includeInventory?: boolean } = {}): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM project_search_fts').run();
+      this.db.prepare('DELETE FROM project_search_documents').run();
+      const scopeRows = rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all());
+      for (const scopeRow of scopeRows) {
+        const scope = this.getScopeVersion(text(scopeRow, 'id'));
+        for (const asset of scope.assets) {
+          this.upsertProjectSearchDocument({
+            scopeVersionId: scope.id,
+            entityType: 'scope_asset',
+            entityId: asset.id,
+            title: `${asset.direction} ${asset.kind}: ${asset.value}`,
+            body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.programName, scope.descriptionMarkdown, scope.rulesMarkdown].join('\n'),
+            sourcePath: isAbsolute(asset.value) ? asset.value : null,
+            metadata: { direction: asset.direction, kind: asset.kind, sensitivity: asset.sensitivity, attributes: asset.attributes },
+            createdAt: asset.createdAt,
+            updatedAt: asset.createdAt
+          });
+        }
+      }
+      for (const row of rows(this.db.prepare('SELECT * FROM runs ORDER BY created_at ASC').all())) this.indexRunSearchDocument(this.mapRun(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM transcript_messages ORDER BY created_at ASC, rowid ASC').all())) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM trace_events WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexTraceSearchDocument(this.mapTraceEvent(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all())) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all())) this.indexFindingSearchDocument(this.mapFinding(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM evidence ORDER BY created_at ASC').all())) this.indexEvidenceSearchDocument(this.mapEvidence(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM artifacts WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexArtifactSearchDocument(this.mapArtifact(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM verifier_contracts ORDER BY created_at ASC').all())) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
+      for (const row of rows(this.db.prepare('SELECT * FROM verifier_runs ORDER BY started_at ASC, rowid ASC').all())) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
+    });
+
+    if (options.includeInventory) {
+      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
+        this.refreshProjectInventory(text(row, 'id'));
+      }
+    }
+  }
+
+  public searchProjectDocumentsForRun(runId: string, query: string, limit = 20): ProjectSearchResult[] {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    this.ensureProjectInventory(run.scopeVersionId);
+
+    const ftsQuery = projectFtsQuery(trimmed);
+    if (ftsQuery) {
+      try {
+        const resultRows = rows(
+          this.db
+            .prepare(
+              `SELECT d.*, bm25(project_search_fts) AS rank
+               FROM project_search_fts
+               JOIN project_search_documents d ON d.id = project_search_fts.document_id
+               WHERE project_search_fts MATCH ?
+                 AND (d.scope_version_id = ? OR d.run_id IS NOT NULL)
+               ORDER BY rank ASC, d.updated_at DESC
+               LIMIT ?`
+            )
+            .all(ftsQuery, run.scopeVersionId, Math.max(1, Math.floor(limit)))
+        );
+        return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
+      } catch {
+        // Fall through to LIKE search for punctuation-heavy or unsupported FTS queries.
+      }
+    }
+
+    const terms = projectSearchTerms(trimmed);
+    if (terms.length === 0) return [];
+    const conditions = terms.map(() => "LOWER(d.title || ' ' || d.body) LIKE ? ESCAPE '\\'").join(' AND ');
+    const params = terms.map((term) => `%${escapeLike(term)}%`);
+    const resultRows = rows(
+      this.db
+        .prepare(
+          `SELECT d.*, 100.0 AS rank
+           FROM project_search_documents d
+           WHERE ${conditions}
+             AND (d.scope_version_id = ? OR d.run_id IS NOT NULL)
+           ORDER BY d.updated_at DESC
+           LIMIT ?`
+        )
+        .all(...params, run.scopeVersionId, Math.max(1, Math.floor(limit)))
+    );
+    return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
   }
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
@@ -2652,6 +3151,10 @@ export class WorkspaceDatabase {
         this.applyPriorityScoreClampMigration();
         this.insertMigration(10, 'host_derived_priority_scores');
       }
+      if (currentVersion < 11) {
+        this.applyProjectUnderstandingIndexMigration();
+        this.insertMigration(11, 'project_understanding_inventory_search');
+      }
     });
   }
 
@@ -2770,6 +3273,15 @@ export class WorkspaceDatabase {
     }
   }
 
+  private applyProjectUnderstandingIndexMigration(): void {
+    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
+    if (!runsTable) {
+      this.db.exec(SCHEMA_SQL);
+      return;
+    }
+    this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
+  }
+
   private addColumnIfMissing(table: string, column: string, definition: string): void {
     const columns = new Set(rows(this.db.prepare(`PRAGMA table_info(${table})`).all()).map((row) => text(row, 'name')));
     if (!columns.has(column)) {
@@ -2859,6 +3371,14 @@ export class WorkspaceDatabase {
     });
   }
 
+  private ensureProjectSearchIndexSeeded(): void {
+    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get());
+    if (!table) return;
+    const row = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_search_documents').get());
+    if ((row ? numberValue(row, 'count') : 0) > 0) return;
+    this.rebuildProjectSearchIndex({ includeInventory: true });
+  }
+
   private getMetaValue(key: string): string | null {
     const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(key));
     return row ? text(row, 'value') : null;
@@ -2882,6 +3402,484 @@ export class WorkspaceDatabase {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(createId('scope_asset'), scopeVersionId, asset.direction, asset.kind, asset.value, toJson(asset.attributes), asset.sensitivity, createdAt);
+  }
+
+  private scanProjectInventoryPath(path: string, asset: ScopeAsset, state: ProjectInventoryScanState): void {
+    if (state.scannedFiles >= PROJECT_INVENTORY_MAX_FILES) {
+      state.truncated = true;
+      return;
+    }
+
+    let stat;
+    try {
+      stat = lstatSync(path);
+    } catch {
+      state.skippedCount += 1;
+      return;
+    }
+    if (stat.isSymbolicLink()) {
+      state.skippedCount += 1;
+      return;
+    }
+
+    if (stat.isDirectory()) {
+      this.insertProjectInventoryItem({
+        scopeVersionId: asset.scopeVersionId,
+        asset,
+        itemKind: 'directory',
+        resourceKind: 'directory',
+        absolutePath: path,
+        language: '',
+        sizeBytes: null,
+        mtimeMs: Math.round(stat.mtimeMs),
+        sha256: null,
+        metadata: {
+          relativePath: safeRelativePath(asset.value, path),
+          assetKind: asset.kind
+        },
+        indexedAt: state.indexedAt
+      });
+
+      let entries: string[];
+      try {
+        entries = readdirSync(path);
+      } catch {
+        state.skippedCount += 1;
+        return;
+      }
+      for (const entry of entries) {
+        if (shouldSkipProjectIndexEntry(entry)) continue;
+        this.scanProjectInventoryPath(join(path, entry), asset, state);
+        if (state.truncated) return;
+      }
+      return;
+    }
+
+    if (!stat.isFile()) {
+      state.skippedCount += 1;
+      return;
+    }
+
+    state.scannedFiles += 1;
+    const resourceKind = classifyProjectResourceKind(path, false);
+    const sizeBytes = stat.size;
+    const preview = readProjectSearchPreview(path, resourceKind, sizeBytes);
+    this.insertProjectInventoryItem({
+      scopeVersionId: asset.scopeVersionId,
+      asset,
+      itemKind: 'file',
+      resourceKind,
+      absolutePath: path,
+      language: languageForProjectPath(path),
+      sizeBytes,
+      mtimeMs: Math.round(stat.mtimeMs),
+      sha256: hashProjectFileIfCheap(path, sizeBytes),
+      metadata: {
+        relativePath: safeRelativePath(asset.value, path),
+        extension: extname(path).toLowerCase(),
+        assetKind: asset.kind,
+        previewIndexed: preview.length > 0,
+        hashIndexed: sizeBytes <= PROJECT_INVENTORY_HASH_MAX_BYTES
+      },
+      indexedAt: state.indexedAt
+    });
+  }
+
+  private insertProjectInventoryItem(input: ProjectInventoryInsertInput): void {
+    const value = input.absolutePath;
+    const id = projectInventoryItemId(input.scopeVersionId, input.asset.id, input.itemKind, value);
+    const metadata = {
+      ...input.metadata,
+      assetId: input.asset.id,
+      assetKind: input.asset.kind,
+      assetValue: input.asset.value,
+      itemKind: input.itemKind,
+      resourceKind: input.resourceKind
+    };
+    this.db
+      .prepare(
+        `INSERT INTO project_inventory_items (
+          id, scope_version_id, asset_id, item_kind, resource_kind, path, value,
+          language, size_bytes, mtime_ms, sha256, sensitivity, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, asset_id, item_kind, value)
+        DO UPDATE SET
+          resource_kind = excluded.resource_kind,
+          path = excluded.path,
+          language = excluded.language,
+          size_bytes = excluded.size_bytes,
+          mtime_ms = excluded.mtime_ms,
+          sha256 = excluded.sha256,
+          sensitivity = excluded.sensitivity,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.asset.id,
+        input.itemKind,
+        input.resourceKind,
+        input.absolutePath,
+        value,
+        input.language,
+        input.sizeBytes,
+        input.mtimeMs,
+        input.sha256,
+        input.asset.sensitivity,
+        toJson(metadata),
+        input.indexedAt
+      );
+
+    const title = `${input.resourceKind} ${basename(input.absolutePath)}`;
+    const body = [
+      input.absolutePath,
+      safeRelativePath(input.asset.value, input.absolutePath),
+      input.itemKind,
+      input.resourceKind,
+      input.language,
+      input.sha256,
+      JSON.stringify(metadata),
+      readProjectSearchPreview(input.absolutePath, input.resourceKind, input.sizeBytes ?? 0)
+    ]
+      .filter(Boolean)
+      .join('\n');
+    this.upsertProjectSearchDocument({
+      scopeVersionId: input.scopeVersionId,
+      entityType: 'inventory_item',
+      entityId: id,
+      title,
+      body,
+      sourcePath: input.absolutePath,
+      metadata,
+      createdAt: input.indexedAt,
+      updatedAt: input.indexedAt
+    });
+  }
+
+  private deleteProjectSearchDocuments(whereSql: string, params: SqlPrimitive[]): void {
+    const docRows = rows(this.db.prepare(`SELECT id FROM project_search_documents WHERE ${whereSql}`).all(...params));
+    for (const row of docRows) {
+      this.db.prepare('DELETE FROM project_search_fts WHERE document_id = ?').run(text(row, 'id'));
+    }
+    this.db.prepare(`DELETE FROM project_search_documents WHERE ${whereSql}`).run(...params);
+  }
+
+  private upsertProjectSearchDocument(input: ProjectSearchDocumentInput): void {
+    const createdAt = input.createdAt ?? nowIso();
+    const updatedAt = input.updatedAt ?? createdAt;
+    const id = projectSearchDocumentId(input.scopeVersionId, input.entityType, input.entityId);
+    const body = input.body.trim();
+    const title = input.title.trim() || `${input.entityType} ${input.entityId}`;
+    this.db
+      .prepare(
+        `INSERT INTO project_search_documents (
+          id, scope_version_id, run_id, entity_type, entity_id, title, body,
+          source_path, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id)
+        DO UPDATE SET
+          run_id = excluded.run_id,
+          title = excluded.title,
+          body = excluded.body,
+          source_path = excluded.source_path,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.runId ?? null,
+        input.entityType,
+        input.entityId,
+        title,
+        body,
+        input.sourcePath ?? null,
+        toJson(input.metadata),
+        createdAt,
+        updatedAt
+      );
+    this.db.prepare('DELETE FROM project_search_fts WHERE document_id = ?').run(id);
+    this.db
+      .prepare(
+        `INSERT INTO project_search_fts (
+          document_id, scope_version_id, run_id, entity_type, entity_id, title, body
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.scopeVersionId, input.runId ?? null, input.entityType, input.entityId, title, body);
+  }
+
+  private indexRunSearchDocument(run: RunRecord): void {
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: run.id,
+      entityType: 'run',
+      entityId: run.id,
+      title: run.title || 'Untitled research session',
+      body: [run.promptMarkdown, run.mode, run.status, run.summary, run.model, run.reasoningEffort, run.networkProfile, run.sandboxProfile, run.targetPath].join('\n'),
+      sourcePath: run.targetPath,
+      metadata: {
+        status: run.status,
+        mode: run.mode,
+        model: run.model,
+        reasoningEffort: run.reasoningEffort,
+        networkProfile: run.networkProfile,
+        sandboxProfile: run.sandboxProfile,
+        targetAssetId: run.targetAssetId,
+        targetPath: run.targetPath
+      },
+      createdAt: run.createdAt,
+      updatedAt: run.endedAt ?? run.startedAt ?? run.createdAt
+    });
+  }
+
+  private indexTranscriptSearchDocument(message: TranscriptMessageRecord): void {
+    const run = this.getRun(message.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: message.runId,
+      entityType: 'transcript',
+      entityId: message.id,
+      title: `${message.role} transcript from ${message.source}`,
+      body: message.contentMarkdown,
+      metadata: {
+        role: message.role,
+        source: message.source,
+        traceEventId: message.traceEventId,
+        metadata: message.metadata
+      },
+      createdAt: message.createdAt,
+      updatedAt: message.createdAt
+    });
+  }
+
+  private indexTraceSearchDocument(event: TraceEventRecord): void {
+    if (!event.modelVisible) return;
+    const run = this.getRun(event.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: event.runId,
+      entityType: 'trace_event',
+      entityId: event.id,
+      title: event.summary,
+      body: [event.type, event.source, event.summary, JSON.stringify(redactSearchPayload(event.payload))].join('\n'),
+      metadata: {
+        type: event.type,
+        source: event.source,
+        sequence: event.sequence,
+        artifactId: event.artifactId,
+        toolCallId: event.toolCallId
+      },
+      createdAt: event.createdAt,
+      updatedAt: event.createdAt
+    });
+  }
+
+  private indexHypothesisSearchDocument(hypothesis: HypothesisRecord): void {
+    const run = this.getRun(hypothesis.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: hypothesis.runId,
+      entityType: 'hypothesis',
+      entityId: hypothesis.id,
+      title: hypothesis.title,
+      body: [
+        hypothesis.descriptionMarkdown,
+        hypothesis.component,
+        hypothesis.bugClass,
+        hypothesis.state,
+        hypothesis.attackerReachability,
+        hypothesis.impact,
+        hypothesis.evidenceConfidence,
+        hypothesis.exploitPracticality,
+        hypothesis.scopeConfidence,
+        hypothesis.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
+      ].join('\n'),
+      metadata: {
+        state: hypothesis.state,
+        component: hypothesis.component,
+        bugClass: hypothesis.bugClass,
+        priorityScore: hypothesis.priorityScore,
+        cweMappings: hypothesis.cweMappings
+      },
+      createdAt: hypothesis.createdAt,
+      updatedAt: hypothesis.updatedAt
+    });
+  }
+
+  private indexFindingSearchDocument(finding: FindingRecord): void {
+    const run = this.getRun(finding.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: finding.runId,
+      entityType: 'finding',
+      entityId: finding.id,
+      title: finding.title,
+      body: [
+        finding.summaryMarkdown,
+        finding.impactMarkdown,
+        finding.state,
+        JSON.stringify(finding.affectedAssets),
+        JSON.stringify(finding.affectedVersions),
+        finding.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
+      ].join('\n'),
+      metadata: {
+        state: finding.state,
+        hypothesisId: finding.hypothesisId,
+        priorityScore: finding.priorityScore,
+        verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+        cweMappings: finding.cweMappings
+      },
+      createdAt: finding.createdAt,
+      updatedAt: finding.updatedAt
+    });
+  }
+
+  private indexEvidenceSearchDocument(evidence: EvidenceRecord): void {
+    const run = this.getRun(evidence.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: evidence.runId,
+      entityType: 'evidence',
+      entityId: evidence.id,
+      title: `Evidence: ${evidence.kind}`,
+      body: evidence.summary,
+      metadata: {
+        kind: evidence.kind,
+        hypothesisId: evidence.hypothesisId,
+        findingId: evidence.findingId,
+        observationTraceEventId: evidence.observationTraceEventId,
+        artifactId: evidence.artifactId,
+        verifierRunId: evidence.verifierRunId
+      },
+      createdAt: evidence.createdAt,
+      updatedAt: evidence.createdAt
+    });
+  }
+
+  private indexArtifactSearchDocument(artifact: ArtifactRecord): void {
+    if (!artifact.modelVisible) return;
+    const runRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT run_id FROM trace_events
+           WHERE artifact_id = ?
+           ORDER BY created_at ASC
+           LIMIT 1`
+        )
+        .get(artifact.id)
+    );
+    const run = runRow ? this.getRun(text(runRow, 'run_id')) : null;
+    if (!run) return;
+    const workspaceRoot = dirname(dirname(this.databasePath));
+    const artifactPath = join(workspaceRoot, artifact.relativePath);
+    let contentPreview = '';
+    if (artifact.sizeBytes <= PROJECT_INVENTORY_PREVIEW_MAX_BYTES) {
+      try {
+        const buffer = readFileSync(artifactPath);
+        if (projectBufferLooksTextual(buffer)) contentPreview = buffer.toString('utf8').slice(0, PROJECT_INVENTORY_PREVIEW_MAX_BYTES);
+      } catch {
+        contentPreview = '';
+      }
+    }
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: run.id,
+      entityType: 'artifact',
+      entityId: artifact.id,
+      title: `${artifact.kind} artifact ${artifact.id}`,
+      body: [artifact.id, artifact.kind, artifact.sha256, artifact.relativePath, JSON.stringify(artifact.metadata), contentPreview].join('\n'),
+      sourcePath: artifactPath,
+      metadata: {
+        kind: artifact.kind,
+        sha256: artifact.sha256,
+        relativePath: artifact.relativePath,
+        sizeBytes: artifact.sizeBytes,
+        mimeType: artifact.mimeType,
+        source: artifact.source,
+        metadata: artifact.metadata
+      },
+      createdAt: artifact.createdAt,
+      updatedAt: artifact.createdAt
+    });
+  }
+
+  private indexVerifierContractSearchDocument(contract: VerifierContractRecord): void {
+    const run = this.getRun(contract.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: contract.runId,
+      entityType: 'verifier_contract',
+      entityId: contract.id,
+      title: `${contract.mode} verifier contract`,
+      body: [
+        contract.status,
+        contract.setupStepsMarkdown,
+        contract.triggerStepsMarkdown,
+        JSON.stringify(contract.expectedObservations),
+        JSON.stringify(contract.invariants),
+        JSON.stringify(contract.artifactsToCollect),
+        JSON.stringify(contract.passCriteria)
+      ].join('\n'),
+      metadata: {
+        status: contract.status,
+        mode: contract.mode,
+        hypothesisId: contract.hypothesisId,
+        findingId: contract.findingId
+      },
+      createdAt: contract.createdAt,
+      updatedAt: contract.updatedAt
+    });
+  }
+
+  private indexVerifierRunSearchDocument(verifierRun: VerifierRunRecord): void {
+    const run = this.getRun(verifierRun.runId);
+    if (!run) return;
+    this.upsertProjectSearchDocument({
+      scopeVersionId: run.scopeVersionId,
+      runId: verifierRun.runId,
+      entityType: 'verifier_run',
+      entityId: verifierRun.id,
+      title: `${verifierRun.status} verifier run`,
+      body: [
+        verifierRun.status,
+        verifierRun.blockedIssue,
+        verifierRun.behaviorPreserved,
+        verifierRun.diagnosticsClean,
+        verifierRun.regressionTests,
+        JSON.stringify(verifierRun.result)
+      ].join('\n'),
+      metadata: {
+        contractId: verifierRun.contractId,
+        status: verifierRun.status,
+        vmContextId: verifierRun.vmContextId,
+        result: verifierRun.result
+      },
+      createdAt: verifierRun.startedAt,
+      updatedAt: verifierRun.endedAt ?? verifierRun.startedAt
+    });
+  }
+
+  private mapProjectSearchResult(row: SqlRow, query: string): ProjectSearchResult {
+    return {
+      documentId: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      runId: nullableText(row, 'run_id'),
+      entityType: text(row, 'entity_type'),
+      entityId: text(row, 'entity_id'),
+      title: text(row, 'title'),
+      sourcePath: nullableText(row, 'source_path'),
+      snippet: projectSearchPreview(text(row, 'title'), text(row, 'body'), query),
+      metadata: parseJson(row.metadata_json),
+      rank: numberValue(row, 'rank'),
+      updatedAt: text(row, 'updated_at')
+    };
   }
 
   private transaction<T>(work: () => T): T {
@@ -3495,6 +4493,57 @@ CREATE INDEX IF NOT EXISTS idx_weakness_mappings_entity ON weakness_mappings(ent
 CREATE INDEX IF NOT EXISTS idx_weakness_mappings_cwe ON weakness_mappings(cwe_id);
 `;
 
+const PROJECT_UNDERSTANDING_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_inventory_items (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL REFERENCES scope_assets(id) ON DELETE CASCADE,
+  item_kind TEXT NOT NULL,
+  resource_kind TEXT NOT NULL,
+  path TEXT NOT NULL,
+  value TEXT NOT NULL,
+  language TEXT NOT NULL,
+  size_bytes INTEGER,
+  mtime_ms INTEGER,
+  sha256 TEXT,
+  sensitivity TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, asset_id, item_kind, value)
+);
+
+CREATE TABLE IF NOT EXISTS project_search_documents (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  source_path TEXT,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS project_search_fts USING fts5(
+  document_id UNINDEXED,
+  scope_version_id UNINDEXED,
+  run_id UNINDEXED,
+  entity_type UNINDEXED,
+  entity_id UNINDEXED,
+  title,
+  body
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_inventory_scope_kind ON project_inventory_items(scope_version_id, resource_kind);
+CREATE INDEX IF NOT EXISTS idx_project_inventory_scope_path ON project_inventory_items(scope_version_id, path);
+CREATE INDEX IF NOT EXISTS idx_project_inventory_asset ON project_inventory_items(asset_id);
+CREATE INDEX IF NOT EXISTS idx_project_search_scope_entity ON project_search_documents(scope_version_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_search_run_entity ON project_search_documents(run_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_search_updated ON project_search_documents(updated_at);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
@@ -3660,6 +4709,8 @@ ${NOTIFICATIONS_SCHEMA_SQL}
 ${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
 
 ${CWE_CLASSIFICATION_SCHEMA_SQL}
+
+${PROJECT_UNDERSTANDING_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS hypotheses (
   id TEXT PRIMARY KEY,

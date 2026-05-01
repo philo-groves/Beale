@@ -294,6 +294,35 @@ export interface SessionTranscriptSearchResponse {
   programs: SessionTranscriptSearchProgramSummary[];
 }
 
+export interface ProjectInventorySummary {
+  scopeVersionId: string;
+  itemCount: number;
+  fileCount: number;
+  manifestCount: number;
+  binaryCount: number;
+  indexedAt: string | null;
+}
+
+export interface ProjectInventoryRefreshReport extends ProjectInventorySummary {
+  rootCount: number;
+  skippedCount: number;
+  truncated: boolean;
+}
+
+export interface ProjectSearchResult {
+  documentId: string;
+  scopeVersionId: string;
+  runId: string | null;
+  entityType: string;
+  entityId: string;
+  title: string;
+  sourcePath: string | null;
+  snippet: string;
+  metadata: Record<string, unknown>;
+  rank: number;
+  updatedAt: string;
+}
+
 export interface ProgramRegistryState {
   registryPath: string;
   vmPreference: VmPreference;

@@ -894,9 +894,13 @@ describe('Beale workbench skeleton', () => {
     const contextCompactionMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 6').get();
     const transcriptMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 7').get();
     const cweMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 9').get();
+    const projectIndexMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 11').get();
     const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
     const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
     const weaknessTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'weakness_mappings'").get();
+    const inventoryTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_inventory_items'").get();
+    const searchDocumentsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get();
+    const searchFtsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_fts'").get();
     const cweEntry = migrated.prepare("SELECT name FROM cwe_entries WHERE cwe_id = 'CWE-862'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
@@ -905,9 +909,13 @@ describe('Beale workbench skeleton', () => {
     expect(contextCompactionMigration).toBeTruthy();
     expect(transcriptMigration).toBeTruthy();
     expect(cweMigration).toBeTruthy();
+    expect(projectIndexMigration).toBeTruthy();
     expect(notificationsTable).toBeTruthy();
     expect(transcriptTable).toBeTruthy();
     expect(weaknessTable).toBeTruthy();
+    expect(inventoryTable).toBeTruthy();
+    expect(searchDocumentsTable).toBeTruthy();
+    expect(searchFtsTable).toBeTruthy();
     expect(cweEntry).toBeTruthy();
   });
 

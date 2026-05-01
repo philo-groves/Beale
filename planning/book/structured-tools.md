@@ -71,14 +71,16 @@ Backends may include:
 
 - `ripgrep` for source and text artifacts.
 - Strings extraction for binaries.
-- Indexed metadata from imports, exports, symbols, paths, components, CVEs, CWEs, and notes.
-- SQLite full-text search for workspace state.
+- Program inventory metadata for scoped paths, manifests, binaries, language guesses, file hashes, and scope assets.
+- SQLite full-text search for workspace state, including runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
+- Later indexed metadata from imports, exports, symbols, routes, components, CVEs, CWEs, and notes as structural indexing lands.
 
 Expected outputs:
 
 - Ranked matches.
 - File or artifact references.
 - Line/range references where available.
+- Beale resource references for metadata matches.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

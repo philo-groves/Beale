@@ -88,8 +88,15 @@ describe('structured research tools', () => {
     });
     const selfSearch = callTool(router, context, 'search', { query: 'UniqueTraceOnlyNeedle', target: '' });
     expect(selfSearch.status).toBe('success');
-    expect(selfSearch.payload.matches).toEqual([]);
-    expect(JSON.stringify(selfSearch.payload)).not.toContain('trace_event');
+    expect(JSON.stringify(selfSearch.payload)).toContain('trace_event');
+
+    const inventory = db.getProjectInventorySummary(context.run.scopeVersionId);
+    expect(inventory.fileCount).toBeGreaterThanOrEqual(3);
+    expect(inventory.manifestCount).toBeGreaterThanOrEqual(1);
+    const manifestSearch = callTool(router, context, 'search', { query: 'bealetestdependency', target: '' });
+    expect(manifestSearch.status).toBe('success');
+    expect(JSON.stringify(manifestSearch.payload)).toContain('inventory_item');
+    expect(JSON.stringify(manifestSearch.payload)).toContain('bealetestdependency');
 
     const read = callTool(router, context, 'code_browser', { path: sourceFile, symbol: 'check_access' });
     expect(read.status).toBe('success');
@@ -140,6 +147,33 @@ describe('structured research tools', () => {
     expect(verifierIdRead.status).toBe('error');
     expect(verifierIdRead.payload.error).toBe('unsupported_resource_id_for_code_browser');
     expect(String(verifierIdRead.payload.recoveryHint)).toContain('resource_lookup');
+    db.close();
+  });
+
+  it('indexes Beale research metadata for lexical search', () => {
+    const { db, context } = openStructuredToolDb();
+    const router = new BealeToolRouter(db);
+    const hypothesis = db.createHypothesis({
+      runId: context.run.id,
+      state: 'needs_evidence',
+      title: 'Telemetry beacon authorization bypass',
+      descriptionMarkdown: 'A telemetry beacon path may bypass endpoint authorization.',
+      component: 'telemetry ingestion',
+      bugClass: 'missing_authz',
+      priorityScore: 18,
+      attackerReachability: '2 authenticated user',
+      impact: '3 tenant data exposure',
+      evidenceConfidence: '1 source correlation',
+      exploitPracticality: '2 moderate constraints',
+      scopeConfidence: '2 in-scope asset',
+      cweMappings: [{ cweId: 'CWE-862', confidence: 'medium', rationaleMarkdown: 'Potential missing authorization check.', source: 'model' }]
+    });
+
+    const search = callTool(router, context, 'search', { query: 'telemetry endpoint authorization', target: '' });
+    expect(search.status).toBe('success');
+    expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
+    expect(JSON.stringify(search.payload)).toContain('hypothesis');
+    expect(Number(search.payload.metadataMatches)).toBeGreaterThanOrEqual(1);
     db.close();
   });
 
@@ -928,6 +962,7 @@ function openStructuredToolDb(
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
   writeFileSync(binaryFile, Buffer.from([0, 1, 2, ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'), 0, 3]));
+  writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ dependencies: { bealetestdependency: '1.0.0' } }, null, 2));
 
   const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
   db.initialize();

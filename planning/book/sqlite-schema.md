@@ -112,6 +112,67 @@ Fields:
 - `sensitivity`
 - `created_at`
 
+### `project_inventory_items`
+
+Purpose:
+
+- Store the scoped program inventory used for cheap project orientation and index freshness.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `asset_id`
+- `item_kind`: `directory`, `file`, or later resource kinds
+- `resource_kind`: `directory`, `source`, `manifest`, `binary`, `text`, `archive`, `unknown`
+- `path`
+- `value`
+- `language`
+- `size_bytes`
+- `mtime_ms`
+- `sha256`
+- `sensitivity`
+- `metadata_json`
+- `indexed_at`
+
+### `project_search_documents`
+
+Purpose:
+
+- Store normalized lexical and metadata documents for scoped project search.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `run_id`
+- `entity_type`
+- `entity_id`
+- `title`
+- `body`
+- `source_path`
+- `metadata_json`
+- `created_at`
+- `updated_at`
+
+Indexed entity types include scope assets, inventory items, runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
+
+### `project_search_fts`
+
+Purpose:
+
+- SQLite FTS index backing lexical and metadata search.
+
+Fields:
+
+- `document_id`
+- `scope_version_id`
+- `run_id`
+- `entity_type`
+- `entity_id`
+- `title`
+- `body`
+
 ### `runs`
 
 Purpose:

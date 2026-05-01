@@ -30,6 +30,15 @@ This should be an internal service used by existing tools first, not a new model
 
 The index should be program-scoped, local-first, and disposable with the program metadata. It should live under `.beale/`, never be mounted into a guest VM, and never cross workspace or program boundaries unless the user explicitly enables linked-program search later.
 
+## Implementation Status
+
+The first implementation covers Layer 0 and Layer 1:
+
+- Program inventory records scoped local paths, directories, files, manifest files, binary files, hashes for small files, modification times, language guesses, and scope-asset linkage.
+- Lexical and metadata search stores a scoped SQLite FTS document index for scope assets, inventory items, runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
+- The existing `search` tool still performs bounded scoped source and binary-string search, then augments results with project metadata matches from the FTS index.
+- Source file body indexing remains intentionally bounded to direct `search` and `code_browser` reads; the inventory index stores file metadata and selected manifest/text previews, not every source file body.
+
 ## Index Layers
 
 Beale should treat indexing as layered capability. Each layer has different cost, latency, and trust properties.
