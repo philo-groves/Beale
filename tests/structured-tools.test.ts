@@ -192,6 +192,9 @@ describe('structured research tools', () => {
     expect(directEntityHit).toBeTruthy();
     expect(directEntityHit?.metadata.lineStart).toBeLessThanOrEqual(6);
     expect(directEntityHit?.metadata.lineEnd).toBeGreaterThanOrEqual(8);
+    const directEntityRanking = directEntityHit?.metadata.semanticRanking as Record<string, unknown> | undefined;
+    expect(Number(directEntityRanking?.structureScore)).toBeGreaterThan(0);
+    expect(String(directEntityRanking?.reason)).toContain('code-structure fit');
     db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -215,6 +218,10 @@ describe('structured research tools', () => {
     expect(identifierSemanticHit).toBeTruthy();
     expect(identifierSemanticHit?.matchedTerms).toEqual(expect.arrayContaining(['access', 'check']));
     expect(identifierSemanticHit?.rankReason).toContain('term overlap');
+    const identifierSemanticRanking = identifierSemanticHit?.metadata.semanticRanking as Record<string, unknown> | undefined;
+    expect(Number(identifierSemanticRanking?.securityScore)).toBeGreaterThan(0);
+    expect(Number(identifierSemanticRanking?.scopeScore)).toBeGreaterThan(0);
+    expect(String(identifierSemanticRanking?.reason)).toContain('security-relevant surface');
     const semanticSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
     expect(semanticSearch.status).toBe('success');
     expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale', remoteEmbeddingEnabled: false });
@@ -326,6 +333,30 @@ describe('structured research tools', () => {
     expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
     expect(JSON.stringify(search.payload)).toContain('hypothesis');
     expect(Number(search.payload.metadataMatches)).toBeGreaterThanOrEqual(1);
+
+    const duplicateHypothesis = db.createHypothesis({
+      runId: context.run.id,
+      state: 'duplicate',
+      title: 'Duplicate telemetry authorization bypass',
+      descriptionMarkdown: 'This duplicate claim should remain searchable but rank with duplicate risk.',
+      component: 'telemetry ingestion',
+      bugClass: 'missing_authz',
+      priorityScore: 5,
+      attackerReachability: '1 unclear',
+      impact: '1 duplicate of prior research',
+      evidenceConfidence: '0 none',
+      exploitPracticality: '0 duplicate',
+      scopeConfidence: '1 needs confirmation',
+      cweMappings: [{ cweId: 'CWE-862', confidence: 'low', rationaleMarkdown: 'Duplicate authorization claim.', source: 'model' }]
+    });
+    db.setProjectSemanticIndexEnabled(true, context.run.scopeVersionId);
+    const duplicateSemanticResult = db
+      .searchProjectSemanticChunksForRun(context.run.id, 'duplicate telemetry authorization bypass', 10)
+      .find((result) => result.entityId === duplicateHypothesis.id);
+    const duplicateSemanticRanking = duplicateSemanticResult?.metadata.semanticRanking as Record<string, unknown> | undefined;
+    expect(duplicateSemanticResult).toBeTruthy();
+    expect(Number(duplicateSemanticRanking?.duplicateRiskPenalty)).toBeGreaterThan(0);
+    expect(String(duplicateSemanticRanking?.reason)).toContain('duplicate or dismissed risk penalty');
     db.close();
   });
 

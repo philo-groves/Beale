@@ -82,7 +82,8 @@ The third implementation starts Layer 3:
 - The initial provider is local and deterministic (`local_hash` / `local-hash-v3`), using metadata-aware sparse token vectors with lightweight security/code synonyms, path/proximity boosts, and source provenance boosts. No indexed material leaves the machine.
 - Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
 - `search` augments direct file, artifact, metadata, and structural matches with hybrid-ranked semantic chunk matches only when semantic indexing is enabled for the active program.
-- Semantic matches include ranking provenance: vector overlap, lexical overlap, title overlap, namespace fit, entity boost, matched terms, and a compact rank reason.
+- Semantic matches include ranking provenance: vector overlap, lexical overlap, title overlap, namespace fit, entity boost, security relevance, scope-backed provenance, code-structure fit, prior research signal, duplicate-risk penalty, matched terms, and a compact rank reason.
+- Semantic retrieval uses a deterministic second-stage reranker over the local hybrid score. The beta reranker prefers security-relevant surfaces, scoped source/range provenance, structural entities, and verifier/evidence/finding memory while downranking dismissed or duplicate research records.
 - Retrieval now diversifies semantic results by source document and path so one file or document cannot crowd out the whole result set. This remains a beta-quality sparse retriever, not deep embedding search.
 - Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed source counts, approximate index size, last rebuild duration, indexed time, and `remoteEmbeddingEnabled: false`.
 - Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
@@ -347,7 +348,7 @@ Medium term:
 
 - Add an internal `ProjectUnderstandingService` with program-scoped index jobs.
 - Add schema tables for inventory, document chunks, symbol records, route records, binary entities, web captures, and resource edges.
-- Add a reranker that prefers scoped, recent, evidence-linked, structurally relevant results.
+- Expand the deterministic reranker with recency, relationship-graph proximity, and deeper evidence-link scoring once those layers exist.
 - Feed project-understanding summaries into context compaction.
 
 Long term:

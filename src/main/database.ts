@@ -378,6 +378,8 @@ interface ProjectSemanticQueryProfile {
 
 interface ProjectSemanticRankScore {
   score: number;
+  baseScore: number;
+  rerankScore: number;
   vectorScore: number;
   lexicalScore: number;
   titleScore: number;
@@ -386,6 +388,11 @@ interface ProjectSemanticRankScore {
   pathScore: number;
   proximityScore: number;
   provenanceScore: number;
+  securityScore: number;
+  scopeScore: number;
+  structureScore: number;
+  researchMemoryScore: number;
+  duplicateRiskPenalty: number;
   matchedTerms: string[];
   rankReason: string;
 }
@@ -1259,6 +1266,67 @@ function semanticNamespaceWeights(termWeights: Map<string, number>): Record<stri
   return weights;
 }
 
+const SEMANTIC_SECURITY_SIGNAL_TERMS = new Set([
+  'access',
+  'account',
+  'admin',
+  'auth',
+  'authentication',
+  'authorization',
+  'authorize',
+  'authz',
+  'bypass',
+  'check',
+  'cookie',
+  'credential',
+  'csrf',
+  'deserialization',
+  'deserialize',
+  'exposure',
+  'exported',
+  'guard',
+  'idor',
+  'injection',
+  'intent',
+  'key',
+  'native',
+  'oauth',
+  'parser',
+  'permission',
+  'privilege',
+  'redirect',
+  'route',
+  'secret',
+  'session',
+  'signature',
+  'sink',
+  'sql',
+  'sqli',
+  'ssrf',
+  'token',
+  'traversal',
+  'validation',
+  'xss'
+]);
+
+const SEMANTIC_HIGH_VALUE_ENTITY_KINDS = new Set([
+  'binary_symbol',
+  'function',
+  'graphql_operation',
+  'method',
+  'mobile_permission',
+  'permission_marker',
+  'route',
+  'security_marker',
+  'sink',
+  'web_endpoint'
+]);
+
+const SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES = new Set(['artifact', 'evidence', 'finding', 'hypothesis', 'verifier_contract', 'verifier_run']);
+const SEMANTIC_STRONG_RESEARCH_STATES = new Set(['reportable', 'verified', 'reproduced', 'promoted']);
+const SEMANTIC_DUPLICATE_RISK_STATES = new Set(['duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope']);
+const SEMANTIC_DUPLICATE_RISK_TERMS = ['duplicate', 'dismissed', 'false positive', 'not reproducible', 'out of scope', 'blocked before creation'];
+
 function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, queryVector: Record<string, number>): ProjectSemanticRankScore {
   const vectorScore = semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector);
   const titleWeights = semanticWeightedTerms(text(row, 'title'));
@@ -1276,9 +1344,18 @@ function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, qu
   const pathScore = semanticPathScore(nullableText(row, 'source_path'), profile);
   const proximityScore = semanticProximityScore(content, matchedTerms);
   const provenanceScore = semanticProvenanceScore(text(row, 'entity_type'), metadata);
-  const score = vectorScore * 0.56 + lexicalScore * 0.2 + titleScore * 0.08 + proximityScore + pathScore + namespaceScore + entityScore + provenanceScore;
+  const baseScore = vectorScore * 0.56 + lexicalScore * 0.2 + titleScore * 0.08 + proximityScore + pathScore + namespaceScore + entityScore + provenanceScore;
+  const securityScore = semanticSecurityScore(contentWeights);
+  const scopeScore = semanticScopeScore(row, metadata);
+  const structureScore = semanticStructureScore(row, metadata);
+  const researchMemoryScore = semanticResearchMemoryScore(row, metadata);
+  const duplicateRiskPenalty = semanticDuplicateRiskPenalty(row, metadata, rankingText);
+  const rerankScore = securityScore + scopeScore + structureScore + researchMemoryScore - duplicateRiskPenalty;
+  const score = Math.max(0, baseScore + rerankScore);
   const rounded: ProjectSemanticRankScore = {
     score: roundSemanticScore(score),
+    baseScore: roundSemanticScore(baseScore),
+    rerankScore: roundSemanticScore(rerankScore),
     vectorScore: roundSemanticScore(vectorScore),
     lexicalScore: roundSemanticScore(lexicalScore),
     titleScore: roundSemanticScore(titleScore),
@@ -1287,6 +1364,11 @@ function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, qu
     pathScore: roundSemanticScore(pathScore),
     proximityScore: roundSemanticScore(proximityScore),
     provenanceScore: roundSemanticScore(provenanceScore),
+    securityScore: roundSemanticScore(securityScore),
+    scopeScore: roundSemanticScore(scopeScore),
+    structureScore: roundSemanticScore(structureScore),
+    researchMemoryScore: roundSemanticScore(researchMemoryScore),
+    duplicateRiskPenalty: roundSemanticScore(duplicateRiskPenalty),
     matchedTerms,
     rankReason: ''
   };
@@ -1334,6 +1416,65 @@ function semanticProvenanceScore(entityType: string, metadata: Record<string, un
   return 0;
 }
 
+function semanticSecurityScore(weights: Map<string, number>): number {
+  let matched = 0;
+  for (const term of SEMANTIC_SECURITY_SIGNAL_TERMS) {
+    if (weights.has(term)) matched += 1;
+  }
+  if (matched === 0) return 0;
+  return Math.min(0.09, 0.025 + matched * 0.012);
+}
+
+function semanticScopeScore(row: SqlRow, metadata: Record<string, unknown>): number {
+  let score = 0;
+  const sourcePath = nullableText(row, 'source_path');
+  const metadataSourcePath = typeof metadata.sourcePath === 'string' ? metadata.sourcePath : '';
+  const sourceKind = typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
+  if ((sourcePath && isAbsolute(sourcePath)) || (metadataSourcePath && isAbsolute(metadataSourcePath))) score += 0.02;
+  if (sourceKind === 'source_range' || sourceKind === 'entity_range') score += 0.015;
+  if (typeof metadata.resourceKind === 'string' && metadata.resourceKind.trim()) score += 0.005;
+  if (semanticMetadataNumber(metadata.lineStart) || semanticMetadataNumber(metadata.entityLineStart)) score += 0.005;
+  if (typeof metadata.sourceDocumentId === 'string' && metadata.sourceDocumentId.trim()) score += 0.005;
+  return Math.min(0.045, score);
+}
+
+function semanticStructureScore(row: SqlRow, metadata: Record<string, unknown>): number {
+  let score = 0;
+  const entityType = text(row, 'entity_type');
+  const entityKind = typeof metadata.entityKind === 'string' ? metadata.entityKind : '';
+  const sourceKind = typeof metadata.semanticSourceKind === 'string' ? metadata.semanticSourceKind : '';
+  if (entityType === 'structure_entity') score += 0.025;
+  if (sourceKind === 'entity_range') score += 0.015;
+  if (SEMANTIC_HIGH_VALUE_ENTITY_KINDS.has(entityKind)) score += 0.02;
+  if (typeof metadata.signature === 'string' && metadata.signature.trim()) score += 0.005;
+  if (typeof metadata.name === 'string' && metadata.name.trim()) score += 0.005;
+  if (semanticMetadataNumber(metadata.lineStart) || semanticMetadataNumber(metadata.entityLineStart)) score += 0.005;
+  return Math.min(0.055, score);
+}
+
+function semanticResearchMemoryScore(row: SqlRow, metadata: Record<string, unknown>): number {
+  let score = 0;
+  const namespace = text(row, 'namespace');
+  const entityType = text(row, 'entity_type');
+  const state = typeof metadata.state === 'string' ? metadata.state : '';
+  if (namespace === 'research_memory') score += 0.012;
+  if (SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES.has(entityType)) score += 0.018;
+  if (SEMANTIC_STRONG_RESEARCH_STATES.has(state)) score += 0.025;
+  if (Array.isArray(metadata.cweMappings) && metadata.cweMappings.length > 0) score += 0.01;
+  if (typeof metadata.primaryCweId === 'string' && metadata.primaryCweId.trim()) score += 0.01;
+  return Math.min(0.05, score);
+}
+
+function semanticDuplicateRiskPenalty(row: SqlRow, metadata: Record<string, unknown>, rankingText: string): number {
+  let penalty = 0;
+  const state = typeof metadata.state === 'string' ? metadata.state : '';
+  if (SEMANTIC_DUPLICATE_RISK_STATES.has(state)) penalty += 0.075;
+  const lower = `${text(row, 'title')}\n${rankingText}`.toLowerCase();
+  if (SEMANTIC_DUPLICATE_RISK_TERMS.some((term) => lower.includes(term))) penalty += 0.045;
+  if (typeof metadata.duplicateOf === 'string' && metadata.duplicateOf.trim()) penalty += 0.04;
+  return Math.min(0.12, penalty);
+}
+
 function semanticRankReason(score: ProjectSemanticRankScore): string {
   const reasons: string[] = [];
   if (score.vectorScore >= 0.18) reasons.push('strong local vector overlap');
@@ -1345,6 +1486,11 @@ function semanticRankReason(score: ProjectSemanticRankScore): string {
   if (score.pathScore > 0) reasons.push('path fit');
   if (score.namespaceScore > 0) reasons.push('namespace fit');
   if (score.entityScore > 0 || score.provenanceScore > 0) reasons.push('indexed source provenance');
+  if (score.securityScore > 0) reasons.push('security-relevant surface');
+  if (score.scopeScore > 0) reasons.push('scope-backed source');
+  if (score.structureScore > 0) reasons.push('code-structure fit');
+  if (score.researchMemoryScore > 0) reasons.push('prior research signal');
+  if (score.duplicateRiskPenalty > 0) reasons.push('duplicate or dismissed risk penalty');
   return reasons.join('; ') || 'local semantic similarity';
 }
 
@@ -1377,9 +1523,12 @@ function semanticDiversifyRankedCandidates(
     if (selectedIds.has(id)) return;
     const sourcePath = nullableText(candidate.row, 'source_path');
     const sourceDocumentId = text(candidate.row, 'source_document_id');
+    const sourceKind = semanticRowSourceKind(candidate.row);
     if (strict) {
-      if (sourcePath && (pathCounts.get(sourcePath) ?? 0) >= 3) return;
-      if ((documentCounts.get(sourceDocumentId) ?? 0) >= 2 && semanticRowSourceKind(candidate.row) !== 'entity_range') return;
+      const pathCount = sourcePath ? (pathCounts.get(sourcePath) ?? 0) : 0;
+      if (sourcePath && pathCount >= 3 && sourceKind !== 'source_range') return;
+      if (sourcePath && pathCount >= 4) return;
+      if ((documentCounts.get(sourceDocumentId) ?? 0) >= 2 && sourceKind !== 'entity_range') return;
     }
     selectedIds.add(id);
     if (sourcePath) pathCounts.set(sourcePath, (pathCounts.get(sourcePath) ?? 0) + 1);
@@ -1389,7 +1538,7 @@ function semanticDiversifyRankedCandidates(
 
   for (const candidate of candidates) tryAdd(candidate, true);
   for (const candidate of candidates) tryAdd(candidate, false);
-  return selected;
+  return selected.sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')));
 }
 
 function semanticRowSourceKind(row: SqlRow): string {
@@ -4694,7 +4843,7 @@ export class WorkspaceDatabase {
         .all(run.scopeVersionId)
     )
       .map((row) => ({ row, score: semanticRankScore(row, profile, queryVector) }))
-      .filter((candidate) => candidate.score.score >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
+      .filter((candidate) => candidate.score.baseScore >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
       .sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')));
     return semanticDiversifyRankedCandidates(rankedCandidates, limit)
       .map(({ row, score }) => this.mapProjectSemanticSearchResult(row, trimmed, score));
@@ -6604,6 +6753,8 @@ export class WorkspaceDatabase {
         ...parseJson(row.metadata_json),
         semanticRanking: {
           score: score.score,
+          baseScore: score.baseScore,
+          rerankScore: score.rerankScore,
           vectorScore: score.vectorScore,
           lexicalScore: score.lexicalScore,
           titleScore: score.titleScore,
@@ -6612,6 +6763,11 @@ export class WorkspaceDatabase {
           pathScore: score.pathScore,
           proximityScore: score.proximityScore,
           provenanceScore: score.provenanceScore,
+          securityScore: score.securityScore,
+          scopeScore: score.scopeScore,
+          structureScore: score.structureScore,
+          researchMemoryScore: score.researchMemoryScore,
+          duplicateRiskPenalty: score.duplicateRiskPenalty,
           matchedTerms: score.matchedTerms,
           reason: score.rankReason
         }
