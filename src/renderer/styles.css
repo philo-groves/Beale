@@ -4656,25 +4656,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: nowrap;
 }
 
-.environment-pill::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  left: -58px;
-  z-index: 2;
-  width: 48px;
-  opacity: 0;
-  pointer-events: none;
-  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.08) 24%, rgba(255, 255, 255, 0.58) 50%, rgba(255, 255, 255, 0.08) 76%, transparent 100%);
-  mix-blend-mode: screen;
-}
-
-.environment-vm-pill.is-active::after {
-  opacity: 1;
-  animation: environment-activity-sheen 1.65s ease-in-out infinite;
-}
-
 .environment-pill svg,
 .environment-pill span {
   position: relative;
@@ -4724,24 +4705,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--text);
 }
 
-@keyframes environment-activity-sheen {
-  0% {
-    left: -58px;
-  }
-
-  58%,
-  100% {
-    left: calc(100% + 58px);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .app-background-pulse {
-    animation: none;
-    opacity: 0;
-  }
-
-  .environment-vm-pill.is-active::after {
     animation: none;
     opacity: 0;
   }

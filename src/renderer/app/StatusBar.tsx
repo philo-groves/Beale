@@ -56,7 +56,7 @@ export const StatusBar = memo(function StatusBar({
           <span>{osLabel}</span>
         </div>
         <ArrowRight className="environment-arrow" size={14} aria-hidden="true" />
-        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'} ${activity.guest ? 'is-active' : ''}`} title={vmTarget.title}>
+        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'}`} title={vmTarget.title}>
           <Server size={14} />
           <span>{vmTarget.label}</span>
           {vmTarget.showConfigure ? (
