@@ -92,6 +92,7 @@ The third implementation starts Layer 3:
 - Semantic rebuilds process source documents in small batches, preserve stale chunks until the replacement index finishes, expose processed/total progress, and yield between batches. Moving expensive builds into a separate worker process or thread remains the next scalability step.
 - The semantic batch lifecycle now lives in a standalone main-process executor module instead of `WorkspaceService`. The executor owns timers, active-session deferral, progress batches, and profiling labels so the next implementation can replace its internals with a worker-backed runner.
 - The semantic executor now prefers a bundled worker-thread entry when available. The worker opens its own SQLite connection, runs the batch loop outside the main process response path, sends progress/timing messages back to the host, and falls back to the cooperative in-process runner in tests or unsupported dev builds.
+- Worker lifecycle hardening tracks queued timers and active workers separately. Cancel, workspace disposal, and app shutdown now mark jobs canceled and terminate active workers instead of relying only on cooperative worker checks.
 
 ## Index Layers
 

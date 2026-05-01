@@ -321,7 +321,7 @@ export class WorkspaceService {
       db.queueProjectSemanticIndex(activeScope.id, 'enabled');
       this.semanticIndexExecutor.schedule(activeScope.id, 'enabled', this.workspacePath);
     } else {
-      this.semanticIndexExecutor.cancel(activeScope.id, this.workspacePath);
+      this.semanticIndexExecutor.cancel(activeScope.id, this.workspacePath, 'disabled');
       db.markProjectSemanticIndexingCanceled(activeScope.id, 'disabled');
     }
     this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
