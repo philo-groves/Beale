@@ -171,6 +171,9 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
 ].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
+const SEMANTIC_INDEX_BATCH_SIZE = 25;
+const SEMANTIC_INDEX_BATCH_DELAY_MS = 10;
+const SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS = 5000;
 
 export interface WorkspaceChange {
   programRegistryChanged: boolean;
@@ -1452,28 +1455,51 @@ export class WorkspaceService {
     const runtime = this.runtimeForWorkspacePath(workspacePath);
     if (!runtime || !runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
     if (this.hasActiveRuntimeWork(runtime)) {
-      this.scheduleSemanticIndexRefresh(scopeVersionId, reason, 5000, workspacePath);
+      this.scheduleSemanticIndexRefresh(scopeVersionId, reason, SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS, workspacePath);
       return;
     }
 
     try {
-      runtime.db.markProjectSemanticIndexingStarted(scopeVersionId, reason);
-      this.emitRuntimeChange(workspacePath);
-      await new Promise<void>((resolveTimer) => setTimeout(resolveTimer, 0));
-      if (!runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-      if (this.hasActiveRuntimeWork(runtime)) {
-        runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
-        this.scheduleSemanticIndexRefresh(scopeVersionId, reason, 5000, workspacePath);
-        return;
-      }
-      this.profileMainTiming('projectSemantic.refresh.background', { workspace: runtime.workspacePath.split(/[\\/]/).pop() ?? 'workspace', reason }, () =>
-        runtime.db.refreshProjectSemanticIndex(scopeVersionId, { refreshInventory: false, reason })
-      );
+      await this.runCooperativeSemanticIndexRefresh(runtime, scopeVersionId, reason);
     } catch (error) {
       runtime.db.markProjectSemanticIndexingFailed(scopeVersionId, error, reason);
     } finally {
       this.emitRuntimeChange(workspacePath);
     }
+  }
+
+  private async runCooperativeSemanticIndexRefresh(runtime: WorkspaceRuntime, scopeVersionId: string, reason: string): Promise<void> {
+    const workspacePath = runtime.workspacePath;
+    const detail = { workspace: workspacePath.split(/[\\/]/).pop() ?? 'workspace', reason };
+    const refresh = this.profileMainTiming('projectSemantic.refresh.begin', detail, () => runtime.db.beginProjectSemanticIndexRefresh(scopeVersionId, reason));
+    this.emitRuntimeChange(workspacePath);
+    await sleep(0);
+
+    let processed = 0;
+    while (processed < refresh.sourceDocumentCount) {
+      if (!runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
+      if (this.hasActiveRuntimeWork(runtime)) {
+        runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
+        this.scheduleSemanticIndexRefresh(scopeVersionId, reason, SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS, workspacePath);
+        this.emitRuntimeChange(workspacePath);
+        return;
+      }
+
+      const documents = this.profileMainTiming('projectSemantic.refresh.loadBatch', { ...detail, processed }, () =>
+        runtime.db.listProjectSemanticSourceDocuments(scopeVersionId, SEMANTIC_INDEX_BATCH_SIZE, processed)
+      );
+      if (documents.length === 0) break;
+      processed += documents.length;
+      this.profileMainTiming('projectSemantic.refresh.indexBatch', { ...detail, processed, total: refresh.sourceDocumentCount, documents: documents.length }, () =>
+        runtime.db.indexProjectSemanticSourceDocuments(scopeVersionId, documents, refresh.indexedAt, processed, refresh.sourceDocumentCount)
+      );
+      this.emitRuntimeChange(workspacePath);
+      await sleep(SEMANTIC_INDEX_BATCH_DELAY_MS);
+    }
+
+    this.profileMainTiming('projectSemantic.refresh.finish', detail, () =>
+      runtime.db.finishProjectSemanticIndexRefresh(scopeVersionId, refresh.indexedAt, refresh.startedAtMs, refresh.sourceDocumentCount)
+    );
   }
 
   private setForegroundRuntime(runtime: WorkspaceRuntime): void {
@@ -2878,6 +2904,10 @@ function buildFallbackHackerOneScopeMarkdown(facts: HackerOneProgramImportFacts)
     lines.push(`- ${asset.direction}: ${asset.kind} ${asset.value}`);
   }
   return lines.join('\n');
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) : Promise.resolve();
 }
 
 function fileTimestamp(iso: string): string {

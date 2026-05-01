@@ -285,8 +285,13 @@ function semanticHeading(summary: ProjectSemanticSummary | null, programName: st
 
 function semanticDetail(summary: ProjectSemanticSummary | null): string {
   if (!summary) return 'Semantic indexing is scoped to a single program and stored locally under .beale/.';
-  if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.`;
-  if (summary.status === 'indexing') return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.`;
+  const progress =
+    typeof summary.progressProcessed === 'number' && typeof summary.progressTotal === 'number'
+      ? ` ${summary.progressProcessed.toLocaleString()}/${summary.progressTotal.toLocaleString()} source documents processed.`
+      : '';
+  if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.${progress}`;
+  if (summary.status === 'indexing')
+    return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.${progress}`;
   if (summary.status === 'error') return `Last error: ${summary.lastError || 'Semantic indexing failed. Search remains available without fresh semantic results.'}`;
   if (summary.status === 'canceled') return `Canceled ${summary.finishedAt ? formatSessionDateTime(summary.finishedAt) : 'recently'}.`;
   const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';

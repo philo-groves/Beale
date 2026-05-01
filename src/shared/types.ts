@@ -343,6 +343,8 @@ export interface ProjectSemanticSummary {
   finishedAt: string | null;
   jobReason: string | null;
   lastError: string | null;
+  progressProcessed: number | null;
+  progressTotal: number | null;
 }
 
 export interface ProjectSemanticSearchResult {

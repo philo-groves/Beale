@@ -88,7 +88,8 @@ The third implementation starts Layer 3:
 - Semantic status reports `stale` when indexed chunks no longer match source documents or the local provider/model version changes.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
 - As of the beta background-indexing transition, model-facing `search` and `code_browser` must not rebuild indexes inline. They may use stale index state and exact bounded reads while background work catches up.
-- Settings-driven semantic enable/rebuild requests now record queued/indexing/error status and run through a deferred scheduler. Moving expensive builds into a separate worker process or thread remains the next scalability step.
+- Settings-driven semantic enable/rebuild requests now record queued/indexing/error status and run through a deferred scheduler.
+- Semantic rebuilds process source documents in small batches, preserve stale chunks until the replacement index finishes, expose processed/total progress, and yield between batches. Moving expensive builds into a separate worker process or thread remains the next scalability step.
 
 ## Index Layers
 
