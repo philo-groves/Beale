@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import type { RunDetail } from '@shared/types';
+import type { RunDetail, SteeringAction } from '@shared/types';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -13,6 +13,7 @@ export function MainSessionWorkspace({
   visibleTraceCategories,
   busy,
   onSelectTraceEvent,
+  onSessionAction,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
@@ -22,6 +23,7 @@ export function MainSessionWorkspace({
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   if (!selectedRunId) return null;
@@ -36,6 +38,7 @@ export function MainSessionWorkspace({
         selectedTraceEventId={selectedTraceEventId}
         visibleTraceCategories={visibleTraceCategories}
         onSelectTraceEvent={onSelectTraceEvent}
+        onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
       <ResearchSidePanel detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />

@@ -6,6 +6,7 @@ import type {
   NotificationRecord,
   OpenAiOAuthStartResult,
   RunDetail,
+  SteeringAction,
   VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -234,11 +235,16 @@ export function App(): JSX.Element {
     setOpenProgramMenuId
   });
 
-  const handleSteerInstruction = useCallback(
-    (runId: string, instruction: string): void => {
-      void runAction(() => window.beale.steerRun({ type: 'steer', runId, instruction }));
+  const handleSessionAction = useCallback(
+    (action: SteeringAction): void => {
+      void runAction(() => window.beale.steerRun(action));
     },
     [runAction]
+  );
+
+  const handleSteerInstruction = useCallback(
+    (runId: string, instruction: string): void => handleSessionAction({ type: 'steer', runId, instruction }),
+    [handleSessionAction]
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
@@ -332,6 +338,7 @@ export function App(): JSX.Element {
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
             onSelectTraceEvent={selectTraceEvent}
+            onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>

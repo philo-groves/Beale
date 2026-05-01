@@ -1,8 +1,9 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ChevronRight } from 'lucide-react';
-import type { RunDetail } from '@shared/types';
+import { ArrowRight, GitFork, Play, RefreshCw, Square } from 'lucide-react';
+import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
+import { traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
 import { buildTraceTimelineEntries, groupRenderedTraceEntries, latestTraceGroupKey, type TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { TraceTurnGroup } from './TraceTurnGroup';
@@ -19,6 +20,7 @@ const TRACE_WINDOW_SLIDE_STEP = 12;
 const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_WINDOW_ANCHOR_BUFFER = 8;
 const TRACE_REVEAL_INTERVAL_MS = 64;
+const STEER_TEXTAREA_MAX_LINES = 6;
 
 export function TraceView({
   busy,
@@ -28,6 +30,7 @@ export function TraceView({
   selectedTraceEventId,
   visibleTraceCategories,
   onSelectTraceEvent,
+  onSessionAction,
   onSteerInstruction
 }: {
   busy: boolean;
@@ -37,6 +40,7 @@ export function TraceView({
   selectedTraceEventId: string | null;
   visibleTraceCategories: TraceCategoryId[];
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   const loading = !detail;
@@ -400,8 +404,10 @@ export function TraceView({
       ) : null}
       <MainSteerArea
         busy={busy}
+        detail={detail}
         modelLabel={detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
         runId={detail?.run.id ?? null}
+        onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
     </section>
@@ -410,18 +416,61 @@ export function TraceView({
 
 const MainSteerArea = memo(function MainSteerArea({
   runId,
+  detail,
   modelLabel,
   busy,
+  onSessionAction,
   onSteerInstruction
 }: {
   runId: string | null;
+  detail: RunDetail | null;
   modelLabel: string;
   busy: boolean;
+  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
+  const footerRef = useRef<HTMLElement | null>(null);
+  const controlRowRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
+  const status = detail?.run.status ?? null;
+  const inProgress = status === 'active' || status === 'queued';
+  const controlsDisabled = busy || !runId;
+
+  const resizeTextarea = useCallback((): void => {
+    const textarea = textareaRef.current;
+    const footer = footerRef.current;
+    const controlRow = controlRowRef.current;
+    if (!textarea || !footer) return;
+
+    textarea.style.height = '0px';
+    const computedStyle = window.getComputedStyle(textarea);
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 16;
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0;
+    const minHeight = Number.parseFloat(computedStyle.minHeight) || 44;
+    const maxHeight = lineHeight * STEER_TEXTAREA_MAX_LINES + paddingTop + paddingBottom;
+    const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+    const controlHeight = controlRow?.offsetHeight ?? 0;
+    const controlMarginTop = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginTop) || 0 : 0;
+    const controlMarginBottom = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginBottom) || 0 : 0;
+    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom + nextHeight;
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    footer.parentElement?.style.setProperty('--trace-footer-height', `${nextFooterHeight}px`);
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [instruction, modelLabel, resizeTextarea, status]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resizeTextarea);
+    return () => window.removeEventListener('resize', resizeTextarea);
+  }, [resizeTextarea]);
 
   const submit = (): void => {
     if (disabled || !runId) return;
@@ -429,33 +478,95 @@ const MainSteerArea = memo(function MainSteerArea({
     setInstruction('');
   };
 
+  const forkSession = (): void => {
+    if (controlsDisabled || !runId) return;
+    onSessionAction({
+      type: 'fork',
+      runId,
+      instruction: trimmedInstruction || 'Fork from the current session state and continue independent vulnerability research.'
+    });
+    setInstruction('');
+  };
+
+  const restartSession = (): void => {
+    if (controlsDisabled || !runId) return;
+    onSessionAction({ type: 'restart_from_snapshot', runId, note: 'Restart requested from session controls.' });
+  };
+
+  const abortSession = (): void => {
+    if (controlsDisabled || !runId) return;
+    onSessionAction({ type: 'stop', runId, note: 'Abort requested from session controls.' });
+  };
+
+  const continueSession = (): void => {
+    if (controlsDisabled || !runId) return;
+    if (trimmedInstruction) {
+      onSessionAction({ type: 'steer', runId, instruction: trimmedInstruction });
+      setInstruction('');
+      return;
+    }
+    onSessionAction({ type: 'resume', runId, note: 'Continue requested from session controls.' });
+  };
+
   return (
-    <footer className="main-trace-footer" aria-label="Steer research session">
-      <div className="main-steer-row">
-        <div className="main-steer-input-shell">
-          <textarea
-            rows={1}
-            value={instruction}
-            placeholder="Steer the agent..."
-            onChange={(event) => setInstruction(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-          />
-          <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
-            {modelLabel}
-          </button>
-          <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
-            <ChevronRight size={17} />
-          </button>
+    <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
+      <div className="main-steer-control-row" ref={controlRowRef}>
+        <span className="main-steer-status">{sessionControlStatusLabel(status)}</span>
+        <div className="main-session-controls" aria-label="Session controls">
+          {inProgress ? (
+            <>
+              <button type="button" className="main-session-control-button" title="Fork this session" disabled={controlsDisabled} onClick={forkSession}>
+                <GitFork size={12} />
+                <span>Fork</span>
+              </button>
+              <button type="button" className="main-session-control-button" title="Restart from snapshot" disabled={controlsDisabled} onClick={restartSession}>
+                <RefreshCw size={12} />
+                <span>Restart</span>
+              </button>
+              <button type="button" className="main-session-control-button danger" title="Abort this session" disabled={controlsDisabled} onClick={abortSession}>
+                <Square size={11} />
+                <span>Abort</span>
+              </button>
+            </>
+          ) : (
+            <button type="button" className="main-session-control-button primary" title="Continue this session" disabled={controlsDisabled} onClick={continueSession}>
+              <Play size={12} />
+              <span>Continue</span>
+            </button>
+          )}
         </div>
+      </div>
+      <div className="main-steer-input-row">
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={instruction}
+          placeholder="Steer the agent..."
+          onChange={(event) => setInstruction(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
+          {modelLabel}
+        </button>
+        <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
+          <ArrowRight size={16} />
+        </button>
       </div>
     </footer>
   );
 });
+
+function sessionControlStatusLabel(status: RunStatus | null): string {
+  if (!status) return 'No session selected';
+  if (status === 'active') return 'Research session running';
+  if (status === 'queued') return 'Research session queued';
+  return `Research session ${traceLabel(status)}`;
+}
 
 function traceEventNodes(list: HTMLDivElement): HTMLElement[] {
   return Array.from(list.querySelectorAll<HTMLElement>('[data-trace-event-id]'));
