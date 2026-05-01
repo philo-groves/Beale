@@ -55,8 +55,10 @@ The third implementation starts Layer 3:
 
 - Semantic indexing is per-program opt-in and disabled by default.
 - The beta implementation stores bounded chunks derived from existing project search documents in `project_semantic_chunks`.
-- The initial provider is local and deterministic (`local_hash` / `local-hash-v1`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
-- `search` augments direct file, artifact, metadata, and structural matches with semantic chunk matches only when semantic indexing is enabled for the active program.
+- The initial provider is local and deterministic (`local_hash` / `local-hash-v2`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
+- Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
+- `search` augments direct file, artifact, metadata, and structural matches with hybrid-ranked semantic chunk matches only when semantic indexing is enabled for the active program.
+- Semantic matches include ranking provenance: vector overlap, lexical overlap, title overlap, namespace fit, entity boost, matched terms, and a compact rank reason.
 - Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed time, and `remoteEmbeddingEnabled: false`.
 - Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.

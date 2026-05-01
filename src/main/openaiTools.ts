@@ -170,7 +170,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and opt-in local semantic chunks. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
+    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and opt-in hybrid-ranked local semantic chunks. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
@@ -1823,8 +1823,15 @@ export class BealeToolRouter {
       title: result.title,
       sourcePath: result.sourcePath,
       path: result.sourcePath ?? undefined,
-      matchedBy: 'project_semantic_local_hash',
+      matchedBy: 'project_semantic_hybrid_local_hash',
       semanticScore: result.score,
+      vectorScore: result.vectorScore,
+      lexicalScore: result.lexicalScore,
+      titleScore: result.titleScore,
+      namespaceScore: result.namespaceScore,
+      entityScore: result.entityScore,
+      matchedTerms: result.matchedTerms,
+      rankReason: result.rankReason,
       snippet: trimSnippet(result.snippet),
       metadata: result.metadata
     };

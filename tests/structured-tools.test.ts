@@ -172,10 +172,19 @@ describe('structured research tools', () => {
     expect(enabledSemantic.namespaceCounts.code).toBeGreaterThan(0);
     const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
     expect(semanticResults.some((result) => result.namespace === 'mobile' || result.metadata.entityKind === 'mobile_permission')).toBe(true);
+    const identifierSemanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'access check authorization guard', 20);
+    const identifierSemanticHit = identifierSemanticResults.find((result) => result.title.includes('check_access') || result.snippet.includes('check_access'));
+    expect(identifierSemanticHit).toBeTruthy();
+    expect(identifierSemanticHit?.matchedTerms).toEqual(expect.arrayContaining(['access', 'check']));
+    expect(identifierSemanticHit?.rankReason).toContain('term overlap');
     const semanticSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
     expect(semanticSearch.status).toBe('success');
     expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'ready', remoteEmbeddingEnabled: false });
-    expect((semanticSearch.payload.matches as Array<Record<string, unknown>>).some((match) => match.kind === 'semantic')).toBe(true);
+    const semanticToolMatch = (semanticSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'semantic');
+    expect(semanticToolMatch).toBeTruthy();
+    expect(semanticToolMatch?.matchedBy).toBe('project_semantic_hybrid_local_hash');
+    expect(semanticToolMatch?.rankReason).toBeTruthy();
+    expect(semanticToolMatch?.matchedTerms).toEqual(expect.arrayContaining(['native', 'jni', 'symbol']));
 
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {

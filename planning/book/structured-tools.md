@@ -76,7 +76,7 @@ Backends may include:
 - Structured dependency/package metadata extracted from common manifest files.
 - Bounded binary-derived strings indexed from scoped binaries.
 - Structural index records for best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
-- Per-program opt-in local semantic chunks for concept searches across indexed project metadata and Beale research memory.
+- Per-program opt-in local semantic chunks for concept searches across indexed project metadata and Beale research memory, with identifier-aware tokenization and hybrid local reranking.
 - Later indexed metadata from deeper references, call graphs, components, CVEs, CWEs, and notes as the structural and graph layers mature.
 
 Expected outputs:
@@ -86,7 +86,7 @@ Expected outputs:
 - Line/range references where available.
 - Beale resource references for metadata matches.
 - Dedupe between direct file/artifact matches and metadata matches for the same object.
-- Semantic match scores and source chunk metadata when semantic indexing is enabled.
+- Semantic match scores, matched terms, rank reasons, score breakdowns, and source chunk metadata when semantic indexing is enabled.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

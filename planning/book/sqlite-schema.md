@@ -201,7 +201,7 @@ Fields:
 - `metadata_json`
 - `indexed_at`
 
-The beta provider is `local_hash` / `local-hash-v1`: a deterministic sparse local vector used for safer first-pass semantic retrieval. Remote embedding providers are not enabled by default and require a separate explicit consent path before indexed material can leave the machine.
+The beta provider is `local_hash` / `local-hash-v2`: a deterministic sparse local vector used for safer first-pass semantic retrieval. Remote embedding providers are not enabled by default and require a separate explicit consent path before indexed material can leave the machine.
 
 ### `project_structure_entities`
 

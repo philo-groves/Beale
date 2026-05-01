@@ -369,6 +369,24 @@ interface ProjectSemanticChunkInput {
   indexedAt: string;
 }
 
+interface ProjectSemanticQueryProfile {
+  terms: string[];
+  termWeights: Map<string, number>;
+  namespaceWeights: Record<string, number>;
+  totalWeight: number;
+}
+
+interface ProjectSemanticRankScore {
+  score: number;
+  vectorScore: number;
+  lexicalScore: number;
+  titleScore: number;
+  namespaceScore: number;
+  entityScore: number;
+  matchedTerms: string[];
+  rankReason: string;
+}
+
 interface ProjectInventoryInsertInput {
   scopeVersionId: string;
   asset: ScopeAsset;
@@ -475,7 +493,7 @@ const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
 const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
 const PROJECT_SEMANTIC_VECTOR_PROVIDER = 'local_hash';
-const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v1';
+const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v2';
 const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
 const PROJECT_SEMANTIC_CHUNK_MAX_CHARS = 2400;
 const PROJECT_SEMANTIC_CHUNK_OVERLAP_CHARS = 240;
@@ -587,30 +605,47 @@ const SEMANTIC_STOP_WORDS = new Set([
   'could',
   'http',
   'https',
+  'com',
+  'org',
+  'net',
   'www'
 ]);
 const SEMANTIC_SYNONYMS: Record<string, string[]> = {
   auth: ['authorization', 'authentication', 'permission', 'access'],
   authorize: ['authorization', 'permission', 'access'],
+  authorization: ['auth', 'permission', 'access', 'guard'],
   authenticated: ['authentication', 'auth', 'identity'],
   permission: ['authorization', 'access', 'scope'],
+  guard: ['auth', 'authorization', 'middleware'],
+  middleware: ['guard', 'handler', 'route'],
   token: ['credential', 'secret', 'bearer'],
   credential: ['secret', 'token', 'password'],
   secret: ['credential', 'token', 'key'],
   route: ['endpoint', 'handler', 'controller'],
   endpoint: ['route', 'api', 'handler'],
+  api: ['endpoint', 'route', 'request'],
   handler: ['route', 'endpoint', 'controller'],
   query: ['database', 'sql', 'injection'],
   sql: ['database', 'query', 'injection'],
+  database: ['query', 'sql', 'storage'],
   deserialize: ['unserialize', 'parser', 'object'],
   parser: ['parse', 'deserialize', 'input'],
   redirect: ['url', 'navigation', 'response'],
   file: ['filesystem', 'path', 'read'],
   path: ['filesystem', 'file', 'traversal'],
+  traversal: ['path', 'filesystem', 'file'],
   native: ['jni', 'binary', 'symbol'],
   jni: ['native', 'android', 'symbol'],
   mobile: ['android', 'ios', 'permission'],
-  camera: ['permission', 'android', 'mobile']
+  camera: ['permission', 'android', 'mobile'],
+  crash: ['fault', 'signal', 'sigsegv'],
+  ssrf: ['url', 'request', 'internal', 'metadata'],
+  xss: ['script', 'html', 'dom'],
+  csrf: ['request', 'token', 'state'],
+  cwe: ['weakness', 'vulnerability', 'classification'],
+  evidence: ['artifact', 'observation', 'verifier'],
+  finding: ['vulnerability', 'impact', 'evidence'],
+  hypothesis: ['candidate', 'theory', 'vulnerability']
 };
 
 export function createId(prefix: string): string {
@@ -850,9 +885,8 @@ function semanticChunksForDocument(document: ProjectSearchDocumentRecord, indexe
 
 function semanticTokens(value: string): Array<{ term: string; weight: number }> {
   const raw = value
-    .toLowerCase()
     .split(/[^a-z0-9_.$/@:-]+/i)
-    .map((token) => semanticNormalizeToken(token))
+    .flatMap((token) => semanticTokenCandidates(token))
     .filter((token): token is string => Boolean(token && token.length >= 2 && !SEMANTIC_STOP_WORDS.has(token)));
   const tokens: Array<{ term: string; weight: number }> = [];
   for (const term of raw) {
@@ -862,26 +896,46 @@ function semanticTokens(value: string): Array<{ term: string; weight: number }> 
   return tokens;
 }
 
+function semanticTokenCandidates(value: string): string[] {
+  const stripped = value.trim().replace(/^[-_.:/]+|[-_.:/]+$/g, '');
+  if (!stripped) return [];
+  const candidates = new Set<string>();
+  const normalizedFull = semanticNormalizeToken(stripped.toLowerCase());
+  if (normalizedFull) candidates.add(normalizedFull);
+  const expanded = stripped
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[_.$/@:-]+|\s+/)
+    .map((part) => semanticNormalizeToken(part.toLowerCase()))
+    .filter((part) => part.length >= 2);
+  for (const part of expanded) candidates.add(part);
+  return Array.from(candidates);
+}
+
 function semanticNormalizeToken(value: string): string {
   const token = value.trim().replace(/^[-_.:/]+|[-_.:/]+$/g, '');
   if (!token) return '';
   if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
   if (token.length > 5 && token.endsWith('ing')) return token.slice(0, -3);
   if (token.length > 4 && token.endsWith('ed')) return token.slice(0, -2);
-  if (token.length > 3 && token.endsWith('s')) return token.slice(0, -1);
+  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1);
   return token;
 }
 
 function semanticVectorForText(value: string, namespace: string): Record<string, number> {
-  const weights = new Map<string, number>();
-  for (const { term, weight } of semanticTokens(`${namespace} ${value}`)) {
-    weights.set(term, (weights.get(term) ?? 0) + weight);
-  }
-  const sorted = Array.from(weights.entries())
+  const sorted = Array.from(semanticWeightedTerms(`${namespace} ${value}`).entries())
     .map(([term, weight]) => [term, Math.round((1 + Math.log(weight)) * 1000) / 1000] as const)
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, PROJECT_SEMANTIC_MAX_VECTOR_TERMS);
   return Object.fromEntries(sorted);
+}
+
+function semanticWeightedTerms(value: string): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const { term, weight } of semanticTokens(value)) {
+    weights.set(term, (weights.get(term) ?? 0) + weight);
+  }
+  return weights;
 }
 
 function semanticCosineSimilarity(left: Record<string, number>, right: Record<string, number>): number {
@@ -895,6 +949,80 @@ function semanticCosineSimilarity(left: Record<string, number>, right: Record<st
   }
   if (leftNorm === 0 || rightNorm === 0) return 0;
   return dot / Math.sqrt(leftNorm * rightNorm);
+}
+
+function semanticQueryProfile(query: string): ProjectSemanticQueryProfile {
+  const termWeights = semanticWeightedTerms(query);
+  const terms = Array.from(termWeights.keys());
+  const namespaceWeights = semanticNamespaceWeights(termWeights);
+  const totalWeight = Array.from(termWeights.values()).reduce((sum, weight) => sum + weight, 0);
+  return { terms, termWeights, namespaceWeights, totalWeight };
+}
+
+function semanticNamespaceWeights(termWeights: Map<string, number>): Record<string, number> {
+  const namespaceHints: Record<string, string[]> = {
+    binary: ['binary', 'crash', 'fault', 'jni', 'native', 'signal', 'sigsegv', 'symbol', 'wasm'],
+    code: ['auth', 'authorization', 'class', 'function', 'guard', 'handler', 'import', 'method', 'middleware', 'parser', 'query', 'route', 'sql'],
+    docs: ['policy', 'readme', 'rule', 'scope'],
+    mobile: ['activity', 'android', 'camera', 'exported', 'ios', 'manifest', 'mobile', 'permission', 'provider', 'receiver', 'service'],
+    research_memory: ['artifact', 'cwe', 'evidence', 'finding', 'hypothesis', 'impact', 'observation', 'reproduced', 'verifier', 'weakness'],
+    web: ['api', 'csrf', 'endpoint', 'graphql', 'http', 'request', 'response', 'route', 'ssrf', 'url', 'xss']
+  };
+  const weights: Record<string, number> = {};
+  for (const [namespace, hints] of Object.entries(namespaceHints)) {
+    const score = hints.reduce((sum, hint) => sum + (termWeights.get(hint) ?? 0), 0);
+    if (score > 0) weights[namespace] = Math.min(0.16, score * 0.035);
+  }
+  return weights;
+}
+
+function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, queryVector: Record<string, number>): ProjectSemanticRankScore {
+  const vectorScore = semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector);
+  const titleWeights = semanticWeightedTerms(text(row, 'title'));
+  const contentWeights = semanticWeightedTerms(`${text(row, 'title')}\n${text(row, 'content')}`);
+  const matchedTerms = profile.terms.filter((term) => contentWeights.has(term)).slice(0, 12);
+  const matchedWeight = matchedTerms.reduce((sum, term) => sum + (profile.termWeights.get(term) ?? 0), 0);
+  const lexicalScore = profile.totalWeight > 0 ? Math.min(1, matchedWeight / profile.totalWeight) : 0;
+  const titleMatchedWeight = profile.terms.filter((term) => titleWeights.has(term)).reduce((sum, term) => sum + (profile.termWeights.get(term) ?? 0), 0);
+  const titleScore = profile.totalWeight > 0 ? Math.min(1, titleMatchedWeight / profile.totalWeight) : 0;
+  const namespaceScore = profile.namespaceWeights[text(row, 'namespace')] ?? 0;
+  const entityScore = semanticEntityScore(text(row, 'entity_type'));
+  const score = vectorScore * 0.68 + lexicalScore * 0.2 + titleScore * 0.08 + namespaceScore + entityScore;
+  const rounded: ProjectSemanticRankScore = {
+    score: roundSemanticScore(score),
+    vectorScore: roundSemanticScore(vectorScore),
+    lexicalScore: roundSemanticScore(lexicalScore),
+    titleScore: roundSemanticScore(titleScore),
+    namespaceScore: roundSemanticScore(namespaceScore),
+    entityScore: roundSemanticScore(entityScore),
+    matchedTerms,
+    rankReason: ''
+  };
+  return { ...rounded, rankReason: semanticRankReason(rounded) };
+}
+
+function semanticEntityScore(entityType: string): number {
+  if (entityType === 'structure_entity') return 0.035;
+  if (entityType === 'finding' || entityType === 'evidence' || entityType === 'hypothesis') return 0.03;
+  if (entityType === 'verifier_run' || entityType === 'verifier_contract') return 0.025;
+  if (entityType === 'inventory_item') return 0.015;
+  return 0;
+}
+
+function semanticRankReason(score: ProjectSemanticRankScore): string {
+  const reasons: string[] = [];
+  if (score.vectorScore >= 0.18) reasons.push('strong local vector overlap');
+  else if (score.vectorScore >= 0.06) reasons.push('local vector overlap');
+  if (score.lexicalScore >= 0.5) reasons.push('term overlap');
+  else if (score.lexicalScore > 0) reasons.push('partial term overlap');
+  if (score.titleScore > 0) reasons.push('title overlap');
+  if (score.namespaceScore > 0) reasons.push('namespace fit');
+  if (score.entityScore > 0) reasons.push('indexed entity boost');
+  return reasons.join('; ') || 'local semantic similarity';
+}
+
+function roundSemanticScore(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function parseSemanticVector(value: SqlPrimitive | undefined): Record<string, number> {
@@ -3961,6 +4089,7 @@ export class WorkspaceDatabase {
     const trimmed = query.trim();
     if (!trimmed || !this.getProjectSemanticIndexEnabled(run.scopeVersionId)) return [];
     this.ensureProjectSemanticIndex(run.scopeVersionId);
+    const profile = semanticQueryProfile(trimmed);
     const queryVector = semanticVectorForText(trimmed, 'query');
     return rows(
       this.db
@@ -3972,9 +4101,9 @@ export class WorkspaceDatabase {
         )
         .all(run.scopeVersionId)
     )
-      .map((row) => ({ row, score: semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector) }))
-      .filter((candidate) => candidate.score >= 0.08)
-      .sort((left, right) => right.score - left.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')))
+      .map((row) => ({ row, score: semanticRankScore(row, profile, queryVector) }))
+      .filter((candidate) => candidate.score.score >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
+      .sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')))
       .slice(0, Math.max(1, Math.floor(limit)))
       .map(({ row, score }) => this.mapProjectSemanticSearchResult(row, trimmed, score));
   }
@@ -4930,6 +5059,17 @@ export class WorkspaceDatabase {
 
   private projectSemanticIndexLooksStale(scopeVersionId: string, indexedAt: string | null): boolean {
     if (!indexedAt) return true;
+    const providerMismatch = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM project_semantic_chunks
+           WHERE scope_version_id = ?
+             AND (vector_provider <> ? OR vector_model <> ?)`
+        )
+        .get(scopeVersionId, PROJECT_SEMANTIC_VECTOR_PROVIDER, PROJECT_SEMANTIC_VECTOR_MODEL)
+    );
+    if (providerMismatch && numberValue(providerMismatch, 'count') > 0) return true;
     const row = rowOrUndefined(this.db.prepare('SELECT MAX(updated_at) AS document_updated_at FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
     const documentUpdatedAt = row ? nullableText(row, 'document_updated_at') : null;
     return Boolean(documentUpdatedAt && Date.parse(documentUpdatedAt) > Date.parse(indexedAt));
@@ -5753,7 +5893,7 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapProjectSemanticSearchResult(row: SqlRow, query: string, score: number): ProjectSemanticSearchResult {
+  private mapProjectSemanticSearchResult(row: SqlRow, query: string, score: ProjectSemanticRankScore): ProjectSemanticSearchResult {
     return {
       chunkId: text(row, 'id'),
       scopeVersionId: text(row, 'scope_version_id'),
@@ -5765,8 +5905,27 @@ export class WorkspaceDatabase {
       title: text(row, 'title'),
       sourcePath: nullableText(row, 'source_path'),
       snippet: semanticSearchPreview(text(row, 'content'), query),
-      score: Math.round(score * 1000) / 1000,
-      metadata: parseJson(row.metadata_json),
+      score: score.score,
+      vectorScore: score.vectorScore,
+      lexicalScore: score.lexicalScore,
+      titleScore: score.titleScore,
+      namespaceScore: score.namespaceScore,
+      entityScore: score.entityScore,
+      matchedTerms: score.matchedTerms,
+      rankReason: score.rankReason,
+      metadata: {
+        ...parseJson(row.metadata_json),
+        semanticRanking: {
+          score: score.score,
+          vectorScore: score.vectorScore,
+          lexicalScore: score.lexicalScore,
+          titleScore: score.titleScore,
+          namespaceScore: score.namespaceScore,
+          entityScore: score.entityScore,
+          matchedTerms: score.matchedTerms,
+          reason: score.rankReason
+        }
+      },
       indexedAt: text(row, 'indexed_at')
     };
   }

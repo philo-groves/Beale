@@ -47,6 +47,7 @@
 - Added a per-program opt-in semantic index table backed by a local deterministic `local_hash` sparse-vector provider.
 - Added semantic index summaries with provider, model, namespace, chunk-count, and remote-embedding status fields.
 - Added Settings > General controls to enable, disable, inspect, and rebuild the active program's semantic index.
+- Added identifier-aware semantic tokenization and hybrid semantic ranking provenance for local semantic search matches.
 
 ### Changed
 

@@ -348,6 +348,13 @@ export interface ProjectSemanticSearchResult {
   sourcePath: string | null;
   snippet: string;
   score: number;
+  vectorScore: number;
+  lexicalScore: number;
+  titleScore: number;
+  namespaceScore: number;
+  entityScore: number;
+  matchedTerms: string[];
+  rankReason: string;
   metadata: Record<string, unknown>;
   indexedAt: string;
 }
