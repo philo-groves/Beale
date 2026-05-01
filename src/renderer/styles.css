@@ -685,6 +685,10 @@ code {
   -webkit-app-region: drag;
 }
 
+.top-bar.menu-open {
+  z-index: 30;
+}
+
 .top-bar-darwin {
   grid-template-columns: 76px minmax(0, 1fr) auto;
 }
@@ -735,6 +739,13 @@ code {
   -webkit-app-region: drag;
 }
 
+.window-menu-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
 .window-menu button {
   height: 26px;
   min-height: 26px;
@@ -751,6 +762,46 @@ code {
   border-color: transparent;
   background: #181818;
   color: var(--text);
+}
+
+.window-menu button.is-open {
+  background: #181818;
+  color: var(--text);
+}
+
+.window-menu-dropdown {
+  min-width: 196px;
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 80;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #2c2c2c;
+  border-radius: 7px;
+  background: #111111;
+  padding: 4px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42);
+  -webkit-app-region: no-drag;
+}
+
+.window-menu-dropdown button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  justify-content: stretch;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.window-menu-dropdown kbd {
+  color: #777777;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 760;
+  line-height: 1;
 }
 
 .window-menu .sidebar-toggle-button {
