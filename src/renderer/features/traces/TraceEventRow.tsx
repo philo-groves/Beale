@@ -24,7 +24,7 @@ import {
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
-import { traceCategoryBadgeLabel, traceEventIcon } from './traceVisuals';
+import { traceCategoryBadgeLabel, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
 
 interface TraceEventRowProps {
   detail: RunDetail | null;
@@ -47,6 +47,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const detailForEvent = traceEventNeedsRunDetail(event) ? detail : null;
   const category = useMemo(() => traceCategoryForEvent(event), [event]);
   const outcome = useMemo(() => traceEventOutcome(event), [event]);
+  const markerToneClass = useMemo(() => traceEventMarkerToneClass(event), [event]);
   const toolClassName = useMemo(() => traceToolClassName(event), [event]);
   const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
@@ -63,7 +64,9 @@ export const TraceEventRow = memo(function TraceEventRow({
   return (
     <button
       type="button"
-      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${toolClassName} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
+      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${toolClassName} ${eventKindClass} ${markerToneClass} ${
+        outcome ? `outcome-${outcome}` : ''
+      } ${
         selected ? 'selected' : ''
       } ${
         entering ? 'trace-entering' : ''

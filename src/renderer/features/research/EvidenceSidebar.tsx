@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { JSX } from 'react';
 import { ClipboardCheck } from 'lucide-react';
 import type { ArtifactRecord, EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail, VerifierRunRecord } from '@shared/types';
@@ -7,7 +8,7 @@ import { formatPriorityPill, formatSessionTime, stateClass, traceLabel } from '.
 import { evidenceScrollKey, sortedEvidence } from '../../view-models/researchItems';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
-export function EvidenceSidebar({
+export const EvidenceSidebar = memo(function EvidenceSidebar({
   detail,
   events,
   onSelectTraceEvent
@@ -68,7 +69,7 @@ export function EvidenceSidebar({
       )}
     </div>
   );
-}
+});
 
 function EvidenceSidebarItem({
   artifact,
@@ -105,7 +106,6 @@ function EvidenceSidebarItem({
         <span>{formatEvidenceTimestamp(evidence.createdAt)}</span>
       </div>
       <strong>{title}</strong>
-      <p>{evidence.summary || 'No evidence summary recorded.'}</p>
       <div className="evidence-sidebar-meta" aria-label="Evidence references">
         {finding ? <span>{traceLabel(finding.state)}</span> : null}
         {hypothesis ? <span>{formatPriorityPill(hypothesis.priorityScore)}</span> : null}

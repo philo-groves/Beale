@@ -27,7 +27,7 @@ const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
 
-export function TraceView({
+export const TraceView = memo(function TraceView({
   busy,
   detail,
   events,
@@ -469,7 +469,7 @@ export function TraceView({
       />
     </section>
   );
-}
+});
 
 const MainSteerArea = memo(function MainSteerArea({
   runId,

@@ -7,7 +7,7 @@ import { stringRecordValue, toolNameFromSummary, traceCategoryForEvent, tracePay
 import { compactTracePath, isProseTraceEvent, lineRangePart, pythonTraceScript, traceEventDetailText, traceEventSummary } from '../../view-models/traceContent';
 import { CwePill } from '../research/CwePill';
 import { highlightJsonCode, highlightPythonCode, renderTraceProseText } from './traceMarkup';
-import { traceCategoryIcon, traceCategoryLabel, traceTypeLabel } from './traceVisuals';
+import { traceCategoryLabel, traceEventIcon, traceEventMarkerToneClass, traceTypeLabel } from './traceVisuals';
 
 export function TraceDetailModal({
   detail,
@@ -23,6 +23,7 @@ export function TraceDetailModal({
   onClose: () => void;
 }): JSX.Element {
   const category = traceCategoryForEvent(event);
+  const markerToneClass = traceEventMarkerToneClass(event);
   const payload = JSON.stringify(event.payload, null, 2);
 
   return (
@@ -43,7 +44,7 @@ export function TraceDetailModal({
     >
       <div className="trace-detail">
         <div className="trace-inspector-summary trace-detail-summary">
-          <span className={`trace-filter-icon category-${category}`}>{traceCategoryIcon(category)}</span>
+          <span className={`trace-filter-icon category-${category} ${markerToneClass}`}>{traceEventIcon(event, category)}</span>
           <div>
             <strong>{traceCategoryLabel(category)}</strong>
             <p>{event.summary}</p>

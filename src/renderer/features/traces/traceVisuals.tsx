@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { TraceEventRecord } from '@shared/types';
 import { formatSessionTime, traceLabel } from '../../lib/formatting';
-import { traceEventOutcome } from '../../traceClassification';
+import { traceEventOutcome, tracePayloadPrimitive } from '../../traceClassification';
 import type { TraceCategoryId } from '../../traceClassification';
 
 export interface TraceCategoryOption {
@@ -59,9 +59,14 @@ export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
 
 export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
   const outcome = traceEventOutcome(event);
+  if (isVerifierFailureResult(event)) return <XCircle size={13} />;
   if (outcome === 'success') return <CheckCircle2 size={13} />;
   if (outcome === 'failure') return <XCircle size={13} />;
   return traceCategoryIcon(category);
+}
+
+export function traceEventMarkerToneClass(event: TraceEventRecord): string {
+  return isVerifierFailureResult(event) ? 'marker-verifier-failure' : '';
 }
 
 export function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
@@ -87,4 +92,15 @@ export function formatTraceTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return formatSessionTime(date);
+}
+
+function isVerifierFailureResult(event: TraceEventRecord): boolean {
+  if (event.type !== 'verifier_result' && event.source !== 'verifier') return false;
+  const status = normalizeVerifierStatus(tracePayloadPrimitive(event.payload, 'status'));
+  if (status === 'fail' || status === 'failed' || status === 'failure') return true;
+  return /\bwith fail(?:ed|ure)?\b/i.test(event.summary);
+}
+
+function normalizeVerifierStatus(value: string | null): string | null {
+  return value ? value.toLowerCase().replace(/[\s-]+/g, '_') : null;
 }

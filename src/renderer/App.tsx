@@ -321,6 +321,7 @@ export function App(): JSX.Element {
     [applySnapshot, clearRunDetail, programRegistry, runProgramAction, selectedRunId, setSelectedRunId, snapshot]
   );
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
+  const closeInspector = useCallback(() => setInspectorOpen(false), []);
 
   useEffect(() => {
     if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
@@ -373,11 +374,13 @@ export function App(): JSX.Element {
           <MainSessionWorkspace
             detail={activeRunDetail}
             events={activeTraceEvents}
+            researchPanelCollapsed={inspectorOpen}
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
+            onExpandResearchPanel={closeInspector}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}

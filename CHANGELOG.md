@@ -67,6 +67,8 @@
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
+- Changed the hypotheses/findings column to collapse into a clickable vertical ribbon while the right evidence sidebar is open, then restore automatically when that sidebar closes.
+- Changed evidence sidebar items to omit long summaries and clamp titles to two lines for denser scanning.
 - Changed the steering input to autofocus when a selected research session becomes active.
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
 - Increased the left padding before the footer momentum snake mascot.
@@ -119,12 +121,15 @@
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Reduced active trace-list churn by memoizing stable trace rows and cached syntax/prose markup.
+- Reduced sidebar toggle churn by memoizing the main session workspace, trace view, research lists, and evidence sidebar so unchanged session surfaces do not repaint during sidebar-only state changes.
 - Tightened the context mascot forced-lick endpoint so it no longer overshoots the strawberry at full context.
 - Displayed research prompt generation failures in the New Research Session modal and preserved OpenAI stream error reasons.
 - Reduced trace and side-panel paint scope with CSS containment to make hover feedback less sensitive to active trace updates.
 - Fixed sidebar transition profiling so unrelated later CSS transitions do not pollute collapse/expand timing.
 - Fixed transcript search status counts so they use the full matching transcript total instead of the capped visible result list.
 - Fixed large trace-list manual scrolling so virtualized window slides no longer bounce back to a selected or earlier trace.
+- Fixed failed verifier execution traces so their marker uses the red failure tone while remaining categorized under Verifier.
+- Fixed evidence sidebar card contents so rows stretch left-to-right instead of centering inside the card.
 
 ### Documentation
 

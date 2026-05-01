@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { JSX } from 'react';
 import { Bug, FileOutput } from 'lucide-react';
 import type { FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
@@ -9,26 +10,55 @@ import { sessionHeatForFinding } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { CwePill } from './CwePill';
 
-export function ResearchSidePanel({
+export const ResearchSidePanel = memo(function ResearchSidePanel({
+  collapsed,
   detail,
   events,
   selectedTraceEventId,
+  onExpand,
   onSelectTraceEvent
 }: {
+  collapsed: boolean;
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   selectedTraceEventId: string | null;
+  onExpand: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
+  const hypothesisCount = detail?.hypotheses.length ?? 0;
+  const findingCount = detail?.findings.length ?? 0;
+
   return (
-    <div className="main-session-side">
-      <MainHypothesisList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-      <MainFindingList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+    <div className={`main-session-side ${collapsed ? 'collapsed' : ''}`}>
+      <button
+        type="button"
+        className="main-research-ribbon"
+        aria-label="Show hypotheses and findings"
+        aria-expanded={!collapsed}
+        aria-hidden={!collapsed}
+        tabIndex={collapsed ? 0 : -1}
+        onClick={onExpand}
+      >
+        <span className="main-research-ribbon-item">
+          <Bug size={14} />
+          <span>Hypotheses</span>
+          <strong>{hypothesisCount}</strong>
+        </span>
+        <span className="main-research-ribbon-item">
+          <FileOutput size={14} />
+          <span>Findings</span>
+          <strong>{findingCount}</strong>
+        </span>
+      </button>
+      <div className="main-research-panel-content" aria-hidden={collapsed} inert={collapsed}>
+        <MainHypothesisList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+        <MainFindingList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+      </div>
     </div>
   );
-}
+});
 
-function MainHypothesisList({
+const MainHypothesisList = memo(function MainHypothesisList({
   detail,
   events,
   selectedTraceEventId,
@@ -75,7 +105,7 @@ function MainHypothesisList({
       ) : null}
     </section>
   );
-}
+});
 
 function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: HypothesisRecord; selected: boolean; onSelect?: () => void }): JSX.Element {
   const disabled = !onSelect;
@@ -99,7 +129,7 @@ function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: Hy
   );
 }
 
-function MainFindingList({
+const MainFindingList = memo(function MainFindingList({
   detail,
   events,
   selectedTraceEventId,
@@ -150,7 +180,7 @@ function MainFindingList({
       ) : null}
     </section>
   );
-}
+});
 
 function MainFindingItem({
   finding,
