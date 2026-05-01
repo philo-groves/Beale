@@ -36,9 +36,8 @@ describe('renderer trace content view models', () => {
       'Prepare Verifier'
     );
     expect(traceEventSummary(traceEvent({ type: 'artifact_created', summary: 'Evidence recorded: Verifier confirmed the auth bypass.' }), 'evidence')).toBe('Evidence Recorded');
-    expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed with pass; finding promotion remains gated.' }), 'verifier')).toBe(
-      'Execute verifier contract: pass'
-    );
+    expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed with pass; finding promotion remains gated.' }), 'verifier')).toBe('Verifier Execution');
+    expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed on host with pass.' }), 'verifier')).toBe('Verifier Execution');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
     expect(
       traceEventSummary(

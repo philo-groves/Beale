@@ -508,11 +508,11 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   match = summary.match(/^VM network profile enforced: ([^.]+)\.$/);
   if (match) return `Enforce network profile: ${match[1]}`;
   match = summary.match(/^Verifier contract executed in disposable VM with ([^.]+)\.$/);
-  if (match) return `Execute verifier contract: ${match[1]}`;
+  if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier contract executed on host with ([^.]+)\.$/);
-  if (match) return `Execute host verifier contract: ${match[1]}`;
+  if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier contract executed with ([^.;]+);/);
-  if (match) return `Execute verifier contract: ${match[1]}`;
+  if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier recorded ([^.;]+) result;/);
   if (match) return `Record verifier result: ${match[1]}`;
   match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
