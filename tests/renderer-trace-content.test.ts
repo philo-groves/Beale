@@ -17,6 +17,7 @@ describe('renderer trace content view models', () => {
   it('normalizes trace summaries into skimmable verb-led labels', () => {
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI response completed.' }), 'agent_output')).toBe('Response Completed');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI Responses request sent for turn 12.' }), 'agent_output')).toBe('Request for Turn 12');
+    expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI streamed model output delta.' }), 'agent_output')).toBe('Model Output');
     expect(
       traceEventSummary(
         traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for python.', payload: { toolName: 'python' } }),

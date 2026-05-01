@@ -2582,6 +2582,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--amber);
 }
 
+.main-trace-event.category-non_standard .main-trace-marker span,
+.trace-filter-icon.category-non_standard {
+  border-color: #777777;
+  color: #777777;
+}
+
 .main-trace-event.category-code_navigation .main-trace-marker span,
 .trace-filter-icon.category-code_navigation {
   border-color: var(--teal);

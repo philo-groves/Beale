@@ -11,6 +11,7 @@ export type TraceCategoryId =
   | 'policy_scope'
   | 'code_navigation'
   | 'failure_recovery'
+  | 'non_standard'
   | 'events';
 
 export type TraceEventOutcome = 'success' | 'failure' | null;
@@ -22,6 +23,8 @@ const FAILURE_SUMMARY_PATTERN = /\b(failed|failure|timeout|timed out|blocked|err
 const RECOVERY_SUMMARY_PATTERN = /\b(retry|retried|recover|recovered|recovery|fallback)\b/i;
 
 export function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
+  if (isNonStandardLifecycleEvent(event)) return 'non_standard';
+
   const transcriptRole = tracePayloadPrimitive(event.payload, 'transcriptRole');
   const transcriptSource = tracePayloadPrimitive(event.payload, 'transcriptSource');
   if (transcriptSource === 'openai_reasoning_summary') return 'reasoning';
@@ -117,6 +120,15 @@ function isVmExecutionEvent(event: TraceEventRecord): boolean {
 
 function isToolEvent(event: TraceEventRecord): boolean {
   return event.source === 'tool' || event.type === 'tool_call' || event.type === 'tool_result';
+}
+
+function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
+  return (
+    event.summary === 'OpenAI response created.' ||
+    event.summary === 'OpenAI response completed.' ||
+    event.summary === 'OpenAI streamed model output delta.' ||
+    /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
+  );
 }
 
 function isCodeNavigationEvent(event: TraceEventRecord, toolName: string | null): boolean {

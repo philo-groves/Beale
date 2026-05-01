@@ -21,7 +21,7 @@ import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import type { SettingsSection } from './features/settings/SettingsModal';
-import { ALL_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
+import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useProgramActions, type ProgramActionOptions } from './hooks/useProgramActions';
 import { useProgramOverlayState } from './hooks/useProgramOverlayState';
@@ -78,7 +78,7 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
-  const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(ALL_TRACE_CATEGORY_IDS);
+  const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {

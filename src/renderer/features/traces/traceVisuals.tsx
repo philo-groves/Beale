@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  SlidersHorizontal,
   Square,
   Terminal,
   XCircle
@@ -35,10 +36,12 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
   { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
   { id: 'failure_recovery', label: 'Error', description: 'Errors, retries, cleanup issues, recovery notes, and blocked operations.' },
+  { id: 'non_standard', label: 'Non-standard', description: 'Verbose model lifecycle events hidden from the default trace view.' },
   { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
 ];
 
 export const ALL_TRACE_CATEGORY_IDS = TRACE_CATEGORY_OPTIONS.map((option) => option.id);
+export const DEFAULT_TRACE_CATEGORY_IDS = ALL_TRACE_CATEGORY_IDS.filter((id) => id !== 'non_standard');
 
 export function traceCategoryOption(category: TraceCategoryId): TraceCategoryOption {
   return TRACE_CATEGORY_OPTIONS.find((option) => option.id === category) ?? TRACE_CATEGORY_OPTIONS[TRACE_CATEGORY_OPTIONS.length - 1];
@@ -66,6 +69,7 @@ export function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
   if (category === 'policy_scope') return <ShieldAlert size={13} />;
   if (category === 'code_navigation') return <Search size={13} />;
   if (category === 'failure_recovery') return <XCircle size={13} />;
+  if (category === 'non_standard') return <SlidersHorizontal size={13} />;
   return <Square size={13} />;
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
-import type { TraceCategoryId } from '../src/renderer/traceClassification';
+import { traceCategoryForEvent, type TraceCategoryId } from '../src/renderer/traceClassification';
 import { buildTraceDisplayEvents, buildTraceTimelineEntries, groupRenderedTraceEntries, traceGroupStatusLabel, type TraceTimelineGroup } from '../src/renderer/view-models/traceDisplay';
 
 const ALL_CATEGORIES: TraceCategoryId[] = [
@@ -14,6 +14,7 @@ const ALL_CATEGORIES: TraceCategoryId[] = [
   'policy_scope',
   'code_navigation',
   'failure_recovery',
+  'non_standard',
   'events'
 ];
 
@@ -47,10 +48,17 @@ describe('renderer trace display view models', () => {
       label: 'Turn 1',
       visibleCount: 3,
       toolCount: 1,
-      modelCount: 1,
+      modelCount: 0,
       failureCount: 1,
       updatedAt: '2026-04-30T10:03:00.000Z'
     });
+  });
+
+  it('categorizes verbose model lifecycle traces as non-standard', () => {
+    expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI Responses request sent for turn 12.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI response created.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI response completed.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI streamed model output delta.' }))).toBe('non_standard');
   });
 
   it('filters hidden categories while preserving group counters for visible events only', () => {

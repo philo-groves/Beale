@@ -274,7 +274,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'finding') return 'Prepare Finding';
   }
 
-  if (summary === 'OpenAI streamed model output delta.') return 'Stream model output';
+  if (summary === 'OpenAI streamed model output delta.') return 'Model Output';
   if (summary === 'OpenAI response completed.') return 'Response Completed';
   if (summary === 'OpenAI response created.') return 'Turn Started';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
