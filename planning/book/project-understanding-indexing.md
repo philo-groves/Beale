@@ -79,10 +79,11 @@ The third implementation starts Layer 3:
 
 - Semantic indexing is per-program opt-in and disabled by default.
 - The beta implementation stores bounded chunks in `project_semantic_chunks`, using project search documents as parent records and adding direct source/entity chunks with stable file and line-range provenance for code-heavy targets.
-- The initial provider is local and deterministic (`local_hash` / `local-hash-v2`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
+- The initial provider is local and deterministic (`local_hash` / `local-hash-v3`), using metadata-aware sparse token vectors with lightweight security/code synonyms, path/proximity boosts, and source provenance boosts. No indexed material leaves the machine.
 - Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
 - `search` augments direct file, artifact, metadata, and structural matches with hybrid-ranked semantic chunk matches only when semantic indexing is enabled for the active program.
 - Semantic matches include ranking provenance: vector overlap, lexical overlap, title overlap, namespace fit, entity boost, matched terms, and a compact rank reason.
+- Retrieval now diversifies semantic results by source document and path so one file or document cannot crowd out the whole result set. This remains a beta-quality sparse retriever, not deep embedding search.
 - Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed source counts, approximate index size, last rebuild duration, indexed time, and `remoteEmbeddingEnabled: false`.
 - Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
 - Semantic status reports `stale` when indexed chunks no longer match source documents or the local provider/model version changes.
@@ -94,6 +95,7 @@ The third implementation starts Layer 3:
 - The semantic executor now prefers a bundled worker-thread entry when available. The worker opens its own SQLite connection, runs the batch loop outside the main process response path, sends progress/timing messages back to the host, and falls back to the cooperative in-process runner in tests or unsupported dev builds.
 - Worker lifecycle hardening tracks queued timers and active workers separately. Cancel, workspace disposal, and app shutdown now mark jobs canceled and terminate active workers instead of relying only on cooperative worker checks.
 - Semantic rebuilds now enqueue automatically when enabled programs receive meaningful search-document changes, scope/source materialization creates a new active scope, stale provider/model versions are detected on workspace open, or interrupted queued/indexing work is resumed.
+- Stronger retrieval should prefer local embedding providers first. Remote embeddings remain future work and must require explicit user opt-in before indexed code, docs, traces, hypotheses, findings, or evidence leave the machine.
 
 ## Index Layers
 

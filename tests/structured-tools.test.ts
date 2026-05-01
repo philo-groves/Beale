@@ -223,6 +223,13 @@ describe('structured research tools', () => {
     expect(semanticToolMatch?.matchedBy).toBe('project_semantic_hybrid_local_hash');
     expect(semanticToolMatch?.rankReason).toBeTruthy();
     expect(semanticToolMatch?.matchedTerms).toEqual(expect.arrayContaining(['native', 'jni', 'symbol']));
+    const sourceSemanticSearch = callTool(router, context, 'search', { query: 'listUsers database filter response json', target: '' });
+    const sourceSemanticToolMatch = (sourceSemanticSearch.payload.matches as Array<Record<string, unknown>>).find(
+      (match) => match.kind === 'semantic' && match.sourcePath === routeFile && match.semanticSourceKind === 'entity_range'
+    );
+    expect(sourceSemanticToolMatch).toBeTruthy();
+    expect(Number(sourceSemanticToolMatch?.line)).toBeLessThanOrEqual(6);
+    expect(sourceSemanticToolMatch?.range).toBeTruthy();
 
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {

@@ -1814,6 +1814,11 @@ export class BealeToolRouter {
   }
 
   private projectSemanticSearchResultToToolMatch(result: ProjectSemanticSearchResult): Record<string, unknown> {
+    const lineStart = numberValue(result.metadata.lineStart, 0);
+    const lineEnd = numberValue(result.metadata.lineEnd, lineStart);
+    const semanticSourceKind = stringValue(result.metadata.semanticSourceKind, '');
+    const entityKind = stringValue(result.metadata.entityKind, '');
+    const entityName = stringValue(result.metadata.entityName, stringValue(result.metadata.name, ''));
     return {
       kind: 'semantic',
       entityType: result.entityType,
@@ -1825,6 +1830,11 @@ export class BealeToolRouter {
       title: result.title,
       sourcePath: result.sourcePath,
       path: result.sourcePath ?? undefined,
+      line: lineStart > 0 ? lineStart : undefined,
+      range: lineStart > 0 ? `${lineStart}${lineEnd > lineStart ? `-${lineEnd}` : ''}` : undefined,
+      semanticSourceKind: semanticSourceKind || undefined,
+      entityKind: entityKind || undefined,
+      structureName: entityName || undefined,
       matchedBy: 'project_semantic_hybrid_local_hash',
       semanticScore: result.score,
       vectorScore: result.vectorScore,
