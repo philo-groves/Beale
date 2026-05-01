@@ -76,6 +76,8 @@ export function AppModals({
   onProgramTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
+  onRefreshProjectSemanticIndex,
+  onSetProjectSemanticIndexEnabled,
   onSetProfilingEnabled,
   onSetVmPreference,
   onStartOpenAiOAuth,
@@ -131,6 +133,8 @@ export function AppModals({
   onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
+  onRefreshProjectSemanticIndex: () => Promise<void>;
+  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -167,6 +171,8 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           executor={snapshot?.executor ?? null}
+          projectSemantic={snapshot?.projectSemantic ?? null}
+          programName={snapshot?.activeScope.programName ?? null}
           vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
@@ -175,6 +181,8 @@ export function AppModals({
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetVmPreference={onSetVmPreference}
+          onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
+          onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
           onSetProfilingEnabled={onSetProfilingEnabled}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}

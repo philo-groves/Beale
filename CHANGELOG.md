@@ -46,6 +46,7 @@
 - Added post-scan structural relation target resolution and structure summary status fields for indexed files, unresolved relations, and truncated entities.
 - Added a per-program opt-in semantic index table backed by a local deterministic `local_hash` sparse-vector provider.
 - Added semantic index summaries with provider, model, namespace, chunk-count, and remote-embedding status fields.
+- Added Settings > General controls to enable, disable, inspect, and rebuild the active program's semantic index.
 
 ### Changed
 

@@ -4324,6 +4324,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 10px;
 }
 
+.semantic-index-card {
+  gap: 10px;
+}
+
 .settings-switch {
   display: inline-flex;
   align-items: center;
@@ -4473,6 +4477,47 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .vm-provider-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.semantic-provider-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.semantic-namespace-list {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.semantic-namespace-list div {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 0.72rem;
+}
+
+.semantic-namespace-list strong {
+  color: var(--muted-strong);
+}
+
+.semantic-index-actions button {
+  min-height: 26px;
+  border-color: var(--panel-border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.semantic-index-actions button:disabled {
+  border-color: transparent;
+  color: var(--muted);
+  opacity: 0.58;
 }
 
 .vm-backend-list {
@@ -4882,6 +4927,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .readiness-development_fallback .status-icon,
 .readiness-development-fallback .status-icon,
+.readiness-disabled .status-icon,
+.readiness-empty .status-icon,
 .readiness-oauth_command_failed .status-icon,
 .readiness-oauth-command-failed .status-icon,
 .readiness-not_configured .status-icon,
@@ -5137,7 +5184,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .status-oauth_ready,
 .status-oauth-ready,
 .status-enabled,
-.status-available {
+.status-available,
+.status-ready {
   background: var(--green-soft);
   color: var(--green);
 }
@@ -5148,6 +5196,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .status-configured,
+.status-empty,
+.status-disabled,
 .status-unavailable,
 .status-development_fallback,
 .status-development-fallback,

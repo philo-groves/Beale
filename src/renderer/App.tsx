@@ -188,6 +188,17 @@ export function App(): JSX.Element {
     [loadSnapshot, runProgramAction]
   );
 
+  const setProjectSemanticIndexEnabled = useCallback(
+    async (enabled: boolean) => {
+      await runAction(() => window.beale.setProjectSemanticIndexEnabled(enabled));
+    },
+    [runAction]
+  );
+
+  const refreshProjectSemanticIndex = useCallback(async () => {
+    await runAction(() => window.beale.refreshProjectSemanticIndex());
+  }, [runAction]);
+
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -461,6 +472,8 @@ export function App(): JSX.Element {
         onProgramTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
+        onRefreshProjectSemanticIndex={refreshProjectSemanticIndex}
+        onSetProjectSemanticIndexEnabled={setProjectSemanticIndexEnabled}
         onSetProfilingEnabled={setProfilingEnabled}
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}

@@ -86,6 +86,12 @@ const api: BealeApi = {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState> {
     return ipcRenderer.invoke(IPC_CHANNELS.recordProfilingReport, report);
   },
+  setProjectSemanticIndexEnabled(enabled: boolean) {
+    return ipcRenderer.invoke(IPC_CHANNELS.setProjectSemanticIndexEnabled, enabled);
+  },
+  refreshProjectSemanticIndex() {
+    return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectSemanticIndex);
+  },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);
   },

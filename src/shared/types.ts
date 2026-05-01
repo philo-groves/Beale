@@ -1010,6 +1010,7 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: ProgramScopeVersion;
+  projectSemantic: ProjectSemanticSummary;
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
@@ -1084,6 +1085,8 @@ export interface BealeApi {
   getProfilingState(): Promise<ProfilingState>;
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
+  setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
+  refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

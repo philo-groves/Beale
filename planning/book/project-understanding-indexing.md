@@ -58,6 +58,7 @@ The third implementation starts Layer 3:
 - The initial provider is local and deterministic (`local_hash` / `local-hash-v1`), using normalized sparse token vectors with lightweight security/code synonyms. No indexed material leaves the machine.
 - `search` augments direct file, artifact, metadata, and structural matches with semantic chunk matches only when semantic indexing is enabled for the active program.
 - Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed time, and `remoteEmbeddingEnabled: false`.
+- Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
 
 ## Index Layers

@@ -304,6 +304,24 @@ export class WorkspaceService {
     return this.profiling.recordMainTiming(name, durationMs, detail);
   }
 
+  public setProjectSemanticIndexEnabled(enabled: boolean): WorkspaceSnapshot {
+    const db = this.requireDb();
+    db.setProjectSemanticIndexEnabled(enabled, db.getActiveScope().id);
+    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
+    return this.requireSnapshot();
+  }
+
+  public refreshProjectSemanticIndex(): WorkspaceSnapshot {
+    const db = this.requireDb();
+    const activeScope = db.getActiveScope();
+    if (!db.getProjectSemanticIndexEnabled(activeScope.id)) {
+      throw new Error('Semantic indexing is disabled for the active program.');
+    }
+    db.refreshProjectSemanticIndex(activeScope.id);
+    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
+    return this.requireSnapshot();
+  }
+
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {
     return this.getProgramRegistry().inspectDirectory(path);
   }
@@ -1556,6 +1574,7 @@ export class WorkspaceService {
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => runtime.executorManager.getStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
+      projectSemantic: this.profileMainTiming('snapshot.projectSemantic', detail, () => runtime.db.getProjectSemanticSummary(activeScope.id)),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),

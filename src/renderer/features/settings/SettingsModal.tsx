@@ -1,17 +1,18 @@
 import type { JSX } from 'react';
-import { Activity, KeyRound, RefreshCw, Server, Terminal } from 'lucide-react';
+import { Activity, DatabaseZap, KeyRound, RefreshCw, Server, Terminal } from 'lucide-react';
 import type {
   ExecutorBackendStatus,
   ExecutorStatus,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ProfilingState,
+  ProjectSemanticSummary,
   VmPreference,
   VmPreferenceInput
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
-import { stateClass } from '../../lib/formatting';
+import { formatSessionDateTime, stateClass } from '../../lib/formatting';
 import { findBackendByKind } from '../../view-models/environmentDisplay';
 
 export type SettingsSection = 'general' | 'providers';
@@ -19,6 +20,8 @@ export type SettingsSection = 'general' | 'providers';
 export function SettingsModal({
   section,
   executor,
+  projectSemantic,
+  programName,
   vmPreference,
   openAiStatus,
   openAiOAuthResult,
@@ -27,12 +30,16 @@ export function SettingsModal({
   onChangeSection,
   onClose,
   onSetVmPreference,
+  onRefreshProjectSemanticIndex,
+  onSetProjectSemanticIndexEnabled,
   onSetProfilingEnabled,
   onRefreshOpenAi,
   onStartOpenAiOAuth
 }: {
   section: SettingsSection;
   executor: ExecutorStatus | null;
+  projectSemantic: ProjectSemanticSummary | null;
+  programName: string | null;
   vmPreference: VmPreference;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -41,6 +48,8 @@ export function SettingsModal({
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
+  onRefreshProjectSemanticIndex: () => Promise<void>;
+  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -69,8 +78,12 @@ export function SettingsModal({
             <GeneralSettingsView
               busy={busy}
               executor={executor}
+              projectSemantic={projectSemantic}
+              programName={programName}
               profilingState={profilingState}
               vmPreference={vmPreference}
+              onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
+              onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
               onSetProfilingEnabled={onSetProfilingEnabled}
               onSetVmPreference={onSetVmPreference}
             />
@@ -85,16 +98,24 @@ export function SettingsModal({
 
 function GeneralSettingsView({
   executor,
+  projectSemantic,
+  programName,
   vmPreference,
   profilingState,
   busy,
+  onRefreshProjectSemanticIndex,
+  onSetProjectSemanticIndexEnabled,
   onSetProfilingEnabled,
   onSetVmPreference
 }: {
   executor: ExecutorStatus | null;
+  projectSemantic: ProjectSemanticSummary | null;
+  programName: string | null;
   vmPreference: VmPreference;
   profilingState: ProfilingState | null;
   busy: boolean;
+  onRefreshProjectSemanticIndex: () => Promise<void>;
+  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
 }): JSX.Element {
@@ -171,6 +192,57 @@ function GeneralSettingsView({
           </div>
         </div>
       </section>
+      <section className={`provider-card semantic-index-card readiness-${stateClass(projectSemantic?.status ?? 'disabled')}`}>
+        <div className="provider-heading">
+          <div className="status-icon">
+            <DatabaseZap size={18} />
+          </div>
+          <div>
+            <h4>Project Understanding</h4>
+            <p>{semanticHeading(projectSemantic, programName)}</p>
+          </div>
+          <StatusPill status={projectSemantic?.status ?? 'disabled'} />
+        </div>
+
+        <div className="provider-grid semantic-provider-grid">
+          <div>
+            <span>Chunks</span>
+            <strong>{projectSemantic ? projectSemantic.chunkCount.toLocaleString() : '0'}</strong>
+          </div>
+          <div>
+            <span>Namespaces</span>
+            <strong>{namespaceCountLabel(projectSemantic)}</strong>
+          </div>
+          <div>
+            <span>Provider</span>
+            <strong>{projectSemantic?.provider ?? 'local_hash'}</strong>
+          </div>
+          <div>
+            <span>Remote</span>
+            <strong>{projectSemantic?.remoteEmbeddingEnabled ? 'enabled' : 'off'}</strong>
+          </div>
+        </div>
+
+        <p className="provider-detail">{semanticDetail(projectSemantic)}</p>
+
+        <div className="semantic-namespace-list" aria-label="Semantic index namespaces">
+          {semanticNamespaceRows(projectSemantic).map(([namespace, count]) => (
+            <div key={namespace}>
+              <span>{namespaceLabel(namespace)}</span>
+              <strong>{count.toLocaleString()}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="provider-actions semantic-index-actions">
+          <button type="button" disabled={busy || !projectSemantic} onClick={() => void onSetProjectSemanticIndexEnabled(!(projectSemantic?.enabled ?? false))}>
+            {projectSemantic?.enabled ? 'Disable' : 'Enable'}
+          </button>
+          <button type="button" disabled={busy || !projectSemantic?.enabled} onClick={() => void onRefreshProjectSemanticIndex()}>
+            Rebuild
+          </button>
+        </div>
+      </section>
       <section className="provider-card profiling-settings-card">
         <div className="provider-heading">
           <div className="status-icon">
@@ -196,6 +268,39 @@ function GeneralSettingsView({
       </section>
     </div>
   );
+}
+
+function semanticHeading(summary: ProjectSemanticSummary | null, programName: string | null): string {
+  const name = programName?.trim() || 'the active program';
+  if (!summary) return 'Open a program to manage project understanding indexes.';
+  if (!summary.enabled) return `Semantic search is off for ${name}.`;
+  if (summary.chunkCount === 0) return `Semantic search is on for ${name}, but no chunks are indexed yet.`;
+  return `Semantic search is on for ${name}.`;
+}
+
+function semanticDetail(summary: ProjectSemanticSummary | null): string {
+  if (!summary) return 'Semantic indexing is scoped to a single program and stored locally under .beale/.';
+  const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';
+  const model = `${summary.provider} / ${summary.model}`;
+  const remote = summary.remoteEmbeddingEnabled ? 'Remote embeddings are enabled.' : 'Remote embeddings are off; indexed material stays local.';
+  return `Last indexed ${indexed}. ${summary.embeddedChunkCount.toLocaleString()} embedded chunk${summary.embeddedChunkCount === 1 ? '' : 's'} using ${model}. ${remote}`;
+}
+
+function namespaceCountLabel(summary: ProjectSemanticSummary | null): string {
+  if (!summary) return '0';
+  return Object.values(summary.namespaceCounts).filter((count) => count > 0).length.toLocaleString();
+}
+
+function semanticNamespaceRows(summary: ProjectSemanticSummary | null): Array<[string, number]> {
+  const rows = Object.entries(summary?.namespaceCounts ?? {}).filter(([, count]) => count > 0);
+  return rows.length ? rows.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])) : [['none', 0]];
+}
+
+function namespaceLabel(namespace: string): string {
+  return namespace
+    .split('_')
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+    .join(' ');
 }
 
 function ProvidersSettingsView({

@@ -37,7 +37,13 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
     expect(snapshot.openAi.readiness).toBe('not_configured');
     expect(snapshot.openAi.onboardingSteps.some((step) => step.id === 'secret_isolation')).toBe(true);
+    expect(snapshot.projectSemantic).toMatchObject({ enabled: false, status: 'disabled', remoteEmbeddingEnabled: false });
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
+    const enabledSemantic = service.setProjectSemanticIndexEnabled(true);
+    expect(enabledSemantic.projectSemantic.enabled).toBe(true);
+    expect(['empty', 'ready']).toContain(enabledSemantic.projectSemantic.status);
+    expect(service.refreshProjectSemanticIndex().projectSemantic.enabled).toBe(true);
+    expect(service.setProjectSemanticIndexEnabled(false).projectSemantic.status).toBe('disabled');
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
 
