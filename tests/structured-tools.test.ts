@@ -118,10 +118,16 @@ describe('structured research tools', () => {
     expect(structure.definitionCount).toBeGreaterThanOrEqual(1);
     expect(structure.routeCount).toBeGreaterThanOrEqual(1);
     expect(structure.importCount).toBeGreaterThanOrEqual(1);
+    expect(structure.relationCount).toBeGreaterThanOrEqual(4);
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
+    expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
+    const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
+    expect(sinkSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'sink')).toBe(true);
+    const exportSearch = db.searchProjectDocumentsForRun(context.run.id, 'exports listUsers');
+    expect(exportSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'export')).toBe(true);
     const functionStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'check_access');
     expect(functionStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'function')).toBe(true);
 
@@ -989,7 +995,10 @@ function openStructuredToolDb(
   const binaryFile = join(targetDir, 'bin', 'target.bin');
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
-  writeFileSync(routeFile, "import express from 'express';\nconst router = express.Router();\nrouter.get('/api/users', requireUser, listUsers);\nfunction listUsers(req, res) {\n  res.json([]);\n}\n");
+  writeFileSync(
+    routeFile,
+    "import express from 'express';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', requireUser, listUsers);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports.listUsers = listUsers;\n"
+  );
   writeFileSync(binaryFile, Buffer.from([0, 1, 2, ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'), 0, 3]));
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ dependencies: { bealetestdependency: '1.0.0' } }, null, 2));
 

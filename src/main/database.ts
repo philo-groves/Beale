@@ -913,8 +913,12 @@ function extractProjectStructureCandidates(path: string, language: string, text:
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
     extractImportCandidate(line, language, lineStart, add);
+    extractExportCandidate(line, language, lineStart, add);
     extractRouteCandidate(line, language, lineStart, add);
     extractDefinitionCandidate(line, language, lineStart, add);
+    extractSecurityMarkerCandidate(line, language, lineStart, add);
+    extractSinkCandidate(line, language, lineStart, add);
+    extractCallSiteCandidate(line, language, lineStart, add);
   }
 
   return finalizeProjectStructureCandidates(candidates, lines.length, path);
@@ -978,19 +982,70 @@ function extractImportCandidate(line: string, language: string, lineStart: numbe
   }
 }
 
+function extractExportCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  if (language === 'javascript' || language === 'typescript') {
+    const namedExport = /^\s*export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    const exportList = /^\s*export\s*\{([^}]+)}/.exec(line);
+    const commonJsExport = /^\s*(?:module\.)?exports(?:\.([A-Za-z_$][\w$]*))?\s*=/.exec(line);
+    if (namedExport?.[1]) {
+      add({
+        entityKind: 'export',
+        name: namedExport[1],
+        signature: line,
+        lineStart,
+        lineEnd: lineStart,
+        metadata: { exportedName: namedExport[1], exportStyle: 'named_declaration' },
+        relations: [{ relationKind: 'exports', targetKind: 'symbol', targetName: namedExport[1] }]
+      });
+      return;
+    }
+    if (exportList?.[1]) {
+      for (const name of exportList[1].split(',').map((item) => item.trim().split(/\s+as\s+/i)[0]?.trim()).filter(Boolean)) {
+        add({
+          entityKind: 'export',
+          name,
+          signature: line,
+          lineStart,
+          lineEnd: lineStart,
+          metadata: { exportedName: name, exportStyle: 'export_list' },
+          relations: [{ relationKind: 'exports', targetKind: 'symbol', targetName: name }]
+        });
+      }
+      return;
+    }
+    if (commonJsExport) {
+      const exportedName = commonJsExport[1] ?? 'module.exports';
+      add({
+        entityKind: 'export',
+        name: exportedName,
+        signature: line,
+        lineStart,
+        lineEnd: lineStart,
+        metadata: { exportedName, exportStyle: 'commonjs' },
+        relations: [{ relationKind: 'exports', targetKind: 'symbol', targetName: exportedName }]
+      });
+    }
+  }
+}
+
 function extractRouteCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
   const jsRoute = /\b(?:app|router|server)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
   if ((language === 'javascript' || language === 'typescript') && jsRoute) {
     const method = jsRoute[1].toUpperCase();
     const routePath = jsRoute[2];
+    const participants = routeParticipantsFromCall(line);
     add({
       entityKind: 'route',
       name: `${method} ${routePath}`,
       signature: line,
       lineStart,
       lineEnd: lineStart,
-      metadata: { method, routePath, routeStyle: 'express' },
-      relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` }]
+      metadata: { method, routePath, routeStyle: 'express', middleware: participants.middleware, handlers: participants.handlers, relationKinds: ['routes_to', 'uses_middleware', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` },
+        ...participants.middleware.map((name) => ({ relationKind: 'uses_middleware', targetKind: 'function', targetName: name })),
+        ...participants.handlers.map((name) => ({ relationKind: 'handles_with', targetKind: 'function', targetName: name }))
+      ]
     });
     return;
   }
@@ -1005,7 +1060,7 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
       signature: line,
       lineStart,
       lineEnd: lineStart,
-      metadata: { method, routePath, routeStyle: 'python_decorator' },
+      metadata: { method, routePath, routeStyle: 'python_decorator', relationKinds: ['routes_to'] },
       relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` }]
     });
     return;
@@ -1022,10 +1077,24 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
       signature: line,
       lineStart,
       lineEnd: lineStart,
-      metadata: { method, routePath, routeStyle: 'jvm_annotation', annotation },
+      metadata: { method, routePath, routeStyle: 'jvm_annotation', annotation, relationKinds: ['routes_to'] },
       relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}`.trim() }]
     });
   }
+}
+
+function routeParticipantsFromCall(line: string): { middleware: string[]; handlers: string[] } {
+  const args = /\((.*)\)/.exec(line)?.[1] ?? '';
+  const parts = args.split(',').map((part) => part.trim()).filter(Boolean);
+  const symbolArgs = parts
+    .slice(1)
+    .map((part) => /^([A-Za-z_$][\w$]*)$/.exec(part)?.[1] ?? '')
+    .filter(Boolean);
+  if (symbolArgs.length === 0) return { middleware: [], handlers: [] };
+  return {
+    middleware: symbolArgs.slice(0, -1),
+    handlers: symbolArgs.slice(-1)
+  };
 }
 
 function extractDefinitionCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
@@ -1100,6 +1169,88 @@ function extractDefinitionCandidate(line: string, language: string, lineStart: n
   if (language === 'php' && phpDefinition?.[1]) {
     add({ entityKind: line.includes('function') ? 'function' : 'class', name: phpDefinition[1], signature: line, lineStart, metadata: { definitionStyle: 'php' } });
   }
+}
+
+function extractSecurityMarkerCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const marker = /\b(requireAuth|requireUser|authorize|authorized|authorization|authenticate|authenticated|permission|hasRole|check_access|accessControl|csrf|validateToken)\b/i.exec(line);
+  if (!marker) return;
+  const name = marker[1];
+  add({
+    entityKind: 'security_marker',
+    name,
+    signature: line,
+    lineStart,
+    lineEnd: lineStart,
+    metadata: { markerKind: 'permission_or_auth_check', language, relationKind: 'checks_permission' },
+    relations: [{ relationKind: 'checks_permission', targetKind: 'security_control', targetName: name }]
+  });
+}
+
+function extractSinkCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const sink = /\b(eval|exec|spawn|system|popen|innerHTML|dangerouslySetInnerHTML|deserialize|unserialize|pickle\.loads|yaml\.load|query|rawQuery|sendFile|redirect|setHeader)\b/.exec(line);
+  if (!sink) return;
+  const name = sink[1];
+  add({
+    entityKind: 'sink',
+    name,
+    signature: line,
+    lineStart,
+    lineEnd: lineStart,
+    metadata: { sinkKind: classifyProjectSink(name), language, relationKind: 'reaches_sink' },
+    relations: [{ relationKind: 'reaches_sink', targetKind: 'sink', targetName: name }]
+  });
+}
+
+function extractCallSiteCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  if (!projectLanguageSupportsCallSites(language)) return;
+  if (definitionLineLooksLikeDeclaration(line, language)) return;
+  const callees = new Set<string>();
+  for (const match of line.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const name = match[1];
+    if (isControlKeyword(name) || isCommonStructuralNoise(name)) continue;
+    callees.add(name);
+    if (callees.size >= 6) break;
+  }
+  for (const name of callees) {
+    add({
+      entityKind: 'call_site',
+      name,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { callee: name, language, relationKind: 'calls' },
+      relations: [{ relationKind: 'calls', targetKind: 'function', targetName: name }]
+    });
+  }
+}
+
+function classifyProjectSink(name: string): string {
+  const normalized = name.toLowerCase();
+  if (['eval', 'exec', 'spawn', 'system', 'popen'].includes(normalized)) return 'command_or_code_execution';
+  if (['innerhtml', 'dangerouslysetinnerhtml'].includes(normalized)) return 'html_dom_injection';
+  if (['deserialize', 'unserialize', 'pickle.loads', 'yaml.load'].includes(normalized)) return 'deserialization';
+  if (['query', 'rawquery'].includes(normalized)) return 'database_query';
+  if (['sendfile', 'redirect', 'setheader'].includes(normalized)) return 'http_response';
+  return 'sensitive_sink';
+}
+
+function projectLanguageSupportsCallSites(language: string): boolean {
+  return ['javascript', 'typescript', 'python', 'java', 'kotlin', 'csharp', 'go', 'rust', 'c', 'cpp', 'ruby', 'php'].includes(language);
+}
+
+function definitionLineLooksLikeDeclaration(line: string, language: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.startsWith('function ') || trimmed.startsWith('def ') || trimmed.startsWith('async def ') || trimmed.startsWith('func ')) return true;
+  if (/^(?:export\s+)?(?:async\s+)?function\s+/.test(trimmed)) return true;
+  if (/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/.test(trimmed)) return true;
+  if (language === 'java' || language === 'csharp' || language === 'kotlin') {
+    return /\)\s*(?:\{|throws\b)/.test(trimmed) && /^(?:public|private|protected|static|final|abstract|override|suspend|internal|\s)+/.test(trimmed);
+  }
+  return false;
+}
+
+function isCommonStructuralNoise(value: string): boolean {
+  return ['require', 'include', 'println', 'print', 'console', 'log', 'json', 'stringify', 'parse', 'map', 'filter', 'reduce', 'forEach', 'then', 'catch'].includes(value);
 }
 
 function finalizeProjectStructureCandidates(candidates: ProjectStructureCandidate[], lineCount: number, path: string): ProjectStructureCandidate[] {
@@ -2986,7 +3137,7 @@ export class WorkspaceDatabase {
   }
 
   public getProjectStructureSummary(scopeVersionId = this.getActiveScope().id): ProjectStructureSummary {
-    const row = rowOrUndefined(
+    const entityRow = rowOrUndefined(
       this.db
         .prepare(
           `SELECT
@@ -3000,13 +3151,15 @@ export class WorkspaceDatabase {
         )
         .get(scopeVersionId)
     );
+    const relationRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS relation_count FROM project_structure_relations WHERE scope_version_id = ?').get(scopeVersionId));
     return {
       scopeVersionId,
-      entityCount: row ? numberValue(row, 'entity_count') : 0,
-      definitionCount: row ? numberValue(row, 'definition_count') : 0,
-      routeCount: row ? numberValue(row, 'route_count') : 0,
-      importCount: row ? numberValue(row, 'import_count') : 0,
-      indexedAt: row ? nullableText(row, 'indexed_at') : null
+      entityCount: entityRow ? numberValue(entityRow, 'entity_count') : 0,
+      relationCount: relationRow ? numberValue(relationRow, 'relation_count') : 0,
+      definitionCount: entityRow ? numberValue(entityRow, 'definition_count') : 0,
+      routeCount: entityRow ? numberValue(entityRow, 'route_count') : 0,
+      importCount: entityRow ? numberValue(entityRow, 'import_count') : 0,
+      indexedAt: entityRow ? nullableText(entityRow, 'indexed_at') : null
     };
   }
 

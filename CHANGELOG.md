@@ -40,6 +40,7 @@
 - Added program inventory and project metadata search tables for scoped files, manifests, binaries, scope assets, runs, transcripts, traces, artifacts, evidence, hypotheses, findings, and verifier records.
 - Added inventory freshness checks, structured manifest dependency extraction, and bounded binary-string indexing for project metadata search.
 - Added the first structural index pass with normalized source entities, imports, routes, line ranges, lightweight relationships, and mirrored `structure_entity` metadata search documents.
+- Added richer structural relationship extraction for exports, call sites, route middleware/handler links, permission markers, and sink markers.
 
 ### Changed
 
