@@ -30,6 +30,7 @@ export function appShellClassName(input: {
   sessionHeat: SessionHeat;
   momentumState: ResearchMomentumState;
   sessionActive: boolean;
+  platform: HostEnvironment['platform'];
   windowChromeState: WindowChromeState;
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
@@ -38,6 +39,7 @@ export function appShellClassName(input: {
     'app-shell',
     `session-heat-${input.sessionHeat}`,
     `momentum-${input.momentumState}`,
+    `platform-${input.platform}`,
     input.sessionActive ? 'session-active' : '',
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     input.sidebarCollapsed ? 'sidebar-collapsed' : '',

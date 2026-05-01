@@ -47,6 +47,11 @@
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
 - Increased the left padding before the footer momentum snake mascot.
 - Adjusted the steering textarea padding so its single-line input and placeholder are vertically centered.
+- Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
+- Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
+- Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
+- Changed Linux startup to show the window only after applying the native shape mask, refresh the mask during early compositor startup, and hide the light CSS outer border that made the shaped edge look grainy.
+- Retuned the Linux/WSLg native shape mask to cover compositor corner leakage while removing the Linux app-shell border entirely to avoid a visible window outline.
 - Removed the VM environment pill activity sheen animation from the footer.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.

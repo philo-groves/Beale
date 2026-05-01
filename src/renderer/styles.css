@@ -399,6 +399,10 @@ code {
   border-radius: 0;
 }
 
+.app-shell.platform-linux {
+  border: 0;
+}
+
 .app-shell::before {
   content: "";
   position: absolute;
@@ -4972,7 +4976,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 @media (max-width: 1180px) {
   body {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .app-shell {
@@ -4980,7 +4984,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     min-height: 100%;
     grid-template-columns: 272px minmax(0, 1fr) 0;
     grid-template-rows: auto auto auto;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .app-shell.sidebar-collapsed {

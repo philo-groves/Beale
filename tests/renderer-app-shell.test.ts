@@ -27,11 +27,12 @@ describe('renderer app shell view model', () => {
         sessionHeat: 'high',
         momentumState: 'verifying',
         sessionActive: true,
+        platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
         sidebarCollapsed: true,
         inspectorOpen: true
       })
-    ).toBe('app-shell session-heat-high momentum-verifying session-active window-edge-flush sidebar-collapsed inspector-open');
+    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed inspector-open');
   });
 
   it('resolves VM preference and window control platform fallbacks', () => {

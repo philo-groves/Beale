@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, Rectangle } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -23,9 +23,11 @@ import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './wo
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 const smokeTestMode = process.argv.includes('--smoke-test');
+const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
 
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
+  const needsNativeWindowShape = process.platform === 'linux';
   const appIcon = createAppIcon();
   if (appIcon && isMac && app.dock) {
     app.dock.setIcon(appIcon);
@@ -35,11 +37,12 @@ function createWindow(): void {
     height: 940,
     minWidth: 1120,
     minHeight: 760,
+    show: !needsNativeWindowShape,
     title: 'Beale',
     backgroundColor: '#00000000',
     autoHideMenuBar: true,
     transparent: true,
-    hasShadow: true,
+    hasShadow: isMac,
     roundedCorners: true,
     ...(appIcon ? { icon: appIcon } : {}),
     ...(isMac
@@ -59,6 +62,8 @@ function createWindow(): void {
   });
   mainWindow.setBackgroundColor('#00000000');
   mainWindow.setMenuBarVisibility(false);
+  registerRoundedWindowShape(mainWindow, needsNativeWindowShape);
+  registerRoundedWindowStartupShow(mainWindow, needsNativeWindowShape);
   registerWindowChromeStateEvents(mainWindow);
   registerRendererDevToolsControls(mainWindow);
 
@@ -100,6 +105,99 @@ function appIconSourcePath(): string | null {
 
 function windowForEvent(event: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender);
+}
+
+function registerRoundedWindowShape(window: BrowserWindow, enabled: boolean): void {
+  if (!enabled) return;
+
+  let pending = false;
+  const apply = (): void => {
+    if (window.isDestroyed() || pending) return;
+    pending = true;
+    setImmediate(() => {
+      pending = false;
+      applyRoundedWindowShape(window);
+    });
+  };
+
+  window.on('resize', apply);
+  window.on('move', apply);
+  window.on('maximize', apply);
+  window.on('unmaximize', apply);
+  window.on('enter-full-screen', apply);
+  window.on('leave-full-screen', apply);
+  window.webContents.once('did-finish-load', apply);
+  apply();
+}
+
+function registerRoundedWindowStartupShow(window: BrowserWindow, enabled: boolean): void {
+  if (!enabled) return;
+
+  let shown = false;
+  const show = (): void => {
+    if (shown || window.isDestroyed()) return;
+    shown = true;
+    applyRoundedWindowShape(window);
+    primeRoundedWindowShapeCompositor(window);
+    refreshRoundedWindowShape(window);
+    window.show();
+    refreshRoundedWindowShape(window);
+    setTimeout(() => refreshRoundedWindowShape(window), 120);
+    setTimeout(() => refreshRoundedWindowShape(window), 360);
+  };
+
+  window.once('ready-to-show', show);
+  window.webContents.once('did-finish-load', () => setImmediate(show));
+}
+
+function applyRoundedWindowShape(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const { width, height } = window.getContentBounds();
+  if (width <= 0 || height <= 0) return;
+  if (window.isMaximized() || window.isFullScreen()) {
+    window.setShape([{ x: 0, y: 0, width, height }]);
+    return;
+  }
+  window.setShape(roundedRectShape(width, height, NATIVE_WINDOW_SHAPE_RADIUS_PX));
+}
+
+function refreshRoundedWindowShape(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  applyRoundedWindowShape(window);
+  if (window.isMaximized() || window.isFullScreen()) return;
+  const bounds = window.getBounds();
+  window.setBounds(bounds, false);
+}
+
+function primeRoundedWindowShapeCompositor(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.isMaximized() || window.isFullScreen()) return;
+  const bounds = window.getBounds();
+  window.setBounds({ ...bounds, x: bounds.x + 1 }, false);
+  window.setBounds(bounds, false);
+}
+
+function roundedRectShape(width: number, height: number, radius: number): Rectangle[] {
+  const safeRadius = Math.max(0, Math.min(radius, Math.floor(width / 2), Math.floor(height / 2)));
+  if (safeRadius <= 0) return [{ x: 0, y: 0, width, height }];
+
+  const rects: Rectangle[] = [];
+  for (let y = 0; y < safeRadius; y += 1) {
+    const distanceFromCenter = safeRadius - y - 0.5;
+    const inset = Math.ceil(safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - distanceFromCenter * distanceFromCenter)));
+    rects.push({ x: inset, y, width: Math.max(0, width - inset * 2), height: 1 });
+  }
+
+  const centerHeight = height - safeRadius * 2;
+  if (centerHeight > 0) {
+    rects.push({ x: 0, y: safeRadius, width, height: centerHeight });
+  }
+
+  for (let y = safeRadius - 1; y >= 0; y -= 1) {
+    const distanceFromCenter = safeRadius - y - 0.5;
+    const inset = Math.ceil(safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - distanceFromCenter * distanceFromCenter)));
+    rects.push({ x: inset, y: height - y - 1, width: Math.max(0, width - inset * 2), height: 1 });
+  }
+  return rects;
 }
 
 function windowChromeState(window: BrowserWindow | null): { isMaximized: boolean; isFullScreen: boolean } {

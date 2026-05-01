@@ -268,16 +268,17 @@ export function App(): JSX.Element {
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
   const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
+  const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = appShellClassName({
     sessionHeat,
     momentumState: researchMomentum.state,
     sessionActive: activeRunDetail?.run.status === 'active',
+    platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed,
     inspectorOpen
   });
   const vmPreference = vmPreferenceForState(programRegistry, snapshot);
-  const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const configureVm = useCallback(() => {
     setSettingsSection('general');
     setSettingsOpen(true);
