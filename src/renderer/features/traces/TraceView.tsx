@@ -615,10 +615,9 @@ const MainSteerArea = memo(function MainSteerArea({
 });
 
 function sessionControlStatusLabel(status: RunStatus | null): string {
-  if (!status) return 'No session selected';
-  if (status === 'active') return 'Research session running';
-  if (status === 'queued') return 'Research session queued';
-  return `Research session ${traceLabel(status)}`;
+  if (!status) return 'NO SESSION SELECTED';
+  if (status === 'active') return 'RUNNING...';
+  return traceLabel(status).toUpperCase();
 }
 
 function traceEventNodes(list: HTMLDivElement): HTMLElement[] {

@@ -45,6 +45,7 @@
 - Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
 - Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
 - Changed the sidebar and modal label from New Research Session to New Research.
+- Changed the steering control row to show concise uppercase session statuses.
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
 - Changed the steering input to autofocus when a selected research session becomes active.
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
