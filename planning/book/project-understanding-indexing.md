@@ -90,6 +90,7 @@ The third implementation starts Layer 3:
 - As of the beta background-indexing transition, model-facing `search` and `code_browser` must not rebuild indexes inline. They may use stale index state and exact bounded reads while background work catches up.
 - Settings-driven semantic enable/rebuild requests now record queued/indexing/error status and run through a deferred scheduler.
 - Semantic rebuilds process source documents in small batches, preserve stale chunks until the replacement index finishes, expose processed/total progress, and yield between batches. Moving expensive builds into a separate worker process or thread remains the next scalability step.
+- The semantic batch lifecycle now lives in a standalone main-process executor module instead of `WorkspaceService`. The executor owns timers, active-session deferral, progress batches, and profiling labels so the next implementation can replace its internals with a worker-backed runner.
 
 ## Index Layers
 

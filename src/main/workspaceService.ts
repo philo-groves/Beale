@@ -14,6 +14,7 @@ import { ExecutorRunEngine } from './executorRunEngine';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
+import { ProjectSemanticIndexExecutor } from './projectSemanticIndexExecutor';
 import { extractSourceRepositoryUrls } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
@@ -171,9 +172,6 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
 ].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
-const SEMANTIC_INDEX_BATCH_SIZE = 25;
-const SEMANTIC_INDEX_BATCH_DELAY_MS = 10;
-const SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS = 5000;
 
 export interface WorkspaceChange {
   programRegistryChanged: boolean;
@@ -246,12 +244,19 @@ export class WorkspaceService {
   private pendingChangeIncludesProgramRegistry = false;
   private readonly researchPromptControllers = new Map<string, AbortController>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
-  private readonly semanticIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly semanticIndexExecutor: ProjectSemanticIndexExecutor;
 
   public constructor(
     private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
     private readonly options: WorkspaceServiceOptions = {}
-  ) {}
+  ) {
+    this.semanticIndexExecutor = new ProjectSemanticIndexExecutor({
+      getRuntime: (workspacePath) => this.runtimeForWorkspacePath(workspacePath),
+      hasActiveWork: (runtime) => runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active'),
+      emitChange: (workspacePath) => this.emitRuntimeChange(workspacePath),
+      recordTiming: (name, durationMs, detail = {}) => this.recordProfilingMainTiming(name, durationMs, detail)
+    });
+  }
 
   public openWorkspace(path: string): WorkspaceSnapshot {
     return this.open(path, false);
@@ -314,9 +319,9 @@ export class WorkspaceService {
     db.setProjectSemanticIndexEnabled(enabled, activeScope.id, { refresh: false });
     if (enabled) {
       db.queueProjectSemanticIndex(activeScope.id, 'enabled');
-      this.scheduleSemanticIndexRefresh(activeScope.id, 'enabled');
+      this.semanticIndexExecutor.schedule(activeScope.id, 'enabled', this.workspacePath);
     } else {
-      this.cancelSemanticIndexRefresh(activeScope.id);
+      this.semanticIndexExecutor.cancel(activeScope.id, this.workspacePath);
       db.markProjectSemanticIndexingCanceled(activeScope.id, 'disabled');
     }
     this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
@@ -330,7 +335,7 @@ export class WorkspaceService {
       throw new Error('Semantic indexing is disabled for the active program.');
     }
     db.queueProjectSemanticIndex(activeScope.id, 'manual_rebuild');
-    this.scheduleSemanticIndexRefresh(activeScope.id, 'manual_rebuild');
+    this.semanticIndexExecutor.schedule(activeScope.id, 'manual_rebuild', this.workspacePath);
     this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
     return this.requireSnapshot();
   }
@@ -1302,10 +1307,7 @@ export class WorkspaceService {
 
   public close(): void {
     this.clearPendingChange();
-    for (const timer of this.semanticIndexTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.semanticIndexTimers.clear();
+    this.semanticIndexExecutor.dispose();
     for (const controller of this.researchPromptControllers.values()) {
       controller.abort();
     }
@@ -1425,83 +1427,6 @@ export class WorkspaceService {
     return this.backgroundRuntimes.get(resolvedPath) ?? null;
   }
 
-  private semanticIndexJobKey(workspacePath: string, scopeVersionId: string): string {
-    return `${resolve(workspacePath)}::${scopeVersionId}`;
-  }
-
-  private scheduleSemanticIndexRefresh(scopeVersionId: string, reason: string, delayMs = 0, workspacePath = this.workspacePath): void {
-    if (!workspacePath) return;
-    const key = this.semanticIndexJobKey(workspacePath, scopeVersionId);
-    if (this.semanticIndexTimers.has(key)) return;
-    const timer = setTimeout(() => {
-      void this.runScheduledSemanticIndexRefresh(workspacePath, scopeVersionId, reason);
-    }, Math.max(0, delayMs));
-    timer.unref?.();
-    this.semanticIndexTimers.set(key, timer);
-  }
-
-  private cancelSemanticIndexRefresh(scopeVersionId: string): void {
-    if (!this.workspacePath) return;
-    const key = this.semanticIndexJobKey(this.workspacePath, scopeVersionId);
-    const timer = this.semanticIndexTimers.get(key);
-    if (!timer) return;
-    clearTimeout(timer);
-    this.semanticIndexTimers.delete(key);
-  }
-
-  private async runScheduledSemanticIndexRefresh(workspacePath: string, scopeVersionId: string, reason: string): Promise<void> {
-    const key = this.semanticIndexJobKey(workspacePath, scopeVersionId);
-    this.semanticIndexTimers.delete(key);
-    const runtime = this.runtimeForWorkspacePath(workspacePath);
-    if (!runtime || !runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-    if (this.hasActiveRuntimeWork(runtime)) {
-      this.scheduleSemanticIndexRefresh(scopeVersionId, reason, SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS, workspacePath);
-      return;
-    }
-
-    try {
-      await this.runCooperativeSemanticIndexRefresh(runtime, scopeVersionId, reason);
-    } catch (error) {
-      runtime.db.markProjectSemanticIndexingFailed(scopeVersionId, error, reason);
-    } finally {
-      this.emitRuntimeChange(workspacePath);
-    }
-  }
-
-  private async runCooperativeSemanticIndexRefresh(runtime: WorkspaceRuntime, scopeVersionId: string, reason: string): Promise<void> {
-    const workspacePath = runtime.workspacePath;
-    const detail = { workspace: workspacePath.split(/[\\/]/).pop() ?? 'workspace', reason };
-    const refresh = this.profileMainTiming('projectSemantic.refresh.begin', detail, () => runtime.db.beginProjectSemanticIndexRefresh(scopeVersionId, reason));
-    this.emitRuntimeChange(workspacePath);
-    await sleep(0);
-
-    let processed = 0;
-    while (processed < refresh.sourceDocumentCount) {
-      if (!runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-      if (this.hasActiveRuntimeWork(runtime)) {
-        runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
-        this.scheduleSemanticIndexRefresh(scopeVersionId, reason, SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS, workspacePath);
-        this.emitRuntimeChange(workspacePath);
-        return;
-      }
-
-      const documents = this.profileMainTiming('projectSemantic.refresh.loadBatch', { ...detail, processed }, () =>
-        runtime.db.listProjectSemanticSourceDocuments(scopeVersionId, SEMANTIC_INDEX_BATCH_SIZE, processed)
-      );
-      if (documents.length === 0) break;
-      processed += documents.length;
-      this.profileMainTiming('projectSemantic.refresh.indexBatch', { ...detail, processed, total: refresh.sourceDocumentCount, documents: documents.length }, () =>
-        runtime.db.indexProjectSemanticSourceDocuments(scopeVersionId, documents, refresh.indexedAt, processed, refresh.sourceDocumentCount)
-      );
-      this.emitRuntimeChange(workspacePath);
-      await sleep(SEMANTIC_INDEX_BATCH_DELAY_MS);
-    }
-
-    this.profileMainTiming('projectSemantic.refresh.finish', detail, () =>
-      runtime.db.finishProjectSemanticIndexRefresh(scopeVersionId, refresh.indexedAt, refresh.startedAtMs, refresh.sourceDocumentCount)
-    );
-  }
-
   private setForegroundRuntime(runtime: WorkspaceRuntime): void {
     this.workspacePath = runtime.workspacePath;
     this.openedAt = runtime.openedAt;
@@ -1512,19 +1437,7 @@ export class WorkspaceService {
     this.executorManager = runtime.executorManager;
     this.executorRunEngine = runtime.executorRunEngine;
     this.benchmarkRunner = runtime.benchmarkRunner;
-    this.resumeSemanticIndexJob(runtime);
-  }
-
-  private resumeSemanticIndexJob(runtime: WorkspaceRuntime): void {
-    const activeScope = runtime.db.getActiveScope();
-    const key = this.semanticIndexJobKey(runtime.workspacePath, activeScope.id);
-    if (this.semanticIndexTimers.has(key)) return;
-    const summary = runtime.db.getProjectSemanticSummary(activeScope.id);
-    if (summary.enabled && (summary.status === 'queued' || summary.status === 'indexing')) {
-      const reason = summary.status === 'indexing' ? 'resume_interrupted' : summary.jobReason ?? 'resume_queued';
-      runtime.db.queueProjectSemanticIndex(activeScope.id, reason);
-      this.scheduleSemanticIndexRefresh(activeScope.id, reason);
-    }
+    this.semanticIndexExecutor.resume(runtime);
   }
 
   private detachForegroundRuntime(): WorkspaceRuntime | null {
@@ -1565,6 +1478,7 @@ export class WorkspaceService {
   }
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
+    this.semanticIndexExecutor.cancelWorkspace(runtime.workspacePath);
     runtime.engine.dispose();
     runtime.openAiEngine.dispose();
     runtime.db.close();
@@ -2904,10 +2818,6 @@ function buildFallbackHackerOneScopeMarkdown(facts: HackerOneProgramImportFacts)
     lines.push(`- ${asset.direction}: ${asset.kind} ${asset.value}`);
   }
   return lines.join('\n');
-}
-
-function sleep(ms: number): Promise<void> {
-  return ms > 0 ? new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) : Promise.resolve();
 }
 
 function fileTimestamp(iso: string): string {
