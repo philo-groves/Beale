@@ -796,6 +796,11 @@ code {
   text-align: left;
 }
 
+.window-menu-dropdown button.danger:hover:not(:disabled) {
+  background: #2a1111;
+  color: #ffb0b0;
+}
+
 .window-menu-static-row {
   min-width: 0;
   height: 24px;

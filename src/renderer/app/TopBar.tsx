@@ -5,7 +5,7 @@ import type { HostEnvironment, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
-type OpenMenu = 'edit' | 'view' | null;
+type OpenMenu = 'edit' | 'view' | 'window' | null;
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
@@ -91,6 +91,21 @@ export const TopBar = memo(function TopBar({
     setOpenMenu((current) => (current === 'view' ? null : 'view'));
   }, []);
 
+  const minimizeWindow = useCallback(() => {
+    setOpenMenu(null);
+    void window.beale.minimizeWindow();
+  }, []);
+
+  const maximizeWindow = useCallback(() => {
+    setOpenMenu(null);
+    void window.beale.toggleMaximizeWindow();
+  }, []);
+
+  const closeWindow = useCallback(() => {
+    setOpenMenu(null);
+    void window.beale.closeWindow();
+  }, []);
+
   return (
     <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${openMenu ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
@@ -158,7 +173,31 @@ export const TopBar = memo(function TopBar({
             </div>
           ) : null}
         </div>
-        <button type="button">Window</button>
+        <div className="window-menu-item">
+          <button
+            type="button"
+            className={openMenu === 'window' ? 'is-open' : undefined}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === 'window'}
+            onMouseDown={preserveSelection}
+            onClick={() => setOpenMenu((current) => (current === 'window' ? null : 'window'))}
+          >
+            Window
+          </button>
+          {openMenu === 'window' ? (
+            <div className="window-menu-dropdown" role="menu" aria-label="Window">
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={minimizeWindow}>
+                <span>Minimize</span>
+              </button>
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={maximizeWindow}>
+                <span>Maximize</span>
+              </button>
+              <button type="button" role="menuitem" className="danger" onMouseDown={preserveSelection} onClick={closeWindow}>
+                <span>Close</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       </nav>
       {profilingEnabled || !isMac ? (
         <div className="window-controls" aria-label="Window controls">

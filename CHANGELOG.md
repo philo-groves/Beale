@@ -14,6 +14,7 @@
 - Added Edit menu actions for Copy and Paste Steering, including platform shortcut labels and paste insertion into the steering input.
 - Added View menu Zoom Out and Zoom In commands backed by Electron `webFrame` page zoom.
 - Added a View menu zoom status row that shows the current page zoom percentage.
+- Added Window menu commands for Minimize, Maximize, and Close as a redundant path for window controls.
 - Added main-process profiling timings for `getProgramRegistry`, `getSnapshot`, and `openProgram`, plus renderer payload sizing for program-registry updates.
 - Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
