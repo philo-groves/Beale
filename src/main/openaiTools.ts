@@ -552,8 +552,8 @@ export class BealeToolRouter {
 
     const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES - matches.length);
     matches.push(...artifactMatches);
-    const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES - matches.length);
-    matches.push(...metadataMatches);
+    const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
+    const metadataMatchesAdded = this.appendUniqueSearchMatches(matches, metadataMatches, MAX_SEARCH_MATCHES);
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
 
     const sourceHint =
@@ -585,7 +585,7 @@ export class BealeToolRouter {
         })),
         filesConsidered: files.length,
         skippedFiles,
-        metadataMatches: metadataMatches.length,
+        metadataMatches: metadataMatchesAdded,
         projectInventory: inventorySummary,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
@@ -1736,6 +1736,40 @@ export class BealeToolRouter {
   private searchProjectMetadata(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
     return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining).map((result) => this.projectSearchResultToToolMatch(result));
+  }
+
+  private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {
+    let added = 0;
+    for (const candidate of candidates) {
+      if (matches.length >= limit) break;
+      if (this.searchMatchIsDuplicate(matches, candidate)) continue;
+      matches.push(candidate);
+      added += 1;
+    }
+    return added;
+  }
+
+  private searchMatchIsDuplicate(existing: Array<Record<string, unknown>>, candidate: Record<string, unknown>): boolean {
+    const candidateKind = stringValue(candidate.kind, '');
+    const candidateEntityType = stringValue(candidate.entityType, '');
+    const candidateSourcePath = stringValue(candidate.sourcePath, '');
+    const candidateArtifactId = stringValue(candidate.artifactId, '') || (candidateEntityType === 'artifact' ? stringValue(candidate.entityId, '') : '');
+    if (candidateKind === 'metadata' && candidateEntityType === 'inventory_item' && candidateSourcePath) {
+      return existing.some((match) => stringValue(match.path, '') === candidateSourcePath || stringValue(match.sourcePath, '') === candidateSourcePath);
+    }
+    if (candidateKind === 'metadata' && candidateEntityType === 'artifact' && candidateArtifactId) {
+      return existing.some((match) => stringValue(match.artifactId, '') === candidateArtifactId || (stringValue(match.entityType, '') === 'artifact' && stringValue(match.entityId, '') === candidateArtifactId));
+    }
+    const candidateKey = this.searchMatchStableKey(candidate);
+    return candidateKey.length > 0 && existing.some((match) => this.searchMatchStableKey(match) === candidateKey);
+  }
+
+  private searchMatchStableKey(match: Record<string, unknown>): string {
+    const kind = stringValue(match.kind, '');
+    if (kind === 'file') return `file:${stringValue(match.path, '')}:${stringValue(match.range, '')}:${stringValue(match.snippet, '')}`;
+    if (kind === 'artifact') return `artifact:${stringValue(match.artifactId, '')}`;
+    if (kind === 'metadata') return `metadata:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
+    return '';
   }
 
   private projectSearchResultToToolMatch(result: ProjectSearchResult): Record<string, unknown> {

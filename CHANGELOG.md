@@ -38,6 +38,7 @@
 - Added a model-facing `resource_lookup` tool for current-run Beale artifacts, evidence, findings, hypotheses, verifier runs, verifier contracts, and trace events.
 - Added `reportable` as a verifier-gated final finding state for issues with certain reachability and exploitability.
 - Added program inventory and project metadata search tables for scoped files, manifests, binaries, scope assets, runs, transcripts, traces, artifacts, evidence, hypotheses, findings, and verifier records.
+- Added inventory freshness checks, structured manifest dependency extraction, and bounded binary-string indexing for project metadata search.
 
 ### Changed
 
@@ -68,6 +69,7 @@
 - Changed verifier and artifact guidance so models are directed to use returned Beale artifact ids instead of raw temporary artifact paths.
 - Changed search trace rows so the model-side request lifecycle row is non-standard by default, argument rows read as `Prepare Search`, and result rows use shorter `Examined ...` labels.
 - Changed the model-facing `search` tool to augment scoped file and binary-string results with indexed project metadata matches.
+- Changed model-facing `search` results to dedupe direct file/artifact matches against project metadata matches for the same object.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

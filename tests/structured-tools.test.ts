@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,11 @@ describe('structured research tools', () => {
     expect(binarySearch.status).toBe('success');
     expect(JSON.stringify(binarySearch.payload)).toContain(binaryFile);
     expect(JSON.stringify(binarySearch.payload)).toContain('binaryDerived');
+    const binaryMatches = binarySearch.payload.matches as Array<Record<string, unknown>>;
+    expect(binaryMatches.filter((match) => match.path === binaryFile || match.sourcePath === binaryFile)).toHaveLength(1);
+    const binaryIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'CRASH_SIG');
+    expect(JSON.stringify(binaryIndexSearch)).toContain('inventory_item');
+    expect(JSON.stringify(binaryIndexSearch)).toContain('CRASH_SIG');
 
     db.appendTraceEvent({
       runId: context.run.id,
@@ -95,8 +100,19 @@ describe('structured research tools', () => {
     expect(inventory.manifestCount).toBeGreaterThanOrEqual(1);
     const manifestSearch = callTool(router, context, 'search', { query: 'bealetestdependency', target: '' });
     expect(manifestSearch.status).toBe('success');
-    expect(JSON.stringify(manifestSearch.payload)).toContain('inventory_item');
     expect(JSON.stringify(manifestSearch.payload)).toContain('bealetestdependency');
+    expect(manifestSearch.payload.metadataMatches).toBe(0);
+    const manifestIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'bealetestdependency');
+    expect(JSON.stringify(manifestIndexSearch)).toContain('inventory_item');
+    expect(JSON.stringify(manifestIndexSearch[0]?.metadata ?? {})).toContain('dependencyNames');
+
+    const requirementsFile = join(targetDir, 'requirements.txt');
+    writeFileSync(requirementsFile, 'freshdependency==1.2.3\n');
+    const freshMtime = new Date(Date.now() + 2000);
+    utimesSync(targetDir, freshMtime, freshMtime);
+    const refreshedManifestSearch = db.searchProjectDocumentsForRun(context.run.id, 'freshdependency');
+    expect(JSON.stringify(refreshedManifestSearch)).toContain('requirements.txt');
+    expect(JSON.stringify(refreshedManifestSearch)).toContain('freshdependency');
 
     const read = callTool(router, context, 'code_browser', { path: sourceFile, symbol: 'check_access' });
     expect(read.status).toBe('success');

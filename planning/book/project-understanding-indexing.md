@@ -37,7 +37,10 @@ The first implementation covers Layer 0 and Layer 1:
 - Program inventory records scoped local paths, directories, files, manifest files, binary files, hashes for small files, modification times, language guesses, and scope-asset linkage.
 - Lexical and metadata search stores a scoped SQLite FTS document index for scope assets, inventory items, runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
 - The existing `search` tool still performs bounded scoped source and binary-string search, then augments results with project metadata matches from the FTS index.
-- Source file body indexing remains intentionally bounded to direct `search` and `code_browser` reads; the inventory index stores file metadata and selected manifest/text previews, not every source file body.
+- Inventory freshness is checked before metadata search by comparing indexed file and directory size/mtime metadata to the current scoped filesystem.
+- Manifest indexing extracts structured dependency/package names for common package manifests such as `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, and `pom.xml`.
+- Binary inventory indexing stores bounded strings output for small and medium binaries so metadata search can find symbols and crash markers without rereading every file.
+- Source file body indexing remains intentionally bounded to direct `search` and `code_browser` reads; the inventory index stores file metadata and selected manifest/text/binary-string previews, not every source file body.
 
 ## Index Layers
 

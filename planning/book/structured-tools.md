@@ -73,6 +73,8 @@ Backends may include:
 - Strings extraction for binaries.
 - Program inventory metadata for scoped paths, manifests, binaries, language guesses, file hashes, and scope assets.
 - SQLite full-text search for workspace state, including runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
+- Structured dependency/package metadata extracted from common manifest files.
+- Bounded binary-derived strings indexed from scoped binaries.
 - Later indexed metadata from imports, exports, symbols, routes, components, CVEs, CWEs, and notes as structural indexing lands.
 
 Expected outputs:
@@ -81,6 +83,7 @@ Expected outputs:
 - File or artifact references.
 - Line/range references where available.
 - Beale resource references for metadata matches.
+- Dedupe between direct file/artifact matches and metadata matches for the same object.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

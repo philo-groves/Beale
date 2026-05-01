@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
@@ -362,8 +362,11 @@ export interface CreatedRunContext {
 
 const SCHEMA_VERSION = 11;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
+const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
 const PROJECT_INVENTORY_PREVIEW_MAX_BYTES = 128 * 1024;
+const PROJECT_INVENTORY_BINARY_SCAN_MAX_BYTES = 512 * 1024;
+const PROJECT_INVENTORY_BINARY_STRINGS_MAX_CHARS = 16 * 1024;
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -678,7 +681,9 @@ function hashProjectFileIfCheap(path: string, sizeBytes: number): string | null 
 }
 
 function readProjectSearchPreview(path: string, resourceKind: string, sizeBytes: number): string {
-  if (sizeBytes <= 0 || sizeBytes > PROJECT_INVENTORY_PREVIEW_MAX_BYTES) return '';
+  if (sizeBytes <= 0) return '';
+  if (resourceKind === 'binary') return readProjectBinaryStringsPreview(path, sizeBytes);
+  if (sizeBytes > PROJECT_INVENTORY_PREVIEW_MAX_BYTES) return '';
   if (resourceKind !== 'manifest' && resourceKind !== 'text') return '';
   try {
     const buffer = readFileSync(path);
@@ -687,6 +692,131 @@ function readProjectSearchPreview(path: string, resourceKind: string, sizeBytes:
   } catch {
     return '';
   }
+}
+
+function readProjectBinaryStringsPreview(path: string, sizeBytes: number): string {
+  if (sizeBytes <= 0) return '';
+  const bytesToRead = Math.min(sizeBytes, PROJECT_INVENTORY_BINARY_SCAN_MAX_BYTES);
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, 'r');
+    const buffer = Buffer.allocUnsafe(bytesToRead);
+    const bytesRead = readSync(fd, buffer, 0, bytesToRead, 0);
+    if (bytesRead <= 0) return '';
+    return extractProjectBinaryStrings(buffer.subarray(0, bytesRead)).join('\n');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+function extractProjectBinaryStrings(buffer: Buffer): string[] {
+  const strings: string[] = [];
+  let current = '';
+  let totalChars = 0;
+  const flush = (): void => {
+    const trimmed = current.trim();
+    current = '';
+    if (trimmed.length < 4) return;
+    strings.push(trimmed);
+    totalChars += trimmed.length;
+  };
+
+  for (const byte of buffer) {
+    if (byte >= 32 && byte <= 126) {
+      current += String.fromCharCode(byte);
+      if (current.length >= 256) flush();
+    } else {
+      flush();
+    }
+    if (totalChars >= PROJECT_INVENTORY_BINARY_STRINGS_MAX_CHARS) break;
+  }
+  flush();
+  return strings.slice(0, 256);
+}
+
+function parseProjectManifestMetadata(path: string, preview: string): Record<string, unknown> {
+  if (!preview.trim()) return {};
+  const lowerName = basename(path).toLowerCase();
+  if (lowerName === 'package.json') return parsePackageJsonManifest(preview);
+  if (lowerName === 'requirements.txt') return parseRequirementsManifest(preview);
+  if (lowerName === 'go.mod') return parseGoModManifest(preview);
+  if (lowerName === 'cargo.toml') return parseCargoTomlManifest(preview);
+  if (lowerName === 'pom.xml') return parsePomXmlManifest(preview);
+  return { manifestType: lowerName };
+}
+
+function parsePackageJsonManifest(preview: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(preview);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { manifestType: 'package.json' };
+    const data = parsed as Record<string, unknown>;
+    const dependencyGroups = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+    const dependencies: Record<string, string[]> = {};
+    for (const group of dependencyGroups) {
+      const value = data[group];
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      dependencies[group] = Object.keys(value as Record<string, unknown>).sort();
+    }
+    return {
+      manifestType: 'package.json',
+      packageName: typeof data.name === 'string' ? data.name : '',
+      packageVersion: typeof data.version === 'string' ? data.version : '',
+      dependencyNames: Object.values(dependencies).flat(),
+      dependencyGroups,
+      dependencies
+    };
+  } catch {
+    return { manifestType: 'package.json', parseError: 'invalid_json' };
+  }
+}
+
+function parseRequirementsManifest(preview: string): Record<string, unknown> {
+  const dependencyNames = preview
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('-'))
+    .map((line) => line.split(/[<>=!~;\[\]\s]/)[0]?.trim())
+    .filter((line): line is string => Boolean(line));
+  return { manifestType: 'requirements.txt', dependencyNames };
+}
+
+function parseGoModManifest(preview: string): Record<string, unknown> {
+  const moduleName = /^module\s+(.+)$/m.exec(preview)?.[1]?.trim() ?? '';
+  const dependencyNames: string[] = [];
+  for (const match of preview.matchAll(/^\s*(?:require\s+)?([A-Za-z0-9_.~/-]+\.[A-Za-z0-9_.~/-]+)\s+v?\d/mg)) {
+    dependencyNames.push(match[1]);
+  }
+  return { manifestType: 'go.mod', moduleName, dependencyNames: Array.from(new Set(dependencyNames)).sort() };
+}
+
+function parseCargoTomlManifest(preview: string): Record<string, unknown> {
+  const packageName = /^\s*name\s*=\s*["']([^"']+)["']/m.exec(preview)?.[1] ?? '';
+  const dependencyNames = new Set<string>();
+  let inDependencySection = false;
+  for (const line of preview.split(/\r?\n/)) {
+    const section = /^\s*\[([^\]]+)]\s*$/.exec(line)?.[1]?.trim() ?? '';
+    if (section) {
+      inDependencySection = ['dependencies', 'dev-dependencies', 'build-dependencies'].includes(section);
+      continue;
+    }
+    if (!inDependencySection) continue;
+    const name = /^\s*([A-Za-z0-9_-]+)\s*=/.exec(line)?.[1];
+    if (name) dependencyNames.add(name);
+  }
+  return { manifestType: 'Cargo.toml', packageName, dependencyNames: Array.from(dependencyNames).sort() };
+}
+
+function parsePomXmlManifest(preview: string): Record<string, unknown> {
+  const artifactIds = Array.from(preview.matchAll(/<artifactId>\s*([^<]+?)\s*<\/artifactId>/g)).map((match) => match[1].trim());
+  const groupIds = Array.from(preview.matchAll(/<groupId>\s*([^<]+?)\s*<\/groupId>/g)).map((match) => match[1].trim());
+  return {
+    manifestType: 'pom.xml',
+    packageName: artifactIds[0] ?? '',
+    groupName: groupIds[0] ?? '',
+    dependencyNames: Array.from(new Set(artifactIds.slice(1))).sort()
+  };
 }
 
 function projectBufferLooksTextual(buffer: Buffer): boolean {
@@ -2539,7 +2669,8 @@ export class WorkspaceDatabase {
 
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
     const summary = this.getProjectInventorySummary(scopeVersionId);
-    return summary.itemCount > 0 ? summary : this.refreshProjectInventory(scopeVersionId);
+    if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
+    return this.projectInventoryLooksStale(scopeVersionId) ? this.refreshProjectInventory(scopeVersionId) : summary;
   }
 
   public refreshProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventoryRefreshReport {
@@ -3404,6 +3535,43 @@ export class WorkspaceDatabase {
       .run(createId('scope_asset'), scopeVersionId, asset.direction, asset.kind, asset.value, toJson(asset.attributes), asset.sensitivity, createdAt);
   }
 
+  private projectInventoryLooksStale(scopeVersionId: string): boolean {
+    const itemRows = rows(
+      this.db
+        .prepare(
+          `SELECT path, item_kind, size_bytes, mtime_ms
+           FROM project_inventory_items
+           WHERE scope_version_id = ?
+             AND item_kind IN ('directory', 'file')
+           ORDER BY indexed_at DESC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS)
+    );
+    if (itemRows.length === 0) return true;
+
+    for (const row of itemRows) {
+      const path = text(row, 'path');
+      const itemKind = text(row, 'item_kind');
+      let stat;
+      try {
+        stat = lstatSync(path);
+      } catch {
+        return true;
+      }
+      if (stat.isSymbolicLink()) return true;
+      if (itemKind === 'file') {
+        if (!stat.isFile()) return true;
+        if (numberValue(row, 'size_bytes') !== stat.size) return true;
+      } else if (itemKind === 'directory' && !stat.isDirectory()) {
+        return true;
+      }
+      if (numberValue(row, 'mtime_ms') !== Math.round(stat.mtimeMs)) return true;
+    }
+
+    return false;
+  }
+
   private scanProjectInventoryPath(path: string, asset: ScopeAsset, state: ProjectInventoryScanState): void {
     if (state.scannedFiles >= PROJECT_INVENTORY_MAX_FILES) {
       state.truncated = true;
@@ -3464,6 +3632,7 @@ export class WorkspaceDatabase {
     const resourceKind = classifyProjectResourceKind(path, false);
     const sizeBytes = stat.size;
     const preview = readProjectSearchPreview(path, resourceKind, sizeBytes);
+    const manifestMetadata = resourceKind === 'manifest' ? parseProjectManifestMetadata(path, preview) : {};
     this.insertProjectInventoryItem({
       scopeVersionId: asset.scopeVersionId,
       asset,
@@ -3479,7 +3648,9 @@ export class WorkspaceDatabase {
         extension: extname(path).toLowerCase(),
         assetKind: asset.kind,
         previewIndexed: preview.length > 0,
-        hashIndexed: sizeBytes <= PROJECT_INVENTORY_HASH_MAX_BYTES
+        binaryStringsIndexed: resourceKind === 'binary' && preview.length > 0,
+        hashIndexed: sizeBytes <= PROJECT_INVENTORY_HASH_MAX_BYTES,
+        manifest: manifestMetadata
       },
       indexedAt: state.indexedAt
     });
