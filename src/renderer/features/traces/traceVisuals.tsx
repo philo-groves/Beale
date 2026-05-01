@@ -51,6 +51,12 @@ export function traceCategoryLabel(category: TraceCategoryId): string {
   return traceCategoryOption(category).label;
 }
 
+export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
+  if (category === 'evidence') return 'Evidence';
+  if (category === 'reasoning') return 'Agent Output';
+  return traceCategoryLabel(category);
+}
+
 export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
   const outcome = traceEventOutcome(event);
   if (outcome === 'success') return <CheckCircle2 size={13} />;

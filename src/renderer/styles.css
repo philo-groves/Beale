@@ -2723,6 +2723,46 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: nowrap;
 }
 
+.main-trace-duplicate-detail {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 4px;
+}
+
+.main-trace-duplicate-attributes {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #777777;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  padding: 0;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-reasoning-detail {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+.main-trace-reasoning-thought {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.main-trace-reasoning-title,
+.main-trace-reasoning-description {
+  min-width: 0;
+  display: block;
+}
+
 .main-trace-prose {
   min-width: 0;
   display: -webkit-box;
@@ -2737,6 +2777,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trace-event.category-agent_output .main-trace-prose,
 .main-trace-event.category-evidence .main-trace-prose,
+.main-trace-event.category-failure_recovery .main-trace-prose,
 .main-trace-event.category-hypotheses .main-trace-prose,
 .main-trace-event.category-reasoning .main-trace-prose {
   display: block;

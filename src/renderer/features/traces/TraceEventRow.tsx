@@ -4,11 +4,22 @@ import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import { traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
 import { tracePayloadPrimitive } from '../../traceClassification';
-import { isProseTraceEvent, isPythonExecutionTraceEvent, pythonTracePreview, traceEventDetailText, traceEventSummary, type PythonToolCallPreview } from '../../view-models/traceContent';
+import {
+  duplicateBlockedTraceDetail,
+  isProseTraceEvent,
+  isPythonExecutionTraceEvent,
+  reasoningTraceThoughtsForEvent,
+  pythonTracePreview,
+  traceEventDetailText,
+  traceEventSummary,
+  type DuplicateBlockedTraceDetail,
+  type PythonToolCallPreview,
+  type ReasoningTraceThought
+} from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
-import { traceCategoryLabel, traceEventIcon } from './traceVisuals';
+import { traceCategoryBadgeLabel, traceEventIcon } from './traceVisuals';
 
 interface TraceEventRowProps {
   detail: RunDetail | null;
@@ -33,6 +44,8 @@ export const TraceEventRow = memo(function TraceEventRow({
   const outcome = useMemo(() => traceEventOutcome(event), [event]);
   const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
+  const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
+  const reasoningThoughts = useMemo(() => reasoningTraceThoughtsForEvent(event, category), [category, event]);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
   const hasDetail = detailText.length > 0;
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
@@ -61,7 +74,7 @@ export const TraceEventRow = memo(function TraceEventRow({
           </div>
           <div className="main-trace-flags">
             <div className="main-trace-badges">
-              <span>{traceCategoryLabel(category)}</span>
+              <span>{traceCategoryBadgeLabel(category)}</span>
               {!event.modelVisible ? <span>Hidden</span> : null}
             </div>
           </div>
@@ -69,6 +82,10 @@ export const TraceEventRow = memo(function TraceEventRow({
         <div className="main-trace-context">
           {pythonPreview ? (
             <PythonTracePreview preview={pythonPreview} />
+          ) : duplicateBlockedDetail ? (
+            <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+          ) : reasoningThoughts.length > 0 ? (
+            <ReasoningTracePreview thoughts={reasoningThoughts} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : hasDetail ? (
             proseDetail ? (
               <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
@@ -81,6 +98,54 @@ export const TraceEventRow = memo(function TraceEventRow({
     </button>
   );
 }, traceEventRowPropsEqual);
+
+function DuplicateBlockedTracePreview({
+  detail,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  detail: DuplicateBlockedTraceDetail;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  return (
+    <span className="main-trace-duplicate-detail">
+      {detail.attributes ? <code className="main-trace-duplicate-attributes">{hasSearchHighlight ? renderSearchHighlightedText(detail.attributes, searchHighlightQuery) : detail.attributes}</code> : null}
+      <span className="main-trace-prose main-trace-duplicate-title">
+        {hasSearchHighlight ? renderSearchHighlightedText(detail.title, searchHighlightQuery) : renderTraceProseText(detail.title, 'agent_output')}
+      </span>
+    </span>
+  );
+}
+
+function ReasoningTracePreview({
+  thoughts,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  thoughts: ReasoningTraceThought[];
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  return (
+    <span className="main-trace-reasoning-detail">
+      {thoughts.map((thought, index) => (
+        <span className="main-trace-reasoning-thought" key={`${thought.title ?? 'thought'}-${index}`}>
+          {thought.title ? (
+            <strong className="main-trace-markdown-strong main-trace-reasoning-title">
+              {hasSearchHighlight ? renderSearchHighlightedText(thought.title, searchHighlightQuery) : thought.title}
+            </strong>
+          ) : null}
+          {thought.description ? (
+            <span className="main-trace-prose main-trace-reasoning-description">
+              {hasSearchHighlight ? renderSearchHighlightedText(thought.description, searchHighlightQuery) : renderTraceProseText(thought.description, 'agent_output')}
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JSX.Element {
   return (

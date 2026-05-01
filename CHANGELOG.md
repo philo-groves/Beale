@@ -32,6 +32,10 @@
 
 ### Changed
 
+- Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.
+- Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
+- Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.
+- Changed thought trace rows to render title and description as explicit block elements instead of relying on markdown newlines.
 - Changed research prompt generation and refinement to use medium reasoning effort while preserving the selected session effort for actual run execution.
 - Changed active run-detail polling to check a cheap version first and use incremental updates instead of full detail refreshes when possible.
 - Changed production profiling so background JSONL flushes no longer update React state unless the Debug/Settings UI is observing reports.
@@ -95,6 +99,9 @@
 
 ### Fixed
 
+- Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
+- Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.
+- Shortened duplicate-blocked trace rows to `Duplicate Blocked` while rendering the proposed duplicate name as a prose detail line.
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS, TRACE_CATEGORY_OPTIONS, traceCategoryLabel, traceTypeLabel } from '../src/renderer/features/traces/traceVisuals';
+import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS, TRACE_CATEGORY_OPTIONS, traceCategoryBadgeLabel, traceCategoryLabel, traceTypeLabel } from '../src/renderer/features/traces/traceVisuals';
 
 describe('renderer trace visual helpers', () => {
   it('keeps trace filter metadata and labels in sync', () => {
@@ -9,6 +9,8 @@ describe('renderer trace visual helpers', () => {
     expect(traceCategoryLabel('code_navigation')).toBe('Code Nav');
     expect(traceCategoryLabel('failure_recovery')).toBe('Error');
     expect(traceCategoryLabel('non_standard')).toBe('Non-standard');
+    expect(traceCategoryBadgeLabel('evidence')).toBe('Evidence');
+    expect(traceCategoryBadgeLabel('reasoning')).toBe('Agent Output');
   });
 
   it('formats trace type labels for detail metadata', () => {

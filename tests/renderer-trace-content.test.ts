@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
 import {
   compactTracePath,
+  duplicateBlockedTraceDetail,
   findingForTraceEvent,
   formatReasoningTraceText,
   hypothesisForTraceEvent,
@@ -9,6 +10,7 @@ import {
   lineRangePart,
   pythonTracePreview,
   pythonToolCallPreview,
+  reasoningTraceThoughtsFromText,
   traceEventDetailText,
   traceEventSummary
 } from '../src/renderer/view-models/traceContent';
@@ -28,14 +30,42 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }), 'hypotheses')).toBe('Queue Hypothesis');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }), 'evidence')).toBe('Queue Finding');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
+    expect(
+      traceEventSummary(
+        traceEvent({
+          type: 'hypothesis_event',
+          summary: 'Duplicate hypothesis blocked before creation: ACME challenge middleware bypasses Pages access control',
+          payload: { action: 'duplicate_blocked' }
+        }),
+        'failure_recovery'
+      )
+    ).toBe('Duplicate Blocked');
     expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
   });
 
   it('formats reasoning summaries while preserving thought boundaries', () => {
     expect(formatReasoningTraceText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toBe(
-      'Focus: Check parser with range checks\nRisk: Validate index use'
+      '**Focus**\nCheck parser with range checks\n\n**Risk**\nValidate index use'
     );
+    expect(reasoningTraceThoughtsFromText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toEqual([
+      { title: 'Focus', description: 'Check parser with range checks' },
+      { title: 'Risk', description: 'Validate index use' }
+    ]);
+    expect(
+      traceEventDetailText(
+        traceEvent({
+          type: 'model_message',
+          source: 'model',
+          summary: 'OpenAI completed thought.',
+          payload: {
+            text: '**Focus** Check parser',
+            transcriptKind: 'reasoning_summary'
+          }
+        }),
+        'agent_output'
+      )
+    ).toBe('**Focus**\nCheck parser');
   });
 
   it('formats key trace detail content without raw JSON noise', () => {
@@ -61,6 +91,27 @@ describe('renderer trace content view models', () => {
       }
     });
     expect(traceEventDetailText(hypothesisTool, 'hypotheses')).toBe('Cross-site Scripting (CWE-79): Reflected callback parameter reaches HTML');
+
+    const duplicate = traceEvent({
+      type: 'hypothesis_event',
+      source: 'system',
+      summary: 'Duplicate hypothesis blocked before creation: ACME challenge middleware bypasses Pages access control.',
+      payload: {
+        claimStatus: 'duplicate_review',
+        action: 'duplicate_blocked',
+        proposedTitle: 'ACME challenge middleware bypasses Pages access control',
+        matchedEntityKind: 'finding',
+        matchedEntityId: 'finding_existing'
+      }
+    });
+    expect(traceEventDetailText(duplicate, 'failure_recovery')).toBe(
+      'claim Duplicate Review · action Duplicate Blocked · matched finding finding_existing\nACME challenge middleware bypasses Pages access control'
+    );
+    expect(duplicateBlockedTraceDetail(duplicate)).toEqual({
+      attributes: 'claim Duplicate Review · action Duplicate Blocked · matched finding finding_existing',
+      title: 'ACME challenge middleware bypasses Pages access control'
+    });
+    expect(isProseTraceEvent(duplicate, 'failure_recovery')).toBe(true);
   });
 
   it('builds python previews and prose decisions for trace rows', () => {

@@ -10,11 +10,12 @@ const pythonMarkupCache = new Map<string, ReactNode[]>();
 const jsonMarkupCache = new Map<string, ReactNode[]>();
 
 export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
-  const cache = category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? proseMarkupCache : inlineMarkupCache;
+  const proseCategory = category === 'agent_output' || category === 'evidence' || category === 'failure_recovery' || category === 'hypotheses' || category === 'reasoning';
+  const cache = proseCategory ? proseMarkupCache : inlineMarkupCache;
   return cachedMarkup(cache, `${category}\0${text}`, () =>
     devInstrumentation.time(
       'trace.renderProseText',
-      () => (category === 'agent_output' || category === 'evidence' || category === 'hypotheses' ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
+      () => (proseCategory ? renderMarkdownTraceText(text) : renderInlineCodeText(text)),
       { category, chars: text.length, lines: countLines(text) }
     )
   );
@@ -99,7 +100,7 @@ function renderMarkdownTraceText(text: string): ReactNode[] {
       nodes.push(...renderMarkdownInlineText(line, `line-${lineIndex}`));
     }
 
-    if (lineIndex < lines.length - 1) nodes.push('\n');
+    if (lineIndex < lines.length - 1) nodes.push(<br key={`break-${lineIndex}`} />);
   });
 
   return nodes.length > 0 ? nodes : [text];

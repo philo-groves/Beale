@@ -105,6 +105,9 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
   const securityRecordDetail = securityRecordToolCallDetail(event);
   if (securityRecordDetail) return securityRecordDetail;
 
+  const duplicateBlockedDetail = duplicateBlockedEventDetailText(event);
+  if (duplicateBlockedDetail) return duplicateBlockedDetail;
+
   const hypothesisDetail = hypothesisEventDetailText(event, detail);
   if (hypothesisDetail) return hypothesisDetail;
 
@@ -113,14 +116,14 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
 
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if ((category === 'agent_output' || category === 'reasoning') && text) {
-    return category === 'reasoning' ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
+    return isReasoningTraceEvent(event, category) ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
   }
 
   return tracePayloadDetailText(event, category);
 }
 
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
-  return Boolean(securityRecordToolCallDetail(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
+  return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
 }
 
 export interface PythonToolCallPreview {
@@ -134,6 +137,16 @@ export interface PythonTraceScript {
   script: string;
 }
 
+export interface DuplicateBlockedTraceDetail {
+  attributes: string;
+  title: string;
+}
+
+export interface ReasoningTraceThought {
+  title: string | null;
+  description: string;
+}
+
 export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (hasStructuredProseTraceDetail(event, detail)) return true;
 
@@ -145,6 +158,24 @@ export function isProseTraceEvent(event: TraceEventRecord, category: TraceCatego
   if (tracePayloadPrimitive(event.payload, 'transcriptRole') === 'assistant') return true;
   if (tracePayloadPrimitive(event.payload, 'transcriptKind') === 'agent_output') return true;
   return category === 'agent_output' && event.source === 'model';
+}
+
+export function isReasoningTraceEvent(event: TraceEventRecord, category: TraceCategoryId): boolean {
+  return (
+    category === 'reasoning' ||
+    tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary' ||
+    tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary' ||
+    tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary' ||
+    event.summary === 'Thought.' ||
+    event.summary === 'Thought' ||
+    event.summary === 'OpenAI completed thought.'
+  );
+}
+
+export function reasoningTraceThoughtsForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceThought[] {
+  if (!isReasoningTraceEvent(event, category)) return [];
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  return text ? reasoningTraceThoughtsFromText(text) : [];
 }
 
 export function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
@@ -205,8 +236,25 @@ function isPythonToolCallEvent(event: TraceEventRecord): boolean {
 }
 
 export function formatReasoningTraceText(text: string): string {
-  const thoughts: string[] = [];
-  let current = '';
+  return reasoningTraceThoughtsFromText(text)
+    .map((thought) => {
+      if (!thought.title) return thought.description;
+      return thought.description ? `**${thought.title}**\n${thought.description}` : `**${thought.title}**`;
+    })
+    .join('\n\n');
+}
+
+export function reasoningTraceThoughtsFromText(text: string): ReasoningTraceThought[] {
+  const thoughts: ReasoningTraceThought[] = [];
+  let currentTitle: string | null = null;
+  let currentLines: string[] = [];
+
+  const flushCurrent = (): void => {
+    const description = currentLines.join(' ').trim();
+    if (currentTitle || description) thoughts.push({ title: currentTitle, description });
+    currentTitle = null;
+    currentLines = [];
+  };
 
   for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
     const line = rawLine.replace(/[ \t]+/g, ' ').trim();
@@ -214,18 +262,19 @@ export function formatReasoningTraceText(text: string): string {
 
     const heading = line.match(/^\*\*([^*]+?)\*\*\s*(.*)$/);
     if (heading) {
-      if (current) thoughts.push(current);
+      flushCurrent();
       const title = heading[1].trim();
       const description = heading[2].trim();
-      current = description ? `${title}: ${description}` : `${title}:`;
+      currentTitle = title || null;
+      currentLines = description ? [description] : [];
       continue;
     }
 
-    current = current ? `${current} ${line}` : line;
+    currentLines.push(line);
   }
 
-  if (current) thoughts.push(current);
-  return thoughts.join('\n');
+  flushCurrent();
+  return thoughts;
 }
 
 export function compactTracePath(value: string): string {
@@ -303,6 +352,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'VM executor alpha failed to destroy guest after run failure.') return 'Review VM cleanup failure';
   if (summary === 'VM executor alpha run failed.') return 'Fail VM executor run';
   if (summary === 'VM executor alpha run started from markdown prompt.') return 'Start VM executor run';
+  if (isDuplicateBlockedSummary(summary)) return 'Duplicate Blocked';
 
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
   if (match) return `Request for Turn ${match[1]}`;
@@ -840,6 +890,30 @@ function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
   return cweTitleToolCallDetail(event, 'hypothesis', 'Untitled hypothesis') ?? cweTitleToolCallDetail(event, 'finding', 'Untitled finding');
 }
 
+function duplicateBlockedEventDetailText(event: TraceEventRecord): string | null {
+  const detail = duplicateBlockedTraceDetail(event);
+  if (!detail) return null;
+  return [detail.attributes, detail.title].filter(Boolean).join('\n');
+}
+
+export function duplicateBlockedTraceDetail(event: TraceEventRecord): DuplicateBlockedTraceDetail | null {
+  if (tracePayloadPrimitive(event.payload, 'action') !== 'duplicate_blocked' && !isDuplicateBlockedSummary(event.summary)) return null;
+
+  const title = tracePayloadPrimitive(event.payload, 'proposedTitle') ?? duplicateBlockedTitleFromSummary(event.summary);
+  if (!title) return null;
+
+  const matchedEntityKind = tracePayloadPrimitive(event.payload, 'matchedEntityKind') ?? (tracePayloadPrimitive(event.payload, 'matchedFindingId') ? 'finding' : null);
+  const matchedEntityId = tracePayloadPrimitive(event.payload, 'matchedEntityId') ?? tracePayloadPrimitive(event.payload, 'matchedFindingId') ?? tracePayloadPrimitive(event.payload, 'findingId');
+  const attributes = formatTraceDetailParts(
+    [
+      tracePart('claim', traceLabel(tracePayloadPrimitive(event.payload, 'claimStatus') ?? 'duplicate_review')),
+      tracePart('action', traceLabel(tracePayloadPrimitive(event.payload, 'action') ?? 'duplicate_blocked')),
+      matchedEntityKind && matchedEntityId ? pathPart(`matched ${traceLabel(matchedEntityKind).toLowerCase()}`, matchedEntityId) : null
+    ].filter((part): part is string => Boolean(part))
+  );
+  return { attributes, title: title.trim() };
+}
+
 function hypothesisEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
   if (event.type !== 'hypothesis_event') return null;
   const hypothesis = hypothesisForTraceEvent(detail, event);
@@ -861,6 +935,15 @@ function findingEventDetailText(event: TraceEventRecord, detail: RunDetail | nul
 function boldTraceTitle(value: string | null | undefined): string | null {
   const title = value?.trim();
   return title ? `**${title}**` : null;
+}
+
+function duplicateBlockedTitleFromSummary(summary: string): string | null {
+  const match = summary.match(/^Duplicate (?:hypothesis|finding) blocked before creation: (.+?)(?:\.)?$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function isDuplicateBlockedSummary(summary: string): boolean {
+  return /^Duplicate (?:hypothesis|finding) blocked before creation: .+\.?$/i.test(summary.trim());
 }
 
 function cweTitleToolCallDetail(event: TraceEventRecord, toolName: string, fallbackTitle: string): string | null {
