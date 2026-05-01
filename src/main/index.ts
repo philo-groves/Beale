@@ -28,6 +28,7 @@ const NATIVE_WINDOW_SHAPE_RADIUS_PX = 8;
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
   const needsNativeWindowShape = process.platform === 'linux';
+  const supportsNativeRoundedCorners = process.platform === 'darwin' || process.platform === 'win32';
   const appIcon = createAppIcon();
   if (appIcon && isMac && app.dock) {
     app.dock.setIcon(appIcon);
@@ -43,7 +44,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     transparent: true,
     hasShadow: isMac,
-    roundedCorners: true,
+    roundedCorners: supportsNativeRoundedCorners,
     ...(appIcon ? { icon: appIcon } : {}),
     ...(isMac
       ? {
