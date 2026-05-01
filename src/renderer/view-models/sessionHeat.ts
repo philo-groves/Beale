@@ -34,6 +34,7 @@ export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
 }
 
 export function sessionHeatForFinding(finding: FindingRecord, hypothesis: HypothesisRecord | null): SessionHeat {
+  if (stateClass(finding.state) === 'reportable') return 'critical';
   const impactScore = hypothesis ? heatFactorFromText(hypothesis.impact) : heatImpactFromText(`${finding.title}\n${finding.summaryMarkdown}\n${finding.impactMarkdown}`);
   const reachabilityScore = hypothesis ? heatFactorFromText(hypothesis.attackerReachability) : 1;
   const baseHeat = maxSessionHeat(sessionHeatFromImpact(impactScore, reachabilityScore), sessionHeatFromPriority(finding.priorityScore));
@@ -49,6 +50,7 @@ export function sessionHeatForHypothesis(hypothesis: HypothesisRecord, evidence:
 
 function findingEvidenceScore(finding: FindingRecord, hypothesis: HypothesisRecord | null): number {
   const state = stateClass(finding.state);
+  if (state === 'reportable') return 4;
   if (finding.verifiedByVerifierRunId || state === 'verified') return 3;
   if (state === 'reproduced' || state === 'promoted') return Math.max(2, hypothesis ? hypothesisEvidenceScore(hypothesis) : 2);
   if (state === 'needs_evidence' || state === 'needs-evidence') return hypothesis ? Math.max(1, hypothesisEvidenceScore(hypothesis)) : 1;

@@ -92,6 +92,16 @@ describe('trace classification', () => {
         traceEvent({
           source: 'model',
           type: 'tool_call',
+          summary: 'OpenAI completed function call arguments for resource_lookup.',
+          payload: { toolName: 'resource_lookup' }
+        })
+      )
+    ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
           summary: 'OpenAI requested Beale tool: code_browser.',
           payload: { toolName: 'code_browser' }
         })
@@ -114,6 +124,16 @@ describe('trace classification', () => {
           type: 'tool_result',
           summary: 'Examined 6 files and returned 40 matches.',
           payload: { query: 'EvalSymlinks' }
+        })
+      )
+    ).toBe('code_navigation');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'tool',
+          type: 'tool_result',
+          summary: 'Resource lookup returned 1 current-run match.',
+          payload: { resourceId: 'verifier_run_test', kind: 'verifier_run' }
         })
       )
     ).toBe('code_navigation');

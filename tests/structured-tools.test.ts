@@ -126,6 +126,20 @@ describe('structured research tools', () => {
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
     expect(blocked.status).toBe('policy_blocked');
     expect(JSON.stringify(blocked.payload)).toContain('path_outside_active_scope');
+
+    const missing = callTool(router, context, 'code_browser', { path: join(targetDir, 'src', 'missing.js'), symbol: '' });
+    expect(missing.status).toBe('error');
+    expect(missing.payload.error).toBe('path_not_found');
+    expect(String(missing.payload.recoveryHint)).toContain('Search scoped source');
+
+    const directory = callTool(router, context, 'code_browser', { path: targetDir, symbol: '' });
+    expect(directory.status).toBe('error');
+    expect(directory.payload.error).toBe('directory_not_file');
+
+    const verifierIdRead = callTool(router, context, 'code_browser', { path: 'verifier_run_missing', symbol: '' });
+    expect(verifierIdRead.status).toBe('error');
+    expect(verifierIdRead.payload.error).toBe('unsupported_resource_id_for_code_browser');
+    expect(String(verifierIdRead.payload.recoveryHint)).toContain('resource_lookup');
     db.close();
   });
 
@@ -155,6 +169,24 @@ describe('structured research tools', () => {
     expect(verifier.payload.status).toBe('inconclusive');
     expect(verifier.payload.promotedFinding).toBe(false);
     expect((verifier.payload.evidenceReferences as { artifactId: string }).artifactId).toBe(artifact.artifact_id);
+    expect(String(verifier.payload.readHint)).toContain('code_browser');
+
+    const artifactLookup = callTool(router, context, 'resource_lookup', {
+      resource_id: artifact.artifact_id ?? '',
+      kind: 'artifact',
+      query: ''
+    });
+    expect(artifactLookup.status).toBe('success');
+    expect(artifactLookup.payload.totalMatches).toBe(1);
+    expect(JSON.stringify(artifactLookup.payload.matches)).toContain('readHint');
+
+    const verifierLookup = callTool(router, context, 'resource_lookup', {
+      resource_id: verifier.payload.verifierRunId as string,
+      kind: 'verifier_run',
+      query: ''
+    });
+    expect(verifierLookup.status).toBe('success');
+    expect(JSON.stringify(verifierLookup.payload.matches)).toContain('inconclusive');
 
     const detail = db.getRunDetail(context.run.id);
     expect(detail.artifacts.find((candidate) => candidate.id === artifact.artifact_id)?.source).toBe('model_generated');
@@ -270,6 +302,26 @@ describe('structured research tools', () => {
     });
     expect(blockedVerified.status).toBe('error');
 
+    const blockedReportable = callTool(router, context, 'finding', {
+      finding_id: findingId,
+      hypothesis_id: hypothesisId,
+      state: 'reportable',
+      title: 'Sensitive header values are logged unredacted',
+      summary: 'Should not become reportable without a passing real verifier.',
+      primary_cwe_id: 'CWE-200',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The reproduced behavior exposes sensitive header values through logs.',
+      affected_assets_json: '{}',
+      affected_versions_json: '{}',
+      impact: 'Credential material may be exposed.',
+      priority_score: 12,
+      verified_by_verifier_run_id: ''
+    });
+    expect(blockedReportable.status).toBe('error');
+    expect(blockedReportable.summary).toContain('Reportable findings require');
+
     const detail = db.getRunDetail(context.run.id);
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.state).toBe('reproduced');
     expect(detail.hypotheses.find((item) => item.id === hypothesisId)?.priorityScore).toBe(18);
@@ -366,6 +418,25 @@ describe('structured research tools', () => {
     expect(finding?.cweMappings[0]?.cweId).toBe('CWE-862');
     expect(detail.evidence.some((item) => item.findingId === finding?.id && item.verifierRunId === verifierRunId)).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'finding_event' && event.payload.action === 'auto_create')).toBe(true);
+
+    const reportable = callTool(router, context, 'finding', {
+      finding_id: finding?.id ?? '',
+      hypothesis_id: hypothesisId,
+      state: 'reportable',
+      title: 'Exported provider exposes token store',
+      summary: 'Verifier-backed reproduction and reviewed reachability make this ready for disclosure review.',
+      primary_cwe_id: 'CWE-862',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'high',
+      cwe_mapping_rationale: 'The verified behavior is a missing authorization boundary on IPC access.',
+      affected_assets_json: '{"component":"android content provider"}',
+      affected_versions_json: '{"commit":"fixture"}',
+      impact: 'Reachable local IPC callers can read token-store rows.',
+      verified_by_verifier_run_id: verifierRunId
+    });
+    expect(reportable.status).toBe('success');
+    expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === finding?.id)?.state).toBe('reportable');
     db.close();
   });
 

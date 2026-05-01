@@ -20,6 +20,12 @@ describe('renderer session heat view models', () => {
     expect(sessionHeatForDetail(runDetail({ findings: [finding] }))).toBe('critical');
   });
 
+  it('treats reportable findings as critical heat', () => {
+    const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
+
+    expect(sessionHeatForFinding(finding, null)).toBe('critical');
+  });
+
   it('caps hypothesis-only leads below confirmed finding severity', () => {
     const hypothesis = hypothesisRecord({
       impact: 'critical compromise',

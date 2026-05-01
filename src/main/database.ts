@@ -362,6 +362,10 @@ function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
   return run.status === 'pass' && run.result.realExecution === true && (run.result.vmExecution === true || run.result.hostExecution === true);
 }
 
+function isVerifierGatedFindingState(state: string): boolean {
+  return state === 'verified' || state === 'reportable';
+}
+
 function weaknessMappingInputs(records: WeaknessMappingRecord[]): WeaknessMappingInput[] {
   return records.map((record) => ({
     cweId: record.cweId,
@@ -1610,7 +1614,7 @@ export class WorkspaceDatabase {
   }
 
   public createFinding(input: CreateFindingInput): FindingRecord {
-    if (input.state === 'verified') {
+    if (isVerifierGatedFindingState(input.state)) {
       this.assertVerifierRunCanVerify(input.verifiedByVerifierRunId ?? null, input.runId);
     }
     const id = createId('finding');
@@ -1647,8 +1651,8 @@ export class WorkspaceDatabase {
   }
 
   public updateFindingState(findingId: string, state: string): void {
-    if (state === 'verified') {
-      throw new Error('Use verifyFindingWithVerifierRun to mark a finding verified.');
+    if (isVerifierGatedFindingState(state)) {
+      throw new Error('Use verifier-backed finding updates to mark a finding verified or reportable.');
     }
     this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
   }
@@ -1672,7 +1676,7 @@ export class WorkspaceDatabase {
     if (!existing) throw new Error(`Finding not found: ${findingId}`);
     const nextState = patch.state ?? existing.state;
     const nextVerifierRunId = patch.verifiedByVerifierRunId ?? existing.verifiedByVerifierRunId;
-    if (nextState === 'verified') {
+    if (isVerifierGatedFindingState(nextState)) {
       this.assertVerifierRunCanVerify(nextVerifierRunId ?? null, existing.runId);
     }
     this.db

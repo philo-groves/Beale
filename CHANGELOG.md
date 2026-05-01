@@ -35,6 +35,8 @@
 - Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
 - Added main profiling service tests for structured JSONL output.
 - Added a sidebar Search modal with real-time session transcript search, current-program scoping by default, optional loaded-program search, program-grouped results with full per-program match counts and Show More paging, clickable results that focus and scroll to the matching trace row, shared search-term highlighting in the resulting trace list, a single-line search field, and wrapped left-aligned result previews.
+- Added a model-facing `resource_lookup` tool for current-run Beale artifacts, evidence, findings, hypotheses, verifier runs, verifier contracts, and trace events.
+- Added `reportable` as a verifier-gated final finding state for issues with certain reachability and exploitability.
 
 ### Changed
 
@@ -62,6 +64,7 @@
 - Changed the steering control row to show concise uppercase session statuses.
 - Changed Python trace rows so model-side calls read as preparation/queueing and the executed host/guest result row owns the Python script preview.
 - Changed code-browser trace rows so model-side queue/argument lifecycle rows are non-standard by default and the executed source-read result owns a compact path, line metadata, and bounded excerpt preview.
+- Changed verifier and artifact guidance so models are directed to use returned Beale artifact ids instead of raw temporary artifact paths.
 - Changed search trace rows so the model-side request lifecycle row is non-standard by default, argument rows read as `Prepare Search`, and result rows use shorter `Examined ...` labels.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
@@ -69,6 +72,7 @@
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
 - Changed the hypotheses/findings column to collapse into a clickable vertical ribbon while the right evidence sidebar is open, then restore automatically when that sidebar closes.
 - Changed evidence sidebar items to omit long summaries and clamp titles to two lines for denser scanning.
+- Changed the always-visible research column from separate hypothesis/finding lists into an Evidence Trail list that groups hypotheses, linked evidence, and promoted findings by recorded provenance IDs.
 - Changed the steering input to autofocus when a selected research session becomes active.
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
 - Increased the left padding before the footer momentum snake mascot.
@@ -130,6 +134,9 @@
 - Fixed large trace-list manual scrolling so virtualized window slides no longer bounce back to a selected or earlier trace.
 - Fixed failed verifier execution traces so their marker uses the red failure tone while remaining categorized under Verifier.
 - Fixed evidence sidebar card contents so rows stretch left-to-right instead of centering inside the card.
+- Fixed Evidence Trail hierarchy styling by removing the child connector rail and relying on indentation for structure.
+- Fixed Evidence Trail grouping visuals by removing the extra wrapper background around each trail.
+- Fixed `code_browser` read failures to distinguish missing paths, unknown artifact ids, directories, unsupported Beale resource ids, binary/non-text files, and scoped-policy blocks with targeted recovery hints.
 
 ### Documentation
 
@@ -137,3 +144,4 @@
 - Expanded the root README for human readers with current status, setup, safety boundaries, known incomplete surfaces, and planning links.
 - Added MIT licensing metadata and a root `LICENSE`.
 - Added a beta optimization planning chapter for renderer responsiveness, trace performance, animation budget, and performance-aware refactor sequencing.
+- Updated structured-tool and schema planning docs for Beale resource lookup and the `reportable` finding state.

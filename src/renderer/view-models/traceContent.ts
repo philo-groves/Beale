@@ -512,6 +512,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Evidence' : 'Prepare Evidence';
     if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
     if (toolName === 'code_browser') return /^OpenAI requested Beale tool: code_browser\.$/i.test(summary) ? 'Queue Code Browser' : 'Prepare Code Browser';
+    if (toolName === 'resource_lookup') return /^OpenAI requested Beale tool: resource_lookup\.$/i.test(summary) ? 'Queue Resource Lookup' : 'Prepare Resource Lookup';
     if (toolName === 'search') return /^OpenAI requested Beale tool: search\.$/i.test(summary) ? 'Queue Search' : 'Prepare Search';
   }
 
@@ -555,6 +556,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match?.[1] === 'evidence') return 'Prepare Evidence';
   if (match?.[1] === 'verifier') return 'Prepare Verifier';
   if (match?.[1] === 'code_browser') return 'Prepare Code Browser';
+  if (match?.[1] === 'resource_lookup') return 'Prepare Resource Lookup';
   if (match?.[1] === 'search') return 'Prepare Search';
   if (match) return `Call ${match[1]}`;
   match = summary.match(/^Search examined (\d+) scoped files? and returned (\d+) match(?:es)?\.$/i);
@@ -656,6 +658,7 @@ function toolArgumentParts(toolName: string | null, args: Record<string, unknown
   if (toolName === 'search') return [quotedPart('query', stringRecordValue(args, 'query')), targetPart(args)];
   if (toolName === 'source') return [pathPart('repo', stringRecordValue(args, 'repository')), quotedPart('ref', stringRecordValue(args, 'ref'))];
   if (toolName === 'code_browser') return [pathPart('path', stringRecordValue(args, 'path')), quotedPart('symbol', stringRecordValue(args, 'symbol')), rangePart(args)];
+  if (toolName === 'resource_lookup') return [pathPart('resource', stringRecordValue(args, 'resource_id')), tracePart('kind', stringRecordValue(args, 'kind')), quotedPart('query', stringRecordValue(args, 'query'))];
   if (toolName === 'python') return [quotedPart('task', stringRecordValue(args, 'task')), pathPart('artifact', stringRecordValue(args, 'artifact_path'))];
   if (toolName === 'debugger') return [tracePart('operation', stringRecordValue(args, 'operation')), pathPart('target', stringRecordValue(args, 'target')), pathPart('input', stringRecordValue(args, 'input_path'))];
   if (toolName === 'artifact') return [quotedPart('name', stringRecordValue(args, 'name')), tracePart('kind', stringRecordValue(args, 'kind'))];

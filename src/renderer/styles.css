@@ -100,6 +100,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -119,6 +120,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -138,6 +140,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -156,6 +159,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -177,6 +181,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -195,6 +200,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -212,6 +218,7 @@ body.is-resizing-sidebar {
   .sidebar,
   .inspector-sidebar,
   .main-trace-list,
+  .main-trail-list,
   .main-hypothesis-list,
   .main-finding-list,
   .modal-body,
@@ -1890,6 +1897,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin-top: auto;
 }
 
+.main-trail-view {
+  flex: 1 1 auto;
+}
+
 .main-surface-header {
   min-width: 0;
   display: flex;
@@ -2097,6 +2108,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-hypothesis-list,
+.main-trail-list,
 .main-finding-list {
   width: 100%;
   height: 100%;
@@ -2109,8 +2121,175 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding-right: 4px;
 }
 
+.main-trail-list {
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
 .main-hypothesis-list {
   padding-bottom: 12px;
+}
+
+.main-trail-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+}
+
+.main-trail-card.rootless {
+  padding-top: 0;
+}
+
+.main-trail-children {
+  min-width: 0;
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding-left: 15px;
+}
+
+.main-trail-children.rootless {
+  padding-left: 0;
+}
+
+.main-trail-node {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  align-items: stretch;
+  justify-content: stretch;
+  justify-items: stretch;
+  border: 0;
+  border-radius: 8px;
+  background: #111111;
+  color: inherit;
+  padding: 9px 10px;
+  text-align: left;
+  white-space: normal;
+}
+
+.main-trail-node:hover:not(:disabled),
+.main-trail-node.selected {
+  background: #151515;
+}
+
+.main-trail-node:disabled {
+  cursor: default;
+}
+
+.main-trail-node-topline {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.main-trail-node-topline span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trail-node-topline span:last-child {
+  flex: 0 0 auto;
+}
+
+.main-trail-node strong {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.main-trail-meta {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.main-trail-meta > * {
+  justify-self: start;
+}
+
+.main-trail-meta .cwe-pill {
+  grid-column: 4;
+  justify-self: end;
+}
+
+.main-trail-evidence {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.main-trail-evidence strong {
+  color: #d2d2d2;
+  font-size: 0.79rem;
+}
+
+.main-trail-hypothesis.state-verified,
+.main-trail-hypothesis.state-promoted,
+.main-trail-hypothesis.state-reproduced,
+.main-trail-finding.state-reportable,
+.main-trail-finding.state-verified,
+.main-trail-finding.state-disclosure_ready,
+.main-trail-finding.state-disclosure-ready {
+  background: rgba(120, 217, 131, 0.08);
+}
+
+.main-trail-hypothesis.state-needs_evidence,
+.main-trail-hypothesis.state-needs-evidence,
+.main-trail-hypothesis.state-inconclusive,
+.main-trail-hypothesis.state-open,
+.main-trail-finding.state-needs_evidence,
+.main-trail-finding.state-needs-evidence,
+.main-trail-finding.state-inconclusive,
+.main-trail-finding.state-reproduced {
+  background: rgba(223, 181, 95, 0.08);
+}
+
+.main-trail-hypothesis.state-false_positive,
+.main-trail-hypothesis.state-out_of_scope,
+.main-trail-hypothesis.state-duplicate,
+.main-trail-finding.state-false_positive,
+.main-trail-finding.state-false-positive,
+.main-trail-finding.state-out_of_scope,
+.main-trail-finding.state-out-of-scope,
+.main-trail-finding.state-dismissed,
+.main-trail-finding.state-duplicate {
+  background: rgba(255, 111, 120, 0.08);
+}
+
+.hypothesis-pill.verifier-pass,
+.hypothesis-pill.verifier-passed,
+.hypothesis-pill.verifier-verified {
+  color: var(--green);
+  background: rgba(120, 217, 131, 0.12);
+}
+
+.hypothesis-pill.verifier-fail,
+.hypothesis-pill.verifier-failed,
+.hypothesis-pill.verifier-failure {
+  color: var(--red);
+  background: rgba(255, 111, 120, 0.12);
 }
 
 .main-finding-list {
@@ -2164,6 +2343,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .main-hypothesis-item.state-verified,
 .main-hypothesis-item.state-promoted,
 .main-hypothesis-item.state-reproduced,
+.main-finding-item.state-reportable,
 .main-finding-item.state-verified,
 .main-finding-item.state-disclosure_ready,
 .main-finding-item.state-disclosure-ready {
@@ -5110,6 +5290,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   font-size: 0.82rem;
 }
 
+.entity-row.state-reportable,
 .entity-row.state-verified,
 .entity-row.verified-finding {
   border-color: rgba(88, 213, 126, 0.45);

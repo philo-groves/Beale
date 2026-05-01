@@ -8,6 +8,7 @@ Beale's first model-facing structured research tool set should be minimal:
 
 - `search`
 - `code_browser`
+- `resource_lookup`
 - `python`
 - `debugger`
 - `artifact`
@@ -37,6 +38,7 @@ The operating rule:
 - `source` materializes scoped repositories into the workspace.
 - `search` finds where to look.
 - `code_browser` explains what is there.
+- `resource_lookup` retrieves Beale run-state resources by id or query.
 - `python` creates and mutates inputs.
 - `debugger` observes runtime truth.
 - `artifact` preserves evidence.
@@ -100,6 +102,20 @@ Capabilities:
 
 `code_browser` should be the preferred way to inspect source instead of broad shell commands like `cat`.
 When a large file returns a truncated chunk, the model should continue with the returned next line rather than treating the file as unavailable.
+
+## Tool: `resource_lookup`
+
+Purpose:
+
+- Retrieve current-run Beale resources by id or query without searching target source code for Beale-internal ids.
+
+Capabilities:
+
+- Look up artifacts, evidence, findings, hypotheses, verifier runs, verifier contracts, and trace events.
+- Return current-run metadata, relationships, and read hints.
+- Direct the model to use `code_browser` with a Beale artifact id when artifact content should be inspected.
+
+`resource_lookup` is not cross-workspace or cross-program search. It exists to keep the model from confusing Beale state identifiers, such as `verifier_run_*` or `artifact_*`, with target repository symbols.
 
 ## Tool: `python`
 
@@ -209,8 +225,9 @@ Capabilities:
 - Store summary, affected assets, affected versions, impact, state, CWE mappings, and priority.
 - Link findings to hypotheses and evidence.
 - Promote a finding to `verified` only when a passing real verifier run is supplied.
+- Promote a finding to `reportable` only when the behavior is verified and reachability/exploitability are certain enough for disclosure review.
 
-Finding records may be model-proposed, reproduced, disclosure-ready, or verified. The verified state remains gated by the verifier service.
+Finding records may be model-proposed, reproduced, verified, reportable, or disclosure-ready. The verified and reportable states remain gated by the verifier service.
 
 Findings approaching disclosure should have a primary CWE mapping unless classification is explicitly unresolved. The mapping should be specific, evidence-consistent, and included in exports as classification rather than proof.
 

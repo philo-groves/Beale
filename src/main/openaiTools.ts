@@ -1,4 +1,5 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
+import type { Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
@@ -26,7 +27,22 @@ import {
   type ClaimCandidate,
   type DuplicateReview
 } from './duplicateReview';
-import type { ScopeAsset, ScopeAssetInput, TraceEventType, TraceSource, WeaknessMappingInput, WeaknessMappingRecord } from '@shared/types';
+import type {
+  ArtifactRecord,
+  EvidenceRecord,
+  FindingRecord,
+  HypothesisRecord,
+  RunDetail,
+  ScopeAsset,
+  ScopeAssetInput,
+  TraceEventRecord,
+  TraceEventType,
+  TraceSource,
+  VerifierContractRecord,
+  VerifierRunRecord,
+  WeaknessMappingInput,
+  WeaknessMappingRecord
+} from '@shared/types';
 
 export interface OpenAiToolDefinition {
   type: 'function';
@@ -122,8 +138,19 @@ interface DebuggerSummary {
   targetMissing: boolean;
 }
 
-const TOOL_NAMES = ['source', 'search', 'code_browser', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier'] as const;
+const TOOL_NAMES = ['source', 'search', 'code_browser', 'resource_lookup', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
+type ResourceLookupKind = 'any' | 'artifact' | 'evidence' | 'finding' | 'hypothesis' | 'verifier_run' | 'verifier_contract' | 'trace_event';
+
+interface ResourceLookupRecord {
+  kind: Exclude<ResourceLookupKind, 'any'>;
+  id: string;
+  label: string;
+  searchText: string;
+  payload: Record<string, unknown>;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
 
 const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
 const SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache']);
@@ -150,6 +177,11 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       symbol: stringProp('Symbol or text anchor; use an empty string when not needed'),
       line_start: stringProp('Optional 1-based start line for chunked reads; use an empty string when not needed'),
       line_end: stringProp('Optional 1-based inclusive end line for chunked reads; use an empty string when not needed')
+    }),
+    tool('resource_lookup', 'Look up Beale run resources by id or text. Use this for artifact_, evidence_, finding_, hypothesis_, verifier_run_, verifier contract, and trace ids instead of searching target source code for Beale ids.', {
+      resource_id: stringProp('Exact Beale resource id to look up; use an empty string to search or list resources'),
+      kind: stringProp('Resource kind: any, artifact, evidence, finding, hypothesis, verifier_run, verifier_contract, or trace_event. Use any when unsure.'),
+      query: stringProp('Optional text query across current-run resource ids, titles, summaries, and metadata; use an empty string when resource_id is provided')
     }),
     tool('python', 'Run a small Python analysis operation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       task: stringProp('Analysis task'),
@@ -193,10 +225,10 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       exploit_practicality: stringProp('Exploit practicality label, preferably prefixed with 0-4'),
       scope_confidence: stringProp('Scope confidence label, preferably prefixed with 0-4')
     }),
-    tool('finding', 'Create or update a finding record. Verified findings require a passing real verifier run id.', {
+    tool('finding', 'Create or update a finding record. Verified and reportable findings require a passing real verifier run id; reportable also means reachability and exploitability are certain enough for disclosure review.', {
       finding_id: stringProp('Existing finding id to update; use an empty string to create a new finding'),
       hypothesis_id: stringProp('Linked hypothesis id; use an empty string when not linked'),
-      state: stringProp('State, such as needs_evidence, reproduced, verified, disclosure_ready, false_positive, out_of_scope, dismissed, or duplicate'),
+      state: stringProp('State, such as needs_evidence, reproduced, verified, reportable, disclosure_ready, false_positive, out_of_scope, dismissed, or duplicate'),
       title: stringProp('Short finding title'),
       summary: stringProp('Finding summary'),
       primary_cwe_id: stringProp('Primary CWE id, such as CWE-862. Use an empty string or needs_classification when uncertain. Do not invent CWE ids.'),
@@ -207,15 +239,15 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       affected_assets_json: stringProp('JSON object describing affected assets or components; use {} when unknown'),
       affected_versions_json: stringProp('JSON object describing affected versions or commits; use {} when unknown'),
       impact: stringProp('Impact explanation'),
-      verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified; otherwise use an empty string')
+      verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified or reportable; otherwise use an empty string')
     }),
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
       hypothesis: stringProp('Hypothesis or finding identifier'),
       expectation: stringProp('Expected observation'),
-      artifact_id: stringProp('Artifact id that backs the expectation; use an empty string when not available'),
+      artifact_id: stringProp('Existing Beale artifact id that backs the expectation; use an empty string when not available. To inspect verifier output after execution, use the returned artifact_id, not the raw artifact_path.'),
       trace_event_id: stringProp('Trace event id that backs the expectation; use an empty string when not available'),
       verifier_script: stringProp('Shell script to execute in the active session sandbox; use an empty string to only declare the contract'),
-      artifact_path: stringProp('Artifact path to export after verifier execution; use an empty string when not needed'),
+      artifact_path: stringProp('Sandbox temporary path to collect after verifier execution; use an empty string when not needed. Beale will return a content-addressed artifact_id for later code_browser/resource_lookup reads.'),
       expected_stdout: stringProp('Substring expected in verifier stdout for pass; use an empty string when not needed')
     })
   ];
@@ -422,6 +454,8 @@ export class BealeToolRouter {
         return this.searchScopedMaterial(context, args);
       case 'code_browser':
         return this.browseCode(context, call, args);
+      case 'resource_lookup':
+        return this.lookupRunResource(context, args);
       case 'python':
         return this.runPython(context, call, args);
       case 'debugger':
@@ -608,7 +642,34 @@ export class BealeToolRouter {
       };
     }
 
+    const requestedResourceKind = inferResourceLookupKind(requestedPath);
     const artifactTarget = this.artifactReadTarget(context, requestedPath);
+    if (!artifactTarget && requestedResourceKind && requestedResourceKind !== 'artifact') {
+      return {
+        status: 'error',
+        summary: `Code browser cannot read ${resourceKindLabel(requestedResourceKind)} ids; use resource_lookup for Beale resource state.`,
+        payload: {
+          observationBacked: false,
+          error: 'unsupported_resource_id_for_code_browser',
+          resourceId: requestedPath,
+          resourceKind: requestedResourceKind,
+          recoveryHint: `Call resource_lookup with resource_id "${requestedPath}" and kind "${requestedResourceKind}".`
+        }
+      };
+    }
+    if (!artifactTarget && requestedResourceKind === 'artifact') {
+      return {
+        status: 'error',
+        summary: 'Code browser artifact id was not found in this run.',
+        payload: {
+          observationBacked: false,
+          error: 'unknown_artifact',
+          artifactId: requestedPath,
+          recoveryHint: 'Use resource_lookup with kind artifact or query the current run resources to find the correct artifact id.'
+        }
+      };
+    }
+
     const filePath = artifactTarget?.path ?? resolve(requestedPath);
     if (!artifactTarget && !this.isScopedLocalPath(filePath)) {
       this.ensureExistingCheckoutPathInScope(filePath);
@@ -616,21 +677,70 @@ export class BealeToolRouter {
     if (!artifactTarget && !this.isScopedLocalPath(filePath)) {
       return this.recordToolPolicyBlock(context, call, args, 'Path is outside the active program scope.', {
         path: requestedPath,
-        reason: 'path_outside_active_scope'
+        reason: 'path_outside_active_scope',
+        recoveryHint: requestedPath.startsWith('/tmp/')
+          ? 'If this is a verifier or Python artifact_path, use the returned Beale artifact_id with code_browser or resource_lookup instead of the raw /tmp path.'
+          : 'Use search to locate an in-scope source path, or use resource_lookup when the value is a Beale resource id.'
       });
+    }
+
+    const stat = safeStat(filePath);
+    if (!stat) {
+      return {
+        status: 'error',
+        summary: artifactTarget ? 'Code browser artifact content is missing from the artifact store.' : 'Code browser path was not found in scoped source.',
+        payload: {
+          observationBacked: false,
+          path: requestedPath,
+          sourcePath: filePath,
+          error: artifactTarget ? 'artifact_content_missing' : 'path_not_found',
+          recoveryHint: artifactTarget
+            ? 'The artifact record exists, but its content file is missing; use resource_lookup to inspect artifact metadata or rerun the producing tool.'
+            : 'Search scoped source for the file name, symbol, or nearby component, then retry code_browser with a returned path.'
+        }
+      };
+    }
+    if (stat.isDirectory()) {
+      return {
+        status: 'error',
+        summary: 'Code browser received a directory path, not a file.',
+        payload: {
+          observationBacked: false,
+          path: requestedPath,
+          sourcePath: filePath,
+          error: 'directory_not_file',
+          recoveryHint: 'Use search with the directory as target to find candidate files, then call code_browser on a specific file.'
+        }
+      };
+    }
+    if (!stat.isFile()) {
+      return {
+        status: 'error',
+        summary: 'Code browser can only read regular files and Beale artifacts.',
+        payload: {
+          observationBacked: false,
+          path: requestedPath,
+          sourcePath: filePath,
+          error: 'unsupported_path_type',
+          recoveryHint: 'Use search to locate a regular source or text artifact file.'
+        }
+      };
     }
 
     const requestedRange = requestedLineRangeFromArgs(args);
     const selection = readCodeBrowserText(filePath, symbol, requestedRange);
     if (!selection) {
+      const readFailure = codeBrowserReadFailure(filePath, stat.size);
       return {
         status: 'error',
-        summary: 'Code browser could not read the requested bounded text.',
+        summary: readFailure.summary,
         payload: {
           observationBacked: false,
           path: requestedPath,
-          reason: 'unreadable_or_too_large',
-          recoveryHint: 'For large textual files, retry code_browser with line_start and line_end chunks.'
+          sourcePath: filePath,
+          fileSizeBytes: stat.size,
+          error: readFailure.error,
+          recoveryHint: readFailure.recoveryHint
         }
       };
     }
@@ -661,6 +771,53 @@ export class BealeToolRouter {
         nextLineStart: selection.nextLineStart,
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         excerpt
+      }
+    };
+  }
+
+  private lookupRunResource(context: CreatedRunContext, args: Record<string, unknown>): ToolResult {
+    const resourceId = stringValue(args.resource_id, '').trim();
+    const query = stringValue(args.query, '').trim();
+    const requestedKind = normalizeResourceLookupKind(stringValue(args.kind, 'any'));
+    const detail = this.db.getRunDetail(context.run.id);
+    const resources = runResourceLookupRecords(detail);
+    const counts = resourceCounts(resources);
+    const inferredKind = resourceId ? inferResourceLookupKind(resourceId) : null;
+    const effectiveKind = requestedKind === 'any' && inferredKind ? inferredKind : requestedKind;
+    const kindFiltered = resources.filter((resource) => effectiveKind === 'any' || resource.kind === effectiveKind);
+
+    let matches: ResourceLookupRecord[];
+    if (resourceId) {
+      matches = kindFiltered.filter((resource) => resource.id === resourceId);
+    } else if (query) {
+      matches = kindFiltered.filter((resource) => resourceMatchesQuery(resource, query));
+    } else {
+      matches = kindFiltered.slice().sort(compareResourceRecency).slice(0, 20);
+    }
+
+    const limitedMatches = matches.slice(0, 20).map((resource) => resource.payload);
+    const exactMiss = Boolean(resourceId && matches.length === 0);
+    return {
+      status: exactMiss ? 'error' : 'success',
+      summary: exactMiss
+        ? `No current-run Beale resource found for id ${resourceId}.`
+        : resourceId
+          ? `Resource lookup found ${matches[0]?.kind ?? 'resource'} ${resourceId}.`
+          : `Resource lookup returned ${limitedMatches.length} of ${matches.length} matching current-run resource${matches.length === 1 ? '' : 's'}.`,
+      payload: {
+        observationBacked: true,
+        runId: context.run.id,
+        resourceId: resourceId || null,
+        requestedKind,
+        effectiveKind,
+        query: query || null,
+        totalMatches: matches.length,
+        returnedMatches: limitedMatches.length,
+        counts,
+        matches: limitedMatches,
+        recoveryHint: exactMiss
+          ? 'Use resource_lookup with kind any and a text query, or inspect current artifacts/evidence/verifier runs by kind. Do not search target source code for Beale resource ids.'
+          : 'Use code_browser with an artifact id when you need artifact content. Use resource_lookup for verifier_run, evidence, finding, hypothesis, and trace metadata.'
       }
     };
   }
@@ -1090,8 +1247,15 @@ export class BealeToolRouter {
     }
 
     const state = stringValue(args.state, existing?.state ?? 'needs_evidence').trim() || existing?.state || 'needs_evidence';
-    if (state === 'verified' && !verifierRunId && !existing?.verifiedByVerifierRunId) {
-      return { status: 'error', summary: 'Verified findings require a passing real verifier run id.', payload: { observationBacked: false, error: 'missing_verified_by_verifier_run_id' } };
+    if (findingStateRequiresVerifier(state) && !verifierRunId && !existing?.verifiedByVerifierRunId) {
+      return {
+        status: 'error',
+        summary:
+          state === 'reportable'
+            ? 'Reportable findings require a passing real verifier run id and certain reachability/exploitability.'
+            : 'Verified findings require a passing real verifier run id.',
+        payload: { observationBacked: false, error: `missing_${state}_by_verifier_run_id` }
+      };
     }
 
     const title = stringValue(args.title, existing?.title ?? '').trim() || existing?.title || 'Untitled finding';
@@ -1136,7 +1300,7 @@ export class BealeToolRouter {
         eventType: 'finding_event',
         source: 'system',
         payload: {
-          observationBacked: state === 'verified' || state === 'reproduced',
+          observationBacked: findingStateIsObservationBacked(state),
           claimStatus: 'duplicate_review',
           action: 'duplicate_blocked',
           findingId: duplicateReview.matchedEntityId,
@@ -1182,8 +1346,8 @@ export class BealeToolRouter {
       eventType: 'finding_event',
       source: 'model',
       payload: {
-        observationBacked: state === 'verified' || state === 'reproduced',
-        claimStatus: state === 'verified' ? 'verifier_backed_finding' : 'model_proposed_finding',
+        observationBacked: findingStateIsObservationBacked(state),
+        claimStatus: state === 'reportable' ? 'reportable_finding' : state === 'verified' ? 'verifier_backed_finding' : 'model_proposed_finding',
         action: existing ? 'update' : 'create',
         findingId: finding.id,
         hypothesisId: finding.hypothesisId,
@@ -1266,7 +1430,10 @@ export class BealeToolRouter {
           vmExecution: outcome.verifierRun.result.vmExecution === true,
           hostExecution: outcome.verifierRun.result.hostExecution === true,
           promotedFinding: false,
-          artifactId: outcome.artifactId
+          artifactId: outcome.artifactId,
+          readHint: outcome.artifactId
+            ? `Use code_browser with path "${outcome.artifactId}" or resource_lookup with resource_id "${outcome.artifactId}" to inspect verifier output. Do not use the raw artifact_path.`
+            : 'No verifier output artifact was collected; use resource_lookup on the verifier_run id for status and contract metadata.'
         }
       };
     }
@@ -1310,7 +1477,10 @@ export class BealeToolRouter {
           artifactId: referencedArtifact?.id ?? null,
           traceEventId: referencedTrace?.id ?? null
         },
-        promotedFinding: false
+        promotedFinding: false,
+        readHint: referencedArtifact
+          ? `Use code_browser with path "${referencedArtifact.id}" to inspect the referenced artifact.`
+          : 'This verifier declaration has no output artifact yet; execute a verifier_script with artifact_path to collect one.'
       }
     };
   }
@@ -1617,6 +1787,8 @@ export class BealeToolRouter {
       case 'search':
       case 'code_browser':
         return { execution: 'host_scoped_read_only', targetExecution: false, liveNetwork: false };
+      case 'resource_lookup':
+        return { execution: 'host_run_resource_lookup', targetExecution: false, liveNetwork: false, currentRunOnly: true };
       case 'python':
       case 'debugger':
         return { execution: 'active_session_sandbox', defaultExecution: 'host_research_only', vmOption: 'local_disposable_vm', hostDatabaseMounted: false, openAiCredentialsMounted: false };
@@ -1750,9 +1922,224 @@ function isToolName(value: string): value is ToolName {
 }
 
 function extractDestination(toolName: ToolName, args: Record<string, unknown>): string | null {
-  if (toolName === 'source' || toolName === 'search' || toolName === 'code_browser') return null;
+  if (toolName === 'source' || toolName === 'search' || toolName === 'code_browser' || toolName === 'resource_lookup') return null;
   const destination = args.destination ?? args.url ?? args.host ?? args.target;
   return typeof destination === 'string' && /^https?:\/\//.test(destination) ? destination : null;
+}
+
+function normalizeResourceLookupKind(value: string): ResourceLookupKind {
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (
+    normalized === 'artifact' ||
+    normalized === 'evidence' ||
+    normalized === 'finding' ||
+    normalized === 'hypothesis' ||
+    normalized === 'verifier_run' ||
+    normalized === 'verifier_contract' ||
+    normalized === 'trace_event'
+  ) {
+    return normalized;
+  }
+  if (normalized === 'trace') return 'trace_event';
+  if (normalized === 'verifier') return 'verifier_contract';
+  return 'any';
+}
+
+function findingStateRequiresVerifier(state: string): boolean {
+  return state === 'verified' || state === 'reportable';
+}
+
+function findingStateIsObservationBacked(state: string): boolean {
+  return state === 'verified' || state === 'reportable' || state === 'reproduced';
+}
+
+function inferResourceLookupKind(id: string): Exclude<ResourceLookupKind, 'any'> | null {
+  if (/^artifact_[a-z0-9_]+/i.test(id)) return 'artifact';
+  if (/^evidence_[a-z0-9_]+/i.test(id)) return 'evidence';
+  if (/^finding_[a-z0-9_]+/i.test(id)) return 'finding';
+  if (/^(?:hypothesis|hyp)_[a-z0-9_]+/i.test(id)) return 'hypothesis';
+  if (/^verifier_run_[a-z0-9_]+/i.test(id)) return 'verifier_run';
+  if (/^verifier_[a-z0-9_]+/i.test(id)) return 'verifier_contract';
+  if (/^trace_[a-z0-9_]+/i.test(id)) return 'trace_event';
+  return null;
+}
+
+function resourceKindLabel(kind: Exclude<ResourceLookupKind, 'any'>): string {
+  return kind.replace(/_/g, ' ');
+}
+
+function runResourceLookupRecords(detail: RunDetail): ResourceLookupRecord[] {
+  return [
+    ...detail.artifacts.map(artifactResourceRecord),
+    ...detail.evidence.map(evidenceResourceRecord),
+    ...detail.findings.map(findingResourceRecord),
+    ...detail.hypotheses.map(hypothesisResourceRecord),
+    ...detail.verifierRuns.map(verifierRunResourceRecord),
+    ...detail.verifierContracts.map(verifierContractResourceRecord),
+    ...detail.traceEvents.map(traceEventResourceRecord)
+  ];
+}
+
+function artifactResourceRecord(artifact: ArtifactRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'artifact',
+    id: artifact.id,
+    artifactKind: artifact.kind,
+    sha256: artifact.sha256,
+    relativePath: artifact.relativePath,
+    sizeBytes: artifact.sizeBytes,
+    mimeType: artifact.mimeType,
+    sensitivity: artifact.sensitivity,
+    modelVisible: artifact.modelVisible,
+    source: artifact.source,
+    provenanceTraceEventId: artifact.provenanceTraceEventId,
+    metadata: artifact.metadata,
+    readHint: `Use code_browser with path "${artifact.id}" to read this artifact's content. Do not use raw temporary paths from verifier output.`
+  };
+  return resourceRecord('artifact', artifact.id, `${artifact.kind} artifact`, payload, artifact.createdAt, null);
+}
+
+function evidenceResourceRecord(evidence: EvidenceRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'evidence',
+    id: evidence.id,
+    evidenceKind: evidence.kind,
+    summary: evidence.summary,
+    hypothesisId: evidence.hypothesisId,
+    findingId: evidence.findingId,
+    artifactId: evidence.artifactId,
+    verifierRunId: evidence.verifierRunId,
+    observationTraceEventId: evidence.observationTraceEventId
+  };
+  return resourceRecord('evidence', evidence.id, evidence.summary || `${evidence.kind} evidence`, payload, evidence.createdAt, null);
+}
+
+function findingResourceRecord(finding: FindingRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'finding',
+    id: finding.id,
+    state: finding.state,
+    title: finding.title,
+    summaryMarkdown: finding.summaryMarkdown,
+    impactMarkdown: finding.impactMarkdown,
+    affectedAssets: finding.affectedAssets,
+    affectedVersions: finding.affectedVersions,
+    priorityScore: finding.priorityScore,
+    hypothesisId: finding.hypothesisId,
+    verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+    cweMappings: cwePayload(finding.cweMappings)
+  };
+  return resourceRecord('finding', finding.id, finding.title, payload, finding.createdAt, finding.updatedAt);
+}
+
+function hypothesisResourceRecord(hypothesis: HypothesisRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'hypothesis',
+    id: hypothesis.id,
+    state: hypothesis.state,
+    title: hypothesis.title,
+    descriptionMarkdown: hypothesis.descriptionMarkdown,
+    component: hypothesis.component,
+    bugClass: hypothesis.bugClass,
+    priorityScore: hypothesis.priorityScore,
+    attackerReachability: hypothesis.attackerReachability,
+    impact: hypothesis.impact,
+    evidenceConfidence: hypothesis.evidenceConfidence,
+    exploitPracticality: hypothesis.exploitPracticality,
+    scopeConfidence: hypothesis.scopeConfidence,
+    createdTraceEventId: hypothesis.createdTraceEventId,
+    cweMappings: cwePayload(hypothesis.cweMappings)
+  };
+  return resourceRecord('hypothesis', hypothesis.id, hypothesis.title, payload, hypothesis.createdAt, hypothesis.updatedAt);
+}
+
+function verifierRunResourceRecord(run: VerifierRunRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'verifier_run',
+    id: run.id,
+    contractId: run.contractId,
+    status: run.status,
+    blockedIssue: run.blockedIssue,
+    behaviorPreserved: run.behaviorPreserved,
+    diagnosticsClean: run.diagnosticsClean,
+    regressionTests: run.regressionTests,
+    vmContextId: run.vmContextId,
+    result: run.result,
+    artifactId: stringAttribute(run.result.artifactId),
+    readHint: stringAttribute(run.result.artifactId)
+      ? `Use code_browser with path "${stringAttribute(run.result.artifactId)}" to inspect verifier output artifact content.`
+      : 'No verifier output artifact is linked to this verifier run.'
+  };
+  return resourceRecord('verifier_run', run.id, `${run.status} verifier run`, payload, run.startedAt, run.endedAt);
+}
+
+function verifierContractResourceRecord(contract: VerifierContractRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'verifier_contract',
+    id: contract.id,
+    status: contract.status,
+    mode: contract.mode,
+    hypothesisId: contract.hypothesisId,
+    findingId: contract.findingId,
+    expectedObservations: contract.expectedObservations,
+    artifactsToCollect: contract.artifactsToCollect,
+    passCriteria: contract.passCriteria
+  };
+  return resourceRecord('verifier_contract', contract.id, `${contract.mode} verifier contract`, payload, contract.createdAt, contract.updatedAt);
+}
+
+function traceEventResourceRecord(event: TraceEventRecord): ResourceLookupRecord {
+  const payload = {
+    kind: 'trace_event',
+    id: event.id,
+    sequence: event.sequence,
+    type: event.type,
+    source: event.source,
+    summary: event.summary,
+    payload: event.payload,
+    artifactId: event.artifactId,
+    toolCallId: event.toolCallId,
+    approvalId: event.approvalId,
+    modelVisible: event.modelVisible
+  };
+  return resourceRecord('trace_event', event.id, event.summary, payload, event.createdAt, null);
+}
+
+function resourceRecord(
+  kind: Exclude<ResourceLookupKind, 'any'>,
+  id: string,
+  label: string,
+  payload: Record<string, unknown>,
+  createdAt: string | null,
+  updatedAt: string | null
+): ResourceLookupRecord {
+  return {
+    kind,
+    id,
+    label,
+    searchText: `${kind}\n${id}\n${label}\n${JSON.stringify(payload)}`.toLowerCase(),
+    payload,
+    createdAt,
+    updatedAt
+  };
+}
+
+function resourceMatchesQuery(resource: ResourceLookupRecord, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  if (resource.searchText.includes(normalized)) return true;
+  const terms = normalized.split(/\s+/).filter(Boolean);
+  return terms.length > 0 && terms.every((term) => resource.searchText.includes(term));
+}
+
+function compareResourceRecency(left: ResourceLookupRecord, right: ResourceLookupRecord): number {
+  return Date.parse(right.updatedAt ?? right.createdAt ?? '') - Date.parse(left.updatedAt ?? left.createdAt ?? '');
+}
+
+function resourceCounts(resources: ResourceLookupRecord[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const resource of resources) counts[resource.kind] = (counts[resource.kind] ?? 0) + 1;
+  return counts;
 }
 
 function stringValue(value: unknown, fallback: string): string {
@@ -2008,6 +2395,40 @@ function readCodeBrowserText(path: string, symbol: string, requestedRange: Reque
   return readLargeTextSelection(path, symbol, requestedRange);
 }
 
+function codeBrowserReadFailure(path: string, fileSizeBytes: number): { error: string; summary: string; recoveryHint: string } {
+  if (fileSizeBytes <= MAX_FILE_BYTES) {
+    const buffer = readFileSync(path);
+    if (!looksTextual(buffer) && !extractPrintableStrings(buffer)) {
+      return {
+        error: 'binary_without_printable_strings',
+        summary: 'Code browser could not read useful text from this binary file.',
+        recoveryHint: 'Use debugger, strings-oriented search, or an artifact-specific parser instead of code_browser for this file.'
+      };
+    }
+  } else {
+    const fd = openSync(path, 'r');
+    try {
+      const sample = Buffer.alloc(Math.min(8192, fileSizeBytes));
+      const sampleBytes = readSync(fd, sample, 0, sample.length, 0);
+      if (!looksTextual(sample.subarray(0, sampleBytes))) {
+        return {
+          error: 'large_binary_or_non_text_file',
+          summary: 'Code browser could not read this large non-text file as source.',
+          recoveryHint: 'Use debugger, binary-derived strings search, or a dedicated parser for this file.'
+        };
+      }
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  return {
+    error: 'text_read_failed',
+    summary: 'Code browser could not read the requested text range.',
+    recoveryHint: 'Retry with an explicit line_start and line_end inside the file, or search for the symbol/path again and use the returned location.'
+  };
+}
+
 function readLargeTextSelection(path: string, symbol: string, requestedRange: RequestedLineRange | null): CodeBrowserTextSelection | null {
   const stat = safeStat(path);
   if (!stat?.isFile()) return null;
@@ -2219,7 +2640,7 @@ function parseDebuggerSummary(stdout: string, stderr: string, exitCode: number |
   };
 }
 
-function safeStat(path: string): ReturnType<typeof statSync> | null {
+function safeStat(path: string): Stats | null {
   try {
     return statSync(path);
   } catch {

@@ -1,11 +1,18 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { JSX } from 'react';
-import { Bug, FileOutput } from 'lucide-react';
-import type { FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
+import { Bug, ClipboardCheck, FileOutput, GitBranch } from 'lucide-react';
+import type { EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
-import { formatPriorityPill, stateClass, traceLabel } from '../../lib/formatting';
-import { findingScrollKey, hypothesisScrollKey, traceEventForFinding, traceEventForHypothesis } from '../../view-models/researchItems';
+import { formatPriorityPill, formatSessionTime, stateClass, traceLabel } from '../../lib/formatting';
+import {
+  buildEvidenceTrails,
+  evidenceTrailScrollKey,
+  traceEventForEvidence,
+  traceEventForFinding,
+  traceEventForHypothesis,
+  type EvidenceTrail
+} from '../../view-models/researchItems';
 import { sessionHeatForFinding } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { CwePill } from './CwePill';
@@ -27,6 +34,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 }): JSX.Element {
   const hypothesisCount = detail?.hypotheses.length ?? 0;
   const findingCount = detail?.findings.length ?? 0;
+  const evidenceCount = detail?.evidence.length ?? 0;
 
   return (
     <div className={`main-session-side ${collapsed ? 'collapsed' : ''}`}>
@@ -40,25 +48,24 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         onClick={onExpand}
       >
         <span className="main-research-ribbon-item">
-          <Bug size={14} />
-          <span>Hypotheses</span>
-          <strong>{hypothesisCount}</strong>
+          <GitBranch size={14} />
+          <span>Trails</span>
+          <strong>{Math.max(hypothesisCount, findingCount)}</strong>
         </span>
         <span className="main-research-ribbon-item">
-          <FileOutput size={14} />
-          <span>Findings</span>
-          <strong>{findingCount}</strong>
+          <ClipboardCheck size={14} />
+          <span>Evidence</span>
+          <strong>{evidenceCount}</strong>
         </span>
       </button>
       <div className="main-research-panel-content" aria-hidden={collapsed} inert={collapsed}>
-        <MainHypothesisList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
-        <MainFindingList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
+        <EvidenceTrailList detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />
       </div>
     </div>
   );
 });
 
-const MainHypothesisList = memo(function MainHypothesisList({
+const EvidenceTrailList = memo(function EvidenceTrailList({
   detail,
   events,
   selectedTraceEventId,
@@ -70,57 +77,132 @@ const MainHypothesisList = memo(function MainHypothesisList({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const loading = !detail;
-  const hypotheses = detail?.hypotheses ?? [];
-  useDevRenderProbe('hypotheses.list', () => ({
+  const trails = useMemo(() => (detail ? buildEvidenceTrails(detail.hypotheses, detail.findings, detail.evidence) : []), [detail]);
+  const artifactById = useMemo(() => new Map((detail?.artifacts ?? []).map((artifact) => [artifact.id, artifact])), [detail?.artifacts]);
+  const verifierRunById = useMemo(() => new Map((detail?.verifierRuns ?? []).map((run) => [run.id, run])), [detail?.verifierRuns]);
+
+  useDevRenderProbe('research.trails', () => ({
     loading,
-    hypotheses: hypotheses.length,
+    trails: trails.length,
+    hypotheses: detail?.hypotheses.length ?? 0,
+    findings: detail?.findings.length ?? 0,
+    evidence: detail?.evidence.length ?? 0,
     events: events.length
   }));
 
   return (
-    <section className="main-side-section main-hypothesis-view" aria-label="Hypotheses">
+    <section className="main-side-section main-trail-view" aria-label="Evidence Trail">
       <div className="main-surface-header">
         <div>
-          <Bug size={14} />
-          <span>Hypotheses</span>
+          <GitBranch size={14} />
+          <span>Evidence Trail</span>
         </div>
-        <span>{loading ? 'Loading' : `${hypotheses.length}`}</span>
+        <span>{loading ? 'Loading' : `${trails.length}`}</span>
       </div>
-      {loading ? <div className="main-trace-empty">Loading hypotheses.</div> : null}
-      {!loading && hypotheses.length === 0 ? <div className="main-trace-empty">No hypotheses recorded.</div> : null}
-      {!loading && hypotheses.length > 0 ? (
-        <MainSideScrollRegion listClassName="main-hypothesis-list" updateKey={hypothesisScrollKey(hypotheses)}>
-          {hypotheses.map((hypothesis) => {
-            const event = traceEventForHypothesis(events, hypothesis);
-            return (
-              <MainHypothesisItem
-                hypothesis={hypothesis}
-                key={hypothesis.id}
-                selected={event?.id === selectedTraceEventId}
-                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
-              />
-            );
-          })}
+      {loading ? <div className="main-trace-empty">Loading evidence trail.</div> : null}
+      {!loading && trails.length === 0 ? <div className="main-trace-empty">No hypotheses, findings, or evidence recorded.</div> : null}
+      {!loading && trails.length > 0 ? (
+        <MainSideScrollRegion listClassName="main-trail-list" updateKey={evidenceTrailScrollKey(trails)}>
+          {trails.map((trail) => (
+            <EvidenceTrailItem
+              artifactById={artifactById}
+              events={events}
+              key={trail.id}
+              selectedTraceEventId={selectedTraceEventId}
+              trail={trail}
+              verifierRunById={verifierRunById}
+              onSelectTraceEvent={onSelectTraceEvent}
+            />
+          ))}
         </MainSideScrollRegion>
       ) : null}
     </section>
   );
 });
 
-function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: HypothesisRecord; selected: boolean; onSelect?: () => void }): JSX.Element {
-  const disabled = !onSelect;
+function EvidenceTrailItem({
+  artifactById,
+  events,
+  selectedTraceEventId,
+  trail,
+  verifierRunById,
+  onSelectTraceEvent
+}: {
+  artifactById: Map<string, RunDetail['artifacts'][number]>;
+  events: TraceDisplayEvent[];
+  selectedTraceEventId: string | null;
+  trail: EvidenceTrail;
+  verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const hasRoot = Boolean(trail.hypothesis);
+  return (
+    <article className={`main-trail-card ${hasRoot ? '' : 'rootless'}`}>
+      {trail.hypothesis ? (
+        <HypothesisTrailNode
+          events={events}
+          hypothesis={trail.hypothesis}
+          selectedTraceEventId={selectedTraceEventId}
+          onSelectTraceEvent={onSelectTraceEvent}
+        />
+      ) : null}
+      <div className={`main-trail-children ${hasRoot ? '' : 'rootless'}`}>
+        {trail.evidence.map((item) => (
+          <EvidenceTrailNode
+            artifactKind={item.artifactId ? artifactById.get(item.artifactId)?.kind ?? null : null}
+            evidence={item}
+            event={traceEventForEvidence(events, item)}
+            key={item.id}
+            selectedTraceEventId={selectedTraceEventId}
+            verifierStatus={item.verifierRunId ? verifierRunById.get(item.verifierRunId)?.status ?? null : null}
+            onSelectTraceEvent={onSelectTraceEvent}
+          />
+        ))}
+        {trail.findings.map((finding) => (
+          <FindingTrailNode
+            events={events}
+            finding={finding}
+            hypothesis={trail.hypothesis}
+            key={finding.id}
+            selectedTraceEventId={selectedTraceEventId}
+            onSelectTraceEvent={onSelectTraceEvent}
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function HypothesisTrailNode({
+  events,
+  hypothesis,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  events: TraceDisplayEvent[];
+  hypothesis: HypothesisRecord;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const event = traceEventForHypothesis(events, hypothesis);
+  const disabled = !event;
   return (
     <button
       type="button"
-      className={`main-research-item main-hypothesis-item state-${stateClass(hypothesis.state)} ${selected ? 'selected' : ''}`}
+      className={`main-trail-node main-trail-hypothesis state-${stateClass(hypothesis.state)} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
       disabled={disabled}
       title={disabled ? 'No trace provenance available' : 'Inspect hypothesis trace'}
-      onClick={onSelect}
+      onClick={() => event && onSelectTraceEvent(event)}
     >
-      <div className="main-research-topline">
-        <strong>{hypothesis.title}</strong>
+      <div className="main-trail-node-topline">
+        <span>
+          <Bug size={13} />
+          Hypothesis
+        </span>
+        <span>{traceLabel(hypothesis.state)}</span>
       </div>
-      <div className="main-hypothesis-meta" aria-label="Hypothesis state, priority, and CWE">
+      <strong>{hypothesis.title}</strong>
+      <div className="main-trail-meta" aria-label="Hypothesis state, priority, and CWE">
         <span className="hypothesis-pill state-pill">{traceLabel(hypothesis.state)}</span>
         <span className="hypothesis-pill priority-pill">{formatPriorityPill(hypothesis.priorityScore)}</span>
         <CwePill mappings={hypothesis.cweMappings} />
@@ -129,88 +211,87 @@ function MainHypothesisItem({ hypothesis, selected, onSelect }: { hypothesis: Hy
   );
 }
 
-const MainFindingList = memo(function MainFindingList({
-  detail,
+function FindingTrailNode({
   events,
+  finding,
+  hypothesis,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
-  detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  finding: FindingRecord;
+  hypothesis: HypothesisRecord | null;
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
-  const loading = !detail;
-  const findings = detail?.findings ?? [];
-  const hypotheses = detail?.hypotheses ?? [];
-  useDevRenderProbe('findings.list', () => ({
-    loading,
-    findings: findings.length,
-    hypotheses: hypotheses.length,
-    events: events.length
-  }));
-
-  return (
-    <section className="main-side-section main-finding-view" aria-label="Findings">
-      <div className="main-surface-header">
-        <div>
-          <FileOutput size={14} />
-          <span>Findings</span>
-        </div>
-        <span>{loading ? 'Loading' : `${findings.length}`}</span>
-      </div>
-      {loading ? <div className="main-trace-empty">Loading findings.</div> : null}
-      {!loading && findings.length === 0 ? <div className="main-trace-empty">No findings recorded.</div> : null}
-      {!loading && findings.length > 0 ? (
-        <MainSideScrollRegion listClassName="main-finding-list" stickToEnd={true} updateKey={findingScrollKey(findings)}>
-          {findings.map((finding) => {
-            const hypothesis = finding.hypothesisId ? hypotheses.find((candidate) => candidate.id === finding.hypothesisId) ?? null : null;
-            const event = traceEventForFinding(events, finding, hypothesis);
-            return (
-              <MainFindingItem
-                finding={finding}
-                hypothesis={hypothesis}
-                key={finding.id}
-                selected={event?.id === selectedTraceEventId}
-                onSelect={event ? () => onSelectTraceEvent(event) : undefined}
-              />
-            );
-          })}
-        </MainSideScrollRegion>
-      ) : null}
-    </section>
-  );
-});
-
-function MainFindingItem({
-  finding,
-  hypothesis,
-  selected,
-  onSelect
-}: {
-  finding: FindingRecord;
-  hypothesis: HypothesisRecord | null;
-  selected: boolean;
-  onSelect?: () => void;
-}): JSX.Element {
-  const disabled = !onSelect;
+  const event = traceEventForFinding(events, finding, hypothesis);
+  const disabled = !event;
   const tone = sessionHeatForFinding(finding, hypothesis);
 
   return (
     <button
       type="button"
-      className={`main-research-item main-finding-item state-${stateClass(finding.state)} power-${tone} ${selected ? 'selected' : ''}`}
+      className={`main-trail-node main-trail-finding state-${stateClass(finding.state)} power-${tone} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
       disabled={disabled}
       title={disabled ? 'No trace provenance available' : 'Inspect finding trace'}
-      onClick={onSelect}
+      onClick={() => event && onSelectTraceEvent(event)}
     >
-      <div className="main-finding-topline">
-        <strong>{finding.title}</strong>
+      <div className="main-trail-node-topline">
+        <span>
+          <FileOutput size={13} />
+          Finding
+        </span>
+        <span>{traceLabel(finding.state)}</span>
       </div>
-      <div className="main-hypothesis-meta main-finding-meta" aria-label="Finding state, priority, and CWE">
+      <strong>{finding.title}</strong>
+      <div className="main-trail-meta" aria-label="Finding state, priority, and CWE">
         <span className="hypothesis-pill state-pill">{traceLabel(finding.state)}</span>
         <span className="hypothesis-pill priority-pill">{formatPriorityPill(finding.priorityScore)}</span>
         <CwePill mappings={finding.cweMappings} />
+      </div>
+    </button>
+  );
+}
+
+function EvidenceTrailNode({
+  artifactKind,
+  evidence,
+  event,
+  selectedTraceEventId,
+  verifierStatus,
+  onSelectTraceEvent
+}: {
+  artifactKind: string | null;
+  evidence: EvidenceRecord;
+  event: TraceDisplayEvent | null;
+  selectedTraceEventId: string | null;
+  verifierStatus: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const disabled = !event;
+  const date = new Date(evidence.createdAt);
+  const time = Number.isNaN(date.getTime()) ? '' : formatSessionTime(date);
+
+  return (
+    <button
+      type="button"
+      className={`main-trail-node main-trail-evidence ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
+      disabled={disabled}
+      title={disabled ? 'No observation trace is linked to this evidence' : 'Inspect evidence trace'}
+      onClick={() => event && onSelectTraceEvent(event)}
+    >
+      <div className="main-trail-node-topline">
+        <span>
+          <ClipboardCheck size={13} />
+          Evidence
+        </span>
+        <span>{time}</span>
+      </div>
+      <strong>{evidence.summary || traceLabel(evidence.kind)}</strong>
+      <div className="main-trail-meta" aria-label="Evidence references">
+        <span className="hypothesis-pill state-pill">{traceLabel(evidence.kind)}</span>
+        {artifactKind ? <span className="hypothesis-pill">{traceLabel(artifactKind)}</span> : null}
+        {verifierStatus ? <span className={`hypothesis-pill verifier-${stateClass(verifierStatus)}`}>{traceLabel(verifierStatus)}</span> : null}
       </div>
     </button>
   );

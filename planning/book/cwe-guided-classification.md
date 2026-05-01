@@ -154,8 +154,9 @@ For findings, CWE should become stricter as the finding approaches disclosure:
 - `model_proposed`: optional primary or alternate CWE.
 - `needs_evidence`: optional primary or alternate CWE.
 - `reproduced`: primary CWE preferred.
-- `disclosure_ready`: primary CWE required unless explicitly waived.
 - `verified`: still requires verifier-backed evidence; CWE alone is not enough.
+- `reportable`: verified behavior plus certain reachability/exploitability; primary CWE required unless explicitly waived.
+- `disclosure_ready`: primary CWE required unless explicitly waived.
 
 ## Research Flow
 
@@ -242,7 +243,7 @@ CWE-guided classification must preserve Beale's existing security model:
 
 - User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.
 - Findings require tool, artifact, or verifier-backed evidence.
-- `verified` requires a passing real verifier.
+- `verified` and `reportable` require a passing real verifier.
 - Program scope and active network policy remain authoritative.
 - CWE labels must not cause out-of-scope testing.
 - The workspace database remains host-owned and is never mounted into the guest.

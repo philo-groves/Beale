@@ -387,7 +387,7 @@ Fields:
 - `id`
 - `run_id`
 - `hypothesis_id`
-- `state`: `needs_evidence`, `reproduced`, `verified`, `patched`, `dismissed`, `out_of_scope`
+- `state`: `needs_evidence`, `reproduced`, `verified`, `reportable`, `patched`, `dismissed`, `out_of_scope`
 - `title`
 - `summary_markdown`
 - `affected_assets_json`

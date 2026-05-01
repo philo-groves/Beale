@@ -39,9 +39,16 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for code_browser.', payload: { toolName: 'code_browser' } }), 'non_standard')).toBe(
       'Prepare Code Browser'
     );
+    expect(
+      traceEventSummary(
+        traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for resource_lookup.', payload: { toolName: 'resource_lookup' } }),
+        'non_standard'
+      )
+    ).toBe('Prepare Resource Lookup');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for search.', payload: { toolName: 'search' } }), 'code_navigation')).toBe(
       'Prepare Search'
     );
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: resource_lookup.' }), 'non_standard')).toBe('Queue Resource Lookup');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: search.' }), 'non_standard')).toBe('Queue Search');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Search examined 6 scoped files and returned 40 matches.' }), 'code_navigation')).toBe(
       'Examined 6 files and returned 40 matches'

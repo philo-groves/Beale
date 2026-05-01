@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { EvidenceRecord, FindingRecord, HypothesisRecord, TraceEventRecord } from '@shared/types';
-import { evidenceScrollKey, findingScrollKey, hypothesisScrollKey, sortedEvidence, traceEventForFinding, traceEventForHypothesis } from '../src/renderer/view-models/researchItems';
+import {
+  buildEvidenceTrails,
+  evidenceScrollKey,
+  findingScrollKey,
+  hypothesisScrollKey,
+  sortedEvidence,
+  traceEventForEvidence,
+  traceEventForFinding,
+  traceEventForHypothesis
+} from '../src/renderer/view-models/researchItems';
 
 describe('renderer research item view models', () => {
   it('finds hypothesis provenance by created event and payload references', () => {
@@ -33,6 +42,28 @@ describe('renderer research item view models', () => {
 
     expect(sortedEvidence([older, newer]).map((item) => item.id)).toEqual(['newer', 'older']);
   });
+
+  it('builds evidence trails from hypothesis, finding, and evidence links', () => {
+    const hypothesis = hypothesisRecord({ id: 'hypothesis_one', updatedAt: '2026-04-30T10:00:00.000Z' });
+    const finding = findingRecord({ id: 'finding_one', hypothesisId: hypothesis.id, updatedAt: '2026-04-30T10:30:00.000Z' });
+    const hypothesisEvidence = evidenceRecord({ id: 'evidence_hypothesis', hypothesisId: hypothesis.id, createdAt: '2026-04-30T10:20:00.000Z' });
+    const findingEvidence = evidenceRecord({ id: 'evidence_finding', findingId: finding.id, createdAt: '2026-04-30T10:40:00.000Z' });
+    const looseEvidence = evidenceRecord({ id: 'evidence_loose', createdAt: '2026-04-30T11:00:00.000Z' });
+
+    const trails = buildEvidenceTrails([hypothesis], [finding], [hypothesisEvidence, findingEvidence, looseEvidence]);
+
+    expect(trails.map((trail) => trail.id)).toEqual(['evidence:evidence_loose', 'hypothesis:hypothesis_one']);
+    expect(trails[1].findings.map((item) => item.id)).toEqual(['finding_one']);
+    expect(trails[1].evidence.map((item) => item.id)).toEqual(['evidence_finding', 'evidence_hypothesis']);
+  });
+
+  it('finds evidence provenance from direct observations and verifier/artifact references', () => {
+    const observation = traceEvent({ id: 'trace_observation' });
+    const verifier = traceEvent({ id: 'trace_verifier', payload: { verifier_run_id: 'verifier_one' } });
+
+    expect(traceEventForEvidence([verifier, observation], evidenceRecord({ observationTraceEventId: 'trace_observation' }))?.id).toBe('trace_observation');
+    expect(traceEventForEvidence([verifier], evidenceRecord({ verifierRunId: 'verifier_one' }))?.id).toBe('trace_verifier');
+  });
 });
 
 function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisRecord {
@@ -44,6 +75,7 @@ function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisReco
     descriptionMarkdown: '',
     createdTraceEventId: null,
     cweMappings: [],
+    updatedAt: '2026-04-30T10:00:00.000Z',
     ...input
   } as unknown as HypothesisRecord;
 }
@@ -57,6 +89,7 @@ function findingRecord(input: Partial<FindingRecord> = {}): FindingRecord {
     priorityScore: 42,
     summaryMarkdown: '',
     cweMappings: [],
+    updatedAt: '2026-04-30T10:00:00.000Z',
     ...input
   } as unknown as FindingRecord;
 }
@@ -67,6 +100,11 @@ function evidenceRecord(input: Partial<EvidenceRecord> = {}): EvidenceRecord {
     kind: 'runtime',
     summary: 'Evidence',
     createdAt: '2026-04-30T10:00:00.000Z',
+    hypothesisId: null,
+    findingId: null,
+    observationTraceEventId: null,
+    artifactId: null,
+    verifierRunId: null,
     ...input
   } as unknown as EvidenceRecord;
 }

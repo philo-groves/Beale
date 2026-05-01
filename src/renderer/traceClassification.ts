@@ -18,7 +18,7 @@ export type TraceEventOutcome = 'success' | 'failure' | null;
 
 const SUCCESS_STATUSES = new Set(['success', 'completed', 'complete', 'pass', 'passed', 'ok']);
 const FAILURE_STATUSES = new Set(['failure', 'failed', 'timeout', 'timed_out', 'policy_blocked', 'executor_error', 'error', 'blocked']);
-const CODE_NAVIGATION_TOOLS = new Set(['source', 'search', 'code_browser']);
+const CODE_NAVIGATION_TOOLS = new Set(['source', 'search', 'code_browser', 'resource_lookup']);
 const FAILURE_SUMMARY_PATTERN = /\b(failed|failure|timeout|timed out|blocked|errored|error|could not|unable to|requires setup|missing)\b/i;
 const RECOVERY_SUMMARY_PATTERN = /\b(retry|retried|recover|recovered|recovery|fallback)\b/i;
 
@@ -129,12 +129,13 @@ function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
     event.summary === 'OpenAI streamed model output delta.' ||
     event.summary === 'OpenAI requested Beale tool: python.' ||
     event.summary === 'OpenAI requested Beale tool: code_browser.' ||
+    event.summary === 'OpenAI requested Beale tool: resource_lookup.' ||
     event.summary === 'OpenAI requested Beale tool: search.' ||
     event.summary === 'OpenAI requested Beale tool: evidence.' ||
     event.summary === 'OpenAI requested Beale tool: verifier.' ||
     event.summary === 'OpenAI requested Beale tool: hypothesis.' ||
     event.summary === 'OpenAI requested Beale tool: finding.' ||
-    /^OpenAI completed function call arguments for (code_browser|evidence|verifier)\.$/.test(event.summary) ||
+    /^OpenAI completed function call arguments for (code_browser|resource_lookup|evidence|verifier)\.$/.test(event.summary) ||
     /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
   );
 }
@@ -143,7 +144,10 @@ function isCodeNavigationEvent(event: TraceEventRecord, toolName: string | null)
   if (toolName && CODE_NAVIGATION_TOOLS.has(toolName)) return true;
   if (tracePayloadPrimitive(event.payload, 'sourcePath') || tracePayloadPrimitive(event.payload, 'query')) return true;
   if (tracePayloadArray(event.payload, 'availableRepositories')) return true;
-  return /\b(code browser|search examined|source repository|repository materialized)\b/i.test(event.summary) || /\bexamined \d+ files? and returned \d+ matches\b/i.test(event.summary);
+  return (
+    /\b(code browser|resource lookup|search examined|source repository|repository materialized)\b/i.test(event.summary) ||
+    /\bexamined \d+ files? and returned \d+ matches\b/i.test(event.summary)
+  );
 }
 
 function modelEventLooksLikeReasoning(event: TraceEventRecord): boolean {
