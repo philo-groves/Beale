@@ -13,7 +13,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'src/main/index.ts')
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          projectSemanticIndexWorker: resolve(__dirname, 'src/main/projectSemanticIndexWorker.ts')
+        }
       }
     }
   },

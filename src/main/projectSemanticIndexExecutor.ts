@@ -1,7 +1,10 @@
 import { performance } from 'node:perf_hooks';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import type { ProfilingMetricDetail } from '@shared/types';
 import type { WorkspaceDatabase } from './database';
+import type { ProjectSemanticIndexWorkerInput, ProjectSemanticIndexWorkerMessage } from './projectSemanticIndexWorkerProtocol';
 
 const DEFAULT_SEMANTIC_INDEX_BATCH_SIZE = 25;
 const DEFAULT_SEMANTIC_INDEX_BATCH_DELAY_MS = 10;
@@ -93,12 +96,91 @@ export class ProjectSemanticIndexExecutor {
     }
 
     try {
-      await this.runCooperativeRefresh(runtime, scopeVersionId, reason);
+      if (this.workerAvailable()) {
+        await this.runWorkerRefresh(runtime, scopeVersionId, reason);
+      } else {
+        await this.runCooperativeRefresh(runtime, scopeVersionId, reason);
+      }
     } catch (error) {
       runtime.db.markProjectSemanticIndexingFailed(scopeVersionId, error, reason);
     } finally {
       this.options.emitChange(workspacePath);
     }
+  }
+
+  private async runWorkerRefresh(runtime: ProjectSemanticIndexRuntime, scopeVersionId: string, reason: string): Promise<void> {
+    const workerPath = this.workerPath();
+    if (!workerPath) {
+      await this.runCooperativeRefresh(runtime, scopeVersionId, reason);
+      return;
+    }
+
+    const worker = new Worker(workerPath, {
+      workerData: {
+        databasePath: runtime.db.getDatabasePath(),
+        artifactRoot: runtime.db.getArtifactRoot(),
+        workspacePath: runtime.workspacePath,
+        scopeVersionId,
+        reason,
+        batchSize: this.batchSize,
+        batchDelayMs: this.batchDelayMs
+      } satisfies ProjectSemanticIndexWorkerInput
+    });
+
+    let settled = false;
+    let requeuedForActiveWork = false;
+
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      worker.on('message', (message: ProjectSemanticIndexWorkerMessage) => {
+        switch (message.type) {
+          case 'timing':
+            this.options.recordTiming(message.name, message.durationMs, message.detail);
+            break;
+          case 'progress':
+            this.options.emitChange(runtime.workspacePath);
+            if (this.options.hasActiveWork(runtime) && !requeuedForActiveWork) {
+              requeuedForActiveWork = true;
+              runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
+              this.schedule(scopeVersionId, reason, runtime.workspacePath, this.activeRetryDelayMs);
+              worker.postMessage({ type: 'cancel' });
+            }
+            break;
+          case 'completed':
+            settled = true;
+            this.options.emitChange(runtime.workspacePath);
+            resolvePromise();
+            break;
+          case 'canceled':
+            settled = true;
+            if (!requeuedForActiveWork) {
+              runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
+            }
+            this.options.emitChange(runtime.workspacePath);
+            resolvePromise();
+            break;
+          case 'error':
+            settled = true;
+            rejectPromise(new Error(message.message));
+            break;
+          default: {
+            const exhaustive: never = message;
+            rejectPromise(new Error(`Unknown semantic index worker message: ${JSON.stringify(exhaustive)}`));
+          }
+        }
+      });
+      worker.on('error', (error) => {
+        if (!settled) rejectPromise(error);
+      });
+      worker.on('exit', (code) => {
+        if (!settled && code !== 0) {
+          rejectPromise(new Error(`Semantic index worker exited with status ${code}`));
+        } else if (!settled) {
+          resolvePromise();
+        }
+      });
+    }).finally(() => {
+      worker.removeAllListeners();
+    });
   }
 
   private async runCooperativeRefresh(runtime: ProjectSemanticIndexRuntime, scopeVersionId: string, reason: string): Promise<void> {
@@ -142,6 +224,16 @@ export class ProjectSemanticIndexExecutor {
     } finally {
       this.options.recordTiming(name, performance.now() - startedAt, detail);
     }
+  }
+
+  private workerAvailable(): boolean {
+    return Boolean(this.workerPath());
+  }
+
+  private workerPath(): string | null {
+    if (process.env.VITEST_WORKER_ID || process.env.NODE_ENV === 'test') return null;
+    const candidate = join(__dirname, 'projectSemanticIndexWorker.js');
+    return existsSync(candidate) ? candidate : null;
   }
 }
 

@@ -2158,6 +2158,7 @@ export class WorkspaceDatabase {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
     this.db.exec('PRAGMA foreign_keys = ON;');
+    this.db.exec('PRAGMA busy_timeout = 5000;');
   }
 
   public initialize(): void {
