@@ -157,6 +157,22 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('searches session transcripts in the active workspace', () => {
+    const service = openService();
+    const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
+    const runId = snapshot.runs[0]?.run.id ?? '';
+
+    const results = service.searchSessionTranscripts({ query: 'fake workbench', limit: 5 });
+    expect(results[0]).toMatchObject({
+      runId,
+      role: 'user',
+      source: 'run_prompt'
+    });
+    expect(results[0].contentPreview).toContain('fake workbench');
+    expect(service.searchSessionTranscripts({ query: 'not-present-in-session-transcripts' })).toEqual([]);
+    service.close();
+  });
+
   it('keeps program sidebar order stable when programs are opened', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();

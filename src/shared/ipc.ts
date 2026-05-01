@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   getRunDetail: 'beale:get-run-detail',
   getRunDetailVersion: 'beale:get-run-detail-version',
   getRunDetailUpdate: 'beale:get-run-detail-update',
+  searchSessionTranscripts: 'beale:search-session-transcripts',
   steerRun: 'beale:steer-run',
   openNotification: 'beale:open-notification',
   dismissNotification: 'beale:dismiss-notification',

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
@@ -6,6 +6,7 @@ import type {
   NotificationRecord,
   OpenAiOAuthStartResult,
   RunDetail,
+  SessionTranscriptSearchResult,
   SteeringAction,
   VmPreferenceInput,
   WorkspaceSnapshot
@@ -43,7 +44,7 @@ import {
 import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
-import { buildTraceDisplayEvents } from './view-models/traceDisplay';
+import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 
 export function App(): JSX.Element {
@@ -70,6 +71,8 @@ export function App(): JSX.Element {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [profilingOpen, setProfilingOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
@@ -259,6 +262,7 @@ export function App(): JSX.Element {
     selectedTraceFinding,
     selectedTraceHypothesis,
     selectTraceEvent,
+    focusTraceEvent,
     closeTraceDetail
   } = useTraceSelection({
     detail: activeRunDetail,
@@ -291,7 +295,27 @@ export function App(): JSX.Element {
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
   const startNewResearch = useCallback(() => setNewResearchOpen(true), []);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const openSearchResult = useCallback(
+    (result: SessionTranscriptSearchResult): void => {
+      setPendingSearchTarget(result);
+      if (selectedRunId !== result.runId) {
+        clearRunDetail();
+      }
+      setSelectedRunId(result.runId);
+      setSearchOpen(false);
+    },
+    [clearRunDetail, selectedRunId, setSelectedRunId]
+  );
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
+
+  useEffect(() => {
+    if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
+    const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
+    if (!targetEvent) return;
+    focusTraceEvent(targetEvent);
+    setPendingSearchTarget(null);
+  }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
 
   return (
     <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -319,6 +343,7 @@ export function App(): JSX.Element {
         onResizePointerDown={beginSidebarResize}
         onSetOpenProgramMenuId={setOpenProgramMenuId}
         onShowMoreSessions={setSessionHistoryProgramId}
+        onSearch={openSearch}
         onStartNewResearch={startNewResearch}
       />
 
@@ -381,6 +406,7 @@ export function App(): JSX.Element {
         programDraft={programDraft}
         programInfo={programInfo}
         researchPromptDetail={researchPromptDetail}
+        searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
         selectedTraceFinding={selectedTraceFinding}
@@ -403,6 +429,7 @@ export function App(): JSX.Element {
         onCloseProfiling={closeProfiling}
         onCloseProgramInfo={() => setProgramInfo(null)}
         onCloseResearchPrompt={() => setResearchPromptDetail(null)}
+        onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
         onCloseTraceDetail={closeTraceDetail}
@@ -423,6 +450,7 @@ export function App(): JSX.Element {
           setSelectedRunId(runId);
           setNewResearchOpen(false);
         }}
+        onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
@@ -431,5 +459,17 @@ export function App(): JSX.Element {
         runAction={runAction}
       />
     </div>
+  );
+}
+
+function traceEventForSearchResult(events: TraceDisplayEvent[], result: SessionTranscriptSearchResult): TraceDisplayEvent | null {
+  const transcriptEventId = `transcript:${result.transcriptMessageId}`;
+  return (
+    events.find((event) => {
+      if (event.id === transcriptEventId || event.transcriptMessageId === result.transcriptMessageId) return true;
+      if (event.payload.transcriptMessageId === result.transcriptMessageId) return true;
+      if (!result.traceEventId) return false;
+      return event.id === result.traceEventId || event.payload.linkedTraceEventId === result.traceEventId;
+    }) ?? null
   );
 }

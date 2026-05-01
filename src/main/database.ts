@@ -36,6 +36,8 @@ import type {
   RunStatus,
   ScopeAsset,
   ScopeAssetInput,
+  SessionTranscriptSearchInput,
+  SessionTranscriptSearchResult,
   StartRunInput,
   TraceEventRecord,
   TraceEventType,
@@ -392,6 +394,39 @@ function text(row: SqlRow, key: string): string {
 function nullableText(row: SqlRow, key: string): string | null {
   const value = row[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function transcriptSearchTerms(query: string): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const term of query.split(/\s+/)) {
+    const normalized = term.trim().toLowerCase();
+    if (normalized.length < 2 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    terms.push(normalized);
+  }
+  return terms.slice(0, 8);
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function transcriptSearchPreview(content: string, terms: string[], maxLength = 320): string {
+  const compact = content.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  const lower = compact.toLowerCase();
+  const firstMatch = terms.reduce((best, term) => {
+    const index = lower.indexOf(term);
+    if (index < 0) return best;
+    return best < 0 ? index : Math.min(best, index);
+  }, -1);
+  const anchor = firstMatch >= 0 ? firstMatch : 0;
+  const start = Math.max(0, anchor - 90);
+  const end = Math.min(compact.length, start + maxLength);
+  const prefix = start > 0 ? '...' : '';
+  const suffix = end < compact.length ? '...' : '';
+  return `${prefix}${compact.slice(start, end).trim()}${suffix}`;
 }
 
 function optionalDateOrNever(value: string | null | undefined): string | null {
@@ -2067,6 +2102,48 @@ export class WorkspaceDatabase {
       policyEvents: rows(this.db.prepare('SELECT * FROM approvals WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapApproval(row)),
       exports: rows(this.db.prepare('SELECT * FROM exports WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapExport(row))
     };
+  }
+
+  public searchTranscriptMessages(input: SessionTranscriptSearchInput): SessionTranscriptSearchResult[] {
+    const query = input.query.trim();
+    if (!query) return [];
+    const terms = transcriptSearchTerms(query);
+    if (!terms.length) return [];
+    const limit = Math.max(1, Math.min(50, Math.floor(input.limit ?? 24)));
+    const conditions = terms.map(() => "LOWER(tm.content_markdown) LIKE ? ESCAPE '\\'").join(' AND ');
+    const parameters = terms.map((term) => `%${escapeLike(term.toLowerCase())}%`);
+    const resultRows = this.db
+      .prepare(
+        `SELECT
+           tm.id AS transcript_message_id,
+           tm.run_id AS run_id,
+           tm.trace_event_id AS trace_event_id,
+           tm.role AS role,
+           tm.source AS source,
+           tm.content_markdown AS content_markdown,
+           tm.created_at AS created_at,
+           r.title AS session_title,
+           p.program_name AS program_name
+         FROM transcript_messages tm
+         JOIN runs r ON r.id = tm.run_id
+         JOIN program_scope_versions p ON p.id = r.scope_version_id
+         WHERE ${conditions}
+         ORDER BY tm.created_at DESC, tm.rowid DESC
+         LIMIT ?`
+      )
+      .all(...parameters, limit);
+
+    return rows(resultRows).map((row) => ({
+      runId: text(row, 'run_id'),
+      transcriptMessageId: text(row, 'transcript_message_id'),
+      traceEventId: nullableText(row, 'trace_event_id'),
+      role: text(row, 'role') as SessionTranscriptSearchResult['role'],
+      source: text(row, 'source'),
+      sessionTitle: text(row, 'session_title'),
+      programName: text(row, 'program_name'),
+      contentPreview: transcriptSearchPreview(text(row, 'content_markdown'), terms),
+      createdAt: text(row, 'created_at')
+    }));
   }
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {

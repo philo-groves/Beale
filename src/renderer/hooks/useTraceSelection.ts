@@ -18,6 +18,7 @@ export function useTraceSelection({
   selectedTraceFinding: ReturnType<typeof traceSelectionDetail>['finding'];
   selectedTraceHypothesis: ReturnType<typeof traceSelectionDetail>['hypothesis'];
   selectTraceEvent: (event: TraceDisplayEvent) => void;
+  focusTraceEvent: (event: TraceDisplayEvent) => void;
   closeTraceDetail: () => void;
 } {
   const [selectedTraceEventId, setSelectedTraceEventId] = useState<string | null>(null);
@@ -41,6 +42,11 @@ export function useTraceSelection({
     setTraceDetailOpen(true);
   }, []);
 
+  const focusTraceEvent = useCallback((event: TraceDisplayEvent): void => {
+    setSelectedTraceEventId(event.id);
+    setTraceDetailOpen(false);
+  }, []);
+
   const closeTraceDetail = useCallback(() => setTraceDetailOpen(false), []);
 
   return {
@@ -50,6 +56,7 @@ export function useTraceSelection({
     selectedTraceFinding: selection.finding,
     selectedTraceHypothesis: selection.hypothesis,
     selectTraceEvent,
+    focusTraceEvent,
     closeTraceDetail
   };
 }

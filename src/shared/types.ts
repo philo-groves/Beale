@@ -255,6 +255,23 @@ export interface ResearchSessionSummary {
   updatedAt: string;
 }
 
+export interface SessionTranscriptSearchInput {
+  query: string;
+  limit?: number;
+}
+
+export interface SessionTranscriptSearchResult {
+  runId: string;
+  transcriptMessageId: string;
+  traceEventId: string | null;
+  role: TranscriptRole;
+  source: string;
+  sessionTitle: string;
+  programName: string;
+  contentPreview: string;
+  createdAt: string;
+}
+
 export interface ProgramRegistryState {
   registryPath: string;
   vmPreference: VmPreference;
@@ -983,6 +1000,7 @@ export interface BealeApi {
   getRunDetail(runId: string): Promise<RunDetail>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
   getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
+  searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResult[]>;
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;

@@ -288,6 +288,43 @@ export function TraceView({
   }, [normalizedWindowStart, renderedEntries.length, updateTraceScrollEdges]);
 
   useLayoutEffect(() => {
+    if (!selectedTraceEventId) return;
+    const selectedIndex = presentedEntryIndexById.get(selectedTraceEventId);
+    if (selectedIndex === undefined) return;
+    traceFollowLatestRef.current = false;
+
+    const windowEnd = normalizedWindowStart + renderedEntries.length;
+    if (selectedIndex >= normalizedWindowStart && selectedIndex < windowEnd) return;
+
+    const targetStart = Math.max(0, Math.min(maxWindowStart, selectedIndex - Math.floor(TRACE_RENDER_WINDOW_SIZE / 3)));
+    if (targetStart !== normalizedWindowStart) {
+      setTraceWindowStart(targetStart);
+    }
+  }, [maxWindowStart, normalizedWindowStart, presentedEntryIndexById, renderedEntries.length, selectedTraceEventId]);
+
+  useLayoutEffect(() => {
+    if (!selectedTraceEventId) return undefined;
+    const traceList = traceListRef.current;
+    if (!traceList) return undefined;
+    const selectedNode = traceEventNodes(traceList).find((node) => node.dataset.traceEventId === selectedTraceEventId);
+    if (!selectedNode) return undefined;
+
+    traceFollowLatestRef.current = false;
+    traceRestoringAnchorRef.current = true;
+    const centeredTop = selectedNode.offsetTop - Math.max(16, (traceList.clientHeight - selectedNode.offsetHeight) / 2);
+    traceList.scrollTop = Math.max(0, centeredTop);
+    updateTraceScrollEdges();
+    const frame = window.requestAnimationFrame(() => {
+      traceRestoringAnchorRef.current = false;
+      updateTraceScrollEdges();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      traceRestoringAnchorRef.current = false;
+    };
+  }, [normalizedWindowStart, renderedEntries.length, selectedTraceEventId, updateTraceScrollEdges]);
+
+  useLayoutEffect(() => {
     if (!traceFollowLatestRef.current) return;
     if (normalizedWindowStart !== maxWindowStart) {
       setTraceWindowStart(maxWindowStart);

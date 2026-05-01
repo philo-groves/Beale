@@ -23,6 +23,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onResizePointerDown,
   onSetOpenProgramMenuId,
   onShowMoreSessions,
+  onSearch,
   onStartNewResearch
 }: {
   busy: boolean;
@@ -40,6 +41,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenProgramMenuId: (programId: string | null) => void;
   onShowMoreSessions: (programId: string) => void;
+  onSearch: () => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.programs', () => ({
@@ -55,7 +57,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
         <span>New Research Session</span>
       </button>
       <div className="sidebar-quick-actions">
-        <button type="button" className="sidebar-utility-button" title="Search">
+        <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
           <Search size={15} />
           <span>Search</span>
         </button>

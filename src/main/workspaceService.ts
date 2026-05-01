@@ -36,6 +36,8 @@ import type {
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
+  SessionTranscriptSearchInput,
+  SessionTranscriptSearchResult,
   ScopeAssetInput,
   StartRunInput,
   SteeringAction,
@@ -587,6 +589,10 @@ export class WorkspaceService {
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
     return this.requireDb().getRunDetailUpdate(runId, cursor);
+  }
+
+  public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResult[] {
+    return this.requireDb().searchTranscriptMessages(input);
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {

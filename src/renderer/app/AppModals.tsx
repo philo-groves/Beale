@@ -10,6 +10,7 @@ import type {
   ProgramRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
+  SessionTranscriptSearchResult,
   VmPreference,
   VmPreferenceInput,
   WorkspaceSnapshot
@@ -19,6 +20,7 @@ import { NotificationDetailModal } from '../features/notifications/Notifications
 import { ProgramInformationModal, ProgramSessionHistoryModal } from '../features/programs/ProgramModals';
 import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingModal';
 import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
+import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
@@ -40,6 +42,7 @@ export function AppModals({
   programDraft,
   programInfo,
   researchPromptDetail,
+  searchOpen,
   selectedRunId,
   selectedTraceEvent,
   selectedTraceFinding,
@@ -62,6 +65,7 @@ export function AppModals({
   onCloseProfiling,
   onCloseProgramInfo,
   onCloseResearchPrompt,
+  onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
   onCloseTraceDetail,
@@ -77,6 +81,7 @@ export function AppModals({
   onStartedNewResearch,
   onSteerNotification,
   onSubmitProgramOnboarding,
+  onOpenSearchResult,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
@@ -91,6 +96,7 @@ export function AppModals({
   programDraft: ProgramOnboardingFormState | null;
   programInfo: ProgramRegistryEntry | null;
   researchPromptDetail: RunDetail | null;
+  searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
   selectedTraceFinding: FindingRecord | null;
@@ -113,6 +119,7 @@ export function AppModals({
   onCloseProfiling: () => void;
   onCloseProgramInfo: () => void;
   onCloseResearchPrompt: () => void;
+  onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
   onCloseTraceDetail: () => void;
@@ -128,6 +135,7 @@ export function AppModals({
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitProgramOnboarding: () => void;
+  onOpenSearchResult: (result: SessionTranscriptSearchResult) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
@@ -183,6 +191,14 @@ export function AppModals({
           visibleCategories={visibleTraceCategories}
           onChange={onChangeVisibleTraceCategories}
           onClose={onCloseTraceFilters}
+        />
+      ) : null}
+      {searchOpen ? (
+        <TranscriptSearchModal
+          workspaceOpen={Boolean(snapshot)}
+          selectedRunId={selectedRunId}
+          onClose={onCloseSearch}
+          onOpenResult={onOpenSearchResult}
         />
       ) : null}
       {activeNotification ? (

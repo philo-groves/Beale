@@ -27,6 +27,7 @@
 - Added renderer trace visual tests for trace category filter metadata and trace type labels.
 - Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
 - Added main profiling service tests for structured JSONL output.
+- Added a sidebar Search modal with real-time active-workspace session transcript search, clickable session results that focus the matching trace row, a single-line search field, and wrapped left-aligned result previews.
 
 ### Changed
 
@@ -52,6 +53,7 @@
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
 - Changed Linux startup to show the window only after applying the native shape mask, refresh the mask during early compositor startup, and hide the light CSS outer border that made the shaped edge look grainy.
 - Retuned the Linux/WSLg native shape mask to cover compositor corner leakage while removing the Linux app-shell border entirely to avoid a visible window outline.
+- Limited Electron's native `roundedCorners` option to macOS and Windows so Linux/WSLg uses only the CSS radius plus the explicit native shape mask.
 - Removed the VM environment pill activity sheen animation from the footer.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.

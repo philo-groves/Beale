@@ -13,6 +13,8 @@ import type {
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
+  SessionTranscriptSearchInput,
+  SessionTranscriptSearchResult,
   StartRunInput,
   SteeringAction,
   VmPreferenceInput,
@@ -107,6 +109,9 @@ const api: BealeApi = {
   },
   getRunDetailUpdate(runId: string, cursor) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailUpdate, runId, cursor);
+  },
+  searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResult[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.searchSessionTranscripts, input);
   },
   steerRun(action: SteeringAction) {
     return ipcRenderer.invoke(IPC_CHANNELS.steerRun, action);
