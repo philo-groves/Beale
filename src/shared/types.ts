@@ -326,7 +326,7 @@ export interface ProjectStructureSummary {
 export interface ProjectSemanticSummary {
   scopeVersionId: string;
   enabled: boolean;
-  status: 'disabled' | 'empty' | 'ready' | 'stale';
+  status: 'disabled' | 'empty' | 'queued' | 'indexing' | 'ready' | 'stale' | 'error' | 'canceled';
   provider: string;
   model: string;
   remoteEmbeddingEnabled: boolean;
@@ -338,6 +338,11 @@ export interface ProjectSemanticSummary {
   lastRefreshDurationMs: number | null;
   namespaceCounts: Record<string, number>;
   indexedAt: string | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  jobReason: string | null;
+  lastError: string | null;
 }
 
 export interface ProjectSemanticSearchResult {

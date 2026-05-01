@@ -4929,6 +4929,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .readiness-development-fallback .status-icon,
 .readiness-disabled .status-icon,
 .readiness-empty .status-icon,
+.readiness-queued .status-icon,
 .readiness-stale .status-icon,
 .readiness-oauth_command_failed .status-icon,
 .readiness-oauth-command-failed .status-icon,
@@ -4936,6 +4937,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .readiness-not-configured .status-icon {
   color: var(--amber);
   background: var(--amber-soft);
+}
+
+.readiness-error .status-icon {
+  color: var(--red);
+  background: var(--red-soft);
 }
 
 .openai-isolation,
@@ -5177,7 +5183,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .status-stopped,
-.status-failed {
+.status-failed,
+.status-error {
   background: var(--red-soft);
   color: var(--red);
 }
@@ -5186,6 +5193,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .status-oauth-ready,
 .status-enabled,
 .status-available,
+.status-indexing,
 .status-ready {
   background: var(--green-soft);
   color: var(--green);
@@ -5198,8 +5206,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .status-configured,
 .status-empty,
+.status-queued,
 .status-disabled,
 .status-stale,
+.status-canceled,
 .status-unavailable,
 .status-development_fallback,
 .status-development-fallback,

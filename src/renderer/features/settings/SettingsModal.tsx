@@ -274,6 +274,10 @@ function semanticHeading(summary: ProjectSemanticSummary | null, programName: st
   const name = programName?.trim() || 'the active program';
   if (!summary) return 'Open a program to manage project understanding indexes.';
   if (!summary.enabled) return `Semantic search is off for ${name}.`;
+  if (summary.status === 'queued') return `Semantic indexing is queued for ${name}.`;
+  if (summary.status === 'indexing') return `Semantic indexing is running for ${name}.`;
+  if (summary.status === 'error') return `Semantic indexing failed for ${name}.`;
+  if (summary.status === 'canceled') return `Semantic indexing was canceled for ${name}.`;
   if (summary.status === 'stale') return `Semantic search for ${name} needs rebuild.`;
   if (summary.chunkCount === 0) return `Semantic search is on for ${name}, but no chunks are indexed yet.`;
   return `Semantic search is on for ${name}.`;
@@ -281,6 +285,10 @@ function semanticHeading(summary: ProjectSemanticSummary | null, programName: st
 
 function semanticDetail(summary: ProjectSemanticSummary | null): string {
   if (!summary) return 'Semantic indexing is scoped to a single program and stored locally under .beale/.';
+  if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.`;
+  if (summary.status === 'indexing') return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.`;
+  if (summary.status === 'error') return `Last error: ${summary.lastError || 'Semantic indexing failed. Search remains available without fresh semantic results.'}`;
+  if (summary.status === 'canceled') return `Canceled ${summary.finishedAt ? formatSessionDateTime(summary.finishedAt) : 'recently'}.`;
   const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';
   const model = `${summary.provider} / ${summary.model}`;
   const remote = summary.remoteEmbeddingEnabled ? 'Remote embeddings are enabled.' : 'Remote embeddings are off; indexed material stays local.';

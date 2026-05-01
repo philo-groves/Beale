@@ -30,6 +30,30 @@ This should be an internal service used by existing tools first, not a new model
 
 The index should be program-scoped, local-first, and disposable with the program metadata. It should live under `.beale/`, never be mounted into a guest VM, and never cross workspace or program boundaries unless the user explicitly enables linked-program search later.
 
+## Background Indexing Model
+
+Production developer tools keep search smooth by separating foreground retrieval from background indexing. VS Code's normal text search is built around external search work such as `ripgrep`, not renderer-thread scanning. Copilot and GitHub repository indexing expose index availability as background state: workspace context can use open files, exact search, terminal state, and semantic index data, while repository indexing can take time on first build and update later as the codebase changes.
+
+Beale should follow that pattern:
+
+- Model-facing tools must never build or refresh inventory, structural, or semantic indexes inline during a live turn.
+- Program open, source materialization, scope changes, file changes, provider/model changes, and manual rebuilds enqueue background indexing work.
+- Retrieval uses the newest usable index, even if stale, and reports status and provenance instead of blocking the session.
+- Direct bounded search and exact reads remain available when indexes are empty, stale, disabled, or failed.
+- Background failures do not fail an active research session. They produce status, errors, and recovery actions in the UI.
+
+The required worker design is:
+
+- Run indexing outside the renderer path and outside model-response handling.
+- Use a dedicated worker process or worker thread with its own SQLite connection, WAL mode, busy timeouts, chunked transactions, cancellation, and progress checkpoints.
+- Prioritize active target paths, recently opened/read files, manifests, routes, security-sensitive sinks, Beale research memory, and files mentioned by the current session before whole-repository indexing.
+- Keep job states explicit: `disabled`, `empty`, `queued`, `indexing`, `ready`, `stale`, `error`, and `canceled`.
+- Let Settings show queued/indexing/stale/error state, progress, last indexed time, last error, and a manual rebuild action.
+- Prefer `git ls-files` for repository roots, honor ignore rules, cap large repositories, and store only bounded previews in low layers.
+- Keep remote embedding providers opt-in. If remote embeddings are added later, Settings must clearly state that indexed material leaves the machine.
+
+The current beta transition should be incremental. First, remove synchronous index refreshes from UI and model-facing paths. Next, add persistent queued/indexing/error status and a non-blocking scheduler. Then move expensive inventory, structural, and semantic builds into an isolated worker.
+
 ## Implementation Status
 
 The first implementation covers Layer 0 and Layer 1:
@@ -63,6 +87,8 @@ The third implementation starts Layer 3:
 - Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
 - Semantic status reports `stale` when indexed chunks no longer match source documents or the local provider/model version changes.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
+- As of the beta background-indexing transition, model-facing `search` and `code_browser` must not rebuild indexes inline. They may use stale index state and exact bounded reads while background work catches up.
+- Settings-driven semantic enable/rebuild requests now record queued/indexing/error status and run through a deferred scheduler. Moving expensive builds into a separate worker process or thread remains the next scalability step.
 
 ## Index Layers
 
@@ -354,6 +380,10 @@ Long term:
 - CodexGraph: https://arxiv.org/abs/2408.03910
 - LLM Agents Improve Semantic Code Search: https://arxiv.org/abs/2408.11058
 - GitHub Copilot embedding model for VS Code: https://github.blog/news-insights/product-news/copilot-new-embedding-model-vs-code/
+- VS Code Copilot workspace context: https://code.visualstudio.com/docs/copilot/reference/workspace-context
+- GitHub Copilot repository indexing: https://docs.github.com/en/copilot/concepts/context/repository-indexing
+- VS Code Copilot settings: https://code.visualstudio.com/docs/copilot/reference/copilot-settings
+- VS Code search implementation notes: https://github.com/microsoft/vscode/wiki/Search-Issues
 - Cursor secure codebase indexing: https://cursor.com/blog/secure-codebase-indexing
 - Sourcegraph Cody context and code graph docs: https://sourcegraph.com/docs/cody/core-concepts/context and https://sourcegraph.com/docs/cody/core-concepts/code-graph
 - Sourcegraph agentic context fetching: https://sourcegraph.com/docs/cody/capabilities/agentic-context-fetching

@@ -445,6 +445,17 @@ interface ProjectStructureCandidate {
   relations?: Array<Omit<ProjectStructureRelationInput, 'scopeVersionId' | 'sourceEntityId' | 'indexedAt'>>;
 }
 
+type ProjectSemanticJobStatus = Extract<ProjectSemanticSummary['status'], 'queued' | 'indexing' | 'error' | 'canceled'>;
+
+interface ProjectSemanticJobState {
+  status: ProjectSemanticJobStatus;
+  reason: string;
+  queuedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+}
+
 export interface ProjectStructureEntityRecord {
   id: string;
   scopeVersionId: string;
@@ -492,6 +503,7 @@ const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
 const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
 const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
+const PROJECT_SEMANTIC_JOB_META_KEY = 'project_semantic_index_job';
 const PROJECT_SEMANTIC_VECTOR_PROVIDER = 'local_hash';
 const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v2';
 const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
@@ -506,6 +518,10 @@ function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
 
 function projectSemanticRefreshMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}:last_refresh`;
+}
+
+function projectSemanticJobMetaKey(scopeVersionId: string): string {
+  return `${PROJECT_SEMANTIC_JOB_META_KEY}:${scopeVersionId}`;
 }
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
@@ -4025,9 +4041,78 @@ export class WorkspaceDatabase {
     return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) === '1';
   }
 
-  public setProjectSemanticIndexEnabled(enabled: boolean, scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+  public setProjectSemanticIndexEnabled(
+    enabled: boolean,
+    scopeVersionId = this.getActiveScope().id,
+    options: { refresh?: boolean } = {}
+  ): ProjectSemanticSummary {
     this.setMetaValue(projectSemanticEnabledMetaKey(scopeVersionId), enabled ? '1' : '0');
-    if (enabled) return this.refreshProjectSemanticIndex(scopeVersionId);
+    if (enabled && options.refresh !== false) {
+      return this.refreshProjectSemanticIndex(scopeVersionId, { reason: 'enabled' });
+    }
+    if (!enabled) {
+      this.clearProjectSemanticJobState(scopeVersionId);
+    }
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public queueProjectSemanticIndex(scopeVersionId = this.getActiveScope().id, reason = 'manual_rebuild'): ProjectSemanticSummary {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
+    const now = nowIso();
+    this.setProjectSemanticJobState(scopeVersionId, {
+      status: 'queued',
+      reason,
+      queuedAt: now,
+      startedAt: null,
+      finishedAt: null,
+      error: null
+    });
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public markProjectSemanticIndexingStarted(scopeVersionId = this.getActiveScope().id, reason = 'background_rebuild'): ProjectSemanticSummary {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
+    const existing = this.getProjectSemanticJobState(scopeVersionId);
+    const now = nowIso();
+    this.setProjectSemanticJobState(scopeVersionId, {
+      status: 'indexing',
+      reason: existing?.reason ?? reason,
+      queuedAt: existing?.queuedAt ?? now,
+      startedAt: now,
+      finishedAt: null,
+      error: null
+    });
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public markProjectSemanticIndexingFailed(scopeVersionId = this.getActiveScope().id, error: unknown, reason = 'background_rebuild'): ProjectSemanticSummary {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
+    const existing = this.getProjectSemanticJobState(scopeVersionId);
+    this.setProjectSemanticJobState(scopeVersionId, {
+      status: 'error',
+      reason: existing?.reason ?? reason,
+      queuedAt: existing?.queuedAt ?? null,
+      startedAt: existing?.startedAt ?? null,
+      finishedAt: nowIso(),
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return this.getProjectSemanticSummary(scopeVersionId);
+  }
+
+  public markProjectSemanticIndexingCanceled(scopeVersionId = this.getActiveScope().id, reason = 'disabled'): ProjectSemanticSummary {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) {
+      this.clearProjectSemanticJobState(scopeVersionId);
+      return this.getProjectSemanticSummary(scopeVersionId);
+    }
+    const existing = this.getProjectSemanticJobState(scopeVersionId);
+    this.setProjectSemanticJobState(scopeVersionId, {
+      status: 'canceled',
+      reason,
+      queuedAt: existing?.queuedAt ?? null,
+      startedAt: existing?.startedAt ?? null,
+      finishedAt: nowIso(),
+      error: null
+    });
     return this.getProjectSemanticSummary(scopeVersionId);
   }
 
@@ -4069,10 +4154,13 @@ export class WorkspaceDatabase {
     const sourceDocumentCount = sourceRow ? numberValue(sourceRow, 'source_document_count') : 0;
     const indexedSourceDocumentCount = row ? numberValue(row, 'indexed_source_document_count') : 0;
     const stale = enabled && chunkCount > 0 && (indexedSourceDocumentCount !== sourceDocumentCount || this.projectSemanticIndexLooksStale(scopeVersionId, indexedAt));
+    const job = this.getProjectSemanticJobState(scopeVersionId);
+    const derivedStatus: ProjectSemanticSummary['status'] = !enabled ? 'disabled' : stale ? 'stale' : chunkCount > 0 ? 'ready' : 'empty';
+    const status: ProjectSemanticSummary['status'] = enabled && job ? job.status : derivedStatus;
     return {
       scopeVersionId,
       enabled,
-      status: !enabled ? 'disabled' : stale ? 'stale' : chunkCount > 0 ? 'ready' : 'empty',
+      status,
       provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
       model: PROJECT_SEMANTIC_VECTOR_MODEL,
       remoteEmbeddingEnabled: false,
@@ -4083,7 +4171,12 @@ export class WorkspaceDatabase {
       indexSizeBytes: row ? numberValue(row, 'index_size_bytes') : 0,
       lastRefreshDurationMs: this.getProjectSemanticLastRefreshDurationMs(scopeVersionId),
       namespaceCounts,
-      indexedAt
+      indexedAt,
+      queuedAt: job?.queuedAt ?? null,
+      startedAt: job?.startedAt ?? null,
+      finishedAt: job?.finishedAt ?? null,
+      jobReason: job?.reason ?? null,
+      lastError: job?.error ?? null
     };
   }
 
@@ -4096,9 +4189,12 @@ export class WorkspaceDatabase {
     return summary;
   }
 
-  public refreshProjectSemanticIndex(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
+  public refreshProjectSemanticIndex(scopeVersionId = this.getActiveScope().id, options: { refreshInventory?: boolean; reason?: string } = {}): ProjectSemanticSummary {
     if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
-    this.ensureProjectInventory(scopeVersionId);
+    this.markProjectSemanticIndexingStarted(scopeVersionId, options.reason ?? 'manual_rebuild');
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
     const startedAt = Date.now();
     const indexedAt = nowIso();
     const documents = rows(
@@ -4112,27 +4208,33 @@ export class WorkspaceDatabase {
         .all(scopeVersionId)
     ).map((row) => this.mapProjectSearchDocument(row));
 
-    this.transaction(() => {
-      this.db.prepare('DELETE FROM project_semantic_chunks WHERE scope_version_id = ?').run(scopeVersionId);
-      for (const document of documents) {
-        for (const chunk of semanticChunksForDocument(document, indexedAt)) {
-          this.insertProjectSemanticChunk(chunk);
+    try {
+      this.transaction(() => {
+        this.db.prepare('DELETE FROM project_semantic_chunks WHERE scope_version_id = ?').run(scopeVersionId);
+        for (const document of documents) {
+          for (const chunk of semanticChunksForDocument(document, indexedAt)) {
+            this.insertProjectSemanticChunk(chunk);
+          }
         }
-      }
-    });
+      });
 
-    const refreshed = this.getProjectSemanticSummary(scopeVersionId);
-    this.setMetaValue(
-      projectSemanticRefreshMetaKey(scopeVersionId),
-      JSON.stringify({
-        durationMs: Date.now() - startedAt,
-        sourceDocumentCount: documents.length,
-        chunkCount: refreshed.chunkCount,
-        indexSizeBytes: refreshed.indexSizeBytes
-      }),
-      nowIso()
-    );
-    return this.getProjectSemanticSummary(scopeVersionId);
+      this.clearProjectSemanticJobState(scopeVersionId);
+      const refreshed = this.getProjectSemanticSummary(scopeVersionId);
+      this.setMetaValue(
+        projectSemanticRefreshMetaKey(scopeVersionId),
+        JSON.stringify({
+          durationMs: Date.now() - startedAt,
+          sourceDocumentCount: documents.length,
+          chunkCount: refreshed.chunkCount,
+          indexSizeBytes: refreshed.indexSizeBytes
+        }),
+        nowIso()
+      );
+      return this.getProjectSemanticSummary(scopeVersionId);
+    } catch (error) {
+      this.markProjectSemanticIndexingFailed(scopeVersionId, error, options.reason ?? 'manual_rebuild');
+      throw error;
+    }
   }
 
   public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8, options: { refreshIndex?: boolean } = {}): ProjectSemanticSearchResult[] {
@@ -5064,6 +5166,34 @@ export class WorkspaceDatabase {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
       )
       .run(key, value, updatedAt);
+  }
+
+  private deleteMetaValue(key: string): void {
+    this.db.prepare('DELETE FROM workspace_meta WHERE key = ?').run(key);
+  }
+
+  private getProjectSemanticJobState(scopeVersionId: string): ProjectSemanticJobState | null {
+    const value = this.getMetaValue(projectSemanticJobMetaKey(scopeVersionId));
+    if (!value) return null;
+    const parsed = parseJson(value);
+    const status = parsed.status;
+    if (status !== 'queued' && status !== 'indexing' && status !== 'error' && status !== 'canceled') return null;
+    return {
+      status,
+      reason: typeof parsed.reason === 'string' ? parsed.reason : 'background_rebuild',
+      queuedAt: typeof parsed.queuedAt === 'string' ? parsed.queuedAt : null,
+      startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : null,
+      finishedAt: typeof parsed.finishedAt === 'string' ? parsed.finishedAt : null,
+      error: typeof parsed.error === 'string' ? parsed.error : null
+    };
+  }
+
+  private setProjectSemanticJobState(scopeVersionId: string, state: ProjectSemanticJobState): void {
+    this.setMetaValue(projectSemanticJobMetaKey(scopeVersionId), JSON.stringify(state), nowIso());
+  }
+
+  private clearProjectSemanticJobState(scopeVersionId: string): void {
+    this.deleteMetaValue(projectSemanticJobMetaKey(scopeVersionId));
   }
 
   private insertScopeAsset(scopeVersionId: string, asset: ScopeAssetInput, createdAt: string): void {

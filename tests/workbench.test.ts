@@ -41,7 +41,7 @@ describe('Beale workbench skeleton', () => {
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
     const enabledSemantic = service.setProjectSemanticIndexEnabled(true);
     expect(enabledSemantic.projectSemantic.enabled).toBe(true);
-    expect(['empty', 'ready']).toContain(enabledSemantic.projectSemantic.status);
+    expect(['empty', 'queued', 'ready']).toContain(enabledSemantic.projectSemantic.status);
     expect(service.refreshProjectSemanticIndex().projectSemantic.enabled).toBe(true);
     expect(service.setProjectSemanticIndexEnabled(false).projectSemantic.status).toBe('disabled');
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
