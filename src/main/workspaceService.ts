@@ -586,6 +586,8 @@ export class WorkspaceService {
   public saveProgramScope(scope: ProgramScopeDraft): WorkspaceSnapshot {
     const db = this.requireDb();
     db.saveProgramScope(scope);
+    const runtime = this.getForegroundRuntime();
+    if (runtime) this.scheduleProjectSemanticIndexIfNeeded(runtime, 'scope_changed');
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -1438,6 +1440,7 @@ export class WorkspaceService {
     this.executorRunEngine = runtime.executorRunEngine;
     this.benchmarkRunner = runtime.benchmarkRunner;
     this.semanticIndexExecutor.resume(runtime);
+    this.scheduleProjectSemanticIndexIfNeeded(runtime, 'workspace_open');
   }
 
   private detachForegroundRuntime(): WorkspaceRuntime | null {
@@ -1484,9 +1487,18 @@ export class WorkspaceService {
     runtime.db.close();
   }
 
+  private scheduleProjectSemanticIndexIfNeeded(runtime: WorkspaceRuntime, fallbackReason: string): void {
+    const activeScope = runtime.db.getActiveScope();
+    const reason = runtime.db.getProjectSemanticAutoRefreshReason(activeScope.id, fallbackReason);
+    if (!reason) return;
+    runtime.db.queueProjectSemanticIndex(activeScope.id, reason);
+    this.semanticIndexExecutor.schedule(activeScope.id, reason, runtime.workspacePath);
+  }
+
   private emitRuntimeChange(workspacePath: string): void {
     if (this.workspacePath === workspacePath) {
       const runtime = this.getForegroundRuntime();
+      if (runtime) this.scheduleProjectSemanticIndexIfNeeded(runtime, 'search_documents_changed');
       if (runtime && this.hasActiveRuntimeWork(runtime)) {
         return;
       }
@@ -1498,6 +1510,7 @@ export class WorkspaceService {
     }
     const runtime = this.backgroundRuntimes.get(workspacePath);
     if (runtime) {
+      this.scheduleProjectSemanticIndexIfNeeded(runtime, 'search_documents_changed');
       if (!this.hasActiveRuntimeWork(runtime)) {
         this.syncProgramRegistryForRuntime(runtime, false);
         this.onChange({ programRegistryChanged: true });

@@ -191,12 +191,14 @@ describe('structured research tools', () => {
       payload: { text: 'SemanticLifecycleNeedle' }
     });
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
+    expect(db.getProjectSemanticAutoRefreshReason(context.run.scopeVersionId, 'test_auto')).toBe('search_document_changed');
     const staleSemanticToolSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
     expect(staleSemanticToolSearch.status).toBe('success');
     expect(staleSemanticToolSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale' });
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
     const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'ready' });
+    expect(db.getProjectSemanticAutoRefreshReason(context.run.scopeVersionId, 'test_auto')).toBeNull();
     expect(semanticResults.some((result) => result.namespace === 'mobile' || result.metadata.entityKind === 'mobile_permission')).toBe(true);
     const identifierSemanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'access check authorization guard', 20);
     const identifierSemanticHit = identifierSemanticResults.find((result) => result.title.includes('check_access') || result.snippet.includes('check_access'));
@@ -256,6 +258,30 @@ describe('structured research tools', () => {
     expect(verifierIdRead.status).toBe('error');
     expect(verifierIdRead.payload.error).toBe('unsupported_resource_id_for_code_browser');
     expect(String(verifierIdRead.payload.recoveryHint)).toContain('resource_lookup');
+    db.close();
+  });
+
+  it('carries semantic indexing across scope versions and marks new source material dirty', () => {
+    const { db, targetDir } = openStructuredToolDb();
+    const previousScope = db.getActiveScope();
+    expect(db.setProjectSemanticIndexEnabled(true, previousScope.id)).toMatchObject({ enabled: true, status: 'ready' });
+
+    const nextScope = db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'path',
+          value: join(targetDir, 'src'),
+          sensitivity: 'internal',
+          attributes: { source: 'materialized_test' }
+        }
+      ]
+    });
+
+    expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: true, status: 'empty' });
+    expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBe('search_document_changed');
     db.close();
   });
 

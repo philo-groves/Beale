@@ -458,6 +458,11 @@ interface ProjectSemanticJobState {
   total: number | null;
 }
 
+interface ProjectSemanticDirtyState {
+  reason: string;
+  markedAt: string;
+}
+
 export interface ProjectStructureEntityRecord {
   id: string;
   scopeVersionId: string;
@@ -506,6 +511,7 @@ const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
 const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
 const PROJECT_SEMANTIC_JOB_META_KEY = 'project_semantic_index_job';
+const PROJECT_SEMANTIC_DIRTY_META_KEY = 'project_semantic_index_dirty';
 const PROJECT_SEMANTIC_VECTOR_PROVIDER = 'local_hash';
 const PROJECT_SEMANTIC_VECTOR_MODEL = 'local-hash-v2';
 const PROJECT_SEMANTIC_MAX_SOURCE_CHARS = 64 * 1024;
@@ -524,6 +530,10 @@ function projectSemanticRefreshMetaKey(scopeVersionId: string): string {
 
 function projectSemanticJobMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_JOB_META_KEY}:${scopeVersionId}`;
+}
+
+function projectSemanticDirtyMetaKey(scopeVersionId: string): string {
+  return `${PROJECT_SEMANTIC_DIRTY_META_KEY}:${scopeVersionId}`;
 }
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
@@ -2375,6 +2385,8 @@ export class WorkspaceDatabase {
   }
 
   public saveProgramScope(draft: ProgramScopeDraft): ProgramScopeVersion {
+    const previousActiveScope = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1').get('active'));
+    const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : false;
     const cleanedAssets = draft.assets
       .map((asset) => ({
         ...asset,
@@ -2413,6 +2425,9 @@ export class WorkspaceDatabase {
 
       for (const asset of cleanedAssets) {
         this.insertScopeAsset(id, asset, createdAt);
+      }
+      if (semanticEnabledForPreviousScope) {
+        this.setMetaValue(projectSemanticEnabledMetaKey(id), '1', createdAt);
       }
     });
 
@@ -4055,6 +4070,7 @@ export class WorkspaceDatabase {
     }
     if (!enabled) {
       this.clearProjectSemanticJobState(scopeVersionId);
+      this.clearProjectSemanticDirtyState(scopeVersionId);
     }
     return this.getProjectSemanticSummary(scopeVersionId);
   }
@@ -4127,6 +4143,20 @@ export class WorkspaceDatabase {
     return this.getProjectSemanticSummary(scopeVersionId);
   }
 
+  public getProjectSemanticAutoRefreshReason(scopeVersionId = this.getActiveScope().id, fallbackReason = 'auto_refresh'): string | null {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return null;
+    const job = this.getProjectSemanticJobState(scopeVersionId);
+    if (job?.status === 'queued' || job?.status === 'indexing') return null;
+    const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
+    if (dirty) return dirty.reason;
+    const summary = this.getProjectSemanticSummary(scopeVersionId);
+    if (summary.status === 'empty' || summary.status === 'stale') return fallbackReason;
+    if (summary.status === 'canceled' && (summary.chunkCount === 0 || this.projectSemanticIndexLooksStale(scopeVersionId, summary.indexedAt))) {
+      return summary.jobReason ?? fallbackReason;
+    }
+    return null;
+  }
+
   public beginProjectSemanticIndexRefresh(
     scopeVersionId = this.getActiveScope().id,
     reason = 'background_rebuild'
@@ -4197,6 +4227,7 @@ export class WorkspaceDatabase {
            AND indexed_at <> ?`
       )
       .run(scopeVersionId, indexedAt);
+    this.clearProjectSemanticDirtyState(scopeVersionId, indexedAt);
     this.clearProjectSemanticJobState(scopeVersionId);
     const refreshed = this.getProjectSemanticSummary(scopeVersionId);
     this.setMetaValue(
@@ -5279,6 +5310,35 @@ export class WorkspaceDatabase {
     this.deleteMetaValue(projectSemanticJobMetaKey(scopeVersionId));
   }
 
+  private getProjectSemanticDirtyState(scopeVersionId: string): ProjectSemanticDirtyState | null {
+    const value = this.getMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
+    if (!value) return null;
+    const parsed = parseJson(value);
+    const reason = typeof parsed.reason === 'string' && parsed.reason.trim() ? parsed.reason : 'search_document_changed';
+    const markedAt = typeof parsed.markedAt === 'string' ? parsed.markedAt : '';
+    return markedAt ? { reason, markedAt } : null;
+  }
+
+  private markProjectSemanticIndexDirty(scopeVersionId: string, reason: string): void {
+    if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return;
+    const markedAt = nowIso();
+    this.setMetaValue(projectSemanticDirtyMetaKey(scopeVersionId), JSON.stringify({ reason, markedAt }), markedAt);
+  }
+
+  private clearProjectSemanticDirtyState(scopeVersionId: string, indexedAt?: string): void {
+    if (!indexedAt) {
+      this.deleteMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
+      return;
+    }
+    const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
+    if (!dirty) return;
+    const dirtyTime = Date.parse(dirty.markedAt);
+    const indexedTime = Date.parse(indexedAt);
+    if (!Number.isFinite(dirtyTime) || !Number.isFinite(indexedTime) || dirtyTime <= indexedTime) {
+      this.deleteMetaValue(projectSemanticDirtyMetaKey(scopeVersionId));
+    }
+  }
+
   private insertScopeAsset(scopeVersionId: string, asset: ScopeAssetInput, createdAt: string): void {
     this.db
       .prepare(
@@ -5830,11 +5890,16 @@ export class WorkspaceDatabase {
   }
 
   private deleteProjectSearchDocuments(whereSql: string, params: SqlPrimitive[]): void {
-    const docRows = rows(this.db.prepare(`SELECT id FROM project_search_documents WHERE ${whereSql}`).all(...params));
+    const docRows = rows(this.db.prepare(`SELECT id, scope_version_id FROM project_search_documents WHERE ${whereSql}`).all(...params));
+    const affectedScopeVersionIds = new Set<string>();
     for (const row of docRows) {
       this.db.prepare('DELETE FROM project_search_fts WHERE document_id = ?').run(text(row, 'id'));
+      affectedScopeVersionIds.add(text(row, 'scope_version_id'));
     }
     this.db.prepare(`DELETE FROM project_search_documents WHERE ${whereSql}`).run(...params);
+    for (const scopeVersionId of affectedScopeVersionIds) {
+      this.markProjectSemanticIndexDirty(scopeVersionId, 'search_document_changed');
+    }
   }
 
   private upsertProjectSearchDocument(input: ProjectSearchDocumentInput): void {
@@ -5843,6 +5908,15 @@ export class WorkspaceDatabase {
     const id = projectSearchDocumentId(input.scopeVersionId, input.entityType, input.entityId);
     const body = input.body.trim();
     const title = input.title.trim() || `${input.entityType} ${input.entityId}`;
+    const sourcePath = input.sourcePath && input.sourcePath.length > 0 ? input.sourcePath : null;
+    const metadataJson = toJson(input.metadata);
+    const existing = rowOrUndefined(this.db.prepare('SELECT title, body, source_path, metadata_json FROM project_search_documents WHERE id = ?').get(id));
+    const meaningfulChange =
+      !existing ||
+      text(existing, 'title') !== title ||
+      text(existing, 'body') !== body ||
+      (nullableText(existing, 'source_path') ?? null) !== sourcePath ||
+      text(existing, 'metadata_json') !== metadataJson;
     this.db
       .prepare(
         `INSERT INTO project_search_documents (
@@ -5866,8 +5940,8 @@ export class WorkspaceDatabase {
         input.entityId,
         title,
         body,
-        input.sourcePath ?? null,
-        toJson(input.metadata),
+        sourcePath,
+        metadataJson,
         createdAt,
         updatedAt
       );
@@ -5879,6 +5953,9 @@ export class WorkspaceDatabase {
         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(id, input.scopeVersionId, input.runId ?? null, input.entityType, input.entityId, title, body);
+    if (meaningfulChange) {
+      this.markProjectSemanticIndexDirty(input.scopeVersionId, 'search_document_changed');
+    }
   }
 
   private indexRunSearchDocument(run: RunRecord): void {
