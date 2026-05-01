@@ -743,7 +743,7 @@ export class BealeToolRouter {
     }
 
     const requestedRange = requestedLineRangeFromArgs(args);
-    const structureEntity = !artifactTarget && symbol ? this.db.findProjectStructureEntity(context.run.scopeVersionId, filePath, symbol) : null;
+    const structureEntity = !artifactTarget && symbol ? this.db.findProjectStructureEntity(context.run.scopeVersionId, filePath, symbol, { refreshInventory: false }) : null;
     const structureRange = structureEntity && !requestedRange ? requestedLineRangeFromProjectStructureEntity(structureEntity) : null;
     const selection = readCodeBrowserText(filePath, symbol, requestedRange ?? structureRange);
     if (!selection) {
@@ -1747,12 +1747,14 @@ export class BealeToolRouter {
 
   private searchProjectMetadata(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
-    return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining).map((result) => this.projectSearchResultToToolMatch(result));
+    return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining, { refreshInventory: false }).map((result) => this.projectSearchResultToToolMatch(result));
   }
 
   private searchProjectSemantic(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
-    return this.db.searchProjectSemanticChunksForRun(context.run.id, query, Math.min(8, remaining)).map((result) => this.projectSemanticSearchResultToToolMatch(result));
+    return this.db
+      .searchProjectSemanticChunksForRun(context.run.id, query, Math.min(8, remaining), { refreshIndex: false })
+      .map((result) => this.projectSemanticSearchResultToToolMatch(result));
   }
 
   private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {
@@ -1852,16 +1854,18 @@ export class BealeToolRouter {
     }
 
     const rangeEntities = this.db
-      .listProjectStructureEntitiesInRange(context.run.scopeVersionId, filePath, selection.lineStart, selection.lineEnd)
+      .listProjectStructureEntitiesInRange(context.run.scopeVersionId, filePath, selection.lineStart, selection.lineEnd, 40, { refreshInventory: false })
       .filter((entity) => entity.id !== matchedEntity?.id);
     const containedEntities = rangeEntities
       .filter((entity) => entity.parentId === matchedEntity?.id || !matchedEntity)
       .slice(0, 20)
       .map(projectStructureEntityPayload);
-    const outgoingRelations = matchedEntity ? this.db.listProjectStructureRelationsForEntity(context.run.scopeVersionId, matchedEntity.id).map(projectStructureRelationPayload) : [];
+    const outgoingRelations = matchedEntity
+      ? this.db.listProjectStructureRelationsForEntity(context.run.scopeVersionId, matchedEntity.id, 40, { refreshInventory: false }).map(projectStructureRelationPayload)
+      : [];
     const incomingReferences = matchedEntity
       ? this.db
-          .listProjectStructureReferencesForTarget(context.run.scopeVersionId, { name: matchedEntity.name, entityId: matchedEntity.id })
+          .listProjectStructureReferencesForTarget(context.run.scopeVersionId, { name: matchedEntity.name, entityId: matchedEntity.id }, 40, { refreshInventory: false })
           .filter((relation) => relation.sourceEntityId !== matchedEntity.id)
           .slice(0, 20)
           .map(projectStructureRelationPayload)

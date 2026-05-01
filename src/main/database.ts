@@ -3902,8 +3902,10 @@ export class WorkspaceDatabase {
     };
   }
 
-  public findProjectStructureEntity(scopeVersionId: string, path: string, name: string): ProjectStructureEntityRecord | null {
-    this.ensureProjectInventory(scopeVersionId);
+  public findProjectStructureEntity(scopeVersionId: string, path: string, name: string, options: { refreshInventory?: boolean } = {}): ProjectStructureEntityRecord | null {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
     const normalizedName = name.trim();
     if (!normalizedName) return null;
     const row = rowOrUndefined(
@@ -3932,8 +3934,17 @@ export class WorkspaceDatabase {
     return row ? this.mapProjectStructureEntity(row) : null;
   }
 
-  public listProjectStructureEntitiesInRange(scopeVersionId: string, path: string, lineStart: number, lineEnd: number, limit = 40): ProjectStructureEntityRecord[] {
-    this.ensureProjectInventory(scopeVersionId);
+  public listProjectStructureEntitiesInRange(
+    scopeVersionId: string,
+    path: string,
+    lineStart: number,
+    lineEnd: number,
+    limit = 40,
+    options: { refreshInventory?: boolean } = {}
+  ): ProjectStructureEntityRecord[] {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
     const start = Math.max(1, Math.floor(lineStart));
     const end = Math.max(start, Math.floor(lineEnd));
     return rows(
@@ -3952,8 +3963,15 @@ export class WorkspaceDatabase {
     ).map((row) => this.mapProjectStructureEntity(row));
   }
 
-  public listProjectStructureRelationsForEntity(scopeVersionId: string, entityId: string, limit = 40): ProjectStructureRelationRecord[] {
-    this.ensureProjectInventory(scopeVersionId);
+  public listProjectStructureRelationsForEntity(
+    scopeVersionId: string,
+    entityId: string,
+    limit = 40,
+    options: { refreshInventory?: boolean } = {}
+  ): ProjectStructureRelationRecord[] {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
     return rows(
       this.db
         .prepare(
@@ -3968,8 +3986,15 @@ export class WorkspaceDatabase {
     ).map((row) => this.mapProjectStructureRelation(row));
   }
 
-  public listProjectStructureReferencesForTarget(scopeVersionId: string, target: { name: string; entityId?: string | null }, limit = 40): ProjectStructureRelationRecord[] {
-    this.ensureProjectInventory(scopeVersionId);
+  public listProjectStructureReferencesForTarget(
+    scopeVersionId: string,
+    target: { name: string; entityId?: string | null },
+    limit = 40,
+    options: { refreshInventory?: boolean } = {}
+  ): ProjectStructureRelationRecord[] {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
     const normalizedName = target.name.trim();
     if (!normalizedName && !target.entityId) return [];
     const clauses: string[] = [];
@@ -4110,12 +4135,14 @@ export class WorkspaceDatabase {
     return this.getProjectSemanticSummary(scopeVersionId);
   }
 
-  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8): ProjectSemanticSearchResult[] {
+  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8, options: { refreshIndex?: boolean } = {}): ProjectSemanticSearchResult[] {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
     const trimmed = query.trim();
     if (!trimmed || !this.getProjectSemanticIndexEnabled(run.scopeVersionId)) return [];
-    this.ensureProjectSemanticIndex(run.scopeVersionId);
+    if (options.refreshIndex !== false) {
+      this.ensureProjectSemanticIndex(run.scopeVersionId);
+    }
     const profile = semanticQueryProfile(trimmed);
     const queryVector = semanticVectorForText(trimmed, 'query');
     return rows(
@@ -4239,12 +4266,14 @@ export class WorkspaceDatabase {
     }
   }
 
-  public searchProjectDocumentsForRun(runId: string, query: string, limit = 20): ProjectSearchResult[] {
+  public searchProjectDocumentsForRun(runId: string, query: string, limit = 20, options: { refreshInventory?: boolean } = {}): ProjectSearchResult[] {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
     const trimmed = query.trim();
     if (!trimmed) return [];
-    this.ensureProjectInventory(run.scopeVersionId);
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(run.scopeVersionId);
+    }
 
     const ftsQuery = projectFtsQuery(trimmed);
     if (ftsQuery) {

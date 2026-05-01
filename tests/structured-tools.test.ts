@@ -110,6 +110,14 @@ describe('structured research tools', () => {
     writeFileSync(requirementsFile, 'freshdependency==1.2.3\n');
     const freshMtime = new Date(Date.now() + 2000);
     utimesSync(targetDir, freshMtime, freshMtime);
+    const staleInventoryFileCount = db.getProjectInventorySummary(context.run.scopeVersionId).fileCount;
+    const staleToolSearch = callTool(router, context, 'search', { query: 'freshdependency', target: '' });
+    expect(staleToolSearch.status).toBe('success');
+    expect(JSON.stringify(staleToolSearch.payload)).toContain('requirements.txt');
+    expect(db.getProjectInventorySummary(context.run.scopeVersionId).fileCount).toBe(staleInventoryFileCount);
+    const staleCodeRead = callTool(router, context, 'code_browser', { path: sourceFile, line_start: '1', line_end: '4' });
+    expect(staleCodeRead.status).toBe('success');
+    expect(db.getProjectInventorySummary(context.run.scopeVersionId).fileCount).toBe(staleInventoryFileCount);
     const refreshedManifestSearch = db.searchProjectDocumentsForRun(context.run.id, 'freshdependency');
     expect(JSON.stringify(refreshedManifestSearch)).toContain('requirements.txt');
     expect(JSON.stringify(refreshedManifestSearch)).toContain('freshdependency');
@@ -183,6 +191,10 @@ describe('structured research tools', () => {
       payload: { text: 'SemanticLifecycleNeedle' }
     });
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
+    const staleSemanticToolSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
+    expect(staleSemanticToolSearch.status).toBe('success');
+    expect(staleSemanticToolSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale' });
+    expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
     const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'ready' });
     expect(semanticResults.some((result) => result.namespace === 'mobile' || result.metadata.entityKind === 'mobile_permission')).toBe(true);
@@ -193,7 +205,7 @@ describe('structured research tools', () => {
     expect(identifierSemanticHit?.rankReason).toContain('term overlap');
     const semanticSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
     expect(semanticSearch.status).toBe('success');
-    expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'ready', remoteEmbeddingEnabled: false });
+    expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale', remoteEmbeddingEnabled: false });
     const semanticToolMatch = (semanticSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'semantic');
     expect(semanticToolMatch).toBeTruthy();
     expect(semanticToolMatch?.matchedBy).toBe('project_semantic_hybrid_local_hash');

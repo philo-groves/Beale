@@ -82,6 +82,8 @@
 - Changed the model-facing `search` tool to augment scoped file and binary-string results with indexed project metadata matches.
 - Changed the model-facing `search` tool to include local semantic chunk matches when semantic indexing is enabled for the active program.
 - Changed model-facing `search` results to dedupe direct file/artifact matches against project metadata matches for the same object.
+- Changed model-facing project metadata and semantic search to use existing indexes only, avoiding inline inventory or semantic rebuilds during active tool turns.
+- Changed model-facing code browser structural navigation to use existing structure indexes only, avoiding inline inventory rebuilds during active tool turns.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.
