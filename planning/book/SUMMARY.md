@@ -33,6 +33,7 @@ This book is the working planning document for the Beale rewrite.
 - [Open-Ended Discovery Scoring](open-ended-discovery-scoring.md)
 - [CWE-Guided Classification](cwe-guided-classification.md)
 - [Program Memory and Duplicate Control](program-memory-duplicate-control.md)
+- [Project Understanding and Indexing](project-understanding-indexing.md)
 - [Secret Isolation](secret-isolation.md)
 
 ## Chapter 4: Product Experience and Delivery
