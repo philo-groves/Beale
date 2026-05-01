@@ -120,10 +120,10 @@ function DuplicateBlockedTracePreview({
 }): JSX.Element {
   return (
     <span className="main-trace-duplicate-detail">
-      {detail.attributes ? <code className="main-trace-duplicate-attributes">{hasSearchHighlight ? renderSearchHighlightedText(detail.attributes, searchHighlightQuery) : detail.attributes}</code> : null}
       <span className="main-trace-prose main-trace-duplicate-title">
         {hasSearchHighlight ? renderSearchHighlightedText(detail.title, searchHighlightQuery) : renderTraceProseText(detail.title, 'agent_output')}
       </span>
+      {detail.attributes ? <code className="main-trace-duplicate-attributes">{hasSearchHighlight ? renderSearchHighlightedText(detail.attributes, searchHighlightQuery) : detail.attributes}</code> : null}
     </span>
   );
 }

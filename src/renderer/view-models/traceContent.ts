@@ -1029,7 +1029,7 @@ function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
 function duplicateBlockedEventDetailText(event: TraceEventRecord): string | null {
   const detail = duplicateBlockedTraceDetail(event);
   if (!detail) return null;
-  return [detail.attributes, detail.title].filter(Boolean).join('\n');
+  return [detail.title, detail.attributes].filter(Boolean).join('\n');
 }
 
 export function duplicateBlockedTraceDetail(event: TraceEventRecord): DuplicateBlockedTraceDetail | null {

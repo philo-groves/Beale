@@ -114,7 +114,7 @@ describe('renderer trace content view models', () => {
       }
     });
     expect(traceEventDetailText(duplicate, 'failure_recovery')).toBe(
-      'claim Duplicate Review · action Duplicate Blocked · matched finding finding_existing\nACME challenge middleware bypasses Pages access control'
+      'ACME challenge middleware bypasses Pages access control\nclaim Duplicate Review · action Duplicate Blocked · matched finding finding_existing'
     );
     expect(duplicateBlockedTraceDetail(duplicate)).toEqual({
       attributes: 'claim Duplicate Review · action Duplicate Blocked · matched finding finding_existing',
