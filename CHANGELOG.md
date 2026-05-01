@@ -101,6 +101,7 @@
 - Reduced trace and side-panel paint scope with CSS containment to make hover feedback less sensitive to active trace updates.
 - Fixed sidebar transition profiling so unrelated later CSS transitions do not pollute collapse/expand timing.
 - Fixed transcript search status counts so they use the full matching transcript total instead of the capped visible result list.
+- Fixed large trace-list manual scrolling so virtualized window slides no longer bounce back to a selected or earlier trace.
 
 ### Documentation
 

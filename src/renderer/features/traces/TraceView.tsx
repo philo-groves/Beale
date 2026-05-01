@@ -13,12 +13,16 @@ interface TraceScrollAnchor {
   offsetTop: number;
 }
 
+interface TraceScrollAnchorOptions {
+  canUseEventId?: (eventId: string) => boolean;
+  prefer?: 'first' | 'last';
+}
+
 const TRACE_RENDER_WINDOW_SIZE = 50;
 const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
 const TRACE_WINDOW_SLIDE_STEP = 12;
 const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
-const TRACE_WINDOW_ANCHOR_BUFFER = 8;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
 
@@ -88,6 +92,7 @@ export function TraceView({
   const traceAutoScrollFrameRef = useRef<number | null>(null);
   const traceAutoScrollSettledFrameRef = useRef<number | null>(null);
   const pendingTraceScrollAnchorRef = useRef<TraceScrollAnchor | null>(null);
+  const pendingSelectedTraceCenterRef = useRef<string | null>(selectedTraceEventId);
   const traceKnownEntryIdsRef = useRef<Set<string>>(new Set(timelineEntryIds));
   const tracePresentationKeyRef = useRef(tracePresentationKey);
   const traceRevealQueueRef = useRef<string[]>([]);
@@ -290,7 +295,12 @@ export function TraceView({
   }, [normalizedWindowStart, renderedEntries.length, updateTraceScrollEdges]);
 
   useLayoutEffect(() => {
+    pendingSelectedTraceCenterRef.current = selectedTraceEventId;
+  }, [selectedTraceEventId]);
+
+  useLayoutEffect(() => {
     if (!selectedTraceEventId) return;
+    if (pendingSelectedTraceCenterRef.current !== selectedTraceEventId) return;
     const selectedIndex = presentedEntryIndexById.get(selectedTraceEventId);
     if (selectedIndex === undefined) return;
     traceFollowLatestRef.current = false;
@@ -306,6 +316,7 @@ export function TraceView({
 
   useLayoutEffect(() => {
     if (!selectedTraceEventId) return undefined;
+    if (pendingSelectedTraceCenterRef.current !== selectedTraceEventId) return undefined;
     const traceList = traceListRef.current;
     if (!traceList) return undefined;
     const selectedNode = traceEventNodes(traceList).find((node) => node.dataset.traceEventId === selectedTraceEventId);
@@ -315,6 +326,7 @@ export function TraceView({
     traceRestoringAnchorRef.current = true;
     const centeredTop = selectedNode.offsetTop - Math.max(16, (traceList.clientHeight - selectedNode.offsetHeight) / 2);
     traceList.scrollTop = Math.max(0, centeredTop);
+    pendingSelectedTraceCenterRef.current = null;
     updateTraceScrollEdges();
     const frame = window.requestAnimationFrame(() => {
       traceRestoringAnchorRef.current = false;
@@ -382,13 +394,12 @@ export function TraceView({
     }
 
     const eventNodes = traceEventNodes(traceList);
-    const anchor = captureTraceScrollAnchor(traceList);
-    const anchorIndex = anchor ? presentedEntryIndexById.get(anchor.eventId) ?? null : null;
+    const visibleAnchor = captureTraceScrollAnchor(traceList);
     const viewportTop = traceList.scrollTop;
     const viewportBottom = viewportTop + traceList.clientHeight;
     let nextStart = normalizedWindowStart;
 
-    if (eventNodes.length === 0 || !anchor) {
+    if (eventNodes.length === 0 || !visibleAnchor) {
       nextStart = Math.floor(traceList.scrollTop / TRACE_ESTIMATED_EVENT_HEIGHT);
     } else {
       const firstRenderedTop = eventNodes[0]?.offsetTop ?? 0;
@@ -406,9 +417,14 @@ export function TraceView({
       }
     }
 
-    nextStart = clampTraceWindowStartForAnchor(nextStart, anchorIndex, maxWindowStart);
+    nextStart = Math.max(0, Math.min(maxWindowStart, nextStart));
     if (nextStart !== normalizedWindowStart) {
-      pendingTraceScrollAnchorRef.current = anchor;
+      pendingTraceScrollAnchorRef.current = captureTraceScrollAnchor(traceList, {
+        canUseEventId: (eventId) => {
+          const index = presentedEntryIndexById.get(eventId);
+          return index !== undefined && index >= nextStart && index < nextStart + TRACE_RENDER_WINDOW_SIZE;
+        }
+      });
       setTraceWindowStart(nextStart);
     }
   }, [maxWindowStart, normalizedWindowStart, presentedEntryIndexById, presentedTimelineEntries.length, updateTraceScrollEdges]);
@@ -624,33 +640,26 @@ function traceEventNodes(list: HTMLDivElement): HTMLElement[] {
   return Array.from(list.querySelectorAll<HTMLElement>('[data-trace-event-id]'));
 }
 
-function captureTraceScrollAnchor(list: HTMLDivElement): TraceScrollAnchor | null {
+function captureTraceScrollAnchor(list: HTMLDivElement, options: TraceScrollAnchorOptions = {}): TraceScrollAnchor | null {
   const viewportTop = list.scrollTop;
   const viewportBottom = viewportTop + list.clientHeight;
+  const candidates: TraceScrollAnchor[] = [];
 
   for (const node of traceEventNodes(list)) {
     const eventId = node.dataset.traceEventId;
     if (!eventId) continue;
+    if (options.canUseEventId && !options.canUseEventId(eventId)) continue;
     const nodeTop = node.offsetTop;
     const nodeBottom = nodeTop + node.offsetHeight;
     if (nodeBottom < viewportTop) continue;
     if (nodeTop > viewportBottom) break;
-    return {
+    candidates.push({
       eventId,
       offsetTop: nodeTop - viewportTop
-    };
+    });
   }
 
-  return null;
-}
-
-function clampTraceWindowStartForAnchor(nextStart: number, anchorIndex: number | null, maxWindowStart: number): number {
-  const clampedStart = Math.max(0, Math.min(maxWindowStart, nextStart));
-  if (anchorIndex === null) return clampedStart;
-
-  const minStart = Math.max(0, anchorIndex - TRACE_RENDER_WINDOW_SIZE + TRACE_WINDOW_ANCHOR_BUFFER);
-  const maxStart = Math.max(0, Math.min(maxWindowStart, anchorIndex - TRACE_WINDOW_ANCHOR_BUFFER));
-  return Math.max(minStart, Math.min(maxStart, clampedStart));
+  return options.prefer === 'last' ? candidates.at(-1) ?? null : candidates[0] ?? null;
 }
 
 function traceRevealBatchSize(queueLength: number): number {
