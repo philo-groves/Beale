@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
-import { traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
+import { toolNameFromSummary, traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
 import { tracePayloadPrimitive } from '../../traceClassification';
 import {
   duplicateBlockedTraceDetail,
@@ -42,6 +42,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const detailForEvent = traceEventNeedsRunDetail(event) ? detail : null;
   const category = useMemo(() => traceCategoryForEvent(event), [event]);
   const outcome = useMemo(() => traceEventOutcome(event), [event]);
+  const toolClassName = useMemo(() => traceToolClassName(event), [event]);
   const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
@@ -54,7 +55,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   return (
     <button
       type="button"
-      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
+      className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${toolClassName} ${eventKindClass} ${outcome ? `outcome-${outcome}` : ''} ${
         selected ? 'selected' : ''
       } ${
         entering ? 'trace-entering' : ''
@@ -201,6 +202,13 @@ function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventR
     return previous.detail?.traceEvents === next.detail?.traceEvents;
   }
   return previous.detail?.hypotheses === next.detail?.hypotheses && previous.detail?.findings === next.detail?.findings;
+}
+
+function traceToolClassName(event: TraceDisplayEvent): string {
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (!toolName) return '';
+  const safeName = toolName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+  return safeName ? `tool-${safeName}` : '';
 }
 
 function sameTraceDisplayEvent(previous: TraceDisplayEvent, next: TraceDisplayEvent): boolean {

@@ -2558,8 +2558,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trace-event.category-hypotheses .main-trace-marker span,
 .trace-filter-icon.category-hypotheses {
-  border-color: var(--amber);
-  color: var(--amber);
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .main-trace-event.category-evidence .main-trace-marker span,
@@ -2609,6 +2609,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .main-trace-event.category-failure_recovery.outcome-failure .main-trace-marker span {
   border-color: var(--amber);
   color: var(--amber);
+}
+
+.main-trace-event.tool-hypothesis .main-trace-marker span,
+.main-trace-event.tool-finding .main-trace-marker span,
+.main-trace-event.tool-hypothesis.outcome-success .main-trace-marker span,
+.main-trace-event.tool-finding.outcome-success .main-trace-marker span {
+  border-color: #f0f0f0;
+  background: #111111;
+  color: #f0f0f0;
 }
 
 .main-trace-line {
