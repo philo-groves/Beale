@@ -4,7 +4,7 @@ import type { DevMetricDetail } from '../devInstrumentation';
 export function selectRunId(current: string | null, snapshot: WorkspaceSnapshot | null): string | null {
   if (!snapshot) return null;
   if (current && snapshot.runs.some(({ run }) => run.id === current)) return current;
-  return snapshot.runs[0]?.run.id ?? null;
+  return snapshot.runs.find(({ run }) => run.status === 'active' || run.status === 'queued')?.run.id ?? null;
 }
 
 export function snapshotMetricDetail(snapshot: WorkspaceSnapshot | null): DevMetricDetail {

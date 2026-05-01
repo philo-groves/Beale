@@ -454,9 +454,11 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   workspaceService = new WorkspaceService(broadcastSnapshot);
-  workspaceService.openLastProgramIfAvailable();
   registerIpc();
   createWindow();
+  setImmediate(() => {
+    workspaceService.openLastProgramIfAvailable();
+  });
   if (smokeTestMode) {
     setTimeout(() => app.quit(), 1500);
   }

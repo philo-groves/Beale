@@ -210,16 +210,16 @@ function GeneralSettingsView({
             <strong>{projectSemantic ? projectSemantic.chunkCount.toLocaleString() : '0'}</strong>
           </div>
           <div>
-            <span>Namespaces</span>
-            <strong>{namespaceCountLabel(projectSemantic)}</strong>
+            <span>Sources</span>
+            <strong>{semanticSourceLabel(projectSemantic)}</strong>
           </div>
           <div>
-            <span>Provider</span>
-            <strong>{projectSemantic?.provider ?? 'local_hash'}</strong>
+            <span>Size</span>
+            <strong>{formatSemanticBytes(projectSemantic?.indexSizeBytes ?? 0)}</strong>
           </div>
           <div>
-            <span>Remote</span>
-            <strong>{projectSemantic?.remoteEmbeddingEnabled ? 'enabled' : 'off'}</strong>
+            <span>Build</span>
+            <strong>{formatSemanticDuration(projectSemantic?.lastRefreshDurationMs ?? null)}</strong>
           </div>
         </div>
 
@@ -274,6 +274,7 @@ function semanticHeading(summary: ProjectSemanticSummary | null, programName: st
   const name = programName?.trim() || 'the active program';
   if (!summary) return 'Open a program to manage project understanding indexes.';
   if (!summary.enabled) return `Semantic search is off for ${name}.`;
+  if (summary.status === 'stale') return `Semantic search for ${name} needs rebuild.`;
   if (summary.chunkCount === 0) return `Semantic search is on for ${name}, but no chunks are indexed yet.`;
   return `Semantic search is on for ${name}.`;
 }
@@ -286,9 +287,21 @@ function semanticDetail(summary: ProjectSemanticSummary | null): string {
   return `Last indexed ${indexed}. ${summary.embeddedChunkCount.toLocaleString()} embedded chunk${summary.embeddedChunkCount === 1 ? '' : 's'} using ${model}. ${remote}`;
 }
 
-function namespaceCountLabel(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return '0';
-  return Object.values(summary.namespaceCounts).filter((count) => count > 0).length.toLocaleString();
+function semanticSourceLabel(summary: ProjectSemanticSummary | null): string {
+  if (!summary) return '0/0';
+  return `${summary.indexedSourceDocumentCount.toLocaleString()}/${summary.sourceDocumentCount.toLocaleString()}`;
+}
+
+function formatSemanticBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
+}
+
+function formatSemanticDuration(durationMs: number | null): string {
+  if (durationMs === null) return 'never';
+  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))} ms`;
+  return `${Math.round((durationMs / 1000) * 10) / 10} s`;
 }
 
 function semanticNamespaceRows(summary: ProjectSemanticSummary | null): Array<[string, number]> {

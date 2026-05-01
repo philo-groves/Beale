@@ -503,6 +503,10 @@ const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
 function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}`;
 }
+
+function projectSemanticRefreshMetaKey(scopeVersionId: string): string {
+  return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}:last_refresh`;
+}
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -4027,23 +4031,34 @@ export class WorkspaceDatabase {
         .prepare(
           `SELECT
              SUM(CASE WHEN vector_json <> '{}' THEN 1 ELSE 0 END) AS embedded_chunk_count,
+             COUNT(DISTINCT source_document_id) AS indexed_source_document_count,
+             SUM(LENGTH(title) + LENGTH(content) + LENGTH(vector_json) + LENGTH(metadata_json)) AS index_size_bytes,
              MAX(indexed_at) AS indexed_at
            FROM project_semantic_chunks
            WHERE scope_version_id = ?`
         )
         .get(scopeVersionId)
     );
+    const sourceRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS source_document_count FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
+    const indexedAt = row ? nullableText(row, 'indexed_at') : null;
+    const sourceDocumentCount = sourceRow ? numberValue(sourceRow, 'source_document_count') : 0;
+    const indexedSourceDocumentCount = row ? numberValue(row, 'indexed_source_document_count') : 0;
+    const stale = enabled && chunkCount > 0 && (indexedSourceDocumentCount !== sourceDocumentCount || this.projectSemanticIndexLooksStale(scopeVersionId, indexedAt));
     return {
       scopeVersionId,
       enabled,
-      status: !enabled ? 'disabled' : chunkCount > 0 ? 'ready' : 'empty',
+      status: !enabled ? 'disabled' : stale ? 'stale' : chunkCount > 0 ? 'ready' : 'empty',
       provider: PROJECT_SEMANTIC_VECTOR_PROVIDER,
       model: PROJECT_SEMANTIC_VECTOR_MODEL,
       remoteEmbeddingEnabled: false,
       chunkCount,
       embeddedChunkCount: row ? numberValue(row, 'embedded_chunk_count') : 0,
+      sourceDocumentCount,
+      indexedSourceDocumentCount,
+      indexSizeBytes: row ? numberValue(row, 'index_size_bytes') : 0,
+      lastRefreshDurationMs: this.getProjectSemanticLastRefreshDurationMs(scopeVersionId),
       namespaceCounts,
-      indexedAt: row ? nullableText(row, 'indexed_at') : null
+      indexedAt
     };
   }
 
@@ -4059,6 +4074,7 @@ export class WorkspaceDatabase {
   public refreshProjectSemanticIndex(scopeVersionId = this.getActiveScope().id): ProjectSemanticSummary {
     if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return this.getProjectSemanticSummary(scopeVersionId);
     this.ensureProjectInventory(scopeVersionId);
+    const startedAt = Date.now();
     const indexedAt = nowIso();
     const documents = rows(
       this.db
@@ -4080,6 +4096,17 @@ export class WorkspaceDatabase {
       }
     });
 
+    const refreshed = this.getProjectSemanticSummary(scopeVersionId);
+    this.setMetaValue(
+      projectSemanticRefreshMetaKey(scopeVersionId),
+      JSON.stringify({
+        durationMs: Date.now() - startedAt,
+        sourceDocumentCount: documents.length,
+        chunkCount: refreshed.chunkCount,
+        indexSizeBytes: refreshed.indexSizeBytes
+      }),
+      nowIso()
+    );
     return this.getProjectSemanticSummary(scopeVersionId);
   }
 
@@ -5073,6 +5100,13 @@ export class WorkspaceDatabase {
     const row = rowOrUndefined(this.db.prepare('SELECT MAX(updated_at) AS document_updated_at FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
     const documentUpdatedAt = row ? nullableText(row, 'document_updated_at') : null;
     return Boolean(documentUpdatedAt && Date.parse(documentUpdatedAt) > Date.parse(indexedAt));
+  }
+
+  private getProjectSemanticLastRefreshDurationMs(scopeVersionId: string): number | null {
+    const value = this.getMetaValue(projectSemanticRefreshMetaKey(scopeVersionId));
+    if (!value) return null;
+    const parsed = parseJson(value);
+    return typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs) ? parsed.durationMs : null;
   }
 
   private resolveProjectStructureRelationTargets(scopeVersionId: string): void {

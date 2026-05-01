@@ -59,8 +59,9 @@ The third implementation starts Layer 3:
 - Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
 - `search` augments direct file, artifact, metadata, and structural matches with hybrid-ranked semantic chunk matches only when semantic indexing is enabled for the active program.
 - Semantic matches include ranking provenance: vector overlap, lexical overlap, title overlap, namespace fit, entity boost, matched terms, and a compact rank reason.
-- Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed time, and `remoteEmbeddingEnabled: false`.
+- Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed source counts, approximate index size, last rebuild duration, indexed time, and `remoteEmbeddingEnabled: false`.
 - Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
+- Semantic status reports `stale` when indexed chunks no longer match source documents or the local provider/model version changes.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
 
 ## Index Layers

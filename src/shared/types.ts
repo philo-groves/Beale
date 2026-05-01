@@ -326,12 +326,16 @@ export interface ProjectStructureSummary {
 export interface ProjectSemanticSummary {
   scopeVersionId: string;
   enabled: boolean;
-  status: 'disabled' | 'empty' | 'ready';
+  status: 'disabled' | 'empty' | 'ready' | 'stale';
   provider: string;
   model: string;
   remoteEmbeddingEnabled: boolean;
   chunkCount: number;
   embeddedChunkCount: number;
+  sourceDocumentCount: number;
+  indexedSourceDocumentCount: number;
+  indexSizeBytes: number;
+  lastRefreshDurationMs: number | null;
   namespaceCounts: Record<string, number>;
   indexedAt: string | null;
 }

@@ -48,6 +48,7 @@
 - Added semantic index summaries with provider, model, namespace, chunk-count, and remote-embedding status fields.
 - Added Settings > General controls to enable, disable, inspect, and rebuild the active program's semantic index.
 - Added identifier-aware semantic tokenization and hybrid semantic ranking provenance for local semantic search matches.
+- Added semantic index stale detection, indexed-source counts, approximate index size, and rebuild-duration reporting.
 
 ### Changed
 
@@ -71,6 +72,7 @@
 - Changed vmctl capability status checks to use a short cache instead of spawning the controller on every snapshot render.
 - Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
 - Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
+- Changed launch/session selection so Beale only auto-opens active or queued sessions, avoiding heavy completed trace loads during startup.
 - Changed the sidebar and modal label from New Research Session to New Research.
 - Changed the steering control row to show concise uppercase session statuses.
 - Changed Python trace rows so model-side calls read as preparation/queueing and the executed host/guest result row owns the Python script preview.
@@ -134,6 +136,7 @@
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
 - Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.
 - Shortened duplicate-blocked trace rows to `Duplicate Blocked` while rendering the proposed duplicate name as a prose detail line.
+- Made Electron startup show the shell before reopening the last workspace, so slow workspace/index state cannot make launch look dead.
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.

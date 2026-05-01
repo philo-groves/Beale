@@ -13,7 +13,8 @@ import {
 describe('renderer run detail update view model', () => {
   it('keeps selected run id when the run remains present', () => {
     expect(selectRunId('run_two', snapshot(['run_one', 'run_two']))).toBe('run_two');
-    expect(selectRunId('missing', snapshot(['run_one', 'run_two']))).toBe('run_one');
+    expect(selectRunId('missing', snapshot(['run_one', 'run_two']))).toBeNull();
+    expect(selectRunId('missing', snapshot(['run_one', 'run_two'], { run_two: 'active' }))).toBe('run_two');
     expect(selectRunId('run_one', null)).toBeNull();
   });
 
@@ -62,10 +63,10 @@ describe('renderer run detail update view model', () => {
   });
 });
 
-function snapshot(runIds: string[]): WorkspaceSnapshot {
+function snapshot(runIds: string[], statuses: Record<string, string> = {}): WorkspaceSnapshot {
   return {
     workspace: { workspaceId: 'workspace_test' },
-    runs: runIds.map((id) => ({ run: { id } })),
+    runs: runIds.map((id) => ({ run: { id, status: statuses[id] ?? 'completed' } })),
     notifications: []
   } as unknown as WorkspaceSnapshot;
 }

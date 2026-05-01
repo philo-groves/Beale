@@ -169,8 +169,22 @@ describe('structured research tools', () => {
     expect(enabledSemantic.status).toBe('ready');
     expect(enabledSemantic.remoteEmbeddingEnabled).toBe(false);
     expect(enabledSemantic.chunkCount).toBeGreaterThan(0);
+    expect(enabledSemantic.sourceDocumentCount).toBeGreaterThan(0);
+    expect(enabledSemantic.indexedSourceDocumentCount).toBe(enabledSemantic.sourceDocumentCount);
+    expect(enabledSemantic.indexSizeBytes).toBeGreaterThan(0);
+    expect(enabledSemantic.lastRefreshDurationMs).toBeGreaterThanOrEqual(0);
     expect(enabledSemantic.namespaceCounts.code).toBeGreaterThan(0);
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: 'Semantic lifecycle stale marker.',
+      payload: { text: 'SemanticLifecycleNeedle' }
+    });
+    expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
     const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
+    expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'ready' });
     expect(semanticResults.some((result) => result.namespace === 'mobile' || result.metadata.entityKind === 'mobile_permission')).toBe(true);
     const identifierSemanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'access check authorization guard', 20);
     const identifierSemanticHit = identifierSemanticResults.find((result) => result.title.includes('check_access') || result.snippet.includes('check_access'));
