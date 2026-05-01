@@ -15,6 +15,7 @@
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
 - Added a sampled pointer-move next-frame latency probe to measure hover responsiveness during active trace streams.
 - Added sidebar collapse/expand profiling for toggle request latency, React state commit, next-frame latency, and transition-end timing.
+- Added an optional New Research auto-start checkbox that starts the session immediately after prompt generation finishes.
 - Added renderer footer view-model tests for context metering and host/VM display formatting.
 - Added renderer program display tests for fixed program/session ownership and sidebar age formatting.
 - Added renderer notification preview tests for extracted notification display helpers.
@@ -43,6 +44,7 @@
 - Changed vmctl capability status checks to use a short cache instead of spawning the controller on every snapshot render.
 - Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
 - Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
+- Changed the sidebar and modal label from New Research Session to New Research.
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
 - Changed the steering input to autofocus when a selected research session becomes active.
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.

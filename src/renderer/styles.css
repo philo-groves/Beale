@@ -3608,6 +3608,38 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--muted);
 }
 
+.generate-prompt-status-stack {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.generate-prompt-auto-start {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.generate-prompt-auto-start input {
+  width: 12px;
+  min-width: 12px;
+  height: 12px;
+  min-height: 12px;
+  accent-color: var(--muted-strong);
+  margin: 0;
+}
+
+.generate-prompt-auto-start span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .modal-form {
   display: grid;
   gap: 10px;

@@ -38,9 +38,12 @@ export function StartRunForm({
     sandboxProfile
   }));
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
+  const [autoStartAfterGeneration, setAutoStartAfterGeneration] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [startingRun, setStartingRun] = useState(false);
   const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
+  const inputRef = useRef(input);
+  const autoStartAfterGenerationRef = useRef(false);
   const generationRequestIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const promptStreamAutoScrollRef = useRef(false);
@@ -56,7 +59,12 @@ export function StartRunForm({
     }
     if (promptMarkdown === null || !mountedRef.current) return;
     promptStreamAutoScrollRef.current = true;
-    setInput((current) => (current.promptMarkdown === promptMarkdown ? current : { ...current, promptMarkdown }));
+    setInput((current) => {
+      if (current.promptMarkdown === promptMarkdown) return current;
+      const next = { ...current, promptMarkdown };
+      inputRef.current = next;
+      return next;
+    });
   };
 
   const clearPendingPromptStream = (): void => {
@@ -68,8 +76,16 @@ export function StartRunForm({
   };
 
   useEffect(() => {
-    setInput((current) => ({ ...current, networkProfile: 'elevated', sandboxProfile }));
+    setInput((current) => {
+      const next = { ...current, networkProfile: 'elevated', sandboxProfile };
+      inputRef.current = next;
+      return next;
+    });
   }, [sandboxProfile, snapshot.activeScope.id]);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
 
   useEffect(() => {
     const unsubscribe = window.beale.onResearchPromptGenerationUpdate((update) => {
@@ -91,7 +107,11 @@ export function StartRunForm({
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     if (key === 'promptMarkdown') promptStreamAutoScrollRef.current = false;
-    setInput((current) => ({ ...current, [key]: value }));
+    setInput((current) => {
+      const next = { ...current, [key]: value };
+      inputRef.current = next;
+      return next;
+    });
     if (key === 'promptMarkdown') setGenerateError(null);
   };
 
@@ -103,7 +123,11 @@ export function StartRunForm({
   }, [generatingPrompt, input.promptMarkdown]);
 
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
-    setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
+    setInput((current) => {
+      const next = { ...current, budget: { ...current.budget, [key]: value } };
+      inputRef.current = next;
+      return next;
+    });
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
   const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
@@ -111,15 +135,24 @@ export function StartRunForm({
   const canStart = hasPromptDraft && !openAiBlocked;
   const promptGenerationLabel = hasPromptDraft ? 'Refine' : 'Generate';
 
-  const start = (): void => {
+  const updateAutoStartAfterGeneration = (checked: boolean): void => {
+    autoStartAfterGenerationRef.current = checked;
+    setAutoStartAfterGeneration(checked);
+  };
+
+  const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
     setStartingRun(true);
     void runAction(async () => {
-      const next = await window.beale.startRun(input);
+      const next = await window.beale.startRun(startInput);
       const latestRunId = next.runs[0]?.run.id;
       if (latestRunId) onStarted(latestRunId);
       return next;
     }).finally(() => setStartingRun(false));
+  };
+
+  const start = (): void => {
+    startWithInput(input);
   };
 
   const cancelGeneratePrompt = (): void => {
@@ -127,6 +160,7 @@ export function StartRunForm({
     if (!requestId) return;
     generationRequestIdRef.current = null;
     setGeneratingPrompt(false);
+    updateAutoStartAfterGeneration(false);
     clearPendingPromptStream();
     void window.beale.cancelResearchPromptGeneration(requestId);
   };
@@ -141,6 +175,7 @@ export function StartRunForm({
     const operation = draftPromptMarkdown.trim().length > 0 ? 'refine' : 'generate';
     generationRequestIdRef.current = requestId;
     promptStreamAutoScrollRef.current = true;
+    updateAutoStartAfterGeneration(false);
     setGeneratingPrompt(true);
     setGenerateError(null);
     void window.beale
@@ -160,7 +195,12 @@ export function StartRunForm({
       .then((generated) => {
         if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
         clearPendingPromptStream();
-        setInput((current) => ({ ...current, promptMarkdown: generated.promptMarkdown }));
+        const nextInput = { ...inputRef.current, promptMarkdown: generated.promptMarkdown };
+        inputRef.current = nextInput;
+        setInput(nextInput);
+        if (autoStartAfterGenerationRef.current && nextInput.promptMarkdown.trim().length > 0 && !(nextInput.runEngine === 'openai_responses' && !snapshot.openAi.configured)) {
+          startWithInput(nextInput);
+        }
       })
       .catch((caught: unknown) => {
         if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
@@ -183,7 +223,7 @@ export function StartRunForm({
 
   return (
     <Modal
-      title="New Research Session"
+      title="New Research"
       wide
       onClose={closeModal}
       footer={
@@ -193,7 +233,19 @@ export function StartRunForm({
               {generatingPrompt ? <X size={16} /> : <Sparkles size={16} />}
               {generatingPrompt ? 'Cancel' : promptGenerationLabel}
             </button>
-            {generatingPrompt ? <span className="generate-prompt-status">Generating plan, thinking may take several minutes...</span> : null}
+            {generatingPrompt ? (
+              <div className="generate-prompt-status-stack">
+                <span className="generate-prompt-status">Generating plan, thinking may take several minutes...</span>
+                <label className="generate-prompt-auto-start">
+                  <input
+                    type="checkbox"
+                    checked={autoStartAfterGeneration}
+                    onChange={(event) => updateAutoStartAfterGeneration(event.target.checked)}
+                  />
+                  <span>Auto-start after generation</span>
+                </label>
+              </div>
+            ) : null}
           </div>
           <button type="button" disabled={busy} onClick={closeModal}>
             Nevermind

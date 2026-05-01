@@ -52,9 +52,9 @@ export const ProgramSidebar = memo(function ProgramSidebar({
 
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
-      <button type="button" className="sidebar-new-research" title="Start new research session" disabled={busy || !snapshot} onClick={onStartNewResearch}>
+      <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={onStartNewResearch}>
         <Play size={15} />
-        <span>New Research Session</span>
+        <span>New Research</span>
       </button>
       <div className="sidebar-quick-actions">
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
