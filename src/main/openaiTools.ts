@@ -555,6 +555,7 @@ export class BealeToolRouter {
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
     const metadataMatchesAdded = this.appendUniqueSearchMatches(matches, metadataMatches, MAX_SEARCH_MATCHES);
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
+    const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
 
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
@@ -587,6 +588,7 @@ export class BealeToolRouter {
         skippedFiles,
         metadataMatches: metadataMatchesAdded,
         projectInventory: inventorySummary,
+        projectStructure: structureSummary,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
         matches

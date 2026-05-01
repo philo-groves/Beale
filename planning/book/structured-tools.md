@@ -75,7 +75,8 @@ Backends may include:
 - SQLite full-text search for workspace state, including runs, transcripts, model-visible traces, artifacts, evidence, hypotheses, findings, verifier contracts, and verifier runs.
 - Structured dependency/package metadata extracted from common manifest files.
 - Bounded binary-derived strings indexed from scoped binaries.
-- Later indexed metadata from imports, exports, symbols, routes, components, CVEs, CWEs, and notes as structural indexing lands.
+- Structural index records for best-effort definitions, imports, route declarations, source line ranges, and simple relationships.
+- Later indexed metadata from deeper references, call graphs, components, CVEs, CWEs, and notes as the structural and graph layers mature.
 
 Expected outputs:
 

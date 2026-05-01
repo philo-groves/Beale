@@ -309,6 +309,15 @@ export interface ProjectInventoryRefreshReport extends ProjectInventorySummary {
   truncated: boolean;
 }
 
+export interface ProjectStructureSummary {
+  scopeVersionId: string;
+  entityCount: number;
+  definitionCount: number;
+  routeCount: number;
+  importCount: number;
+  indexedAt: string | null;
+}
+
 export interface ProjectSearchResult {
   documentId: string;
   scopeVersionId: string;

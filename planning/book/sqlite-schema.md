@@ -173,6 +173,47 @@ Fields:
 - `title`
 - `body`
 
+### `project_structure_entities`
+
+Purpose:
+
+- Store best-effort structural source entities for code navigation and relationship-aware search.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `inventory_item_id`
+- `asset_id`
+- `entity_kind`: `function`, `method`, `class`, `type`, `route`, `import`, or later structural kinds
+- `name`
+- `signature`
+- `path`
+- `language`
+- `line_start`
+- `line_end`
+- `parent_id`
+- `metadata_json`
+- `indexed_at`
+
+### `project_structure_relations`
+
+Purpose:
+
+- Store lightweight structural edges discovered during indexing.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `source_entity_id`
+- `relation_kind`: examples include `imports` and `routes_to`
+- `target_kind`
+- `target_name`
+- `target_entity_id`
+- `metadata_json`
+- `indexed_at`
+
 ### `runs`
 
 Purpose:

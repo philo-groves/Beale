@@ -114,6 +114,17 @@ describe('structured research tools', () => {
     expect(JSON.stringify(refreshedManifestSearch)).toContain('requirements.txt');
     expect(JSON.stringify(refreshedManifestSearch)).toContain('freshdependency');
 
+    const structure = db.getProjectStructureSummary(context.run.scopeVersionId);
+    expect(structure.definitionCount).toBeGreaterThanOrEqual(1);
+    expect(structure.routeCount).toBeGreaterThanOrEqual(1);
+    expect(structure.importCount).toBeGreaterThanOrEqual(1);
+    const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
+    expect(structureSearch.status).toBe('success');
+    expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
+    expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
+    const functionStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'check_access');
+    expect(functionStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'function')).toBe(true);
+
     const read = callTool(router, context, 'code_browser', { path: sourceFile, symbol: 'check_access' });
     expect(read.status).toBe('success');
     expect(JSON.stringify(read.payload)).toContain('check_access');
@@ -964,7 +975,7 @@ interface StructuredToolDbOptions {
 function openStructuredToolDb(
   sandboxProfile = 'local_disposable_vm',
   options: StructuredToolDbOptions = {}
-): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; targetDir: string; logPath: string } {
+): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; routeFile: string; targetDir: string; logPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-structured-tools-'));
   createdDirs.push(dir);
   const artifactRoot = join(dir, '.beale', 'artifacts');
@@ -974,9 +985,11 @@ function openStructuredToolDb(
   mkdirSync(join(targetDir, 'bin'), { recursive: true });
 
   const sourceFile = join(targetDir, 'src', 'access.c');
+  const routeFile = join(targetDir, 'src', 'routes.js');
   const binaryFile = join(targetDir, 'bin', 'target.bin');
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
+  writeFileSync(routeFile, "import express from 'express';\nconst router = express.Router();\nrouter.get('/api/users', requireUser, listUsers);\nfunction listUsers(req, res) {\n  res.json([]);\n}\n");
   writeFileSync(binaryFile, Buffer.from([0, 1, 2, ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'), 0, 3]));
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ dependencies: { bealetestdependency: '1.0.0' } }, null, 2));
 
@@ -1007,7 +1020,7 @@ function openStructuredToolDb(
     sandboxProfile,
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
   });
-  return { db, context, sourceFile, binaryFile, targetDir, logPath };
+  return { db, context, sourceFile, binaryFile, routeFile, targetDir, logPath };
 }
 
 function hackerOneWildcard(value: string, instruction: string): ScopeAssetInput {

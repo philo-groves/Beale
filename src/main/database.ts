@@ -27,6 +27,7 @@ import type {
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
   ProjectSearchResult,
+  ProjectStructureSummary,
   ProgramScopeDraft,
   ProgramScopeVersion,
   RunDetail,
@@ -354,19 +355,59 @@ interface ProjectInventoryScanState {
   truncated: boolean;
 }
 
+interface ProjectStructureEntityInput {
+  scopeVersionId: string;
+  inventoryItemId: string;
+  assetId: string;
+  entityKind: string;
+  name: string;
+  signature: string;
+  path: string;
+  language: string;
+  lineStart: number;
+  lineEnd: number;
+  parentId?: string | null;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
+interface ProjectStructureRelationInput {
+  scopeVersionId: string;
+  sourceEntityId: string;
+  relationKind: string;
+  targetKind: string;
+  targetName: string;
+  targetEntityId?: string | null;
+  metadata?: Record<string, unknown>;
+  indexedAt: string;
+}
+
+interface ProjectStructureCandidate {
+  entityKind: string;
+  name: string;
+  signature: string;
+  lineStart: number;
+  lineEnd?: number | null;
+  metadata: Record<string, unknown>;
+  relations?: Array<Omit<ProjectStructureRelationInput, 'scopeVersionId' | 'sourceEntityId' | 'indexedAt'>>;
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
 const PROJECT_INVENTORY_PREVIEW_MAX_BYTES = 128 * 1024;
 const PROJECT_INVENTORY_BINARY_SCAN_MAX_BYTES = 512 * 1024;
 const PROJECT_INVENTORY_BINARY_STRINGS_MAX_CHARS = 16 * 1024;
+const PROJECT_STRUCTURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
+const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -603,6 +644,14 @@ function projectInventoryItemId(scopeVersionId: string, assetId: string, itemKin
   return `inventory_${createHash('sha256').update(`${scopeVersionId}\n${assetId}\n${itemKind}\n${value}`).digest('hex').slice(0, 32)}`;
 }
 
+function projectStructureEntityId(scopeVersionId: string, path: string, entityKind: string, name: string, lineStart: number): string {
+  return `structure_${createHash('sha256').update(`${scopeVersionId}\n${path}\n${entityKind}\n${name}\n${lineStart}`).digest('hex').slice(0, 32)}`;
+}
+
+function projectStructureRelationId(scopeVersionId: string, sourceEntityId: string, relationKind: string, targetKind: string, targetName: string): string {
+  return `structure_rel_${createHash('sha256').update(`${scopeVersionId}\n${sourceEntityId}\n${relationKind}\n${targetKind}\n${targetName}`).digest('hex').slice(0, 32)}`;
+}
+
 function normalizedProjectPath(path: string): string {
   return resolve(path);
 }
@@ -691,6 +740,29 @@ function readProjectSearchPreview(path: string, resourceKind: string, sizeBytes:
     return buffer.toString('utf8').slice(0, PROJECT_INVENTORY_PREVIEW_MAX_BYTES);
   } catch {
     return '';
+  }
+}
+
+function readProjectStructureText(path: string, resourceKind: string, sizeBytes: number): { text: string; truncated: boolean } | null {
+  if (resourceKind !== 'source' && resourceKind !== 'text') return null;
+  if (sizeBytes <= 0) return null;
+  const bytesToRead = Math.min(sizeBytes, PROJECT_STRUCTURE_MAX_FILE_BYTES);
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, 'r');
+    const buffer = Buffer.allocUnsafe(bytesToRead);
+    const bytesRead = readSync(fd, buffer, 0, bytesToRead, 0);
+    if (bytesRead <= 0) return null;
+    const sample = buffer.subarray(0, bytesRead);
+    if (!projectBufferLooksTextual(sample)) return null;
+    return {
+      text: sample.toString('utf8').replace(/\r\n?/g, '\n'),
+      truncated: sizeBytes > bytesRead
+    };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -817,6 +889,251 @@ function parsePomXmlManifest(preview: string): Record<string, unknown> {
     groupName: groupIds[0] ?? '',
     dependencyNames: Array.from(new Set(artifactIds.slice(1))).sort()
   };
+}
+
+function extractProjectStructureCandidates(path: string, language: string, text: string, truncatedFile: boolean): ProjectStructureCandidate[] {
+  const lines = text.split('\n');
+  const candidates: ProjectStructureCandidate[] = [];
+  const add = (candidate: ProjectStructureCandidate): void => {
+    if (candidates.length >= PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE) return;
+    if (!candidate.name.trim()) return;
+    candidates.push({
+      ...candidate,
+      name: candidate.name.trim().slice(0, 240),
+      signature: candidate.signature.trim().slice(0, 1000),
+      metadata: {
+        ...candidate.metadata,
+        truncatedFile
+      }
+    });
+  };
+
+  for (const [index, line] of lines.entries()) {
+    const lineStart = index + 1;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+    extractImportCandidate(line, language, lineStart, add);
+    extractRouteCandidate(line, language, lineStart, add);
+    extractDefinitionCandidate(line, language, lineStart, add);
+  }
+
+  return finalizeProjectStructureCandidates(candidates, lines.length, path);
+}
+
+function extractImportCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const jsImport = /^\s*import(?:\s+.+?\s+from)?\s+['"]([^'"]+)['"]/.exec(line) ?? /^\s*(?:const|let|var)\s+.+?\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && jsImport?.[1]) {
+    add({
+      entityKind: 'import',
+      name: jsImport[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { module: jsImport[1], importStyle: 'javascript' },
+      relations: [{ relationKind: 'imports', targetKind: 'module', targetName: jsImport[1] }]
+    });
+    return;
+  }
+
+  const pyImport = /^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))/.exec(line);
+  if (language === 'python' && (pyImport?.[1] || pyImport?.[2])) {
+    const moduleName = pyImport[1] ?? pyImport[2];
+    add({
+      entityKind: 'import',
+      name: moduleName,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { module: moduleName, importStyle: 'python' },
+      relations: [{ relationKind: 'imports', targetKind: 'module', targetName: moduleName }]
+    });
+    return;
+  }
+
+  const javaImport = /^\s*import\s+(?:static\s+)?([^;]+);/.exec(line);
+  if ((language === 'java' || language === 'kotlin' || language === 'csharp') && javaImport?.[1]) {
+    add({
+      entityKind: 'import',
+      name: javaImport[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { module: javaImport[1], importStyle: language },
+      relations: [{ relationKind: 'imports', targetKind: 'module', targetName: javaImport[1] }]
+    });
+    return;
+  }
+
+  const rustUse = /^\s*use\s+([^;]+);/.exec(line);
+  if (language === 'rust' && rustUse?.[1]) {
+    add({
+      entityKind: 'import',
+      name: rustUse[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { module: rustUse[1], importStyle: 'rust' },
+      relations: [{ relationKind: 'imports', targetKind: 'module', targetName: rustUse[1] }]
+    });
+  }
+}
+
+function extractRouteCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const jsRoute = /\b(?:app|router|server)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && jsRoute) {
+    const method = jsRoute[1].toUpperCase();
+    const routePath = jsRoute[2];
+    add({
+      entityKind: 'route',
+      name: `${method} ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method, routePath, routeStyle: 'express' },
+      relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` }]
+    });
+    return;
+  }
+
+  const pyRoute = /^\s*@\w+(?:\.\w+)?\.(get|post|put|patch|delete|options|head|route)\s*\(\s*['"]([^'"]+)['"]/i.exec(line);
+  if (language === 'python' && pyRoute) {
+    const method = pyRoute[1].toLowerCase() === 'route' ? 'ANY' : pyRoute[1].toUpperCase();
+    const routePath = pyRoute[2];
+    add({
+      entityKind: 'route',
+      name: `${method} ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method, routePath, routeStyle: 'python_decorator' },
+      relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` }]
+    });
+    return;
+  }
+
+  const javaRoute = /^\s*@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\s*(?:\(\s*(?:value\s*=\s*)?["']([^"']+)["'])?/i.exec(line);
+  if ((language === 'java' || language === 'kotlin') && javaRoute) {
+    const annotation = javaRoute[1];
+    const method = annotation === 'RequestMapping' ? 'ANY' : annotation.replace('Mapping', '').toUpperCase();
+    const routePath = javaRoute[2] ?? '';
+    add({
+      entityKind: 'route',
+      name: `${method}${routePath ? ` ${routePath}` : ''}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method, routePath, routeStyle: 'jvm_annotation', annotation },
+      relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}`.trim() }]
+    });
+  }
+}
+
+function extractDefinitionCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const jsClass = /^\s*(?:export\s+default\s+|export\s+)?class\s+([A-Za-z_$][\w$]*)/.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && jsClass?.[1]) {
+    add({ entityKind: 'class', name: jsClass[1], signature: line, lineStart, metadata: { definitionStyle: 'class' } });
+    return;
+  }
+  const jsFunction =
+    /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(line) ??
+    /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && jsFunction?.[1]) {
+    add({ entityKind: 'function', name: jsFunction[1], signature: line, lineStart, metadata: { definitionStyle: 'function' } });
+    return;
+  }
+
+  const pyClass = /^\s*class\s+([A-Za-z_]\w*)/.exec(line);
+  if (language === 'python' && pyClass?.[1]) {
+    add({ entityKind: 'class', name: pyClass[1], signature: line, lineStart, metadata: { definitionStyle: 'class' } });
+    return;
+  }
+  const pyFunction = /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/.exec(line);
+  if (language === 'python' && pyFunction?.[1]) {
+    add({ entityKind: 'function', name: pyFunction[1], signature: line, lineStart, metadata: { definitionStyle: 'function' } });
+    return;
+  }
+
+  const goFunction = /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/.exec(line);
+  if (language === 'go' && goFunction?.[1]) {
+    add({ entityKind: 'function', name: goFunction[1], signature: line, lineStart, metadata: { definitionStyle: 'function' } });
+    return;
+  }
+
+  const rustDefinition = /^\s*(?:pub\s+)?(fn|struct|enum|trait)\s+([A-Za-z_]\w*)/.exec(line);
+  if (language === 'rust' && rustDefinition) {
+    const kind = rustDefinition[1] === 'fn' ? 'function' : 'type';
+    add({ entityKind: kind, name: rustDefinition[2], signature: line, lineStart, metadata: { definitionStyle: rustDefinition[1] } });
+    return;
+  }
+
+  const jvmType = /^\s*(?:public|private|protected|abstract|final|sealed|data|open|internal|\s)*\s*(class|interface|enum|object)\s+([A-Za-z_]\w*)/.exec(line);
+  if ((language === 'java' || language === 'kotlin' || language === 'csharp') && jvmType) {
+    add({ entityKind: 'class', name: jvmType[2], signature: line, lineStart, metadata: { definitionStyle: jvmType[1] } });
+    return;
+  }
+
+  const kotlinFunction = /^\s*(?:public|private|protected|internal|override|suspend|inline|\s)*fun\s+([A-Za-z_]\w*)\s*\(/.exec(line);
+  if (language === 'kotlin' && kotlinFunction?.[1]) {
+    add({ entityKind: 'function', name: kotlinFunction[1], signature: line, lineStart, metadata: { definitionStyle: 'function' } });
+    return;
+  }
+
+  const jvmMethod = /^\s*(?:public|private|protected|static|final|abstract|synchronized|native|\s)+(?:[\w<>\[\],.?]+\s+)+([A-Za-z_]\w*)\s*\([^;]*\)\s*(?:\{|throws\b)/.exec(line);
+  if ((language === 'java' || language === 'csharp') && jvmMethod?.[1] && !isControlKeyword(jvmMethod[1])) {
+    add({ entityKind: 'method', name: jvmMethod[1], signature: line, lineStart, metadata: { definitionStyle: 'method' } });
+    return;
+  }
+
+  const cFunction = /^\s*(?:[A-Za-z_][\w:*<>,\[\]\s&]+[*&\s]+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{/.exec(line);
+  if ((language === 'c' || language === 'cpp' || language === 'objective-c' || language === 'objective-cpp') && cFunction?.[1] && !isControlKeyword(cFunction[1])) {
+    add({ entityKind: 'function', name: cFunction[1], signature: line, lineStart, metadata: { definitionStyle: 'function' } });
+    return;
+  }
+
+  const rubyDefinition = /^\s*(?:class|module|def)\s+([A-Za-z_]\w*[!?=]?)/.exec(line);
+  if (language === 'ruby' && rubyDefinition?.[1]) {
+    add({ entityKind: line.trim().startsWith('def') ? 'function' : 'class', name: rubyDefinition[1], signature: line, lineStart, metadata: { definitionStyle: 'ruby' } });
+    return;
+  }
+
+  const phpDefinition = /^\s*(?:final\s+|abstract\s+)?(?:class|interface|trait|function)\s+([A-Za-z_]\w*)/.exec(line);
+  if (language === 'php' && phpDefinition?.[1]) {
+    add({ entityKind: line.includes('function') ? 'function' : 'class', name: phpDefinition[1], signature: line, lineStart, metadata: { definitionStyle: 'php' } });
+  }
+}
+
+function finalizeProjectStructureCandidates(candidates: ProjectStructureCandidate[], lineCount: number, path: string): ProjectStructureCandidate[] {
+  const sorted = candidates
+    .slice()
+    .sort((left, right) => left.lineStart - right.lineStart || left.entityKind.localeCompare(right.entityKind) || left.name.localeCompare(right.name));
+  const seen = new Set<string>();
+  const finalized: ProjectStructureCandidate[] = [];
+  for (const [index, candidate] of sorted.entries()) {
+    const key = `${candidate.entityKind}:${candidate.name}:${candidate.lineStart}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const nextBlock = sorted.slice(index + 1).find((item) => item.lineStart > candidate.lineStart && projectStructureEntityOwnsRange(item.entityKind));
+    const defaultEnd = projectStructureEntityOwnsRange(candidate.entityKind)
+      ? Math.min(lineCount, nextBlock ? nextBlock.lineStart - 1 : candidate.lineStart + PROJECT_STRUCTURE_MAX_DEFINITION_LINES)
+      : candidate.lineStart;
+    finalized.push({
+      ...candidate,
+      lineEnd: Math.max(candidate.lineStart, Math.min(lineCount, candidate.lineEnd ?? defaultEnd)),
+      metadata: {
+        ...candidate.metadata,
+        relativeDisplayPath: basename(path)
+      }
+    });
+  }
+  return finalized.slice(0, PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE);
+}
+
+function projectStructureEntityOwnsRange(entityKind: string): boolean {
+  return entityKind === 'function' || entityKind === 'method' || entityKind === 'class' || entityKind === 'type';
+}
+
+function isControlKeyword(value: string): boolean {
+  return ['if', 'for', 'while', 'switch', 'catch', 'return', 'sizeof'].includes(value);
 }
 
 function projectBufferLooksTextual(buffer: Buffer): boolean {
@@ -959,6 +1276,7 @@ export class WorkspaceDatabase {
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
     this.ensureProjectSearchIndexSeeded();
+    this.ensureProjectStructureIndexSeeded();
   }
 
   public checkpoint(): void {
@@ -2667,6 +2985,31 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProjectStructureSummary(scopeVersionId = this.getActiveScope().id): ProjectStructureSummary {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             COUNT(*) AS entity_count,
+             SUM(CASE WHEN entity_kind IN ('function', 'method', 'class', 'type') THEN 1 ELSE 0 END) AS definition_count,
+             SUM(CASE WHEN entity_kind = 'route' THEN 1 ELSE 0 END) AS route_count,
+             SUM(CASE WHEN entity_kind = 'import' THEN 1 ELSE 0 END) AS import_count,
+             MAX(indexed_at) AS indexed_at
+           FROM project_structure_entities
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    return {
+      scopeVersionId,
+      entityCount: row ? numberValue(row, 'entity_count') : 0,
+      definitionCount: row ? numberValue(row, 'definition_count') : 0,
+      routeCount: row ? numberValue(row, 'route_count') : 0,
+      importCount: row ? numberValue(row, 'import_count') : 0,
+      indexedAt: row ? nullableText(row, 'indexed_at') : null
+    };
+  }
+
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
     const summary = this.getProjectInventorySummary(scopeVersionId);
     if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
@@ -2681,7 +3024,9 @@ export class WorkspaceDatabase {
 
     this.transaction(() => {
       this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
-      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('scope_asset', 'inventory_item')", [scopeVersionId]);
+      this.db.prepare('DELETE FROM project_structure_relations WHERE scope_version_id = ?').run(scopeVersionId);
+      this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
+      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('scope_asset', 'inventory_item', 'structure_entity')", [scopeVersionId]);
 
       for (const asset of scope.assets) {
         this.upsertProjectSearchDocument({
@@ -3286,6 +3631,10 @@ export class WorkspaceDatabase {
         this.applyProjectUnderstandingIndexMigration();
         this.insertMigration(11, 'project_understanding_inventory_search');
       }
+      if (currentVersion < 12) {
+        this.applyProjectStructureIndexMigration();
+        this.insertMigration(12, 'project_understanding_structural_index');
+      }
     });
   }
 
@@ -3413,6 +3762,15 @@ export class WorkspaceDatabase {
     this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
   }
 
+  private applyProjectStructureIndexMigration(): void {
+    const inventoryTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_inventory_items'").get());
+    if (!inventoryTable) {
+      this.db.exec(SCHEMA_SQL);
+      return;
+    }
+    this.db.exec(PROJECT_STRUCTURE_SCHEMA_SQL);
+  }
+
   private addColumnIfMissing(table: string, column: string, definition: string): void {
     const columns = new Set(rows(this.db.prepare(`PRAGMA table_info(${table})`).all()).map((row) => text(row, 'name')));
     if (!columns.has(column)) {
@@ -3508,6 +3866,20 @@ export class WorkspaceDatabase {
     const row = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_search_documents').get());
     if ((row ? numberValue(row, 'count') : 0) > 0) return;
     this.rebuildProjectSearchIndex({ includeInventory: true });
+  }
+
+  private ensureProjectStructureIndexSeeded(): void {
+    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get());
+    if (!table) return;
+    const sourceRow = rowOrUndefined(this.db.prepare("SELECT COUNT(*) AS count FROM project_inventory_items WHERE resource_kind IN ('source', 'text')").get());
+    if (!sourceRow || numberValue(sourceRow, 'count') === 0) return;
+    const structureRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_structure_entities').get());
+    if (structureRow && numberValue(structureRow, 'count') > 0) return;
+    if (this.getMetaValue('project_structure_index_seeded_v12') === 'true') return;
+    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
+      this.refreshProjectInventory(text(row, 'id'));
+    }
+    this.setMetaValue('project_structure_index_seeded_v12', 'true');
   }
 
   private getMetaValue(key: string): string | null {
@@ -3726,6 +4098,146 @@ export class WorkspaceDatabase {
       createdAt: input.indexedAt,
       updatedAt: input.indexedAt
     });
+
+    if (input.itemKind === 'file' && (input.resourceKind === 'source' || input.resourceKind === 'text') && input.sizeBytes !== null) {
+      this.indexProjectStructureForFile(input, id);
+    }
+  }
+
+  private indexProjectStructureForFile(input: ProjectInventoryInsertInput, inventoryItemId: string): void {
+    const text = readProjectStructureText(input.absolutePath, input.resourceKind, input.sizeBytes ?? 0);
+    if (!text) return;
+    const candidates = extractProjectStructureCandidates(input.absolutePath, input.language, text.text, text.truncated);
+    for (const candidate of candidates) {
+      const entityId = this.insertProjectStructureEntity({
+        scopeVersionId: input.scopeVersionId,
+        inventoryItemId,
+        assetId: input.asset.id,
+        entityKind: candidate.entityKind,
+        name: candidate.name,
+        signature: candidate.signature,
+        path: input.absolutePath,
+        language: input.language,
+        lineStart: candidate.lineStart,
+        lineEnd: candidate.lineEnd ?? candidate.lineStart,
+        metadata: {
+          ...candidate.metadata,
+          relativePath: safeRelativePath(input.asset.value, input.absolutePath),
+          assetKind: input.asset.kind,
+          resourceKind: input.resourceKind
+        },
+        indexedAt: input.indexedAt
+      });
+      for (const relation of candidate.relations ?? []) {
+        this.insertProjectStructureRelation({
+          scopeVersionId: input.scopeVersionId,
+          sourceEntityId: entityId,
+          relationKind: relation.relationKind,
+          targetKind: relation.targetKind,
+          targetName: relation.targetName,
+          targetEntityId: relation.targetEntityId ?? null,
+          metadata: relation.metadata ?? {},
+          indexedAt: input.indexedAt
+        });
+      }
+    }
+  }
+
+  private insertProjectStructureEntity(input: ProjectStructureEntityInput): string {
+    const id = projectStructureEntityId(input.scopeVersionId, input.path, input.entityKind, input.name, input.lineStart);
+    this.db
+      .prepare(
+        `INSERT INTO project_structure_entities (
+          id, scope_version_id, inventory_item_id, asset_id, entity_kind, name, signature,
+          path, language, line_start, line_end, parent_id, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, path, entity_kind, name, line_start)
+        DO UPDATE SET
+          inventory_item_id = excluded.inventory_item_id,
+          asset_id = excluded.asset_id,
+          signature = excluded.signature,
+          language = excluded.language,
+          line_end = excluded.line_end,
+          parent_id = excluded.parent_id,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.inventoryItemId,
+        input.assetId,
+        input.entityKind,
+        input.name,
+        input.signature,
+        input.path,
+        input.language,
+        input.lineStart,
+        input.lineEnd,
+        input.parentId ?? null,
+        toJson(input.metadata),
+        input.indexedAt
+      );
+
+    this.upsertProjectSearchDocument({
+      scopeVersionId: input.scopeVersionId,
+      entityType: 'structure_entity',
+      entityId: id,
+      title: `${input.entityKind} ${input.name}`,
+      body: [
+        input.entityKind,
+        input.name,
+        input.signature,
+        input.path,
+        input.language,
+        `line ${input.lineStart}`,
+        JSON.stringify(input.metadata)
+      ].join('\n'),
+      sourcePath: input.path,
+      metadata: {
+        ...input.metadata,
+        structureEntityId: id,
+        inventoryItemId: input.inventoryItemId,
+        assetId: input.assetId,
+        entityKind: input.entityKind,
+        name: input.name,
+        signature: input.signature,
+        language: input.language,
+        lineStart: input.lineStart,
+        lineEnd: input.lineEnd,
+        parentId: input.parentId ?? null
+      },
+      createdAt: input.indexedAt,
+      updatedAt: input.indexedAt
+    });
+    return id;
+  }
+
+  private insertProjectStructureRelation(input: ProjectStructureRelationInput): void {
+    const id = projectStructureRelationId(input.scopeVersionId, input.sourceEntityId, input.relationKind, input.targetKind, input.targetName);
+    this.db
+      .prepare(
+        `INSERT INTO project_structure_relations (
+          id, scope_version_id, source_entity_id, relation_kind, target_kind,
+          target_name, target_entity_id, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, source_entity_id, relation_kind, target_kind, target_name)
+        DO UPDATE SET
+          target_entity_id = excluded.target_entity_id,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.sourceEntityId,
+        input.relationKind,
+        input.targetKind,
+        input.targetName,
+        input.targetEntityId ?? null,
+        toJson(input.metadata),
+        input.indexedAt
+      );
   }
 
   private deleteProjectSearchDocuments(whereSql: string, params: SqlPrimitive[]): void {
@@ -4715,6 +5227,45 @@ CREATE INDEX IF NOT EXISTS idx_project_search_run_entity ON project_search_docum
 CREATE INDEX IF NOT EXISTS idx_project_search_updated ON project_search_documents(updated_at);
 `;
 
+const PROJECT_STRUCTURE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_structure_entities (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  inventory_item_id TEXT NOT NULL REFERENCES project_inventory_items(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL REFERENCES scope_assets(id) ON DELETE CASCADE,
+  entity_kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  path TEXT NOT NULL,
+  language TEXT NOT NULL,
+  line_start INTEGER NOT NULL,
+  line_end INTEGER NOT NULL,
+  parent_id TEXT REFERENCES project_structure_entities(id) ON DELETE SET NULL,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, path, entity_kind, name, line_start)
+);
+
+CREATE TABLE IF NOT EXISTS project_structure_relations (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  source_entity_id TEXT NOT NULL REFERENCES project_structure_entities(id) ON DELETE CASCADE,
+  relation_kind TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  target_name TEXT NOT NULL,
+  target_entity_id TEXT REFERENCES project_structure_entities(id) ON DELETE SET NULL,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, source_entity_id, relation_kind, target_kind, target_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_structure_scope_kind ON project_structure_entities(scope_version_id, entity_kind);
+CREATE INDEX IF NOT EXISTS idx_project_structure_scope_path ON project_structure_entities(scope_version_id, path);
+CREATE INDEX IF NOT EXISTS idx_project_structure_name ON project_structure_entities(scope_version_id, name);
+CREATE INDEX IF NOT EXISTS idx_project_structure_rel_source ON project_structure_relations(source_entity_id, relation_kind);
+CREATE INDEX IF NOT EXISTS idx_project_structure_rel_target ON project_structure_relations(scope_version_id, target_kind, target_name);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
@@ -4882,6 +5433,8 @@ ${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
 ${CWE_CLASSIFICATION_SCHEMA_SQL}
 
 ${PROJECT_UNDERSTANDING_SCHEMA_SQL}
+
+${PROJECT_STRUCTURE_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS hypotheses (
   id TEXT PRIMARY KEY,
