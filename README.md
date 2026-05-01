@@ -4,6 +4,8 @@
 
 An Electron-based desktop workbench for authorized vulnerability research.
 
+![Screenshot](https://i.imgur.com/Ipo1YP1.png)
+
 ---
 
 ## Status
@@ -94,6 +96,13 @@ Install dependencies:
 
 ```bash
 npm install
+```
+
+Run from source (recommended, tested):
+
+```bash
+npm run build
+npx electron out/main/index.js
 ```
 
 Start the Electron app in development mode:
