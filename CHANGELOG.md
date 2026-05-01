@@ -44,6 +44,9 @@
 - Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
 - Changed the steering input to autofocus when a selected research session becomes active.
+- Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
+- Increased the left padding before the footer momentum snake mascot.
+- Adjusted the steering textarea padding so its single-line input and placeholder are vertically centered.
 - Removed the VM environment pill activity sheen animation from the footer.
 - Added initial memo boundaries for static app shell and footer surfaces to reduce unrelated rerenders.
 - Extracted the top bar/window controls and footer/status system from `App.tsx` into dedicated renderer app, momentum, and environment view-model modules.

@@ -2337,7 +2337,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border: 0;
   border-radius: 0;
   background: var(--panel-input);
-  padding: 14px 12px 12px;
+  padding: 16px 12px 15px;
   line-height: 1.2;
 }
 
@@ -4632,11 +4632,14 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   max-width: min(62vw, 720px);
   display: flex;
   align-items: flex-end;
-  gap: 5px;
+  gap: 0;
+  background: transparent;
   overflow: hidden;
 }
 
 .environment-pill {
+  --environment-pill-surface: var(--panel);
+  --environment-pill-underlay: var(--panel-column);
   min-width: 0;
   max-width: 100%;
   flex: 0 1 auto;
@@ -4645,33 +4648,50 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: solid var(--panel-border);
-  border-width: 1px 1px 0 1px;
-  border-radius: 0 7px 0 0;
-  background: var(--panel);
+  border: 0;
+  border-radius: 0;
+  background: var(--environment-pill-underlay);
   color: #ffffff;
-  padding: 5px 10px;
+  height: 26px;
+  padding: 0 10px;
   font-size: 0.88rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.environment-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 0 var(--app-window-radius) 0 0;
+  background: var(--environment-pill-surface);
+  pointer-events: none;
 }
 
 .environment-pill svg,
 .environment-pill span {
   position: relative;
   z-index: 1;
+  flex: 0 0 auto;
+}
+
+.environment-pill svg {
+  display: block;
 }
 
 .environment-pill span {
   min-width: 0;
+  flex: 1 1 auto;
+  line-height: 1;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .environment-vm-pill {
+  --environment-pill-surface: var(--panel-column);
+  --environment-pill-underlay: transparent;
   flex: 1 1 auto;
-  border-width: 1px 1px 0 1px;
-  border-radius: 7px 7px 0 0;
   color: var(--muted-strong);
 }
 
@@ -4679,15 +4699,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: #ffffff;
 }
 
-.environment-arrow {
-  flex: 0 0 auto;
-  align-self: center;
-  color: var(--muted);
-}
-
 .environment-configure {
+  position: relative;
+  z-index: 1;
   height: auto;
   min-height: 0;
+  display: inline-flex;
+  align-items: center;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -4730,7 +4748,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   column-gap: 6px;
   align-items: center;
   overflow: hidden;
-  padding: 0 12px 0 10px;
+  padding: 0 12px 0 24px;
 }
 
 .momentum-snake-canvas {

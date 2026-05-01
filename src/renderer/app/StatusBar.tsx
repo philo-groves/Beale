@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, Bell, Monitor, PanelRightClose, PanelRightOpen, Server, Settings, SlidersHorizontal } from 'lucide-react';
+import { Bell, Monitor, PanelRightClose, PanelRightOpen, Server, Settings, SlidersHorizontal } from 'lucide-react';
 import type { ExecutorStatus, HostEnvironment, RunDetail, VmPreference } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { ResearchMomentumLine } from '../features/momentum/ResearchMomentumLine';
@@ -55,7 +55,6 @@ export const StatusBar = memo(function StatusBar({
           <Monitor size={14} />
           <span>{osLabel}</span>
         </div>
-        <ArrowRight className="environment-arrow" size={14} aria-hidden="true" />
         <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'}`} title={vmTarget.title}>
           <Server size={14} />
           <span>{vmTarget.label}</span>
