@@ -6,6 +6,7 @@ import { traceCategoryForEvent, traceEventOutcome } from '../../traceClassificat
 import { tracePayloadPrimitive } from '../../traceClassification';
 import { isProseTraceEvent, pythonToolCallPreview, traceEventDetailText, traceEventSummary, type PythonToolCallPreview } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
 import { traceCategoryLabel, traceEventIcon } from './traceVisuals';
 
@@ -13,6 +14,7 @@ interface TraceEventRowProps {
   detail: RunDetail | null;
   entering: boolean;
   event: TraceDisplayEvent;
+  searchHighlightQuery: string;
   selected: boolean;
   onSelect: (event: TraceDisplayEvent) => void;
 }
@@ -21,9 +23,11 @@ export const TraceEventRow = memo(function TraceEventRow({
   detail,
   entering,
   event,
+  searchHighlightQuery,
   selected,
   onSelect
 }: TraceEventRowProps): JSX.Element {
+  const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const detailForEvent = traceEventNeedsRunDetail(event) ? detail : null;
   const category = useMemo(() => traceCategoryForEvent(event), [event]);
   const outcome = useMemo(() => traceEventOutcome(event), [event]);
@@ -52,7 +56,7 @@ export const TraceEventRow = memo(function TraceEventRow({
       <div className="main-trace-event-body">
         <div className="main-trace-line">
           <div className="main-trace-title">
-            <strong>{summary}</strong>
+            <strong>{hasSearchHighlight ? renderSearchHighlightedText(summary, searchHighlightQuery) : summary}</strong>
             <span className="main-trace-source-label">{traceLabel(event.source)}</span>
           </div>
           <div className="main-trace-flags">
@@ -67,9 +71,9 @@ export const TraceEventRow = memo(function TraceEventRow({
             <PythonTracePreview preview={pythonPreview} />
           ) : hasDetail ? (
             proseDetail ? (
-              <span className="main-trace-prose">{renderTraceProseText(detailText, category)}</span>
+              <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
             ) : (
-              <code>{detailText}</code>
+              <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
             )
           ) : null}
         </div>
@@ -97,7 +101,7 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
 }
 
 function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventRowProps): boolean {
-  if (previous.selected !== next.selected || previous.entering !== next.entering || previous.onSelect !== next.onSelect) return false;
+  if (previous.selected !== next.selected || previous.entering !== next.entering || previous.searchHighlightQuery !== next.searchHighlightQuery || previous.onSelect !== next.onSelect) return false;
   if (!sameTraceDisplayEvent(previous.event, next.event)) return false;
   if (!traceEventNeedsRunDetail(previous.event) && !traceEventNeedsRunDetail(next.event)) return true;
   return previous.detail?.hypotheses === next.detail?.hypotheses && previous.detail?.findings === next.detail?.findings;

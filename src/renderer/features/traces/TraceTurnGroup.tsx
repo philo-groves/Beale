@@ -12,6 +12,7 @@ export function TraceTurnGroup({
   latest,
   runStatus,
   selectedTraceEventId,
+  searchHighlightQuery,
   onSelectTraceEvent
 }: {
   detail: RunDetail;
@@ -21,6 +22,7 @@ export function TraceTurnGroup({
   latest: boolean;
   runStatus: RunStatus;
   selectedTraceEventId: string | null;
+  searchHighlightQuery: string;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const status = traceGroupStatusLabel(group, latest, runStatus);
@@ -50,6 +52,7 @@ export function TraceTurnGroup({
             entering={enteringTraceEventIds.has(event.id)}
             event={event}
             key={event.id}
+            searchHighlightQuery={searchHighlightQuery}
             selected={event.id === selectedTraceEventId}
             onSelect={onSelectTraceEvent}
           />

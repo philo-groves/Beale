@@ -27,7 +27,7 @@
 - Added renderer trace visual tests for trace category filter metadata and trace type labels.
 - Added renderer trace display tests for transcript-to-trace synthesis, linked trace replacement, and transcript duplicate suppression.
 - Added main profiling service tests for structured JSONL output.
-- Added a sidebar Search modal with real-time active-workspace session transcript search, clickable session results that focus the matching trace row, a single-line search field, and wrapped left-aligned result previews.
+- Added a sidebar Search modal with real-time active-workspace session transcript search, clickable session results that focus and scroll to the matching trace row, shared search-term highlighting in the resulting trace list, a single-line search field, and wrapped left-aligned result previews.
 
 ### Changed
 

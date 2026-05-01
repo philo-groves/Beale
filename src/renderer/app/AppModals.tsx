@@ -135,7 +135,7 @@ export function AppModals({
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitProgramOnboarding: () => void;
-  onOpenSearchResult: (result: SessionTranscriptSearchResult) => void;
+  onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (

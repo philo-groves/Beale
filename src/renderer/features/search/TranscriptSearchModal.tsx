@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import type { SessionTranscriptSearchResult } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { formatSessionDateTime, traceLabel } from '../../lib/formatting';
+import { renderSearchHighlightedText } from './searchHighlight';
 
 const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_RESULT_LIMIT = 30;
@@ -18,7 +19,7 @@ export function TranscriptSearchModal({
   workspaceOpen: boolean;
   selectedRunId: string | null;
   onClose: () => void;
-  onOpenResult: (result: SessionTranscriptSearchResult) => void;
+  onOpenResult: (result: SessionTranscriptSearchResult, query: string) => void;
 }): JSX.Element {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SessionTranscriptSearchResult[]>([]);
@@ -92,13 +93,13 @@ export function TranscriptSearchModal({
               type="button"
               className={`transcript-search-result ${selectedRunId === result.runId ? 'active' : ''}`}
               key={result.transcriptMessageId}
-              onClick={() => onOpenResult(result)}
+              onClick={() => onOpenResult(result, trimmed)}
             >
               <span className="transcript-search-result-meta">
                 <strong>{result.sessionTitle || 'Untitled Session'}</strong>
                 <small>{result.programName} • {formatSessionDateTime(result.createdAt)}</small>
               </span>
-              <span className="transcript-search-result-preview">{highlightSearchText(result.contentPreview, trimmed)}</span>
+              <span className="transcript-search-result-preview">{renderSearchHighlightedText(result.contentPreview, trimmed)}</span>
               <span className="transcript-search-result-source">
                 {traceLabel(result.role)} / {traceLabel(result.source)}
               </span>
@@ -129,19 +130,4 @@ function searchStatusText({
   if (searching) return 'Searching transcripts...';
   if (!results.length) return 'No transcript matches.';
   return `${results.length} transcript match${results.length === 1 ? '' : 'es'}.`;
-}
-
-function highlightSearchText(text: string, query: string): JSX.Element[] | string {
-  const terms = [...new Set(query.split(/\s+/).map((term) => term.trim()).filter((term) => term.length >= MIN_SEARCH_CHARS))];
-  if (!terms.length) return text;
-  const pattern = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
-  const parts = text.split(pattern);
-  return parts.map((part, index) => {
-    const matched = terms.some((term) => part.toLowerCase() === term.toLowerCase());
-    return matched ? <mark key={`${part}-${index}`}>{part}</mark> : <Fragment key={`${part}-${index}`}>{part}</Fragment>;
-  });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

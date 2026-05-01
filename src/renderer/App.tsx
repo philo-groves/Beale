@@ -73,6 +73,7 @@ export function App(): JSX.Element {
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
+  const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
@@ -297,8 +298,9 @@ export function App(): JSX.Element {
   const startNewResearch = useCallback(() => setNewResearchOpen(true), []);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
-    (result: SessionTranscriptSearchResult): void => {
+    (result: SessionTranscriptSearchResult, query: string): void => {
       setPendingSearchTarget(result);
+      setTraceSearchHighlightQuery(query);
       if (selectedRunId !== result.runId) {
         clearRunDetail();
       }
@@ -361,6 +363,7 @@ export function App(): JSX.Element {
             events={activeTraceEvents}
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
+            searchHighlightQuery={traceSearchHighlightQuery}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
             onSelectTraceEvent={selectTraceEvent}

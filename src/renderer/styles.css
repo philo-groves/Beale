@@ -3472,11 +3472,17 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   overflow-wrap: anywhere;
 }
 
-.transcript-search-result-preview mark {
+.transcript-search-result-preview mark,
+.main-search-highlight {
   border-radius: 3px;
   background: rgba(223, 181, 95, 0.26);
   color: #f0d8a6;
   padding: 0 2px;
+}
+
+.main-trace-title .main-search-highlight,
+.main-trace-context .main-search-highlight {
+  font: inherit;
 }
 
 .generate-prompt-footer {

@@ -28,6 +28,7 @@ export function TraceView({
   events,
   selectedRunId,
   selectedTraceEventId,
+  searchHighlightQuery,
   visibleTraceCategories,
   onSelectTraceEvent,
   onSessionAction,
@@ -38,6 +39,7 @@ export function TraceView({
   events: TraceDisplayEvent[];
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
+  searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
@@ -432,6 +434,7 @@ export function TraceView({
                 latest={group.group.key === latestGroupKey}
                 runStatus={detail.run.status}
                 selectedTraceEventId={selectedTraceEventId}
+                searchHighlightQuery={searchHighlightQuery}
                 onSelectTraceEvent={onSelectTraceEvent}
               />
             ))}

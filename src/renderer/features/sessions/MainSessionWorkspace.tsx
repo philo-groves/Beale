@@ -10,6 +10,7 @@ export function MainSessionWorkspace({
   events,
   selectedRunId,
   selectedTraceEventId,
+  searchHighlightQuery,
   visibleTraceCategories,
   busy,
   onSelectTraceEvent,
@@ -20,6 +21,7 @@ export function MainSessionWorkspace({
   events: TraceDisplayEvent[];
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
+  searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
@@ -36,6 +38,7 @@ export function MainSessionWorkspace({
         events={events}
         selectedRunId={selectedRunId}
         selectedTraceEventId={selectedTraceEventId}
+        searchHighlightQuery={searchHighlightQuery}
         visibleTraceCategories={visibleTraceCategories}
         onSelectTraceEvent={onSelectTraceEvent}
         onSessionAction={onSessionAction}
