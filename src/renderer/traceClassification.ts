@@ -127,6 +127,9 @@ function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
     event.summary === 'OpenAI response created.' ||
     event.summary === 'OpenAI response completed.' ||
     event.summary === 'OpenAI streamed model output delta.' ||
+    event.summary === 'OpenAI requested Beale tool: python.' ||
+    event.summary === 'OpenAI requested Beale tool: hypothesis.' ||
+    event.summary === 'OpenAI requested Beale tool: finding.' ||
     /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
   );
 }

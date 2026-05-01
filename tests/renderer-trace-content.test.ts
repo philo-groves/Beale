@@ -25,6 +25,8 @@ describe('renderer trace content view models', () => {
       )
     ).toBe('Prepare Python');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }), 'tools')).toBe('Queue Python');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }), 'hypotheses')).toBe('Queue Hypothesis');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }), 'evidence')).toBe('Queue Finding');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
     expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');

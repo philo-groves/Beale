@@ -59,6 +59,9 @@ describe('renderer trace display view models', () => {
     expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI response created.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI response completed.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI streamed model output delta.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }))).toBe('non_standard');
   });
 
   it('filters hidden categories while preserving group counters for visible events only', () => {

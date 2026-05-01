@@ -47,7 +47,8 @@
 - Changed the sidebar and modal label from New Research Session to New Research.
 - Changed the steering control row to show concise uppercase session statuses.
 - Changed Python trace rows so model-side calls read as preparation/queueing and the executed host/guest result row owns the Python script preview.
-- Changed verbose model lifecycle and stream-delta trace rows to a non-standard filter category hidden by default but available from Trace Filters.
+- Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
+- Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Changed main-session separators to use rounded surface contrast instead of grey divider lines, with the trace footer acting as the darker compact auto-growing steering input surface, inset status/control row matching the hypotheses/findings surface, solid-black rounded input row, circular arrow send button, and subtly raised hypotheses/findings column background.
 - Changed the steering input to autofocus when a selected research session becomes active.
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.

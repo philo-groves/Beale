@@ -270,8 +270,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (event.type === 'tool_call') {
     const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(summary);
     if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
-    if (toolName === 'hypothesis') return 'Prepare Hypothesis';
-    if (toolName === 'finding') return 'Prepare Finding';
+    if (toolName === 'hypothesis') return /^OpenAI requested Beale tool: hypothesis\.$/i.test(summary) ? 'Queue Hypothesis' : 'Prepare Hypothesis';
+    if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
   }
 
   if (summary === 'OpenAI streamed model output delta.') return 'Model Output';
