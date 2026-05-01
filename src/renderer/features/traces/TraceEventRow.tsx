@@ -6,15 +6,18 @@ import { toolNameFromSummary, traceCategoryForEvent, traceEventOutcome } from '.
 import { tracePayloadPrimitive } from '../../traceClassification';
 import {
   duplicateBlockedTraceDetail,
+  evidenceTracePreview,
   isProseTraceEvent,
   isPythonExecutionTraceEvent,
   reasoningTraceThoughtsForEvent,
   pythonTracePreview,
   traceEventDetailText,
   traceEventSummary,
+  verifierTracePreview,
   type DuplicateBlockedTraceDetail,
   type PythonToolCallPreview,
-  type ReasoningTraceThought
+  type ReasoningTraceThought,
+  type TraceStructuredPreview
 } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
@@ -45,6 +48,8 @@ export const TraceEventRow = memo(function TraceEventRow({
   const toolClassName = useMemo(() => traceToolClassName(event), [event]);
   const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
+  const verifierPreview = useMemo(() => verifierTracePreview(event), [event]);
+  const evidencePreview = useMemo(() => evidenceTracePreview(event), [event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
   const reasoningThoughts = useMemo(() => reasoningTraceThoughtsForEvent(event, category), [category, event]);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
@@ -83,6 +88,10 @@ export const TraceEventRow = memo(function TraceEventRow({
         <div className="main-trace-context">
           {pythonPreview ? (
             <PythonTracePreview preview={pythonPreview} />
+          ) : verifierPreview ? (
+            <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+          ) : evidencePreview ? (
+            <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : duplicateBlockedDetail ? (
             <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : reasoningThoughts.length > 0 ? (
@@ -144,6 +153,32 @@ function ReasoningTracePreview({
           ) : null}
         </span>
       ))}
+    </span>
+  );
+}
+
+function StructuredTracePreview({
+  preview,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  preview: TraceStructuredPreview;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  return (
+    <span className="main-trace-structured-preview">
+      <strong>{hasSearchHighlight ? renderSearchHighlightedText(preview.title, searchHighlightQuery) : preview.title}</strong>
+      {preview.description ? (
+        <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(preview.description, searchHighlightQuery) : renderTraceProseText(preview.description, 'agent_output')}</span>
+      ) : null}
+      {preview.facts.length > 0 ? (
+        <span className="main-trace-structured-facts">
+          {preview.facts.map((fact, index) => (
+            <span key={`${fact}-${index}`}>{hasSearchHighlight ? renderSearchHighlightedText(fact, searchHighlightQuery) : fact}</span>
+          ))}
+        </span>
+      ) : null}
     </span>
   );
 }

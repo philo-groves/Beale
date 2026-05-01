@@ -55,6 +55,29 @@ describe('trace classification', () => {
     expect(traceEventOutcome(event)).toBeNull();
     expect(traceCategoryForEvent(event)).toBe('verifier');
   });
+
+  it('hides verifier and evidence lifecycle tool rows as non-standard traces', () => {
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
+          summary: 'OpenAI completed function call arguments for verifier.',
+          payload: { toolName: 'verifier' }
+        })
+      )
+    ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
+          summary: 'OpenAI requested Beale tool: evidence.',
+          payload: { toolName: 'evidence' }
+        })
+      )
+    ).toBe('non_standard');
+  });
 });
 
 function traceEvent(input: Pick<TraceEventRecord, 'source' | 'type' | 'summary' | 'payload'>): TraceEventRecord {

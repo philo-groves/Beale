@@ -38,6 +38,7 @@
 - Changed thought trace rows to render title and description as explicit block elements instead of relying on markdown newlines.
 - Changed Python run trace previews to show five code lines with a fade, code/output headers, exit code, and captured output or an explicit no-output note.
 - Changed hypothesis/finding prepare trace marker icons to neutral white and recorded hypothesis/finding milestone markers to green.
+- Changed verifier/evidence lifecycle rows to non-standard by default and added structured verifier/evidence trace previews that emphasize outcomes over raw ids.
 - Changed research prompt generation and refinement to use medium reasoning effort while preserving the selected session effort for actual run execution.
 - Changed active run-detail polling to check a cheap version first and use incremental updates instead of full detail refreshes when possible.
 - Changed production profiling so background JSONL flushes no longer update React state unless the Debug/Settings UI is observing reports.

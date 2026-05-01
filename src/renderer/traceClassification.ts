@@ -128,8 +128,11 @@ function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
     event.summary === 'OpenAI response completed.' ||
     event.summary === 'OpenAI streamed model output delta.' ||
     event.summary === 'OpenAI requested Beale tool: python.' ||
+    event.summary === 'OpenAI requested Beale tool: evidence.' ||
+    event.summary === 'OpenAI requested Beale tool: verifier.' ||
     event.summary === 'OpenAI requested Beale tool: hypothesis.' ||
     event.summary === 'OpenAI requested Beale tool: finding.' ||
+    /^OpenAI completed function call arguments for (evidence|verifier)\.$/.test(event.summary) ||
     /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
   );
 }

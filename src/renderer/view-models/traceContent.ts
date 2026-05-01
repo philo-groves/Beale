@@ -152,6 +152,12 @@ export interface ReasoningTraceThought {
   description: string;
 }
 
+export interface TraceStructuredPreview {
+  title: string;
+  description: string;
+  facts: string[];
+}
+
 export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (hasStructuredProseTraceDetail(event, detail)) return true;
 
@@ -207,10 +213,92 @@ export function pythonTraceScript(event: TraceEventRecord, detail: RunDetail | n
   return { task, script };
 }
 
+export function verifierTracePreview(event: TraceEventRecord): TraceStructuredPreview | null {
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (event.type === 'tool_call' && toolName === 'verifier') {
+    const args = tracePayloadRecord(event.payload, 'arguments');
+    if (!args) return null;
+    const expectation = stringRecordValue(args, 'expectation');
+    const hypothesis = stringRecordValue(args, 'hypothesis');
+    return {
+      title: 'Verifier prepared',
+      description: expectation || hypothesis || 'Verifier request prepared.',
+      facts: [
+        stringRecordValue(args, 'artifact_id') ? 'Artifact referenced' : null,
+        stringRecordValue(args, 'trace_event_id') ? 'Trace referenced' : null,
+        stringRecordValue(args, 'verifier_script') ? 'Executable script' : null
+      ].filter((part): part is string => Boolean(part))
+    };
+  }
+
+  if (event.type !== 'verifier_result' && event.source !== 'verifier') return null;
+  const status = tracePayloadPrimitive(event.payload, 'status') ?? verifierStatusFromSummary(event.summary) ?? 'recorded';
+  const substrate = verifierExecutionSubstrate(event.payload);
+  const artifactRecorded = Boolean(tracePayloadPrimitive(event.payload, 'artifactId'));
+  const blockedIssue = tracePayloadPrimitive(event.payload, 'blockedIssue');
+  const issues = tracePayloadArray(event.payload, 'issues');
+  return {
+    title: traceLabel(status).toUpperCase(),
+    description: [substrate, tracePayloadPrimitive(event.payload, 'realExecution') === 'true' ? 'real execution' : null, artifactRecorded ? 'output artifact recorded' : null]
+      .filter(Boolean)
+      .join(' · '),
+    facts: [blockedIssue ? `Blocked: ${traceLabel(blockedIssue)}` : null, firstArrayPart('Issue', issues)].filter((part): part is string => Boolean(part))
+  };
+}
+
+export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPreview | null {
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (event.type === 'tool_call' && toolName === 'evidence') {
+    const args = tracePayloadRecord(event.payload, 'arguments');
+    if (!args) return null;
+    const kind = stringRecordValue(args, 'kind') ?? 'evidence';
+    return {
+      title: `${traceLabel(kind)} evidence`,
+      description: stringRecordValue(args, 'summary') ?? 'Evidence request prepared.',
+      facts: evidenceReferenceFacts(args)
+    };
+  }
+
+  if (event.type !== 'artifact_created' || !tracePayloadPrimitive(event.payload, 'evidenceId')) return null;
+  const kind = tracePayloadPrimitive(event.payload, 'kind') ?? 'evidence';
+  return {
+    title: `${traceLabel(kind)} evidence`,
+    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Evidence recorded.',
+    facts: evidenceReferenceFacts(event.payload)
+  };
+}
+
 export function isPythonExecutionTraceEvent(event: TraceEventRecord): boolean {
   if (event.type !== 'tool_result' && event.type !== 'artifact_created') return false;
   const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
   return toolName === 'python' || /^(Host|Guest) python operation finished with /i.test(event.summary);
+}
+
+function verifierExecutionSubstrate(payload: Record<string, unknown>): string {
+  if (tracePayloadPrimitive(payload, 'vmExecution') === 'true') return 'Disposable VM verifier';
+  if (tracePayloadPrimitive(payload, 'hostExecution') === 'true') return 'Host verifier';
+  if (tracePayloadPrimitive(payload, 'realExecution') === 'true') return 'Real verifier';
+  return 'Verifier review';
+}
+
+function verifierStatusFromSummary(summary: string): string | null {
+  const match = summary.match(/^Verifier contract executed (?:in disposable VM|on host|with) with ([^.]+)\./i);
+  return match?.[1]?.trim() || null;
+}
+
+function evidenceSummaryFromTraceSummary(summary: string): string | null {
+  const match = summary.match(/^Evidence recorded: (.+)\.$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function evidenceReferenceFacts(payload: Record<string, unknown>): string[] {
+  return [
+    tracePayloadPrimitive(payload, 'verifierRunId') || stringRecordValue(payload, 'verifier_run_id') ? 'Verifier run referenced' : null,
+    tracePayloadPrimitive(payload, 'artifactId') || stringRecordValue(payload, 'artifact_id') ? 'Artifact referenced' : null,
+    tracePayloadPrimitive(payload, 'traceEventId') || stringRecordValue(payload, 'trace_event_id') ? 'Trace referenced' : null,
+    tracePayloadPrimitive(payload, 'findingId') || stringRecordValue(payload, 'finding_id') ? 'Linked finding' : null,
+    tracePayloadPrimitive(payload, 'hypothesisId') || stringRecordValue(payload, 'hypothesis_id') ? 'Linked hypothesis' : null
+  ].filter((part): part is string => Boolean(part));
 }
 
 function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: TraceEventRecord | null): PythonToolCallPreview | null {
@@ -359,6 +447,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
     if (toolName === 'hypothesis') return /^OpenAI requested Beale tool: hypothesis\.$/i.test(summary) ? 'Queue Hypothesis' : 'Prepare Hypothesis';
     if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
+    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Evidence' : 'Prepare Evidence';
+    if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
   }
 
   if (summary === 'OpenAI streamed model output delta.') return 'Model Output';
@@ -398,6 +488,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match?.[1] === 'python') return 'Prepare Python';
   if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
   if (match?.[1] === 'finding') return 'Prepare Finding';
+  if (match?.[1] === 'evidence') return 'Prepare Evidence';
+  if (match?.[1] === 'verifier') return 'Prepare Verifier';
   if (match) return `Call ${match[1]}`;
   match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
@@ -419,8 +511,14 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Execute verifier contract: ${match[1]}`;
   match = summary.match(/^Verifier contract executed on host with ([^.]+)\.$/);
   if (match) return `Execute host verifier contract: ${match[1]}`;
+  match = summary.match(/^Verifier contract executed with ([^.;]+);/);
+  if (match) return `Execute verifier contract: ${match[1]}`;
+  match = summary.match(/^Verifier recorded ([^.;]+) result;/);
+  if (match) return `Record verifier result: ${match[1]}`;
   match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
   if (match) return `Record portfolio branch: ${match[1]}`;
+  match = summary.match(/^Evidence recorded: (.+)\.$/);
+  if (match) return 'Evidence Recorded';
   match = summary.match(/^Requested (.+)\.$/);
   if (match) return `Request ${match[1]}`;
   match = summary.match(/^Artifact recorded: (.+)\.$/);

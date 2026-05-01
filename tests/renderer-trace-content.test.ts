@@ -3,6 +3,7 @@ import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } fro
 import {
   compactTracePath,
   duplicateBlockedTraceDetail,
+  evidenceTracePreview,
   findingForTraceEvent,
   formatReasoningTraceText,
   hypothesisForTraceEvent,
@@ -12,7 +13,8 @@ import {
   pythonToolCallPreview,
   reasoningTraceThoughtsFromText,
   traceEventDetailText,
-  traceEventSummary
+  traceEventSummary,
+  verifierTracePreview
 } from '../src/renderer/view-models/traceContent';
 
 describe('renderer trace content view models', () => {
@@ -29,6 +31,14 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }), 'tools')).toBe('Queue Python');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }), 'hypotheses')).toBe('Queue Hypothesis');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }), 'evidence')).toBe('Queue Finding');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: evidence.' }), 'non_standard')).toBe('Queue Evidence');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for verifier.', payload: { toolName: 'verifier' } }), 'non_standard')).toBe(
+      'Prepare Verifier'
+    );
+    expect(traceEventSummary(traceEvent({ type: 'artifact_created', summary: 'Evidence recorded: Verifier confirmed the auth bypass.' }), 'evidence')).toBe('Evidence Recorded');
+    expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed with pass; finding promotion remains gated.' }), 'verifier')).toBe(
+      'Execute verifier contract: pass'
+    );
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
     expect(
       traceEventSummary(
@@ -182,6 +192,52 @@ describe('renderer trace content view models', () => {
     });
     expect(isProseTraceEvent(traceEvent({ source: 'model', type: 'model_message', payload: { text: 'Agent response', transcriptRole: 'assistant' } }), 'agent_output')).toBe(true);
     expect(lineRangePart({ lineStart: 12, lineEnd: 19 })).toBe('lines 12-19');
+  });
+
+  it('builds structured verifier and evidence previews without raw id-heavy detail text', () => {
+    expect(
+      verifierTracePreview(
+        traceEvent({
+          type: 'verifier_result',
+          source: 'verifier',
+          summary: 'Verifier contract executed on host with pass.',
+          payload: {
+            status: 'pass',
+            realExecution: true,
+            hostExecution: true,
+            vmExecution: false,
+            artifactId: 'artifact_test',
+            verifierRunId: 'verifier_run_test',
+            contractId: 'verifier_contract_test'
+          }
+        })
+      )
+    ).toEqual({
+      title: 'PASS',
+      description: 'Host verifier · real execution · output artifact recorded',
+      facts: []
+    });
+
+    expect(
+      evidenceTracePreview(
+        traceEvent({
+          type: 'artifact_created',
+          source: 'tool',
+          summary: 'Evidence recorded: Verifier confirmed the auth bypass.',
+          payload: {
+            evidenceId: 'evidence_test',
+            kind: 'verifier',
+            summary: 'Verifier confirmed the auth bypass.',
+            verifierRunId: 'verifier_run_test',
+            hypothesisId: 'hypothesis_test'
+          }
+        })
+      )
+    ).toEqual({
+      title: 'Verifier evidence',
+      description: 'Verifier confirmed the auth bypass.',
+      facts: ['Verifier run referenced', 'Linked hypothesis']
+    });
   });
 
   it('uses session records for hypothesis and finding trace details when available', () => {

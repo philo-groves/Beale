@@ -2772,6 +2772,49 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: block;
 }
 
+.main-trace-structured-preview {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 3px;
+}
+
+.main-trace-structured-preview > strong {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  color: #d4d4d4;
+  font-size: 0.8rem;
+  font-weight: 820;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-structured-facts {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #777777;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.main-trace-structured-facts span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-structured-facts span:not(:last-child)::after {
+  content: "·";
+  margin-left: 5px;
+  color: #4f4f4f;
+}
+
 .main-trace-prose {
   min-width: 0;
   display: -webkit-box;
