@@ -1,11 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment } from '@shared/types';
+import type { HostEnvironment, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
-import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText } from './menuActions';
+import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
-type OpenMenu = 'edit' | null;
+type OpenMenu = 'edit' | 'view' | null;
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
@@ -24,13 +24,14 @@ export const TopBar = memo(function TopBar({
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
+  const [zoomState, setZoomState] = useState<ZoomState>(() => ({ level: 0, percent: 100 }));
   const menuRef = useRef<HTMLElement | null>(null);
   const copyShortcut = editMenuShortcut(platform, 'C');
   const pasteShortcut = editMenuShortcut(platform, 'V');
+  const zoomOutShortcut = viewMenuShortcut(platform, 'zoom_out');
+  const zoomInShortcut = viewMenuShortcut(platform, 'zoom_in');
 
   useEffect(() => {
-    if (!openMenu) return undefined;
-
     const closeFromPointer = (event: PointerEvent): void => {
       if (menuRef.current?.contains(event.target as Node)) return;
       setOpenMenu(null);
@@ -39,13 +40,27 @@ export const TopBar = memo(function TopBar({
       if (event.key === 'Escape') setOpenMenu(null);
     };
 
+    const handleZoomShortcut = (event: KeyboardEvent): void => {
+      if (!(platform === 'darwin' ? event.metaKey : event.ctrlKey) || event.altKey) return;
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        setZoomState(window.beale.zoomOut());
+      }
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        setZoomState(window.beale.zoomIn());
+      }
+    };
+
     document.addEventListener('pointerdown', closeFromPointer);
     document.addEventListener('keydown', closeFromEscape);
+    window.addEventListener('keydown', handleZoomShortcut);
     return () => {
       document.removeEventListener('pointerdown', closeFromPointer);
       document.removeEventListener('keydown', closeFromEscape);
+      window.removeEventListener('keydown', handleZoomShortcut);
     };
-  }, [openMenu]);
+  }, [platform]);
 
   const preserveSelection = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -59,6 +74,21 @@ export const TopBar = memo(function TopBar({
   const pasteSteering = useCallback(() => {
     setOpenMenu(null);
     void readClipboardText().then(dispatchPasteSteeringText);
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setOpenMenu(null);
+    setZoomState(window.beale.zoomOut());
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    setOpenMenu(null);
+    setZoomState(window.beale.zoomIn());
+  }, []);
+
+  const toggleViewMenu = useCallback(() => {
+    setZoomState(window.beale.getZoomState());
+    setOpenMenu((current) => (current === 'view' ? null : 'view'));
   }, []);
 
   return (
@@ -100,7 +130,34 @@ export const TopBar = memo(function TopBar({
             </div>
           ) : null}
         </div>
-        <button type="button">View</button>
+        <div className="window-menu-item">
+          <button
+            type="button"
+            className={openMenu === 'view' ? 'is-open' : undefined}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === 'view'}
+            onMouseDown={preserveSelection}
+            onClick={toggleViewMenu}
+          >
+            View
+          </button>
+          {openMenu === 'view' ? (
+            <div className="window-menu-dropdown" role="menu" aria-label="View">
+              <div className="window-menu-static-row" aria-hidden="true">
+                <span>Zoom Level</span>
+                <span>{zoomPercentLabel(zoomState.percent)}</span>
+              </div>
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={zoomOut}>
+                <span>Zoom Out</span>
+                <kbd>{zoomOutShortcut}</kbd>
+              </button>
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={zoomIn}>
+                <span>Zoom In</span>
+                <kbd>{zoomInShortcut}</kbd>
+              </button>
+            </div>
+          ) : null}
+        </div>
         <button type="button">Window</button>
       </nav>
       {profilingEnabled || !isMac ? (

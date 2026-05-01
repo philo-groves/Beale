@@ -796,6 +796,28 @@ code {
   text-align: left;
 }
 
+.window-menu-static-row {
+  min-width: 0;
+  height: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 0 8px;
+  color: #777777;
+  font-size: 0.74rem;
+  font-weight: 760;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.window-menu-static-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .window-menu-dropdown kbd {
   color: #777777;
   font: inherit;

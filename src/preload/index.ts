@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
@@ -20,8 +20,16 @@ import type {
   VmPreferenceInput,
   WindowChromeState,
   WorkspacePickerMode,
-  WorkspaceSnapshot
+  WorkspaceSnapshot,
+  ZoomState
 } from '@shared/types';
+
+function zoomState(): ZoomState {
+  return {
+    level: webFrame.getZoomLevel(),
+    percent: Math.round(webFrame.getZoomFactor() * 100)
+  };
+}
 
 const api: BealeApi = {
   selectWorkspace(mode: WorkspacePickerMode) {
@@ -130,6 +138,19 @@ const api: BealeApi = {
   },
   closeWindow() {
     return ipcRenderer.invoke(IPC_CHANNELS.closeWindow);
+  },
+  getZoomState() {
+    return zoomState();
+  },
+  zoomIn() {
+    const nextLevel = Math.min(6, webFrame.getZoomLevel() + 1);
+    webFrame.setZoomLevel(nextLevel);
+    return zoomState();
+  },
+  zoomOut() {
+    const nextLevel = Math.max(-4, webFrame.getZoomLevel() - 1);
+    webFrame.setZoomLevel(nextLevel);
+    return zoomState();
   },
   getWindowChromeState(): Promise<WindowChromeState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getWindowChromeState);

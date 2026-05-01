@@ -12,6 +12,8 @@
 - Added a profiling overview modal and Debug header button while profiling is enabled.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
 - Added Edit menu actions for Copy and Paste Steering, including platform shortcut labels and paste insertion into the steering input.
+- Added View menu Zoom Out and Zoom In commands backed by Electron `webFrame` page zoom.
+- Added a View menu zoom status row that shows the current page zoom percentage.
 - Added main-process profiling timings for `getProgramRegistry`, `getSnapshot`, and `openProgram`, plus renderer payload sizing for program-registry updates.
 - Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.

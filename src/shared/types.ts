@@ -172,6 +172,11 @@ export interface WindowChromeState {
   isFullScreen: boolean;
 }
 
+export interface ZoomState {
+  level: number;
+  percent: number;
+}
+
 export type ProfilingMetricValue = string | number | boolean | null | undefined;
 export type ProfilingMetricDetail = Record<string, ProfilingMetricValue>;
 
@@ -1024,6 +1029,9 @@ export interface BealeApi {
   minimizeWindow(): Promise<void>;
   toggleMaximizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
+  getZoomState(): ZoomState;
+  zoomIn(): ZoomState;
+  zoomOut(): ZoomState;
   getWindowChromeState(): Promise<WindowChromeState>;
   onWindowChromeState(listener: (state: WindowChromeState) => void): () => void;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;

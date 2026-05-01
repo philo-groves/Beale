@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { editMenuShortcut, insertTextAtRange } from '../src/renderer/app/menuActions';
+import { editMenuShortcut, insertTextAtRange, viewMenuShortcut, zoomPercentLabel } from '../src/renderer/app/menuActions';
 
 describe('renderer menu actions', () => {
   it('formats platform-specific edit shortcuts', () => {
     expect(editMenuShortcut('darwin', 'C')).toBe('⌘C');
     expect(editMenuShortcut('linux', 'V')).toBe('Ctrl+V');
     expect(editMenuShortcut('win32', 'C')).toBe('Ctrl+C');
+    expect(viewMenuShortcut('darwin', 'zoom_in')).toBe('⌘+');
+    expect(viewMenuShortcut('linux', 'zoom_out')).toBe('Ctrl+-');
+    expect(zoomPercentLabel(124.6)).toBe('125%');
   });
 
   it('inserts pasted steering text at the selected range', () => {
