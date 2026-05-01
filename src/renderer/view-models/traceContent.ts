@@ -158,6 +158,15 @@ export interface TraceStructuredPreview {
   facts: string[];
 }
 
+export interface CodeBrowserTracePreview {
+  title: string;
+  description: string;
+  facts: string[];
+  excerptLines: string[];
+  excerptLineCount: number;
+  excerptTruncated: boolean;
+}
+
 export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (hasStructuredProseTraceDetail(event, detail)) return true;
 
@@ -268,6 +277,50 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
   };
 }
 
+export function codeBrowserTracePreview(event: TraceEventRecord): CodeBrowserTracePreview | null {
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (event.type === 'tool_call' && toolName === 'code_browser') {
+    const args = tracePayloadRecord(event.payload, 'arguments');
+    if (!args) return null;
+    const path = stringRecordValue(args, 'path');
+    const symbol = stringRecordValue(args, 'symbol');
+    return {
+      title: path ? compactTracePath(path) : 'Code browser request',
+      description: symbol ? `Symbol ${symbol}` : 'Scoped source read prepared.',
+      facts: [rangePart(args), policyPart(event.payload)].filter((part): part is string => Boolean(part)),
+      excerptLines: [],
+      excerptLineCount: 0,
+      excerptTruncated: false
+    };
+  }
+
+  if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
+  const isCodeBrowserEvent = toolName === 'code_browser' || /^Code browser\b/i.test(event.summary);
+  if (!isCodeBrowserEvent) return null;
+
+  const sourcePath = tracePayloadPrimitive(event.payload, 'sourcePath') ?? tracePayloadPrimitive(event.payload, 'path');
+  const excerpt = tracePayloadPrimitive(event.payload, 'excerpt') ?? '';
+  const excerptLines = excerpt ? excerpt.replace(/\r\n?/g, '\n').trim().split('\n').filter(Boolean) : [];
+  const visibleExcerptLines = excerptLines.slice(0, 5);
+  const boundedLineCount = boundedLineCountFromSummary(event.summary) ?? excerptLines.length;
+  const reason = tracePayloadPrimitive(event.payload, 'reason') ?? tracePayloadPrimitive(event.payload, 'error');
+  const status = tracePayloadPrimitive(event.payload, 'status');
+  const symbol = tracePayloadPrimitive(event.payload, 'symbol');
+  return {
+    title: sourcePath ? compactTracePath(sourcePath) : 'Code browser result',
+    description: reason ? traceLabel(reason) : status && status !== 'success' ? traceLabel(status) : '',
+    facts: [
+      lineRangePart(event.payload),
+      boundedLineCount > 0 ? `${boundedLineCount} line${boundedLineCount === 1 ? '' : 's'}` : null,
+      symbol ? `symbol ${symbol}` : null,
+      traceBooleanPart('truncated', tracePayloadPrimitive(event.payload, 'truncated'))
+    ].filter((part): part is string => Boolean(part)),
+    excerptLines: visibleExcerptLines,
+    excerptLineCount: boundedLineCount,
+    excerptTruncated: excerptLines.length > visibleExcerptLines.length || tracePayloadPrimitive(event.payload, 'truncated') === 'true'
+  };
+}
+
 export function isPythonExecutionTraceEvent(event: TraceEventRecord): boolean {
   if (event.type !== 'tool_result' && event.type !== 'artifact_created') return false;
   const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
@@ -299,6 +352,13 @@ function evidenceReferenceFacts(payload: Record<string, unknown>): string[] {
     tracePayloadPrimitive(payload, 'findingId') || stringRecordValue(payload, 'finding_id') ? 'Linked finding' : null,
     tracePayloadPrimitive(payload, 'hypothesisId') || stringRecordValue(payload, 'hypothesis_id') ? 'Linked hypothesis' : null
   ].filter((part): part is string => Boolean(part));
+}
+
+function boundedLineCountFromSummary(summary: string): number | null {
+  const match = summary.match(/^Code browser returned (\d+) bounded lines?\.$/i);
+  if (!match) return null;
+  const count = Number(match[1]);
+  return Number.isFinite(count) ? count : null;
 }
 
 function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: TraceEventRecord | null): PythonToolCallPreview | null {
@@ -449,6 +509,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
     if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Evidence' : 'Prepare Evidence';
     if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
+    if (toolName === 'code_browser') return /^OpenAI requested Beale tool: code_browser\.$/i.test(summary) ? 'Queue Code Browser' : 'Prepare Code Browser';
+    if (toolName === 'search') return /^OpenAI requested Beale tool: search\.$/i.test(summary) ? 'Queue Search' : 'Prepare Search';
   }
 
   if (summary === 'OpenAI streamed model output delta.') return 'Model Output';
@@ -490,7 +552,17 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match?.[1] === 'finding') return 'Prepare Finding';
   if (match?.[1] === 'evidence') return 'Prepare Evidence';
   if (match?.[1] === 'verifier') return 'Prepare Verifier';
+  if (match?.[1] === 'code_browser') return 'Prepare Code Browser';
+  if (match?.[1] === 'search') return 'Prepare Search';
   if (match) return `Call ${match[1]}`;
+  match = summary.match(/^Search examined (\d+) scoped files? and returned (\d+) match(?:es)?\.$/i);
+  if (match) return `Examined ${match[1]} file${match[1] === '1' ? '' : 's'} and returned ${match[2]} match${match[2] === '1' ? '' : 'es'}`;
+  match = summary.match(/^Examined (\d+) files? and returned (\d+) match(?:es)?\.$/i);
+  if (match) return `Examined ${match[1]} file${match[1] === '1' ? '' : 's'} and returned ${match[2]} match${match[2] === '1' ? '' : 'es'}`;
+  match = summary.match(/^Code browser returned \d+ bounded lines?\.$/i);
+  if (match) return 'Read Code';
+  if (summary === 'Code browser could not read the requested bounded text.') return 'Code Browser Error';
+  if (summary === 'Code browser requires a scoped file path or artifact id.') return 'Code Browser Error';
   match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
   if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
   match = summary.match(/^Guest ([\w -]+) operation finished with ([^.]+)\.$/i);

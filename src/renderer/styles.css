@@ -2888,6 +2888,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
 }
 
+.main-trace-code-browser-preview {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
 .main-trace-python-preview p {
   min-width: 0;
   margin: 0;

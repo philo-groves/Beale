@@ -56,7 +56,7 @@ describe('trace classification', () => {
     expect(traceCategoryForEvent(event)).toBe('verifier');
   });
 
-  it('hides verifier and evidence lifecycle tool rows as non-standard traces', () => {
+  it('hides verbose lifecycle tool rows as non-standard traces', () => {
     expect(
       traceCategoryForEvent(
         traceEvent({
@@ -77,6 +77,46 @@ describe('trace classification', () => {
         })
       )
     ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
+          summary: 'OpenAI completed function call arguments for code_browser.',
+          payload: { toolName: 'code_browser' }
+        })
+      )
+    ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
+          summary: 'OpenAI requested Beale tool: code_browser.',
+          payload: { toolName: 'code_browser' }
+        })
+      )
+    ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'model',
+          type: 'tool_call',
+          summary: 'OpenAI requested Beale tool: search.',
+          payload: { toolName: 'search' }
+        })
+      )
+    ).toBe('non_standard');
+    expect(
+      traceCategoryForEvent(
+        traceEvent({
+          source: 'tool',
+          type: 'tool_result',
+          summary: 'Examined 6 files and returned 40 matches.',
+          payload: { query: 'EvalSymlinks' }
+        })
+      )
+    ).toBe('code_navigation');
   });
 });
 

@@ -60,6 +60,8 @@ describe('renderer trace display view models', () => {
     expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI response completed.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ summary: 'OpenAI streamed model output delta.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: code_browser.' }))).toBe('non_standard');
+    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: search.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }))).toBe('non_standard');
   });

@@ -128,11 +128,13 @@ function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
     event.summary === 'OpenAI response completed.' ||
     event.summary === 'OpenAI streamed model output delta.' ||
     event.summary === 'OpenAI requested Beale tool: python.' ||
+    event.summary === 'OpenAI requested Beale tool: code_browser.' ||
+    event.summary === 'OpenAI requested Beale tool: search.' ||
     event.summary === 'OpenAI requested Beale tool: evidence.' ||
     event.summary === 'OpenAI requested Beale tool: verifier.' ||
     event.summary === 'OpenAI requested Beale tool: hypothesis.' ||
     event.summary === 'OpenAI requested Beale tool: finding.' ||
-    /^OpenAI completed function call arguments for (evidence|verifier)\.$/.test(event.summary) ||
+    /^OpenAI completed function call arguments for (code_browser|evidence|verifier)\.$/.test(event.summary) ||
     /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
   );
 }
@@ -141,7 +143,7 @@ function isCodeNavigationEvent(event: TraceEventRecord, toolName: string | null)
   if (toolName && CODE_NAVIGATION_TOOLS.has(toolName)) return true;
   if (tracePayloadPrimitive(event.payload, 'sourcePath') || tracePayloadPrimitive(event.payload, 'query')) return true;
   if (tracePayloadArray(event.payload, 'availableRepositories')) return true;
-  return /\b(code browser|search examined|source repository|repository materialized)\b/i.test(event.summary);
+  return /\b(code browser|search examined|source repository|repository materialized)\b/i.test(event.summary) || /\bexamined \d+ files? and returned \d+ matches\b/i.test(event.summary);
 }
 
 function modelEventLooksLikeReasoning(event: TraceEventRecord): boolean {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
 import {
+  codeBrowserTracePreview,
   compactTracePath,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
@@ -35,6 +36,19 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for verifier.', payload: { toolName: 'verifier' } }), 'non_standard')).toBe(
       'Prepare Verifier'
     );
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for code_browser.', payload: { toolName: 'code_browser' } }), 'non_standard')).toBe(
+      'Prepare Code Browser'
+    );
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for search.', payload: { toolName: 'search' } }), 'code_navigation')).toBe(
+      'Prepare Search'
+    );
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: search.' }), 'non_standard')).toBe('Queue Search');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Search examined 6 scoped files and returned 40 matches.' }), 'code_navigation')).toBe(
+      'Examined 6 files and returned 40 matches'
+    );
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Examined 1 file and returned 1 match.' }), 'code_navigation')).toBe('Examined 1 file and returned 1 match');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Code browser returned 156 bounded lines.' }), 'code_navigation')).toBe('Read Code');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Code browser could not read the requested bounded text.' }), 'failure_recovery')).toBe('Code Browser Error');
     expect(traceEventSummary(traceEvent({ type: 'artifact_created', summary: 'Evidence recorded: Verifier confirmed the auth bypass.' }), 'evidence')).toBe('Evidence Recorded');
     expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed with pass; finding promotion remains gated.' }), 'verifier')).toBe('Verifier Execution');
     expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed on host with pass.' }), 'verifier')).toBe('Verifier Execution');
@@ -236,6 +250,33 @@ describe('renderer trace content view models', () => {
       title: 'Verifier evidence',
       description: 'Verifier confirmed the auth bypass.',
       facts: ['Verifier run referenced', 'Linked hypothesis']
+    });
+  });
+
+  it('builds structured code browser previews from bounded excerpts', () => {
+    expect(
+      codeBrowserTracePreview(
+        traceEvent({
+          type: 'tool_result',
+          source: 'tool',
+          summary: 'Code browser returned 12 bounded lines.',
+          payload: {
+            sourcePath: '/repo/services/payments/src/main/java/com/example/security/Decoder.java',
+            lineStart: 10,
+            lineEnd: 21,
+            symbol: 'decode',
+            truncated: true,
+            excerpt: ['10: public void decode() {', '11:   parse(input);', '12: }', '13:', '14: // extra', '15: audit();'].join('\n')
+          }
+        })
+      )
+    ).toEqual({
+      title: '.../example/security/Decoder.java',
+      description: '',
+      facts: ['lines 10-21', '12 lines', 'symbol decode', 'truncated yes'],
+      excerptLines: ['10: public void decode() {', '11:   parse(input);', '12: }', '13:', '14: // extra'],
+      excerptLineCount: 12,
+      excerptTruncated: true
     });
   });
 

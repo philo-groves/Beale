@@ -503,7 +503,7 @@ export class BealeToolRouter {
           : null;
     const summary =
       sourceHint ??
-      `Search examined ${files.length} scoped file${files.length === 1 ? '' : 's'} and returned ${matches.length} match${matches.length === 1 ? '' : 'es'}.`;
+      `Examined ${files.length} file${files.length === 1 ? '' : 's'} and returned ${matches.length} match${matches.length === 1 ? '' : 'es'}.`;
 
     return {
       status: 'success',

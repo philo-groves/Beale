@@ -5,6 +5,7 @@ import { traceLabel } from '../../lib/formatting';
 import { toolNameFromSummary, traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
 import { tracePayloadPrimitive } from '../../traceClassification';
 import {
+  codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
   isProseTraceEvent,
@@ -14,6 +15,7 @@ import {
   traceEventDetailText,
   traceEventSummary,
   verifierTracePreview,
+  type CodeBrowserTracePreview,
   type DuplicateBlockedTraceDetail,
   type PythonToolCallPreview,
   type ReasoningTraceThought,
@@ -50,6 +52,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
   const verifierPreview = useMemo(() => verifierTracePreview(event), [event]);
   const evidencePreview = useMemo(() => evidenceTracePreview(event), [event]);
+  const codeBrowserPreview = useMemo(() => codeBrowserTracePreview(event), [event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
   const reasoningThoughts = useMemo(() => reasoningTraceThoughtsForEvent(event, category), [category, event]);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
@@ -92,6 +95,8 @@ export const TraceEventRow = memo(function TraceEventRow({
             <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : evidencePreview ? (
             <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+          ) : codeBrowserPreview ? (
+            <CodeBrowserTracePreviewRow preview={codeBrowserPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : duplicateBlockedDetail ? (
             <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : reasoningThoughts.length > 0 ? (
@@ -108,6 +113,30 @@ export const TraceEventRow = memo(function TraceEventRow({
     </button>
   );
 }, traceEventRowPropsEqual);
+
+function CodeBrowserTracePreviewRow({
+  preview,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  preview: CodeBrowserTracePreview;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  return (
+    <div className="main-trace-code-browser-preview">
+      <StructuredTracePreview preview={preview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+      {preview.excerptLines.length > 0 ? (
+        <PythonTraceBlock
+          label="Excerpt"
+          meta={`${preview.excerptLineCount} line${preview.excerptLineCount === 1 ? '' : 's'}`}
+          text={preview.excerptLines.join('\n')}
+          truncated={preview.excerptTruncated}
+        />
+      ) : null}
+    </div>
+  );
+}
 
 function DuplicateBlockedTracePreview({
   detail,

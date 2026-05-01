@@ -55,6 +55,8 @@
 - Changed the sidebar and modal label from New Research Session to New Research.
 - Changed the steering control row to show concise uppercase session statuses.
 - Changed Python trace rows so model-side calls read as preparation/queueing and the executed host/guest result row owns the Python script preview.
+- Changed code-browser trace rows so model-side queue/argument lifecycle rows are non-standard by default and the executed source-read result owns a compact path, line metadata, and bounded excerpt preview.
+- Changed search trace rows so the model-side request lifecycle row is non-standard by default, argument rows read as `Prepare Search`, and result rows use shorter `Examined ...` labels.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.
