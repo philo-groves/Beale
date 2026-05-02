@@ -905,6 +905,7 @@ describe('Beale workbench skeleton', () => {
     const projectStructureMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 12').get();
     const projectSemanticMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 13').get();
     const projectGraphMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 14').get();
+    const projectGraphStatusMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 15').get();
     const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
     const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
     const weaknessTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'weakness_mappings'").get();
@@ -916,6 +917,7 @@ describe('Beale workbench skeleton', () => {
     const semanticChunksTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_semantic_chunks'").get();
     const graphNodesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_nodes'").get();
     const graphEdgesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_edges'").get();
+    const graphStatusTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_status'").get();
     const cweEntry = migrated.prepare("SELECT name FROM cwe_entries WHERE cwe_id = 'CWE-862'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
@@ -928,6 +930,7 @@ describe('Beale workbench skeleton', () => {
     expect(projectStructureMigration).toBeTruthy();
     expect(projectSemanticMigration).toBeTruthy();
     expect(projectGraphMigration).toBeTruthy();
+    expect(projectGraphStatusMigration).toBeTruthy();
     expect(notificationsTable).toBeTruthy();
     expect(transcriptTable).toBeTruthy();
     expect(weaknessTable).toBeTruthy();
@@ -939,6 +942,7 @@ describe('Beale workbench skeleton', () => {
     expect(semanticChunksTable).toBeTruthy();
     expect(graphNodesTable).toBeTruthy();
     expect(graphEdgesTable).toBeTruthy();
+    expect(graphStatusTable).toBeTruthy();
     expect(cweEntry).toBeTruthy();
   });
 

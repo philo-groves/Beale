@@ -283,6 +283,28 @@ Fields:
 - `metadata_json`
 - `indexed_at`
 
+### `project_graph_status`
+
+Purpose:
+
+- Store operational relationship graph status for debugging stale or missing graph context.
+- Preserve rebuild reason, stale reasons, build count, and node/edge family counts for Settings and diagnostics.
+
+Fields:
+
+- `scope_version_id`
+- `build_count`
+- `last_rebuild_reason`
+- `stale_reasons_json`
+- `node_family_counts_json`
+- `edge_family_counts_json`
+- `expected_node_count`
+- `actual_node_count`
+- `actual_edge_count`
+- `last_rebuild_duration_ms`
+- `indexed_at`
+- `updated_at`
+
 ### `runs`
 
 Purpose:

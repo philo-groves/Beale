@@ -4522,6 +4522,7 @@ export class WorkspaceDatabase {
   }
 
   public getProjectGraphSummary(scopeVersionId = this.getActiveScope().id): ProjectGraphSummary {
+    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
     const nodeRow = rowOrUndefined(
       this.db
         .prepare(
@@ -4544,23 +4545,50 @@ export class WorkspaceDatabase {
         .get(scopeVersionId)
     );
     const nodeCount = nodeRow ? numberValue(nodeRow, 'node_count') : 0;
-    const expectedNodeCount = this.projectGraphExpectedNodeCount(scopeVersionId);
-    const status = nodeCount === 0 ? 'empty' : nodeCount < expectedNodeCount ? 'stale' : 'ready';
+    const edgeCount = edgeRow ? numberValue(edgeRow, 'edge_count') : 0;
+    const expectedNodeFamilyCounts = this.projectGraphExpectedNodeFamilyCounts(scopeVersionId);
+    const expectedNodeCount = Object.values(expectedNodeFamilyCounts).reduce((sum, count) => sum + count, 0);
+    const nodeFamilyCounts = this.projectGraphActualNodeFamilyCounts(scopeVersionId);
+    const edgeFamilyCounts = this.projectGraphActualEdgeFamilyCounts(scopeVersionId);
+    const staleReasons = this.projectGraphStaleReasons(expectedNodeFamilyCounts, nodeFamilyCounts);
+    const status = nodeCount === 0 ? 'empty' : staleReasons.length > 0 ? 'stale' : 'ready';
+    const statusRow = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
+    this.recordProjectGraphStatus(scopeVersionId, {
+      rebuildReason: nullableText(statusRow ?? {}, 'last_rebuild_reason'),
+      indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null,
+      durationMs: nullableNumber(statusRow ?? {}, 'last_rebuild_duration_ms'),
+      incrementBuildCount: false,
+      expectedNodeCount,
+      actualNodeCount: nodeCount,
+      actualEdgeCount: edgeCount,
+      staleReasons,
+      nodeFamilyCounts,
+      edgeFamilyCounts
+    });
+    const updatedStatusRow = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
     return {
       scopeVersionId,
       status,
       nodeCount,
-      edgeCount: edgeRow ? numberValue(edgeRow, 'edge_count') : 0,
+      edgeCount,
       structuralEdgeCount: edgeRow ? numberValue(edgeRow, 'structural_edge_count') : 0,
       unresolvedEdgeCount: edgeRow ? numberValue(edgeRow, 'unresolved_edge_count') : 0,
+      expectedNodeCount,
+      staleReasons,
+      rebuildReason: nullableText(updatedStatusRow ?? {}, 'last_rebuild_reason'),
+      buildCount: updatedStatusRow ? numberValue(updatedStatusRow, 'build_count') : 0,
+      nodeFamilyCounts,
+      edgeFamilyCounts,
       indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null
     };
   }
 
-  public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso()): ProjectGraphSummary {
+  public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
+    const startedAt = Date.now();
     this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
     this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
     this.rebuildProjectGraph(scopeVersionId, indexedAt);
+    this.recordProjectGraphStatus(scopeVersionId, { rebuildReason: reason, indexedAt, durationMs: Date.now() - startedAt, incrementBuildCount: true });
     return this.getProjectGraphSummary(scopeVersionId);
   }
 
@@ -4574,78 +4602,164 @@ export class WorkspaceDatabase {
 
   private ensureProjectGraphFresh(scopeVersionId: string): ProjectGraphSummary {
     const summary = this.getProjectGraphSummary(scopeVersionId);
-    return summary.status === 'stale' || summary.status === 'empty' ? this.refreshProjectGraph(scopeVersionId) : summary;
+    return summary.status === 'stale' || summary.status === 'empty' ? this.refreshProjectGraph(scopeVersionId, nowIso(), summary.status === 'empty' ? 'empty_graph' : summary.staleReasons.join(',')) : summary;
   }
 
-  private projectGraphExpectedNodeCount(scopeVersionId: string): number {
-    const row = rowOrUndefined(
-      this.db
-        .prepare(
-          `SELECT
-             1
-             + (SELECT COUNT(*) FROM scope_assets WHERE scope_version_id = ?)
-             + (SELECT COUNT(*) FROM project_inventory_items WHERE scope_version_id = ?)
-             + (SELECT COUNT(*) FROM project_structure_entities WHERE scope_version_id = ?)
-             + (SELECT COUNT(*) FROM runs WHERE scope_version_id = ?)
-             + (SELECT COUNT(*) FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(DISTINCT a.id)
-                FROM artifacts a
-                JOIN trace_events t ON t.artifact_id = a.id
-                JOIN runs r ON r.id = t.run_id
-                WHERE r.scope_version_id = ?)
-             + (SELECT COUNT(*) FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*)
-                FROM (
-                  SELECT LOWER(TRIM(component)) AS component_key
-                  FROM hypotheses
-                  WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
-                    AND TRIM(component) <> ''
-                  UNION
-                  SELECT LOWER(TRIM(COALESCE(
-                    json_extract(affected_assets_json, '$.component'),
-                    json_extract(affected_assets_json, '$.path'),
-                    json_extract(affected_assets_json, '$.asset'),
-                    ''
-                  ))) AS component_key
-                  FROM findings
-                  WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
-                    AND TRIM(COALESCE(
-                      json_extract(affected_assets_json, '$.component'),
-                      json_extract(affected_assets_json, '$.path'),
-                      json_extract(affected_assets_json, '$.asset'),
-                      ''
-                    )) <> ''
-                ))
-             + (SELECT COUNT(DISTINCT cwe_id)
-                FROM weakness_mappings
-                WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE r.scope_version_id = ?))
-                   OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE r.scope_version_id = ?))) AS expected_count`
-        )
-        .get(
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId,
-          scopeVersionId
-        )
+  private projectGraphExpectedNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
+    const count = (sql: string, ...params: SqlPrimitive[]) => {
+      const row = rowOrUndefined(this.db.prepare(sql).get(...params));
+      return row ? numberValue(row, 'count') : 0;
+    };
+    const families: Record<string, number> = {
+      scope_version: 1,
+      scope_asset: count('SELECT COUNT(*) AS count FROM scope_assets WHERE scope_version_id = ?', scopeVersionId),
+      inventory_item: count('SELECT COUNT(*) AS count FROM project_inventory_items WHERE scope_version_id = ?', scopeVersionId),
+      structure_entity: count('SELECT COUNT(*) AS count FROM project_structure_entities WHERE scope_version_id = ?', scopeVersionId),
+      run: count('SELECT COUNT(*) AS count FROM runs WHERE scope_version_id = ?', scopeVersionId),
+      trace_event: count('SELECT COUNT(*) AS count FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      transcript: count('SELECT COUNT(*) AS count FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      artifact: count(
+        `SELECT COUNT(DISTINCT a.id) AS count
+         FROM artifacts a
+         JOIN trace_events t ON t.artifact_id = a.id
+         JOIN runs r ON r.id = t.run_id
+         WHERE r.scope_version_id = ?`,
+        scopeVersionId
+      ),
+      hypothesis: count('SELECT COUNT(*) AS count FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      finding: count('SELECT COUNT(*) AS count FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      evidence: count('SELECT COUNT(*) AS count FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      verifier_contract: count('SELECT COUNT(*) AS count FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      verifier_run: count('SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      research_component: count(
+        `SELECT COUNT(*) AS count
+         FROM (
+           SELECT LOWER(TRIM(component)) AS component_key
+           FROM hypotheses
+           WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+             AND TRIM(component) <> ''
+           UNION
+           SELECT LOWER(TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), ''))) AS component_key
+           FROM findings
+           WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+             AND TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), '')) <> ''
+         )`,
+        scopeVersionId,
+        scopeVersionId
+      ),
+      weakness: count(
+        `SELECT COUNT(DISTINCT cwe_id) AS count
+         FROM weakness_mappings
+         WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE r.scope_version_id = ?))
+            OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE r.scope_version_id = ?))`,
+        scopeVersionId,
+        scopeVersionId
+      )
+    };
+    return Object.fromEntries(Object.entries(families).filter(([, value]) => value > 0));
+  }
+
+  private projectGraphActualNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
+    return Object.fromEntries(
+      rows(
+        this.db
+          .prepare(
+            `SELECT entity_type, COUNT(*) AS count
+             FROM project_graph_nodes
+             WHERE scope_version_id = ?
+             GROUP BY entity_type
+             ORDER BY entity_type ASC`
+          )
+          .all(scopeVersionId)
+      ).map((row) => [text(row, 'entity_type'), numberValue(row, 'count')])
     );
-    return row ? numberValue(row, 'expected_count') : 0;
+  }
+
+  private projectGraphActualEdgeFamilyCounts(scopeVersionId: string): Record<string, number> {
+    return Object.fromEntries(
+      rows(
+        this.db
+          .prepare(
+            `SELECT edge_kind, COUNT(*) AS count
+             FROM project_graph_edges
+             WHERE scope_version_id = ?
+             GROUP BY edge_kind
+             ORDER BY edge_kind ASC`
+          )
+          .all(scopeVersionId)
+      ).map((row) => [text(row, 'edge_kind'), numberValue(row, 'count')])
+    );
+  }
+
+  private projectGraphStaleReasons(expectedNodeFamilyCounts: Record<string, number>, actualNodeFamilyCounts: Record<string, number>): string[] {
+    const reasons: string[] = [];
+    for (const [family, expectedCount] of Object.entries(expectedNodeFamilyCounts)) {
+      const actualCount = actualNodeFamilyCounts[family] ?? 0;
+      if (actualCount < expectedCount) reasons.push(`missing_node_family:${family}:${actualCount}/${expectedCount}`);
+    }
+    return reasons;
+  }
+
+  private recordProjectGraphStatus(
+    scopeVersionId: string,
+    input: {
+      rebuildReason: string | null;
+      indexedAt: string | null;
+      durationMs: number | null;
+      incrementBuildCount: boolean;
+      expectedNodeCount?: number;
+      actualNodeCount?: number;
+      actualEdgeCount?: number;
+      staleReasons?: string[];
+      nodeFamilyCounts?: Record<string, number>;
+      edgeFamilyCounts?: Record<string, number>;
+    }
+  ): void {
+    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
+    const expectedNodeFamilyCounts = this.projectGraphExpectedNodeFamilyCounts(scopeVersionId);
+    const nodeFamilyCounts = input.nodeFamilyCounts ?? this.projectGraphActualNodeFamilyCounts(scopeVersionId);
+    const edgeFamilyCounts = input.edgeFamilyCounts ?? this.projectGraphActualEdgeFamilyCounts(scopeVersionId);
+    const staleReasons = input.staleReasons ?? this.projectGraphStaleReasons(expectedNodeFamilyCounts, nodeFamilyCounts);
+    const expectedNodeCount = input.expectedNodeCount ?? Object.values(expectedNodeFamilyCounts).reduce((sum, count) => sum + count, 0);
+    const actualNodeCount = input.actualNodeCount ?? Object.values(nodeFamilyCounts).reduce((sum, count) => sum + count, 0);
+    const actualEdgeCount = input.actualEdgeCount ?? Object.values(edgeFamilyCounts).reduce((sum, count) => sum + count, 0);
+    const existing = rowOrUndefined(this.db.prepare('SELECT build_count, last_rebuild_reason, last_rebuild_duration_ms FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
+    const buildCount = (existing ? numberValue(existing, 'build_count') : 0) + (input.incrementBuildCount ? 1 : 0);
+    this.db
+      .prepare(
+        `INSERT INTO project_graph_status (
+          scope_version_id, build_count, last_rebuild_reason, stale_reasons_json,
+          node_family_counts_json, edge_family_counts_json, expected_node_count,
+          actual_node_count, actual_edge_count, last_rebuild_duration_ms, indexed_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id)
+        DO UPDATE SET
+          build_count = excluded.build_count,
+          last_rebuild_reason = excluded.last_rebuild_reason,
+          stale_reasons_json = excluded.stale_reasons_json,
+          node_family_counts_json = excluded.node_family_counts_json,
+          edge_family_counts_json = excluded.edge_family_counts_json,
+          expected_node_count = excluded.expected_node_count,
+          actual_node_count = excluded.actual_node_count,
+          actual_edge_count = excluded.actual_edge_count,
+          last_rebuild_duration_ms = excluded.last_rebuild_duration_ms,
+          indexed_at = excluded.indexed_at,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        scopeVersionId,
+        buildCount,
+        input.rebuildReason ?? nullableText(existing ?? {}, 'last_rebuild_reason'),
+        toJson(staleReasons),
+        toJson(nodeFamilyCounts),
+        toJson(edgeFamilyCounts),
+        expectedNodeCount,
+        actualNodeCount,
+        actualEdgeCount,
+        input.durationMs ?? nullableNumber(existing ?? {}, 'last_rebuild_duration_ms'),
+        input.indexedAt,
+        nowIso()
+      );
   }
 
   public findProjectGraphNodes(
@@ -5885,6 +5999,10 @@ export class WorkspaceDatabase {
         this.applyProjectGraphIndexMigration();
         this.insertMigration(14, 'project_understanding_relationship_graph');
       }
+      if (currentVersion < 15) {
+        this.applyProjectGraphStatusMigration();
+        this.insertMigration(15, 'project_graph_operational_status');
+      }
     });
   }
 
@@ -6042,6 +6160,13 @@ export class WorkspaceDatabase {
       if (summary.itemCount > 0) {
         this.rebuildProjectGraph(scopeVersionId, summary.indexedAt ?? nowIso());
       }
+    }
+  }
+
+  private applyProjectGraphStatusMigration(): void {
+    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
+    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
+      this.recordProjectGraphStatus(text(row, 'id'), { rebuildReason: null, indexedAt: null, durationMs: null, incrementBuildCount: false });
     }
   }
 
@@ -9022,6 +9147,23 @@ CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_path ON project_graph_nodes(s
 CREATE INDEX IF NOT EXISTS idx_project_graph_edges_source ON project_graph_edges(source_node_id, edge_kind);
 CREATE INDEX IF NOT EXISTS idx_project_graph_edges_target ON project_graph_edges(scope_version_id, target_entity_type, target_entity_id);
 CREATE INDEX IF NOT EXISTS idx_project_graph_edges_kind ON project_graph_edges(scope_version_id, edge_kind);
+`;
+
+const PROJECT_GRAPH_STATUS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_graph_status (
+  scope_version_id TEXT PRIMARY KEY REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  build_count INTEGER NOT NULL DEFAULT 0,
+  last_rebuild_reason TEXT,
+  stale_reasons_json TEXT NOT NULL DEFAULT '[]',
+  node_family_counts_json TEXT NOT NULL DEFAULT '{}',
+  edge_family_counts_json TEXT NOT NULL DEFAULT '{}',
+  expected_node_count INTEGER NOT NULL DEFAULT 0,
+  actual_node_count INTEGER NOT NULL DEFAULT 0,
+  actual_edge_count INTEGER NOT NULL DEFAULT 0,
+  last_rebuild_duration_ms INTEGER,
+  indexed_at TEXT,
+  updated_at TEXT NOT NULL
+);
 `;
 
 const PROJECT_SEMANTIC_SCHEMA_SQL = `

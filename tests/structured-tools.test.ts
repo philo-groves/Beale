@@ -134,6 +134,11 @@ describe('structured research tools', () => {
     expect(graph.nodeCount).toBeGreaterThan(structure.entityCount);
     expect(graph.edgeCount).toBeGreaterThanOrEqual(structure.relationCount);
     expect(graph.structuralEdgeCount).toBeGreaterThanOrEqual(structure.relationCount);
+    expect(graph.expectedNodeCount).toBe(graph.nodeCount);
+    expect(graph.staleReasons).toEqual([]);
+    expect(graph.buildCount).toBeGreaterThanOrEqual(1);
+    expect(graph.nodeFamilyCounts.structure_entity).toBeGreaterThanOrEqual(structure.entityCount);
+    expect(graph.edgeFamilyCounts.defines).toBeGreaterThanOrEqual(1);
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');

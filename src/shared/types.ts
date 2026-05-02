@@ -330,6 +330,12 @@ export interface ProjectGraphSummary {
   edgeCount: number;
   structuralEdgeCount: number;
   unresolvedEdgeCount: number;
+  expectedNodeCount: number;
+  staleReasons: string[];
+  rebuildReason: string | null;
+  buildCount: number;
+  nodeFamilyCounts: Record<string, number>;
+  edgeFamilyCounts: Record<string, number>;
   indexedAt: string | null;
 }
 

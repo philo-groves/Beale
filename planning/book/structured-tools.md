@@ -92,6 +92,7 @@ Expected outputs:
 - Graph-proximity search matches with seed entity, edge kind, graph distance, and rank reason when metadata or semantic hits have useful adjacent nodes.
 - Graph-backed variant matches for entities that share relationship targets such as sinks, permission checks, middleware, hypotheses, or findings.
 - Research-memory graph links for components, CWE mappings, duplicate hypotheses/findings, evidence support, verifier outcomes, and artifact-producing traces.
+- Graph operational diagnostics including stale reasons, rebuild reason, build count, expected node count, and node/edge family counts.
 - Retrieval scores and ranking signals that show when graph seed or proximity influenced final search ordering.
 - Match context small enough for model use.
 
