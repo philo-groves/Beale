@@ -39,7 +39,6 @@ interface ActiveProjectSemanticIndexJob {
   runtime: ProjectSemanticIndexRuntime;
   worker: Worker | null;
   cancelReason: string | null;
-  requeuedForActiveWork: boolean;
 }
 
 export class ProjectSemanticIndexExecutor {
@@ -140,8 +139,7 @@ export class ProjectSemanticIndexExecutor {
       reason,
       runtime,
       worker: null,
-      cancelReason: null,
-      requeuedForActiveWork: false
+      cancelReason: null
     };
     this.activeJobs.set(key, job);
     try {
@@ -190,12 +188,6 @@ export class ProjectSemanticIndexExecutor {
             break;
           case 'progress':
             this.options.emitChange(job.runtime.workspacePath);
-            if (this.options.hasActiveWork(job.runtime) && !job.requeuedForActiveWork && !job.cancelReason) {
-              job.requeuedForActiveWork = true;
-              job.runtime.db.queueProjectSemanticIndex(job.scopeVersionId, job.reason);
-              this.schedule(job.scopeVersionId, job.reason, job.runtime.workspacePath, this.activeRetryDelayMs);
-              worker.postMessage({ type: 'cancel' });
-            }
             break;
           case 'completed':
             settled = true;
@@ -204,7 +196,7 @@ export class ProjectSemanticIndexExecutor {
             break;
           case 'canceled':
             settled = true;
-            if (!job.requeuedForActiveWork && !job.cancelReason && job.runtime.db.getProjectSemanticIndexEnabled(job.scopeVersionId)) {
+            if (!job.cancelReason && job.runtime.db.getProjectSemanticIndexEnabled(job.scopeVersionId)) {
               job.runtime.db.markProjectSemanticIndexingCanceled(job.scopeVersionId, 'worker_canceled');
             }
             this.options.emitChange(job.runtime.workspacePath);
@@ -258,14 +250,6 @@ export class ProjectSemanticIndexExecutor {
     while (processed < refresh.sourceDocumentCount) {
       if (job.cancelReason) return;
       if (!runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-      if (this.options.hasActiveWork(runtime)) {
-        job.requeuedForActiveWork = true;
-        runtime.db.queueProjectSemanticIndex(scopeVersionId, reason);
-        this.schedule(scopeVersionId, reason, workspacePath, this.activeRetryDelayMs);
-        this.options.emitChange(workspacePath);
-        return;
-      }
-
       const documents = this.profile('projectSemantic.refresh.loadBatch', { ...detail, processed }, () =>
         runtime.db.listProjectSemanticSourceDocuments(scopeVersionId, this.batchSize, processed)
       );

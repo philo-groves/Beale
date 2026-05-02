@@ -5,18 +5,48 @@ import type { NotificationRecord } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { truncateText } from '../../lib/formatting';
 
+export interface WorkspaceAlert {
+  id: string;
+  title: string;
+  bodyMarkdown: string;
+  severity?: 'info' | 'error';
+}
+
 export function NotificationStack({
   notifications,
+  alerts = [],
   onOpen,
-  onDismiss
+  onDismiss,
+  onOpenAlert,
+  onDismissAlert
 }: {
   notifications: NotificationRecord[];
+  alerts?: WorkspaceAlert[];
   onOpen: (notification: NotificationRecord) => void;
   onDismiss: (notificationId: string) => void;
+  onOpenAlert?: (alert: WorkspaceAlert) => void;
+  onDismissAlert?: (alertId: string) => void;
 }): JSX.Element | null {
-  if (notifications.length === 0) return null;
+  if (notifications.length === 0 && alerts.length === 0) return null;
   return (
     <div className="notification-stack" aria-label="Notifications">
+      {alerts.map((alert) => (
+        <article className={`notification-toast notification-alert notification-alert-${alert.severity ?? 'info'}`} key={alert.id}>
+          <button type="button" className="notification-toast-main" onClick={() => onOpenAlert?.(alert)}>
+            <span className="notification-toast-title">{alert.title}</span>
+            <span className="notification-toast-body">{alertPreviewText(alert.bodyMarkdown, 180)}</span>
+          </button>
+          <button
+            type="button"
+            className="notification-toast-close"
+            title="Dismiss alert"
+            aria-label="Dismiss alert"
+            onClick={() => onDismissAlert?.(alert.id)}
+          >
+            <XCircle size={15} />
+          </button>
+        </article>
+      ))}
       {notifications.map((notification) => (
         <article className="notification-toast" key={notification.id}>
           <button type="button" className="notification-toast-main" onClick={() => onOpen(notification)}>
@@ -86,6 +116,10 @@ export function NotificationDetailModal({
 
 export function notificationPreviewText(markdown: string, maxLength: number): string {
   return truncateText(firstMarkdownSentence(markdown) || markdown.replace(/\s+/g, ' ').trim(), maxLength);
+}
+
+export function alertPreviewText(markdown: string, maxLength: number): string {
+  return truncateText(markdown.replace(/\s+/g, ' ').trim(), maxLength);
 }
 
 function firstMarkdownSentence(markdown: string): string {

@@ -15,7 +15,7 @@ import { AppModals } from './app/AppModals';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
-import { NotificationStack } from './features/notifications/Notifications';
+import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
@@ -47,6 +47,8 @@ import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 
+const SEMANTIC_INDEX_ALERT_DELAY_MS = 10_000;
+
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,9 +79,13 @@ export function App(): JSX.Element {
   const [profilingOpen, setProfilingOpen] = useState(false);
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
+  const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [busy, setBusy] = useState(false);
+  const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
+  const semanticIndexErrorAlertKeyRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
     openProgramMenuId,
@@ -154,6 +160,21 @@ export function App(): JSX.Element {
       }
     },
     [applySnapshot]
+  );
+
+  const dismissWorkspaceAlert = useCallback((alertId: string) => {
+    setWorkspaceAlerts((current) => current.filter((alert) => alert.id !== alertId));
+  }, []);
+
+  const openWorkspaceAlert = useCallback(
+    (alert: WorkspaceAlert) => {
+      if (alert.id.startsWith('semantic-index-')) {
+        setSettingsSection('general');
+        setSettingsOpen(true);
+        dismissWorkspaceAlert(alert.id);
+      }
+    },
+    [dismissWorkspaceAlert]
   );
 
   const runProgramAction = useCallback(
@@ -342,6 +363,100 @@ export function App(): JSX.Element {
     setPendingSearchTarget(null);
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
 
+  useEffect(() => {
+    const summary = snapshot?.projectSemantic ?? null;
+    const status = summary?.status ?? 'disabled';
+    const programName = snapshot?.activeScope.programName ?? 'the active program';
+    if (semanticIndexAlertTimerRef.current) {
+      clearTimeout(semanticIndexAlertTimerRef.current);
+      semanticIndexAlertTimerRef.current = null;
+    }
+
+    if (!summary || status === 'disabled' || status === 'ready' || status === 'empty' || status === 'stale' || status === 'canceled') {
+      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-')));
+      return;
+    }
+
+    if (status === 'error') {
+      const errorKey = `${summary.scopeVersionId}:${summary.finishedAt ?? ''}:${summary.lastError ?? ''}`;
+      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
+      if (semanticIndexErrorAlertKeyRef.current !== errorKey) {
+        semanticIndexErrorAlertKeyRef.current = errorKey;
+        setWorkspaceAlerts((current) => [
+          ...current.filter((alert) => !alert.id.startsWith('semantic-index-error:')),
+          {
+            id: `semantic-index-error:${errorKey}`,
+            severity: 'error',
+            title: 'Project understanding failed',
+            bodyMarkdown: `Semantic indexing failed for ${programName}. ${summary.lastError || 'Open Settings > General for details.'}`
+          }
+        ]);
+      }
+      return;
+    }
+
+    if (status === 'queued' || status === 'indexing') {
+      const runningKey = semanticIndexRunningKey(summary);
+      if (semanticIndexRunningAlertKeyRef.current === runningKey) return;
+      semanticIndexAlertTimerRef.current = setTimeout(() => {
+        semanticIndexRunningAlertKeyRef.current = runningKey;
+        setWorkspaceAlerts((current) => {
+          const alertId = `semantic-index-running:${runningKey}`;
+          if (current.some((alert) => alert.id === alertId)) return current;
+          return [
+            ...current.filter((alert) => !alert.id.startsWith('semantic-index-running:')),
+            {
+              id: alertId,
+              severity: 'info',
+              title: 'Project understanding indexing',
+              bodyMarkdown: semanticIndexAlertBody(summary, programName, snapshot?.runs ?? [])
+            }
+          ];
+        });
+      }, SEMANTIC_INDEX_ALERT_DELAY_MS);
+    }
+
+    return () => {
+      if (semanticIndexAlertTimerRef.current) {
+        clearTimeout(semanticIndexAlertTimerRef.current);
+        semanticIndexAlertTimerRef.current = null;
+      }
+    };
+  }, [
+    snapshot?.activeScope.programName,
+    snapshot?.projectSemantic?.finishedAt,
+    snapshot?.projectSemantic?.lastError,
+    snapshot?.projectSemantic?.queuedAt,
+    snapshot?.projectSemantic?.scopeVersionId,
+    snapshot?.projectSemantic?.startedAt,
+    snapshot?.projectSemantic?.status
+  ]);
+
+  useEffect(() => {
+    const summary = snapshot?.projectSemantic ?? null;
+    if (!summary || (summary.status !== 'queued' && summary.status !== 'indexing')) return;
+    const alertId = `semantic-index-running:${semanticIndexRunningKey(summary)}`;
+    const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program', snapshot?.runs ?? []);
+    setWorkspaceAlerts((current) => {
+      let changed = false;
+      const next = current.map((alert) => {
+        if (alert.id !== alertId || alert.bodyMarkdown === bodyMarkdown) return alert;
+        changed = true;
+        return { ...alert, bodyMarkdown };
+      });
+      return changed ? next : current;
+    });
+  }, [
+    snapshot?.activeScope.programName,
+    snapshot?.projectSemantic?.progressProcessed,
+    snapshot?.projectSemantic?.progressTotal,
+    snapshot?.projectSemantic?.queuedAt,
+    snapshot?.projectSemantic?.scopeVersionId,
+    snapshot?.projectSemantic?.startedAt,
+    snapshot?.projectSemantic?.status,
+    snapshot?.runs
+  ]);
+
   return (
     <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <AppBackgroundPulses />
@@ -412,7 +527,7 @@ export function App(): JSX.Element {
         activity={environmentActivity}
         detail={activeRunDetail}
         momentum={researchMomentum}
-        notificationCount={snapshot?.notifications.length ?? 0}
+        notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
         inspectorOpen={inspectorOpen}
         traceFilterCount={visibleTraceCategories.length}
         totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
@@ -421,7 +536,14 @@ export function App(): JSX.Element {
         onOpenTraceFilters={openTraceFilters}
         onToggleInspector={toggleInspector}
       />
-      <NotificationStack notifications={snapshot?.notifications ?? []} onOpen={openNotification} onDismiss={dismissNotification} />
+      <NotificationStack
+        notifications={snapshot?.notifications ?? []}
+        alerts={workspaceAlerts}
+        onOpen={openNotification}
+        onDismiss={dismissNotification}
+        onOpenAlert={openWorkspaceAlert}
+        onDismissAlert={dismissWorkspaceAlert}
+      />
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
@@ -492,6 +614,30 @@ export function App(): JSX.Element {
       />
     </div>
   );
+}
+
+function semanticIndexRunningKey(summary: WorkspaceSnapshot['projectSemantic']): string {
+  return `${summary.scopeVersionId}:${summary.queuedAt ?? summary.startedAt ?? ''}`;
+}
+
+function semanticIndexAlertBody(summary: WorkspaceSnapshot['projectSemantic'], programName: string, runs: WorkspaceSnapshot['runs']): string {
+  if (summary.status === 'queued') {
+    const waitingForRuns = runs.some((row) => row.run.status === 'queued' || row.run.status === 'active');
+    const total = Math.max(0, summary.progressTotal ?? summary.sourceDocumentCount);
+    const sourceText = total > 0 ? ` ${total.toLocaleString()} source document${total === 1 ? '' : 's'} are waiting to be indexed.` : '';
+    const waitText = waitingForRuns ? ' Waiting for active research sessions to finish before indexing starts.' : ' Waiting for the background worker to start.';
+    return `Semantic indexing is queued for ${programName}.${sourceText}${waitText} Search remains available with exact and stale indexed results.`;
+  }
+  const progress = semanticIndexProgressText(summary);
+  return `Semantic indexing is running for ${programName}.${progress} Search remains available with exact and stale indexed results.`;
+}
+
+function semanticIndexProgressText(summary: WorkspaceSnapshot['projectSemantic']): string {
+  const processed = Math.max(0, typeof summary.progressProcessed === 'number' ? summary.progressProcessed : 0);
+  const total = Math.max(0, typeof summary.progressTotal === 'number' ? summary.progressTotal : summary.sourceDocumentCount);
+  if (total <= 0) return ` ${processed.toLocaleString()} source documents processed.`;
+  const percent = Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
+  return ` ${processed.toLocaleString()}/${total.toLocaleString()} source documents processed (${percent}%).`;
 }
 
 function traceEventForSearchResult(events: TraceDisplayEvent[], result: SessionTranscriptSearchResult): TraceDisplayEvent | null {

@@ -172,6 +172,14 @@ describe('structured research tools', () => {
     const disabledSemantic = db.getProjectSemanticSummary(context.run.scopeVersionId);
     expect(disabledSemantic.enabled).toBe(false);
     expect(disabledSemantic.status).toBe('disabled');
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: 'Semantic prototype-key regression marker.',
+      payload: { text: 'constructor prototype toString should not break semantic token synonym expansion.' }
+    });
     const enabledSemantic = db.setProjectSemanticIndexEnabled(true, context.run.scopeVersionId);
     expect(enabledSemantic.enabled).toBe(true);
     expect(enabledSemantic.status).toBe('ready');
@@ -182,6 +190,8 @@ describe('structured research tools', () => {
     expect(enabledSemantic.indexSizeBytes).toBeGreaterThan(0);
     expect(enabledSemantic.lastRefreshDurationMs).toBeGreaterThanOrEqual(0);
     expect(enabledSemantic.namespaceCounts.code).toBeGreaterThan(0);
+    const prototypeKeySemanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'constructor prototype token expansion', 10);
+    expect(prototypeKeySemanticResults.some((result) => result.entityType === 'trace_event')).toBe(true);
     const directSourceResults = db.searchProjectSemanticChunksForRun(context.run.id, 'authorization boundary check_access return', 10);
     const directSourceHit = directSourceResults.find((result) => result.sourcePath === sourceFile && result.metadata.semanticSourceKind === 'source_range');
     expect(directSourceHit).toBeTruthy();

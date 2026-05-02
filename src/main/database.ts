@@ -1181,9 +1181,15 @@ function semanticTokens(value: string): Array<{ term: string; weight: number }> 
   const tokens: Array<{ term: string; weight: number }> = [];
   for (const term of raw) {
     tokens.push({ term, weight: 1 });
-    for (const synonym of SEMANTIC_SYNONYMS[term] ?? []) tokens.push({ term: synonym, weight: 0.45 });
+    for (const synonym of semanticSynonymsForTerm(term)) tokens.push({ term: synonym, weight: 0.45 });
   }
   return tokens;
+}
+
+function semanticSynonymsForTerm(term: string): string[] {
+  if (!Object.prototype.hasOwnProperty.call(SEMANTIC_SYNONYMS, term)) return [];
+  const synonyms = SEMANTIC_SYNONYMS[term];
+  return Array.isArray(synonyms) ? synonyms : [];
 }
 
 function semanticTokenCandidates(value: string): string[] {
@@ -4626,14 +4632,11 @@ export class WorkspaceDatabase {
   public getProjectSemanticAutoRefreshReason(scopeVersionId = this.getActiveScope().id, fallbackReason = 'auto_refresh'): string | null {
     if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return null;
     const job = this.getProjectSemanticJobState(scopeVersionId);
-    if (job?.status === 'queued' || job?.status === 'indexing') return null;
+    if (job?.status === 'queued' || job?.status === 'indexing' || job?.status === 'error' || job?.status === 'canceled') return null;
     const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
     if (dirty) return dirty.reason;
     const summary = this.getProjectSemanticSummary(scopeVersionId);
     if (summary.status === 'empty' || summary.status === 'stale') return fallbackReason;
-    if (summary.status === 'canceled' && (summary.chunkCount === 0 || this.projectSemanticIndexLooksStale(scopeVersionId, summary.indexedAt))) {
-      return summary.jobReason ?? fallbackReason;
-    }
     return null;
   }
 
