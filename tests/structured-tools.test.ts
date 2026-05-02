@@ -161,6 +161,8 @@ describe('structured research tools', () => {
     expect(String(graphVariantMatch?.matchedBy)).toBe('project_graph_variant');
     expect(['checks_permission', 'reaches_sink', 'uses_middleware']).toContain(String(graphVariantMatch?.graphEdgeKind));
     expect(String(graphVariantMatch?.rankReason)).toContain('Variant candidate');
+    const structureSourcePaths = new Set((structureSearch.payload.matches as Array<Record<string, unknown>>).map((match) => String(match.sourcePath || match.path || '')).filter(Boolean));
+    expect(structureSourcePaths.size).toBeGreaterThan(1);
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     expect(JSON.stringify(structureSearch.payload)).toContain('listAdmins');

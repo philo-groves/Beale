@@ -105,6 +105,7 @@ Expected outputs:
 - Blended retrieval scores with explicit `retrievalSignals` for text relevance, identifier/path matches, structural fit, semantic similarity, graph proximity, research-memory linkage, security relevance, scope confidence, and recency.
 - Merged retrieval results for candidates sharing an entity or precise file/range, with `retrievalMergedSources` and `retrievalContributors` preserving direct lexical, semantic, graph-adjacent, and variant provenance.
 - Query intent hints exposed as `queryIntents` and folded into `retrievalSignals.queryIntent` for symbol, route/API, auth/permission, sink/data-flow, binary, research-memory, and variant/similarity searches.
+- Result-set diversification that keeps the top exact hit, caps repeated source paths for broad queries, and rotates relationship families when graph or semantic retrieval finds related files.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

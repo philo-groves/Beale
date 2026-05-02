@@ -2045,21 +2045,7 @@ export class BealeToolRouter {
     });
     scored.sort((left, right) => right.score - left.score || left.index - right.index);
 
-    const selected: RetrievalCandidate[] = [];
-    const deferred: RetrievalCandidate[] = [];
-    const sourcePathCounts = new Map<string, number>();
-    for (const entry of scored) {
-      if (selected.length >= MAX_SEARCH_MATCHES) break;
-      const sourcePath = entry.candidate.sourcePath ?? '';
-      const sourcePathCount = sourcePath ? sourcePathCounts.get(sourcePath) ?? 0 : 0;
-      const graphScore = numberValue(entry.candidate.signals.graphProximity, 0);
-      if (sourcePath && sourcePathCount >= 4 && graphScore <= 0 && selected.length < MAX_SEARCH_MATCHES - 6) {
-        deferred.push(entry.candidate);
-        continue;
-      }
-      selected.push(entry.candidate);
-      if (sourcePath) sourcePathCounts.set(sourcePath, sourcePathCount + 1);
-    }
+    const selected = this.diversifyRetrievalCandidates(scored, input.queryPlan);
     if (!selected.some((candidate) => candidate.kind === 'graph')) {
       const graphCandidate = scored.find((entry) => entry.candidate.kind === 'graph' && !this.retrievalCandidateIsDuplicate(selected, entry.candidate))?.candidate;
       if (graphCandidate) {
@@ -2070,10 +2056,6 @@ export class BealeToolRouter {
           if (replaceIndex >= 0) selected[replaceIndex] = graphCandidate;
         }
       }
-    }
-    for (const candidate of deferred) {
-      if (selected.length >= MAX_SEARCH_MATCHES) break;
-      selected.push(candidate);
     }
     const matches = selected.map((candidate) => candidate.output);
 
@@ -2091,6 +2073,84 @@ export class BealeToolRouter {
     if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
     if (['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_hypothesis', 'verifies_finding', 'verified_by_contract', 'verifier_passed_hypothesis', 'verifier_passed_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
     return 8;
+  }
+
+  private diversifyRetrievalCandidates(scored: Array<{ candidate: RetrievalCandidate; score: number; index: number }>, queryPlan: SearchQueryPlan): RetrievalCandidate[] {
+    const selected: RetrievalCandidate[] = [];
+    const deferred: Array<{ candidate: RetrievalCandidate; score: number; index: number }> = [];
+    const sourcePathCounts = new Map<string, number>();
+    const familyCounts = new Map<string, number>();
+    const sourcePathCap = this.retrievalSourcePathCap(queryPlan);
+    const familyCap = this.retrievalFamilyCap(queryPlan);
+    const top = scored[0]?.candidate;
+    if (top) {
+      selected.push(top);
+      this.incrementDiversificationCounts(top, sourcePathCounts, familyCounts);
+    }
+    for (const entry of scored.slice(top ? 1 : 0)) {
+      if (selected.length >= MAX_SEARCH_MATCHES) break;
+      const sourcePath = entry.candidate.sourcePath ?? '';
+      const sourcePathCount = sourcePath ? sourcePathCounts.get(sourcePath) ?? 0 : 0;
+      const family = this.retrievalRelationshipFamily(entry.candidate);
+      const familyCount = familyCounts.get(family) ?? 0;
+      const graphScore = numberValue(entry.candidate.signals.graphProximity, 0);
+      const intentScore = numberValue(entry.candidate.signals.queryIntent, 0);
+      const exactScore = numberValue(entry.candidate.signals.exactIdentifierPath, 0);
+      const canExceedSourceCap = graphScore > 0 || intentScore >= 8 || exactScore >= 14;
+      const canExceedFamilyCap = exactScore >= 14 || intentScore >= 10;
+      if (sourcePath && sourcePathCount >= sourcePathCap && !canExceedSourceCap && selected.length < MAX_SEARCH_MATCHES - 8) {
+        deferred.push(entry);
+        continue;
+      }
+      if (familyCount >= familyCap && !canExceedFamilyCap && selected.length < MAX_SEARCH_MATCHES - 8) {
+        deferred.push(entry);
+        continue;
+      }
+      selected.push(entry.candidate);
+      this.incrementDiversificationCounts(entry.candidate, sourcePathCounts, familyCounts);
+    }
+    for (const entry of deferred) {
+      if (selected.length >= MAX_SEARCH_MATCHES) break;
+      const sourcePath = entry.candidate.sourcePath ?? '';
+      const sourcePathCount = sourcePath ? sourcePathCounts.get(sourcePath) ?? 0 : 0;
+      if (sourcePath && sourcePathCount >= sourcePathCap + 2 && selected.length < MAX_SEARCH_MATCHES - 2) continue;
+      selected.push(entry.candidate);
+      this.incrementDiversificationCounts(entry.candidate, sourcePathCounts, familyCounts);
+    }
+    return selected;
+  }
+
+  private incrementDiversificationCounts(candidate: RetrievalCandidate, sourcePathCounts: Map<string, number>, familyCounts: Map<string, number>): void {
+    if (candidate.sourcePath) sourcePathCounts.set(candidate.sourcePath, (sourcePathCounts.get(candidate.sourcePath) ?? 0) + 1);
+    const family = this.retrievalRelationshipFamily(candidate);
+    familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+  }
+
+  private retrievalSourcePathCap(queryPlan: SearchQueryPlan): number {
+    const asksForOneThing =
+      queryPlan.intents.includes('symbol_lookup') &&
+      !queryPlan.intents.includes('route_api_lookup') &&
+      !queryPlan.intents.includes('variant_similarity_search') &&
+      queryPlan.terms.length <= 3;
+    const fileLike = /(?:^|\s|\/)[\w.-]+\.(?:[a-z0-9]{1,8})(?:\s|$)/i.test(queryPlan.raw);
+    return asksForOneThing || fileLike ? 10 : 4;
+  }
+
+  private retrievalFamilyCap(queryPlan: SearchQueryPlan): number {
+    return queryPlan.intents.includes('variant_similarity_search') ? 6 : 5;
+  }
+
+  private retrievalRelationshipFamily(candidate: RetrievalCandidate): string {
+    const edgeKinds = uniqueStrings([candidate.provenance.graphEdgeKind ?? '', stringValue(candidate.output.graphEdgeKind, ''), ...arrayOfStrings(candidate.output.retrievalGraphEdgeKinds)]);
+    if (edgeKinds.some((edgeKind) => ['routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind))) return 'route_controller';
+    if (edgeKinds.some((edgeKind) => ['checks_permission', 'references_permission'].includes(edgeKind))) return 'auth_permission';
+    if (edgeKinds.some((edgeKind) => ['reaches_sink', 'reads_model', 'writes_model', 'parses_body', 'serializes_response'].includes(edgeKind))) return 'sink_data_flow';
+    if (edgeKinds.some((edgeKind) => ['imports_symbol', 'exports_symbol', 'contains_string', 'references_url'].includes(edgeKind))) return 'binary_orientation';
+    if (edgeKinds.some((edgeKind) => ['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_finding', 'backs_evidence'].includes(edgeKind))) return 'research_memory';
+    if (candidate.kind === 'semantic' || arrayOfStrings(candidate.output.retrievalMergedKinds).includes('semantic')) return 'semantic';
+    if (candidate.entityType === 'structure_entity' || candidate.namespace === 'structure') return 'structure';
+    if (candidate.kind === 'file') return 'lexical';
+    return candidate.kind || 'other';
   }
 
   private searchMatchToRetrievalCandidate(match: Record<string, unknown>): RetrievalCandidate {
