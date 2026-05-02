@@ -150,6 +150,8 @@ describe('structured research tools', () => {
     expect(graphToolMatch).toBeTruthy();
     expect(Number(graphToolMatch?.retrievalScore)).toBeGreaterThan(0);
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity)).toBeGreaterThan(0);
+    expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.textRelevance)).toBeGreaterThanOrEqual(0);
+    expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.securityRelevance)).toBeGreaterThanOrEqual(0);
     const graphVariantMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph_variant');
     expect(graphVariantMatch).toBeTruthy();
     expect(String(graphVariantMatch?.matchedBy)).toBe('project_graph_variant');

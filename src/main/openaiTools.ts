@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, ProjectStructureEntityRecord, ProjectStructureRelationRecord, WorkspaceDatabase } from './database';
 import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
 import type { FunctionCallOutputItem } from './openaiAdapter';
@@ -603,7 +603,7 @@ export class BealeToolRouter {
     const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES);
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
     const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
-    const directPhaseASeeds = this.selectPhaseASeedMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [] }, 24);
+    const directPhaseASeeds = this.selectPhaseASeedMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [] }, 24, queryPlan);
     const phaseAGraphMatches = this.searchProjectGraph(context, directPhaseASeeds, MAX_SEARCH_MATCHES);
     const phaseAGraphVariantMatches = this.searchProjectGraphVariants(context, [...directPhaseASeeds, ...phaseAGraphMatches], MAX_SEARCH_MATCHES);
     const phaseASeeds = this.selectPhaseASeedMatches(
@@ -614,7 +614,8 @@ export class BealeToolRouter {
         semanticMatches,
         graphMatches: [...phaseAGraphMatches, ...phaseAGraphVariantMatches]
       },
-      16
+      16,
+      queryPlan
     );
     const sourceStructureSeeds = this.searchSourceStructureSeeds(context, phaseASeeds, 8);
     const sourceInventorySeeds = this.searchSourceInventorySeeds(context, phaseASeeds, 8);
@@ -622,7 +623,7 @@ export class BealeToolRouter {
     const phaseBGraphMatches = this.searchProjectGraph(context, phaseBSeeds, MAX_SEARCH_MATCHES);
     const phaseBGraphVariantMatches = this.searchProjectGraphVariants(context, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
     const graphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
-    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches });
+    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches, queryPlan });
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
@@ -1932,7 +1933,8 @@ export class BealeToolRouter {
       semanticMatches: Array<Record<string, unknown>>;
       graphMatches: Array<Record<string, unknown>>;
     },
-    limit: number
+    limit: number,
+    queryPlan: SearchQueryPlan
   ): Array<Record<string, unknown>> {
     const candidates: RetrievalCandidate[] = [];
     const candidatePoolLimit = Math.max(limit * 3, limit);
@@ -1943,7 +1945,7 @@ export class BealeToolRouter {
     this.appendUniqueRetrievalCandidates(candidates, input.graphMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
     return candidates
       .map((candidate, index) => {
-        const score = this.retrievalCandidateScore(candidate, { graphEntityKeys: new Set(), graphSourcePaths: new Set(), seedEntityKeys: new Set() });
+        const score = this.retrievalCandidateScore(candidate, { graphEntityKeys: new Set(), graphSourcePaths: new Set(), seedEntityKeys: new Set(), queryPlan });
         return { candidate, score: score.total, index };
       })
       .sort((left, right) => right.score - left.score || left.index - right.index)
@@ -2002,6 +2004,7 @@ export class BealeToolRouter {
     metadataMatches: Array<Record<string, unknown>>;
     semanticMatches: Array<Record<string, unknown>>;
     graphMatches: Array<Record<string, unknown>>;
+    queryPlan: SearchQueryPlan;
   }): SearchAssemblyResult {
     const candidatePool: RetrievalCandidate[] = [];
     const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
@@ -2020,7 +2023,7 @@ export class BealeToolRouter {
         .filter((key) => key !== ':')
     );
     const scored: Array<{ candidate: RetrievalCandidate; score: number; index: number }> = candidatePool.map((candidate, index) => {
-      const score = this.retrievalCandidateScore(candidate, { graphEntityKeys, graphSourcePaths, seedEntityKeys });
+      const score = this.retrievalCandidateScore(candidate, { graphEntityKeys, graphSourcePaths, seedEntityKeys, queryPlan: input.queryPlan });
       return {
         candidate: {
           ...candidate,
@@ -2147,53 +2150,249 @@ export class BealeToolRouter {
 
   private retrievalCandidateScore(
     candidate: RetrievalCandidate,
-    graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string> }
+    graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string>; queryPlan: SearchQueryPlan }
   ): { total: number; signals: Record<string, number | string[]> } {
-    const kindScore =
-      candidate.kind === 'file'
-        ? 100
-        : candidate.kind === 'artifact'
-          ? 88
-          : candidate.kind === 'metadata'
-            ? 72
-            : candidate.kind === 'semantic'
-              ? 68
-              : candidate.kind === 'graph_variant'
-                ? 66
-                : candidate.kind === 'graph'
-                  ? 64
-                  : 40;
-    const semanticScore = candidate.kind === 'semantic' ? Math.min(18, numberValue(candidate.output.semanticScore, 0) * 18) : 0;
     const entityKey = this.retrievalCandidateEntityKey(candidate);
     const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
-    const graphAdjacentBoost =
+    const graphProximity =
       candidate.kind === 'graph' || candidate.kind === 'graph_variant'
         ? this.graphEdgeRetrievalWeight(candidate.provenance.graphEdgeKind ?? '')
         : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (candidate.sourcePath && graphContext.graphSourcePaths.has(candidate.sourcePath))
           ? 6
           : 0;
-    const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 3 : 0;
+    const textRelevance = this.retrievalTextRelevanceScore(candidate, graphContext.queryPlan);
+    const exactIdentifierPath = this.retrievalExactIdentifierPathScore(candidate, graphContext.queryPlan);
+    const structuralFit = this.retrievalStructuralFitScore(candidate);
+    const semanticSimilarity = this.retrievalSemanticSimilarityScore(candidate);
+    const researchMemory = this.retrievalResearchMemoryScore(candidate);
+    const securityRelevance = this.retrievalSecurityRelevanceScore(candidate);
+    const scopeConfidence = this.retrievalScopeConfidenceScore(candidate);
+    const recency = this.retrievalRecencyScore(candidate);
+    const sourceType = this.retrievalSourceTypeScore(candidate);
+    const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 2 : 0;
     const sourceBacked = candidate.sourcePath ? 2 : 0;
-    const total = Math.round((kindScore + semanticScore + graphSeedBoost + graphAdjacentBoost + linePrecision + sourceBacked) * 100) / 100;
+    const total = roundRetrievalScore(
+      textRelevance +
+        exactIdentifierPath +
+        structuralFit +
+        semanticSimilarity +
+        graphSeedBoost +
+        graphProximity +
+        researchMemory +
+        securityRelevance +
+        scopeConfidence +
+        recency +
+        sourceType +
+        linePrecision +
+        sourceBacked
+    );
     const reasons = [
-      `${candidate.kind || 'unknown'} match`,
+      textRelevance > 0 ? 'text relevance' : '',
+      exactIdentifierPath > 0 ? 'exact identifier/path match' : '',
+      structuralFit > 0 ? 'structural fit' : '',
+      semanticSimilarity > 0 ? 'semantic similarity' : '',
       graphSeedBoost > 0 ? 'graph seed' : '',
-      graphAdjacentBoost > 0 ? 'graph proximity' : '',
+      graphProximity > 0 ? 'graph proximity' : '',
+      researchMemory > 0 ? 'evidence/research-memory linkage' : '',
+      securityRelevance > 0 ? 'security relevance' : '',
+      scopeConfidence > 0 ? 'scope confidence' : '',
+      recency > 0 ? 'recency' : '',
       linePrecision > 0 ? 'line/range provenance' : '',
       sourceBacked > 0 ? 'source-backed' : ''
     ].filter(Boolean);
     return {
       total,
       signals: {
-        kind: kindScore,
-        semantic: Math.round(semanticScore * 100) / 100,
+        textRelevance,
+        exactIdentifierPath,
+        structuralFit,
+        semanticSimilarity,
         graphSeed: graphSeedBoost,
-        graphProximity: graphAdjacentBoost,
+        graphProximity,
+        researchMemory,
+        securityRelevance,
+        scopeConfidence,
+        recency,
+        sourceType,
         linePrecision,
         sourceBacked,
         reasons
       }
     };
+  }
+
+  private retrievalTextRelevanceScore(candidate: RetrievalCandidate, queryPlan: SearchQueryPlan): number {
+    const text = this.retrievalCandidateSearchText(candidate);
+    if (!text) return 0;
+    const lower = text.toLowerCase();
+    const rawLower = queryPlan.rawLower.trim();
+    const exactQuery = rawLower && lower.includes(rawLower) ? 10 : 0;
+    const matchedTerms = queryPlan.terms.filter((term) => lower.includes(term.toLowerCase()));
+    const coverage = queryPlan.terms.length > 0 ? matchedTerms.length / queryPlan.terms.length : 0;
+    const matchedBy = stringValue(candidate.output.matchedBy, '');
+    const sourceMatch = matchedBy && matchedBy !== 'project_metadata_fts' && matchedBy !== 'project_semantic_hybrid_local_hash' ? 3 : 0;
+    const ftsRank = candidate.kind === 'metadata' ? Math.min(4, Math.max(0, numberValue(candidate.output.rank, 0) / 3)) : 0;
+    return roundRetrievalScore(Math.min(22, exactQuery + coverage * 9 + Math.min(3, matchedTerms.length) + sourceMatch + ftsRank));
+  }
+
+  private retrievalExactIdentifierPathScore(candidate: RetrievalCandidate, queryPlan: SearchQueryPlan): number {
+    const raw = normalizeRetrievalIdentifier(queryPlan.raw);
+    const terms = queryPlan.terms.map((term) => normalizeRetrievalIdentifier(term)).filter(Boolean);
+    if (!raw && terms.length === 0) return 0;
+    const path = normalizeRetrievalIdentifier(candidate.sourcePath ?? '');
+    const basenameText = normalizeRetrievalIdentifier(candidate.sourcePath ? basename(candidate.sourcePath) : '');
+    const title = normalizeRetrievalIdentifier(stringValue(candidate.output.title, ''));
+    const name = normalizeRetrievalIdentifier(stringValue(candidate.output.structureName, '') || stringValue(candidate.output.graphTargetLabel, ''));
+    const entityId = normalizeRetrievalIdentifier(candidate.entityId ?? '');
+    const exactTargets = [path, basenameText, title, name, entityId].filter(Boolean);
+    if (raw && exactTargets.some((target) => target === raw || target.endsWith(raw) || target.includes(raw))) return 18;
+    const hits = terms.filter((term) => exactTargets.some((target) => target === term || target.includes(term))).length;
+    return roundRetrievalScore(Math.min(14, hits * 4));
+  }
+
+  private retrievalStructuralFitScore(candidate: RetrievalCandidate): number {
+    const entityKind = stringValue(candidate.output.entityKind, '') || stringValue(candidate.output.nodeKind, '') || stringValue(candidate.output.metadata && (candidate.output.metadata as Record<string, unknown>).entityKind, '');
+    const structuralKinds = new Set([
+      'route',
+      'function',
+      'method',
+      'class',
+      'type',
+      'call_site',
+      'sink',
+      'security_marker',
+      'permission_marker',
+      'model_read',
+      'model_write',
+      'request_body_parse',
+      'response_serialization',
+      'binary_imported_symbol',
+      'binary_exported_symbol',
+      'binary_string',
+      'mobile_permission',
+      'web_endpoint',
+      'graphql_operation'
+    ]);
+    const structureEntity = candidate.entityType === 'structure_entity' || candidate.namespace === 'structure';
+    const entityKindScore = structuralKinds.has(entityKind) ? 8 : structureEntity ? 5 : 0;
+    const routeControllerModel = ['route', 'handles_with', 'routes_to', 'reads_model', 'writes_model'].includes(stringValue(candidate.output.graphEdgeKind, '')) ? 4 : 0;
+    const preciseRange = numberValue(candidate.output.line, 0) > 0 || Boolean(candidate.range) ? 2 : 0;
+    return Math.min(14, entityKindScore + routeControllerModel + preciseRange);
+  }
+
+  private retrievalSemanticSimilarityScore(candidate: RetrievalCandidate): number {
+    if (candidate.kind !== 'semantic') return 0;
+    const semanticScore = Math.min(16, numberValue(candidate.output.semanticScore, 0) * 16);
+    const vectorScore = Math.min(5, numberValue(candidate.output.vectorScore, 0) * 5);
+    const lexicalScore = Math.min(4, numberValue(candidate.output.lexicalScore, 0) * 4);
+    return roundRetrievalScore(Math.min(22, semanticScore + vectorScore + lexicalScore));
+  }
+
+  private retrievalResearchMemoryScore(candidate: RetrievalCandidate): number {
+    const entityType = candidate.entityType ?? '';
+    const edgeKind = candidate.provenance.graphEdgeKind ?? '';
+    const metadata = retrievalMetadata(candidate);
+    const researchEntity = ['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'artifact', 'trace_event'].includes(entityType) ? 6 : 0;
+    const evidenceEdge = [
+      'affects_component',
+      'classified_as_cwe',
+      'supports_hypothesis',
+      'supports_finding',
+      'supported_by_evidence',
+      'verifies_hypothesis',
+      'verifies_finding',
+      'verified_by_contract',
+      'verifier_passed_hypothesis',
+      'verifier_passed_finding',
+      'backs_evidence',
+      'observed_in_trace'
+    ].includes(edgeKind)
+      ? 8
+      : 0;
+    const linked = ['hypothesisId', 'findingId', 'artifactId', 'verifierRunId', 'observationTraceEventId'].some((key) => Boolean(metadata[key])) ? 4 : 0;
+    const priority = Math.min(4, Math.max(0, numberValue(metadata.priorityScore, 0) / 8));
+    return roundRetrievalScore(Math.min(16, researchEntity + evidenceEdge + linked + priority));
+  }
+
+  private retrievalSecurityRelevanceScore(candidate: RetrievalCandidate): number {
+    const text = this.retrievalCandidateSearchText(candidate).toLowerCase();
+    const entityKind = stringValue(candidate.output.entityKind, '') || stringValue(retrievalMetadata(candidate).entityKind, '');
+    const edgeKind = candidate.provenance.graphEdgeKind ?? '';
+    let score = 0;
+    if (['sink', 'security_marker', 'permission_marker', 'mobile_permission', 'binary_imported_symbol', 'binary_string'].includes(entityKind)) score += 8;
+    if (['checks_permission', 'reaches_sink', 'references_permission'].includes(edgeKind)) score += 8;
+    const securityTerms = ['auth', 'permission', 'token', 'secret', 'sink', 'cwe', 'vulnerability', 'exploit', 'injection', 'xss', 'ssrf', 'deserialization', 'path traversal', 'crypto'];
+    const hits = securityTerms.filter((term) => text.includes(term)).length;
+    score += Math.min(8, hits * 2);
+    const semanticSecurity = numberValue(retrievalMetadata(candidate).semanticRanking && (retrievalMetadata(candidate).semanticRanking as Record<string, unknown>).securityScore, 0);
+    score += Math.min(4, semanticSecurity * 10);
+    return roundRetrievalScore(Math.min(16, score));
+  }
+
+  private retrievalScopeConfidenceScore(candidate: RetrievalCandidate): number {
+    const metadata = retrievalMetadata(candidate);
+    const scopeConfidence = stringValue(metadata.scopeConfidence, '');
+    const evidenceConfidence = stringValue(metadata.evidenceConfidence, '');
+    const prefixedScope = Number.parseFloat(scopeConfidence);
+    const prefixedEvidence = Number.parseFloat(evidenceConfidence);
+    const explicitScope = Number.isFinite(prefixedScope) ? Math.min(4, Math.max(0, prefixedScope)) : scopeConfidence ? 1 : 0;
+    const explicitEvidence = Number.isFinite(prefixedEvidence) ? Math.min(3, Math.max(0, prefixedEvidence)) : evidenceConfidence ? 1 : 0;
+    const sourceBacked = candidate.sourcePath ? 2 : 0;
+    const runBacked = stringValue(candidate.output.runId, '') || stringValue(metadata.runId, '') ? 1 : 0;
+    return roundRetrievalScore(Math.min(8, explicitScope + explicitEvidence + sourceBacked + runBacked));
+  }
+
+  private retrievalRecencyScore(candidate: RetrievalCandidate): number {
+    const metadata = retrievalMetadata(candidate);
+    const timestamp =
+      stringValue(candidate.output.updatedAt, '') ||
+      stringValue(candidate.output.indexedAt, '') ||
+      stringValue(candidate.output.createdAt, '') ||
+      stringValue(metadata.updatedAt, '') ||
+      stringValue(metadata.indexedAt, '') ||
+      stringValue(metadata.createdAt, '');
+    if (!timestamp) return 0;
+    const parsed = Date.parse(timestamp);
+    if (!Number.isFinite(parsed)) return 0;
+    const ageMs = Math.max(0, Date.now() - parsed);
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (ageMs <= dayMs) return 4;
+    if (ageMs <= 7 * dayMs) return 3;
+    if (ageMs <= 30 * dayMs) return 2;
+    if (ageMs <= 180 * dayMs) return 1;
+    return 0;
+  }
+
+  private retrievalSourceTypeScore(candidate: RetrievalCandidate): number {
+    if (candidate.kind === 'file') return 10;
+    if (candidate.kind === 'artifact') return 8;
+    if (candidate.kind === 'metadata') return 7;
+    if (candidate.kind === 'semantic') return 6;
+    if (candidate.kind === 'graph_variant') return 5;
+    if (candidate.kind === 'graph') return 5;
+    return 2;
+  }
+
+  private retrievalCandidateSearchText(candidate: RetrievalCandidate): string {
+    const metadata = retrievalMetadata(candidate);
+    return [
+      candidate.kind,
+      candidate.entityType ?? '',
+      candidate.entityId ?? '',
+      candidate.sourcePath ?? '',
+      candidate.namespace,
+      stringValue(candidate.output.title, ''),
+      stringValue(candidate.output.structureName, ''),
+      stringValue(candidate.output.entityKind, ''),
+      stringValue(candidate.output.nodeKind, ''),
+      stringValue(candidate.output.graphEdgeKind, ''),
+      stringValue(candidate.output.graphTargetLabel, ''),
+      stringValue(candidate.output.variantTargetLabel, ''),
+      stringValue(candidate.output.snippet, ''),
+      stringValue(candidate.output.rankReason, ''),
+      stringValue(candidate.output.matchedBy, ''),
+      JSON.stringify(metadata)
+    ].join('\n');
   }
 
   private retrievalCandidateEntityKey(candidate: RetrievalCandidate): string {
@@ -2312,6 +2511,8 @@ export class BealeToolRouter {
       entityKind: result.entityType === 'structure_entity' ? result.metadata.entityKind : undefined,
       structureName: result.entityType === 'structure_entity' ? result.metadata.name : undefined,
       matchedBy: 'project_metadata_fts',
+      rank: result.rank,
+      updatedAt: result.updatedAt,
       snippet: trimSnippet(result.snippet),
       metadata: result.metadata
     };
@@ -2916,6 +3117,24 @@ function resourceCounts(resources: ResourceLookupRecord[]): Record<string, numbe
   const counts: Record<string, number> = {};
   for (const resource of resources) counts[resource.kind] = (counts[resource.kind] ?? 0) + 1;
   return counts;
+}
+
+function roundRetrievalScore(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function retrievalMetadata(candidate: RetrievalCandidate): Record<string, unknown> {
+  const metadata = candidate.output.metadata;
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {};
+}
+
+function normalizeRetrievalIdentifier(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9_.$/@:-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 function stringValue(value: unknown, fallback: string): string {
