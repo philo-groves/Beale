@@ -391,9 +391,12 @@ describe('structured research tools', () => {
     expect(graphHypothesisNodes.some((node) => node.entityId === hypothesis.id)).toBe(true);
     const hypothesisNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
     expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'belongs_to_run')).toBe(true);
+    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'affects_component' && edge.targetEntityType === 'research_component')).toBe(true);
+    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'classified_as_cwe' && edge.targetEntityType === 'weakness')).toBe(true);
 
     const duplicateHypothesis = db.createHypothesis({
       runId: context.run.id,
+      parentHypothesisId: hypothesis.id,
       state: 'duplicate',
       title: 'Duplicate telemetry authorization bypass',
       descriptionMarkdown: 'This duplicate claim should remain searchable but rank with duplicate risk.',
@@ -415,6 +418,10 @@ describe('structured research tools', () => {
     expect(duplicateSemanticResult).toBeTruthy();
     expect(Number(duplicateSemanticRanking?.duplicateRiskPenalty)).toBeGreaterThan(0);
     expect(String(duplicateSemanticRanking?.reason)).toContain('duplicate or dismissed risk penalty');
+    const duplicateNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', duplicateHypothesis.id, { depth: 1 });
+    expect(duplicateNeighborhood.edges.some((edge) => edge.edgeKind === 'duplicates' && edge.targetEntityId === hypothesis.id)).toBe(true);
+    const parentNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
+    expect(parentNeighborhood.edges.some((edge) => edge.edgeKind === 'has_duplicate_hypothesis' && edge.targetEntityId === duplicateHypothesis.id)).toBe(true);
     db.close();
   });
 
@@ -445,6 +452,8 @@ describe('structured research tools', () => {
     expect(verifier.payload.promotedFinding).toBe(false);
     expect((verifier.payload.evidenceReferences as { artifactId: string }).artifactId).toBe(artifact.artifact_id);
     expect(String(verifier.payload.readHint)).toContain('code_browser');
+    const artifactNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'artifact', artifact.artifact_id ?? '', { depth: 1 });
+    expect(artifactNeighborhood.edges.some((edge) => edge.edgeKind === 'produced_by_trace' && edge.targetEntityType === 'trace_event')).toBe(true);
 
     const artifactLookup = callTool(router, context, 'resource_lookup', {
       resource_id: artifact.artifact_id ?? '',
@@ -712,6 +721,13 @@ describe('structured research tools', () => {
     });
     expect(reportable.status).toBe('success');
     expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === finding?.id)?.state).toBe('reportable');
+    const verifierRunNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'verifier_run', verifierRunId, { depth: 1 });
+    expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'verifies_finding_outcome' && edge.targetEntityId === finding?.id)).toBe(true);
+    expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'backs_evidence')).toBe(true);
+    const findingNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'finding', finding?.id ?? '', { depth: 1 });
+    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'supported_by_evidence')).toBe(true);
+    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'affects_component' && edge.targetEntityType === 'research_component')).toBe(true);
+    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'classified_as_cwe' && edge.targetEntityType === 'weakness')).toBe(true);
     db.close();
   });
 

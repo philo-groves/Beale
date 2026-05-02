@@ -166,7 +166,23 @@ const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'rep
 const SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache']);
 const MAX_SEARCH_FILES = 5000;
 const MAX_SEARCH_MATCHES = 40;
-const GRAPH_VARIANT_EDGE_KINDS = ['calls', 'routes_to', 'handles_with', 'uses_middleware', 'checks_permission', 'reaches_sink', 'supports_hypothesis', 'verifies_finding'] as const;
+const GRAPH_VARIANT_EDGE_KINDS = [
+  'calls',
+  'routes_to',
+  'handles_with',
+  'uses_middleware',
+  'checks_permission',
+  'reaches_sink',
+  'affects_component',
+  'classified_as_cwe',
+  'supports_hypothesis',
+  'supports_finding',
+  'supported_by_evidence',
+  'verifies_finding',
+  'verified_by_contract',
+  'verifier_passed_hypothesis',
+  'verifier_passed_finding'
+] as const;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BROWSER_LINES = 180;
 const MAX_EXCERPT_CHARS = 16_000;
@@ -1930,7 +1946,7 @@ export class BealeToolRouter {
   private graphEdgeRetrievalWeight(edgeKind: string): number {
     if (['reaches_sink', 'checks_permission', 'routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind)) return 18;
     if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
-    if (['supports_hypothesis', 'supports_finding', 'verifies_hypothesis', 'verifies_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
+    if (['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_hypothesis', 'verifies_finding', 'verified_by_contract', 'verifier_passed_hypothesis', 'verifier_passed_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
     return 8;
   }
 

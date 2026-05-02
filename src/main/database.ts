@@ -823,6 +823,15 @@ function findingClaimDraftFromHypothesis(hypothesis: HypothesisRecord, evidenceS
   };
 }
 
+function componentFromAffectedAssets(affectedAssets: Record<string, unknown>): string {
+  const component = stringFromUnknown(affectedAssets.component);
+  if (component) return component;
+  const path = stringFromUnknown(affectedAssets.path);
+  if (path) return path;
+  const asset = stringFromUnknown(affectedAssets.asset);
+  return asset ?? '';
+}
+
 function text(row: SqlRow, key: string): string {
   const value = row[key];
   return typeof value === 'string' ? value : String(value ?? '');
@@ -1627,6 +1636,10 @@ function projectStructureRelationId(scopeVersionId: string, sourceEntityId: stri
 
 function projectGraphNodeId(scopeVersionId: string, entityType: string, entityId: string): string {
   return `graph_node_${createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex').slice(0, 32)}`;
+}
+
+function researchComponentEntityId(component: string): string {
+  return `component_${createHash('sha256').update(component.trim().toLowerCase()).digest('hex').slice(0, 24)}`;
 }
 
 function projectGraphEdgeId(scopeVersionId: string, sourceNodeId: string, edgeKind: string, targetEntityType: string, targetEntityId: string | null, targetLabel: string): string {
@@ -4585,9 +4598,39 @@ export class WorkspaceDatabase {
              + (SELECT COUNT(*) FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
              + (SELECT COUNT(*) FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
              + (SELECT COUNT(*) FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
-             + (SELECT COUNT(*) FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)) AS expected_count`
+             + (SELECT COUNT(*) FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*)
+                FROM (
+                  SELECT LOWER(TRIM(component)) AS component_key
+                  FROM hypotheses
+                  WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+                    AND TRIM(component) <> ''
+                  UNION
+                  SELECT LOWER(TRIM(COALESCE(
+                    json_extract(affected_assets_json, '$.component'),
+                    json_extract(affected_assets_json, '$.path'),
+                    json_extract(affected_assets_json, '$.asset'),
+                    ''
+                  ))) AS component_key
+                  FROM findings
+                  WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+                    AND TRIM(COALESCE(
+                      json_extract(affected_assets_json, '$.component'),
+                      json_extract(affected_assets_json, '$.path'),
+                      json_extract(affected_assets_json, '$.asset'),
+                      ''
+                    )) <> ''
+                ))
+             + (SELECT COUNT(DISTINCT cwe_id)
+                FROM weakness_mappings
+                WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE r.scope_version_id = ?))
+                   OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE r.scope_version_id = ?))) AS expected_count`
         )
         .get(
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
           scopeVersionId,
           scopeVersionId,
           scopeVersionId,
@@ -6621,10 +6664,24 @@ export class WorkspaceDatabase {
           sizeBytes: artifact.sizeBytes,
           sensitivity: artifact.sensitivity,
           modelVisible: artifact.modelVisible,
-          source: artifact.source
+          source: artifact.source,
+          provenanceTraceEventId: artifact.provenanceTraceEventId
         },
         indexedAt
       });
+      if (artifact.provenanceTraceEventId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: projectGraphNodeId(scopeVersionId, 'artifact', artifact.id),
+          edgeKind: 'produced_by_trace',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', artifact.provenanceTraceEventId),
+          targetEntityType: 'trace_event',
+          targetEntityId: artifact.provenanceTraceEventId,
+          targetLabel: artifact.provenanceTraceEventId,
+          metadata: { source: 'artifact_provenance' },
+          indexedAt
+        });
+      }
     }
 
     for (const row of traceRows) {
@@ -6639,6 +6696,17 @@ export class WorkspaceDatabase {
         targetEntityId: event.artifactId,
         targetLabel: event.artifactId,
         metadata: { source: 'trace_event' },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', event.artifactId) ?? projectGraphNodeId(scopeVersionId, 'artifact', event.artifactId),
+        edgeKind: 'produced_by_trace',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', event.id),
+        targetEntityType: 'trace_event',
+        targetEntityId: event.id,
+        targetLabel: event.id,
+        metadata: { source: 'artifact_provenance', runId: event.runId },
         indexedAt
       });
     }
@@ -6674,6 +6742,34 @@ export class WorkspaceDatabase {
         metadata: { source: 'hypothesis' },
         indexedAt
       });
+      const componentNodeId = this.upsertResearchComponentGraphNode(scopeVersionId, hypothesis.component, indexedAt);
+      if (componentNodeId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'affects_component',
+          targetNodeId: componentNodeId,
+          targetEntityType: 'research_component',
+          targetEntityId: researchComponentEntityId(hypothesis.component),
+          targetLabel: hypothesis.component,
+          metadata: { source: 'hypothesis', component: hypothesis.component },
+          indexedAt
+        });
+      }
+      for (const mapping of hypothesis.cweMappings) {
+        const cweNodeId = this.upsertWeaknessGraphNode(scopeVersionId, mapping.cweId, mapping.cweName, indexedAt);
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'classified_as_cwe',
+          targetNodeId: cweNodeId,
+          targetEntityType: 'weakness',
+          targetEntityId: mapping.cweId,
+          targetLabel: `${mapping.cweId}: ${mapping.cweName}`,
+          metadata: { source: 'hypothesis', confidence: mapping.confidence, mappingRole: mapping.mappingRole, mappingStatus: mapping.mappingStatus },
+          indexedAt
+        });
+      }
       if (hypothesis.createdTraceEventId) {
         this.insertProjectGraphEdge({
           scopeVersionId,
@@ -6688,10 +6784,11 @@ export class WorkspaceDatabase {
         });
       }
       if (hypothesis.parentHypothesisId) {
+        const relationKind = hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis';
         this.insertProjectGraphEdge({
           scopeVersionId,
           sourceNodeId: nodeId,
-          edgeKind: hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis',
+          edgeKind: relationKind,
           targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', hypothesis.parentHypothesisId),
           targetEntityType: 'hypothesis',
           targetEntityId: hypothesis.parentHypothesisId,
@@ -6700,6 +6797,24 @@ export class WorkspaceDatabase {
           indexedAt
         });
       }
+    }
+
+    for (const row of hypothesisRows) {
+      const hypothesis = this.mapHypothesis(row);
+      if (!hypothesis.parentHypothesisId) continue;
+      const parentNodeId = this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', hypothesis.parentHypothesisId);
+      if (!parentNodeId) continue;
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: parentNodeId,
+        edgeKind: hypothesis.state === 'duplicate' ? 'has_duplicate_hypothesis' : 'superseded_by_hypothesis',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'hypothesis', hypothesis.id),
+        targetEntityType: 'hypothesis',
+        targetEntityId: hypothesis.id,
+        targetLabel: hypothesis.title,
+        metadata: { source: 'hypothesis', inverseOf: hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis' },
+        indexedAt
+      });
     }
 
     const findingRows = rows(this.db.prepare('SELECT * FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
@@ -6732,16 +6847,57 @@ export class WorkspaceDatabase {
         metadata: { source: 'finding' },
         indexedAt
       });
-      if (finding.hypothesisId) {
+      const findingComponent = componentFromAffectedAssets(finding.affectedAssets);
+      const componentNodeId = this.upsertResearchComponentGraphNode(scopeVersionId, findingComponent, indexedAt);
+      if (componentNodeId && findingComponent) {
         this.insertProjectGraphEdge({
           scopeVersionId,
           sourceNodeId: nodeId,
-          edgeKind: finding.state === 'duplicate' ? 'duplicates' : 'promoted_from_hypothesis',
+          edgeKind: 'affects_component',
+          targetNodeId: componentNodeId,
+          targetEntityType: 'research_component',
+          targetEntityId: researchComponentEntityId(findingComponent),
+          targetLabel: findingComponent,
+          metadata: { source: 'finding', component: findingComponent },
+          indexedAt
+        });
+      }
+      for (const mapping of finding.cweMappings) {
+        const cweNodeId = this.upsertWeaknessGraphNode(scopeVersionId, mapping.cweId, mapping.cweName, indexedAt);
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'classified_as_cwe',
+          targetNodeId: cweNodeId,
+          targetEntityType: 'weakness',
+          targetEntityId: mapping.cweId,
+          targetLabel: `${mapping.cweId}: ${mapping.cweName}`,
+          metadata: { source: 'finding', confidence: mapping.confidence, mappingRole: mapping.mappingRole, mappingStatus: mapping.mappingStatus },
+          indexedAt
+        });
+      }
+      if (finding.hypothesisId) {
+        const relationKind = finding.state === 'duplicate' ? 'duplicates' : 'promoted_from_hypothesis';
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: relationKind,
           targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', finding.hypothesisId),
           targetEntityType: 'hypothesis',
           targetEntityId: finding.hypothesisId,
           targetLabel: finding.hypothesisId,
           metadata: { source: 'finding' },
+          indexedAt
+        });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', finding.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', finding.hypothesisId),
+          edgeKind: finding.state === 'duplicate' ? 'has_duplicate_finding' : 'promoted_to_finding',
+          targetNodeId: nodeId,
+          targetEntityType: 'finding',
+          targetEntityId: finding.id,
+          targetLabel: finding.title,
+          metadata: { source: 'finding', inverseOf: relationKind },
           indexedAt
         });
       }
@@ -6801,6 +6957,17 @@ export class WorkspaceDatabase {
           metadata: { source: 'verifier_contract' },
           indexedAt
         });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', contract.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', contract.hypothesisId),
+          edgeKind: 'verified_by_contract',
+          targetNodeId: nodeId,
+          targetEntityType: 'verifier_contract',
+          targetEntityId: contract.id,
+          targetLabel: `${contract.mode} verifier contract`,
+          metadata: { source: 'verifier_contract', status: contract.status },
+          indexedAt
+        });
       }
       if (contract.findingId) {
         this.insertProjectGraphEdge({
@@ -6812,6 +6979,17 @@ export class WorkspaceDatabase {
           targetEntityId: contract.findingId,
           targetLabel: contract.findingId,
           metadata: { source: 'verifier_contract' },
+          indexedAt
+        });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', contract.findingId) ?? projectGraphNodeId(scopeVersionId, 'finding', contract.findingId),
+          edgeKind: 'verified_by_contract',
+          targetNodeId: nodeId,
+          targetEntityType: 'verifier_contract',
+          targetEntityId: contract.id,
+          targetLabel: `${contract.mode} verifier contract`,
+          metadata: { source: 'verifier_contract', status: contract.status },
           indexedAt
         });
       }
@@ -6858,6 +7036,59 @@ export class WorkspaceDatabase {
         metadata: { source: 'verifier_run' },
         indexedAt
       });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_contract', verifierRun.contractId) ?? projectGraphNodeId(scopeVersionId, 'verifier_contract', verifierRun.contractId),
+        edgeKind: 'has_verifier_run',
+        targetNodeId: nodeId,
+        targetEntityType: 'verifier_run',
+        targetEntityId: verifierRun.id,
+        targetLabel: `${verifierRun.status} verifier run`,
+        metadata: { source: 'verifier_run', status: verifierRun.status },
+        indexedAt
+      });
+      const verifierContract = this.getVerifierContract(verifierRun.contractId);
+      if (verifierContract?.hypothesisId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: verifierRun.status === 'pass' ? 'verifier_passed_hypothesis' : 'verifier_outcome_for_hypothesis',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', verifierContract.hypothesisId),
+          targetEntityType: 'hypothesis',
+          targetEntityId: verifierContract.hypothesisId,
+          targetLabel: verifierContract.hypothesisId,
+          metadata: { source: 'verifier_run', status: verifierRun.status, contractId: verifierRun.contractId },
+          indexedAt
+        });
+      }
+      if (verifierContract?.findingId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: verifierRun.status === 'pass' ? 'verifier_passed_finding' : 'verifier_outcome_for_finding',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', verifierContract.findingId),
+          targetEntityType: 'finding',
+          targetEntityId: verifierContract.findingId,
+          targetLabel: verifierContract.findingId,
+          metadata: { source: 'verifier_run', status: verifierRun.status, contractId: verifierRun.contractId },
+          indexedAt
+        });
+      }
+      for (const findingRow of findingRows) {
+        const finding = this.mapFinding(findingRow);
+        if (finding.verifiedByVerifierRunId !== verifierRun.id) continue;
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'verifies_finding_outcome',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', finding.id),
+          targetEntityType: 'finding',
+          targetEntityId: finding.id,
+          targetLabel: finding.title,
+          metadata: { source: 'finding', findingState: finding.state },
+          indexedAt
+        });
+      }
       const verifierArtifactId = stringFromUnknown(verifierRun.result.artifactId);
       if (verifierArtifactId) {
         this.insertProjectGraphEdge({
@@ -6918,6 +7149,17 @@ export class WorkspaceDatabase {
           metadata: { source: 'evidence' },
           indexedAt
         });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', evidence.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', evidence.hypothesisId),
+          edgeKind: 'supported_by_evidence',
+          targetNodeId: nodeId,
+          targetEntityType: 'evidence',
+          targetEntityId: evidence.id,
+          targetLabel: evidence.summary,
+          metadata: { source: 'evidence', evidenceKind: evidence.kind },
+          indexedAt
+        });
       }
       if (evidence.findingId) {
         this.insertProjectGraphEdge({
@@ -6929,6 +7171,17 @@ export class WorkspaceDatabase {
           targetEntityId: evidence.findingId,
           targetLabel: evidence.findingId,
           metadata: { source: 'evidence' },
+          indexedAt
+        });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', evidence.findingId) ?? projectGraphNodeId(scopeVersionId, 'finding', evidence.findingId),
+          edgeKind: 'supported_by_evidence',
+          targetNodeId: nodeId,
+          targetEntityType: 'evidence',
+          targetEntityId: evidence.id,
+          targetLabel: evidence.summary,
+          metadata: { source: 'evidence', evidenceKind: evidence.kind },
           indexedAt
         });
       }
@@ -6944,6 +7197,17 @@ export class WorkspaceDatabase {
           metadata: { source: 'evidence' },
           indexedAt
         });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', evidence.artifactId) ?? projectGraphNodeId(scopeVersionId, 'artifact', evidence.artifactId),
+          edgeKind: 'backs_evidence',
+          targetNodeId: nodeId,
+          targetEntityType: 'evidence',
+          targetEntityId: evidence.id,
+          targetLabel: evidence.summary,
+          metadata: { source: 'evidence', evidenceKind: evidence.kind },
+          indexedAt
+        });
       }
       if (evidence.verifierRunId) {
         this.insertProjectGraphEdge({
@@ -6957,6 +7221,17 @@ export class WorkspaceDatabase {
           metadata: { source: 'evidence' },
           indexedAt
         });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', evidence.verifierRunId) ?? projectGraphNodeId(scopeVersionId, 'verifier_run', evidence.verifierRunId),
+          edgeKind: 'backs_evidence',
+          targetNodeId: nodeId,
+          targetEntityType: 'evidence',
+          targetEntityId: evidence.id,
+          targetLabel: evidence.summary,
+          metadata: { source: 'evidence', evidenceKind: evidence.kind },
+          indexedAt
+        });
       }
       if (evidence.observationTraceEventId) {
         this.insertProjectGraphEdge({
@@ -6968,6 +7243,17 @@ export class WorkspaceDatabase {
           targetEntityId: evidence.observationTraceEventId,
           targetLabel: evidence.observationTraceEventId,
           metadata: { source: 'evidence' },
+          indexedAt
+        });
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', evidence.observationTraceEventId) ?? projectGraphNodeId(scopeVersionId, 'trace_event', evidence.observationTraceEventId),
+          edgeKind: 'backs_evidence',
+          targetNodeId: nodeId,
+          targetEntityType: 'evidence',
+          targetEntityId: evidence.id,
+          targetLabel: evidence.summary,
+          metadata: { source: 'evidence', evidenceKind: evidence.kind },
           indexedAt
         });
       }
@@ -7385,6 +7671,35 @@ export class WorkspaceDatabase {
         input.indexedAt
       );
     return id;
+  }
+
+  private upsertResearchComponentGraphNode(scopeVersionId: string, component: string, indexedAt: string): string | null {
+    const normalized = component.trim();
+    if (!normalized) return null;
+    return this.upsertProjectGraphNode({
+      scopeVersionId,
+      entityType: 'research_component',
+      entityId: researchComponentEntityId(normalized),
+      nodeKind: 'research_component',
+      label: normalized,
+      sourcePath: null,
+      metadata: { component: normalized, source: 'research_memory' },
+      indexedAt
+    });
+  }
+
+  private upsertWeaknessGraphNode(scopeVersionId: string, cweId: string, cweName: string, indexedAt: string): string {
+    const label = cweName ? `${cweId}: ${cweName}` : cweId;
+    return this.upsertProjectGraphNode({
+      scopeVersionId,
+      entityType: 'weakness',
+      entityId: cweId,
+      nodeKind: 'weakness:cwe',
+      label,
+      sourcePath: null,
+      metadata: { cweId, cweName, source: 'weakness_mapping' },
+      indexedAt
+    });
   }
 
   private insertProjectGraphEdge(input: {
