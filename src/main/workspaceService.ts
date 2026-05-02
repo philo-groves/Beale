@@ -252,7 +252,6 @@ export class WorkspaceService {
   ) {
     this.semanticIndexExecutor = new ProjectSemanticIndexExecutor({
       getRuntime: (workspacePath) => this.runtimeForWorkspacePath(workspacePath),
-      hasActiveWork: (runtime) => runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active'),
       emitChange: (workspacePath) => this.emitRuntimeChange(workspacePath),
       recordTiming: (name, durationMs, detail = {}) => this.recordProfilingMainTiming(name, durationMs, detail)
     });

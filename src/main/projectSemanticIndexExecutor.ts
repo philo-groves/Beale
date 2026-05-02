@@ -8,7 +8,6 @@ import type { ProjectSemanticIndexWorkerInput, ProjectSemanticIndexWorkerMessage
 
 const DEFAULT_SEMANTIC_INDEX_BATCH_SIZE = 25;
 const DEFAULT_SEMANTIC_INDEX_BATCH_DELAY_MS = 10;
-const DEFAULT_SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS = 5000;
 
 export interface ProjectSemanticIndexRuntime {
   workspacePath: string;
@@ -17,12 +16,10 @@ export interface ProjectSemanticIndexRuntime {
 
 export interface ProjectSemanticIndexExecutorOptions {
   getRuntime(workspacePath: string): ProjectSemanticIndexRuntime | null;
-  hasActiveWork(runtime: ProjectSemanticIndexRuntime): boolean;
   emitChange(workspacePath: string): void;
   recordTiming(name: string, durationMs: number, detail?: ProfilingMetricDetail): void;
   batchSize?: number;
   batchDelayMs?: number;
-  activeRetryDelayMs?: number;
 }
 
 interface ProjectSemanticIndexTimerJob {
@@ -46,12 +43,10 @@ export class ProjectSemanticIndexExecutor {
   private readonly activeJobs = new Map<string, ActiveProjectSemanticIndexJob>();
   private readonly batchSize: number;
   private readonly batchDelayMs: number;
-  private readonly activeRetryDelayMs: number;
 
   public constructor(private readonly options: ProjectSemanticIndexExecutorOptions) {
     this.batchSize = Math.max(1, Math.floor(options.batchSize ?? DEFAULT_SEMANTIC_INDEX_BATCH_SIZE));
     this.batchDelayMs = Math.max(0, Math.floor(options.batchDelayMs ?? DEFAULT_SEMANTIC_INDEX_BATCH_DELAY_MS));
-    this.activeRetryDelayMs = Math.max(0, Math.floor(options.activeRetryDelayMs ?? DEFAULT_SEMANTIC_INDEX_ACTIVE_RETRY_DELAY_MS));
   }
 
   public schedule(scopeVersionId: string, reason: string, workspacePath: string | null, delayMs = 0): void {
@@ -128,10 +123,6 @@ export class ProjectSemanticIndexExecutor {
     this.timers.delete(key);
     const runtime = this.options.getRuntime(workspacePath);
     if (!runtime || !runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
-    if (this.options.hasActiveWork(runtime)) {
-      this.schedule(scopeVersionId, reason, workspacePath, this.activeRetryDelayMs);
-      return;
-    }
 
     const job: ActiveProjectSemanticIndexJob = {
       workspacePath,

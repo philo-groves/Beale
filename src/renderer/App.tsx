@@ -409,7 +409,7 @@ export function App(): JSX.Element {
               id: alertId,
               severity: 'info',
               title: 'Project understanding indexing',
-              bodyMarkdown: semanticIndexAlertBody(summary, programName, snapshot?.runs ?? [])
+              bodyMarkdown: semanticIndexAlertBody(summary, programName)
             }
           ];
         });
@@ -436,7 +436,7 @@ export function App(): JSX.Element {
     const summary = snapshot?.projectSemantic ?? null;
     if (!summary || (summary.status !== 'queued' && summary.status !== 'indexing')) return;
     const alertId = `semantic-index-running:${semanticIndexRunningKey(summary)}`;
-    const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program', snapshot?.runs ?? []);
+    const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program');
     setWorkspaceAlerts((current) => {
       let changed = false;
       const next = current.map((alert) => {
@@ -620,13 +620,11 @@ function semanticIndexRunningKey(summary: WorkspaceSnapshot['projectSemantic']):
   return `${summary.scopeVersionId}:${summary.queuedAt ?? summary.startedAt ?? ''}`;
 }
 
-function semanticIndexAlertBody(summary: WorkspaceSnapshot['projectSemantic'], programName: string, runs: WorkspaceSnapshot['runs']): string {
+function semanticIndexAlertBody(summary: WorkspaceSnapshot['projectSemantic'], programName: string): string {
   if (summary.status === 'queued') {
-    const waitingForRuns = runs.some((row) => row.run.status === 'queued' || row.run.status === 'active');
     const total = Math.max(0, summary.progressTotal ?? summary.sourceDocumentCount);
     const sourceText = total > 0 ? ` ${total.toLocaleString()} source document${total === 1 ? '' : 's'} are waiting to be indexed.` : '';
-    const waitText = waitingForRuns ? ' Waiting for active research sessions to finish before indexing starts.' : ' Waiting for the background worker to start.';
-    return `Semantic indexing is queued for ${programName}.${sourceText}${waitText} Search remains available with exact and stale indexed results.`;
+    return `Semantic indexing is queued for ${programName}.${sourceText} Waiting for the background worker to start. Search remains available with exact and stale indexed results.`;
   }
   const progress = semanticIndexProgressText(summary);
   return `Semantic indexing is running for ${programName}.${progress} Search remains available with exact and stale indexed results.`;

@@ -2872,7 +2872,7 @@ export class WorkspaceDatabase {
 
   public saveProgramScope(draft: ProgramScopeDraft): ProgramScopeVersion {
     const previousActiveScope = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1').get('active'));
-    const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : false;
+    const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : true;
     const cleanedAssets = draft.assets
       .map((asset) => ({
         ...asset,
@@ -2912,9 +2912,7 @@ export class WorkspaceDatabase {
       for (const asset of cleanedAssets) {
         this.insertScopeAsset(id, asset, createdAt);
       }
-      if (semanticEnabledForPreviousScope) {
-        this.setMetaValue(projectSemanticEnabledMetaKey(id), '1', createdAt);
-      }
+      this.setMetaValue(projectSemanticEnabledMetaKey(id), semanticEnabledForPreviousScope ? '1' : '0', createdAt);
     });
 
     const scope = this.getActiveScope();
@@ -4542,7 +4540,7 @@ export class WorkspaceDatabase {
   }
 
   public getProjectSemanticIndexEnabled(scopeVersionId = this.getActiveScope().id): boolean {
-    return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) === '1';
+    return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) !== '0';
   }
 
   public setProjectSemanticIndexEnabled(

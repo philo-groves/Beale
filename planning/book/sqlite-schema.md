@@ -177,7 +177,7 @@ Fields:
 
 Purpose:
 
-- Store per-program opt-in local semantic chunks derived from scoped project search documents.
+- Store per-program local semantic chunks derived from scoped project search documents.
 - Support concept-level retrieval across project metadata and Beale research memory without sending indexed material to a remote embedding provider.
 
 Fields:

@@ -169,9 +169,9 @@ describe('structured research tools', () => {
     const binaryStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'Java_com_example_Native');
     expect(binaryStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_symbol')).toBe(true);
 
-    const disabledSemantic = db.getProjectSemanticSummary(context.run.scopeVersionId);
-    expect(disabledSemantic.enabled).toBe(false);
-    expect(disabledSemantic.status).toBe('disabled');
+    const defaultSemantic = db.getProjectSemanticSummary(context.run.scopeVersionId);
+    expect(defaultSemantic.enabled).toBe(true);
+    expect(defaultSemantic.status).toBe('empty');
     db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -316,6 +316,30 @@ describe('structured research tools', () => {
 
     expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: true, status: 'empty' });
     expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBe('search_document_changed');
+    db.close();
+  });
+
+  it('preserves explicit semantic indexing disables across scope versions', () => {
+    const { db, targetDir } = openStructuredToolDb();
+    const previousScope = db.getActiveScope();
+    expect(db.setProjectSemanticIndexEnabled(false, previousScope.id)).toMatchObject({ enabled: false, status: 'disabled' });
+
+    const nextScope = db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'path',
+          value: join(targetDir, 'src'),
+          sensitivity: 'internal',
+          attributes: { source: 'materialized_test' }
+        }
+      ]
+    });
+
+    expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBeNull();
     db.close();
   });
 

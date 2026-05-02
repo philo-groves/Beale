@@ -170,7 +170,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and opt-in hybrid-ranked local semantic chunks. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
+    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and hybrid-ranked local semantic chunks when available. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),

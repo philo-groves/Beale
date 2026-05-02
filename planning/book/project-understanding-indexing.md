@@ -77,7 +77,7 @@ The second implementation starts Layer 2:
 
 The third implementation starts Layer 3:
 
-- Semantic indexing is per-program opt-in and disabled by default.
+- Semantic indexing is enabled by default per program and can be disabled from Settings.
 - The beta implementation stores bounded chunks in `project_semantic_chunks`, using project search documents as parent records and adding direct source/entity chunks with stable file and line-range provenance for code-heavy targets.
 - The initial provider is local and deterministic (`local_hash` / `local-hash-v3`), using metadata-aware sparse token vectors with lightweight security/code synonyms, path/proximity boosts, and source provenance boosts. No indexed material leaves the machine.
 - Semantic tokenization splits common code identifiers and paths, such as camelCase, snake_case, dotted names, route paths, JNI symbols, and binary-derived markers, into searchable components.
@@ -86,15 +86,15 @@ The third implementation starts Layer 3:
 - Semantic retrieval uses a deterministic second-stage reranker over the local hybrid score. The beta reranker prefers security-relevant surfaces, scoped source/range provenance, structural entities, and verifier/evidence/finding memory while downranking dismissed or duplicate research records.
 - Retrieval now diversifies semantic results by source document and path so one file or document cannot crowd out the whole result set. This remains a beta-quality sparse retriever, not deep embedding search.
 - Tool payloads expose `projectSemantic` status, provider, model, namespace counts, chunk counts, indexed source counts, approximate index size, last rebuild duration, indexed time, and `remoteEmbeddingEnabled: false`.
-- Settings > General exposes the active program's semantic status and local provider details, with explicit enable/disable and rebuild controls.
+- Settings > General exposes the active program's semantic status and local provider details, with explicit disable/enable and rebuild controls.
 - Semantic status reports `stale` when indexed chunks no longer match source documents or the local provider/model version changes.
 - This is intentionally a low-risk retrieval layer, not proof. Exact source reads, artifacts, verifier runs, and evidence records remain authoritative.
 - As of the beta background-indexing transition, model-facing `search` and `code_browser` must not rebuild indexes inline. They may use stale index state and exact bounded reads while background work catches up.
 - Settings-driven semantic enable/rebuild requests now record queued/indexing/error status and run through a deferred scheduler.
-- Settings remains the authority for enabling/disabling semantic indexing. Long-running indexing and indexing failures surface through delayed, deduplicated workspace alerts instead of adding persistent status text to the app chrome; queued alerts explain whether indexing is waiting on active research sessions, and active indexing alerts track processed/total source documents.
-- Active research can defer a queued semantic rebuild before it starts, but a rebuild that has already started is allowed to finish so progress is not discarded and restarted from the beginning.
+- Settings remains the authority for enabling/disabling semantic indexing. Long-running indexing and indexing failures surface through delayed, deduplicated workspace alerts instead of adding persistent status text to the app chrome; queued alerts explain that indexing is waiting for the background worker, and active indexing alerts track processed/total source documents.
+- Semantic rebuilds may start while research sessions are active because they run outside model-facing tool turns and use stale/exact retrieval until fresh chunks are ready.
 - Semantic rebuilds process source documents in small batches, preserve stale chunks until the replacement index finishes, expose processed/total progress, and yield between batches. Moving expensive builds into a separate worker process or thread remains the next scalability step.
-- The semantic batch lifecycle now lives in a standalone main-process executor module instead of `WorkspaceService`. The executor owns timers, active-session deferral, progress batches, and profiling labels so the next implementation can replace its internals with a worker-backed runner.
+- The semantic batch lifecycle now lives in a standalone main-process executor module instead of `WorkspaceService`. The executor owns timers, progress batches, and profiling labels so the next implementation can replace its internals with a worker-backed runner.
 - The semantic executor now prefers a bundled worker-thread entry when available. The worker opens its own SQLite connection, runs the batch loop outside the main process response path, sends progress/timing messages back to the host, and falls back to the cooperative in-process runner in tests or unsupported dev builds.
 - Worker lifecycle hardening tracks queued timers and active workers separately. Cancel, workspace disposal, and app shutdown now mark jobs canceled and terminate active workers instead of relying only on cooperative worker checks.
 - Semantic rebuilds now enqueue automatically when enabled programs receive meaningful search-document changes, scope/source materialization creates a new active scope, stale provider/model versions are detected on workspace open, or interrupted queued/indexing work is resumed.
@@ -306,7 +306,7 @@ Recommended settings:
 
 - `Project Understanding: Basic`: inventory, lexical search, SQLite FTS, and lightweight metadata. Default.
 - `Project Understanding: Structural`: Basic plus source/binary/web structure extraction where available. Recommended default once stable.
-- `Project Understanding: Semantic`: Structural plus embeddings and semantic reranking. Opt-in during beta.
+- `Project Understanding: Semantic`: Structural plus local semantic chunks and semantic reranking. Enabled by default during beta.
 - `Project Understanding: Full`: Semantic plus relationship graph expansion and deeper background indexing. Opt-in for powerful machines or long-running programs.
 
 The UI should show:
@@ -371,7 +371,7 @@ Long term:
 ## Open Questions
 
 - Which local embedding model is accurate enough for security research without excessive memory cost?
-- Which provider consent UI should enable future remote embedding providers without weakening the per-program opt-in default?
+- Which provider consent UI should enable future remote embedding providers without weakening explicit per-program disable controls?
 - How much relationship graph can be derived cheaply from Tree-sitter before a language server is needed?
 - Which binary analysis backend should produce stable function and chunk IDs first?
 - Should web crawl snapshots be indexed automatically during live sessions or only after explicit researcher approval?
