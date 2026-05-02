@@ -2154,9 +2154,12 @@ export class BealeToolRouter {
   ): { total: number; signals: Record<string, number | string[]> } {
     const entityKey = this.retrievalCandidateEntityKey(candidate);
     const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
+    const mergedGraphEdgeKinds = arrayOfStrings(candidate.output.retrievalGraphEdgeKinds);
     const graphProximity =
       candidate.kind === 'graph' || candidate.kind === 'graph_variant'
         ? this.graphEdgeRetrievalWeight(candidate.provenance.graphEdgeKind ?? '')
+        : mergedGraphEdgeKinds.length > 0
+          ? Math.max(...mergedGraphEdgeKinds.map((edgeKind) => this.graphEdgeRetrievalWeight(edgeKind)))
         : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (candidate.sourcePath && graphContext.graphSourcePaths.has(candidate.sourcePath))
           ? 6
           : 0;
@@ -2281,19 +2284,19 @@ export class BealeToolRouter {
   }
 
   private retrievalSemanticSimilarityScore(candidate: RetrievalCandidate): number {
-    if (candidate.kind !== 'semantic') return 0;
-    const semanticScore = Math.min(16, numberValue(candidate.output.semanticScore, 0) * 16);
-    const vectorScore = Math.min(5, numberValue(candidate.output.vectorScore, 0) * 5);
-    const lexicalScore = Math.min(4, numberValue(candidate.output.lexicalScore, 0) * 4);
+    if (candidate.kind !== 'semantic' && !arrayOfStrings(candidate.output.retrievalMergedKinds).includes('semantic')) return 0;
+    const semanticScore = Math.min(16, Math.max(numberValue(candidate.output.semanticScore, 0), numberValue(candidate.output.retrievalSemanticScore, 0)) * 16);
+    const vectorScore = Math.min(5, Math.max(numberValue(candidate.output.vectorScore, 0), numberValue(candidate.output.retrievalVectorScore, 0)) * 5);
+    const lexicalScore = Math.min(4, Math.max(numberValue(candidate.output.lexicalScore, 0), numberValue(candidate.output.retrievalLexicalScore, 0)) * 4);
     return roundRetrievalScore(Math.min(22, semanticScore + vectorScore + lexicalScore));
   }
 
   private retrievalResearchMemoryScore(candidate: RetrievalCandidate): number {
     const entityType = candidate.entityType ?? '';
-    const edgeKind = candidate.provenance.graphEdgeKind ?? '';
+    const edgeKinds = uniqueStrings([candidate.provenance.graphEdgeKind ?? '', ...arrayOfStrings(candidate.output.retrievalGraphEdgeKinds)]);
     const metadata = retrievalMetadata(candidate);
     const researchEntity = ['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'artifact', 'trace_event'].includes(entityType) ? 6 : 0;
-    const evidenceEdge = [
+    const evidenceEdge = edgeKinds.some((edgeKind) => [
       'affects_component',
       'classified_as_cwe',
       'supports_hypothesis',
@@ -2306,7 +2309,7 @@ export class BealeToolRouter {
       'verifier_passed_finding',
       'backs_evidence',
       'observed_in_trace'
-    ].includes(edgeKind)
+    ].includes(edgeKind))
       ? 8
       : 0;
     const linked = ['hypothesisId', 'findingId', 'artifactId', 'verifierRunId', 'observationTraceEventId'].some((key) => Boolean(metadata[key])) ? 4 : 0;
@@ -2317,10 +2320,10 @@ export class BealeToolRouter {
   private retrievalSecurityRelevanceScore(candidate: RetrievalCandidate): number {
     const text = this.retrievalCandidateSearchText(candidate).toLowerCase();
     const entityKind = stringValue(candidate.output.entityKind, '') || stringValue(retrievalMetadata(candidate).entityKind, '');
-    const edgeKind = candidate.provenance.graphEdgeKind ?? '';
+    const edgeKinds = uniqueStrings([candidate.provenance.graphEdgeKind ?? '', ...arrayOfStrings(candidate.output.retrievalGraphEdgeKinds)]);
     let score = 0;
     if (['sink', 'security_marker', 'permission_marker', 'mobile_permission', 'binary_imported_symbol', 'binary_string'].includes(entityKind)) score += 8;
-    if (['checks_permission', 'reaches_sink', 'references_permission'].includes(edgeKind)) score += 8;
+    if (edgeKinds.some((edgeKind) => ['checks_permission', 'reaches_sink', 'references_permission'].includes(edgeKind))) score += 8;
     const securityTerms = ['auth', 'permission', 'token', 'secret', 'sink', 'cwe', 'vulnerability', 'exploit', 'injection', 'xss', 'ssrf', 'deserialization', 'path traversal', 'crypto'];
     const hits = securityTerms.filter((term) => text.includes(term)).length;
     score += Math.min(8, hits * 2);
@@ -2364,6 +2367,8 @@ export class BealeToolRouter {
   }
 
   private retrievalSourceTypeScore(candidate: RetrievalCandidate): number {
+    const mergedKinds = arrayOfStrings(candidate.output.retrievalMergedKinds);
+    if (mergedKinds.includes('file') && (mergedKinds.includes('metadata') || mergedKinds.includes('semantic') || mergedKinds.includes('graph') || mergedKinds.includes('graph_variant'))) return 11;
     if (candidate.kind === 'file') return 10;
     if (candidate.kind === 'artifact') return 8;
     if (candidate.kind === 'metadata') return 7;
@@ -2402,8 +2407,12 @@ export class BealeToolRouter {
   private appendUniqueRetrievalCandidates(matches: RetrievalCandidate[], candidates: RetrievalCandidate[], limit: number): number {
     let added = 0;
     for (const candidate of candidates) {
+      const mergeIndex = matches.findIndex((match) => this.retrievalCandidatesShouldMerge(match, candidate));
+      if (mergeIndex >= 0) {
+        matches[mergeIndex] = this.mergeRetrievalCandidates(matches[mergeIndex], candidate);
+        continue;
+      }
       if (matches.length >= limit) break;
-      if (this.retrievalCandidateIsDuplicate(matches, candidate)) continue;
       matches.push(candidate);
       added += 1;
     }
@@ -2411,21 +2420,106 @@ export class BealeToolRouter {
   }
 
   private retrievalCandidateIsDuplicate(existing: RetrievalCandidate[], candidate: RetrievalCandidate): boolean {
-    const candidateArtifactId = stringValue(candidate.output.artifactId, '') || (candidate.entityType === 'artifact' ? candidate.entityId ?? '' : '');
-    if (candidate.kind === 'metadata' && candidate.entityType === 'inventory_item' && candidate.sourcePath) {
-      return existing.some((match) => match.sourcePath === candidate.sourcePath);
-    }
-    if (candidate.kind === 'metadata' && candidate.entityType === 'artifact' && candidateArtifactId) {
-      return existing.some((match) => stringValue(match.output.artifactId, '') === candidateArtifactId || (match.entityType === 'artifact' && match.entityId === candidateArtifactId));
-    }
-    if ((candidate.kind === 'graph' || candidate.kind === 'graph_variant') && candidate.entityType && candidate.entityId) {
-      if (candidate.sourcePath && !candidate.output.line) {
-        return existing.some((match) => match.sourcePath === candidate.sourcePath);
+    return existing.some((match) => this.retrievalCandidatesShouldMerge(match, candidate));
+  }
+
+  private retrievalCandidatesShouldMerge(left: RetrievalCandidate, right: RetrievalCandidate): boolean {
+    const leftArtifactId = stringValue(left.output.artifactId, '') || (left.entityType === 'artifact' ? left.entityId ?? '' : '');
+    const rightArtifactId = stringValue(right.output.artifactId, '') || (right.entityType === 'artifact' ? right.entityId ?? '' : '');
+    if (leftArtifactId && rightArtifactId && leftArtifactId === rightArtifactId) return true;
+
+    const leftEntityKey = this.retrievalCandidateMergeEntityKey(left);
+    const rightEntityKey = this.retrievalCandidateMergeEntityKey(right);
+    if (leftEntityKey && rightEntityKey && leftEntityKey === rightEntityKey) return true;
+
+    const leftStable = this.retrievalCandidateStableKey(left);
+    const rightStable = this.retrievalCandidateStableKey(right);
+    if (leftStable && rightStable && leftStable === rightStable) return true;
+
+    return this.retrievalCandidatesSameLocation(left, right);
+  }
+
+  private retrievalCandidateMergeEntityKey(candidate: RetrievalCandidate): string {
+    if (!candidate.entityType || !candidate.entityId) return '';
+    if (candidate.entityType === 'file') return '';
+    if (candidate.entityType === 'graph_edge') return '';
+    return `${candidate.entityType}:${candidate.entityId}`;
+  }
+
+  private retrievalCandidatesSameLocation(left: RetrievalCandidate, right: RetrievalCandidate): boolean {
+    if (!left.sourcePath || !right.sourcePath || left.sourcePath !== right.sourcePath) return false;
+    const leftRange = retrievalCandidateLineRange(left);
+    const rightRange = retrievalCandidateLineRange(right);
+    if (!leftRange || !rightRange) return false;
+    if (!rangesOverlap(leftRange, rightRange)) return false;
+    if (left.entityType === 'inventory_item' || right.entityType === 'inventory_item') return false;
+    if (left.kind === 'file' && right.kind === 'file') return leftRange.start === rightRange.start && leftRange.end === rightRange.end;
+    return this.retrievalCandidateRichness(left) !== this.retrievalCandidateRichness(right) || left.entityType === right.entityType;
+  }
+
+  private mergeRetrievalCandidates(left: RetrievalCandidate, right: RetrievalCandidate): RetrievalCandidate {
+    const primary = this.retrievalCandidateRichness(right) > this.retrievalCandidateRichness(left) ? right : left;
+    const secondary = primary === left ? right : left;
+    const output = this.mergeRetrievalCandidateOutput(primary, secondary);
+    return {
+      ...primary,
+      sourcePath: primary.sourcePath ?? secondary.sourcePath,
+      range: primary.range ?? secondary.range,
+      namespace: primary.namespace || secondary.namespace,
+      output,
+      provenance: {
+        source: primary.provenance.source,
+        matchedBy: primary.provenance.matchedBy ?? secondary.provenance.matchedBy,
+        seedEntityType: primary.provenance.seedEntityType ?? secondary.provenance.seedEntityType,
+        seedEntityId: primary.provenance.seedEntityId ?? secondary.provenance.seedEntityId,
+        graphEdgeKind: primary.provenance.graphEdgeKind ?? secondary.provenance.graphEdgeKind
       }
-      return existing.some((match) => match.entityType === candidate.entityType && match.entityId === candidate.entityId);
+    };
+  }
+
+  private mergeRetrievalCandidateOutput(primary: RetrievalCandidate, secondary: RetrievalCandidate): Record<string, unknown> {
+    const contributors = [...retrievalCandidateContributors(primary), ...retrievalCandidateContributors(secondary)];
+    const mergedKinds = uniqueStrings([primary.kind, secondary.kind, ...arrayOfStrings(primary.output.retrievalMergedKinds), ...arrayOfStrings(secondary.output.retrievalMergedKinds)]);
+    const mergedSources = uniqueStrings([
+      retrievalContributionSource(primary),
+      retrievalContributionSource(secondary),
+      ...arrayOfStrings(primary.output.retrievalMergedSources),
+      ...arrayOfStrings(secondary.output.retrievalMergedSources)
+    ]);
+    const graphEdgeKinds = uniqueStrings([
+      stringValue(primary.output.graphEdgeKind, ''),
+      stringValue(secondary.output.graphEdgeKind, ''),
+      ...arrayOfStrings(primary.output.retrievalGraphEdgeKinds),
+      ...arrayOfStrings(secondary.output.retrievalGraphEdgeKinds)
+    ]);
+    const semanticScore = Math.max(numberValue(primary.output.semanticScore, 0), numberValue(secondary.output.semanticScore, 0), numberValue(primary.output.retrievalSemanticScore, 0), numberValue(secondary.output.retrievalSemanticScore, 0));
+    const vectorScore = Math.max(numberValue(primary.output.vectorScore, 0), numberValue(secondary.output.vectorScore, 0), numberValue(primary.output.retrievalVectorScore, 0), numberValue(secondary.output.retrievalVectorScore, 0));
+    const lexicalScore = Math.max(numberValue(primary.output.lexicalScore, 0), numberValue(secondary.output.lexicalScore, 0), numberValue(primary.output.retrievalLexicalScore, 0), numberValue(secondary.output.retrievalLexicalScore, 0));
+    return {
+      ...primary.output,
+      snippet: stringValue(primary.output.snippet, '') || stringValue(secondary.output.snippet, ''),
+      retrievalMerged: true,
+      retrievalMergedKinds: mergedKinds,
+      retrievalMergedSources: mergedSources,
+      retrievalGraphEdgeKinds: graphEdgeKinds,
+      retrievalSemanticScore: semanticScore > 0 ? semanticScore : undefined,
+      retrievalVectorScore: vectorScore > 0 ? vectorScore : undefined,
+      retrievalLexicalScore: lexicalScore > 0 ? lexicalScore : undefined,
+      retrievalContributors: contributors.slice(0, 8)
+    };
+  }
+
+  private retrievalCandidateRichness(candidate: RetrievalCandidate): number {
+    if (candidate.entityType && candidate.entityType !== 'file' && candidate.entityType !== 'graph_edge') {
+      if (candidate.kind === 'metadata') return 80;
+      if (candidate.kind === 'semantic') return 75;
+      if (candidate.kind === 'graph_variant') return 70;
+      if (candidate.kind === 'graph') return 68;
+      return 65;
     }
-    const candidateKey = this.retrievalCandidateStableKey(candidate);
-    return candidateKey.length > 0 && existing.some((match) => this.retrievalCandidateStableKey(match) === candidateKey);
+    if (candidate.kind === 'artifact') return 55;
+    if (candidate.kind === 'file') return 40;
+    return 30;
   }
 
   private retrievalCandidateStableKey(candidate: RetrievalCandidate): string {
@@ -3126,6 +3220,56 @@ function roundRetrievalScore(value: number): number {
 function retrievalMetadata(candidate: RetrievalCandidate): Record<string, unknown> {
   const metadata = candidate.output.metadata;
   return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {};
+}
+
+function retrievalCandidateLineRange(candidate: RetrievalCandidate): { start: number; end: number } | null {
+  const line = numberValue(candidate.output.line, 0);
+  if (line > 0) return { start: line, end: line };
+  const range = candidate.range ?? stringValue(candidate.output.range, '');
+  const match = /^(\d+)(?:-(\d+))?$/.exec(range);
+  if (!match) return null;
+  const start = Number.parseInt(match[1] ?? '', 10);
+  const end = Number.parseInt(match[2] ?? match[1] ?? '', 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return { start: Math.min(start, end), end: Math.max(start, end) };
+}
+
+function rangesOverlap(left: { start: number; end: number }, right: { start: number; end: number }): boolean {
+  return left.start <= right.end && right.start <= left.end;
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0) : [];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function retrievalContributionSource(candidate: RetrievalCandidate): string {
+  if (candidate.kind === 'file') return 'direct_lexical_hit';
+  if (candidate.kind === 'semantic') return 'semantic_hit';
+  if (candidate.kind === 'graph_variant') return 'variant_hit';
+  if (candidate.kind === 'graph') return 'graph_adjacent_hit';
+  if (candidate.kind === 'metadata') return 'metadata_hit';
+  return `${candidate.kind || 'unknown'}_hit`;
+}
+
+function retrievalCandidateContributors(candidate: RetrievalCandidate): Array<Record<string, unknown>> {
+  const existing = candidate.output.retrievalContributors;
+  if (Array.isArray(existing)) return existing.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry));
+  return [
+    {
+      source: retrievalContributionSource(candidate),
+      kind: candidate.kind,
+      entityType: candidate.entityType,
+      entityId: candidate.entityId,
+      sourcePath: candidate.sourcePath,
+      range: candidate.range,
+      matchedBy: candidate.provenance.matchedBy,
+      graphEdgeKind: candidate.provenance.graphEdgeKind
+    }
+  ];
 }
 
 function normalizeRetrievalIdentifier(value: string): string {

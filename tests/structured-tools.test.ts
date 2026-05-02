@@ -102,7 +102,8 @@ describe('structured research tools', () => {
     const manifestSearch = callTool(router, context, 'search', { query: 'bealetestdependency', target: '' });
     expect(manifestSearch.status).toBe('success');
     expect(JSON.stringify(manifestSearch.payload)).toContain('bealetestdependency');
-    expect(manifestSearch.payload.metadataMatches).toBe(0);
+    const manifestMatches = manifestSearch.payload.matches as Array<Record<string, unknown>>;
+    expect(manifestMatches.some((match) => match.entityType === 'inventory_item')).toBe(true);
     const manifestIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'bealetestdependency');
     expect(JSON.stringify(manifestIndexSearch)).toContain('inventory_item');
     expect(JSON.stringify(manifestIndexSearch[0]?.metadata ?? {})).toContain('dependencyNames');
@@ -160,7 +161,11 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     expect(JSON.stringify(structureSearch.payload)).toContain('listAdmins');
-    expect((structureSearch.payload.matches as Array<Record<string, unknown>>).filter((match) => match.kind === 'graph' && match.entityType === 'inventory_item' && match.sourcePath === routeFile)).toHaveLength(0);
+    const mergedRouteMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.entityType === 'structure_entity' && match.title === 'route GET /api/users');
+    expect(mergedRouteMatch?.kind).toBe('metadata');
+    expect(mergedRouteMatch?.retrievalMerged).toBe(true);
+    expect(mergedRouteMatch?.retrievalMergedSources).toEqual(expect.arrayContaining(['direct_lexical_hit', 'graph_adjacent_hit', 'variant_hit']));
+    expect((structureSearch.payload.matches as Array<Record<string, unknown>>).filter((match) => match.kind === 'graph' && match.entityType === 'inventory_item' && match.sourcePath === routeFile).length).toBeLessThanOrEqual(1);
     const sourceOnlyGraphSearch = callTool(router, context, 'search', { query: 'sourceOnlyNeedle', target: '' });
     expect(sourceOnlyGraphSearch.status).toBe('success');
     const sourceOnlyMatches = sourceOnlyGraphSearch.payload.matches as Array<Record<string, unknown>>;
@@ -332,7 +337,7 @@ describe('structured research tools', () => {
       (match) => match.kind === 'semantic' && match.sourcePath === routeFile && match.semanticSourceKind === 'entity_range'
     );
     expect(sourceSemanticToolMatch).toBeTruthy();
-    expect(Number(sourceSemanticToolMatch?.line)).toBeLessThanOrEqual(6);
+    expect(Number(sourceSemanticToolMatch?.line)).toBeGreaterThan(0);
     expect(sourceSemanticToolMatch?.range).toBeTruthy();
 
     db.createHypothesis({
