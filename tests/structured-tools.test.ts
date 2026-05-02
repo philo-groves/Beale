@@ -144,6 +144,13 @@ describe('structured research tools', () => {
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
     expect(structureSearch.payload.queryIntents).toContain('route_api_lookup');
+    expect(structureSearch.payload.retrievalDiagnostics).toMatchObject({
+      candidateCountsByLayer: expect.objectContaining({ file: expect.any(Number), metadata: expect.any(Number), graph: expect.any(Number), graph_variant: expect.any(Number) }),
+      selectedCountsByLayer: expect.objectContaining({ total: expect.any(Number) }),
+      topScoringSignals: expect.any(Object)
+    });
+    expect(Number((structureSearch.payload.retrievalDiagnostics as Record<string, unknown>).dedupeCount)).toBeGreaterThanOrEqual(0);
+    expect(Number((structureSearch.payload.retrievalDiagnostics as Record<string, unknown>).graphExpansionCount)).toBeGreaterThanOrEqual(1);
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);

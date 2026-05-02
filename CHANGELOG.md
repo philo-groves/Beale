@@ -104,6 +104,7 @@
 - Changed search dedupe to merge candidates that share an entity or precise file/range, preserving direct lexical, semantic, graph-adjacent, and variant contribution provenance while preferring richer entity-backed records over plain file hits.
 - Added lightweight search query intent hints for symbol, route/API, auth/permission, sink/data-flow, binary, prior research-memory, and variant/similarity queries, using them as ranking weights without excluding other retrieval layers.
 - Changed search result selection to preserve the top exact result, then diversify by source path and relationship family unless the query is clearly focused on one file or symbol.
+- Added search retrieval diagnostics with candidate counts by layer, selected counts by layer, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

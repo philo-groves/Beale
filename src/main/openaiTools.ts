@@ -89,6 +89,17 @@ interface SearchAssemblyResult {
   semanticMatches: number;
   graphMatches: number;
   graphVariantMatches: number;
+  diagnostics: SearchRetrievalDiagnostics;
+}
+
+interface SearchRetrievalDiagnostics {
+  candidateCountsByLayer: Record<string, number>;
+  mergedCandidateCountsByLayer: Record<string, number>;
+  selectedCountsByLayer: Record<string, number>;
+  dedupeCount: number;
+  graphExpansionCount: number;
+  topScoringSignals: Record<string, number>;
+  selectedRelationshipFamilies: Record<string, number>;
 }
 
 interface RetrievalCandidate {
@@ -667,6 +678,7 @@ export class BealeToolRouter {
         semanticMatches: searchAssembly.semanticMatches,
         graphMatches: searchAssembly.graphMatches,
         graphVariantMatches: searchAssembly.graphVariantMatches,
+        retrievalDiagnostics: searchAssembly.diagnostics,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -2012,6 +2024,9 @@ export class BealeToolRouter {
   }): SearchAssemblyResult {
     const candidatePool: RetrievalCandidate[] = [];
     const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
+    const rawCandidateCount = input.fileMatches.length + input.artifactMatches.length + input.metadataMatches.length + input.semanticMatches.length + input.graphMatches.length;
+    const graphVariantInputCount = input.graphMatches.filter((match) => stringValue(match.kind, '') === 'graph_variant').length;
+    const graphProximityInputCount = input.graphMatches.length - graphVariantInputCount;
     this.appendUniqueRetrievalCandidates(candidatePool, input.fileMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
     this.appendUniqueRetrievalCandidates(candidatePool, input.artifactMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
     this.appendUniqueRetrievalCandidates(candidatePool, input.metadataMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
@@ -2064,7 +2079,24 @@ export class BealeToolRouter {
       metadataMatches: selected.filter((match) => match.kind === 'metadata').length,
       semanticMatches: selected.filter((match) => match.kind === 'semantic').length,
       graphMatches: selected.filter((match) => match.kind === 'graph' || match.kind === 'graph_variant').length,
-      graphVariantMatches: selected.filter((match) => match.kind === 'graph_variant').length
+      graphVariantMatches: selected.filter((match) => match.kind === 'graph_variant').length,
+      diagnostics: {
+        candidateCountsByLayer: {
+          file: input.fileMatches.length,
+          artifact: input.artifactMatches.length,
+          metadata: input.metadataMatches.length,
+          semantic: input.semanticMatches.length,
+          graph: graphProximityInputCount,
+          graph_variant: graphVariantInputCount,
+          total: rawCandidateCount
+        },
+        mergedCandidateCountsByLayer: this.retrievalLayerCounts(candidatePool),
+        selectedCountsByLayer: this.retrievalLayerCounts(selected),
+        dedupeCount: Math.max(0, rawCandidateCount - candidatePool.length),
+        graphExpansionCount: input.graphMatches.length,
+        topScoringSignals: this.topRetrievalSignalTotals(selected, 8),
+        selectedRelationshipFamilies: this.retrievalRelationshipFamilyCounts(selected)
+      }
     };
   }
 
@@ -2124,6 +2156,37 @@ export class BealeToolRouter {
     if (candidate.sourcePath) sourcePathCounts.set(candidate.sourcePath, (sourcePathCounts.get(candidate.sourcePath) ?? 0) + 1);
     const family = this.retrievalRelationshipFamily(candidate);
     familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+  }
+
+  private retrievalLayerCounts(candidates: RetrievalCandidate[]): Record<string, number> {
+    const counts: Record<string, number> = { file: 0, artifact: 0, metadata: 0, semantic: 0, graph: 0, graph_variant: 0, total: candidates.length };
+    for (const candidate of candidates) {
+      const layers = uniqueStrings([candidate.kind, ...arrayOfStrings(candidate.output.retrievalMergedKinds)]);
+      for (const layer of layers) {
+        if (layer in counts) counts[layer] += 1;
+      }
+    }
+    return counts;
+  }
+
+  private topRetrievalSignalTotals(candidates: RetrievalCandidate[], limit: number): Record<string, number> {
+    const totals = new Map<string, number>();
+    for (const candidate of candidates) {
+      for (const [key, value] of Object.entries(candidate.signals)) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+        totals.set(key, roundRetrievalScore((totals.get(key) ?? 0) + value));
+      }
+    }
+    return Object.fromEntries([...totals.entries()].sort((left, right) => right[1] - left[1]).slice(0, limit));
+  }
+
+  private retrievalRelationshipFamilyCounts(candidates: RetrievalCandidate[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const candidate of candidates) {
+      const family = this.retrievalRelationshipFamily(candidate);
+      counts[family] = (counts[family] ?? 0) + 1;
+    }
+    return counts;
   }
 
   private retrievalSourcePathCap(queryPlan: SearchQueryPlan): number {
