@@ -5100,6 +5100,43 @@ export class WorkspaceDatabase {
     };
   }
 
+  public findProjectInventoryItemByPath(
+    scopeVersionId: string,
+    path: string,
+    options: { refreshInventory?: boolean } = {}
+  ): {
+    id: string;
+    assetId: string;
+    itemKind: string;
+    resourceKind: string;
+    path: string;
+    value: string;
+    language: string;
+    sizeBytes: number | null;
+    sha256: string | null;
+    sensitivity: string;
+    metadata: Record<string, unknown>;
+  } | null {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_inventory_items WHERE scope_version_id = ? AND path = ? LIMIT 1').get(scopeVersionId, path));
+    if (!row) return null;
+    return {
+      id: text(row, 'id'),
+      assetId: text(row, 'asset_id'),
+      itemKind: text(row, 'item_kind'),
+      resourceKind: text(row, 'resource_kind'),
+      path: text(row, 'path'),
+      value: text(row, 'value'),
+      language: text(row, 'language'),
+      sizeBytes: nullableNumber(row, 'size_bytes'),
+      sha256: nullableText(row, 'sha256'),
+      sensitivity: text(row, 'sensitivity'),
+      metadata: parseJson(row.metadata_json)
+    };
+  }
+
   public getProjectStructureSummary(scopeVersionId = this.getActiveScope().id): ProjectStructureSummary {
     const entityRow = rowOrUndefined(
       this.db
@@ -5601,6 +5638,38 @@ export class WorkspaceDatabase {
            LIMIT 1`
         )
         .get(scopeVersionId, path, normalizedName)
+    );
+    return row ? this.mapProjectStructureEntity(row) : null;
+  }
+
+  public findProjectStructureEntityContainingLine(scopeVersionId: string, path: string, line: number, options: { refreshInventory?: boolean } = {}): ProjectStructureEntityRecord | null {
+    if (options.refreshInventory !== false) {
+      this.ensureProjectInventory(scopeVersionId);
+    }
+    const lineNumber = Math.max(1, Math.floor(line));
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_entities
+           WHERE scope_version_id = ?
+             AND path = ?
+             AND line_start <= ?
+             AND line_end >= ?
+           ORDER BY
+             CASE entity_kind
+               WHEN 'function' THEN 0
+               WHEN 'method' THEN 0
+               WHEN 'route' THEN 1
+               WHEN 'class' THEN 2
+               WHEN 'type' THEN 2
+               ELSE 3
+             END,
+             (line_end - line_start) ASC,
+             line_start DESC
+           LIMIT 1`
+        )
+        .get(scopeVersionId, path, lineNumber, lineNumber)
     );
     return row ? this.mapProjectStructureEntity(row) : null;
   }

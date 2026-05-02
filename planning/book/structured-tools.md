@@ -101,6 +101,7 @@ Expected outputs:
 - Code-to-research-memory graph variants when source-backed hits match component anchors from prior hypotheses or findings.
 - Retrieval scores and ranking signals that show when graph seed or proximity influenced final search ordering.
 - Internal search ranking uses a normalized retrieval candidate envelope across lexical, artifact, metadata, semantic, graph, and graph-variant sources before formatting model-facing matches.
+- Two-phase retrieval that gathers broad normalized candidates first, then expands only top seeds through containing structure entities, binary inventory anchors, graph neighborhoods, and graph-backed variants.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

@@ -603,9 +603,26 @@ export class BealeToolRouter {
     const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES);
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
     const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
-    const graphMatches = this.searchProjectGraph(context, [...metadataMatches, ...semanticMatches], MAX_SEARCH_MATCHES);
-    const graphVariantMatches = this.searchProjectGraphVariants(context, [...metadataMatches, ...semanticMatches, ...graphMatches], MAX_SEARCH_MATCHES);
-    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [...graphMatches, ...graphVariantMatches] });
+    const directPhaseASeeds = this.selectPhaseASeedMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [] }, 24);
+    const phaseAGraphMatches = this.searchProjectGraph(context, directPhaseASeeds, MAX_SEARCH_MATCHES);
+    const phaseAGraphVariantMatches = this.searchProjectGraphVariants(context, [...directPhaseASeeds, ...phaseAGraphMatches], MAX_SEARCH_MATCHES);
+    const phaseASeeds = this.selectPhaseASeedMatches(
+      {
+        fileMatches,
+        artifactMatches,
+        metadataMatches,
+        semanticMatches,
+        graphMatches: [...phaseAGraphMatches, ...phaseAGraphVariantMatches]
+      },
+      16
+    );
+    const sourceStructureSeeds = this.searchSourceStructureSeeds(context, phaseASeeds, 8);
+    const sourceInventorySeeds = this.searchSourceInventorySeeds(context, phaseASeeds, 8);
+    const phaseBSeeds = [...phaseASeeds, ...sourceStructureSeeds, ...sourceInventorySeeds];
+    const phaseBGraphMatches = this.searchProjectGraph(context, phaseBSeeds, MAX_SEARCH_MATCHES);
+    const phaseBGraphVariantMatches = this.searchProjectGraphVariants(context, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
+    const graphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
+    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches });
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
@@ -1815,7 +1832,7 @@ export class BealeToolRouter {
     if (remaining <= 0 || seeds.length === 0) return [];
     const candidates: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
-    for (const seed of seeds.slice(0, 8)) {
+    for (const seed of this.graphSearchSeeds(seeds, 8)) {
       if (candidates.length >= Math.min(6, remaining)) break;
       const entityType = stringValue(seed.entityType, '');
       const entityId = stringValue(seed.entityId, '');
@@ -1826,7 +1843,15 @@ export class BealeToolRouter {
       for (const edge of neighborhood.edges) {
         if (candidates.length >= Math.min(6, remaining)) break;
         const adjacentNodeId = edge.sourceNodeId === seedNodeId ? edge.targetNodeId : edge.sourceNodeId;
-        if (!adjacentNodeId || adjacentNodeId === seedNodeId) continue;
+        if (!adjacentNodeId) {
+          const key = `graph_edge:${edge.id}`;
+          if (!seen.has(key) && edge.targetLabel) {
+            seen.add(key);
+            candidates.push(this.projectGraphEdgeToToolMatch(edge, seed));
+          }
+          continue;
+        }
+        if (adjacentNodeId === seedNodeId) continue;
         const node = neighborhood.nodes.find((candidate) => candidate.id === adjacentNodeId);
         if (!node || node.entityType === 'scope_version') continue;
         const key = `${node.entityType}:${node.entityId}`;
@@ -1842,7 +1867,7 @@ export class BealeToolRouter {
     if (remaining <= 0 || seeds.length === 0) return [];
     const candidates: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
-    for (const seed of seeds.slice(0, 10)) {
+    for (const seed of this.graphSearchSeeds(seeds, 10)) {
       if (candidates.length >= Math.min(8, remaining)) break;
       const entityType = stringValue(seed.entityType, '');
       const entityId = stringValue(seed.entityId, '');
@@ -1887,6 +1912,88 @@ export class BealeToolRouter {
       }
     }
     return candidates;
+  }
+
+  private graphSearchSeeds(seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
+    const graphBackedSeeds = seeds.filter((seed) => {
+      const entityType = stringValue(seed.entityType, '');
+      const entityId = stringValue(seed.entityId, '');
+      return entityType.length > 0 && entityId.length > 0 && entityType !== 'file' && entityType !== 'artifact';
+    });
+    const fallbackSeeds = seeds.filter((seed) => !graphBackedSeeds.includes(seed));
+    return [...graphBackedSeeds, ...fallbackSeeds].slice(0, Math.max(1, limit));
+  }
+
+  private selectPhaseASeedMatches(
+    input: {
+      fileMatches: Array<Record<string, unknown>>;
+      artifactMatches: Array<Record<string, unknown>>;
+      metadataMatches: Array<Record<string, unknown>>;
+      semanticMatches: Array<Record<string, unknown>>;
+      graphMatches: Array<Record<string, unknown>>;
+    },
+    limit: number
+  ): Array<Record<string, unknown>> {
+    const candidates: RetrievalCandidate[] = [];
+    const candidatePoolLimit = Math.max(limit * 3, limit);
+    this.appendUniqueRetrievalCandidates(candidates, input.fileMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidates, input.artifactMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidates, input.metadataMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidates, input.semanticMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidates, input.graphMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    return candidates
+      .map((candidate, index) => {
+        const score = this.retrievalCandidateScore(candidate, { graphEntityKeys: new Set(), graphSourcePaths: new Set(), seedEntityKeys: new Set() });
+        return { candidate, score: score.total, index };
+      })
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, Math.max(1, limit))
+      .map((entry) => entry.candidate.output);
+  }
+
+  private searchSourceStructureSeeds(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
+    const matches: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const seed of seeds) {
+      if (matches.length >= limit) break;
+      if (stringValue(seed.entityType, '') && stringValue(seed.entityId, '')) continue;
+      const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
+      const line = numberValue(seed.line, 0);
+      if (!sourcePath || line <= 0) continue;
+      const entity = this.db.findProjectStructureEntityContainingLine(context.run.scopeVersionId, sourcePath, line, { refreshInventory: false });
+      if (!entity) continue;
+      const seedEntities = [
+        entity,
+        ...this.db.listProjectStructureEntitiesInRange(context.run.scopeVersionId, sourcePath, entity.lineStart, entity.lineEnd, 12, { refreshInventory: false })
+      ];
+      for (const seedEntity of seedEntities) {
+        if (matches.length >= limit) break;
+        if (seen.has(seedEntity.id)) continue;
+        seen.add(seedEntity.id);
+        matches.push(this.projectStructureEntityToToolMatch(seedEntity, seedEntity.id === entity.id ? 'source_hit_structure_seed' : 'source_hit_contained_structure_seed'));
+      }
+    }
+    return matches;
+  }
+
+  private searchSourceInventorySeeds(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
+    const matches: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const seed of seeds) {
+      if (matches.length >= limit) break;
+      const entityType = stringValue(seed.entityType, '');
+      const entityId = stringValue(seed.entityId, '');
+      if (entityType === 'inventory_item' && entityId) continue;
+      const binaryDerived = seed.binaryDerived === true || stringValue(seed.namespace, '') === 'binary' || stringValue(seed.range, '') === 'binary_strings';
+      if (!binaryDerived) continue;
+      const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
+      if (!sourcePath) continue;
+      const item = this.db.findProjectInventoryItemByPath(context.run.scopeVersionId, sourcePath, { refreshInventory: false });
+      if (!item || seen.has(item.id)) continue;
+      seen.add(item.id);
+      matches.push(this.projectInventoryItemToToolMatch(item, 'source_hit_inventory_seed'));
+    }
+    return matches;
   }
 
   private assembleRankedSearchMatches(input: {
@@ -1945,6 +2052,17 @@ export class BealeToolRouter {
       }
       selected.push(entry.candidate);
       if (sourcePath) sourcePathCounts.set(sourcePath, sourcePathCount + 1);
+    }
+    if (!selected.some((candidate) => candidate.kind === 'graph')) {
+      const graphCandidate = scored.find((entry) => entry.candidate.kind === 'graph' && !this.retrievalCandidateIsDuplicate(selected, entry.candidate))?.candidate;
+      if (graphCandidate) {
+        if (selected.length < MAX_SEARCH_MATCHES) {
+          selected.push(graphCandidate);
+        } else {
+          const replaceIndex = selected.findLastIndex((candidate) => candidate.kind === 'graph_variant' || numberValue(candidate.signals.graphProximity, 0) <= 0);
+          if (replaceIndex >= 0) selected[replaceIndex] = graphCandidate;
+        }
+      }
     }
     for (const candidate of deferred) {
       if (selected.length >= MAX_SEARCH_MATCHES) break;
@@ -2121,6 +2239,63 @@ export class BealeToolRouter {
     return '';
   }
 
+  private projectStructureEntityToToolMatch(entity: ProjectStructureEntityRecord, matchedBy: string): Record<string, unknown> {
+    return {
+      kind: 'metadata',
+      entityType: 'structure_entity',
+      entityId: entity.id,
+      title: `${entity.entityKind} ${entity.name}`,
+      sourcePath: entity.path,
+      path: entity.path,
+      line: entity.lineStart,
+      range: `${entity.lineStart}${entity.lineEnd > entity.lineStart ? `-${entity.lineEnd}` : ''}`,
+      entityKind: entity.entityKind,
+      structureName: entity.name,
+      matchedBy,
+      snippet: trimSnippet(entity.signature || `${entity.entityKind} ${entity.name}`),
+      metadata: {
+        ...entity.metadata,
+        structureEntityId: entity.id,
+        inventoryItemId: entity.inventoryItemId,
+        assetId: entity.assetId,
+        entityKind: entity.entityKind,
+        name: entity.name,
+        signature: entity.signature,
+        language: entity.language,
+        lineStart: entity.lineStart,
+        lineEnd: entity.lineEnd,
+        parentId: entity.parentId
+      }
+    };
+  }
+
+  private projectInventoryItemToToolMatch(item: NonNullable<ReturnType<WorkspaceDatabase['findProjectInventoryItemByPath']>>, matchedBy: string): Record<string, unknown> {
+    return {
+      kind: 'metadata',
+      entityType: 'inventory_item',
+      entityId: item.id,
+      title: `${item.itemKind} ${item.path}`,
+      sourcePath: item.path,
+      path: item.path,
+      namespace: item.resourceKind,
+      itemKind: item.itemKind,
+      resourceKind: item.resourceKind,
+      matchedBy,
+      snippet: trimSnippet(`${item.resourceKind} ${item.path}`),
+      metadata: {
+        ...item.metadata,
+        inventoryItemId: item.id,
+        assetId: item.assetId,
+        itemKind: item.itemKind,
+        resourceKind: item.resourceKind,
+        language: item.language,
+        sizeBytes: item.sizeBytes,
+        sha256: item.sha256,
+        sensitivity: item.sensitivity
+      }
+    };
+  }
+
   private projectSearchResultToToolMatch(result: ProjectSearchResult): Record<string, unknown> {
     const structureLineStart = result.entityType === 'structure_entity' ? numberValue(result.metadata.lineStart, 0) : 0;
     const structureLineEnd = result.entityType === 'structure_entity' ? numberValue(result.metadata.lineEnd, 0) : 0;
@@ -2201,6 +2376,40 @@ export class BealeToolRouter {
       metadata: {
         ...node.metadata,
         graphNodeId: node.id,
+        graphEdgeId: edge.id,
+        graphEdgeKind: edge.edgeKind,
+        graphTargetLabel: edge.targetLabel
+      }
+    };
+  }
+
+  private projectGraphEdgeToToolMatch(edge: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>['edges'][number], seed: Record<string, unknown>): Record<string, unknown> {
+    const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
+    const line = numberValue(seed.line, 0);
+    const range = stringValue(seed.range, '') || (line > 0 ? String(line) : '');
+    const targetLabel = edge.targetLabel || stringValue(edge.metadata.targetName, '');
+    return {
+      kind: 'graph',
+      entityType: 'graph_edge',
+      entityId: edge.id,
+      title: `${edge.edgeKind} ${targetLabel}`,
+      sourcePath: sourcePath || undefined,
+      path: sourcePath || undefined,
+      line: line > 0 ? line : undefined,
+      range: range || undefined,
+      nodeKind: 'edge_target',
+      matchedBy: 'project_graph_proximity',
+      graphDistance: 1,
+      graphEdgeKind: edge.edgeKind,
+      graphTargetEntityType: edge.targetEntityType,
+      graphTargetEntityId: edge.targetEntityId ?? undefined,
+      graphTargetLabel: targetLabel,
+      seedEntityType: stringValue(seed.entityType, ''),
+      seedEntityId: stringValue(seed.entityId, ''),
+      rankReason: `Connected by graph edge ${edge.edgeKind}${targetLabel ? ` to ${targetLabel}` : ''}.`,
+      snippet: trimSnippet(`${edge.edgeKind}${targetLabel ? ` ${targetLabel}` : ''}`),
+      metadata: {
+        ...edge.metadata,
         graphEdgeId: edge.id,
         graphEdgeKind: edge.edgeKind,
         graphTargetLabel: edge.targetLabel

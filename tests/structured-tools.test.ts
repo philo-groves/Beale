@@ -159,6 +159,16 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     expect(JSON.stringify(structureSearch.payload)).toContain('listAdmins');
     expect((structureSearch.payload.matches as Array<Record<string, unknown>>).filter((match) => match.kind === 'graph' && match.entityType === 'inventory_item' && match.sourcePath === routeFile)).toHaveLength(0);
+    const sourceOnlyGraphSearch = callTool(router, context, 'search', { query: 'sourceOnlyNeedle', target: '' });
+    expect(sourceOnlyGraphSearch.status).toBe('success');
+    const sourceOnlyMatches = sourceOnlyGraphSearch.payload.matches as Array<Record<string, unknown>>;
+    expect(sourceOnlyMatches.some((match) => match.kind === 'file' && (match.path === routeFile || match.sourcePath === routeFile))).toBe(true);
+    expect(
+      sourceOnlyMatches.some(
+        (match) =>
+          (match.kind === 'graph' || match.kind === 'graph_variant') && ['calls', 'checks_permission', 'reaches_sink'].includes(String(match.graphEdgeKind))
+      )
+    ).toBe(true);
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
     expect(sinkSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'sink')).toBe(true);
     const exportSearch = db.searchProjectDocumentsForRun(context.run.id, 'exports listUsers');
@@ -1317,7 +1327,7 @@ function openStructuredToolDb(
   writeFileSync(authFile, "export function sharedGuard(req, res, next) {\n  authorize(req.user);\n  next();\n}\n");
   writeFileSync(
     routeFile,
-    "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nrouter.get('/api/admins', sharedGuard, listAdmins);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nfunction listAdmins(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers, listAdmins };\n"
+    "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nrouter.get('/api/admins', sharedGuard, listAdmins);\nfunction listUsers(req, res) {\n  const sourceOnlyNeedle = req.user.id;\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nfunction listAdmins(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers, listAdmins };\n"
   );
   writeFileSync(
     frameworkFile,
