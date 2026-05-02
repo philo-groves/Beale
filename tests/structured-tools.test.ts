@@ -78,7 +78,7 @@ describe('structured research tools', () => {
     expect(JSON.stringify(binarySearch.payload)).toContain(binaryFile);
     expect(JSON.stringify(binarySearch.payload)).toContain('binaryDerived');
     const binaryMatches = binarySearch.payload.matches as Array<Record<string, unknown>>;
-    expect(binaryMatches.filter((match) => match.path === binaryFile || match.sourcePath === binaryFile)).toHaveLength(1);
+    expect(binaryMatches.filter((match) => match.kind === 'file' && (match.path === binaryFile || match.sourcePath === binaryFile))).toHaveLength(1);
     const binaryIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'CRASH_SIG');
     expect(JSON.stringify(binaryIndexSearch)).toContain('inventory_item');
     expect(JSON.stringify(binaryIndexSearch)).toContain('CRASH_SIG');
@@ -138,6 +138,8 @@ describe('structured research tools', () => {
     expect(structureSearch.status).toBe('success');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
+    expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);
+    expect((structureSearch.payload.matches as Array<Record<string, unknown>>).some((match) => match.kind === 'graph')).toBe(true);
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');

@@ -557,6 +557,8 @@ export class BealeToolRouter {
     const metadataMatchesAdded = this.appendUniqueSearchMatches(matches, metadataMatches, MAX_SEARCH_MATCHES);
     const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
     const semanticMatchesAdded = this.appendUniqueSearchMatches(matches, semanticMatches, MAX_SEARCH_MATCHES);
+    const graphMatches = this.searchProjectGraph(context, [...metadataMatches, ...semanticMatches], MAX_SEARCH_MATCHES);
+    const graphMatchesAdded = this.appendUniqueSearchMatches(matches, graphMatches, MAX_SEARCH_MATCHES);
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
     const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
@@ -593,6 +595,7 @@ export class BealeToolRouter {
         skippedFiles,
         metadataMatches: metadataMatchesAdded,
         semanticMatches: semanticMatchesAdded,
+        graphMatches: graphMatchesAdded,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -1759,6 +1762,33 @@ export class BealeToolRouter {
       .map((result) => this.projectSemanticSearchResultToToolMatch(result));
   }
 
+  private searchProjectGraph(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
+    if (remaining <= 0 || seeds.length === 0) return [];
+    const candidates: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const seed of seeds.slice(0, 8)) {
+      if (candidates.length >= Math.min(6, remaining)) break;
+      const entityType = stringValue(seed.entityType, '');
+      const entityId = stringValue(seed.entityId, '');
+      if (!entityType || !entityId) continue;
+      const neighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, entityType, entityId, { depth: 1, limit: 24, refresh: false });
+      if (neighborhood.status !== 'hit') continue;
+      const seedNodeId = neighborhood.root?.id ?? '';
+      for (const edge of neighborhood.edges) {
+        if (candidates.length >= Math.min(6, remaining)) break;
+        const adjacentNodeId = edge.sourceNodeId === seedNodeId ? edge.targetNodeId : edge.sourceNodeId;
+        if (!adjacentNodeId || adjacentNodeId === seedNodeId) continue;
+        const node = neighborhood.nodes.find((candidate) => candidate.id === adjacentNodeId);
+        if (!node || node.entityType === 'scope_version') continue;
+        const key = `${node.entityType}:${node.entityId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(this.projectGraphNodeToToolMatch(node, edge, seed));
+      }
+    }
+    return candidates;
+  }
+
   private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {
     let added = 0;
     for (const candidate of candidates) {
@@ -1781,6 +1811,13 @@ export class BealeToolRouter {
     if (candidateKind === 'metadata' && candidateEntityType === 'artifact' && candidateArtifactId) {
       return existing.some((match) => stringValue(match.artifactId, '') === candidateArtifactId || (stringValue(match.entityType, '') === 'artifact' && stringValue(match.entityId, '') === candidateArtifactId));
     }
+    if (candidateKind === 'graph' && candidateEntityType && stringValue(candidate.entityId, '')) {
+      const candidateEntityId = stringValue(candidate.entityId, '');
+      if (candidateSourcePath && !candidate.line) {
+        return existing.some((match) => stringValue(match.path, '') === candidateSourcePath || stringValue(match.sourcePath, '') === candidateSourcePath);
+      }
+      return existing.some((match) => stringValue(match.entityType, '') === candidateEntityType && stringValue(match.entityId, '') === candidateEntityId);
+    }
     const candidateKey = this.searchMatchStableKey(candidate);
     return candidateKey.length > 0 && existing.some((match) => this.searchMatchStableKey(match) === candidateKey);
   }
@@ -1791,6 +1828,7 @@ export class BealeToolRouter {
     if (kind === 'artifact') return `artifact:${stringValue(match.artifactId, '')}`;
     if (kind === 'metadata') return `metadata:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
     if (kind === 'semantic') return `semantic:${stringValue(match.chunkId, '')}`;
+    if (kind === 'graph') return `graph:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
     return '';
   }
 
@@ -1848,6 +1886,36 @@ export class BealeToolRouter {
       rankReason: result.rankReason,
       snippet: trimSnippet(result.snippet),
       metadata: result.metadata
+    };
+  }
+
+  private projectGraphNodeToToolMatch(node: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>['nodes'][number], edge: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>['edges'][number], seed: Record<string, unknown>): Record<string, unknown> {
+    const lineStart = numberValue(node.metadata.lineStart, 0);
+    const lineEnd = numberValue(node.metadata.lineEnd, lineStart);
+    return {
+      kind: 'graph',
+      entityType: node.entityType,
+      entityId: node.entityId,
+      title: node.label,
+      sourcePath: node.sourcePath,
+      path: node.sourcePath ?? undefined,
+      line: lineStart > 0 ? lineStart : undefined,
+      range: lineStart > 0 ? `${lineStart}${lineEnd > lineStart ? `-${lineEnd}` : ''}` : undefined,
+      nodeKind: node.nodeKind,
+      matchedBy: 'project_graph_proximity',
+      graphDistance: 1,
+      graphEdgeKind: edge.edgeKind,
+      seedEntityType: stringValue(seed.entityType, ''),
+      seedEntityId: stringValue(seed.entityId, ''),
+      rankReason: `Connected by graph edge ${edge.edgeKind} to ${stringValue(seed.title, stringValue(seed.structureName, 'search hit'))}.`,
+      snippet: trimSnippet(`${node.nodeKind} ${node.label}`),
+      metadata: {
+        ...node.metadata,
+        graphNodeId: node.id,
+        graphEdgeId: edge.id,
+        graphEdgeKind: edge.edgeKind,
+        graphTargetLabel: edge.targetLabel
+      }
     };
   }
 

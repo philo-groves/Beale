@@ -4635,8 +4635,8 @@ export class WorkspaceDatabase {
     ).map((row) => this.mapProjectGraphNode(row));
   }
 
-  public listProjectGraphEdgesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number } = {}): ProjectGraphEdgeRecord[] {
-    this.ensureProjectGraphFresh(scopeVersionId);
+  public listProjectGraphEdgesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}): ProjectGraphEdgeRecord[] {
+    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
     const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
     const params: SqlPrimitive[] = [scopeVersionId, nodeId, nodeId];
     const edgeKindSql = edgeKinds.length > 0 ? ` AND edge_kind IN (${edgeKinds.map(() => '?').join(', ')})` : '';
@@ -4674,7 +4674,7 @@ export class WorkspaceDatabase {
     for (let depth = 0; depth < maxDepth && frontier.length > 0 && edgeMap.size < limit; depth += 1) {
       const next = new Set<string>();
       for (const nodeId of frontier) {
-        for (const edge of this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds: options.edgeKinds, limit })) {
+        for (const edge of this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds: options.edgeKinds, limit, refresh: false })) {
           if (edgeMap.size >= limit) break;
           edgeMap.set(edge.id, edge);
           for (const adjacentId of [edge.sourceNodeId, edge.targetNodeId].filter((id): id is string => Boolean(id))) {

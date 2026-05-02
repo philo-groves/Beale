@@ -109,7 +109,8 @@ The fourth implementation starts Layer 4:
 - Graph nodes and edges now also cover runs, transcript messages, trace events, artifacts, hypotheses, findings, evidence, verifier contracts, and verifier runs.
 - Internal graph query APIs support node search, node edge listing, and bounded neighborhoods by entity type/id.
 - `code_browser` includes a capped graph neighborhood for structural entity reads using the current graph state.
-- Tool payloads expose graph status through `projectGraph`; graph-backed query planning and reranking remain the next retrieval-loop slice.
+- Tool payloads expose graph status through `projectGraph`.
+- Model-facing `search` now performs a bounded graph-proximity expansion from metadata and semantic seed hits, returning `kind: graph` matches with edge provenance while avoiding inline graph rebuilds during tool turns.
 
 ## Index Layers
 

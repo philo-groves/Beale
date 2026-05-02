@@ -89,6 +89,7 @@ Expected outputs:
 - Dedupe between direct file/artifact matches and metadata matches for the same object.
 - Semantic match scores, matched terms, rank reasons, score breakdowns, and source chunk metadata when semantic indexing is enabled.
 - Graph status, counts, and capped graph neighborhoods for structural reads so graph-backed retrieval can be enabled without changing the model-facing tool surface.
+- Graph-proximity search matches with seed entity, edge kind, graph distance, and rank reason when metadata or semantic hits have useful adjacent nodes.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

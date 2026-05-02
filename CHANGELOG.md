@@ -88,6 +88,7 @@
 - Changed model-facing code browser structural navigation to use existing structure indexes only, avoiding inline inventory rebuilds during active tool turns.
 - Changed background semantic indexing so queued rebuilds may start during active research sessions instead of waiting for sessions to finish.
 - Changed local semantic indexing to be enabled by default per program while preserving explicit per-program disables.
+- Changed model-facing search to add bounded graph-proximity matches from metadata and semantic seed hits.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.
