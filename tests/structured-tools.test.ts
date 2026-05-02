@@ -544,6 +544,11 @@ describe('structured research tools', () => {
     expect(duplicateSemanticResult).toBeTruthy();
     expect(Number(duplicateSemanticRanking?.duplicateRiskPenalty)).toBeGreaterThan(0);
     expect(String(duplicateSemanticRanking?.reason)).toContain('duplicate or dismissed risk penalty');
+    const duplicateSearch = callTool(router, context, 'search', { query: 'duplicate telemetry authorization bypass', target: '' });
+    expect(duplicateSearch.status).toBe('success');
+    const duplicateToolMatch = (duplicateSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.entityId === duplicateHypothesis.id);
+    expect(Number((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.negativeConfidence)).toBeGreaterThan(0);
+    expect((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.reasons).toEqual(expect.arrayContaining(['negative/low-confidence research state']));
     const duplicateNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', duplicateHypothesis.id, { depth: 1 });
     expect(duplicateNeighborhood.edges.some((edge) => edge.edgeKind === 'duplicates' && edge.targetEntityId === hypothesis.id)).toBe(true);
     const parentNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });

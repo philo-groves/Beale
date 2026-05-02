@@ -2603,6 +2603,7 @@ export class BealeToolRouter {
     const sourceType = this.retrievalSourceTypeScore(candidate);
     const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 2 : 0;
     const sourceBacked = candidate.sourcePath ? 2 : 0;
+    const negativeConfidence = this.retrievalNegativeConfidencePenalty(candidate);
     const total = roundRetrievalScore(
       textRelevance +
         exactIdentifierPath +
@@ -2617,7 +2618,8 @@ export class BealeToolRouter {
         queryIntent +
         sourceType +
         linePrecision +
-        sourceBacked
+        sourceBacked -
+        negativeConfidence
     );
     const reasons = [
       textRelevance > 0 ? 'text relevance' : '',
@@ -2632,7 +2634,8 @@ export class BealeToolRouter {
       recency > 0 ? 'recency' : '',
       queryIntent > 0 ? 'query intent fit' : '',
       linePrecision > 0 ? 'line/range provenance' : '',
-      sourceBacked > 0 ? 'source-backed' : ''
+      sourceBacked > 0 ? 'source-backed' : '',
+      negativeConfidence > 0 ? 'negative/low-confidence research state' : ''
     ].filter(Boolean);
     return {
       total,
@@ -2652,6 +2655,7 @@ export class BealeToolRouter {
         sourceType,
         linePrecision,
         sourceBacked,
+        negativeConfidence,
         reasons
       }
     };
@@ -2748,6 +2752,36 @@ export class BealeToolRouter {
     const linked = ['hypothesisId', 'findingId', 'artifactId', 'verifierRunId', 'observationTraceEventId'].some((key) => Boolean(metadata[key])) ? 4 : 0;
     const priority = Math.min(4, Math.max(0, numberValue(metadata.priorityScore, 0) / 8));
     return roundRetrievalScore(Math.min(16, researchEntity + evidenceEdge + linked + priority));
+  }
+
+  private retrievalNegativeConfidencePenalty(candidate: RetrievalCandidate): number {
+    const metadata = retrievalMetadata(candidate);
+    const semanticRanking = metadata.semanticRanking && typeof metadata.semanticRanking === 'object' && !Array.isArray(metadata.semanticRanking) ? (metadata.semanticRanking as Record<string, unknown>) : {};
+    const states = uniqueStrings([
+      stringValue(metadata.state, ''),
+      stringValue(candidate.output.state, ''),
+      ...this.retrievalStatesFromNodeKind(candidate)
+    ]).map((state) => state.trim().toLowerCase().replace(/-/g, '_'));
+    let penalty = 0;
+    if (states.some((state) => state === 'duplicate')) penalty += 10;
+    if (states.some((state) => ['dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope'].includes(state))) penalty += 14;
+    if (states.some((state) => ['needs_evidence', 'open', 'unverified'].includes(state))) penalty += 3;
+    if (metadata.duplicateOf || candidate.provenance.graphEdgeKind === 'duplicates' || arrayOfStrings(candidate.output.retrievalGraphEdgeKinds).includes('duplicates')) penalty += 6;
+    if (candidate.provenance.graphEdgeKind?.startsWith('has_duplicate') || arrayOfStrings(candidate.output.retrievalGraphEdgeKinds).some((edgeKind) => edgeKind.startsWith('has_duplicate'))) penalty += 3;
+    penalty += Math.min(10, numberValue(semanticRanking.duplicateRiskPenalty, 0) * 40);
+    const evidenceConfidence = Number.parseFloat(stringValue(metadata.evidenceConfidence, ''));
+    if (Number.isFinite(evidenceConfidence) && evidenceConfidence <= 0) penalty += 2;
+    const scopeConfidence = Number.parseFloat(stringValue(metadata.scopeConfidence, ''));
+    if (Number.isFinite(scopeConfidence) && scopeConfidence <= 0) penalty += 2;
+    return roundRetrievalScore(Math.min(22, penalty));
+  }
+
+  private retrievalStatesFromNodeKind(candidate: RetrievalCandidate): string[] {
+    const values = [stringValue(candidate.output.nodeKind, ''), stringValue(retrievalMetadata(candidate).nodeKind, '')];
+    return values.flatMap((value) => {
+      const [, state] = /^(?:hypothesis|finding):(.+)$/.exec(value) ?? [];
+      return state ? [state] : [];
+    });
   }
 
   private retrievalSecurityRelevanceScore(candidate: RetrievalCandidate): number {
