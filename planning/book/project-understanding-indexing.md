@@ -100,6 +100,14 @@ The third implementation starts Layer 3:
 - Semantic rebuilds now enqueue automatically when enabled programs receive meaningful search-document changes, scope/source materialization creates a new active scope, stale provider/model versions are detected on workspace open, or interrupted queued/indexing work is resumed.
 - Stronger retrieval should prefer local embedding providers first. Remote embeddings remain future work and must require explicit user opt-in before indexed code, docs, traces, hypotheses, findings, or evidence leave the machine.
 
+The fourth implementation starts Layer 4:
+
+- The first relationship graph is SQLite-backed and rebuilt from existing scoped indexes after inventory and structural indexing finish.
+- Graph nodes currently cover active scope versions, scope assets, inventory items, and structural entities.
+- Graph edges currently cover `belongs_to_program`, inventory-to-entity `defines`, and mirrored structural relations such as `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`.
+- Unresolved structural relation targets are preserved as graph edges with null target nodes and target labels so later graph expansion can resolve them without losing provenance.
+- Tool payloads expose graph status through `projectGraph`; graph-backed query planning and reranking remain the next retrieval-loop slice.
+
 ## Index Layers
 
 Beale should treat indexing as layered capability. Each layer has different cost, latency, and trust properties.
@@ -199,7 +207,6 @@ Cost:
 
 Policy:
 
-- Off by default for low-power mode.
 - Local embedding provider preferred.
 - Remote embedding requires explicit provider consent and a clear "indexed material leaves this machine" warning.
 - Users can disable semantic indexing per program.

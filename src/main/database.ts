@@ -26,6 +26,7 @@ import type {
   OpenAiTransport,
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
+  ProjectGraphSummary,
   ProjectSearchResult,
   ProjectSemanticSearchResult,
   ProjectSemanticSummary,
@@ -513,7 +514,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -792,6 +793,15 @@ function text(row: SqlRow, key: string): string {
 function nullableText(row: SqlRow, key: string): string | null {
   const value = row[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function nullableNumber(row: SqlRow, key: string): number | null {
+  const value = row[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'bigint') return Number(value);
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function transcriptSearchTerms(query: string): string[] {
@@ -1566,6 +1576,14 @@ function projectStructureEntityId(scopeVersionId: string, path: string, entityKi
 
 function projectStructureRelationId(scopeVersionId: string, sourceEntityId: string, relationKind: string, targetKind: string, targetName: string): string {
   return `structure_rel_${createHash('sha256').update(`${scopeVersionId}\n${sourceEntityId}\n${relationKind}\n${targetKind}\n${targetName}`).digest('hex').slice(0, 32)}`;
+}
+
+function projectGraphNodeId(scopeVersionId: string, entityType: string, entityId: string): string {
+  return `graph_node_${createHash('sha256').update(`${scopeVersionId}\n${entityType}\n${entityId}`).digest('hex').slice(0, 32)}`;
+}
+
+function projectGraphEdgeId(scopeVersionId: string, sourceNodeId: string, edgeKind: string, targetEntityType: string, targetEntityId: string | null, targetLabel: string): string {
+  return `graph_edge_${createHash('sha256').update(`${scopeVersionId}\n${sourceNodeId}\n${edgeKind}\n${targetEntityType}\n${targetEntityId ?? ''}\n${targetLabel}`).digest('hex').slice(0, 32)}`;
 }
 
 function projectSemanticChunkId(scopeVersionId: string, sourceDocumentId: string, chunkIndex: number, contentHash: string): string {
@@ -4420,6 +4438,40 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProjectGraphSummary(scopeVersionId = this.getActiveScope().id): ProjectGraphSummary {
+    const nodeRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS node_count, MAX(indexed_at) AS indexed_at
+           FROM project_graph_nodes
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    const edgeRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             COUNT(*) AS edge_count,
+             SUM(CASE WHEN metadata_json LIKE '%"source":"structure_relation"%' THEN 1 ELSE 0 END) AS structural_edge_count,
+             SUM(CASE WHEN target_node_id IS NULL THEN 1 ELSE 0 END) AS unresolved_edge_count
+           FROM project_graph_edges
+           WHERE scope_version_id = ?`
+        )
+        .get(scopeVersionId)
+    );
+    const nodeCount = nodeRow ? numberValue(nodeRow, 'node_count') : 0;
+    return {
+      scopeVersionId,
+      status: nodeCount > 0 ? 'ready' : 'empty',
+      nodeCount,
+      edgeCount: edgeRow ? numberValue(edgeRow, 'edge_count') : 0,
+      structuralEdgeCount: edgeRow ? numberValue(edgeRow, 'structural_edge_count') : 0,
+      unresolvedEdgeCount: edgeRow ? numberValue(edgeRow, 'unresolved_edge_count') : 0,
+      indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null
+    };
+  }
+
   public findProjectStructureEntity(scopeVersionId: string, path: string, name: string, options: { refreshInventory?: boolean } = {}): ProjectStructureEntityRecord | null {
     if (options.refreshInventory !== false) {
       this.ensureProjectInventory(scopeVersionId);
@@ -4863,6 +4915,8 @@ export class WorkspaceDatabase {
     const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
 
     this.transaction(() => {
+      this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
+      this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
       this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
       this.db.prepare('DELETE FROM project_structure_relations WHERE scope_version_id = ?').run(scopeVersionId);
       this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
@@ -4902,6 +4956,7 @@ export class WorkspaceDatabase {
       }
 
       this.resolveProjectStructureRelationTargets(scopeVersionId);
+      this.rebuildProjectGraph(scopeVersionId, indexedAt);
     });
 
     const summary = this.getProjectInventorySummary(scopeVersionId);
@@ -5483,6 +5538,10 @@ export class WorkspaceDatabase {
         this.applyProjectSemanticIndexMigration();
         this.insertMigration(13, 'project_understanding_semantic_index');
       }
+      if (currentVersion < 14) {
+        this.applyProjectGraphIndexMigration();
+        this.insertMigration(14, 'project_understanding_relationship_graph');
+      }
     });
   }
 
@@ -5626,6 +5685,21 @@ export class WorkspaceDatabase {
       this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
     }
     this.db.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
+  }
+
+  private applyProjectGraphIndexMigration(): void {
+    const structureTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get());
+    if (!structureTable) {
+      this.applyProjectStructureIndexMigration();
+    }
+    this.db.exec(PROJECT_GRAPH_SCHEMA_SQL);
+    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
+      const scopeVersionId = text(row, 'id');
+      const summary = this.getProjectInventorySummary(scopeVersionId);
+      if (summary.itemCount > 0) {
+        this.rebuildProjectGraph(scopeVersionId, summary.indexedAt ?? nowIso());
+      }
+    }
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -5951,6 +6025,161 @@ export class WorkspaceDatabase {
       this.db
         .prepare('UPDATE project_structure_relations SET target_entity_id = ?, metadata_json = ? WHERE id = ?')
         .run(text(target, 'id'), toJson(metadata), text(relation, 'id'));
+    }
+  }
+
+  private rebuildProjectGraph(scopeVersionId: string, indexedAt: string): void {
+    const scope = this.getScopeVersion(scopeVersionId);
+    const scopeNodeId = this.upsertProjectGraphNode({
+      scopeVersionId,
+      entityType: 'scope_version',
+      entityId: scopeVersionId,
+      nodeKind: 'program_scope',
+      label: scope.programName,
+      sourcePath: null,
+      metadata: {
+        version: scope.version,
+        organizationName: scope.organizationName,
+        status: scope.status
+      },
+      indexedAt
+    });
+
+    for (const asset of scope.assets) {
+      const assetNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'scope_asset',
+        entityId: asset.id,
+        nodeKind: `scope_asset:${asset.kind}`,
+        label: asset.value,
+        sourcePath: isAbsolute(asset.value) ? asset.value : null,
+        metadata: {
+          direction: asset.direction,
+          kind: asset.kind,
+          sensitivity: asset.sensitivity,
+          attributes: asset.attributes
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: assetNodeId,
+        edgeKind: 'belongs_to_program',
+        targetNodeId: scopeNodeId,
+        targetEntityType: 'scope_version',
+        targetEntityId: scopeVersionId,
+        targetLabel: scope.programName,
+        metadata: { source: 'scope_asset' },
+        indexedAt
+      });
+    }
+
+    const inventoryRows = rows(this.db.prepare('SELECT * FROM project_inventory_items WHERE scope_version_id = ?').all(scopeVersionId));
+    for (const row of inventoryRows) {
+      const inventoryId = text(row, 'id');
+      const path = text(row, 'path');
+      const itemKind = text(row, 'item_kind');
+      const resourceKind = text(row, 'resource_kind');
+      const inventoryNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'inventory_item',
+        entityId: inventoryId,
+        nodeKind: `${itemKind}:${resourceKind}`,
+        label: basename(path) || path,
+        sourcePath: path,
+        metadata: {
+          assetId: text(row, 'asset_id'),
+          itemKind,
+          resourceKind,
+          language: text(row, 'language'),
+          sizeBytes: nullableNumber(row, 'size_bytes'),
+          sha256: nullableText(row, 'sha256'),
+          sensitivity: text(row, 'sensitivity')
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: inventoryNodeId,
+        edgeKind: 'belongs_to_program',
+        targetNodeId: scopeNodeId,
+        targetEntityType: 'scope_version',
+        targetEntityId: scopeVersionId,
+        targetLabel: scope.programName,
+        metadata: { source: 'inventory' },
+        indexedAt
+      });
+    }
+
+    const structureRows = rows(this.db.prepare('SELECT * FROM project_structure_entities WHERE scope_version_id = ?').all(scopeVersionId));
+    for (const row of structureRows) {
+      const structureId = text(row, 'id');
+      const inventoryItemId = text(row, 'inventory_item_id');
+      const entityKind = text(row, 'entity_kind');
+      const name = text(row, 'name');
+      const path = text(row, 'path');
+      const structureNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'structure_entity',
+        entityId: structureId,
+        nodeKind: entityKind,
+        label: name,
+        sourcePath: path,
+        metadata: {
+          inventoryItemId,
+          assetId: text(row, 'asset_id'),
+          signature: text(row, 'signature'),
+          language: text(row, 'language'),
+          lineStart: numberValue(row, 'line_start'),
+          lineEnd: numberValue(row, 'line_end'),
+          parentId: nullableText(row, 'parent_id')
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: projectGraphNodeId(scopeVersionId, 'inventory_item', inventoryItemId),
+        edgeKind: 'defines',
+        targetNodeId: structureNodeId,
+        targetEntityType: 'structure_entity',
+        targetEntityId: structureId,
+        targetLabel: name,
+        metadata: { source: 'structure_entity', path },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: structureNodeId,
+        edgeKind: 'belongs_to_program',
+        targetNodeId: scopeNodeId,
+        targetEntityType: 'scope_version',
+        targetEntityId: scopeVersionId,
+        targetLabel: scope.programName,
+        metadata: { source: 'structure_entity' },
+        indexedAt
+      });
+    }
+
+    const relationRows = rows(this.db.prepare('SELECT * FROM project_structure_relations WHERE scope_version_id = ?').all(scopeVersionId));
+    for (const row of relationRows) {
+      const sourceEntityId = text(row, 'source_entity_id');
+      const targetEntityId = nullableText(row, 'target_entity_id');
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: projectGraphNodeId(scopeVersionId, 'structure_entity', sourceEntityId),
+        edgeKind: text(row, 'relation_kind'),
+        targetNodeId: targetEntityId ? projectGraphNodeId(scopeVersionId, 'structure_entity', targetEntityId) : null,
+        targetEntityType: targetEntityId ? 'structure_entity' : text(row, 'target_kind'),
+        targetEntityId,
+        targetLabel: text(row, 'target_name'),
+        metadata: {
+          ...parseJson(row.metadata_json),
+          source: 'structure_relation',
+          structureRelationId: text(row, 'id'),
+          targetKind: text(row, 'target_kind')
+        },
+        indexedAt
+      });
     }
   }
 
@@ -6321,6 +6550,83 @@ export class WorkspaceDatabase {
         input.targetKind,
         input.targetName,
         input.targetEntityId ?? null,
+        toJson(input.metadata),
+        input.indexedAt
+      );
+  }
+
+  private upsertProjectGraphNode(input: {
+    scopeVersionId: string;
+    entityType: string;
+    entityId: string;
+    nodeKind: string;
+    label: string;
+    sourcePath: string | null;
+    metadata: Record<string, unknown>;
+    indexedAt: string;
+  }): string {
+    const id = projectGraphNodeId(input.scopeVersionId, input.entityType, input.entityId);
+    this.db
+      .prepare(
+        `INSERT INTO project_graph_nodes (
+          id, scope_version_id, node_kind, entity_type, entity_id,
+          label, source_path, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, entity_type, entity_id)
+        DO UPDATE SET
+          node_kind = excluded.node_kind,
+          label = excluded.label,
+          source_path = excluded.source_path,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.nodeKind,
+        input.entityType,
+        input.entityId,
+        input.label,
+        input.sourcePath,
+        toJson(input.metadata),
+        input.indexedAt
+      );
+    return id;
+  }
+
+  private insertProjectGraphEdge(input: {
+    scopeVersionId: string;
+    sourceNodeId: string;
+    edgeKind: string;
+    targetNodeId: string | null;
+    targetEntityType: string;
+    targetEntityId: string | null;
+    targetLabel: string;
+    metadata: Record<string, unknown>;
+    indexedAt: string;
+  }): void {
+    const id = projectGraphEdgeId(input.scopeVersionId, input.sourceNodeId, input.edgeKind, input.targetEntityType, input.targetEntityId, input.targetLabel);
+    this.db
+      .prepare(
+        `INSERT INTO project_graph_edges (
+          id, scope_version_id, source_node_id, edge_kind, target_node_id,
+          target_entity_type, target_entity_id, target_label, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_version_id, source_node_id, edge_kind, target_entity_type, target_entity_id, target_label)
+        DO UPDATE SET
+          target_node_id = excluded.target_node_id,
+          metadata_json = excluded.metadata_json,
+          indexed_at = excluded.indexed_at`
+      )
+      .run(
+        id,
+        input.scopeVersionId,
+        input.sourceNodeId,
+        input.edgeKind,
+        input.targetNodeId,
+        input.targetEntityType,
+        input.targetEntityId,
+        input.targetLabel,
         toJson(input.metadata),
         input.indexedAt
       );
@@ -7509,6 +7815,42 @@ CREATE INDEX IF NOT EXISTS idx_project_structure_scope_path ON project_structure
 CREATE INDEX IF NOT EXISTS idx_project_structure_name ON project_structure_entities(scope_version_id, name);
 CREATE INDEX IF NOT EXISTS idx_project_structure_rel_source ON project_structure_relations(source_entity_id, relation_kind);
 CREATE INDEX IF NOT EXISTS idx_project_structure_rel_target ON project_structure_relations(scope_version_id, target_kind, target_name);
+`;
+
+const PROJECT_GRAPH_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_graph_nodes (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  node_kind TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  source_path TEXT,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, entity_type, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS project_graph_edges (
+  id TEXT PRIMARY KEY,
+  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  source_node_id TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+  edge_kind TEXT NOT NULL,
+  target_node_id TEXT REFERENCES project_graph_nodes(id) ON DELETE SET NULL,
+  target_entity_type TEXT NOT NULL,
+  target_entity_id TEXT,
+  target_label TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(scope_version_id, source_node_id, edge_kind, target_entity_type, target_entity_id, target_label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_scope_kind ON project_graph_nodes(scope_version_id, node_kind);
+CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_entity ON project_graph_nodes(scope_version_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_graph_nodes_path ON project_graph_nodes(scope_version_id, source_path);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_source ON project_graph_edges(source_node_id, edge_kind);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_target ON project_graph_edges(scope_version_id, target_entity_type, target_entity_id);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_kind ON project_graph_edges(scope_version_id, edge_kind);
 `;
 
 const PROJECT_SEMANTIC_SCHEMA_SQL = `

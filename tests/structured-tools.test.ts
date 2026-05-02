@@ -129,9 +129,15 @@ describe('structured research tools', () => {
     expect(structure.routeCount).toBeGreaterThanOrEqual(1);
     expect(structure.importCount).toBeGreaterThanOrEqual(1);
     expect(structure.relationCount).toBeGreaterThanOrEqual(4);
+    const graph = db.getProjectGraphSummary(context.run.scopeVersionId);
+    expect(graph.status).toBe('ready');
+    expect(graph.nodeCount).toBeGreaterThan(structure.entityCount);
+    expect(graph.edgeCount).toBeGreaterThanOrEqual(structure.relationCount);
+    expect(graph.structuralEdgeCount).toBeGreaterThanOrEqual(structure.relationCount);
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
+    expect(structureSearch.payload.projectGraph).toMatchObject({ status: 'ready' });
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');

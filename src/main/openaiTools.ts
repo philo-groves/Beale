@@ -559,6 +559,7 @@ export class BealeToolRouter {
     const semanticMatchesAdded = this.appendUniqueSearchMatches(matches, semanticMatches, MAX_SEARCH_MATCHES);
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
+    const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
     const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
 
     const sourceHint =
@@ -594,6 +595,7 @@ export class BealeToolRouter {
         semanticMatches: semanticMatchesAdded,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
+        projectGraph: graphSummary,
         projectSemantic: semanticSummary,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,

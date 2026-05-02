@@ -323,6 +323,16 @@ export interface ProjectStructureSummary {
   indexedAt: string | null;
 }
 
+export interface ProjectGraphSummary {
+  scopeVersionId: string;
+  status: string;
+  nodeCount: number;
+  edgeCount: number;
+  structuralEdgeCount: number;
+  unresolvedEdgeCount: number;
+  indexedAt: string | null;
+}
+
 export interface ProjectSemanticSummary {
   scopeVersionId: string;
   enabled: boolean;
@@ -1028,6 +1038,7 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: ProgramScopeVersion;
+  projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;

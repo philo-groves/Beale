@@ -1607,6 +1607,7 @@ export class WorkspaceService {
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => runtime.executorManager.getStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
+      projectGraph: this.profileMainTiming('snapshot.projectGraph', detail, () => runtime.db.getProjectGraphSummary(activeScope.id)),
       projectSemantic: this.profileMainTiming('snapshot.projectSemantic', detail, () => runtime.db.getProjectSemanticSummary(activeScope.id)),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),

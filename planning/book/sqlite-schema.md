@@ -244,6 +244,45 @@ Fields:
 - `metadata_json`
 - `indexed_at`
 
+### `project_graph_nodes`
+
+Purpose:
+
+- Store the first SQLite-backed relationship graph nodes derived from scoped program records.
+- Normalize graph addresses across scope assets, inventory items, and structural entities before graph-backed retrieval is added.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `node_kind`
+- `entity_type`
+- `entity_id`
+- `label`
+- `source_path`
+- `metadata_json`
+- `indexed_at`
+
+### `project_graph_edges`
+
+Purpose:
+
+- Store graph edges derived from existing scoped indexes.
+- Mirror structural relations into graph form while preserving unresolved targets for later expansion.
+
+Fields:
+
+- `id`
+- `scope_version_id`
+- `source_node_id`
+- `edge_kind`: initial examples include `belongs_to_program`, `defines`, `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`
+- `target_node_id`
+- `target_entity_type`
+- `target_entity_id`
+- `target_label`
+- `metadata_json`
+- `indexed_at`
+
 ### `runs`
 
 Purpose:

@@ -44,6 +44,7 @@
 - Added structural-index navigation to `code_browser` so symbol reads can use stable entity ranges and return nearby entities, outgoing relationships, and incoming references.
 - Added parser-light structural indexing for Next.js route files, Express middleware routes, Android manifest records, OpenAPI-style endpoints, client-request endpoints, GraphQL operations, and binary-derived URLs, permissions, endpoints, and JNI symbols.
 - Added post-scan structural relation target resolution and structure summary status fields for indexed files, unresolved relations, and truncated entities.
+- Added the first SQLite-backed relationship graph tables for scope, inventory, and structural nodes plus derived graph edges.
 - Added a per-program semantic index table backed by a local deterministic `local_hash` sparse-vector provider.
 - Added semantic index summaries with provider, model, namespace, chunk-count, and remote-embedding status fields.
 - Added Settings > General controls to enable, disable, inspect, and rebuild the active program's semantic index.
