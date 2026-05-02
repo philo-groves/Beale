@@ -100,6 +100,7 @@ interface SearchRetrievalDiagnostics {
   graphExpansionCount: number;
   topScoringSignals: Record<string, number>;
   selectedRelationshipFamilies: Record<string, number>;
+  missingReasons: Array<Record<string, unknown>>;
 }
 
 interface RetrievalCandidate {
@@ -643,6 +644,17 @@ export class BealeToolRouter {
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
     const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
     const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
+    const retrievalDiagnostics = {
+      ...searchAssembly.diagnostics,
+      missingReasons: this.retrievalMissingReasons({
+        queryPlan,
+        diagnostics: searchAssembly.diagnostics,
+        inventorySummary,
+        structureSummary,
+        graphSummary,
+        semanticSummary
+      })
+    };
 
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
@@ -678,7 +690,7 @@ export class BealeToolRouter {
         semanticMatches: searchAssembly.semanticMatches,
         graphMatches: searchAssembly.graphMatches,
         graphVariantMatches: searchAssembly.graphVariantMatches,
-        retrievalDiagnostics: searchAssembly.diagnostics,
+        retrievalDiagnostics,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -2095,7 +2107,8 @@ export class BealeToolRouter {
         dedupeCount: Math.max(0, rawCandidateCount - candidatePool.length),
         graphExpansionCount: input.graphMatches.length,
         topScoringSignals: this.topRetrievalSignalTotals(selected, 8),
-        selectedRelationshipFamilies: this.retrievalRelationshipFamilyCounts(selected)
+        selectedRelationshipFamilies: this.retrievalRelationshipFamilyCounts(selected),
+        missingReasons: []
       }
     };
   }
@@ -2187,6 +2200,116 @@ export class BealeToolRouter {
       counts[family] = (counts[family] ?? 0) + 1;
     }
     return counts;
+  }
+
+  private retrievalMissingReasons(input: {
+    queryPlan: SearchQueryPlan;
+    diagnostics: SearchRetrievalDiagnostics;
+    inventorySummary: ReturnType<WorkspaceDatabase['getProjectInventorySummary']>;
+    structureSummary: ReturnType<WorkspaceDatabase['getProjectStructureSummary']>;
+    graphSummary: ReturnType<WorkspaceDatabase['getProjectGraphSummary']>;
+    semanticSummary: ReturnType<WorkspaceDatabase['getProjectSemanticSummary']>;
+  }): Array<Record<string, unknown>> {
+    const reasons: Array<Record<string, unknown>> = [];
+    const candidateCounts = input.diagnostics.candidateCountsByLayer;
+    const selectedCounts = input.diagnostics.selectedCountsByLayer;
+    if (input.semanticSummary.status !== 'ready') {
+      reasons.push({
+        code: `semantic_index_${input.semanticSummary.status}`,
+        message: `Semantic index is ${input.semanticSummary.status}; semantic retrieval may be incomplete.`,
+        status: input.semanticSummary.status,
+        enabled: input.semanticSummary.enabled,
+        chunkCount: input.semanticSummary.chunkCount,
+        sourceDocumentCount: input.semanticSummary.sourceDocumentCount,
+        indexedSourceDocumentCount: input.semanticSummary.indexedSourceDocumentCount,
+        jobReason: input.semanticSummary.jobReason,
+        lastError: input.semanticSummary.lastError
+      });
+    }
+    if (numberValue(candidateCounts.semantic, 0) > 0 && numberValue(selectedCounts.semantic, 0) === 0) {
+      reasons.push({
+        code: 'semantic_candidates_not_selected',
+        message: 'Semantic candidates were available but ranking, merge, or diversification did not select a standalone semantic result.',
+        candidateCount: candidateCounts.semantic
+      });
+    }
+    if (input.graphSummary.status !== 'ready') {
+      reasons.push({
+        code: `graph_index_${input.graphSummary.status}`,
+        message: `Graph index is ${input.graphSummary.status}; graph retrieval may be incomplete.`,
+        status: input.graphSummary.status,
+        nodeCount: input.graphSummary.nodeCount,
+        edgeCount: input.graphSummary.edgeCount,
+        staleReasons: input.graphSummary.staleReasons,
+        rebuildReason: input.graphSummary.rebuildReason
+      });
+    } else if (input.graphSummary.nodeCount > 0 && input.diagnostics.graphExpansionCount === 0) {
+      reasons.push({
+        code: 'graph_ready_no_expansion',
+        message: 'Graph is ready but no graph expansion candidates were produced; top candidates may lack entity ids or matching graph nodes.',
+        nodeCount: input.graphSummary.nodeCount,
+        edgeCount: input.graphSummary.edgeCount
+      });
+    }
+    if (input.queryPlan.intents.includes('route_api_lookup')) {
+      if (input.structureSummary.routeCount === 0) {
+        reasons.push({
+          code: 'route_intent_no_routes_indexed',
+          message: 'Query was classified as route/API lookup, but no route entities are indexed.',
+          indexedFileCount: input.structureSummary.indexedFileCount,
+          entityCount: input.structureSummary.entityCount
+        });
+      }
+      if ((input.graphSummary.edgeFamilyCounts.routes_to ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.handles_with ?? 0) === 0) {
+        reasons.push({
+          code: 'route_intent_no_route_graph_edges',
+          message: 'Query was classified as route/API lookup, but graph has no route/controller edges.',
+          routesToEdges: input.graphSummary.edgeFamilyCounts.routes_to ?? 0,
+          handlesWithEdges: input.graphSummary.edgeFamilyCounts.handles_with ?? 0
+        });
+      }
+    }
+    if (input.queryPlan.intents.includes('auth_permission_question') && (input.graphSummary.edgeFamilyCounts.checks_permission ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.references_permission ?? 0) === 0) {
+      reasons.push({
+        code: 'auth_intent_no_permission_edges',
+        message: 'Query was classified as auth/permission, but graph has no permission-check edges.',
+        checksPermissionEdges: input.graphSummary.edgeFamilyCounts.checks_permission ?? 0,
+        referencesPermissionEdges: input.graphSummary.edgeFamilyCounts.references_permission ?? 0
+      });
+    }
+    if (input.queryPlan.intents.includes('sink_data_flow_question') && (input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.reads_model ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.writes_model ?? 0) === 0) {
+      reasons.push({
+        code: 'sink_intent_no_data_flow_edges',
+        message: 'Query was classified as sink/data-flow, but graph has no sink or model read/write edges.',
+        reachesSinkEdges: input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0,
+        readsModelEdges: input.graphSummary.edgeFamilyCounts.reads_model ?? 0,
+        writesModelEdges: input.graphSummary.edgeFamilyCounts.writes_model ?? 0
+      });
+    }
+    if (input.queryPlan.intents.includes('binary_orientation') && input.inventorySummary.binaryCount === 0 && (input.graphSummary.edgeFamilyCounts.imports_symbol ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.exports_symbol ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.contains_string ?? 0) === 0) {
+      reasons.push({
+        code: 'binary_intent_no_binary_index',
+        message: 'Query was classified as binary orientation, but no scoped binaries or binary graph edges are indexed.',
+        binaryCount: input.inventorySummary.binaryCount
+      });
+    }
+    if (input.queryPlan.intents.includes('prior_research_memory') && (input.graphSummary.nodeFamilyCounts.hypothesis ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.finding ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.evidence ?? 0) === 0) {
+      reasons.push({
+        code: 'research_memory_intent_no_memory_nodes',
+        message: 'Query was classified as prior research memory, but graph has no hypothesis, finding, or evidence nodes.',
+        hypothesisNodes: input.graphSummary.nodeFamilyCounts.hypothesis ?? 0,
+        findingNodes: input.graphSummary.nodeFamilyCounts.finding ?? 0,
+        evidenceNodes: input.graphSummary.nodeFamilyCounts.evidence ?? 0
+      });
+    }
+    if (input.queryPlan.intents.includes('variant_similarity_search') && numberValue(candidateCounts.graph_variant, 0) === 0) {
+      reasons.push({
+        code: 'variant_intent_no_variant_candidates',
+        message: 'Query was classified as variant/similarity search, but no graph-variant candidates were produced.',
+        graphExpansionCount: input.diagnostics.graphExpansionCount
+      });
+    }
+    return reasons;
   }
 
   private retrievalSourcePathCap(queryPlan: SearchQueryPlan): number {
