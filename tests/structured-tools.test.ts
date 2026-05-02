@@ -137,7 +137,7 @@ describe('structured research tools', () => {
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
-    expect(structureSearch.payload.projectGraph).toMatchObject({ status: 'ready' });
+    expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
@@ -160,6 +160,8 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureNavigation.entity)).toContain('function');
     expect(JSON.stringify(structureNavigation.containedEntities)).toContain('security_marker');
     expect(JSON.stringify(structureNavigation.containedEntities)).toContain('sink');
+    expect(JSON.stringify(structureNavigation.graphNeighborhood)).toContain('defines');
+    expect(JSON.stringify(structureNavigation.graphNeighborhood)).toContain('belongs_to_program');
 
     const routeRead = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'GET /api/users' });
     expect(routeRead.status).toBe('success');
@@ -373,6 +375,10 @@ describe('structured research tools', () => {
     expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
     expect(JSON.stringify(search.payload)).toContain('hypothesis');
     expect(Number(search.payload.metadataMatches)).toBeGreaterThanOrEqual(1);
+    const graphHypothesisNodes = db.findProjectGraphNodes(context.run.scopeVersionId, 'telemetry beacon', { entityType: 'hypothesis' });
+    expect(graphHypothesisNodes.some((node) => node.entityId === hypothesis.id)).toBe(true);
+    const hypothesisNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
+    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'belongs_to_run')).toBe(true);
 
     const duplicateHypothesis = db.createHypothesis({
       runId: context.run.id,

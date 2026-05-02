@@ -106,6 +106,9 @@ The fourth implementation starts Layer 4:
 - Graph nodes currently cover active scope versions, scope assets, inventory items, and structural entities.
 - Graph edges currently cover `belongs_to_program`, inventory-to-entity `defines`, and mirrored structural relations such as `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`.
 - Unresolved structural relation targets are preserved as graph edges with null target nodes and target labels so later graph expansion can resolve them without losing provenance.
+- Graph nodes and edges now also cover runs, transcript messages, trace events, artifacts, hypotheses, findings, evidence, verifier contracts, and verifier runs.
+- Internal graph query APIs support node search, node edge listing, and bounded neighborhoods by entity type/id.
+- `code_browser` includes a capped graph neighborhood for structural entity reads using the current graph state.
 - Tool payloads expose graph status through `projectGraph`; graph-backed query planning and reranking remain the next retrieval-loop slice.
 
 ## Index Layers

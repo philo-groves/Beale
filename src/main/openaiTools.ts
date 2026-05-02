@@ -1882,6 +1882,9 @@ export class BealeToolRouter {
           .slice(0, 20)
           .map(projectStructureRelationPayload)
       : [];
+    const graphNeighborhood = matchedEntity
+      ? projectGraphNeighborhoodPayload(this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'structure_entity', matchedEntity.id, { depth: 1, limit: 40, refresh: false }))
+      : null;
 
     return {
       status: matchedEntity ? 'hit' : symbol ? 'miss' : 'range_context',
@@ -1889,7 +1892,8 @@ export class BealeToolRouter {
       entity: matchedEntity ? projectStructureEntityPayload(matchedEntity) : null,
       containedEntities,
       outgoingRelations,
-      incomingReferences
+      incomingReferences,
+      graphNeighborhood
     };
   }
 
@@ -2739,6 +2743,41 @@ function projectStructureRelationPayload(relation: ProjectStructureRelationRecor
     targetName: relation.targetName,
     targetEntityId: relation.targetEntityId,
     metadata: relation.metadata
+  };
+}
+
+function projectGraphNeighborhoodPayload(neighborhood: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>): Record<string, unknown> {
+  return {
+    status: neighborhood.status,
+    root: neighborhood.root
+      ? {
+          id: neighborhood.root.id,
+          nodeKind: neighborhood.root.nodeKind,
+          entityType: neighborhood.root.entityType,
+          entityId: neighborhood.root.entityId,
+          label: neighborhood.root.label,
+          sourcePath: neighborhood.root.sourcePath
+        }
+      : null,
+    depth: neighborhood.depth,
+    nodes: neighborhood.nodes.slice(0, 20).map((node) => ({
+      id: node.id,
+      nodeKind: node.nodeKind,
+      entityType: node.entityType,
+      entityId: node.entityId,
+      label: node.label,
+      sourcePath: node.sourcePath
+    })),
+    edges: neighborhood.edges.slice(0, 40).map((edge) => ({
+      id: edge.id,
+      sourceNodeId: edge.sourceNodeId,
+      edgeKind: edge.edgeKind,
+      targetNodeId: edge.targetNodeId,
+      targetEntityType: edge.targetEntityType,
+      targetEntityId: edge.targetEntityId,
+      targetLabel: edge.targetLabel,
+      metadata: edge.metadata
+    }))
   };
 }
 

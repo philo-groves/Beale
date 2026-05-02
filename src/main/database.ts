@@ -508,6 +508,39 @@ export interface ProjectStructureRelationRecord {
   indexedAt: string;
 }
 
+export interface ProjectGraphNodeRecord {
+  id: string;
+  scopeVersionId: string;
+  nodeKind: string;
+  entityType: string;
+  entityId: string;
+  label: string;
+  sourcePath: string | null;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
+export interface ProjectGraphEdgeRecord {
+  id: string;
+  scopeVersionId: string;
+  sourceNodeId: string;
+  edgeKind: string;
+  targetNodeId: string | null;
+  targetEntityType: string;
+  targetEntityId: string | null;
+  targetLabel: string;
+  metadata: Record<string, unknown>;
+  indexedAt: string;
+}
+
+export interface ProjectGraphNeighborhood {
+  status: 'hit' | 'miss';
+  root: ProjectGraphNodeRecord | null;
+  depth: number;
+  nodes: ProjectGraphNodeRecord[];
+  edges: ProjectGraphEdgeRecord[];
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
@@ -802,6 +835,15 @@ function nullableNumber(row: SqlRow, key: string): number | null {
   if (typeof value === 'bigint') return Number(value);
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stringFromUnknown(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function artifactRunId(db: DatabaseSync, artifactId: string): string | null {
+  const row = rowOrUndefined(db.prepare('SELECT run_id FROM trace_events WHERE artifact_id = ? ORDER BY created_at ASC LIMIT 1').get(artifactId));
+  return row ? text(row, 'run_id') : null;
 }
 
 function transcriptSearchTerms(query: string): string[] {
@@ -3058,6 +3100,7 @@ export class WorkspaceDatabase {
       const promptMessage = this.getTranscriptMessage(promptTranscriptId);
       if (promptMessage) this.indexTranscriptSearchDocument(promptMessage);
     }
+    this.refreshProjectGraph(run.scopeVersionId);
     return { run, attempt, vmContext };
   }
 
@@ -3244,6 +3287,7 @@ export class WorkspaceDatabase {
       throw new Error('Failed to append trace event');
     }
     this.indexTraceSearchDocument(event);
+    this.refreshProjectGraphForRun(input.runId);
     return event;
   }
 
@@ -3274,6 +3318,7 @@ export class WorkspaceDatabase {
       throw new Error('Failed to create transcript message');
     }
     this.indexTranscriptSearchDocument(message);
+    this.refreshProjectGraphForRun(input.runId);
     return message;
   }
 
@@ -3472,6 +3517,7 @@ export class WorkspaceDatabase {
     const hypothesis = this.getHypothesis(id);
     if (!hypothesis) throw new Error('Failed to create hypothesis');
     this.indexHypothesisSearchDocument(hypothesis);
+    this.refreshProjectGraphForRun(hypothesis.runId);
     return hypothesis;
   }
 
@@ -3479,6 +3525,7 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE hypotheses SET created_trace_event_id = ?, updated_at = ? WHERE id = ?').run(traceEventId, nowIso(), hypothesisId);
     const hypothesis = this.getHypothesis(hypothesisId);
     if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
+    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
   }
 
   public updateHypothesis(
@@ -3538,6 +3585,7 @@ export class WorkspaceDatabase {
     const updated = this.getHypothesis(hypothesisId);
     if (!updated) throw new Error(`Hypothesis not found after update: ${hypothesisId}`);
     this.indexHypothesisSearchDocument(updated);
+    this.refreshProjectGraphForRun(updated.runId);
     return updated;
   }
 
@@ -3545,6 +3593,7 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE hypotheses SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), hypothesisId);
     const hypothesis = this.getHypothesis(hypothesisId);
     if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
+    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
   }
 
   public updateHypothesisReview(
@@ -3587,6 +3636,7 @@ export class WorkspaceDatabase {
       );
     const hypothesis = this.getHypothesis(hypothesisId);
     if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
+    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
   }
 
   public createArtifact(input: CreateArtifactInput): ArtifactRecord {
@@ -3627,6 +3677,8 @@ export class WorkspaceDatabase {
     const artifact = this.getArtifact(id);
     if (!artifact) throw new Error('Failed to create artifact');
     this.indexArtifactSearchDocument(artifact);
+    const runId = artifactRunId(this.db, artifact.id);
+    if (runId) this.refreshProjectGraphForRun(runId);
     return artifact;
   }
 
@@ -3634,11 +3686,15 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE artifacts SET provenance_trace_event_id = ? WHERE id = ?').run(traceEventId, artifactId);
     const artifact = this.getArtifact(artifactId);
     if (artifact) this.indexArtifactSearchDocument(artifact);
+    const event = this.getTraceEvent(traceEventId);
+    if (event) this.refreshProjectGraphForRun(event.runId);
   }
 
   public markArtifactSensitive(artifactId: string): void {
     this.db.prepare('UPDATE artifacts SET sensitivity = ?, model_visible = ? WHERE id = ?').run('sensitive', 0, artifactId);
     this.deleteProjectSearchDocuments("entity_type = 'artifact' AND entity_id = ?", [artifactId]);
+    const runId = artifactRunId(this.db, artifactId);
+    if (runId) this.refreshProjectGraphForRun(runId);
   }
 
   public createEvidence(input: CreateEvidenceInput): EvidenceRecord {
@@ -3665,6 +3721,7 @@ export class WorkspaceDatabase {
     const evidence = this.getEvidence(id);
     if (!evidence) throw new Error('Failed to create evidence');
     this.indexEvidenceSearchDocument(evidence);
+    this.refreshProjectGraphForRun(evidence.runId);
     return evidence;
   }
 
@@ -3681,6 +3738,7 @@ export class WorkspaceDatabase {
     for (const row of rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? AND hypothesis_id = ? AND finding_id = ?').all(runId, hypothesisId, findingId))) {
       this.indexEvidenceSearchDocument(this.mapEvidence(row));
     }
+    this.refreshProjectGraphForRun(runId);
   }
 
   public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
@@ -3725,6 +3783,7 @@ export class WorkspaceDatabase {
     const contract = this.getVerifierContract(id);
     if (!contract) throw new Error('Failed to create verifier contract');
     this.indexVerifierContractSearchDocument(contract);
+    this.refreshProjectGraphForRun(contract.runId);
     return contract;
   }
 
@@ -3758,6 +3817,7 @@ export class WorkspaceDatabase {
     const updated = this.getVerifierContract(contractId);
     if (!updated) throw new Error(`Verifier contract not found after update: ${contractId}`);
     this.indexVerifierContractSearchDocument(updated);
+    this.refreshProjectGraphForRun(updated.runId);
     return updated;
   }
 
@@ -3789,6 +3849,7 @@ export class WorkspaceDatabase {
     const verifierRun = this.getVerifierRun(id);
     if (!verifierRun) throw new Error('Failed to create verifier run');
     this.indexVerifierRunSearchDocument(verifierRun);
+    this.refreshProjectGraphForRun(verifierRun.runId);
     return verifierRun;
   }
 
@@ -3827,6 +3888,7 @@ export class WorkspaceDatabase {
     const finding = this.getFinding(id);
     if (!finding) throw new Error('Failed to create finding');
     this.indexFindingSearchDocument(finding);
+    this.refreshProjectGraphForRun(finding.runId);
     return finding;
   }
 
@@ -3837,6 +3899,7 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
     const finding = this.getFinding(findingId);
     if (finding) this.indexFindingSearchDocument(finding);
+    if (finding) this.refreshProjectGraphForRun(finding.runId);
   }
 
   public updateFinding(
@@ -3895,6 +3958,7 @@ export class WorkspaceDatabase {
     const updated = this.getFinding(findingId);
     if (!updated) throw new Error(`Finding not found after update: ${findingId}`);
     this.indexFindingSearchDocument(updated);
+    this.refreshProjectGraphForRun(updated.runId);
     return updated;
   }
 
@@ -3908,6 +3972,7 @@ export class WorkspaceDatabase {
     const updated = this.getFinding(findingId);
     if (!updated) throw new Error(`Finding not found after verification update: ${findingId}`);
     this.indexFindingSearchDocument(updated);
+    this.refreshProjectGraphForRun(updated.runId);
     return updated;
   }
 
@@ -4461,15 +4526,169 @@ export class WorkspaceDatabase {
         .get(scopeVersionId)
     );
     const nodeCount = nodeRow ? numberValue(nodeRow, 'node_count') : 0;
+    const expectedNodeCount = this.projectGraphExpectedNodeCount(scopeVersionId);
+    const status = nodeCount === 0 ? 'empty' : nodeCount < expectedNodeCount ? 'stale' : 'ready';
     return {
       scopeVersionId,
-      status: nodeCount > 0 ? 'ready' : 'empty',
+      status,
       nodeCount,
       edgeCount: edgeRow ? numberValue(edgeRow, 'edge_count') : 0,
       structuralEdgeCount: edgeRow ? numberValue(edgeRow, 'structural_edge_count') : 0,
       unresolvedEdgeCount: edgeRow ? numberValue(edgeRow, 'unresolved_edge_count') : 0,
       indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null
     };
+  }
+
+  public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso()): ProjectGraphSummary {
+    this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
+    this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
+    this.rebuildProjectGraph(scopeVersionId, indexedAt);
+    return this.getProjectGraphSummary(scopeVersionId);
+  }
+
+  private refreshProjectGraphForRun(runId: string): void {
+    const run = this.getRun(runId);
+    if (run) {
+      // Graph freshness is derived from source-table counts. Avoid rebuilding on hot trace/resource writes;
+      // graph query APIs rebuild lazily when graph context is actually requested.
+    }
+  }
+
+  private ensureProjectGraphFresh(scopeVersionId: string): ProjectGraphSummary {
+    const summary = this.getProjectGraphSummary(scopeVersionId);
+    return summary.status === 'stale' || summary.status === 'empty' ? this.refreshProjectGraph(scopeVersionId) : summary;
+  }
+
+  private projectGraphExpectedNodeCount(scopeVersionId: string): number {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT
+             1
+             + (SELECT COUNT(*) FROM scope_assets WHERE scope_version_id = ?)
+             + (SELECT COUNT(*) FROM project_inventory_items WHERE scope_version_id = ?)
+             + (SELECT COUNT(*) FROM project_structure_entities WHERE scope_version_id = ?)
+             + (SELECT COUNT(*) FROM runs WHERE scope_version_id = ?)
+             + (SELECT COUNT(*) FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*) FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(DISTINCT a.id)
+                FROM artifacts a
+                JOIN trace_events t ON t.artifact_id = a.id
+                JOIN runs r ON r.id = t.run_id
+                WHERE r.scope_version_id = ?)
+             + (SELECT COUNT(*) FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*) FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*) FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*) FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?))
+             + (SELECT COUNT(*) FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)) AS expected_count`
+        )
+        .get(
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId,
+          scopeVersionId
+        )
+    );
+    return row ? numberValue(row, 'expected_count') : 0;
+  }
+
+  public findProjectGraphNodes(
+    scopeVersionId: string,
+    query: string,
+    filters: { entityType?: string; nodeKind?: string; limit?: number } = {}
+  ): ProjectGraphNodeRecord[] {
+    this.ensureProjectGraphFresh(scopeVersionId);
+    const trimmed = query.trim().toLowerCase();
+    const conditions = ['scope_version_id = ?'];
+    const params: SqlPrimitive[] = [scopeVersionId];
+    if (filters.entityType) {
+      conditions.push('entity_type = ?');
+      params.push(filters.entityType);
+    }
+    if (filters.nodeKind) {
+      conditions.push('node_kind = ?');
+      params.push(filters.nodeKind);
+    }
+    if (trimmed) {
+      conditions.push("(LOWER(label || ' ' || node_kind || ' ' || entity_type || ' ' || entity_id || ' ' || COALESCE(source_path, '') || ' ' || metadata_json) LIKE ? ESCAPE '\\')");
+      params.push(`%${escapeLike(trimmed)}%`);
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(filters.limit ?? 20)));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_graph_nodes
+           WHERE ${conditions.join(' AND ')}
+           ORDER BY indexed_at DESC, node_kind ASC, label ASC
+           LIMIT ?`
+        )
+        .all(...params, limit)
+    ).map((row) => this.mapProjectGraphNode(row));
+  }
+
+  public listProjectGraphEdgesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number } = {}): ProjectGraphEdgeRecord[] {
+    this.ensureProjectGraphFresh(scopeVersionId);
+    const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
+    const params: SqlPrimitive[] = [scopeVersionId, nodeId, nodeId];
+    const edgeKindSql = edgeKinds.length > 0 ? ` AND edge_kind IN (${edgeKinds.map(() => '?').join(', ')})` : '';
+    params.push(...edgeKinds);
+    const limit = Math.max(1, Math.min(200, Math.floor(options.limit ?? 40)));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_graph_edges
+           WHERE scope_version_id = ?
+             AND (source_node_id = ? OR target_node_id = ?)
+             ${edgeKindSql}
+           ORDER BY edge_kind ASC, target_label ASC
+           LIMIT ?`
+        )
+        .all(...params, limit)
+    ).map((row) => this.mapProjectGraphEdge(row));
+  }
+
+  public getProjectGraphNeighborhood(
+    scopeVersionId: string,
+    entityType: string,
+    entityId: string,
+    options: { depth?: number; edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}
+  ): ProjectGraphNeighborhood {
+    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
+    const root = this.getProjectGraphNode(scopeVersionId, entityType, entityId);
+    if (!root) return { status: 'miss', root: null, depth: 0, nodes: [], edges: [] };
+    const maxDepth = Math.max(1, Math.min(3, Math.floor(options.depth ?? 1)));
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 40)));
+    const nodeMap = new Map<string, ProjectGraphNodeRecord>([[root.id, root]]);
+    const edgeMap = new Map<string, ProjectGraphEdgeRecord>();
+    let frontier = [root.id];
+    for (let depth = 0; depth < maxDepth && frontier.length > 0 && edgeMap.size < limit; depth += 1) {
+      const next = new Set<string>();
+      for (const nodeId of frontier) {
+        for (const edge of this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds: options.edgeKinds, limit })) {
+          if (edgeMap.size >= limit) break;
+          edgeMap.set(edge.id, edge);
+          for (const adjacentId of [edge.sourceNodeId, edge.targetNodeId].filter((id): id is string => Boolean(id))) {
+            if (nodeMap.has(adjacentId)) continue;
+            const adjacent = this.getProjectGraphNodeById(scopeVersionId, adjacentId);
+            if (!adjacent) continue;
+            nodeMap.set(adjacent.id, adjacent);
+            next.add(adjacent.id);
+          }
+        }
+      }
+      frontier = [...next];
+    }
+    return { status: 'hit', root, depth: maxDepth, nodes: [...nodeMap.values()], edges: [...edgeMap.values()] };
   }
 
   public findProjectStructureEntity(scopeVersionId: string, path: string, name: string, options: { refreshInventory?: boolean } = {}): ProjectStructureEntityRecord | null {
@@ -5005,6 +5224,10 @@ export class WorkspaceDatabase {
     if (options.includeInventory) {
       for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
         this.refreshProjectInventory(text(row, 'id'));
+      }
+    } else {
+      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
+        this.refreshProjectGraph(text(row, 'id'));
       }
     }
   }
@@ -6181,6 +6404,499 @@ export class WorkspaceDatabase {
         indexedAt
       });
     }
+
+    const runRows = rows(this.db.prepare('SELECT * FROM runs WHERE scope_version_id = ?').all(scopeVersionId));
+    for (const row of runRows) {
+      const run = this.mapRun(row);
+      const runNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'run',
+        entityId: run.id,
+        nodeKind: 'run',
+        label: run.title,
+        sourcePath: run.targetPath,
+        metadata: {
+          status: run.status,
+          mode: run.mode,
+          model: run.model,
+          targetAssetId: run.targetAssetId,
+          networkProfile: run.networkProfile,
+          sandboxProfile: run.sandboxProfile
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: runNodeId,
+        edgeKind: 'belongs_to_program',
+        targetNodeId: scopeNodeId,
+        targetEntityType: 'scope_version',
+        targetEntityId: scopeVersionId,
+        targetLabel: scope.programName,
+        metadata: { source: 'run' },
+        indexedAt
+      });
+    }
+
+    const traceRows = rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of traceRows) {
+      const event = this.mapTraceEvent(row);
+      const traceNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'trace_event',
+        entityId: event.id,
+        nodeKind: `trace:${event.type}`,
+        label: event.summary,
+        sourcePath: null,
+        metadata: {
+          runId: event.runId,
+          sequence: event.sequence,
+          type: event.type,
+          source: event.source,
+          modelVisible: event.modelVisible,
+          artifactId: event.artifactId,
+          toolCallId: event.toolCallId
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: traceNodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', event.runId),
+        targetEntityType: 'run',
+        targetEntityId: event.runId,
+        targetLabel: event.runId,
+        metadata: { source: 'trace_event' },
+        indexedAt
+      });
+    }
+
+    const transcriptRows = rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of transcriptRows) {
+      const message = this.mapTranscriptMessage(row);
+      const transcriptNodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'transcript',
+        entityId: message.id,
+        nodeKind: `transcript:${message.role}`,
+        label: message.contentMarkdown.slice(0, 160) || message.source,
+        sourcePath: null,
+        metadata: {
+          runId: message.runId,
+          attemptId: message.attemptId,
+          traceEventId: message.traceEventId,
+          role: message.role,
+          source: message.source
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: transcriptNodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', message.runId),
+        targetEntityType: 'run',
+        targetEntityId: message.runId,
+        targetLabel: message.runId,
+        metadata: { source: 'transcript' },
+        indexedAt
+      });
+      if (message.traceEventId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: transcriptNodeId,
+          edgeKind: 'derived_from_trace',
+          targetNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', message.traceEventId),
+          targetEntityType: 'trace_event',
+          targetEntityId: message.traceEventId,
+          targetLabel: message.traceEventId,
+          metadata: { source: 'transcript' },
+          indexedAt
+        });
+      }
+    }
+
+    const artifactRows = rows(
+      this.db
+        .prepare(
+          `SELECT DISTINCT a.*
+           FROM artifacts a
+           JOIN trace_events t ON t.artifact_id = a.id
+           JOIN runs r ON r.id = t.run_id
+           WHERE r.scope_version_id = ?`
+        )
+        .all(scopeVersionId)
+    );
+    const workspaceRoot = dirname(dirname(this.databasePath));
+    for (const row of artifactRows) {
+      const artifact = this.mapArtifact(row);
+      this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'artifact',
+        entityId: artifact.id,
+        nodeKind: `artifact:${artifact.kind}`,
+        label: artifact.id,
+        sourcePath: join(workspaceRoot, artifact.relativePath),
+        metadata: {
+          kind: artifact.kind,
+          sha256: artifact.sha256,
+          sizeBytes: artifact.sizeBytes,
+          sensitivity: artifact.sensitivity,
+          modelVisible: artifact.modelVisible,
+          source: artifact.source
+        },
+        indexedAt
+      });
+    }
+
+    for (const row of traceRows) {
+      const event = this.mapTraceEvent(row);
+      if (!event.artifactId) continue;
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: projectGraphNodeId(scopeVersionId, 'trace_event', event.id),
+        edgeKind: 'produced_artifact',
+        targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', event.artifactId),
+        targetEntityType: 'artifact',
+        targetEntityId: event.artifactId,
+        targetLabel: event.artifactId,
+        metadata: { source: 'trace_event' },
+        indexedAt
+      });
+    }
+
+    const hypothesisRows = rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of hypothesisRows) {
+      const hypothesis = this.mapHypothesis(row);
+      const nodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'hypothesis',
+        entityId: hypothesis.id,
+        nodeKind: `hypothesis:${hypothesis.state}`,
+        label: hypothesis.title,
+        sourcePath: null,
+        metadata: {
+          runId: hypothesis.runId,
+          state: hypothesis.state,
+          component: hypothesis.component,
+          bugClass: hypothesis.bugClass,
+          priorityScore: hypothesis.priorityScore,
+          createdTraceEventId: hypothesis.createdTraceEventId
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', hypothesis.runId),
+        targetEntityType: 'run',
+        targetEntityId: hypothesis.runId,
+        targetLabel: hypothesis.runId,
+        metadata: { source: 'hypothesis' },
+        indexedAt
+      });
+      if (hypothesis.createdTraceEventId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'derived_from_trace',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', hypothesis.createdTraceEventId),
+          targetEntityType: 'trace_event',
+          targetEntityId: hypothesis.createdTraceEventId,
+          targetLabel: hypothesis.createdTraceEventId,
+          metadata: { source: 'hypothesis' },
+          indexedAt
+        });
+      }
+      if (hypothesis.parentHypothesisId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', hypothesis.parentHypothesisId),
+          targetEntityType: 'hypothesis',
+          targetEntityId: hypothesis.parentHypothesisId,
+          targetLabel: hypothesis.parentHypothesisId,
+          metadata: { source: 'hypothesis' },
+          indexedAt
+        });
+      }
+    }
+
+    const findingRows = rows(this.db.prepare('SELECT * FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of findingRows) {
+      const finding = this.mapFinding(row);
+      const nodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'finding',
+        entityId: finding.id,
+        nodeKind: `finding:${finding.state}`,
+        label: finding.title,
+        sourcePath: null,
+        metadata: {
+          runId: finding.runId,
+          state: finding.state,
+          hypothesisId: finding.hypothesisId,
+          priorityScore: finding.priorityScore,
+          verifiedByVerifierRunId: finding.verifiedByVerifierRunId
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', finding.runId),
+        targetEntityType: 'run',
+        targetEntityId: finding.runId,
+        targetLabel: finding.runId,
+        metadata: { source: 'finding' },
+        indexedAt
+      });
+      if (finding.hypothesisId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: finding.state === 'duplicate' ? 'duplicates' : 'promoted_from_hypothesis',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', finding.hypothesisId),
+          targetEntityType: 'hypothesis',
+          targetEntityId: finding.hypothesisId,
+          targetLabel: finding.hypothesisId,
+          metadata: { source: 'finding' },
+          indexedAt
+        });
+      }
+      if (finding.verifiedByVerifierRunId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'verified_by',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', finding.verifiedByVerifierRunId),
+          targetEntityType: 'verifier_run',
+          targetEntityId: finding.verifiedByVerifierRunId,
+          targetLabel: finding.verifiedByVerifierRunId,
+          metadata: { source: 'finding' },
+          indexedAt
+        });
+      }
+    }
+
+    const contractRows = rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of contractRows) {
+      const contract = this.mapVerifierContract(row);
+      const nodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'verifier_contract',
+        entityId: contract.id,
+        nodeKind: `verifier_contract:${contract.mode}`,
+        label: `${contract.mode} verifier contract`,
+        sourcePath: null,
+        metadata: {
+          runId: contract.runId,
+          status: contract.status,
+          hypothesisId: contract.hypothesisId,
+          findingId: contract.findingId
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', contract.runId),
+        targetEntityType: 'run',
+        targetEntityId: contract.runId,
+        targetLabel: contract.runId,
+        metadata: { source: 'verifier_contract' },
+        indexedAt
+      });
+      if (contract.hypothesisId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'verifies_hypothesis',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', contract.hypothesisId),
+          targetEntityType: 'hypothesis',
+          targetEntityId: contract.hypothesisId,
+          targetLabel: contract.hypothesisId,
+          metadata: { source: 'verifier_contract' },
+          indexedAt
+        });
+      }
+      if (contract.findingId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'verifies_finding',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', contract.findingId),
+          targetEntityType: 'finding',
+          targetEntityId: contract.findingId,
+          targetLabel: contract.findingId,
+          metadata: { source: 'verifier_contract' },
+          indexedAt
+        });
+      }
+    }
+
+    const verifierRunRows = rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of verifierRunRows) {
+      const verifierRun = this.mapVerifierRun(row);
+      const nodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'verifier_run',
+        entityId: verifierRun.id,
+        nodeKind: `verifier_run:${verifierRun.status}`,
+        label: `${verifierRun.status} verifier run`,
+        sourcePath: null,
+        metadata: {
+          runId: verifierRun.runId,
+          contractId: verifierRun.contractId,
+          status: verifierRun.status,
+          vmContextId: verifierRun.vmContextId,
+          artifactId: stringFromUnknown(verifierRun.result.artifactId)
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', verifierRun.runId),
+        targetEntityType: 'run',
+        targetEntityId: verifierRun.runId,
+        targetLabel: verifierRun.runId,
+        metadata: { source: 'verifier_run' },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'runs_verifier_contract',
+        targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_contract', verifierRun.contractId),
+        targetEntityType: 'verifier_contract',
+        targetEntityId: verifierRun.contractId,
+        targetLabel: verifierRun.contractId,
+        metadata: { source: 'verifier_run' },
+        indexedAt
+      });
+      const verifierArtifactId = stringFromUnknown(verifierRun.result.artifactId);
+      if (verifierArtifactId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'produced_artifact',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', verifierArtifactId),
+          targetEntityType: 'artifact',
+          targetEntityId: verifierArtifactId,
+          targetLabel: verifierArtifactId,
+          metadata: { source: 'verifier_run' },
+          indexedAt
+        });
+      }
+    }
+
+    const evidenceRows = rows(this.db.prepare('SELECT * FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    for (const row of evidenceRows) {
+      const evidence = this.mapEvidence(row);
+      const nodeId = this.upsertProjectGraphNode({
+        scopeVersionId,
+        entityType: 'evidence',
+        entityId: evidence.id,
+        nodeKind: `evidence:${evidence.kind}`,
+        label: evidence.summary,
+        sourcePath: null,
+        metadata: {
+          runId: evidence.runId,
+          kind: evidence.kind,
+          hypothesisId: evidence.hypothesisId,
+          findingId: evidence.findingId,
+          artifactId: evidence.artifactId,
+          verifierRunId: evidence.verifierRunId,
+          observationTraceEventId: evidence.observationTraceEventId
+        },
+        indexedAt
+      });
+      this.insertProjectGraphEdge({
+        scopeVersionId,
+        sourceNodeId: nodeId,
+        edgeKind: 'belongs_to_run',
+        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', evidence.runId),
+        targetEntityType: 'run',
+        targetEntityId: evidence.runId,
+        targetLabel: evidence.runId,
+        metadata: { source: 'evidence' },
+        indexedAt
+      });
+      if (evidence.hypothesisId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'supports_hypothesis',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', evidence.hypothesisId),
+          targetEntityType: 'hypothesis',
+          targetEntityId: evidence.hypothesisId,
+          targetLabel: evidence.hypothesisId,
+          metadata: { source: 'evidence' },
+          indexedAt
+        });
+      }
+      if (evidence.findingId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'supports_finding',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', evidence.findingId),
+          targetEntityType: 'finding',
+          targetEntityId: evidence.findingId,
+          targetLabel: evidence.findingId,
+          metadata: { source: 'evidence' },
+          indexedAt
+        });
+      }
+      if (evidence.artifactId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'backed_by_artifact',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', evidence.artifactId),
+          targetEntityType: 'artifact',
+          targetEntityId: evidence.artifactId,
+          targetLabel: evidence.artifactId,
+          metadata: { source: 'evidence' },
+          indexedAt
+        });
+      }
+      if (evidence.verifierRunId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'backed_by_verifier_run',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', evidence.verifierRunId),
+          targetEntityType: 'verifier_run',
+          targetEntityId: evidence.verifierRunId,
+          targetLabel: evidence.verifierRunId,
+          metadata: { source: 'evidence' },
+          indexedAt
+        });
+      }
+      if (evidence.observationTraceEventId) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: nodeId,
+          edgeKind: 'backed_by_trace',
+          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', evidence.observationTraceEventId),
+          targetEntityType: 'trace_event',
+          targetEntityId: evidence.observationTraceEventId,
+          targetLabel: evidence.observationTraceEventId,
+          metadata: { source: 'evidence' },
+          indexedAt
+        });
+      }
+    }
+
+    this.resolveProjectGraphEdgeTargets(scopeVersionId);
   }
 
   private scanProjectInventoryPath(path: string, asset: ScopeAsset, state: ProjectInventoryScanState): void {
@@ -6630,6 +7346,26 @@ export class WorkspaceDatabase {
         toJson(input.metadata),
         input.indexedAt
       );
+  }
+
+  private resolveProjectGraphEdgeTargets(scopeVersionId: string): void {
+    const unresolved = rows(
+      this.db
+        .prepare(
+          `SELECT id, target_entity_type, target_entity_id
+           FROM project_graph_edges
+           WHERE scope_version_id = ?
+             AND target_node_id IS NULL
+             AND target_entity_id IS NOT NULL`
+        )
+        .all(scopeVersionId)
+    );
+    for (const edge of unresolved) {
+      const targetNodeId = this.projectGraphNodeIdIfExists(scopeVersionId, text(edge, 'target_entity_type'), text(edge, 'target_entity_id'));
+      if (targetNodeId) {
+        this.db.prepare('UPDATE project_graph_edges SET target_node_id = ? WHERE id = ?').run(targetNodeId, text(edge, 'id'));
+      }
+    }
   }
 
   private insertProjectSemanticChunk(input: ProjectSemanticChunkInput): void {
@@ -7111,6 +7847,49 @@ export class WorkspaceDatabase {
       targetKind: text(row, 'target_kind'),
       targetName: text(row, 'target_name'),
       targetEntityId: nullableText(row, 'target_entity_id'),
+      metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
+    };
+  }
+
+  private getProjectGraphNode(scopeVersionId: string, entityType: string, entityId: string): ProjectGraphNodeRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_nodes WHERE scope_version_id = ? AND entity_type = ? AND entity_id = ?').get(scopeVersionId, entityType, entityId));
+    return row ? this.mapProjectGraphNode(row) : null;
+  }
+
+  private projectGraphNodeIdIfExists(scopeVersionId: string, entityType: string, entityId: string): string | null {
+    return this.getProjectGraphNode(scopeVersionId, entityType, entityId)?.id ?? null;
+  }
+
+  private getProjectGraphNodeById(scopeVersionId: string, nodeId: string): ProjectGraphNodeRecord | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_nodes WHERE scope_version_id = ? AND id = ?').get(scopeVersionId, nodeId));
+    return row ? this.mapProjectGraphNode(row) : null;
+  }
+
+  private mapProjectGraphNode(row: SqlRow): ProjectGraphNodeRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      nodeKind: text(row, 'node_kind'),
+      entityType: text(row, 'entity_type'),
+      entityId: text(row, 'entity_id'),
+      label: text(row, 'label'),
+      sourcePath: nullableText(row, 'source_path'),
+      metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
+    };
+  }
+
+  private mapProjectGraphEdge(row: SqlRow): ProjectGraphEdgeRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      sourceNodeId: text(row, 'source_node_id'),
+      edgeKind: text(row, 'edge_kind'),
+      targetNodeId: nullableText(row, 'target_node_id'),
+      targetEntityType: text(row, 'target_entity_type'),
+      targetEntityId: nullableText(row, 'target_entity_id'),
+      targetLabel: text(row, 'target_label'),
       metadata: parseJson(row.metadata_json),
       indexedAt: text(row, 'indexed_at')
     };
