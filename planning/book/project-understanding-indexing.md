@@ -115,6 +115,7 @@ The fourth implementation starts Layer 4:
 - Graph-backed variant search now finds entities that share important relationship targets, such as sibling handlers that reach the same sink or check the same permission and research records tied to the same hypothesis or finding.
 - Research-memory graph coverage now includes component and CWE anchor nodes, duplicate/supersession links, evidence back-links, verifier outcome links, and artifact provenance edges so prior Beale state is traversable from related records.
 - Graph status now includes stale reasons, rebuild reason, build count, expected node count, and node/edge family counts so missing graph relationships can be debugged by family.
+- Graph retrieval tests now cover no-inline-refresh behavior, dedupe against direct file hits, and code-to-research-memory hops through matching component anchors.
 
 ## Index Layers
 

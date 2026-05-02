@@ -93,6 +93,7 @@
 - Changed model-facing search to add graph-backed variant matches for entities that share important relationship targets such as sinks, permission checks, middleware, hypotheses, and findings.
 - Changed relationship graph research-memory coverage to add component and CWE anchor nodes plus explicit duplicate, evidence, verifier outcome, and artifact provenance edges.
 - Added relationship graph operational status with stale reasons, rebuild reasons, build counts, and node/edge family counts.
+- Changed graph variant search so source-backed code hits can surface related research-memory records through matching component anchors without refreshing the graph inline.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

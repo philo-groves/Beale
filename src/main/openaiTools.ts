@@ -1838,6 +1838,29 @@ export class BealeToolRouter {
         seen.add(key);
         candidates.push(this.projectGraphVariantNodeToToolMatch(variant.node, variant.edge, seed));
       }
+      const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
+      if (!sourcePath) continue;
+      const componentNodes = this.db.findProjectGraphNodes(context.run.scopeVersionId, sourcePath, { entityType: 'research_component', limit: 3, refresh: false });
+      for (const componentNode of componentNodes) {
+        if (candidates.length >= Math.min(8, remaining)) break;
+        const componentNeighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, componentNode.entityType, componentNode.entityId, {
+          depth: 1,
+          edgeKinds: ['affects_component'],
+          limit: 16,
+          refresh: false
+        });
+        for (const edge of componentNeighborhood.edges) {
+          if (candidates.length >= Math.min(8, remaining)) break;
+          const adjacentNodeId = edge.sourceNodeId === componentNode.id ? edge.targetNodeId : edge.sourceNodeId;
+          if (!adjacentNodeId || adjacentNodeId === componentNode.id) continue;
+          const node = componentNeighborhood.nodes.find((candidate) => candidate.id === adjacentNodeId);
+          if (!node || (node.entityType !== 'hypothesis' && node.entityType !== 'finding')) continue;
+          const key = `${node.entityType}:${node.entityId}:${edge.edgeKind}:${componentNode.entityId}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          candidates.push(this.projectGraphVariantNodeToToolMatch(node, edge, seed));
+        }
+      }
     }
     return candidates;
   }

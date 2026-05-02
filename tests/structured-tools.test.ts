@@ -157,6 +157,7 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     expect(JSON.stringify(structureSearch.payload)).toContain('listAdmins');
+    expect((structureSearch.payload.matches as Array<Record<string, unknown>>).filter((match) => match.kind === 'graph' && match.entityType === 'inventory_item' && match.sourcePath === routeFile)).toHaveLength(0);
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
     expect(sinkSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'sink')).toBe(true);
     const exportSearch = db.searchProjectDocumentsForRun(context.run.id, 'exports listUsers');
@@ -272,6 +273,38 @@ describe('structured research tools', () => {
     expect(sourceSemanticToolMatch).toBeTruthy();
     expect(Number(sourceSemanticToolMatch?.line)).toBeLessThanOrEqual(6);
     expect(sourceSemanticToolMatch?.range).toBeTruthy();
+
+    db.createHypothesis({
+      runId: context.run.id,
+      state: 'needs_evidence',
+      title: 'Route handler authorization bypass memory',
+      descriptionMarkdown: 'Prior research memory tied to the route handler authorization surface.',
+      component: routeFile,
+      bugClass: 'missing_authz',
+      priorityScore: 11,
+      attackerReachability: '2 route caller',
+      impact: '2 route data exposure',
+      evidenceConfidence: '1 source correlation',
+      exploitPracticality: '1 needs variant test',
+      scopeConfidence: '2 source-backed',
+      cweMappings: [{ cweId: 'CWE-862', confidence: 'medium', rationaleMarkdown: 'Route handler authorization memory.', source: 'model' }]
+    });
+    const staleGraph = db.getProjectGraphSummary(context.run.scopeVersionId);
+    expect(staleGraph.status).toBe('stale');
+    expect(staleGraph.staleReasons.some((reason) => reason.startsWith('missing_node_family:hypothesis:'))).toBe(true);
+    const staleGraphSearch = callTool(router, context, 'search', { query: 'Route handler authorization bypass memory', target: '' });
+    expect(staleGraphSearch.status).toBe('success');
+    expect((staleGraphSearch.payload.projectGraph as { status: string }).status).toBe('stale');
+    expect((staleGraphSearch.payload.projectGraph as { buildCount: number }).buildCount).toBe(staleGraph.buildCount);
+
+    const rebuiltGraph = db.findProjectGraphNodes(context.run.scopeVersionId, 'Route handler authorization bypass memory', { entityType: 'hypothesis' });
+    expect(rebuiltGraph.length).toBeGreaterThanOrEqual(1);
+    const codeToMemorySearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
+    const memoryVariant = (codeToMemorySearch.payload.matches as Array<Record<string, unknown>>).find(
+      (match) => match.kind === 'graph_variant' && match.entityType === 'hypothesis' && match.graphEdgeKind === 'affects_component'
+    );
+    expect(memoryVariant).toBeTruthy();
+    expect(String(memoryVariant?.rankReason)).toContain('Variant candidate');
 
     const largeFile = join(targetDir, 'src', 'large-controller.js');
     const largeLines = Array.from({ length: 40_000 }, (_, index) => {

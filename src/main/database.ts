@@ -4765,9 +4765,9 @@ export class WorkspaceDatabase {
   public findProjectGraphNodes(
     scopeVersionId: string,
     query: string,
-    filters: { entityType?: string; nodeKind?: string; limit?: number } = {}
+    filters: { entityType?: string; nodeKind?: string; limit?: number; refresh?: boolean } = {}
   ): ProjectGraphNodeRecord[] {
-    this.ensureProjectGraphFresh(scopeVersionId);
+    if (filters.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
     const trimmed = query.trim().toLowerCase();
     const conditions = ['scope_version_id = ?'];
     const params: SqlPrimitive[] = [scopeVersionId];
