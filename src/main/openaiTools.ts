@@ -83,6 +83,13 @@ interface ScopedSearchRoot {
   reason: string;
 }
 
+interface SearchAssemblyResult {
+  matches: Array<Record<string, unknown>>;
+  metadataMatches: number;
+  semanticMatches: number;
+  graphMatches: number;
+}
+
 interface SearchCollection {
   files: ScopedFile[];
   roots: ScopedSearchRoot[];
@@ -523,11 +530,11 @@ export class BealeToolRouter {
     const files = collection.files;
     const sourceCandidates = sourceRepositoryCandidates(this.db.getActiveScope());
     const queryPlan = buildSearchQueryPlan(query);
-    const matches: Array<Record<string, unknown>> = [];
+    const fileMatches: Array<Record<string, unknown>> = [];
     let skippedFiles = 0;
 
     for (const file of files) {
-      if (matches.length >= MAX_SEARCH_MATCHES) break;
+      if (fileMatches.length >= MAX_SEARCH_MATCHES) break;
       const loaded = readScopedText(file.path);
       if (!loaded) {
         skippedFiles += 1;
@@ -536,7 +543,7 @@ export class BealeToolRouter {
       const lines = loaded.text.split(/\r?\n/);
       for (const [index, line] of lines.entries()) {
         if (!lineMatchesSearchQuery(line, queryPlan)) continue;
-        matches.push({
+        fileMatches.push({
           kind: 'file',
           path: file.path,
           assetId: file.assetId,
@@ -547,18 +554,16 @@ export class BealeToolRouter {
           matchedBy: searchMatchDescription(line, queryPlan),
           snippet: trimSnippet(line)
         });
-        if (matches.length >= MAX_SEARCH_MATCHES) break;
+        if (fileMatches.length >= MAX_SEARCH_MATCHES) break;
       }
     }
 
-    const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES - matches.length);
-    matches.push(...artifactMatches);
+    const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES);
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
-    const metadataMatchesAdded = this.appendUniqueSearchMatches(matches, metadataMatches, MAX_SEARCH_MATCHES);
     const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
-    const semanticMatchesAdded = this.appendUniqueSearchMatches(matches, semanticMatches, MAX_SEARCH_MATCHES);
     const graphMatches = this.searchProjectGraph(context, [...metadataMatches, ...semanticMatches], MAX_SEARCH_MATCHES);
-    const graphMatchesAdded = this.appendUniqueSearchMatches(matches, graphMatches, MAX_SEARCH_MATCHES);
+    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches });
+    const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
     const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
@@ -593,9 +598,9 @@ export class BealeToolRouter {
         })),
         filesConsidered: files.length,
         skippedFiles,
-        metadataMatches: metadataMatchesAdded,
-        semanticMatches: semanticMatchesAdded,
-        graphMatches: graphMatchesAdded,
+        metadataMatches: searchAssembly.metadataMatches,
+        semanticMatches: searchAssembly.semanticMatches,
+        graphMatches: searchAssembly.graphMatches,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -1787,6 +1792,119 @@ export class BealeToolRouter {
       }
     }
     return candidates;
+  }
+
+  private assembleRankedSearchMatches(input: {
+    fileMatches: Array<Record<string, unknown>>;
+    artifactMatches: Array<Record<string, unknown>>;
+    metadataMatches: Array<Record<string, unknown>>;
+    semanticMatches: Array<Record<string, unknown>>;
+    graphMatches: Array<Record<string, unknown>>;
+  }): SearchAssemblyResult {
+    const candidatePool: Array<Record<string, unknown>> = [];
+    const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
+    this.appendUniqueSearchMatches(candidatePool, input.fileMatches, candidatePoolLimit);
+    this.appendUniqueSearchMatches(candidatePool, input.artifactMatches, candidatePoolLimit);
+    this.appendUniqueSearchMatches(candidatePool, input.metadataMatches, candidatePoolLimit);
+    this.appendUniqueSearchMatches(candidatePool, input.semanticMatches, candidatePoolLimit);
+    this.appendUniqueSearchMatches(candidatePool, input.graphMatches, candidatePoolLimit);
+
+    const graphEntityKeys = new Set(input.graphMatches.map((match) => this.searchMatchEntityKey(match)).filter(Boolean));
+    const graphSourcePaths = new Set(input.graphMatches.map((match) => stringValue(match.sourcePath, '') || stringValue(match.path, '')).filter(Boolean));
+    const seedEntityKeys = new Set(input.graphMatches.map((match) => `${stringValue(match.seedEntityType, '')}:${stringValue(match.seedEntityId, '')}`).filter((key) => key !== ':'));
+    const scored: Array<{ match: Record<string, unknown>; score: number; index: number }> = candidatePool.map((match, index) => {
+      const score = this.searchMatchRetrievalScore(match, { graphEntityKeys, graphSourcePaths, seedEntityKeys });
+      return {
+        match: {
+          ...match,
+          retrievalScore: score.total,
+          retrievalSignals: score.signals
+        },
+        score: score.total,
+        index
+      };
+    });
+    scored.sort((left, right) => right.score - left.score || left.index - right.index);
+
+    const selected: Array<Record<string, unknown>> = [];
+    const deferred: Array<Record<string, unknown>> = [];
+    const sourcePathCounts = new Map<string, number>();
+    for (const entry of scored) {
+      if (selected.length >= MAX_SEARCH_MATCHES) break;
+      const sourcePath = stringValue(entry.match.sourcePath, '') || stringValue(entry.match.path, '');
+      const sourcePathCount = sourcePath ? sourcePathCounts.get(sourcePath) ?? 0 : 0;
+      const graphScore = numberValue((entry.match.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity, 0);
+      if (sourcePath && sourcePathCount >= 4 && graphScore <= 0 && selected.length < MAX_SEARCH_MATCHES - 6) {
+        deferred.push(entry.match);
+        continue;
+      }
+      selected.push(entry.match);
+      if (sourcePath) sourcePathCounts.set(sourcePath, sourcePathCount + 1);
+    }
+    for (const match of deferred) {
+      if (selected.length >= MAX_SEARCH_MATCHES) break;
+      selected.push(match);
+    }
+
+    return {
+      matches: selected,
+      metadataMatches: selected.filter((match) => match.kind === 'metadata').length,
+      semanticMatches: selected.filter((match) => match.kind === 'semantic').length,
+      graphMatches: selected.filter((match) => match.kind === 'graph').length
+    };
+  }
+
+  private searchMatchRetrievalScore(
+    match: Record<string, unknown>,
+    graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string> }
+  ): { total: number; signals: Record<string, number | string[]> } {
+    const kind = stringValue(match.kind, '');
+    const kindScore = kind === 'file' ? 100 : kind === 'artifact' ? 88 : kind === 'metadata' ? 72 : kind === 'semantic' ? 68 : kind === 'graph' ? 64 : 40;
+    const semanticScore = kind === 'semantic' ? Math.min(18, numberValue(match.semanticScore, 0) * 18) : 0;
+    const entityKey = this.searchMatchEntityKey(match);
+    const sourcePath = stringValue(match.sourcePath, '') || stringValue(match.path, '');
+    const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
+    const graphAdjacentBoost =
+      kind === 'graph'
+        ? this.graphEdgeRetrievalWeight(stringValue(match.graphEdgeKind, ''))
+        : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (sourcePath && graphContext.graphSourcePaths.has(sourcePath))
+          ? 6
+          : 0;
+    const linePrecision = numberValue(match.line, 0) > 0 || stringValue(match.range, '') ? 3 : 0;
+    const sourceBacked = sourcePath ? 2 : 0;
+    const total = Math.round((kindScore + semanticScore + graphSeedBoost + graphAdjacentBoost + linePrecision + sourceBacked) * 100) / 100;
+    const reasons = [
+      `${kind || 'unknown'} match`,
+      graphSeedBoost > 0 ? 'graph seed' : '',
+      graphAdjacentBoost > 0 ? 'graph proximity' : '',
+      linePrecision > 0 ? 'line/range provenance' : '',
+      sourceBacked > 0 ? 'source-backed' : ''
+    ].filter(Boolean);
+    return {
+      total,
+      signals: {
+        kind: kindScore,
+        semantic: Math.round(semanticScore * 100) / 100,
+        graphSeed: graphSeedBoost,
+        graphProximity: graphAdjacentBoost,
+        linePrecision,
+        sourceBacked,
+        reasons
+      }
+    };
+  }
+
+  private graphEdgeRetrievalWeight(edgeKind: string): number {
+    if (['reaches_sink', 'checks_permission', 'routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind)) return 18;
+    if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
+    if (['supports_hypothesis', 'verifies_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
+    return 8;
+  }
+
+  private searchMatchEntityKey(match: Record<string, unknown>): string {
+    const entityType = stringValue(match.entityType, '');
+    const entityId = stringValue(match.entityId, '');
+    return entityType && entityId ? `${entityType}:${entityId}` : '';
   }
 
   private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {

@@ -111,6 +111,7 @@ The fourth implementation starts Layer 4:
 - `code_browser` includes a capped graph neighborhood for structural entity reads using the current graph state.
 - Tool payloads expose graph status through `projectGraph`.
 - Model-facing `search` now performs a bounded graph-proximity expansion from metadata and semantic seed hits, returning `kind: graph` matches with edge provenance while avoiding inline graph rebuilds during tool turns.
+- Search ranking now treats graph seed and proximity as retrieval signals, so graph-adjacent entities can promote or diversify the final bounded result set instead of only filling unused result slots.
 
 ## Index Layers
 
@@ -251,7 +252,7 @@ Suggested flow:
 1. Interpret the current research objective, selected session mode, program scope, prior hypotheses, and active evidence trail.
 2. Build a query plan with lexical, metadata, structural, semantic, and graph subqueries.
 3. Retrieve bounded candidates from each available layer.
-4. Rerank candidates using source type, scope confidence, recency, evidence linkage, duplicate risk, and query relevance.
+4. Rerank candidates using source type, scope confidence, graph proximity, recency, evidence linkage, duplicate risk, and query relevance.
 5. Return a compact explanation of why each candidate was selected.
 6. Let `code_browser` or equivalent entity readers fetch exact bounded ranges.
 7. Record retrieval provenance as trace events so the researcher can audit why context was shown.

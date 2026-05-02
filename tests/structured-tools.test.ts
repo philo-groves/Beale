@@ -139,7 +139,10 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);
-    expect((structureSearch.payload.matches as Array<Record<string, unknown>>).some((match) => match.kind === 'graph')).toBe(true);
+    const graphToolMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph');
+    expect(graphToolMatch).toBeTruthy();
+    expect(Number(graphToolMatch?.retrievalScore)).toBeGreaterThan(0);
+    expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity)).toBeGreaterThan(0);
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
