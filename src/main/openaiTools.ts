@@ -101,6 +101,7 @@ interface SearchRetrievalDiagnostics {
   topScoringSignals: Record<string, number>;
   selectedRelationshipFamilies: Record<string, number>;
   missingReasons: Array<Record<string, unknown>>;
+  operationalHints: Array<Record<string, unknown>>;
   adaptiveFollowUp: Record<string, unknown> | null;
 }
 
@@ -671,6 +672,20 @@ export class BealeToolRouter {
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
     const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
     const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
+    const sourceHint =
+      files.length === 0 && collection.unmaterializedSource
+        ? `Scoped repository ${collection.unmaterializedSource.url} is not materialized. Use the source tool, then retry search.`
+        : files.length === 0 && sourceCandidates.length > 0
+          ? 'No local source files were available for this target. Use the source tool to materialize an in-scope repository, or search with an empty target.'
+          : null;
+    const missingReasons = this.retrievalMissingReasons({
+      queryPlan,
+      diagnostics: searchAssembly.diagnostics,
+      inventorySummary,
+      structureSummary,
+      graphSummary,
+      semanticSummary
+    });
     const retrievalDiagnostics = {
       ...searchAssembly.diagnostics,
       feedback: {
@@ -678,22 +693,19 @@ export class BealeToolRouter {
         verifiedEntityCount: feedbackSummary.verifiedEntityKeys.length,
         correctedNegativeEntityCount: feedbackSummary.correctedNegativeEntityKeys.length
       },
-      missingReasons: this.retrievalMissingReasons({
+      missingReasons,
+      operationalHints: this.retrievalOperationalHints({
         queryPlan,
         diagnostics: searchAssembly.diagnostics,
         inventorySummary,
         structureSummary,
         graphSummary,
-        semanticSummary
+        semanticSummary,
+        sourceHint,
+        missingReasons
       })
     };
 
-    const sourceHint =
-      files.length === 0 && collection.unmaterializedSource
-        ? `Scoped repository ${collection.unmaterializedSource.url} is not materialized. Use the source tool, then retry search.`
-        : files.length === 0 && sourceCandidates.length > 0
-          ? 'No local source files were available for this target. Use the source tool to materialize an in-scope repository, or search with an empty target.'
-          : null;
     const summary =
       sourceHint ??
       `Examined ${files.length} file${files.length === 1 ? '' : 's'} and returned ${matches.length} match${matches.length === 1 ? '' : 'es'}.`;
@@ -2242,6 +2254,7 @@ export class BealeToolRouter {
         topScoringSignals: this.topRetrievalSignalTotals(selected, 8),
         selectedRelationshipFamilies: this.retrievalRelationshipFamilyCounts(selected),
         missingReasons: [],
+        operationalHints: [],
         adaptiveFollowUp: input.adaptiveFollowUp ?? null
       }
     };
@@ -2502,6 +2515,111 @@ export class BealeToolRouter {
       });
     }
     return reasons;
+  }
+
+  private retrievalOperationalHints(input: {
+    queryPlan: SearchQueryPlan;
+    diagnostics: SearchRetrievalDiagnostics;
+    inventorySummary: ReturnType<WorkspaceDatabase['getProjectInventorySummary']>;
+    structureSummary: ReturnType<WorkspaceDatabase['getProjectStructureSummary']>;
+    graphSummary: ReturnType<WorkspaceDatabase['getProjectGraphSummary']>;
+    semanticSummary: ReturnType<WorkspaceDatabase['getProjectSemanticSummary']>;
+    sourceHint: string | null;
+    missingReasons: Array<Record<string, unknown>>;
+  }): Array<Record<string, unknown>> {
+    const hints: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    const add = (layer: string, code: string, message: string, action: string, details: Record<string, unknown> = {}) => {
+      if (seen.has(code)) return;
+      seen.add(code);
+      hints.push({ layer, code, message, action, ...details });
+    };
+
+    if (input.sourceHint) {
+      add('source', 'materialize_source', input.sourceHint, 'Use the source tool to materialize the scoped repository, then rerun search.');
+    }
+    if (input.inventorySummary.itemCount === 0 && !input.inventorySummary.indexedAt) {
+      add('inventory', 'run_indexing', 'Project inventory is empty.', 'Run project indexing or materialize source before relying on metadata, structure, semantic, or graph retrieval.');
+    }
+    if (input.structureSummary.status !== 'ready' || input.structureSummary.entityCount === 0) {
+      add('structure', 'run_structural_indexing', `Structural index is ${input.structureSummary.status}.`, 'Run indexing so route, symbol, call-site, sink, and permission entities are available.', {
+        status: input.structureSummary.status,
+        entityCount: input.structureSummary.entityCount,
+        indexedFileCount: input.structureSummary.indexedFileCount
+      });
+    }
+
+    if (input.semanticSummary.status === 'disabled') {
+      add('semantic', 'enable_semantic_index', 'Semantic index is disabled.', 'Enable semantic indexing for the program if semantic or concept search is needed.');
+    } else if (input.semanticSummary.status === 'empty') {
+      add('semantic', 'run_semantic_indexing', 'Semantic index is empty.', 'Run semantic indexing from Settings or wait for the background indexer to populate chunks.', {
+        sourceDocumentCount: input.semanticSummary.sourceDocumentCount
+      });
+    } else if (input.semanticSummary.status === 'stale') {
+      add('semantic', 'rebuild_semantic_index', 'Semantic index is stale.', 'Rebuild semantic indexing so new or changed project documents are searchable.', {
+        indexedSourceDocumentCount: input.semanticSummary.indexedSourceDocumentCount,
+        sourceDocumentCount: input.semanticSummary.sourceDocumentCount
+      });
+    } else if (input.semanticSummary.status === 'queued' || input.semanticSummary.status === 'indexing') {
+      add('semantic', 'wait_for_semantic_indexing', `Semantic index is ${input.semanticSummary.status}.`, 'Wait for the background semantic indexer to finish, then rerun search.', {
+        progressProcessed: input.semanticSummary.progressProcessed,
+        progressTotal: input.semanticSummary.progressTotal
+      });
+    } else if (input.semanticSummary.status === 'error') {
+      add('semantic', 'inspect_semantic_index_error', 'Semantic indexing failed.', 'Inspect semantic index status and retry rebuild after resolving the error.', {
+        lastError: input.semanticSummary.lastError
+      });
+    }
+
+    if (input.graphSummary.status === 'empty') {
+      add('graph', 'run_graph_indexing', 'Graph index is empty.', 'Run indexing so graph proximity and variant retrieval can use inventory, structure, and research-memory relationships.');
+    } else if (input.graphSummary.status === 'stale') {
+      add('graph', 'rebuild_graph_index', 'Graph index is stale.', 'Rebuild graph indexing before relying on graph retrieval.', {
+        staleReasons: input.graphSummary.staleReasons,
+        rebuildReason: input.graphSummary.rebuildReason
+      });
+    } else if (input.graphSummary.status !== 'ready') {
+      add('graph', 'inspect_graph_index', `Graph index is ${input.graphSummary.status}.`, 'Inspect graph status before relying on graph retrieval.');
+    } else if (input.graphSummary.nodeCount > 0 && input.diagnostics.graphExpansionCount === 0) {
+      add('graph', 'no_graph_seed_entities', 'Graph is ready but search produced no graph expansion.', 'Search for a precise symbol, route, file, or research-memory term that maps to indexed graph entities.', {
+        nodeCount: input.graphSummary.nodeCount,
+        edgeCount: input.graphSummary.edgeCount
+      });
+    }
+
+    if (input.queryPlan.intents.includes('route_api_lookup')) {
+      if (input.structureSummary.routeCount === 0) {
+        add('structure', 'no_route_entities', 'No route entities are indexed.', 'Run structural indexing or verify the target uses a supported route framework.');
+      }
+      if ((input.graphSummary.edgeFamilyCounts.routes_to ?? 0) === 0) {
+        add('graph', 'graph_has_no_routes_to_edges', 'Graph has no routes_to edges.', 'Run graph indexing after structural route extraction, or verify route/controller extraction supports this framework.', {
+          handlesWithEdges: input.graphSummary.edgeFamilyCounts.handles_with ?? 0
+        });
+      }
+    }
+    if (input.queryPlan.intents.includes('auth_permission_question') && (input.graphSummary.edgeFamilyCounts.checks_permission ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.references_permission ?? 0) === 0) {
+      add('graph', 'graph_has_no_permission_edges', 'Graph has no permission-check edges.', 'Run structural and graph indexing, or inspect whether permission checks use unsupported framework patterns.');
+    }
+    if (input.queryPlan.intents.includes('sink_data_flow_question') && (input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.reads_model ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.writes_model ?? 0) === 0) {
+      add('graph', 'graph_has_no_sink_or_model_edges', 'Graph has no sink or model read/write edges.', 'Run structural and graph indexing, or inspect whether sink/model patterns are unsupported.');
+    }
+    if (input.queryPlan.intents.includes('binary_orientation') && input.inventorySummary.binaryCount === 0) {
+      add('inventory', 'no_binaries_indexed', 'No scoped binaries are indexed.', 'Import or scope binary artifacts before relying on binary orientation search.');
+    }
+    if (input.queryPlan.intents.includes('prior_research_memory') && (input.graphSummary.nodeFamilyCounts.hypothesis ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.finding ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.evidence ?? 0) === 0) {
+      add('research_memory', 'no_research_memory_nodes', 'No research-memory graph nodes are indexed.', 'Create or import hypotheses, findings, or evidence before relying on prior research traversal.');
+    }
+    if (input.queryPlan.intents.includes('variant_similarity_search') && numberValue(input.diagnostics.candidateCountsByLayer.graph_variant, 0) === 0) {
+      add('graph', 'no_variant_candidates', 'No graph-backed variant candidates were produced.', 'Seed the search with an indexed route, handler, sink, permission, binary symbol, hypothesis, or finding.');
+    }
+
+    for (const reason of input.missingReasons) {
+      const code = stringValue(reason.code, '');
+      if (code === 'semantic_candidates_not_selected') {
+        add('ranking', 'semantic_candidates_not_selected', 'Semantic candidates were available but not selected.', 'Broaden the query or inspect retrievalSignals to see whether exact, graph, or negative-confidence signals dominated.');
+      }
+    }
+    return hints.slice(0, 12);
   }
 
   private retrievalSourcePathCap(queryPlan: SearchQueryPlan): number {

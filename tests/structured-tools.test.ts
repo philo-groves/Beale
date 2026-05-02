@@ -152,6 +152,7 @@ describe('structured research tools', () => {
     expect(Number((structureSearch.payload.retrievalDiagnostics as Record<string, unknown>).dedupeCount)).toBeGreaterThanOrEqual(0);
     expect(Number((structureSearch.payload.retrievalDiagnostics as Record<string, unknown>).graphExpansionCount)).toBeGreaterThanOrEqual(1);
     expect((structureSearch.payload.retrievalDiagnostics as { missingReasons: Array<Record<string, unknown>> }).missingReasons).toEqual(expect.any(Array));
+    expect((structureSearch.payload.retrievalDiagnostics as { operationalHints: Array<Record<string, unknown>> }).operationalHints).toEqual(expect.any(Array));
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);
@@ -337,6 +338,9 @@ describe('structured research tools', () => {
     expect(staleSemanticToolSearch.status).toBe('success');
     expect(staleSemanticToolSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale' });
     expect((staleSemanticToolSearch.payload.retrievalDiagnostics as { missingReasons: Array<Record<string, unknown>> }).missingReasons.some((reason) => reason.code === 'semantic_index_stale')).toBe(true);
+    expect((staleSemanticToolSearch.payload.retrievalDiagnostics as { operationalHints: Array<Record<string, unknown>> }).operationalHints).toEqual(
+      expect.arrayContaining([expect.objectContaining({ layer: 'semantic', code: 'rebuild_semantic_index' })])
+    );
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'stale' });
     const semanticResults = db.searchProjectSemanticChunksForRun(context.run.id, 'android mobile camera permission', 5);
     expect(db.getProjectSemanticSummary(context.run.scopeVersionId)).toMatchObject({ enabled: true, status: 'ready' });

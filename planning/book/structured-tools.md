@@ -108,6 +108,7 @@ Expected outputs:
 - Result-set diversification that keeps the top exact hit, caps repeated source paths for broad queries, and rotates relationship families when graph or semantic retrieval finds related files.
 - Retrieval diagnostics in `retrievalDiagnostics`, including layer candidate counts, selected layer counts, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Explicit `retrievalDiagnostics.missingReasons` entries for stale/empty indexes, no graph expansion seeds, unselected semantic candidates, and query-intent/index mismatches.
+- Concise `retrievalDiagnostics.operationalHints` entries for actions such as materializing source, running indexing, rebuilding stale semantic/graph indexes, and inspecting missing route, permission, sink, binary, or research-memory coverage.
 - Bounded adaptive follow-up search for weak first-pass coverage, reported under `retrievalDiagnostics.adaptiveFollowUp`.
 - Read-budget hints on top matches through `readPriority`, `readReason`, and `suggestedNextRead` code-browser arguments.
 - Negative/low-confidence ranking signals that keep duplicate, dismissed, false-positive, not-reproducible, out-of-scope, and low-evidence research memory visible but downranked through `retrievalSignals.negativeConfidence`.

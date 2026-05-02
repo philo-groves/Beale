@@ -52,6 +52,7 @@
 - Added identifier-aware semantic tokenization and hybrid semantic ranking provenance for local semantic search matches.
 - Added semantic index stale detection, indexed-source counts, approximate index size, and rebuild-duration reporting.
 - Added cross-run retrieval feedback from accepted code reads, verifier-backed research outcomes, and corrected negative research states into search scoring and diagnostics.
+- Added layer-specific operational retrieval hints for source materialization, indexing, semantic, graph, structure, binary, and research-memory gaps.
 
 ### Changed
 
