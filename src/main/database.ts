@@ -2028,6 +2028,8 @@ function extractProjectStructureCandidates(path: string, language: string, text:
   };
 
   extractTypeScriptAstStructureCandidates(path, language, text, lines, add);
+  extractJavaParserLightStructureCandidates(language, lines, add);
+  extractGoParserLightStructureCandidates(lines, language, add);
 
   for (const [index, line] of lines.entries()) {
     const lineStart = index + 1;
@@ -2103,6 +2105,20 @@ function extractImportCandidate(line: string, language: string, lineStart: numbe
       lineEnd: lineStart,
       metadata: { module: rustUse[1], importStyle: 'rust' },
       relations: [{ relationKind: 'imports', targetKind: 'module', targetName: rustUse[1] }]
+    });
+    return;
+  }
+
+  const goImport = /^\s*import\s+(?:[A-Za-z_]\w*\s+)?["`]([^"`]+)["`]/.exec(line);
+  if (language === 'go' && goImport?.[1]) {
+    add({
+      entityKind: 'import',
+      name: goImport[1],
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { module: goImport[1], importStyle: 'go' },
+      relations: [{ relationKind: 'imports', targetKind: 'module', targetName: goImport[1] }]
     });
   }
 }
@@ -2885,6 +2901,214 @@ function typeScriptCalleeName(expression: ts.Expression): string | null {
   if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
   if (ts.isElementAccessExpression(expression) && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
   return null;
+}
+
+interface ParserLightOwnerRange {
+  name: string;
+  kind: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
+function extractJavaParserLightStructureCandidates(language: string, lines: string[], add: (candidate: ProjectStructureCandidate) => void): void {
+  if (language !== 'java') return;
+  const owners: ParserLightOwnerRange[] = [];
+  for (const [index, line] of lines.entries()) {
+    const lineStart = index + 1;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('@')) continue;
+
+    const typeMatch = /^\s*(?:public|private|protected|abstract|final|sealed|static|\s)*(class|interface|enum|record)\s+([A-Za-z_]\w*)/.exec(line);
+    if (typeMatch) {
+      const lineEnd = parserLightBlockEnd(lines, index);
+      owners.push({ name: typeMatch[2], kind: 'class', lineStart, lineEnd });
+      add({
+        entityKind: 'class',
+        name: typeMatch[2],
+        signature: trimmed,
+        lineStart,
+        lineEnd,
+        metadata: { definitionStyle: typeMatch[1], extractionFamily: 'java_parser_light' }
+      });
+      continue;
+    }
+
+    const methodMatch =
+      /^\s*(?:public|private|protected|static|final|abstract|synchronized|native|default|strictfp|\s)*(?:<[^>]+>\s*)?(?:[A-Za-z_$][\w$]*(?:<[^>{};]+>)?(?:\[\])?(?:\s*,\s*)?\s+)+([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*(?:throws\s+[^{]+)?\{/.exec(line) ??
+      /^\s*([A-Za-z_$][\w$]*)\s*\([^;{}]*\)\s*\{/.exec(line);
+    if (methodMatch?.[1] && !isControlKeyword(methodMatch[1]) && !javaParserLightLooksLikeConstructor(methodMatch[1], owners, lineStart)) {
+      const lineEnd = parserLightBlockEnd(lines, index);
+      owners.push({ name: methodMatch[1], kind: 'method', lineStart, lineEnd });
+      add({
+        entityKind: 'method',
+        name: methodMatch[1],
+        signature: trimmed,
+        lineStart,
+        lineEnd,
+        metadata: { definitionStyle: 'java_parser_light_method', extractionFamily: 'java_parser_light' }
+      });
+    }
+  }
+
+  extractParserLightCallSites(lines, 'java', owners, 'java_parser_light_call_graph', add);
+}
+
+function javaParserLightLooksLikeConstructor(name: string, owners: ParserLightOwnerRange[], lineStart: number): boolean {
+  const owner = parserLightOwnerForLine(owners, lineStart);
+  return owner?.kind === 'class' && owner.name === name;
+}
+
+function extractGoParserLightStructureCandidates(lines: string[], language: string, add: (candidate: ProjectStructureCandidate) => void): void {
+  if (language !== 'go') return;
+  const owners: ParserLightOwnerRange[] = [];
+  let inImportBlock = false;
+  for (const [index, line] of lines.entries()) {
+    const lineStart = index + 1;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//')) continue;
+
+    if (/^import\s*\(\s*$/.test(trimmed)) {
+      inImportBlock = true;
+      continue;
+    }
+    if (inImportBlock) {
+      if (trimmed === ')') {
+        inImportBlock = false;
+        continue;
+      }
+      const blockImport = /^(?:[A-Za-z_]\w*|\.)?\s*["`]([^"`]+)["`]/.exec(trimmed);
+      if (blockImport?.[1]) {
+        add({
+          entityKind: 'import',
+          name: blockImport[1],
+          signature: line,
+          lineStart,
+          lineEnd: lineStart,
+          metadata: { module: blockImport[1], importStyle: 'go_block', extractionFamily: 'go_parser_light' },
+          relations: [{ relationKind: 'imports', targetKind: 'module', targetName: blockImport[1] }]
+        });
+      }
+      continue;
+    }
+
+    const typeMatch = /^\s*type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b/.exec(line);
+    if (typeMatch?.[1]) {
+      const lineEnd = parserLightBlockEnd(lines, index);
+      owners.push({ name: typeMatch[1], kind: 'type', lineStart, lineEnd });
+      add({
+        entityKind: 'type',
+        name: typeMatch[1],
+        signature: trimmed,
+        lineStart,
+        lineEnd,
+        metadata: { definitionStyle: 'go_type', extractionFamily: 'go_parser_light' }
+      });
+      continue;
+    }
+
+    const functionMatch = /^\s*func\s+(?:\(([^)]+)\)\s*)?([A-Za-z_]\w*)\s*\(/.exec(line);
+    if (functionMatch?.[2]) {
+      const receiver = goReceiverType(functionMatch[1] ?? '');
+      const lineEnd = parserLightBlockEnd(lines, index);
+      const entityKind = receiver ? 'method' : 'function';
+      owners.push({ name: functionMatch[2], kind: entityKind, lineStart, lineEnd });
+      add({
+        entityKind,
+        name: functionMatch[2],
+        signature: trimmed,
+        lineStart,
+        lineEnd,
+        metadata: { definitionStyle: receiver ? 'go_method' : 'go_function', extractionFamily: 'go_parser_light', receiver: receiver ?? null }
+      });
+    }
+  }
+
+  extractParserLightCallSites(lines, 'go', owners, 'go_parser_light_call_graph', add);
+}
+
+function goReceiverType(receiver: string): string | null {
+  if (!receiver.trim()) return null;
+  const parts = receiver.trim().split(/\s+/);
+  const typeName = (parts.at(-1) ?? '').replace(/^\*/, '');
+  return typeName || null;
+}
+
+function extractParserLightCallSites(
+  lines: string[],
+  language: string,
+  owners: ParserLightOwnerRange[],
+  extractionFamily: string,
+  add: (candidate: ProjectStructureCandidate) => void
+): void {
+  const seen = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    const lineStart = index + 1;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('@')) continue;
+    if (definitionLineLooksLikeDeclaration(line, language)) continue;
+    const owner = parserLightOwnerForLine(owners, lineStart);
+    for (const callee of parserLightCalleesFromLine(line, language)) {
+      const key = `${callee}:${lineStart}:${owner?.name ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      add({
+        entityKind: 'call_site',
+        name: callee,
+        signature: trimmed,
+        lineStart,
+        lineEnd: lineStart,
+        metadata: {
+          callee,
+          language,
+          relationKind: 'calls',
+          extractionFamily,
+          ownerKind: owner?.kind ?? null,
+          ownerName: owner?.name ?? null,
+          ownerLineStart: owner?.lineStart ?? null
+        },
+        relations: [{ relationKind: 'calls', targetKind: 'function', targetName: callee, metadata: { extractionFamily } }]
+      });
+    }
+  }
+}
+
+function parserLightCalleesFromLine(line: string, language: string): string[] {
+  const callees = new Set<string>();
+  const pattern = language === 'go' ? /\b(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*)\s*\(/g : /\b(?:[A-Za-z_$][\w$]*\.)?([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const match of line.matchAll(pattern)) {
+    const name = match[1];
+    if (!name || isControlKeyword(name) || isCommonStructuralNoise(name)) continue;
+    if (language === 'java' && /^[A-Z]/.test(name) && /\bnew\s+[A-Za-z_$][\w$]*\s*\(/.test(line)) continue;
+    callees.add(name);
+    if (callees.size >= 8) break;
+  }
+  return Array.from(callees);
+}
+
+function parserLightOwnerForLine(owners: ParserLightOwnerRange[], lineStart: number): ParserLightOwnerRange | null {
+  return (
+    owners
+      .filter((owner) => owner.lineStart <= lineStart && owner.lineEnd >= lineStart)
+      .sort((left, right) => left.lineEnd - left.lineStart - (right.lineEnd - right.lineStart))[0] ?? null
+  );
+}
+
+function parserLightBlockEnd(lines: string[], startIndex: number): number {
+  let depth = 0;
+  let sawBrace = false;
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const withoutStrings = lines[index].replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '');
+    for (const char of withoutStrings) {
+      if (char === '{') {
+        depth += 1;
+        sawBrace = true;
+      } else if (char === '}') {
+        depth -= 1;
+        if (sawBrace && depth <= 0) return index + 1;
+      }
+    }
+  }
+  return startIndex + 1;
 }
 
 function classifyProjectSink(name: string): string {

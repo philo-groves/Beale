@@ -73,7 +73,7 @@ The second implementation starts Layer 2:
 - Relation targets are resolved after each structural scan, first by same-file identity and then by scoped name matching where the target kind is unambiguous enough for beta navigation.
 - `code_browser` uses matching structural entities for stable symbol ranges and returns nearby contained entities, outgoing relationships, and incoming references with the excerpt.
 - The structure summary exposes status, indexed-file count, unresolved-relation count, truncated-entity count, and indexed time for tool payloads and future UI status surfaces.
-- This is intentionally parser-light for beta. The first call-graph accuracy pass uses the existing TypeScript compiler API for JS/TS instead of adding native Tree-sitter dependencies. Python, Java, broader language-server integration, binary CFGs, and web route crawls remain future structural work.
+- This is intentionally parser-light for beta. The first call-graph accuracy pass uses the existing TypeScript compiler API for JS/TS instead of adding native Tree-sitter dependencies, with parser-light Java and Go range/call extraction added as the next language rollout. Python, broader language-server integration, binary CFGs, and web route crawls remain future structural work.
 
 The third implementation starts Layer 3:
 
@@ -119,6 +119,7 @@ The fourth implementation starts Layer 4:
 - Parser-light structural extraction now adds framework-specific route/controller/model edges for Express/Koa-style routers, Fastify, Next.js routes, Rails routes/resources, Django URLConf, Laravel routes, request parsing, response serialization, and model read/write calls.
 - Binary graph extraction now adds parser-light nodes and direct binary file edges for imported symbols, exported symbols, notable strings, URLs, and Android permissions from bounded binary strings.
 - JS/TS structural extraction now uses the TypeScript compiler API during the same background indexing path to add AST-backed method definitions and call-site edges while graph status exposes TypeScript AST extraction family counts and `calls` edge family counts.
+- Java and Go structural extraction now add parser-light class/type/function/method ranges, imports, and owner-aware call-site edges with extraction family counts for `java_parser_light`, `java_parser_light_call_graph`, `go_parser_light`, and `go_parser_light_call_graph`.
 
 ## Index Layers
 

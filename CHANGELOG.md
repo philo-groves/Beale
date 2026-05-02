@@ -97,6 +97,7 @@
 - Added parser-light framework extraction for Fastify, Rails, Django, and Laravel routes plus request parsing, response serialization, and model read/write structural edges.
 - Added parser-light binary graph edges for imported symbols, exported symbols, notable strings, URLs, and Android permissions derived from bounded binary strings.
 - Added TypeScript compiler API-backed JS/TS structural extraction for method definitions and more accurate call-site graph edges during background indexing.
+- Added parser-light Java and Go structural extraction for class/type/function/method ranges, imports, and owner-aware call-site graph edges.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

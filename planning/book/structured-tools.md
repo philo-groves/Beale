@@ -77,6 +77,7 @@ Backends may include:
 - Bounded binary-derived strings indexed from scoped binaries.
 - Structural index records for best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
 - JS/TS AST-backed structural records for method definitions and call-site edges from the TypeScript compiler API.
+- Parser-light Java and Go structural records for class/type/function/method ranges, imports, and owner-aware call-site edges.
 - Framework-specific structural records for route/controller/model relationships, request parsing, response serialization, and model read/write edges where parser-light extraction can identify them.
 - Binary graph records for imported symbols, exported symbols, notable strings, referenced URLs, and referenced permissions where bounded binary-string extraction can identify them.
 - SQLite graph nodes and edges derived from scope assets, inventory items, structural entities, and structural relations.

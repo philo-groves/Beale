@@ -197,6 +197,10 @@ describe('structured research tools', () => {
     expect(db.searchProjectDocumentsForRun(context.run.id, 'writes_model order').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'writes_model')).toBe(true);
     expect(db.searchProjectDocumentsForRun(context.run.id, 'method save typescript_ast_method').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'method' && result.metadata.extractionFamily === 'typescript_ast')).toBe(true);
     expect(db.searchProjectDocumentsForRun(context.run.id, 'createOrder typescript_ast_call_graph').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'call_site' && result.metadata.extractionFamily === 'typescript_ast_call_graph')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'OrderService java_parser_light').some((result) => result.entityType === 'structure_entity' && result.metadata.extractionFamily === 'java_parser_light')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'auditOrder java_parser_light_call_graph').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'call_site' && result.metadata.extractionFamily === 'java_parser_light_call_graph')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'OrderHandler go_parser_light').some((result) => result.entityType === 'structure_entity' && result.metadata.extractionFamily === 'go_parser_light')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'writeOrder go_parser_light_call_graph').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'call_site' && result.metadata.extractionFamily === 'go_parser_light_call_graph')).toBe(true);
     const frameworkGraph = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'structure_entity', frameworkRouteSearch.find((result) => result.metadata.routeStyle === 'fastify_route_object')?.entityId ?? '', { depth: 2 });
     expect(frameworkGraph.edges.some((edge) => edge.edgeKind === 'handles_with' && edge.targetLabel === 'createOrder')).toBe(true);
     const frameworkGraphSummary = db.getProjectGraphSummary(context.run.scopeVersionId);
@@ -204,6 +208,10 @@ describe('structured research tools', () => {
     expect(frameworkGraphSummary.edgeFamilyCounts.calls).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.extractionFamilyCounts.typescript_ast).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.extractionFamilyCounts.typescript_ast_call_graph).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.java_parser_light).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.java_parser_light_call_graph).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.go_parser_light).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.go_parser_light_call_graph).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.parses_body).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.serializes_response).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.reads_model).toBeGreaterThanOrEqual(1);
@@ -1291,6 +1299,7 @@ function openStructuredToolDb(
   const targetDir = join(dir, 'target');
   mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
   mkdirSync(join(targetDir, 'src'), { recursive: true });
+  mkdirSync(join(targetDir, 'src', 'main', 'java', 'com', 'example'), { recursive: true });
   mkdirSync(join(targetDir, 'bin'), { recursive: true });
   mkdirSync(join(targetDir, 'config'), { recursive: true });
   mkdirSync(join(targetDir, 'django_app'), { recursive: true });
@@ -1300,6 +1309,8 @@ function openStructuredToolDb(
   const routeFile = join(targetDir, 'src', 'routes.js');
   const authFile = join(targetDir, 'src', 'auth.js');
   const frameworkFile = join(targetDir, 'src', 'framework-routes.js');
+  const javaFile = join(targetDir, 'src', 'main', 'java', 'com', 'example', 'OrderService.java');
+  const goFile = join(targetDir, 'src', 'orders.go');
   const binaryFile = join(targetDir, 'bin', 'target.bin');
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
@@ -1311,6 +1322,14 @@ function openStructuredToolDb(
   writeFileSync(
     frameworkFile,
     "const fastify = require('fastify')();\nfastify.get('/api/orders', requireAuth, listOrders);\nfastify.route({ method: 'POST', url: '/api/orders', handler: createOrder });\nasync function listOrders(req, reply) {\n  const filter = req.query.filter;\n  const rows = await prisma.order.findMany({ where: filter });\n  return reply.send(rows);\n}\nasync function createOrder(request, reply) {\n  const body = request.body;\n  const row = await prisma.order.create({ data: body });\n  return reply.status(201).send(row);\n}\nclass OrderController {\n  async save(request, reply) {\n    auditOrder(request.body);\n    return createOrder(request, reply);\n  }\n}\nfunction auditOrder(body) {\n  return sanitizeOrder(body);\n}\nfunction sanitizeOrder(body) {\n  return body;\n}\n"
+  );
+  writeFileSync(
+    javaFile,
+    "package com.example;\nimport java.util.Objects;\npublic class OrderService {\n  public Order save(Order input) {\n    validateOrder(input);\n    return repository.save(input);\n  }\n  private void validateOrder(Order input) {\n    Objects.requireNonNull(input);\n    auditOrder(input);\n  }\n}\n"
+  );
+  writeFileSync(
+    goFile,
+    "package target\nimport (\n  \"encoding/json\"\n  \"net/http\"\n)\ntype OrderHandler struct{}\nfunc (h *OrderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n  order := decodeOrder(r)\n  writeOrder(w, order)\n}\nfunc decodeOrder(r *http.Request) Order {\n  validateOrder(r)\n  return Order{}\n}\nfunc writeOrder(w http.ResponseWriter, order Order) {\n  json.NewEncoder(w).Encode(order)\n}\ntype Order struct{}\n"
   );
   writeFileSync(
     binaryFile,
