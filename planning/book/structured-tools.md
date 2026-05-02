@@ -77,6 +77,7 @@ Backends may include:
 - Bounded binary-derived strings indexed from scoped binaries.
 - Structural index records for best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
 - Framework-specific structural records for route/controller/model relationships, request parsing, response serialization, and model read/write edges where parser-light extraction can identify them.
+- Binary graph records for imported symbols, exported symbols, notable strings, referenced URLs, and referenced permissions where bounded binary-string extraction can identify them.
 - SQLite graph nodes and edges derived from scope assets, inventory items, structural entities, and structural relations.
 - Per-program local semantic chunks for concept searches across indexed project metadata and Beale research memory, with identifier-aware tokenization and hybrid local reranking.
 - Later indexed metadata from deeper references, call graphs, components, CVEs, CWEs, and notes as the structural and graph layers mature.
@@ -91,7 +92,8 @@ Expected outputs:
 - Semantic match scores, matched terms, rank reasons, score breakdowns, and source chunk metadata when semantic indexing is enabled.
 - Graph status, counts, and capped graph neighborhoods for structural reads so graph-backed retrieval can be enabled without changing the model-facing tool surface.
 - Graph-proximity search matches with seed entity, edge kind, graph distance, and rank reason when metadata or semantic hits have useful adjacent nodes.
-- Graph-backed variant matches for entities that share relationship targets such as sinks, permission checks, middleware, hypotheses, or findings.
+- Graph-backed variant matches for entities that share relationship targets such as sinks, permission checks, middleware, binary imports/exports, referenced URLs/permissions, hypotheses, or findings.
+- Binary graph neighborhoods for scoped binaries, including `imports_symbol`, `exports_symbol`, `contains_string`, `references_url`, and `references_permission` edge families.
 - Research-memory graph links for components, CWE mappings, duplicate hypotheses/findings, evidence support, verifier outcomes, and artifact-producing traces.
 - Graph operational diagnostics including stale reasons, rebuild reason, build count, expected node count, and node/edge family counts.
 - Code-to-research-memory graph variants when source-backed hits match component anchors from prior hypotheses or findings.

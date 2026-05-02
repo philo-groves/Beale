@@ -82,6 +82,7 @@ describe('structured research tools', () => {
     const binaryIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'CRASH_SIG');
     expect(JSON.stringify(binaryIndexSearch)).toContain('inventory_item');
     expect(JSON.stringify(binaryIndexSearch)).toContain('CRASH_SIG');
+    const binaryInventoryHit = binaryIndexSearch.find((result) => result.entityType === 'inventory_item' && result.sourcePath === binaryFile);
 
     db.appendTraceEvent({
       runId: context.run.id,
@@ -211,6 +212,23 @@ describe('structured research tools', () => {
     expect(webStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'web_endpoint')).toBe(true);
     const binaryStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'Java_com_example_Native');
     expect(binaryStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_symbol')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'IMPORT memcpy').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_imported_symbol')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'EXPORT JNI_OnLoad').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_exported_symbol')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'CRASH_SIG_NEAR_PARSE contains_string').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'binary_string')).toBe(true);
+    const binaryGraphSummary = db.getProjectGraphSummary(context.run.scopeVersionId);
+    expect(binaryGraphSummary.edgeFamilyCounts.imports_symbol).toBeGreaterThanOrEqual(1);
+    expect(binaryGraphSummary.edgeFamilyCounts.exports_symbol).toBeGreaterThanOrEqual(1);
+    expect(binaryGraphSummary.edgeFamilyCounts.contains_string).toBeGreaterThanOrEqual(1);
+    expect(binaryGraphSummary.edgeFamilyCounts.references_url).toBeGreaterThanOrEqual(1);
+    expect(binaryGraphSummary.edgeFamilyCounts.references_permission).toBeGreaterThanOrEqual(1);
+    const binaryGraph = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'inventory_item', binaryInventoryHit?.entityId ?? '', {
+      depth: 1,
+      edgeKinds: ['imports_symbol', 'exports_symbol', 'contains_string', 'references_url', 'references_permission']
+    });
+    expect(binaryGraph.edges.some((edge) => edge.edgeKind === 'imports_symbol' && edge.targetLabel === 'memcpy')).toBe(true);
+    expect(binaryGraph.edges.some((edge) => edge.edgeKind === 'exports_symbol' && edge.targetLabel === 'JNI_OnLoad')).toBe(true);
+    expect(binaryGraph.edges.some((edge) => edge.edgeKind === 'references_url' && edge.targetLabel === 'https://example.com/api/mobile')).toBe(true);
+    expect(binaryGraph.edges.some((edge) => edge.edgeKind === 'references_permission' && edge.targetLabel === 'android.permission.CAMERA')).toBe(true);
 
     const defaultSemantic = db.getProjectSemanticSummary(context.run.scopeVersionId);
     expect(defaultSemantic.enabled).toBe(true);
@@ -1295,6 +1313,10 @@ function openStructuredToolDb(
       1,
       2,
       ...Buffer.from('CRASH_SIG_NEAR_PARSE', 'utf8'),
+      0,
+      ...Buffer.from('IMPORT:memcpy', 'utf8'),
+      0,
+      ...Buffer.from('EXPORT:JNI_OnLoad', 'utf8'),
       0,
       ...Buffer.from('https://example.com/api/mobile', 'utf8'),
       0,

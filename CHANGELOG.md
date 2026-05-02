@@ -95,6 +95,7 @@
 - Added relationship graph operational status with stale reasons, rebuild reasons, build counts, and node/edge family counts.
 - Changed graph variant search so source-backed code hits can surface related research-memory records through matching component anchors without refreshing the graph inline.
 - Added parser-light framework extraction for Fastify, Rails, Django, and Laravel routes plus request parsing, response serialization, and model read/write structural edges.
+- Added parser-light binary graph edges for imported symbols, exported symbols, notable strings, URLs, and Android permissions derived from bounded binary strings.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

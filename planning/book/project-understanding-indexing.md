@@ -68,7 +68,7 @@ The first implementation covers Layer 0 and Layer 1:
 
 The second implementation starts Layer 2:
 
-- Structural indexing records best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
+- Structural indexing records best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols/notable strings, source line ranges, and simple relationships.
 - Structural entities are stored in normalized SQLite tables and mirrored into the existing metadata FTS index as `structure_entity` documents.
 - Relation targets are resolved after each structural scan, first by same-file identity and then by scoped name matching where the target kind is unambiguous enough for beta navigation.
 - `code_browser` uses matching structural entities for stable symbol ranges and returns nearby contained entities, outgoing relationships, and incoming references with the excerpt.
@@ -104,7 +104,7 @@ The fourth implementation starts Layer 4:
 
 - The first relationship graph is SQLite-backed and rebuilt from existing scoped indexes after inventory and structural indexing finish.
 - Graph nodes currently cover active scope versions, scope assets, inventory items, and structural entities.
-- Graph edges currently cover `belongs_to_program`, inventory-to-entity `defines`, and mirrored structural relations such as `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`.
+- Graph edges currently cover `belongs_to_program`, inventory-to-entity `defines`, binary orientation edges such as `imports_symbol`, `exports_symbol`, `contains_string`, `references_url`, and `references_permission`, and mirrored structural relations such as `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`.
 - Unresolved structural relation targets are preserved as graph edges with null target nodes and target labels so later graph expansion can resolve them without losing provenance.
 - Graph nodes and edges now also cover runs, transcript messages, trace events, artifacts, hypotheses, findings, evidence, verifier contracts, and verifier runs.
 - Internal graph query APIs support node search, node edge listing, and bounded neighborhoods by entity type/id.
@@ -112,11 +112,12 @@ The fourth implementation starts Layer 4:
 - Tool payloads expose graph status through `projectGraph`.
 - Model-facing `search` now performs a bounded graph-proximity expansion from metadata and semantic seed hits, returning `kind: graph` matches with edge provenance while avoiding inline graph rebuilds during tool turns.
 - Search ranking now treats graph seed and proximity as retrieval signals, so graph-adjacent entities can promote or diversify the final bounded result set instead of only filling unused result slots.
-- Graph-backed variant search now finds entities that share important relationship targets, such as sibling handlers that reach the same sink or check the same permission and research records tied to the same hypothesis or finding.
+- Graph-backed variant search now finds entities that share important relationship targets, such as sibling handlers that reach the same sink or check the same permission, binaries that share imports/exports/URLs/permissions, and research records tied to the same hypothesis or finding.
 - Research-memory graph coverage now includes component and CWE anchor nodes, duplicate/supersession links, evidence back-links, verifier outcome links, and artifact provenance edges so prior Beale state is traversable from related records.
 - Graph status now includes stale reasons, rebuild reason, build count, expected node count, and node/edge family counts so missing graph relationships can be debugged by family.
 - Graph retrieval tests now cover no-inline-refresh behavior, dedupe against direct file hits, and code-to-research-memory hops through matching component anchors.
 - Parser-light structural extraction now adds framework-specific route/controller/model edges for Express/Koa-style routers, Fastify, Next.js routes, Rails routes/resources, Django URLConf, Laravel routes, request parsing, response serialization, and model read/write calls.
+- Binary graph extraction now adds parser-light nodes and direct binary file edges for imported symbols, exported symbols, notable strings, URLs, and Android permissions from bounded binary strings.
 
 ## Index Layers
 

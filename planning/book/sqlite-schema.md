@@ -215,7 +215,7 @@ Fields:
 - `scope_version_id`
 - `inventory_item_id`
 - `asset_id`
-- `entity_kind`: examples include `function`, `method`, `class`, `type`, `route`, `import`, `export`, `call_site`, `security_marker`, `sink`, `mobile_permission`, `mobile_component`, `url_scheme`, `web_endpoint`, `graphql_operation`, `binary_url`, and `binary_symbol`
+- `entity_kind`: examples include `function`, `method`, `class`, `type`, `route`, `import`, `export`, `call_site`, `security_marker`, `sink`, `mobile_permission`, `mobile_component`, `url_scheme`, `web_endpoint`, `graphql_operation`, `binary_url`, `binary_string`, `binary_imported_symbol`, `binary_exported_symbol`, and `binary_symbol`
 - `name`
 - `signature`
 - `path`
@@ -237,7 +237,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_entity_id`
-- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, `writes_model`, `declares_permission`, `declares_component`, `declares_endpoint`, `requests_endpoint`, `contains_url`, `contains_symbol`, and `contains_endpoint`
+- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, `writes_model`, `declares_permission`, `declares_component`, `declares_endpoint`, `requests_endpoint`, `imports_symbol`, `exports_symbol`, `contains_string`, `references_url`, `references_permission`, and `contains_endpoint`
 - `target_kind`
 - `target_name`
 - `target_entity_id`
@@ -275,7 +275,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_node_id`
-- `edge_kind`: initial examples include `belongs_to_program`, `defines`, `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, and `writes_model`
+- `edge_kind`: initial examples include `belongs_to_program`, `defines`, `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, `writes_model`, `imports_symbol`, `exports_symbol`, `contains_string`, `references_url`, and `references_permission`
 - `target_node_id`
 - `target_entity_type`
 - `target_entity_id`

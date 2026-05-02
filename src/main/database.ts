@@ -563,6 +563,7 @@ const PROJECT_STRUCTURE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const PROJECT_STRUCTURE_MAX_ENTITIES_PER_FILE = 400;
 const PROJECT_STRUCTURE_MAX_DEFINITION_LINES = 300;
 const PROJECT_STRUCTURE_BINARY_MAX_ENTITIES_PER_FILE = 80;
+const BINARY_GRAPH_EDGE_KINDS = new Set(['imports_symbol', 'exports_symbol', 'contains_string', 'references_url', 'references_permission']);
 const PROJECT_SEMANTIC_ENABLED_META_KEY = 'project_semantic_index_enabled';
 const PROJECT_SEMANTIC_JOB_META_KEY = 'project_semantic_index_job';
 const PROJECT_SEMANTIC_DIRTY_META_KEY = 'project_semantic_index_dirty';
@@ -1382,6 +1383,9 @@ const SEMANTIC_SECURITY_SIGNAL_TERMS = new Set([
 ]);
 
 const SEMANTIC_HIGH_VALUE_ENTITY_KINDS = new Set([
+  'binary_exported_symbol',
+  'binary_imported_symbol',
+  'binary_string',
   'binary_symbol',
   'function',
   'graphql_operation',
@@ -1892,6 +1896,33 @@ function parsePomXmlManifest(preview: string): Record<string, unknown> {
 function binaryStructureCandidate(value: string, lineStart: number): ProjectStructureCandidate | null {
   const trimmed = value.trim();
   if (trimmed.length < 4 || trimmed.length > 300) return null;
+
+  const importedSymbol = binaryImportedSymbolFromString(trimmed);
+  if (importedSymbol) {
+    return {
+      entityKind: 'binary_imported_symbol',
+      name: importedSymbol,
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'imports_symbol', binaryStringKind: 'imported_symbol', binarySymbolRole: 'imported' },
+      relations: [{ relationKind: 'imports_symbol', targetKind: 'symbol', targetName: importedSymbol }]
+    };
+  }
+
+  const exportedSymbol = binaryExportedSymbolFromString(trimmed);
+  if (exportedSymbol) {
+    return {
+      entityKind: 'binary_exported_symbol',
+      name: exportedSymbol,
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'exports_symbol', binaryStringKind: 'exported_symbol', binarySymbolRole: 'exported' },
+      relations: [{ relationKind: 'exports_symbol', targetKind: 'symbol', targetName: exportedSymbol }]
+    };
+  }
+
   const url = /https?:\/\/[A-Za-z0-9_~:/?#[\]@!$&'()*+,;=.%.-]+/.exec(trimmed)?.[0];
   if (url) {
     return {
@@ -1900,8 +1931,8 @@ function binaryStructureCandidate(value: string, lineStart: number): ProjectStru
       signature: trimmed,
       lineStart,
       lineEnd: lineStart,
-      metadata: { relationKind: 'contains_url', binaryStringKind: 'url' },
-      relations: [{ relationKind: 'contains_url', targetKind: 'url', targetName: url.slice(0, 240) }]
+      metadata: { relationKind: 'references_url', binaryStringKind: 'url' },
+      relations: [{ relationKind: 'references_url', targetKind: 'url', targetName: url.slice(0, 240) }]
     };
   }
 
@@ -1926,8 +1957,8 @@ function binaryStructureCandidate(value: string, lineStart: number): ProjectStru
       signature: trimmed,
       lineStart,
       lineEnd: lineStart,
-      metadata: { platform: 'android', relationKind: 'contains_permission', binaryStringKind: 'permission' },
-      relations: [{ relationKind: 'contains_permission', targetKind: 'permission', targetName: permission }]
+      metadata: { platform: 'android', relationKind: 'references_permission', binaryStringKind: 'permission' },
+      relations: [{ relationKind: 'references_permission', targetKind: 'permission', targetName: permission }]
     };
   }
 
@@ -1939,12 +1970,43 @@ function binaryStructureCandidate(value: string, lineStart: number): ProjectStru
       signature: trimmed,
       lineStart,
       lineEnd: lineStart,
-      metadata: { relationKind: 'contains_symbol', binaryStringKind: 'jni_symbol' },
-      relations: [{ relationKind: 'contains_symbol', targetKind: 'symbol', targetName: jniSymbol.slice(0, 240) }]
+      metadata: { relationKind: 'exports_symbol', binaryStringKind: 'jni_symbol', binarySymbolRole: 'exported' },
+      relations: [{ relationKind: 'exports_symbol', targetKind: 'symbol', targetName: jniSymbol.slice(0, 240) }]
+    };
+  }
+
+  if (isNotableBinaryString(trimmed)) {
+    return {
+      entityKind: 'binary_string',
+      name: trimmed.slice(0, 120),
+      signature: trimmed,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { relationKind: 'contains_string', binaryStringKind: 'notable_string' },
+      relations: [{ relationKind: 'contains_string', targetKind: 'string', targetName: trimmed.slice(0, 240) }]
     };
   }
 
   return null;
+}
+
+function binaryImportedSymbolFromString(value: string): string | null {
+  const explicit = /^(?:IMPORT|IMPORTED|import|imported)(?::|\s+symbol:|\s+)([A-Za-z_.$@?][A-Za-z0-9_.$@?/-]{2,})$/.exec(value)?.[1];
+  if (explicit) return explicit.slice(0, 240);
+  const impPrefix = /^__imp_([A-Za-z_.$@?][A-Za-z0-9_.$@?/-]{2,})$/.exec(value)?.[1];
+  return impPrefix ? impPrefix.slice(0, 240) : null;
+}
+
+function binaryExportedSymbolFromString(value: string): string | null {
+  const explicit = /^(?:EXPORT|EXPORTED|export|exported)(?::|\s+symbol:|\s+)([A-Za-z_.$@?][A-Za-z0-9_.$@?/-]{2,})$/.exec(value)?.[1];
+  if (explicit) return explicit.slice(0, 240);
+  const commonEntrypoint = /^(JNI_OnLoad|DllMain|main|_start)$/.exec(value)?.[1];
+  return commonEntrypoint ?? null;
+}
+
+function isNotableBinaryString(value: string): boolean {
+  if (/\s/.test(value) && value.length > 160) return false;
+  return /(?:CRASH|SIGSEGV|SIGABRT|FATAL|ERROR|DEBUG|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|SQL|SELECT|INSERT|UPDATE|DELETE|PRIVATE_KEY|API_KEY)/i.test(value);
 }
 
 function extractProjectStructureCandidates(path: string, language: string, text: string, truncatedFile: boolean): ProjectStructureCandidate[] {
@@ -2769,7 +2831,7 @@ function projectStructureTargetEntityKinds(targetKind: string): string[] {
     case 'function':
       return ['function', 'method'];
     case 'symbol':
-      return ['function', 'method', 'class', 'type', 'export', 'binary_symbol'];
+      return ['function', 'method', 'class', 'type', 'export', 'binary_symbol', 'binary_imported_symbol', 'binary_exported_symbol'];
     case 'route':
       return ['route'];
     case 'sink':
@@ -2792,6 +2854,8 @@ function projectStructureTargetEntityKinds(targetKind: string): string[] {
       return ['mobile_component'];
     case 'url':
       return ['binary_url', 'web_endpoint'];
+    case 'string':
+      return ['binary_string'];
     case 'url_scheme':
       return ['url_scheme'];
     case 'graphql_operation':
@@ -5069,10 +5133,15 @@ export class WorkspaceDatabase {
                WHEN 'handles_with' THEN 3
                WHEN 'uses_middleware' THEN 4
                WHEN 'calls' THEN 5
-               WHEN 'supports_hypothesis' THEN 6
-               WHEN 'verifies_finding' THEN 7
-               ELSE 8
-             END,
+	               WHEN 'supports_hypothesis' THEN 6
+	               WHEN 'verifies_finding' THEN 7
+	               WHEN 'imports_symbol' THEN 8
+	               WHEN 'exports_symbol' THEN 9
+	               WHEN 'references_permission' THEN 10
+	               WHEN 'references_url' THEN 11
+	               WHEN 'contains_string' THEN 12
+	               ELSE 13
+	             END,
              n.node_kind ASC,
              n.label ASC
            LIMIT ?`
@@ -6790,6 +6859,7 @@ export class WorkspaceDatabase {
       const entityKind = text(row, 'entity_kind');
       const name = text(row, 'name');
       const path = text(row, 'path');
+      const structureMetadata = parseJson(row.metadata_json);
       const structureNodeId = this.upsertProjectGraphNode({
         scopeVersionId,
         entityType: 'structure_entity',
@@ -6819,6 +6889,26 @@ export class WorkspaceDatabase {
         metadata: { source: 'structure_entity', path },
         indexedAt
       });
+      const binaryGraphEdgeKind = stringFromUnknown(structureMetadata.relationKind) ?? '';
+      if (structureMetadata.binaryDerived === true && BINARY_GRAPH_EDGE_KINDS.has(binaryGraphEdgeKind)) {
+        this.insertProjectGraphEdge({
+          scopeVersionId,
+          sourceNodeId: projectGraphNodeId(scopeVersionId, 'inventory_item', inventoryItemId),
+          edgeKind: binaryGraphEdgeKind,
+          targetNodeId: structureNodeId,
+          targetEntityType: 'structure_entity',
+          targetEntityId: structureId,
+          targetLabel: name,
+          metadata: {
+            source: 'binary_structure',
+            path,
+            entityKind,
+            binaryStringKind: structureMetadata.binaryStringKind ?? null,
+            binarySymbolRole: structureMetadata.binarySymbolRole ?? null
+          },
+          indexedAt
+        });
+      }
       this.insertProjectGraphEdge({
         scopeVersionId,
         sourceNodeId: structureNodeId,
