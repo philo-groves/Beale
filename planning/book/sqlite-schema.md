@@ -237,7 +237,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_entity_id`
-- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `declares_permission`, `declares_component`, `declares_endpoint`, `requests_endpoint`, `contains_url`, `contains_symbol`, and `contains_endpoint`
+- `relation_kind`: examples include `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, `writes_model`, `declares_permission`, `declares_component`, `declares_endpoint`, `requests_endpoint`, `contains_url`, `contains_symbol`, and `contains_endpoint`
 - `target_kind`
 - `target_name`
 - `target_entity_id`
@@ -275,7 +275,7 @@ Fields:
 - `id`
 - `scope_version_id`
 - `source_node_id`
-- `edge_kind`: initial examples include `belongs_to_program`, `defines`, `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, and `reaches_sink`
+- `edge_kind`: initial examples include `belongs_to_program`, `defines`, `imports`, `exports`, `calls`, `routes_to`, `uses_middleware`, `handles_with`, `checks_permission`, `reaches_sink`, `parses_body`, `serializes_response`, `reads_model`, and `writes_model`
 - `target_node_id`
 - `target_entity_type`
 - `target_entity_id`

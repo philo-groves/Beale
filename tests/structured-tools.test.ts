@@ -188,6 +188,23 @@ describe('structured research tools', () => {
     expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('scope_name_match');
     expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('auth.js');
 
+    const frameworkRouteSearch = db.searchProjectDocumentsForRun(context.run.id, 'POST /api/orders');
+    expect(frameworkRouteSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.routeStyle === 'fastify_route_object')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'parses_body request_parse').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'parses_body')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'serializes_response response_serialization').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'serializes_response')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'reads_model order').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'reads_model')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'writes_model order').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'writes_model')).toBe(true);
+    const frameworkGraph = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'structure_entity', frameworkRouteSearch.find((result) => result.metadata.routeStyle === 'fastify_route_object')?.entityId ?? '', { depth: 2 });
+    expect(frameworkGraph.edges.some((edge) => edge.edgeKind === 'handles_with' && edge.targetLabel === 'createOrder')).toBe(true);
+    const frameworkGraphSummary = db.getProjectGraphSummary(context.run.scopeVersionId);
+    expect(frameworkGraphSummary.edgeFamilyCounts.parses_body).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.edgeFamilyCounts.serializes_response).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.edgeFamilyCounts.reads_model).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.edgeFamilyCounts.writes_model).toBeGreaterThanOrEqual(1);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'GET /admin/users').some((result) => result.entityType === 'structure_entity' && result.metadata.routeStyle === 'rails_routes')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'ANY /reports/').some((result) => result.entityType === 'structure_entity' && result.metadata.routeStyle === 'django_urlconf')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'GET /accounts').some((result) => result.entityType === 'structure_entity' && result.metadata.routeStyle === 'laravel_route')).toBe(true);
+
     const mobileStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'android.permission.CAMERA');
     expect(mobileStructureSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'mobile_permission')).toBe(true);
     const webStructureSearch = db.searchProjectDocumentsForRun(context.run.id, 'declares_endpoint /v1/widgets');
@@ -351,7 +368,7 @@ describe('structured research tools', () => {
     expect(verifierIdRead.payload.error).toBe('unsupported_resource_id_for_code_browser');
     expect(String(verifierIdRead.payload.recoveryHint)).toContain('resource_lookup');
     db.close();
-  });
+  }, 10000);
 
   it('carries semantic indexing across scope versions and marks new source material dirty', () => {
     const { db, targetDir } = openStructuredToolDb();
@@ -1251,10 +1268,14 @@ function openStructuredToolDb(
   mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
   mkdirSync(join(targetDir, 'src'), { recursive: true });
   mkdirSync(join(targetDir, 'bin'), { recursive: true });
+  mkdirSync(join(targetDir, 'config'), { recursive: true });
+  mkdirSync(join(targetDir, 'django_app'), { recursive: true });
+  mkdirSync(join(targetDir, 'routes'), { recursive: true });
 
   const sourceFile = join(targetDir, 'src', 'access.c');
   const routeFile = join(targetDir, 'src', 'routes.js');
   const authFile = join(targetDir, 'src', 'auth.js');
+  const frameworkFile = join(targetDir, 'src', 'framework-routes.js');
   const binaryFile = join(targetDir, 'bin', 'target.bin');
   const logPath = join(dir, 'vmctl.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
@@ -1262,6 +1283,10 @@ function openStructuredToolDb(
   writeFileSync(
     routeFile,
     "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nrouter.get('/api/admins', sharedGuard, listAdmins);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nfunction listAdmins(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers, listAdmins };\n"
+  );
+  writeFileSync(
+    frameworkFile,
+    "const fastify = require('fastify')();\nfastify.get('/api/orders', requireAuth, listOrders);\nfastify.route({ method: 'POST', url: '/api/orders', handler: createOrder });\nasync function listOrders(req, reply) {\n  const filter = req.query.filter;\n  const rows = await prisma.order.findMany({ where: filter });\n  return reply.send(rows);\n}\nasync function createOrder(request, reply) {\n  const body = request.body;\n  const row = await prisma.order.create({ data: body });\n  return reply.status(201).send(row);\n}\n"
   );
   writeFileSync(
     binaryFile,
@@ -1281,6 +1306,9 @@ function openStructuredToolDb(
     ])
   );
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ dependencies: { bealetestdependency: '1.0.0' } }, null, 2));
+  writeFileSync(join(targetDir, 'config', 'routes.rb'), "Rails.application.routes.draw do\n  get '/admin/users', to: 'users#index'\n  resources :orders\nend\n");
+  writeFileSync(join(targetDir, 'django_app', 'urls.py'), "from django.urls import path\nfrom . import views\nurlpatterns = [\n  path('reports/', views.report_list, name='reports'),\n]\n");
+  writeFileSync(join(targetDir, 'routes', 'web.php'), "<?php\nRoute::get('/accounts', [AccountController::class, 'index']);\n");
   writeFileSync(join(targetDir, 'AndroidManifest.xml'), '<manifest><uses-permission android:name="android.permission.CAMERA" /><activity android:name=".MainActivity" android:exported="true" /></manifest>\n');
   writeFileSync(join(targetDir, 'openapi.yaml'), "openapi: 3.0.0\npaths:\n  /v1/widgets:\n    get:\n      responses: {}\n");
 

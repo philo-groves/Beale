@@ -1973,6 +1973,7 @@ function extractProjectStructureCandidates(path: string, language: string, text:
     extractFileBackedRouteCandidate(path, line, language, lineStart, add);
     extractRouteCandidate(line, language, lineStart, add);
     extractDefinitionCandidate(line, language, lineStart, add);
+    extractFrameworkDataFlowCandidate(line, language, lineStart, add);
     extractSecurityMarkerCandidate(line, language, lineStart, add);
     extractSinkCandidate(line, language, lineStart, add);
     extractMobileManifestCandidate(path, line, language, lineStart, add);
@@ -2146,18 +2147,19 @@ function extractFileBackedRouteCandidate(path: string, line: string, language: s
 }
 
 function extractRouteCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
-  const jsRoute = /\b(?:app|router|server)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
+  const jsRoute = /\b(?:app|router|server|fastify)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
   if ((language === 'javascript' || language === 'typescript') && jsRoute) {
     const method = jsRoute[1].toUpperCase();
     const routePath = jsRoute[2];
     const participants = routeParticipantsFromCall(line);
+    const routeStyle = /\bfastify\./i.test(line) ? 'fastify' : 'express_or_koa';
     add({
       entityKind: 'route',
       name: `${method} ${routePath}`,
       signature: line,
       lineStart,
       lineEnd: lineStart,
-      metadata: { method, routePath, routeStyle: 'express', middleware: participants.middleware, handlers: participants.handlers, relationKinds: ['routes_to', 'uses_middleware', 'handles_with'] },
+      metadata: { method, routePath, routeStyle, middleware: participants.middleware, handlers: participants.handlers, relationKinds: ['routes_to', 'uses_middleware', 'handles_with'] },
       relations: [
         { relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` },
         ...participants.middleware.map((name) => ({ relationKind: 'uses_middleware', targetKind: 'function', targetName: name })),
@@ -2165,6 +2167,29 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
       ]
     });
     return;
+  }
+
+  const fastifyRoute = /\bfastify\.route\s*\(\s*\{(.+)}\s*\)/i.exec(line);
+  if ((language === 'javascript' || language === 'typescript') && fastifyRoute?.[1]) {
+    const body = fastifyRoute[1];
+    const method = /method\s*:\s*['"`]([A-Z]+)['"`]/i.exec(body)?.[1]?.toUpperCase() ?? 'ANY';
+    const routePath = /url\s*:\s*['"`]([^'"`]+)['"`]/i.exec(body)?.[1] ?? /path\s*:\s*['"`]([^'"`]+)['"`]/i.exec(body)?.[1] ?? '';
+    const handler = /handler\s*:\s*([A-Za-z_$][\w$]*)/.exec(body)?.[1] ?? '';
+    if (routePath) {
+      add({
+        entityKind: 'route',
+        name: `${method} ${routePath}`,
+        signature: line,
+        lineStart,
+        lineEnd: lineStart,
+        metadata: { method, routePath, routeStyle: 'fastify_route_object', handlers: handler ? [handler] : [], relationKinds: ['routes_to', 'handles_with'] },
+        relations: [
+          { relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` },
+          ...(handler ? [{ relationKind: 'handles_with', targetKind: 'function', targetName: handler }] : [])
+        ]
+      });
+      return;
+    }
   }
 
   const jsUseRoute = /\b(?:app|router|server)\.use\s*\(\s*['"`]([^'"`]+)['"`]/i.exec(line);
@@ -2202,6 +2227,25 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
     return;
   }
 
+  const djangoRoute = /^\s*(?:re_)?path\s*\(\s*['"]([^'"]+)['"]\s*,\s*(?:views\.)?([A-Za-z_]\w*)/i.exec(line);
+  if (language === 'python' && djangoRoute) {
+    const routePath = djangoRoute[1].startsWith('/') ? djangoRoute[1] : `/${djangoRoute[1]}`;
+    const handler = djangoRoute[2];
+    add({
+      entityKind: 'route',
+      name: `ANY ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method: 'ANY', routePath, routeStyle: 'django_urlconf', handlers: [handler], relationKinds: ['routes_to', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `ANY ${routePath}` },
+        { relationKind: 'handles_with', targetKind: 'function', targetName: handler }
+      ]
+    });
+    return;
+  }
+
   const javaRoute = /^\s*@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\s*(?:\(\s*(?:value\s*=\s*)?["']([^"']+)["'])?/i.exec(line);
   if ((language === 'java' || language === 'kotlin') && javaRoute) {
     const annotation = javaRoute[1];
@@ -2215,6 +2259,69 @@ function extractRouteCandidate(line: string, language: string, lineStart: number
       lineEnd: lineStart,
       metadata: { method, routePath, routeStyle: 'jvm_annotation', annotation, relationKinds: ['routes_to'] },
       relations: [{ relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}`.trim() }]
+    });
+    return;
+  }
+
+  const railsRoute = /^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]\s*,\s*to:\s*['"]([^#'"]+)#([^'"]+)['"]/i.exec(line);
+  if (language === 'ruby' && railsRoute) {
+    const method = railsRoute[1].toUpperCase();
+    const routePath = railsRoute[2];
+    const controller = railsRoute[3];
+    const action = railsRoute[4];
+    add({
+      entityKind: 'route',
+      name: `${method} ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method, routePath, routeStyle: 'rails_routes', controller, action, relationKinds: ['routes_to', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` },
+        { relationKind: 'handles_with', targetKind: 'function', targetName: action },
+        { relationKind: 'handles_with', targetKind: 'controller', targetName: controller }
+      ]
+    });
+    return;
+  }
+
+  const railsResource = /^\s*resources\s+:([A-Za-z_]\w*)/.exec(line);
+  if (language === 'ruby' && railsResource?.[1]) {
+    const resource = railsResource[1];
+    add({
+      entityKind: 'route',
+      name: `RESOURCE /${resource}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method: 'RESOURCE', routePath: `/${resource}`, routeStyle: 'rails_resource', resource, relationKinds: ['routes_to', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `RESOURCE /${resource}` },
+        { relationKind: 'handles_with', targetKind: 'controller', targetName: resource }
+      ]
+    });
+    return;
+  }
+
+  const laravelRoute = /^\s*Route::(get|post|put|patch|delete|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*(.+)\)/i.exec(line);
+  if (language === 'php' && laravelRoute) {
+    const method = laravelRoute[1].toUpperCase();
+    const routePath = laravelRoute[2].startsWith('/') ? laravelRoute[2] : `/${laravelRoute[2]}`;
+    const target = laravelRoute[3];
+    const controller = /([A-Za-z_]\w*)Controller::class/.exec(target)?.[1];
+    const action = /['"]([A-Za-z_]\w*)['"]/.exec(target)?.[1];
+    add({
+      entityKind: 'route',
+      name: `${method} ${routePath}`,
+      signature: line,
+      lineStart,
+      lineEnd: lineStart,
+      metadata: { method, routePath, routeStyle: 'laravel_route', controller, action, relationKinds: ['routes_to', 'handles_with'] },
+      relations: [
+        { relationKind: 'routes_to', targetKind: 'route', targetName: `${method} ${routePath}` },
+        ...(action ? [{ relationKind: 'handles_with', targetKind: 'function', targetName: action }] : []),
+        ...(controller ? [{ relationKind: 'handles_with', targetKind: 'controller', targetName: `${controller}Controller` }] : [])
+      ]
     });
   }
 }
@@ -2350,6 +2457,95 @@ function extractDefinitionCandidate(line: string, language: string, lineStart: n
   if (language === 'php' && phpDefinition?.[1]) {
     add({ entityKind: line.includes('function') ? 'function' : 'class', name: phpDefinition[1], signature: line, lineStart, metadata: { definitionStyle: 'php' } });
   }
+}
+
+function extractFrameworkDataFlowCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
+  const flow = frameworkDataFlowFromLine(line, language);
+  if (!flow) return;
+  add({
+    entityKind: 'framework_flow',
+    name: flow.name,
+    signature: line,
+    lineStart,
+    lineEnd: lineStart,
+    metadata: { frameworkFlowKind: flow.kind, language, relationKind: flow.relationKind, framework: flow.framework },
+    relations: [{ relationKind: flow.relationKind, targetKind: flow.targetKind, targetName: flow.targetName }]
+  });
+}
+
+function frameworkDataFlowFromLine(line: string, language: string): { kind: string; framework: string; name: string; relationKind: string; targetKind: string; targetName: string } | null {
+  if (language === 'javascript' || language === 'typescript') {
+    if (/\b(?:req|request)\.(?:body|params|query|cookies|headers)\b/.test(line) || /\bctx\.(?:request\.)?(?:body|params|query|cookies|headers)\b/.test(line)) {
+      const targetName = /\b(body|params|query|cookies|headers)\b/.exec(line)?.[1] ?? 'request';
+      return { kind: 'request_parse', framework: 'js_web', name: targetName, relationKind: 'parses_body', targetKind: 'request_data', targetName };
+    }
+    if (/\b(?:res|reply|response)\.(?:json|send|render|redirect|setHeader|status)\s*\(/.test(line) || /\bctx\.(?:body|status)\s*=/.test(line)) {
+      const targetName = /\b(json|send|render|redirect|setHeader|status|body)\b/.exec(line)?.[1] ?? 'response';
+      return { kind: 'response_serialization', framework: 'js_web', name: targetName, relationKind: 'serializes_response', targetKind: 'response', targetName };
+    }
+    const prisma = /\b(?:prisma|db)\.([A-Za-z_$][\w$]*)\.(findMany|findUnique|findFirst|create|update|upsert|delete|deleteMany|updateMany)\s*\(/.exec(line);
+    if (prisma) {
+      const relationKind = /^(find)/.test(prisma[2]) ? 'reads_model' : 'writes_model';
+      return { kind: 'model_access', framework: 'js_orm', name: prisma[1], relationKind, targetKind: 'model', targetName: prisma[1] };
+    }
+    const modelCall = /\b([A-Z][A-Za-z0-9_]*)\.(find|findByPk|findOne|findAll|create|update|destroy|deleteOne|deleteMany|save)\s*\(/.exec(line);
+    if (modelCall) {
+      const relationKind = /^find/.test(modelCall[2]) ? 'reads_model' : 'writes_model';
+      return { kind: 'model_access', framework: 'js_orm', name: modelCall[1], relationKind, targetKind: 'model', targetName: modelCall[1] };
+    }
+    return null;
+  }
+
+  if (language === 'python') {
+    if (/\brequest\.(?:POST|GET|data|body|json|args|form|headers|cookies)\b/.test(line)) {
+      const targetName = /\b(POST|GET|data|body|json|args|form|headers|cookies)\b/.exec(line)?.[1] ?? 'request';
+      return { kind: 'request_parse', framework: 'python_web', name: targetName, relationKind: 'parses_body', targetKind: 'request_data', targetName };
+    }
+    if (/\b(?:JsonResponse|Response|render|redirect)\s*\(/.test(line)) {
+      const targetName = /\b(JsonResponse|Response|render|redirect)\b/.exec(line)?.[1] ?? 'response';
+      return { kind: 'response_serialization', framework: 'python_web', name: targetName, relationKind: 'serializes_response', targetKind: 'response', targetName };
+    }
+    const pyModel = /\b([A-Z][A-Za-z0-9_]*)\.objects\.(filter|get|all|create|update|delete)\s*\(/.exec(line);
+    if (pyModel) {
+      const relationKind = ['filter', 'get', 'all'].includes(pyModel[2]) ? 'reads_model' : 'writes_model';
+      return { kind: 'model_access', framework: 'django_orm', name: pyModel[1], relationKind, targetKind: 'model', targetName: pyModel[1] };
+    }
+    return null;
+  }
+
+  if (language === 'ruby') {
+    if (/\bparams\b/.test(line)) {
+      return { kind: 'request_parse', framework: 'rails', name: 'params', relationKind: 'parses_body', targetKind: 'request_data', targetName: 'params' };
+    }
+    if (/\b(?:render|redirect_to|send_data|send_file)\b/.test(line)) {
+      const targetName = /\b(render|redirect_to|send_data|send_file)\b/.exec(line)?.[1] ?? 'response';
+      return { kind: 'response_serialization', framework: 'rails', name: targetName, relationKind: 'serializes_response', targetKind: 'response', targetName };
+    }
+    const rubyModel = /\b([A-Z][A-Za-z0-9_]*)\.(find|where|all|create|update|destroy|delete)\b/.exec(line);
+    if (rubyModel) {
+      const relationKind = ['find', 'where', 'all'].includes(rubyModel[2]) ? 'reads_model' : 'writes_model';
+      return { kind: 'model_access', framework: 'rails_model', name: rubyModel[1], relationKind, targetKind: 'model', targetName: rubyModel[1] };
+    }
+    return null;
+  }
+
+  if (language === 'php') {
+    if (/\$request->(?:input|all|json|query|post|header|cookie)\s*\(/.test(line)) {
+      const targetName = /\$request->(input|all|json|query|post|header|cookie)/.exec(line)?.[1] ?? 'request';
+      return { kind: 'request_parse', framework: 'laravel', name: targetName, relationKind: 'parses_body', targetKind: 'request_data', targetName };
+    }
+    if (/\b(?:response|view|redirect)\s*\(/.test(line)) {
+      const targetName = /\b(response|view|redirect)\b/.exec(line)?.[1] ?? 'response';
+      return { kind: 'response_serialization', framework: 'laravel', name: targetName, relationKind: 'serializes_response', targetKind: 'response', targetName };
+    }
+    const phpModel = /\b([A-Z][A-Za-z0-9_]*)::(find|where|all|create|update|destroy|delete)\s*\(/.exec(line);
+    if (phpModel) {
+      const relationKind = ['find', 'where', 'all'].includes(phpModel[2]) ? 'reads_model' : 'writes_model';
+      return { kind: 'model_access', framework: 'laravel_model', name: phpModel[1], relationKind, targetKind: 'model', targetName: phpModel[1] };
+    }
+  }
+
+  return null;
 }
 
 function extractSecurityMarkerCandidate(line: string, language: string, lineStart: number, add: (candidate: ProjectStructureCandidate) => void): void {
@@ -2580,6 +2776,14 @@ function projectStructureTargetEntityKinds(targetKind: string): string[] {
       return ['sink'];
     case 'security_control':
       return ['security_marker'];
+    case 'request_data':
+      return ['framework_flow'];
+    case 'response':
+      return ['framework_flow'];
+    case 'model':
+      return ['framework_flow', 'class', 'type'];
+    case 'controller':
+      return ['class'];
     case 'endpoint':
       return ['web_endpoint', 'route'];
     case 'permission':

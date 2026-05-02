@@ -116,6 +116,7 @@ The fourth implementation starts Layer 4:
 - Research-memory graph coverage now includes component and CWE anchor nodes, duplicate/supersession links, evidence back-links, verifier outcome links, and artifact provenance edges so prior Beale state is traversable from related records.
 - Graph status now includes stale reasons, rebuild reason, build count, expected node count, and node/edge family counts so missing graph relationships can be debugged by family.
 - Graph retrieval tests now cover no-inline-refresh behavior, dedupe against direct file hits, and code-to-research-memory hops through matching component anchors.
+- Parser-light structural extraction now adds framework-specific route/controller/model edges for Express/Koa-style routers, Fastify, Next.js routes, Rails routes/resources, Django URLConf, Laravel routes, request parsing, response serialization, and model read/write calls.
 
 ## Index Layers
 

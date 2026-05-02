@@ -76,6 +76,7 @@ Backends may include:
 - Structured dependency/package metadata extracted from common manifest files.
 - Bounded binary-derived strings indexed from scoped binaries.
 - Structural index records for best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
+- Framework-specific structural records for route/controller/model relationships, request parsing, response serialization, and model read/write edges where parser-light extraction can identify them.
 - SQLite graph nodes and edges derived from scope assets, inventory items, structural entities, and structural relations.
 - Per-program local semantic chunks for concept searches across indexed project metadata and Beale research memory, with identifier-aware tokenization and hybrid local reranking.
 - Later indexed metadata from deeper references, call graphs, components, CVEs, CWEs, and notes as the structural and graph layers mature.
