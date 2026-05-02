@@ -53,6 +53,7 @@
 - Added semantic index stale detection, indexed-source counts, approximate index size, and rebuild-duration reporting.
 - Added cross-run retrieval feedback from accepted code reads, verifier-backed research outcomes, and corrected negative research states into search scoring and diagnostics.
 - Added layer-specific operational retrieval hints for source materialization, indexing, semantic, graph, structure, binary, and research-memory gaps.
+- Added prompt-generation guardrails for one-time scope verification, credential-aware fallback plans, and bounded external program-page exploration.
 
 ### Changed
 

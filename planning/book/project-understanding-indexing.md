@@ -223,7 +223,7 @@ Purpose:
 - Find conceptually relevant code when terms differ.
 - Recover renamed or polyglot implementations.
 - Surface prior research by meaning, not only exact title or CWE.
-- Improve generated research prompts by finding underexplored surfaces and related historical evidence.
+- Improve generated research prompts by finding underexplored surfaces and related historical evidence while keeping scope verification, external program-page exploration, and credential-dependent plans bounded.
 
 Cost:
 

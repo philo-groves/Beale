@@ -168,6 +168,9 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
   'If all visible surfaces appear exhausted, prioritize chaining existing findings and hypotheses, especially closing missing links in exploit chains, verifier gaps, reproduction gaps, or impact gaps.',
   'Stay within the recorded program scope and network profile. Do not suggest out-of-scope testing, credential misuse, disruption, exfiltration, or disclosure.',
   'Make the prompt actionable for an autonomous research session: include target focus, hypotheses to test, evidence to collect, verifier expectations, and stop conditions.',
+  'Scope verification must be a bounded one-time gate, not an open-ended research theme. If the prompt asks to verify external scope such as HackerOne, instruct the agent to record one timestamped scope artifact, then move on unless a new target/domain is introduced.',
+  'Do not make credential-dependent testing the main plan unless usable account or credential assets are present in the recorded scope. If credentials are missing, state the fallback explicitly: perform static/passive mapping, create concrete hypotheses, and mark live cross-account validation as blocked pending user-provided credentials.',
+  'Avoid prompts that send the agent into broad program-page, HackerOne, source-discovery, or account-creation exploration loops after the target and authorization boundary are already known.',
   'Return strict JSON only with a string field named promptMarkdown.'
 ].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
@@ -2447,6 +2450,7 @@ function buildResearchPromptRecommendationInput(scope: ProgramScopeVersion, deta
   const recentDetails = details.slice(0, 12);
   const corpus = buildResearchCorpus(recentDetails);
   const inScopeAssets = scope.assets.filter((asset) => asset.direction === 'in_scope');
+  const hasUsableCredentialAssets = inScopeAssets.some((asset) => asset.kind === 'account' || asset.kind === 'credential_ref');
   const draftPromptMarkdown = input?.draftPromptMarkdown?.trim() ? trimRedactedText(input.draftPromptMarkdown, 6000) : null;
   const operation = input?.operation === 'refine' || draftPromptMarkdown ? 'refine_research_session_prompt' : 'recommend_next_research_session_prompt';
   return {
@@ -2469,6 +2473,24 @@ function buildResearchPromptRecommendationInput(scope: ProgramScopeVersion, deta
       primary: 'security-sensitive in-scope surfaces with little or no prior research coverage',
       fallback: 'chain existing findings and hypotheses by closing verifier, reproduction, impact, or exploitability gaps',
       boundaries: 'stay within recorded scope and network profile'
+    },
+    promptQualityRules: {
+      scopeVerification: {
+        rule: 'Treat external scope verification as a one-time preflight gate. Record one timestamped evidence artifact, then stop revisiting it unless a new target or domain is introduced.',
+        avoidLoop: 'Do not repeatedly inspect HackerOne/program pages after current scope has been verified.'
+      },
+      credentialDependentTesting: {
+        hasUsableCredentialAssets,
+        rule: hasUsableCredentialAssets
+          ? 'Credential-backed Account A/B testing may be included, but keep it bounded to recorded account or credential_ref assets.'
+          : 'Do not make Account A/B or login-required testing the primary workstream. Use a static/passive fallback and mark live validation as blocked pending user-provided credentials.',
+        fallbackWhenMissing: 'Map routes/APIs/source, create concrete hypotheses from reachable evidence, and list the exact credentials or accounts needed for validation.'
+      },
+      explorationBudget: {
+        scopeVerificationBudget: 'one short preflight step',
+        targetDiscoveryBudget: 'bounded to recorded in-scope assets and immediately relevant public metadata',
+        mainWorkBudget: 'spend most of the session testing concrete surfaces or creating/verifying hypotheses'
+      }
     },
     program: {
       programName: redactForModelText(scope.programName),
@@ -2523,6 +2545,17 @@ function buildResearchPromptRecommendationInput(scope: ProgramScopeVersion, deta
           summaryMarkdown: trimRedactedText(finding.summaryMarkdown, 700),
           impactMarkdown: trimRedactedText(finding.impactMarkdown, 500),
           verifiedByVerifierRunId: finding.verifiedByVerifierRunId
+        })),
+      recentEvidence: recentDetails
+        .flatMap((detail) => detail.evidence.slice(-8))
+        .slice(-16)
+        .map((evidence) => ({
+          kind: evidence.kind,
+          summary: trimRedactedText(evidence.summary, 260),
+          hypothesisId: evidence.hypothesisId,
+          findingId: evidence.findingId,
+          artifactId: evidence.artifactId,
+          verifierRunId: evidence.verifierRunId
         }))
     },
     previousResearch: recentDetails.map((detail) => ({

@@ -602,6 +602,12 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('previousResearch');
         expect(serialized).toContain('likelyUnderexploredInScopeAssets');
         expect(serialized).toContain('chain existing findings');
+        expect(serialized).toContain('promptQualityRules');
+        expect(serialized).toContain('one-time preflight gate');
+        expect(serialized).toContain('Do not repeatedly inspect HackerOne');
+        expect(serialized).toContain('hasUsableCredentialAssets');
+        expect(serialized).toContain('static/passive fallback');
+        expect(serialized).toContain('recentEvidence');
         expect(serialized).toContain('requestedSession');
         expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
         expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
