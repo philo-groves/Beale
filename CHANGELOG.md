@@ -106,6 +106,7 @@
 - Changed search result selection to preserve the top exact result, then diversify by source path and relationship family unless the query is clearly focused on one file or symbol.
 - Added search retrieval diagnostics with candidate counts by layer, selected counts by layer, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Added explicit retrieval missing-reason diagnostics for stale or empty semantic/graph indexes, missing graph seeds, and query-intent/index mismatches such as route/API queries without route entities or route graph edges.
+- Added bounded adaptive follow-up search planning for weak first-pass coverage such as no semantic hits, no graph hits, or same-file lexical-only results.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.

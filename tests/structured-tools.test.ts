@@ -181,6 +181,10 @@ describe('structured research tools', () => {
     expect((structureSearch.payload.matches as Array<Record<string, unknown>>).filter((match) => match.kind === 'graph' && match.entityType === 'inventory_item' && match.sourcePath === routeFile).length).toBeLessThanOrEqual(1);
     const sourceOnlyGraphSearch = callTool(router, context, 'search', { query: 'sourceOnlyNeedle', target: '' });
     expect(sourceOnlyGraphSearch.status).toBe('success');
+    expect((sourceOnlyGraphSearch.payload.retrievalDiagnostics as { adaptiveFollowUp: Record<string, unknown> | null }).adaptiveFollowUp).toMatchObject({
+      triggered: true,
+      reasons: expect.arrayContaining(['no_semantic_hits'])
+    });
     const sourceOnlyMatches = sourceOnlyGraphSearch.payload.matches as Array<Record<string, unknown>>;
     expect(sourceOnlyMatches.some((match) => match.kind === 'file' && (match.path === routeFile || match.sourcePath === routeFile))).toBe(true);
     expect(

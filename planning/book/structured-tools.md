@@ -108,6 +108,7 @@ Expected outputs:
 - Result-set diversification that keeps the top exact hit, caps repeated source paths for broad queries, and rotates relationship families when graph or semantic retrieval finds related files.
 - Retrieval diagnostics in `retrievalDiagnostics`, including layer candidate counts, selected layer counts, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Explicit `retrievalDiagnostics.missingReasons` entries for stale/empty indexes, no graph expansion seeds, unselected semantic candidates, and query-intent/index mismatches.
+- Bounded adaptive follow-up search for weak first-pass coverage, reported under `retrievalDiagnostics.adaptiveFollowUp`.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

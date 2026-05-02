@@ -101,6 +101,7 @@ interface SearchRetrievalDiagnostics {
   topScoringSignals: Record<string, number>;
   selectedRelationshipFamilies: Record<string, number>;
   missingReasons: Array<Record<string, unknown>>;
+  adaptiveFollowUp: Record<string, unknown> | null;
 }
 
 interface RetrievalCandidate {
@@ -637,8 +638,26 @@ export class BealeToolRouter {
     const phaseBSeeds = [...phaseASeeds, ...sourceStructureSeeds, ...sourceInventorySeeds];
     const phaseBGraphMatches = this.searchProjectGraph(context, phaseBSeeds, MAX_SEARCH_MATCHES);
     const phaseBGraphVariantMatches = this.searchProjectGraphVariants(context, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
-    const graphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
-    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches, queryPlan });
+    const initialGraphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
+    const adaptiveFollowUp = this.adaptiveFollowUpSearch(context, queryPlan, {
+      fileMatches,
+      artifactMatches,
+      metadataMatches,
+      semanticMatches,
+      graphMatches: initialGraphMatches
+    });
+    const combinedMetadataMatches = [...metadataMatches, ...adaptiveFollowUp.metadataMatches];
+    const combinedSemanticMatches = [...semanticMatches, ...adaptiveFollowUp.semanticMatches];
+    const graphMatches = [...initialGraphMatches, ...adaptiveFollowUp.graphMatches];
+    const searchAssembly = this.assembleRankedSearchMatches({
+      fileMatches,
+      artifactMatches,
+      metadataMatches: combinedMetadataMatches,
+      semanticMatches: combinedSemanticMatches,
+      graphMatches,
+      queryPlan,
+      adaptiveFollowUp: adaptiveFollowUp.diagnostics
+    });
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
@@ -2026,6 +2045,105 @@ export class BealeToolRouter {
     return matches;
   }
 
+  private adaptiveFollowUpSearch(
+    context: CreatedRunContext,
+    queryPlan: SearchQueryPlan,
+    current: {
+      fileMatches: Array<Record<string, unknown>>;
+      artifactMatches: Array<Record<string, unknown>>;
+      metadataMatches: Array<Record<string, unknown>>;
+      semanticMatches: Array<Record<string, unknown>>;
+      graphMatches: Array<Record<string, unknown>>;
+    }
+  ): {
+    metadataMatches: Array<Record<string, unknown>>;
+    semanticMatches: Array<Record<string, unknown>>;
+    graphMatches: Array<Record<string, unknown>>;
+    diagnostics: Record<string, unknown> | null;
+  } {
+    const reasons = this.adaptiveFollowUpReasons(current);
+    if (reasons.length === 0) return { metadataMatches: [], semanticMatches: [], graphMatches: [], diagnostics: null };
+    const followUpQuery = this.adaptiveFollowUpQuery(queryPlan);
+    if (!followUpQuery || followUpQuery.toLowerCase() === queryPlan.rawLower) return { metadataMatches: [], semanticMatches: [], graphMatches: [], diagnostics: null };
+    const followUpPlan = buildSearchQueryPlan(followUpQuery);
+    const metadataMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectMetadata(context, followUpQuery, 12), followUpQuery, reasons);
+    const semanticMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectSemantic(context, followUpQuery, 8), followUpQuery, reasons);
+    const seeds = this.selectPhaseASeedMatches(
+      {
+        fileMatches: [],
+        artifactMatches: [],
+        metadataMatches,
+        semanticMatches,
+        graphMatches: []
+      },
+      8,
+      followUpPlan
+    );
+    const graphMatches = this.tagAdaptiveFollowUpMatches(
+      [...this.searchProjectGraph(context, seeds, 12), ...this.searchProjectGraphVariants(context, seeds, 12)],
+      followUpQuery,
+      reasons
+    );
+    return {
+      metadataMatches,
+      semanticMatches,
+      graphMatches,
+      diagnostics: {
+        triggered: true,
+        query: followUpQuery,
+        reasons,
+        addedCountsByLayer: {
+          metadata: metadataMatches.length,
+          semantic: semanticMatches.length,
+          graph: graphMatches.filter((match) => stringValue(match.kind, '') === 'graph').length,
+          graph_variant: graphMatches.filter((match) => stringValue(match.kind, '') === 'graph_variant').length,
+          total: metadataMatches.length + semanticMatches.length + graphMatches.length
+        }
+      }
+    };
+  }
+
+  private adaptiveFollowUpReasons(current: {
+    fileMatches: Array<Record<string, unknown>>;
+    artifactMatches: Array<Record<string, unknown>>;
+    metadataMatches: Array<Record<string, unknown>>;
+    semanticMatches: Array<Record<string, unknown>>;
+    graphMatches: Array<Record<string, unknown>>;
+  }): string[] {
+    const reasons: string[] = [];
+    if (current.semanticMatches.length === 0) reasons.push('no_semantic_hits');
+    if (current.graphMatches.length === 0) reasons.push('no_graph_hits');
+    const sourcePaths = new Set(current.fileMatches.map((match) => stringValue(match.path, '') || stringValue(match.sourcePath, '')).filter(Boolean));
+    const onlySameFileLexical =
+      current.fileMatches.length >= 4 &&
+      sourcePaths.size === 1 &&
+      current.metadataMatches.length + current.semanticMatches.length + current.graphMatches.length === 0;
+    if (onlySameFileLexical) reasons.push('same_file_lexical_only');
+    return reasons;
+  }
+
+  private adaptiveFollowUpQuery(queryPlan: SearchQueryPlan): string {
+    const terms: string[] = [];
+    if (queryPlan.intents.includes('symbol_lookup')) terms.push('definition', 'reference', 'call');
+    if (queryPlan.intents.includes('route_api_lookup')) terms.push('route', 'handler', 'controller', 'middleware');
+    if (queryPlan.intents.includes('auth_permission_question')) terms.push('authorization', 'permission', 'guard', 'middleware');
+    if (queryPlan.intents.includes('sink_data_flow_question')) terms.push('sink', 'query', 'parse', 'model');
+    if (queryPlan.intents.includes('binary_orientation')) terms.push('import', 'export', 'string', 'url', 'permission', 'symbol');
+    if (queryPlan.intents.includes('prior_research_memory')) terms.push('hypothesis', 'finding', 'evidence', 'verifier', 'cwe');
+    if (queryPlan.intents.includes('variant_similarity_search')) terms.push('similar', 'related', 'variant', 'sibling');
+    if (terms.length === 0) terms.push('definition', 'reference', 'related');
+    return uniqueStrings([queryPlan.raw, ...terms]).join(' ').slice(0, 240);
+  }
+
+  private tagAdaptiveFollowUpMatches(matches: Array<Record<string, unknown>>, query: string, reasons: string[]): Array<Record<string, unknown>> {
+    return matches.map((match) => ({
+      ...match,
+      adaptiveFollowUp: true,
+      adaptiveFollowUpQuery: query,
+      adaptiveFollowUpReasons: reasons
+    }));
+  }
+
   private assembleRankedSearchMatches(input: {
     fileMatches: Array<Record<string, unknown>>;
     artifactMatches: Array<Record<string, unknown>>;
@@ -2033,6 +2151,7 @@ export class BealeToolRouter {
     semanticMatches: Array<Record<string, unknown>>;
     graphMatches: Array<Record<string, unknown>>;
     queryPlan: SearchQueryPlan;
+    adaptiveFollowUp?: Record<string, unknown> | null;
   }): SearchAssemblyResult {
     const candidatePool: RetrievalCandidate[] = [];
     const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
@@ -2108,7 +2227,8 @@ export class BealeToolRouter {
         graphExpansionCount: input.graphMatches.length,
         topScoringSignals: this.topRetrievalSignalTotals(selected, 8),
         selectedRelationshipFamilies: this.retrievalRelationshipFamilyCounts(selected),
-        missingReasons: []
+        missingReasons: [],
+        adaptiveFollowUp: input.adaptiveFollowUp ?? null
       }
     };
   }
