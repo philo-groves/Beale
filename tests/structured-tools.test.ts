@@ -139,12 +139,19 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);
+    expect(Number(structureSearch.payload.graphVariantMatches)).toBeGreaterThanOrEqual(1);
     const graphToolMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph');
     expect(graphToolMatch).toBeTruthy();
     expect(Number(graphToolMatch?.retrievalScore)).toBeGreaterThan(0);
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity)).toBeGreaterThan(0);
+    const graphVariantMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph_variant');
+    expect(graphVariantMatch).toBeTruthy();
+    expect(String(graphVariantMatch?.matchedBy)).toBe('project_graph_variant');
+    expect(['checks_permission', 'reaches_sink', 'uses_middleware']).toContain(String(graphVariantMatch?.graphEdgeKind));
+    expect(String(graphVariantMatch?.rankReason)).toContain('Variant candidate');
     expect(JSON.stringify(structureSearch.payload)).toContain('lineStart');
     expect(JSON.stringify(structureSearch.payload)).toContain('listUsers');
+    expect(JSON.stringify(structureSearch.payload)).toContain('listAdmins');
     const sinkSearch = db.searchProjectDocumentsForRun(context.run.id, 'reaches_sink query');
     expect(sinkSearch.some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'sink')).toBe(true);
     const exportSearch = db.searchProjectDocumentsForRun(context.run.id, 'exports listUsers');
@@ -1200,7 +1207,7 @@ function openStructuredToolDb(
   writeFileSync(authFile, "export function sharedGuard(req, res, next) {\n  authorize(req.user);\n  next();\n}\n");
   writeFileSync(
     routeFile,
-    "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers };\n"
+    "import express from 'express';\nimport { sharedGuard } from './auth';\nconst db = require('./db');\nconst router = express.Router();\nrouter.get('/api/users', sharedGuard, listUsers);\nrouter.get('/api/admins', sharedGuard, listAdmins);\nfunction listUsers(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nfunction listAdmins(req, res) {\n  authorize(req.user);\n  db.query(req.query.filter);\n  res.json([]);\n}\nmodule.exports = { listUsers, listAdmins };\n"
   );
   writeFileSync(
     binaryFile,

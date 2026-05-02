@@ -541,6 +541,11 @@ export interface ProjectGraphNeighborhood {
   edges: ProjectGraphEdgeRecord[];
 }
 
+export interface ProjectGraphVariantRecord {
+  node: ProjectGraphNodeRecord;
+  edge: ProjectGraphEdgeRecord;
+}
+
 export interface CreatedRunContext {
   run: RunRecord;
   attempt: AttemptRecord;
@@ -4655,6 +4660,78 @@ export class WorkspaceDatabase {
         )
         .all(...params, limit)
     ).map((row) => this.mapProjectGraphEdge(row));
+  }
+
+  public listProjectGraphVariantNodesForNode(scopeVersionId: string, nodeId: string, options: { edgeKinds?: string[]; limit?: number; refresh?: boolean } = {}): ProjectGraphVariantRecord[] {
+    if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
+    const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
+    if (edgeKinds.length === 0) return [];
+    const edgeKindSql = edgeKinds.map(() => '?').join(', ');
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 24)));
+    return rows(
+      this.db
+        .prepare(
+          `WITH seed_edges AS (
+             SELECT *
+             FROM project_graph_edges
+             WHERE scope_version_id = ?
+               AND (source_node_id = ? OR target_node_id = ?)
+               AND edge_kind IN (${edgeKindSql})
+           )
+           SELECT n.*, e.id AS variant_edge_id, e.scope_version_id AS variant_edge_scope_version_id,
+                  e.source_node_id AS variant_edge_source_node_id, e.edge_kind AS variant_edge_kind,
+                  e.target_node_id AS variant_edge_target_node_id, e.target_entity_type AS variant_edge_target_entity_type,
+                  e.target_entity_id AS variant_edge_target_entity_id, e.target_label AS variant_edge_target_label,
+                  e.metadata_json AS variant_edge_metadata_json, e.indexed_at AS variant_edge_indexed_at
+           FROM project_graph_edges e
+           JOIN seed_edges s ON s.scope_version_id = e.scope_version_id
+            AND s.edge_kind = e.edge_kind
+            AND s.id <> e.id
+            AND s.source_node_id <> e.source_node_id
+            AND (
+              (s.target_node_id IS NOT NULL AND e.target_node_id = s.target_node_id)
+              OR (
+                s.target_node_id IS NULL
+                AND e.target_node_id IS NULL
+                AND e.target_entity_type = s.target_entity_type
+                AND LOWER(e.target_label) = LOWER(s.target_label)
+              )
+            )
+           JOIN project_graph_nodes n ON n.scope_version_id = e.scope_version_id
+            AND n.id = e.source_node_id
+           WHERE e.scope_version_id = ?
+           ORDER BY
+             CASE e.edge_kind
+               WHEN 'reaches_sink' THEN 0
+               WHEN 'checks_permission' THEN 1
+               WHEN 'routes_to' THEN 2
+               WHEN 'handles_with' THEN 3
+               WHEN 'uses_middleware' THEN 4
+               WHEN 'calls' THEN 5
+               WHEN 'supports_hypothesis' THEN 6
+               WHEN 'verifies_finding' THEN 7
+               ELSE 8
+             END,
+             n.node_kind ASC,
+             n.label ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, nodeId, nodeId, ...edgeKinds, scopeVersionId, limit)
+    ).map((row) => ({
+      node: this.mapProjectGraphNode(row),
+      edge: this.mapProjectGraphEdge({
+        id: row.variant_edge_id,
+        scope_version_id: row.variant_edge_scope_version_id,
+        source_node_id: row.variant_edge_source_node_id,
+        edge_kind: row.variant_edge_kind,
+        target_node_id: row.variant_edge_target_node_id,
+        target_entity_type: row.variant_edge_target_entity_type,
+        target_entity_id: row.variant_edge_target_entity_id,
+        target_label: row.variant_edge_target_label,
+        metadata_json: row.variant_edge_metadata_json,
+        indexed_at: row.variant_edge_indexed_at
+      })
+    }));
   }
 
   public getProjectGraphNeighborhood(

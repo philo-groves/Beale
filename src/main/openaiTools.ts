@@ -88,6 +88,7 @@ interface SearchAssemblyResult {
   metadataMatches: number;
   semanticMatches: number;
   graphMatches: number;
+  graphVariantMatches: number;
 }
 
 interface SearchCollection {
@@ -165,6 +166,7 @@ const LOCAL_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'rep
 const SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache']);
 const MAX_SEARCH_FILES = 5000;
 const MAX_SEARCH_MATCHES = 40;
+const GRAPH_VARIANT_EDGE_KINDS = ['calls', 'routes_to', 'handles_with', 'uses_middleware', 'checks_permission', 'reaches_sink', 'supports_hypothesis', 'verifies_finding'] as const;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_BROWSER_LINES = 180;
 const MAX_EXCERPT_CHARS = 16_000;
@@ -562,7 +564,8 @@ export class BealeToolRouter {
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
     const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
     const graphMatches = this.searchProjectGraph(context, [...metadataMatches, ...semanticMatches], MAX_SEARCH_MATCHES);
-    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches });
+    const graphVariantMatches = this.searchProjectGraphVariants(context, [...metadataMatches, ...semanticMatches, ...graphMatches], MAX_SEARCH_MATCHES);
+    const searchAssembly = this.assembleRankedSearchMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [...graphMatches, ...graphVariantMatches] });
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
@@ -601,6 +604,7 @@ export class BealeToolRouter {
         metadataMatches: searchAssembly.metadataMatches,
         semanticMatches: searchAssembly.semanticMatches,
         graphMatches: searchAssembly.graphMatches,
+        graphVariantMatches: searchAssembly.graphVariantMatches,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -1794,6 +1798,34 @@ export class BealeToolRouter {
     return candidates;
   }
 
+  private searchProjectGraphVariants(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
+    if (remaining <= 0 || seeds.length === 0) return [];
+    const candidates: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const seed of seeds.slice(0, 10)) {
+      if (candidates.length >= Math.min(8, remaining)) break;
+      const entityType = stringValue(seed.entityType, '');
+      const entityId = stringValue(seed.entityId, '');
+      if (!entityType || !entityId) continue;
+      const neighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, entityType, entityId, { depth: 1, edgeKinds: [...GRAPH_VARIANT_EDGE_KINDS], limit: 16, refresh: false });
+      if (neighborhood.status !== 'hit' || !neighborhood.root) continue;
+      const variants = this.db.listProjectGraphVariantNodesForNode(context.run.scopeVersionId, neighborhood.root.id, {
+        edgeKinds: [...GRAPH_VARIANT_EDGE_KINDS],
+        limit: 16,
+        refresh: false
+      });
+      for (const variant of variants) {
+        if (candidates.length >= Math.min(8, remaining)) break;
+        if (variant.node.id === neighborhood.root.id || variant.node.entityType === 'scope_version') continue;
+        const key = `${variant.node.entityType}:${variant.node.entityId}:${variant.edge.edgeKind}:${variant.edge.targetEntityType}:${variant.edge.targetEntityId ?? variant.edge.targetLabel}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(this.projectGraphVariantNodeToToolMatch(variant.node, variant.edge, seed));
+      }
+    }
+    return candidates;
+  }
+
   private assembleRankedSearchMatches(input: {
     fileMatches: Array<Record<string, unknown>>;
     artifactMatches: Array<Record<string, unknown>>;
@@ -1850,7 +1882,8 @@ export class BealeToolRouter {
       matches: selected,
       metadataMatches: selected.filter((match) => match.kind === 'metadata').length,
       semanticMatches: selected.filter((match) => match.kind === 'semantic').length,
-      graphMatches: selected.filter((match) => match.kind === 'graph').length
+      graphMatches: selected.filter((match) => match.kind === 'graph' || match.kind === 'graph_variant').length,
+      graphVariantMatches: selected.filter((match) => match.kind === 'graph_variant').length
     };
   }
 
@@ -1859,13 +1892,13 @@ export class BealeToolRouter {
     graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string> }
   ): { total: number; signals: Record<string, number | string[]> } {
     const kind = stringValue(match.kind, '');
-    const kindScore = kind === 'file' ? 100 : kind === 'artifact' ? 88 : kind === 'metadata' ? 72 : kind === 'semantic' ? 68 : kind === 'graph' ? 64 : 40;
+    const kindScore = kind === 'file' ? 100 : kind === 'artifact' ? 88 : kind === 'metadata' ? 72 : kind === 'semantic' ? 68 : kind === 'graph_variant' ? 66 : kind === 'graph' ? 64 : 40;
     const semanticScore = kind === 'semantic' ? Math.min(18, numberValue(match.semanticScore, 0) * 18) : 0;
     const entityKey = this.searchMatchEntityKey(match);
     const sourcePath = stringValue(match.sourcePath, '') || stringValue(match.path, '');
     const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
     const graphAdjacentBoost =
-      kind === 'graph'
+      kind === 'graph' || kind === 'graph_variant'
         ? this.graphEdgeRetrievalWeight(stringValue(match.graphEdgeKind, ''))
         : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (sourcePath && graphContext.graphSourcePaths.has(sourcePath))
           ? 6
@@ -1897,7 +1930,7 @@ export class BealeToolRouter {
   private graphEdgeRetrievalWeight(edgeKind: string): number {
     if (['reaches_sink', 'checks_permission', 'routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind)) return 18;
     if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
-    if (['supports_hypothesis', 'verifies_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
+    if (['supports_hypothesis', 'supports_finding', 'verifies_hypothesis', 'verifies_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
     return 8;
   }
 
@@ -1929,7 +1962,7 @@ export class BealeToolRouter {
     if (candidateKind === 'metadata' && candidateEntityType === 'artifact' && candidateArtifactId) {
       return existing.some((match) => stringValue(match.artifactId, '') === candidateArtifactId || (stringValue(match.entityType, '') === 'artifact' && stringValue(match.entityId, '') === candidateArtifactId));
     }
-    if (candidateKind === 'graph' && candidateEntityType && stringValue(candidate.entityId, '')) {
+    if ((candidateKind === 'graph' || candidateKind === 'graph_variant') && candidateEntityType && stringValue(candidate.entityId, '')) {
       const candidateEntityId = stringValue(candidate.entityId, '');
       if (candidateSourcePath && !candidate.line) {
         return existing.some((match) => stringValue(match.path, '') === candidateSourcePath || stringValue(match.sourcePath, '') === candidateSourcePath);
@@ -1947,6 +1980,7 @@ export class BealeToolRouter {
     if (kind === 'metadata') return `metadata:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
     if (kind === 'semantic') return `semantic:${stringValue(match.chunkId, '')}`;
     if (kind === 'graph') return `graph:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
+    if (kind === 'graph_variant') return `graph_variant:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}:${stringValue(match.graphEdgeKind, '')}`;
     return '';
   }
 
@@ -2033,6 +2067,45 @@ export class BealeToolRouter {
         graphEdgeId: edge.id,
         graphEdgeKind: edge.edgeKind,
         graphTargetLabel: edge.targetLabel
+      }
+    };
+  }
+
+  private projectGraphVariantNodeToToolMatch(
+    node: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>['nodes'][number],
+    edge: ReturnType<WorkspaceDatabase['getProjectGraphNeighborhood']>['edges'][number],
+    seed: Record<string, unknown>
+  ): Record<string, unknown> {
+    const lineStart = numberValue(node.metadata.lineStart, 0);
+    const lineEnd = numberValue(node.metadata.lineEnd, lineStart);
+    const targetLabel = edge.targetLabel || stringValue(edge.metadata.targetName, '');
+    return {
+      kind: 'graph_variant',
+      entityType: node.entityType,
+      entityId: node.entityId,
+      title: node.label,
+      sourcePath: node.sourcePath,
+      path: node.sourcePath ?? undefined,
+      line: lineStart > 0 ? lineStart : undefined,
+      range: lineStart > 0 ? `${lineStart}${lineEnd > lineStart ? `-${lineEnd}` : ''}` : undefined,
+      nodeKind: node.nodeKind,
+      matchedBy: 'project_graph_variant',
+      graphDistance: 2,
+      graphEdgeKind: edge.edgeKind,
+      variantTargetEntityType: edge.targetEntityType,
+      variantTargetEntityId: edge.targetEntityId ?? undefined,
+      variantTargetLabel: targetLabel,
+      seedEntityType: stringValue(seed.entityType, ''),
+      seedEntityId: stringValue(seed.entityId, ''),
+      rankReason: `Variant candidate sharing ${edge.edgeKind}${targetLabel ? ` target ${targetLabel}` : ''} with ${stringValue(seed.title, stringValue(seed.structureName, 'search hit'))}.`,
+      snippet: trimSnippet(`${node.nodeKind} ${node.label}${targetLabel ? ` -> ${targetLabel}` : ''}`),
+      metadata: {
+        ...node.metadata,
+        graphNodeId: node.id,
+        graphEdgeId: edge.id,
+        graphEdgeKind: edge.edgeKind,
+        graphTargetLabel: edge.targetLabel,
+        graphVariant: true
       }
     };
   }

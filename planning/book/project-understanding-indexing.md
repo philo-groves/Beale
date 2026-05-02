@@ -112,6 +112,7 @@ The fourth implementation starts Layer 4:
 - Tool payloads expose graph status through `projectGraph`.
 - Model-facing `search` now performs a bounded graph-proximity expansion from metadata and semantic seed hits, returning `kind: graph` matches with edge provenance while avoiding inline graph rebuilds during tool turns.
 - Search ranking now treats graph seed and proximity as retrieval signals, so graph-adjacent entities can promote or diversify the final bounded result set instead of only filling unused result slots.
+- Graph-backed variant search now finds entities that share important relationship targets, such as sibling handlers that reach the same sink or check the same permission and research records tied to the same hypothesis or finding.
 
 ## Index Layers
 
