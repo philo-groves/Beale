@@ -5100,6 +5100,60 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProjectRetrievalFeedbackSummary(scopeVersionId = this.getActiveScope().id): {
+    readPathCounts: Record<string, number>;
+    verifiedEntityKeys: string[];
+    correctedNegativeEntityKeys: string[];
+  } {
+    const readPathCounts: Record<string, number> = {};
+    const readRows = rows(
+      this.db
+        .prepare(
+          `SELECT te.payload_json
+           FROM trace_events te
+           JOIN tool_calls tc ON tc.trace_event_id = te.id
+           JOIN runs r ON r.id = te.run_id
+           WHERE r.scope_version_id = ?
+             AND tc.tool_name = 'code_browser'
+             AND te.type = 'tool_result'`
+        )
+        .all(scopeVersionId)
+    );
+    for (const row of readRows) {
+      const payload = parseJson(row.payload_json);
+      const sourcePath = stringFromUnknown(payload.sourcePath) ?? stringFromUnknown(payload.path);
+      if (!sourcePath) continue;
+      readPathCounts[sourcePath] = (readPathCounts[sourcePath] ?? 0) + 1;
+    }
+
+    const verifiedEntityKeys = new Set<string>();
+    for (const row of rows(this.db.prepare("SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('reproduced', 'verified', 'reportable', 'disclosure_ready')").all(scopeVersionId))) {
+      verifiedEntityKeys.add(`finding:${text(row, 'id')}`);
+    }
+    for (const row of rows(this.db.prepare("SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('reproduced', 'verified', 'promoted')").all(scopeVersionId))) {
+      verifiedEntityKeys.add(`hypothesis:${text(row, 'id')}`);
+    }
+    for (const row of rows(this.db.prepare("SELECT vc.hypothesis_id, vc.finding_id FROM verifier_runs vr JOIN verifier_contracts vc ON vc.id = vr.contract_id JOIN runs r ON r.id = vr.run_id WHERE r.scope_version_id = ? AND vr.status = 'pass'").all(scopeVersionId))) {
+      const hypothesisId = nullableText(row, 'hypothesis_id');
+      const findingId = nullableText(row, 'finding_id');
+      if (hypothesisId) verifiedEntityKeys.add(`hypothesis:${hypothesisId}`);
+      if (findingId) verifiedEntityKeys.add(`finding:${findingId}`);
+    }
+
+    const correctedNegativeEntityKeys = new Set<string>();
+    for (const row of rows(this.db.prepare("SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')").all(scopeVersionId))) {
+      correctedNegativeEntityKeys.add(`hypothesis:${text(row, 'id')}`);
+    }
+    for (const row of rows(this.db.prepare("SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')").all(scopeVersionId))) {
+      correctedNegativeEntityKeys.add(`finding:${text(row, 'id')}`);
+    }
+    return {
+      readPathCounts,
+      verifiedEntityKeys: [...verifiedEntityKeys],
+      correctedNegativeEntityKeys: [...correctedNegativeEntityKeys]
+    };
+  }
+
   public findProjectInventoryItemByPath(
     scopeVersionId: string,
     path: string,

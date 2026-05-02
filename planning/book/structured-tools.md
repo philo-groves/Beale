@@ -111,6 +111,7 @@ Expected outputs:
 - Bounded adaptive follow-up search for weak first-pass coverage, reported under `retrievalDiagnostics.adaptiveFollowUp`.
 - Read-budget hints on top matches through `readPriority`, `readReason`, and `suggestedNextRead` code-browser arguments.
 - Negative/low-confidence ranking signals that keep duplicate, dismissed, false-positive, not-reproducible, out-of-scope, and low-evidence research memory visible but downranked through `retrievalSignals.negativeConfidence`.
+- Cross-run learning feedback from accepted code reads, verifier-backed research outcomes, and corrected negative research states through `retrievalSignals.learningFeedback` and `retrievalDiagnostics.feedback`.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

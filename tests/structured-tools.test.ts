@@ -219,6 +219,12 @@ describe('structured research tools', () => {
     expect(JSON.stringify(structureNavigation.graphNeighborhood)).toContain('defines');
     expect(JSON.stringify(structureNavigation.graphNeighborhood)).toContain('belongs_to_program');
 
+    const feedbackSearch = callTool(router, context, 'search', { query: 'listUsers database filter response json', target: '' });
+    expect(feedbackSearch.status).toBe('success');
+    expect(Number((feedbackSearch.payload.retrievalDiagnostics as { feedback: Record<string, unknown> }).feedback.readPathCount)).toBeGreaterThanOrEqual(1);
+    const feedbackRouteMatch = (feedbackSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.sourcePath === routeFile || match.path === routeFile);
+    expect(Number((feedbackRouteMatch?.retrievalSignals as Record<string, unknown> | undefined)?.learningFeedback)).toBeGreaterThan(0);
+
     const routeRead = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'GET /api/users' });
     expect(routeRead.status).toBe('success');
     expect(JSON.stringify(routeRead.payload.structureNavigation)).toContain('handles_with');
@@ -546,8 +552,10 @@ describe('structured research tools', () => {
     expect(String(duplicateSemanticRanking?.reason)).toContain('duplicate or dismissed risk penalty');
     const duplicateSearch = callTool(router, context, 'search', { query: 'duplicate telemetry authorization bypass', target: '' });
     expect(duplicateSearch.status).toBe('success');
+    expect(Number((duplicateSearch.payload.retrievalDiagnostics as { feedback: Record<string, unknown> }).feedback.correctedNegativeEntityCount)).toBeGreaterThanOrEqual(1);
     const duplicateToolMatch = (duplicateSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.entityId === duplicateHypothesis.id);
     expect(Number((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.negativeConfidence)).toBeGreaterThan(0);
+    expect(Number((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.learningFeedback)).toBeLessThan(0);
     expect((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.reasons).toEqual(expect.arrayContaining(['negative/low-confidence research state']));
     const duplicateNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', duplicateHypothesis.id, { depth: 1 });
     expect(duplicateNeighborhood.edges.some((edge) => edge.edgeKind === 'duplicates' && edge.targetEntityId === hypothesis.id)).toBe(true);
@@ -859,6 +867,14 @@ describe('structured research tools', () => {
     expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'supported_by_evidence')).toBe(true);
     expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'affects_component' && edge.targetEntityType === 'research_component')).toBe(true);
     expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'classified_as_cwe' && edge.targetEntityType === 'weakness')).toBe(true);
+
+    const feedbackSearch = callTool(router, context, 'search', { query: 'exported provider token store reportable verifier', target: '' });
+    expect(feedbackSearch.status).toBe('success');
+    expect(Number((feedbackSearch.payload.retrievalDiagnostics as { feedback: Record<string, unknown> }).feedback.verifiedEntityCount)).toBeGreaterThanOrEqual(1);
+    const verifiedMatch = (feedbackSearch.payload.matches as Array<Record<string, unknown>>).find(
+      (match) => match.entityId === finding?.id || match.entityId === hypothesisId
+    );
+    expect(Number((verifiedMatch?.retrievalSignals as Record<string, unknown> | undefined)?.learningFeedback)).toBeGreaterThan(0);
     db.close();
   });
 

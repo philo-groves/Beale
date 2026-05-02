@@ -141,6 +141,12 @@ interface SearchQueryPlan {
 
 type SearchQueryIntent = 'symbol_lookup' | 'route_api_lookup' | 'auth_permission_question' | 'sink_data_flow_question' | 'binary_orientation' | 'prior_research_memory' | 'variant_similarity_search';
 
+interface RetrievalFeedbackContext {
+  readPathCounts: Map<string, number>;
+  verifiedEntityKeys: Set<string>;
+  correctedNegativeEntityKeys: Set<string>;
+}
+
 interface RequestedLineRange {
   start: number;
   end: number;
@@ -649,6 +655,7 @@ export class BealeToolRouter {
     const combinedMetadataMatches = [...metadataMatches, ...adaptiveFollowUp.metadataMatches];
     const combinedSemanticMatches = [...semanticMatches, ...adaptiveFollowUp.semanticMatches];
     const graphMatches = [...initialGraphMatches, ...adaptiveFollowUp.graphMatches];
+    const feedbackSummary = this.db.getProjectRetrievalFeedbackSummary(context.run.scopeVersionId);
     const searchAssembly = this.assembleRankedSearchMatches({
       fileMatches,
       artifactMatches,
@@ -656,7 +663,8 @@ export class BealeToolRouter {
       semanticMatches: combinedSemanticMatches,
       graphMatches,
       queryPlan,
-      adaptiveFollowUp: adaptiveFollowUp.diagnostics
+      adaptiveFollowUp: adaptiveFollowUp.diagnostics,
+      feedback: retrievalFeedbackContext(feedbackSummary)
     });
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
@@ -665,6 +673,11 @@ export class BealeToolRouter {
     const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
     const retrievalDiagnostics = {
       ...searchAssembly.diagnostics,
+      feedback: {
+        readPathCount: Object.keys(feedbackSummary.readPathCounts).length,
+        verifiedEntityCount: feedbackSummary.verifiedEntityKeys.length,
+        correctedNegativeEntityCount: feedbackSummary.correctedNegativeEntityKeys.length
+      },
       missingReasons: this.retrievalMissingReasons({
         queryPlan,
         diagnostics: searchAssembly.diagnostics,
@@ -1992,7 +2005,7 @@ export class BealeToolRouter {
     this.appendUniqueRetrievalCandidates(candidates, input.graphMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
     return candidates
       .map((candidate, index) => {
-        const score = this.retrievalCandidateScore(candidate, { graphEntityKeys: new Set(), graphSourcePaths: new Set(), seedEntityKeys: new Set(), queryPlan });
+        const score = this.retrievalCandidateScore(candidate, { graphEntityKeys: new Set(), graphSourcePaths: new Set(), seedEntityKeys: new Set(), queryPlan, feedback: emptyRetrievalFeedbackContext() });
         return { candidate, score: score.total, index };
       })
       .sort((left, right) => right.score - left.score || left.index - right.index)
@@ -2152,6 +2165,7 @@ export class BealeToolRouter {
     graphMatches: Array<Record<string, unknown>>;
     queryPlan: SearchQueryPlan;
     adaptiveFollowUp?: Record<string, unknown> | null;
+    feedback: RetrievalFeedbackContext;
   }): SearchAssemblyResult {
     const candidatePool: RetrievalCandidate[] = [];
     const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
@@ -2173,7 +2187,7 @@ export class BealeToolRouter {
         .filter((key) => key !== ':')
     );
     const scored: Array<{ candidate: RetrievalCandidate; score: number; index: number }> = candidatePool.map((candidate, index) => {
-      const score = this.retrievalCandidateScore(candidate, { graphEntityKeys, graphSourcePaths, seedEntityKeys, queryPlan: input.queryPlan });
+      const score = this.retrievalCandidateScore(candidate, { graphEntityKeys, graphSourcePaths, seedEntityKeys, queryPlan: input.queryPlan, feedback: input.feedback });
       return {
         candidate: {
           ...candidate,
@@ -2578,7 +2592,7 @@ export class BealeToolRouter {
 
   private retrievalCandidateScore(
     candidate: RetrievalCandidate,
-    graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string>; queryPlan: SearchQueryPlan }
+    graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string>; queryPlan: SearchQueryPlan; feedback: RetrievalFeedbackContext }
   ): { total: number; signals: Record<string, number | string[]> } {
     const entityKey = this.retrievalCandidateEntityKey(candidate);
     const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
@@ -2603,6 +2617,7 @@ export class BealeToolRouter {
     const sourceType = this.retrievalSourceTypeScore(candidate);
     const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 2 : 0;
     const sourceBacked = candidate.sourcePath ? 2 : 0;
+    const learningFeedback = this.retrievalLearningFeedbackScore(candidate, graphContext.feedback);
     const negativeConfidence = this.retrievalNegativeConfidencePenalty(candidate);
     const total = roundRetrievalScore(
       textRelevance +
@@ -2619,7 +2634,8 @@ export class BealeToolRouter {
         sourceType +
         linePrecision +
         sourceBacked -
-        negativeConfidence
+        negativeConfidence +
+        learningFeedback
     );
     const reasons = [
       textRelevance > 0 ? 'text relevance' : '',
@@ -2635,6 +2651,8 @@ export class BealeToolRouter {
       queryIntent > 0 ? 'query intent fit' : '',
       linePrecision > 0 ? 'line/range provenance' : '',
       sourceBacked > 0 ? 'source-backed' : '',
+      learningFeedback > 0 ? 'cross-run learning feedback' : '',
+      learningFeedback < 0 ? 'negative cross-run feedback' : '',
       negativeConfidence > 0 ? 'negative/low-confidence research state' : ''
     ].filter(Boolean);
     return {
@@ -2655,6 +2673,7 @@ export class BealeToolRouter {
         sourceType,
         linePrecision,
         sourceBacked,
+        learningFeedback,
         negativeConfidence,
         reasons
       }
@@ -2774,6 +2793,26 @@ export class BealeToolRouter {
     const scopeConfidence = Number.parseFloat(stringValue(metadata.scopeConfidence, ''));
     if (Number.isFinite(scopeConfidence) && scopeConfidence <= 0) penalty += 2;
     return roundRetrievalScore(Math.min(22, penalty));
+  }
+
+  private retrievalLearningFeedbackScore(candidate: RetrievalCandidate, feedback: RetrievalFeedbackContext): number {
+    let score = 0;
+    if (candidate.sourcePath) {
+      score += Math.min(6, (feedback.readPathCounts.get(candidate.sourcePath) ?? 0) * 2);
+    }
+    const entityKey = this.retrievalCandidateEntityKey(candidate);
+    if (entityKey && feedback.verifiedEntityKeys.has(entityKey)) score += 8;
+    if (entityKey && feedback.correctedNegativeEntityKeys.has(entityKey)) score -= 4;
+    for (const contributor of retrievalCandidateContributors(candidate)) {
+      const contributorEntityType = stringValue(contributor.entityType, '');
+      const contributorEntityId = stringValue(contributor.entityId, '');
+      const contributorSourcePath = stringValue(contributor.sourcePath, '') || stringValue(contributor.path, '');
+      const contributorEntityKey = contributorEntityType && contributorEntityId ? `${contributorEntityType}:${contributorEntityId}` : '';
+      if (contributorSourcePath) score += Math.min(2, feedback.readPathCounts.get(contributorSourcePath) ?? 0);
+      if (contributorEntityKey && feedback.verifiedEntityKeys.has(contributorEntityKey)) score += 4;
+      if (contributorEntityKey && feedback.correctedNegativeEntityKeys.has(contributorEntityKey)) score -= 2;
+    }
+    return roundRetrievalScore(Math.max(-8, Math.min(12, score)));
   }
 
   private retrievalStatesFromNodeKind(candidate: RetrievalCandidate): string[] {
@@ -3738,6 +3777,22 @@ function resourceCounts(resources: ResourceLookupRecord[]): Record<string, numbe
 
 function roundRetrievalScore(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function emptyRetrievalFeedbackContext(): RetrievalFeedbackContext {
+  return {
+    readPathCounts: new Map(),
+    verifiedEntityKeys: new Set(),
+    correctedNegativeEntityKeys: new Set()
+  };
+}
+
+function retrievalFeedbackContext(summary: ReturnType<WorkspaceDatabase['getProjectRetrievalFeedbackSummary']>): RetrievalFeedbackContext {
+  return {
+    readPathCounts: new Map(Object.entries(summary.readPathCounts)),
+    verifiedEntityKeys: new Set(summary.verifiedEntityKeys),
+    correctedNegativeEntityKeys: new Set(summary.correctedNegativeEntityKeys)
+  };
 }
 
 function retrievalMetadata(candidate: RetrievalCandidate): Record<string, unknown> {
