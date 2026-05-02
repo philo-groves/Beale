@@ -2203,7 +2203,7 @@ export class BealeToolRouter {
         }
       }
     }
-    const matches = selected.map((candidate) => candidate.output);
+    const matches = this.annotateReadBudgetHints(selected).map((candidate) => candidate.output);
 
     return {
       matches,
@@ -2238,6 +2238,64 @@ export class BealeToolRouter {
     if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
     if (['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_hypothesis', 'verifies_finding', 'verified_by_contract', 'verifier_passed_hypothesis', 'verifier_passed_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
     return 8;
+  }
+
+  private annotateReadBudgetHints(candidates: RetrievalCandidate[]): RetrievalCandidate[] {
+    let priority = 1;
+    return candidates.map((candidate, index) => {
+      if (priority > 5) return candidate;
+      const hint = this.retrievalReadHint(candidate, index, priority);
+      if (!hint) return candidate;
+      priority += 1;
+      return {
+        ...candidate,
+        output: {
+          ...candidate.output,
+          readPriority: hint.priority,
+          readReason: hint.reason,
+          suggestedNextRead: hint.suggestedNextRead
+        }
+      };
+    });
+  }
+
+  private retrievalReadHint(
+    candidate: RetrievalCandidate,
+    index: number,
+    priority: number
+  ): { priority: number; reason: string; suggestedNextRead: Record<string, unknown> } | null {
+    const path = candidate.sourcePath ?? stringValue(candidate.output.path, '');
+    if (!path) return null;
+    if (candidate.entityType && ['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'trace_event'].includes(candidate.entityType)) return null;
+    const range = retrievalCandidateLineRange(candidate);
+    const symbol = stringValue(candidate.output.structureName, '') || (candidate.entityType === 'structure_entity' ? stringValue(candidate.output.title, '').replace(/^\w+\s+/, '') : '');
+    const binaryDerived = candidate.output.binaryDerived === true || candidate.namespace === 'binary' || candidate.range === 'binary_strings';
+    const lineStart = range && !binaryDerived ? Math.max(1, range.start - 20) : null;
+    const lineEnd = range && !binaryDerived ? Math.min(range.end + 40, lineStart ? lineStart + MAX_BROWSER_LINES - 1 : range.end + 40) : null;
+    const suggestedNextRead: Record<string, unknown> = {
+      tool: 'code_browser',
+      args: {
+        path,
+        symbol: symbol && !binaryDerived ? symbol : '',
+        line_start: lineStart ? String(lineStart) : '',
+        line_end: lineEnd ? String(lineEnd) : ''
+      }
+    };
+    return {
+      priority,
+      reason: this.retrievalReadReason(candidate, index),
+      suggestedNextRead
+    };
+  }
+
+  private retrievalReadReason(candidate: RetrievalCandidate, index: number): string {
+    const reasons = arrayOfStrings(candidate.signals.reasons);
+    if (index === 0) return `Top ranked retrieval result${reasons.length > 0 ? `: ${reasons.slice(0, 3).join(', ')}` : ''}.`;
+    const edgeKinds = uniqueStrings([candidate.provenance.graphEdgeKind ?? '', stringValue(candidate.output.graphEdgeKind, ''), ...arrayOfStrings(candidate.output.retrievalGraphEdgeKinds)]);
+    if (edgeKinds.length > 0) return `Read to inspect graph-related context via ${edgeKinds.slice(0, 3).join(', ')}.`;
+    if (arrayOfStrings(candidate.output.retrievalMergedSources).length > 1) return `Read because multiple retrieval layers agree: ${arrayOfStrings(candidate.output.retrievalMergedSources).slice(0, 3).join(', ')}.`;
+    if (candidate.kind === 'semantic') return 'Read because semantic retrieval found relevant local context.';
+    return reasons.length > 0 ? `Read to validate ${reasons.slice(0, 3).join(', ')}.` : 'Read to validate this retrieved location.';
   }
 
   private diversifyRetrievalCandidates(scored: Array<{ candidate: RetrievalCandidate; score: number; index: number }>, queryPlan: SearchQueryPlan): RetrievalCandidate[] {

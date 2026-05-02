@@ -159,6 +159,9 @@ describe('structured research tools', () => {
     const graphToolMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph');
     expect(graphToolMatch).toBeTruthy();
     expect(Number(graphToolMatch?.retrievalScore)).toBeGreaterThan(0);
+    const firstSuggestedRead = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => Number(match.readPriority) === 1);
+    expect(firstSuggestedRead?.readReason).toBeTruthy();
+    expect(firstSuggestedRead?.suggestedNextRead).toMatchObject({ tool: 'code_browser', args: expect.objectContaining({ path: expect.any(String) }) });
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity)).toBeGreaterThan(0);
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.queryIntent)).toBeGreaterThanOrEqual(0);
     expect((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.queryIntents).toEqual(expect.arrayContaining(['route_api_lookup']));
