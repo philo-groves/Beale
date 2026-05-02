@@ -73,7 +73,7 @@ The second implementation starts Layer 2:
 - Relation targets are resolved after each structural scan, first by same-file identity and then by scoped name matching where the target kind is unambiguous enough for beta navigation.
 - `code_browser` uses matching structural entities for stable symbol ranges and returns nearby contained entities, outgoing relationships, and incoming references with the excerpt.
 - The structure summary exposes status, indexed-file count, unresolved-relation count, truncated-entity count, and indexed time for tool payloads and future UI status surfaces.
-- This is intentionally parser-light for beta. Tree-sitter, language-server integration, deeper call/reference graphs, binary CFGs, and web route crawls remain future structural work.
+- This is intentionally parser-light for beta. The first call-graph accuracy pass uses the existing TypeScript compiler API for JS/TS instead of adding native Tree-sitter dependencies. Python, Java, broader language-server integration, binary CFGs, and web route crawls remain future structural work.
 
 The third implementation starts Layer 3:
 
@@ -114,10 +114,11 @@ The fourth implementation starts Layer 4:
 - Search ranking now treats graph seed and proximity as retrieval signals, so graph-adjacent entities can promote or diversify the final bounded result set instead of only filling unused result slots.
 - Graph-backed variant search now finds entities that share important relationship targets, such as sibling handlers that reach the same sink or check the same permission, binaries that share imports/exports/URLs/permissions, and research records tied to the same hypothesis or finding.
 - Research-memory graph coverage now includes component and CWE anchor nodes, duplicate/supersession links, evidence back-links, verifier outcome links, and artifact provenance edges so prior Beale state is traversable from related records.
-- Graph status now includes stale reasons, rebuild reason, build count, expected node count, and node/edge family counts so missing graph relationships can be debugged by family.
+- Graph status now includes stale reasons, rebuild reason, build count, expected node count, node/edge family counts, and extraction family counts so missing graph relationships can be debugged by family.
 - Graph retrieval tests now cover no-inline-refresh behavior, dedupe against direct file hits, and code-to-research-memory hops through matching component anchors.
 - Parser-light structural extraction now adds framework-specific route/controller/model edges for Express/Koa-style routers, Fastify, Next.js routes, Rails routes/resources, Django URLConf, Laravel routes, request parsing, response serialization, and model read/write calls.
 - Binary graph extraction now adds parser-light nodes and direct binary file edges for imported symbols, exported symbols, notable strings, URLs, and Android permissions from bounded binary strings.
+- JS/TS structural extraction now uses the TypeScript compiler API during the same background indexing path to add AST-backed method definitions and call-site edges while graph status exposes TypeScript AST extraction family counts and `calls` edge family counts.
 
 ## Index Layers
 

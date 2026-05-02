@@ -195,9 +195,15 @@ describe('structured research tools', () => {
     expect(db.searchProjectDocumentsForRun(context.run.id, 'serializes_response response_serialization').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'serializes_response')).toBe(true);
     expect(db.searchProjectDocumentsForRun(context.run.id, 'reads_model order').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'reads_model')).toBe(true);
     expect(db.searchProjectDocumentsForRun(context.run.id, 'writes_model order').some((result) => result.entityType === 'structure_entity' && result.metadata.relationKind === 'writes_model')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'method save typescript_ast_method').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'method' && result.metadata.extractionFamily === 'typescript_ast')).toBe(true);
+    expect(db.searchProjectDocumentsForRun(context.run.id, 'createOrder typescript_ast_call_graph').some((result) => result.entityType === 'structure_entity' && result.metadata.entityKind === 'call_site' && result.metadata.extractionFamily === 'typescript_ast_call_graph')).toBe(true);
     const frameworkGraph = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'structure_entity', frameworkRouteSearch.find((result) => result.metadata.routeStyle === 'fastify_route_object')?.entityId ?? '', { depth: 2 });
     expect(frameworkGraph.edges.some((edge) => edge.edgeKind === 'handles_with' && edge.targetLabel === 'createOrder')).toBe(true);
     const frameworkGraphSummary = db.getProjectGraphSummary(context.run.scopeVersionId);
+    expect(frameworkGraphSummary.nodeFamilyCounts.structure_entity).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.edgeFamilyCounts.calls).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.typescript_ast).toBeGreaterThanOrEqual(1);
+    expect(frameworkGraphSummary.extractionFamilyCounts.typescript_ast_call_graph).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.parses_body).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.serializes_response).toBeGreaterThanOrEqual(1);
     expect(frameworkGraphSummary.edgeFamilyCounts.reads_model).toBeGreaterThanOrEqual(1);
@@ -1304,7 +1310,7 @@ function openStructuredToolDb(
   );
   writeFileSync(
     frameworkFile,
-    "const fastify = require('fastify')();\nfastify.get('/api/orders', requireAuth, listOrders);\nfastify.route({ method: 'POST', url: '/api/orders', handler: createOrder });\nasync function listOrders(req, reply) {\n  const filter = req.query.filter;\n  const rows = await prisma.order.findMany({ where: filter });\n  return reply.send(rows);\n}\nasync function createOrder(request, reply) {\n  const body = request.body;\n  const row = await prisma.order.create({ data: body });\n  return reply.status(201).send(row);\n}\n"
+    "const fastify = require('fastify')();\nfastify.get('/api/orders', requireAuth, listOrders);\nfastify.route({ method: 'POST', url: '/api/orders', handler: createOrder });\nasync function listOrders(req, reply) {\n  const filter = req.query.filter;\n  const rows = await prisma.order.findMany({ where: filter });\n  return reply.send(rows);\n}\nasync function createOrder(request, reply) {\n  const body = request.body;\n  const row = await prisma.order.create({ data: body });\n  return reply.status(201).send(row);\n}\nclass OrderController {\n  async save(request, reply) {\n    auditOrder(request.body);\n    return createOrder(request, reply);\n  }\n}\nfunction auditOrder(body) {\n  return sanitizeOrder(body);\n}\nfunction sanitizeOrder(body) {\n  return body;\n}\n"
   );
   writeFileSync(
     binaryFile,

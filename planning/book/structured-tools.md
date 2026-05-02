@@ -76,6 +76,7 @@ Backends may include:
 - Structured dependency/package metadata extracted from common manifest files.
 - Bounded binary-derived strings indexed from scoped binaries.
 - Structural index records for best-effort definitions, imports, exports, call sites, route declarations, route middleware/handler links, permission markers, sink markers, mobile manifest records, web/API endpoint records, binary-derived URLs/symbols, source line ranges, and simple relationships.
+- JS/TS AST-backed structural records for method definitions and call-site edges from the TypeScript compiler API.
 - Framework-specific structural records for route/controller/model relationships, request parsing, response serialization, and model read/write edges where parser-light extraction can identify them.
 - Binary graph records for imported symbols, exported symbols, notable strings, referenced URLs, and referenced permissions where bounded binary-string extraction can identify them.
 - SQLite graph nodes and edges derived from scope assets, inventory items, structural entities, and structural relations.
@@ -95,7 +96,7 @@ Expected outputs:
 - Graph-backed variant matches for entities that share relationship targets such as sinks, permission checks, middleware, binary imports/exports, referenced URLs/permissions, hypotheses, or findings.
 - Binary graph neighborhoods for scoped binaries, including `imports_symbol`, `exports_symbol`, `contains_string`, `references_url`, and `references_permission` edge families.
 - Research-memory graph links for components, CWE mappings, duplicate hypotheses/findings, evidence support, verifier outcomes, and artifact-producing traces.
-- Graph operational diagnostics including stale reasons, rebuild reason, build count, expected node count, and node/edge family counts.
+- Graph operational diagnostics including stale reasons, rebuild reason, build count, expected node count, node/edge family counts, and extraction family counts.
 - Code-to-research-memory graph variants when source-backed hits match component anchors from prior hypotheses or findings.
 - Retrieval scores and ranking signals that show when graph seed or proximity influenced final search ordering.
 - Match context small enough for model use.

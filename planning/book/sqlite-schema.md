@@ -298,6 +298,7 @@ Fields:
 - `stale_reasons_json`
 - `node_family_counts_json`
 - `edge_family_counts_json`
+- Tool-facing graph status also reports derived extraction family counts from structural entity metadata.
 - `expected_node_count`
 - `actual_node_count`
 - `actual_edge_count`

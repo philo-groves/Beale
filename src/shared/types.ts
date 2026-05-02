@@ -336,6 +336,7 @@ export interface ProjectGraphSummary {
   buildCount: number;
   nodeFamilyCounts: Record<string, number>;
   edgeFamilyCounts: Record<string, number>;
+  extractionFamilyCounts: Record<string, number>;
   indexedAt: string | null;
 }
 

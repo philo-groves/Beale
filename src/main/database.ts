@@ -3,6 +3,7 @@ import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, rea
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
+import ts from 'typescript';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -2026,6 +2027,8 @@ function extractProjectStructureCandidates(path: string, language: string, text:
     });
   };
 
+  extractTypeScriptAstStructureCandidates(path, language, text, lines, add);
+
   for (const [index, line] of lines.entries()) {
     const lineStart = index + 1;
     const trimmed = line.trim();
@@ -2754,6 +2757,134 @@ function extractCallSiteCandidate(line: string, language: string, lineStart: num
       relations: [{ relationKind: 'calls', targetKind: 'function', targetName: name }]
     });
   }
+}
+
+function extractTypeScriptAstStructureCandidates(path: string, language: string, text: string, lines: string[], add: (candidate: ProjectStructureCandidate) => void): void {
+  if (language !== 'javascript' && language !== 'typescript') return;
+  const scriptKind = typeScriptScriptKindForPath(path, language);
+  const sourceFile = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind);
+  const ownerStack: Array<{ name: string; kind: string; lineStart: number }> = [];
+  const callKeys = new Set<string>();
+
+  const lineForPosition = (position: number): number => sourceFile.getLineAndCharacterOfPosition(position).line + 1;
+  const lineText = (lineStart: number): string => lines[lineStart - 1] ?? '';
+  const nodeText = (node: ts.Node): string => node.getText(sourceFile).replace(/\s+/g, ' ').slice(0, 1000);
+
+  const addDefinition = (node: ts.Node, name: string, entityKind: 'function' | 'method' | 'class', style: string): void => {
+    const lineStart = lineForPosition(node.getStart(sourceFile));
+    const lineEnd = lineForPosition(node.getEnd());
+    add({
+      entityKind,
+      name,
+      signature: nodeText(node),
+      lineStart,
+      lineEnd,
+      metadata: { definitionStyle: style, extractionFamily: 'typescript_ast' }
+    });
+  };
+
+  const visit = (node: ts.Node): void => {
+    const className = typeScriptClassName(node);
+    if (className) {
+      const lineStart = lineForPosition(node.getStart(sourceFile));
+      addDefinition(node, className, 'class', 'typescript_ast_class');
+      ownerStack.push({ name: className, kind: 'class', lineStart });
+      ts.forEachChild(node, visit);
+      ownerStack.pop();
+      return;
+    }
+
+    const functionName = typeScriptFunctionName(node);
+    if (functionName) {
+      const lineStart = lineForPosition(node.getStart(sourceFile));
+      addDefinition(node, functionName, 'function', 'typescript_ast_function');
+      ownerStack.push({ name: functionName, kind: 'function', lineStart });
+      ts.forEachChild(node, visit);
+      ownerStack.pop();
+      return;
+    }
+
+    const methodName = typeScriptMethodName(node);
+    if (methodName) {
+      const lineStart = lineForPosition(node.getStart(sourceFile));
+      addDefinition(node, methodName, 'method', 'typescript_ast_method');
+      ownerStack.push({ name: methodName, kind: 'method', lineStart });
+      ts.forEachChild(node, visit);
+      ownerStack.pop();
+      return;
+    }
+
+    if (ts.isCallExpression(node)) {
+      const callee = typeScriptCalleeName(node.expression);
+      if (callee && !isControlKeyword(callee) && !isCommonStructuralNoise(callee)) {
+        const lineStart = lineForPosition(node.getStart(sourceFile));
+        const owner = ownerStack.at(-1) ?? null;
+        const key = `${callee}:${lineStart}:${owner?.name ?? ''}`;
+        if (!callKeys.has(key)) {
+          callKeys.add(key);
+          add({
+            entityKind: 'call_site',
+            name: callee,
+            signature: lineText(lineStart).trim() || nodeText(node),
+            lineStart,
+            lineEnd: lineStart,
+            metadata: {
+              callee,
+              language,
+              relationKind: 'calls',
+              extractionFamily: 'typescript_ast_call_graph',
+              ownerKind: owner?.kind ?? null,
+              ownerName: owner?.name ?? null,
+              ownerLineStart: owner?.lineStart ?? null
+            },
+            relations: [{ relationKind: 'calls', targetKind: 'function', targetName: callee, metadata: { extractionFamily: 'typescript_ast_call_graph' } }]
+          });
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+}
+
+function typeScriptScriptKindForPath(path: string, language: string): ts.ScriptKind {
+  const extension = extname(path).toLowerCase();
+  if (extension === '.tsx') return ts.ScriptKind.TSX;
+  if (extension === '.jsx') return ts.ScriptKind.JSX;
+  if (extension === '.mts') return ts.ScriptKind.TS;
+  if (extension === '.cts') return ts.ScriptKind.TS;
+  if (extension === '.ts') return ts.ScriptKind.TS;
+  return language === 'typescript' ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+}
+
+function typeScriptClassName(node: ts.Node): string | null {
+  if (!ts.isClassDeclaration(node) || !node.name?.text) return null;
+  return node.name.text;
+}
+
+function typeScriptFunctionName(node: ts.Node): string | null {
+  if (ts.isFunctionDeclaration(node) && node.name?.text) return node.name.text;
+  if ((ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name)) return node.parent.name.text;
+  return null;
+}
+
+function typeScriptMethodName(node: ts.Node): string | null {
+  if (!ts.isMethodDeclaration(node) && !ts.isGetAccessorDeclaration(node) && !ts.isSetAccessorDeclaration(node)) return null;
+  return typeScriptPropertyName(node.name);
+}
+
+function typeScriptPropertyName(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function typeScriptCalleeName(expression: ts.Expression): string | null {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (ts.isElementAccessExpression(expression) && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
+  return null;
 }
 
 function classifyProjectSink(name: string): string {
@@ -4818,6 +4949,7 @@ export class WorkspaceDatabase {
     const expectedNodeCount = Object.values(expectedNodeFamilyCounts).reduce((sum, count) => sum + count, 0);
     const nodeFamilyCounts = this.projectGraphActualNodeFamilyCounts(scopeVersionId);
     const edgeFamilyCounts = this.projectGraphActualEdgeFamilyCounts(scopeVersionId);
+    const extractionFamilyCounts = this.projectGraphExtractionFamilyCounts(scopeVersionId);
     const staleReasons = this.projectGraphStaleReasons(expectedNodeFamilyCounts, nodeFamilyCounts);
     const status = nodeCount === 0 ? 'empty' : staleReasons.length > 0 ? 'stale' : 'ready';
     const statusRow = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_status WHERE scope_version_id = ?').get(scopeVersionId));
@@ -4847,6 +4979,7 @@ export class WorkspaceDatabase {
       buildCount: updatedStatusRow ? numberValue(updatedStatusRow, 'build_count') : 0,
       nodeFamilyCounts,
       edgeFamilyCounts,
+      extractionFamilyCounts,
       indexedAt: nodeRow ? nullableText(nodeRow, 'indexed_at') : null
     };
   }
@@ -4956,6 +5089,24 @@ export class WorkspaceDatabase {
           )
           .all(scopeVersionId)
       ).map((row) => [text(row, 'edge_kind'), numberValue(row, 'count')])
+    );
+  }
+
+  private projectGraphExtractionFamilyCounts(scopeVersionId: string): Record<string, number> {
+    return Object.fromEntries(
+      rows(
+        this.db
+          .prepare(
+            `SELECT json_extract(metadata_json, '$.extractionFamily') AS extraction_family, COUNT(*) AS count
+             FROM project_structure_entities
+             WHERE scope_version_id = ?
+               AND json_extract(metadata_json, '$.extractionFamily') IS NOT NULL
+               AND TRIM(json_extract(metadata_json, '$.extractionFamily')) <> ''
+             GROUP BY extraction_family
+             ORDER BY extraction_family ASC`
+          )
+          .all(scopeVersionId)
+      ).map((row) => [text(row, 'extraction_family'), numberValue(row, 'count')])
     );
   }
 
