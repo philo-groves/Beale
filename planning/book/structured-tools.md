@@ -100,6 +100,7 @@ Expected outputs:
 - Graph operational diagnostics including stale reasons, rebuild reason, build count, expected node count, node/edge family counts, and extraction family counts.
 - Code-to-research-memory graph variants when source-backed hits match component anchors from prior hypotheses or findings.
 - Retrieval scores and ranking signals that show when graph seed or proximity influenced final search ordering.
+- Internal search ranking uses a normalized retrieval candidate envelope across lexical, artifact, metadata, semantic, graph, and graph-variant sources before formatting model-facing matches.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

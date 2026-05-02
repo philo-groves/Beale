@@ -91,6 +91,25 @@ interface SearchAssemblyResult {
   graphVariantMatches: number;
 }
 
+interface RetrievalCandidate {
+  output: Record<string, unknown>;
+  kind: string;
+  entityType: string | null;
+  entityId: string | null;
+  sourcePath: string | null;
+  range: string | null;
+  namespace: string;
+  score: number;
+  signals: Record<string, number | string[]>;
+  provenance: {
+    source: string;
+    matchedBy: string | null;
+    seedEntityType?: string | null;
+    seedEntityId?: string | null;
+    graphEdgeKind?: string | null;
+  };
+}
+
 interface SearchCollection {
   files: ScopedFile[];
   roots: ScopedSearchRoot[];
@@ -1877,24 +1896,34 @@ export class BealeToolRouter {
     semanticMatches: Array<Record<string, unknown>>;
     graphMatches: Array<Record<string, unknown>>;
   }): SearchAssemblyResult {
-    const candidatePool: Array<Record<string, unknown>> = [];
+    const candidatePool: RetrievalCandidate[] = [];
     const candidatePoolLimit = MAX_SEARCH_MATCHES * 4;
-    this.appendUniqueSearchMatches(candidatePool, input.fileMatches, candidatePoolLimit);
-    this.appendUniqueSearchMatches(candidatePool, input.artifactMatches, candidatePoolLimit);
-    this.appendUniqueSearchMatches(candidatePool, input.metadataMatches, candidatePoolLimit);
-    this.appendUniqueSearchMatches(candidatePool, input.semanticMatches, candidatePoolLimit);
-    this.appendUniqueSearchMatches(candidatePool, input.graphMatches, candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidatePool, input.fileMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidatePool, input.artifactMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidatePool, input.metadataMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidatePool, input.semanticMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
+    this.appendUniqueRetrievalCandidates(candidatePool, input.graphMatches.map((match) => this.searchMatchToRetrievalCandidate(match)), candidatePoolLimit);
 
-    const graphEntityKeys = new Set(input.graphMatches.map((match) => this.searchMatchEntityKey(match)).filter(Boolean));
-    const graphSourcePaths = new Set(input.graphMatches.map((match) => stringValue(match.sourcePath, '') || stringValue(match.path, '')).filter(Boolean));
-    const seedEntityKeys = new Set(input.graphMatches.map((match) => `${stringValue(match.seedEntityType, '')}:${stringValue(match.seedEntityId, '')}`).filter((key) => key !== ':'));
-    const scored: Array<{ match: Record<string, unknown>; score: number; index: number }> = candidatePool.map((match, index) => {
-      const score = this.searchMatchRetrievalScore(match, { graphEntityKeys, graphSourcePaths, seedEntityKeys });
+    const graphCandidates = input.graphMatches.map((match) => this.searchMatchToRetrievalCandidate(match));
+    const graphEntityKeys = new Set(graphCandidates.map((candidate) => this.retrievalCandidateEntityKey(candidate)).filter(Boolean));
+    const graphSourcePaths = new Set(graphCandidates.map((candidate) => candidate.sourcePath).filter((value): value is string => Boolean(value)));
+    const seedEntityKeys = new Set(
+      graphCandidates
+        .map((candidate) => `${candidate.provenance.seedEntityType ?? ''}:${candidate.provenance.seedEntityId ?? ''}`)
+        .filter((key) => key !== ':')
+    );
+    const scored: Array<{ candidate: RetrievalCandidate; score: number; index: number }> = candidatePool.map((candidate, index) => {
+      const score = this.retrievalCandidateScore(candidate, { graphEntityKeys, graphSourcePaths, seedEntityKeys });
       return {
-        match: {
-          ...match,
-          retrievalScore: score.total,
-          retrievalSignals: score.signals
+        candidate: {
+          ...candidate,
+          score: score.total,
+          signals: score.signals,
+          output: {
+            ...candidate.output,
+            retrievalScore: score.total,
+            retrievalSignals: score.signals
+          }
         },
         score: score.total,
         index
@@ -1902,28 +1931,29 @@ export class BealeToolRouter {
     });
     scored.sort((left, right) => right.score - left.score || left.index - right.index);
 
-    const selected: Array<Record<string, unknown>> = [];
-    const deferred: Array<Record<string, unknown>> = [];
+    const selected: RetrievalCandidate[] = [];
+    const deferred: RetrievalCandidate[] = [];
     const sourcePathCounts = new Map<string, number>();
     for (const entry of scored) {
       if (selected.length >= MAX_SEARCH_MATCHES) break;
-      const sourcePath = stringValue(entry.match.sourcePath, '') || stringValue(entry.match.path, '');
+      const sourcePath = entry.candidate.sourcePath ?? '';
       const sourcePathCount = sourcePath ? sourcePathCounts.get(sourcePath) ?? 0 : 0;
-      const graphScore = numberValue((entry.match.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity, 0);
+      const graphScore = numberValue(entry.candidate.signals.graphProximity, 0);
       if (sourcePath && sourcePathCount >= 4 && graphScore <= 0 && selected.length < MAX_SEARCH_MATCHES - 6) {
-        deferred.push(entry.match);
+        deferred.push(entry.candidate);
         continue;
       }
-      selected.push(entry.match);
+      selected.push(entry.candidate);
       if (sourcePath) sourcePathCounts.set(sourcePath, sourcePathCount + 1);
     }
-    for (const match of deferred) {
+    for (const candidate of deferred) {
       if (selected.length >= MAX_SEARCH_MATCHES) break;
-      selected.push(match);
+      selected.push(candidate);
     }
+    const matches = selected.map((candidate) => candidate.output);
 
     return {
-      matches: selected,
+      matches,
       metadataMatches: selected.filter((match) => match.kind === 'metadata').length,
       semanticMatches: selected.filter((match) => match.kind === 'semantic').length,
       graphMatches: selected.filter((match) => match.kind === 'graph' || match.kind === 'graph_variant').length,
@@ -1931,27 +1961,104 @@ export class BealeToolRouter {
     };
   }
 
-  private searchMatchRetrievalScore(
-    match: Record<string, unknown>,
+  private graphEdgeRetrievalWeight(edgeKind: string): number {
+    if (['reaches_sink', 'checks_permission', 'routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind)) return 18;
+    if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
+    if (['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_hypothesis', 'verifies_finding', 'verified_by_contract', 'verifier_passed_hypothesis', 'verifier_passed_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
+    return 8;
+  }
+
+  private searchMatchToRetrievalCandidate(match: Record<string, unknown>): RetrievalCandidate {
+    const kind = stringValue(match.kind, 'unknown');
+    const entityType = stringValue(match.entityType, '') || this.inferSearchMatchEntityType(match);
+    const entityId = stringValue(match.entityId, '') || this.inferSearchMatchEntityId(match, entityType);
+    const sourcePath = stringValue(match.sourcePath, '') || stringValue(match.path, '') || null;
+    const range = stringValue(match.range, '') || (numberValue(match.line, 0) > 0 ? String(numberValue(match.line, 0)) : null);
+    const namespace = stringValue(match.namespace, '') || this.searchMatchNamespace(match);
+    return {
+      output: match,
+      kind,
+      entityType: entityType || null,
+      entityId: entityId || null,
+      sourcePath,
+      range,
+      namespace,
+      score: 0,
+      signals: {},
+      provenance: {
+        source: kind,
+        matchedBy: stringValue(match.matchedBy, '') || null,
+        seedEntityType: stringValue(match.seedEntityType, '') || null,
+        seedEntityId: stringValue(match.seedEntityId, '') || null,
+        graphEdgeKind: stringValue(match.graphEdgeKind, '') || null
+      }
+    };
+  }
+
+  private inferSearchMatchEntityType(match: Record<string, unknown>): string {
+    const kind = stringValue(match.kind, '');
+    if (kind === 'file') return 'file';
+    if (kind === 'artifact') return 'artifact';
+    return '';
+  }
+
+  private inferSearchMatchEntityId(match: Record<string, unknown>, entityType: string): string {
+    if (entityType === 'file') {
+      const path = stringValue(match.path, '') || stringValue(match.sourcePath, '');
+      const range = stringValue(match.range, '');
+      const snippet = stringValue(match.snippet, '');
+      return path ? `file:${path}:${range}:${snippet}` : '';
+    }
+    if (entityType === 'artifact') return stringValue(match.artifactId, '');
+    return '';
+  }
+
+  private searchMatchNamespace(match: Record<string, unknown>): string {
+    const kind = stringValue(match.kind, '');
+    if (kind === 'file') return stringValue(match.binaryDerived, '') === 'true' || match.binaryDerived === true ? 'binary' : 'source';
+    if (kind === 'artifact') return 'artifact';
+    if (kind === 'metadata') {
+      const entityType = stringValue(match.entityType, '');
+      if (entityType === 'structure_entity') return 'structure';
+      if (entityType === 'inventory_item') return 'inventory';
+      return 'metadata';
+    }
+    if (kind === 'graph' || kind === 'graph_variant') return 'graph';
+    return kind || 'unknown';
+  }
+
+  private retrievalCandidateScore(
+    candidate: RetrievalCandidate,
     graphContext: { graphEntityKeys: Set<string>; graphSourcePaths: Set<string>; seedEntityKeys: Set<string> }
   ): { total: number; signals: Record<string, number | string[]> } {
-    const kind = stringValue(match.kind, '');
-    const kindScore = kind === 'file' ? 100 : kind === 'artifact' ? 88 : kind === 'metadata' ? 72 : kind === 'semantic' ? 68 : kind === 'graph_variant' ? 66 : kind === 'graph' ? 64 : 40;
-    const semanticScore = kind === 'semantic' ? Math.min(18, numberValue(match.semanticScore, 0) * 18) : 0;
-    const entityKey = this.searchMatchEntityKey(match);
-    const sourcePath = stringValue(match.sourcePath, '') || stringValue(match.path, '');
+    const kindScore =
+      candidate.kind === 'file'
+        ? 100
+        : candidate.kind === 'artifact'
+          ? 88
+          : candidate.kind === 'metadata'
+            ? 72
+            : candidate.kind === 'semantic'
+              ? 68
+              : candidate.kind === 'graph_variant'
+                ? 66
+                : candidate.kind === 'graph'
+                  ? 64
+                  : 40;
+    const semanticScore = candidate.kind === 'semantic' ? Math.min(18, numberValue(candidate.output.semanticScore, 0) * 18) : 0;
+    const entityKey = this.retrievalCandidateEntityKey(candidate);
     const graphSeedBoost = entityKey && graphContext.seedEntityKeys.has(entityKey) ? 8 : 0;
     const graphAdjacentBoost =
-      kind === 'graph' || kind === 'graph_variant'
-        ? this.graphEdgeRetrievalWeight(stringValue(match.graphEdgeKind, ''))
-        : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (sourcePath && graphContext.graphSourcePaths.has(sourcePath))
+      candidate.kind === 'graph' || candidate.kind === 'graph_variant'
+        ? this.graphEdgeRetrievalWeight(candidate.provenance.graphEdgeKind ?? '')
+        : (entityKey && graphContext.graphEntityKeys.has(entityKey)) || (candidate.sourcePath && graphContext.graphSourcePaths.has(candidate.sourcePath))
           ? 6
           : 0;
-    const linePrecision = numberValue(match.line, 0) > 0 || stringValue(match.range, '') ? 3 : 0;
-    const sourceBacked = sourcePath ? 2 : 0;
+    const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 3 : 0;
+    const sourceBacked = candidate.sourcePath ? 2 : 0;
     const total = Math.round((kindScore + semanticScore + graphSeedBoost + graphAdjacentBoost + linePrecision + sourceBacked) * 100) / 100;
     const reasons = [
-      `${kind || 'unknown'} match`,
+      `${candidate.kind || 'unknown'} match`,
       graphSeedBoost > 0 ? 'graph seed' : '',
       graphAdjacentBoost > 0 ? 'graph proximity' : '',
       linePrecision > 0 ? 'line/range provenance' : '',
@@ -1971,60 +2078,46 @@ export class BealeToolRouter {
     };
   }
 
-  private graphEdgeRetrievalWeight(edgeKind: string): number {
-    if (['reaches_sink', 'checks_permission', 'routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind)) return 18;
-    if (['calls', 'imports', 'exports', 'defines'].includes(edgeKind)) return 12;
-    if (['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_hypothesis', 'verifies_finding', 'verified_by_contract', 'verifier_passed_hypothesis', 'verifier_passed_finding', 'backed_by_evidence', 'observed_in_trace'].includes(edgeKind)) return 14;
-    return 8;
+  private retrievalCandidateEntityKey(candidate: RetrievalCandidate): string {
+    return candidate.entityType && candidate.entityId ? `${candidate.entityType}:${candidate.entityId}` : '';
   }
 
-  private searchMatchEntityKey(match: Record<string, unknown>): string {
-    const entityType = stringValue(match.entityType, '');
-    const entityId = stringValue(match.entityId, '');
-    return entityType && entityId ? `${entityType}:${entityId}` : '';
-  }
-
-  private appendUniqueSearchMatches(matches: Array<Record<string, unknown>>, candidates: Array<Record<string, unknown>>, limit: number): number {
+  private appendUniqueRetrievalCandidates(matches: RetrievalCandidate[], candidates: RetrievalCandidate[], limit: number): number {
     let added = 0;
     for (const candidate of candidates) {
       if (matches.length >= limit) break;
-      if (this.searchMatchIsDuplicate(matches, candidate)) continue;
+      if (this.retrievalCandidateIsDuplicate(matches, candidate)) continue;
       matches.push(candidate);
       added += 1;
     }
     return added;
   }
 
-  private searchMatchIsDuplicate(existing: Array<Record<string, unknown>>, candidate: Record<string, unknown>): boolean {
-    const candidateKind = stringValue(candidate.kind, '');
-    const candidateEntityType = stringValue(candidate.entityType, '');
-    const candidateSourcePath = stringValue(candidate.sourcePath, '');
-    const candidateArtifactId = stringValue(candidate.artifactId, '') || (candidateEntityType === 'artifact' ? stringValue(candidate.entityId, '') : '');
-    if (candidateKind === 'metadata' && candidateEntityType === 'inventory_item' && candidateSourcePath) {
-      return existing.some((match) => stringValue(match.path, '') === candidateSourcePath || stringValue(match.sourcePath, '') === candidateSourcePath);
+  private retrievalCandidateIsDuplicate(existing: RetrievalCandidate[], candidate: RetrievalCandidate): boolean {
+    const candidateArtifactId = stringValue(candidate.output.artifactId, '') || (candidate.entityType === 'artifact' ? candidate.entityId ?? '' : '');
+    if (candidate.kind === 'metadata' && candidate.entityType === 'inventory_item' && candidate.sourcePath) {
+      return existing.some((match) => match.sourcePath === candidate.sourcePath);
     }
-    if (candidateKind === 'metadata' && candidateEntityType === 'artifact' && candidateArtifactId) {
-      return existing.some((match) => stringValue(match.artifactId, '') === candidateArtifactId || (stringValue(match.entityType, '') === 'artifact' && stringValue(match.entityId, '') === candidateArtifactId));
+    if (candidate.kind === 'metadata' && candidate.entityType === 'artifact' && candidateArtifactId) {
+      return existing.some((match) => stringValue(match.output.artifactId, '') === candidateArtifactId || (match.entityType === 'artifact' && match.entityId === candidateArtifactId));
     }
-    if ((candidateKind === 'graph' || candidateKind === 'graph_variant') && candidateEntityType && stringValue(candidate.entityId, '')) {
-      const candidateEntityId = stringValue(candidate.entityId, '');
-      if (candidateSourcePath && !candidate.line) {
-        return existing.some((match) => stringValue(match.path, '') === candidateSourcePath || stringValue(match.sourcePath, '') === candidateSourcePath);
+    if ((candidate.kind === 'graph' || candidate.kind === 'graph_variant') && candidate.entityType && candidate.entityId) {
+      if (candidate.sourcePath && !candidate.output.line) {
+        return existing.some((match) => match.sourcePath === candidate.sourcePath);
       }
-      return existing.some((match) => stringValue(match.entityType, '') === candidateEntityType && stringValue(match.entityId, '') === candidateEntityId);
+      return existing.some((match) => match.entityType === candidate.entityType && match.entityId === candidate.entityId);
     }
-    const candidateKey = this.searchMatchStableKey(candidate);
-    return candidateKey.length > 0 && existing.some((match) => this.searchMatchStableKey(match) === candidateKey);
+    const candidateKey = this.retrievalCandidateStableKey(candidate);
+    return candidateKey.length > 0 && existing.some((match) => this.retrievalCandidateStableKey(match) === candidateKey);
   }
 
-  private searchMatchStableKey(match: Record<string, unknown>): string {
-    const kind = stringValue(match.kind, '');
-    if (kind === 'file') return `file:${stringValue(match.path, '')}:${stringValue(match.range, '')}:${stringValue(match.snippet, '')}`;
-    if (kind === 'artifact') return `artifact:${stringValue(match.artifactId, '')}`;
-    if (kind === 'metadata') return `metadata:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
-    if (kind === 'semantic') return `semantic:${stringValue(match.chunkId, '')}`;
-    if (kind === 'graph') return `graph:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}`;
-    if (kind === 'graph_variant') return `graph_variant:${stringValue(match.entityType, '')}:${stringValue(match.entityId, '')}:${stringValue(match.graphEdgeKind, '')}`;
+  private retrievalCandidateStableKey(candidate: RetrievalCandidate): string {
+    if (candidate.kind === 'file') return `file:${candidate.sourcePath ?? ''}:${candidate.range ?? ''}:${stringValue(candidate.output.snippet, '')}`;
+    if (candidate.kind === 'artifact') return `artifact:${candidate.entityId ?? ''}`;
+    if (candidate.kind === 'metadata') return `metadata:${candidate.entityType ?? ''}:${candidate.entityId ?? ''}`;
+    if (candidate.kind === 'semantic') return `semantic:${stringValue(candidate.output.chunkId, '')}`;
+    if (candidate.kind === 'graph') return `graph:${candidate.entityType ?? ''}:${candidate.entityId ?? ''}`;
+    if (candidate.kind === 'graph_variant') return `graph_variant:${candidate.entityType ?? ''}:${candidate.entityId ?? ''}:${candidate.provenance.graphEdgeKind ?? ''}`;
     return '';
   }
 
