@@ -143,6 +143,7 @@ describe('structured research tools', () => {
     expect(graph.edgeFamilyCounts.defines).toBeGreaterThanOrEqual(1);
     const structureSearch = callTool(router, context, 'search', { query: 'GET /api/users', target: '' });
     expect(structureSearch.status).toBe('success');
+    expect(structureSearch.payload.queryIntents).toContain('route_api_lookup');
     expect(JSON.stringify(structureSearch.payload)).toContain('structure_entity');
     expect(['ready', 'stale']).toContain(String((structureSearch.payload.projectGraph as { status: string }).status));
     expect(Number(structureSearch.payload.graphMatches)).toBeGreaterThanOrEqual(1);
@@ -151,6 +152,8 @@ describe('structured research tools', () => {
     expect(graphToolMatch).toBeTruthy();
     expect(Number(graphToolMatch?.retrievalScore)).toBeGreaterThan(0);
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.graphProximity)).toBeGreaterThan(0);
+    expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.queryIntent)).toBeGreaterThanOrEqual(0);
+    expect((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.queryIntents).toEqual(expect.arrayContaining(['route_api_lookup']));
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.textRelevance)).toBeGreaterThanOrEqual(0);
     expect(Number((graphToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.securityRelevance)).toBeGreaterThanOrEqual(0);
     const graphVariantMatch = (structureSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'graph_variant');
@@ -326,6 +329,7 @@ describe('structured research tools', () => {
     expect(String(identifierSemanticRanking?.reason)).toContain('security-relevant surface');
     const semanticSearch = callTool(router, context, 'search', { query: 'native jni symbol', target: '' });
     expect(semanticSearch.status).toBe('success');
+    expect(semanticSearch.payload.queryIntents).toEqual(expect.arrayContaining(['symbol_lookup', 'binary_orientation']));
     expect(semanticSearch.payload.projectSemantic).toMatchObject({ enabled: true, status: 'stale', remoteEmbeddingEnabled: false });
     const semanticToolMatch = (semanticSearch.payload.matches as Array<Record<string, unknown>>).find((match) => match.kind === 'semantic');
     expect(semanticToolMatch).toBeTruthy();

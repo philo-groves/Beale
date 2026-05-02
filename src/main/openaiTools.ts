@@ -123,7 +123,10 @@ interface SearchQueryPlan {
   terms: string[];
   regex: RegExp | null;
   mode: 'literal' | 'regex_or_terms' | 'terms';
+  intents: SearchQueryIntent[];
 }
+
+type SearchQueryIntent = 'symbol_lookup' | 'route_api_lookup' | 'auth_permission_question' | 'sink_data_flow_question' | 'binary_orientation' | 'prior_research_memory' | 'variant_similarity_search';
 
 interface RequestedLineRange {
   start: number;
@@ -649,6 +652,7 @@ export class BealeToolRouter {
         query,
         queryMode: queryPlan.mode,
         queryTerms: queryPlan.terms,
+        queryIntents: queryPlan.intents,
         targetHint,
         targetResolution: collection.targetResolution,
         rootsConsidered: collection.roots.map((root) => ({
@@ -2171,6 +2175,7 @@ export class BealeToolRouter {
     const securityRelevance = this.retrievalSecurityRelevanceScore(candidate);
     const scopeConfidence = this.retrievalScopeConfidenceScore(candidate);
     const recency = this.retrievalRecencyScore(candidate);
+    const queryIntent = this.retrievalQueryIntentScore(candidate, graphContext.queryPlan);
     const sourceType = this.retrievalSourceTypeScore(candidate);
     const linePrecision = numberValue(candidate.output.line, 0) > 0 || candidate.range ? 2 : 0;
     const sourceBacked = candidate.sourcePath ? 2 : 0;
@@ -2185,6 +2190,7 @@ export class BealeToolRouter {
         securityRelevance +
         scopeConfidence +
         recency +
+        queryIntent +
         sourceType +
         linePrecision +
         sourceBacked
@@ -2200,6 +2206,7 @@ export class BealeToolRouter {
       securityRelevance > 0 ? 'security relevance' : '',
       scopeConfidence > 0 ? 'scope confidence' : '',
       recency > 0 ? 'recency' : '',
+      queryIntent > 0 ? 'query intent fit' : '',
       linePrecision > 0 ? 'line/range provenance' : '',
       sourceBacked > 0 ? 'source-backed' : ''
     ].filter(Boolean);
@@ -2216,6 +2223,8 @@ export class BealeToolRouter {
         securityRelevance,
         scopeConfidence,
         recency,
+        queryIntent,
+        queryIntents: graphContext.queryPlan.intents,
         sourceType,
         linePrecision,
         sourceBacked,
@@ -2363,6 +2372,62 @@ export class BealeToolRouter {
     if (ageMs <= 7 * dayMs) return 3;
     if (ageMs <= 30 * dayMs) return 2;
     if (ageMs <= 180 * dayMs) return 1;
+    return 0;
+  }
+
+  private retrievalQueryIntentScore(candidate: RetrievalCandidate, queryPlan: SearchQueryPlan): number {
+    if (queryPlan.intents.length === 0) return 0;
+    const scores = queryPlan.intents.map((intent) => this.retrievalSingleQueryIntentScore(candidate, intent));
+    return Math.min(12, Math.max(...scores, 0));
+  }
+
+  private retrievalSingleQueryIntentScore(candidate: RetrievalCandidate, intent: SearchQueryIntent): number {
+    const entityType = candidate.entityType ?? '';
+    const entityKind = stringValue(candidate.output.entityKind, '') || stringValue(retrievalMetadata(candidate).entityKind, '');
+    const edgeKinds = uniqueStrings([candidate.provenance.graphEdgeKind ?? '', stringValue(candidate.output.graphEdgeKind, ''), ...arrayOfStrings(candidate.output.retrievalGraphEdgeKinds)]);
+    const namespace = candidate.namespace;
+    const text = this.retrievalCandidateSearchText(candidate).toLowerCase();
+    if (intent === 'symbol_lookup') {
+      if (['function', 'method', 'class', 'type', 'call_site', 'export', 'import', 'binary_symbol', 'binary_imported_symbol', 'binary_exported_symbol'].includes(entityKind)) return 10;
+      if (entityType === 'structure_entity') return 6;
+      if (candidate.kind === 'file') return 4;
+      return 0;
+    }
+    if (intent === 'route_api_lookup') {
+      if (['route', 'web_endpoint', 'graphql_operation'].includes(entityKind)) return 10;
+      if (edgeKinds.some((edgeKind) => ['routes_to', 'handles_with', 'uses_middleware'].includes(edgeKind))) return 8;
+      if (text.includes('/api') || text.includes('endpoint') || text.includes('controller')) return 4;
+      return 0;
+    }
+    if (intent === 'auth_permission_question') {
+      if (['security_marker', 'permission_marker', 'mobile_permission'].includes(entityKind)) return 10;
+      if (edgeKinds.some((edgeKind) => ['checks_permission', 'references_permission', 'uses_middleware'].includes(edgeKind))) return 9;
+      if (text.includes('auth') || text.includes('permission') || text.includes('guard')) return 5;
+      return 0;
+    }
+    if (intent === 'sink_data_flow_question') {
+      if (['sink', 'model_read', 'model_write', 'request_body_parse', 'response_serialization'].includes(entityKind)) return 10;
+      if (edgeKinds.some((edgeKind) => ['reaches_sink', 'reads_model', 'writes_model', 'parses_body', 'serializes_response', 'calls'].includes(edgeKind))) return 8;
+      if (text.includes('sink') || text.includes('query') || text.includes('flow')) return 4;
+      return 0;
+    }
+    if (intent === 'binary_orientation') {
+      if (namespace === 'binary' || stringValue(candidate.output.resourceKind, '') === 'binary') return 8;
+      if (['binary_symbol', 'binary_imported_symbol', 'binary_exported_symbol', 'binary_string', 'mobile_permission'].includes(entityKind)) return 10;
+      if (edgeKinds.some((edgeKind) => ['imports_symbol', 'exports_symbol', 'contains_string', 'references_url', 'references_permission'].includes(edgeKind))) return 8;
+      return 0;
+    }
+    if (intent === 'prior_research_memory') {
+      if (['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'artifact', 'trace_event'].includes(entityType)) return 10;
+      if (edgeKinds.some((edgeKind) => ['affects_component', 'classified_as_cwe', 'supports_hypothesis', 'supports_finding', 'supported_by_evidence', 'verifies_finding', 'backs_evidence'].includes(edgeKind))) return 8;
+      return 0;
+    }
+    if (intent === 'variant_similarity_search') {
+      if (candidate.kind === 'graph_variant' || arrayOfStrings(candidate.output.retrievalMergedKinds).includes('graph_variant')) return 10;
+      if (edgeKinds.length > 0) return 6;
+      if (candidate.kind === 'semantic') return 4;
+      return 0;
+    }
     return 0;
   }
 
@@ -3454,8 +3519,30 @@ function buildSearchQueryPlan(query: string): SearchQueryPlan {
     rawLower: raw.toLowerCase(),
     terms,
     regex,
-    mode: regex ? 'regex_or_terms' : terms.length > 1 ? 'terms' : 'literal'
+    mode: regex ? 'regex_or_terms' : terms.length > 1 ? 'terms' : 'literal',
+    intents: classifySearchQueryIntents(raw, terms)
   };
+}
+
+function classifySearchQueryIntents(raw: string, terms: string[]): SearchQueryIntent[] {
+  const haystack = `${raw} ${terms.join(' ')}`.toLowerCase();
+  const intents: SearchQueryIntent[] = [];
+  if (looksLikeSymbolLookup(raw, terms, haystack)) intents.push('symbol_lookup');
+  if (/(^|\s)(get|post|put|patch|delete|options|head)\s+\/|\/api\b|endpoint|route|controller|graphql|rest\b|url\b/.test(haystack)) intents.push('route_api_lookup');
+  if (/auth|authori[sz]e|permission|rbac|acl|guard|middleware|login|token|session|role\b|scope\b/.test(haystack)) intents.push('auth_permission_question');
+  if (/sink|data[-\s]?flow|taint|source\s+to\s+sink|sql|query|exec|command|deserialize|template|redirect|ssrf|xss|injection|parser|parse|body|serialize|model|write|read/.test(haystack)) intents.push('sink_data_flow_question');
+  if (/binary|apk|elf|mach-o|pe\b|jni|native|import|export|symbol|string|permission|android|url|so\b|dll\b|exe\b/.test(haystack)) intents.push('binary_orientation');
+  if (/hypothesis|finding|evidence|verifier|repro|reproduced|verified|cwe|prior|previous|memory|artifact|trace|duplicate|dismissed/.test(haystack)) intents.push('prior_research_memory');
+  if (/similar|variant|sibling|nearby|related|alternate|same|other|pattern|like this|else|analog/.test(haystack)) intents.push('variant_similarity_search');
+  return uniqueStrings(intents) as SearchQueryIntent[];
+}
+
+function looksLikeSymbolLookup(raw: string, terms: string[], haystack: string): boolean {
+  if (/symbol|function|method|class|type|interface|call(er|ee)?|definition|reference|handler/.test(haystack)) return true;
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(raw)) return true;
+  if (/^[A-Za-z_$][\w$]*(?:::[A-Za-z_$][\w$]*)+$/.test(raw)) return true;
+  if (/^[A-Za-z_$][\w$]*\([^)]*\)$/.test(raw)) return true;
+  return terms.some((term) => /[a-z][A-Z]|_|::|\./.test(term)) && terms.length <= 3;
 }
 
 function searchRegex(query: string): RegExp | null {

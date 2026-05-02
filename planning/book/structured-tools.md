@@ -104,6 +104,7 @@ Expected outputs:
 - Two-phase retrieval that gathers broad normalized candidates first, then expands only top seeds through containing structure entities, binary inventory anchors, graph neighborhoods, and graph-backed variants.
 - Blended retrieval scores with explicit `retrievalSignals` for text relevance, identifier/path matches, structural fit, semantic similarity, graph proximity, research-memory linkage, security relevance, scope confidence, and recency.
 - Merged retrieval results for candidates sharing an entity or precise file/range, with `retrievalMergedSources` and `retrievalContributors` preserving direct lexical, semantic, graph-adjacent, and variant provenance.
+- Query intent hints exposed as `queryIntents` and folded into `retrievalSignals.queryIntent` for symbol, route/API, auth/permission, sink/data-flow, binary, research-memory, and variant/similarity searches.
 - Match context small enough for model use.
 
 `search` should avoid dumping large files. It should point the model to precise next reads.

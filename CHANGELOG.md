@@ -102,6 +102,7 @@
 - Changed search retrieval to run in two phases: broad normalized Phase A candidates include initial graph proximity and variants, then Phase B expands only top seeds through source structure, binary inventory, graph proximity, and graph variants.
 - Changed search ranking to use a blended retrieval score across text relevance, exact identifier/path matches, structural fit, semantic similarity, graph proximity, research-memory linkage, security relevance, scope confidence, and recency signals.
 - Changed search dedupe to merge candidates that share an entity or precise file/range, preserving direct lexical, semantic, graph-adjacent, and variant contribution provenance while preferring richer entity-backed records over plain file hits.
+- Added lightweight search query intent hints for symbol, route/API, auth/permission, sink/data-flow, binary, prior research-memory, and variant/similarity queries, using them as ranking weights without excluding other retrieval layers.
 - Changed hypothesis and finding router-accepted trace rows to use Queue language instead of duplicating Prepare labels.
 - Changed verbose model lifecycle, stream-delta, and queue trace rows to a non-standard filter category hidden by default but available from Trace Filters.
 - Increased small trace-row content text for compact details, prose, and Python previews.
