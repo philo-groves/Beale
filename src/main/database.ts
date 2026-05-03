@@ -3571,7 +3571,7 @@ export class WorkspaceDatabase {
     return this.mapScope(row);
   }
 
-  public saveProgramScope(draft: ProgramScopeDraft): ProgramScopeVersion {
+  public saveProgramScope(draft: ProgramScopeDraft, options: { refreshInventory?: boolean } = {}): ProgramScopeVersion {
     const previousActiveScope = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1').get('active'));
     const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : true;
     const cleanedAssets = draft.assets
@@ -3617,7 +3617,9 @@ export class WorkspaceDatabase {
     });
 
     const scope = this.getActiveScope();
-    this.refreshProjectInventory(scope.id);
+    if (options.refreshInventory !== false) {
+      this.refreshProjectInventory(scope.id);
+    }
     return scope;
   }
 

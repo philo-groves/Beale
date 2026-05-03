@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
 import {
   findScopedExistingSourceCheckout,
   materializeGitRepository,
+  materializeGitRepositoryAsync,
   normalizeSourceRepositoryUrl,
   selectSourceRepository,
   sourceRepositoryCandidates
@@ -15,6 +16,7 @@ import {
 const createdDirs: string[] = [];
 
 afterEach(() => {
+  delete process.env.BEALE_GIT_COMMAND;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -52,6 +54,42 @@ describe('source materializer', () => {
     expect(materialized.localPath).toBe(checkout);
     expect(discovered?.candidate.sourceAssetId).toBe('repo_gitlab');
     expect(discovered?.localPath).toBe(checkout);
+  });
+
+  it('runs clone materialization without blocking the event loop', async () => {
+    const workspace = tempDir();
+    mkdirSync(join(workspace, '.beale'), { recursive: true });
+    const fakeGit = join(workspace, 'fake-git.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args.includes('clone')) {",
+        '  const target = args.at(-1);',
+        "  setTimeout(() => { mkdirSync(`${target}/.git`, { recursive: true }); process.exit(0); }, 120);",
+        '} else if (args.includes("rev-parse")) {',
+        '  process.stdout.write("0123456789abcdef0123456789abcdef01234567\\n");',
+        '} else {',
+        '  process.exit(0);',
+        '}'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const scope = scopeWithAssets([sourceAsset('repo_gitlab', 'https://gitlab.com/gitlab-org/gitlab')]);
+    const candidate = sourceRepositoryCandidates(scope)[0];
+    let timerFired = false;
+
+    const materializedPromise = materializeGitRepositoryAsync(candidate, join(workspace, '.beale', 'beale.sqlite'), '');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    timerFired = true;
+    const materialized = await materializedPromise;
+
+    expect(timerFired).toBe(true);
+    expect(materialized.cloned).toBe(true);
+    expect(materialized.head).toBe('0123456789abcdef0123456789abcdef01234567');
   });
 });
 

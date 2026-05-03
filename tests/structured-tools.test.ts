@@ -47,6 +47,8 @@ describe('structured research tools', () => {
     expect(source.status).toBe('success');
     expect(source.payload.repositoryUrl).toBe('https://github.com/Netflix/zuul');
     expect(String(source.payload.localPath)).toContain('targets/repositories/github.com_Netflix_zuul');
+    expect(source.payload.indexingDeferred).toBe(true);
+    expect(db.getProjectInventorySummary(db.getActiveScope().id).fileCount).toBe(0);
 
     for (let index = 0; index < 325; index += 1) {
       writeFileSync(join(targetDir, `filler-${index}.txt`), 'unrelated filler\n');
@@ -565,6 +567,122 @@ describe('structured research tools', () => {
     expect(duplicateNeighborhood.edges.some((edge) => edge.edgeKind === 'duplicates' && edge.targetEntityId === hypothesis.id)).toBe(true);
     const parentNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
     expect(parentNeighborhood.edges.some((edge) => edge.edgeKind === 'has_duplicate_hypothesis' && edge.targetEntityId === duplicateHypothesis.id)).toBe(true);
+    db.close();
+  });
+
+  it('looks up public vulnerability program metadata without scraping program JavaScript', async () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    const requests: Array<{ url: string; body: string }> = [];
+    const router = new BealeToolRouter(db, null, {
+      fetch: async (input, init) => {
+        const url = String(input);
+        requests.push({ url, body: String(init?.body ?? '') });
+        return new Response(
+          JSON.stringify({
+            data: {
+              team: {
+                handle: 'gitlab',
+                name: 'GitLab',
+                url: 'https://hackerone.com/gitlab',
+                submission_state: 'open',
+                structured_scopes: {
+                  total_count: 2,
+                  nodes: [
+                    {
+                      asset_type: 'URL',
+                      asset_identifier: 'customers.gitlab.com',
+                      instruction: 'Customer portal authorization testing.',
+                      eligible_for_bounty: true,
+                      eligible_for_submission: true,
+                      max_severity: 'critical',
+                      url: 'https://hackerone.com/gitlab/scope'
+                    },
+                    {
+                      asset_type: 'URL',
+                      asset_identifier: 'license.gitlab.com',
+                      instruction: 'Not currently eligible.',
+                      eligible_for_bounty: false,
+                      eligible_for_submission: false,
+                      max_severity: null,
+                      url: 'https://hackerone.com/gitlab/scope'
+                    }
+                  ]
+                }
+              }
+            }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+    });
+
+    const lookup = await callToolAsync(router, context, 'program_lookup', { provider: 'auto', identifier: 'https://hackerone.com/gitlab', query: 'customers.gitlab.com' });
+    expect(lookup.status).toBe('success');
+    expect(lookup.payload).toMatchObject({
+      provider: 'hackerone',
+      lookupMethod: 'public_graphql',
+      handle: 'gitlab',
+      returnedScopeCount: 2,
+      inScopeCount: 1,
+      outOfScopeCount: 1
+    });
+    expect(lookup.payload.queryMatches).toEqual(expect.arrayContaining([expect.objectContaining({ value: 'customers.gitlab.com' })]));
+    expect(JSON.stringify(lookup.payload.operationalGuidance)).toContain('Do not scrape HackerOne JavaScript');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('https://hackerone.com/graphql');
+    expect(requests[0]?.body).toContain('BealeProgramLookup');
+    db.close();
+  });
+
+  it('uses the active imported HackerOne handle instead of a guessed program display name', async () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      programName: 'Vercel',
+      organizationName: 'Vercel',
+      rulesMarkdown: 'Imported from HackerOne: https://hackerone.com/vercel-open-source',
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'domain',
+          value: 'vercel.com',
+          sensitivity: 'public',
+          attributes: { source: 'hackerone', hackerOneHandle: 'vercel-open-source', hackerOneSourceUrl: 'https://hackerone.com/vercel-open-source' }
+        }
+      ]
+    });
+    const requestedHandles: string[] = [];
+    const router = new BealeToolRouter(db, null, {
+      fetch: async (_input, init) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { variables?: { handle?: string } };
+        requestedHandles.push(body.variables?.handle ?? '');
+        return new Response(
+          JSON.stringify({
+            data: {
+              team: {
+                handle: 'vercel-open-source',
+                name: 'Vercel Open Source',
+                url: 'https://hackerone.com/vercel-open-source',
+                submission_state: 'open',
+                structured_scopes: { total_count: 1, nodes: [] }
+              }
+            }
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+    });
+
+    const lookup = await callToolAsync(router, context, 'program_lookup', { provider: 'auto', identifier: 'vercel', query: '' });
+    expect(lookup.status).toBe('success');
+    expect(requestedHandles).toEqual(['vercel-open-source']);
+    expect(lookup.payload).toMatchObject({
+      requestedIdentifier: 'vercel',
+      activeProgramHintUsed: true,
+      handle: 'vercel-open-source',
+      activeProgramHint: expect.objectContaining({ handle: 'vercel-open-source', programName: 'Vercel' })
+    });
     db.close();
   });
 
@@ -1329,6 +1447,18 @@ function callTool(router: BealeToolRouter, context: CreatedRunContext, name: str
       name,
       argumentsJson: JSON.stringify(args)
     }).output
+  ) as ToolOutput;
+}
+
+async function callToolAsync(router: BealeToolRouter, context: CreatedRunContext, name: string, args: Record<string, unknown>): Promise<ToolOutput> {
+  return JSON.parse(
+    (
+      await router.executeAsync(context, {
+        callId: `call_${name}_${(callSequence += 1)}`,
+        name,
+        argumentsJson: JSON.stringify(args)
+      })
+    ).output
   ) as ToolOutput;
 }
 

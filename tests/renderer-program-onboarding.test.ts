@@ -51,7 +51,8 @@ describe('renderer program onboarding view model', () => {
           direction: 'in_scope',
           kind: 'domain',
           value: 'example.test',
-          sensitivity: 'normal'
+          sensitivity: 'normal',
+          attributes: { source: 'hackerone', hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' }
         }
       ],
       importedScopeCount: 1
@@ -62,6 +63,7 @@ describe('renderer program onboarding view model', () => {
     expect(form.programName).toBe('Example Bounty');
     expect(form.expiresAt).toBe('');
     expect(form.assets).toHaveLength(1);
+    expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
   });
 });
 

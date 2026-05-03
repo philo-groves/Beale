@@ -10,6 +10,7 @@ import { runVerifierContract } from './verifierRunner';
 import {
   findScopedExistingSourceCheckout,
   materializeGitRepository,
+  materializeGitRepositoryAsync,
   normalizeSourceRepositoryUrl,
   selectSourceRepository,
   sourceRepositoryCandidates,
@@ -60,6 +61,8 @@ export interface OpenAiFunctionCall {
   argumentsJson: string;
   responseItemId?: string;
 }
+
+type ToolFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 interface ToolResult {
   status: 'success' | 'policy_blocked' | 'error';
@@ -190,9 +193,13 @@ interface DebuggerSummary {
   targetMissing: boolean;
 }
 
-const TOOL_NAMES = ['source', 'search', 'code_browser', 'resource_lookup', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier'] as const;
+const TOOL_NAMES = ['source', 'search', 'code_browser', 'resource_lookup', 'program_lookup', 'python', 'debugger', 'artifact', 'evidence', 'hypothesis', 'finding', 'verifier'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 type ResourceLookupKind = 'any' | 'artifact' | 'evidence' | 'finding' | 'hypothesis' | 'verifier_run' | 'verifier_contract' | 'trace_event';
+
+interface ProgramLookupOptions {
+  fetch?: ToolFetch;
+}
 
 interface ResourceLookupRecord {
   kind: Exclude<ResourceLookupKind, 'any'>;
@@ -256,6 +263,11 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       resource_id: stringProp('Exact Beale resource id to look up; use an empty string to search or list resources'),
       kind: stringProp('Resource kind: any, artifact, evidence, finding, hypothesis, verifier_run, verifier_contract, or trace_event. Use any when unsure.'),
       query: stringProp('Optional text query across current-run resource ids, titles, summaries, and metadata; use an empty string when resource_id is provided')
+    }),
+    tool('program_lookup', 'Fetch bounded public vulnerability program metadata without scraping application JavaScript. Use for HackerOne handles/URLs and policy URLs such as MSRC or Apple before live testing; records one timestamped scope artifact and returns concise operational guidance.', {
+      provider: stringProp('Program provider: auto, hackerone, msrc, apple, or url. Use auto unless the provider is known.'),
+      identifier: stringProp('Program handle, program URL, or public policy URL. Examples: gitlab, https://hackerone.com/gitlab, https://www.microsoft.com/msrc/bounty, https://security.apple.com/bounty/.'),
+      query: stringProp('Optional target, domain, or keyword to check against returned metadata; use an empty string when not needed.')
     }),
     tool('python', 'Run a small Python analysis operation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       task: stringProp('Analysis task'),
@@ -330,7 +342,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
 export class BealeToolRouter {
   public constructor(
     private readonly db: WorkspaceDatabase,
-    private readonly executor: ExecutorManager | null = null
+    private readonly executor: ExecutorManager | null = null,
+    private readonly options: ProgramLookupOptions = {}
   ) {}
 
   public execute(context: CreatedRunContext, call: OpenAiFunctionCall): FunctionCallOutputItem {
@@ -516,6 +529,8 @@ export class BealeToolRouter {
   }
 
   private async dispatchAsync(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): Promise<ToolResult> {
+    if (toolName === 'source') return this.materializeSourceAsync(context, args);
+    if (toolName === 'program_lookup') return this.lookupProgramPolicy(args);
     if (toolName === 'python') return this.runPythonAsync(context, call, args);
     return this.dispatch(context, toolName, call, args);
   }
@@ -530,6 +545,15 @@ export class BealeToolRouter {
         return this.browseCode(context, call, args);
       case 'resource_lookup':
         return this.lookupRunResource(context, args);
+      case 'program_lookup':
+        return {
+          status: 'error',
+          summary: 'program_lookup requires asynchronous tool execution.',
+          payload: {
+            observationBacked: false,
+            recoveryHint: 'Retry program_lookup through the OpenAI run engine or another async tool caller.'
+          }
+        };
       case 'python':
         return this.runPython(context, call, args);
       case 'debugger':
@@ -785,6 +809,54 @@ export class BealeToolRouter {
         head: materialized.head,
         sourceAssetId: selection.candidate.sourceAssetId,
         activeScopeVersion: nextScope.version,
+        indexingDeferred: true,
+        indexingHint: 'Project inventory, structure, semantic, and graph indexing are deferred after source materialization; search can scan the materialized source directly until indexing catches up.',
+        searchNext: true
+      }
+    };
+  }
+
+  private async materializeSourceAsync(context: CreatedRunContext, args: Record<string, unknown>): Promise<ToolResult> {
+    const repository = stringValue(args.repository, '').trim();
+    const ref = stringValue(args.ref, '').trim();
+    const scope = this.db.getActiveScope();
+    const selection = selectSourceRepository(scope, repository);
+    if (!selection.candidate) {
+      return {
+        status: 'error',
+        summary:
+          selection.reason === 'ambiguous'
+            ? 'Source repository request was ambiguous; choose one scoped repository URL.'
+            : 'Source repository is not recorded in active program scope.',
+        payload: {
+          observationBacked: false,
+          requestedRepository: repository,
+          reason: selection.reason,
+          availableRepositories: selection.candidates.map((candidate) => ({ label: candidate.label, url: candidate.url }))
+        }
+      };
+    }
+
+    const materialized = await materializeGitRepositoryAsync(selection.candidate, this.db.getDatabasePath(), ref);
+    const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+
+    return {
+      status: 'success',
+      summary: `Source repository materialized for scoped analysis: ${selection.candidate.url}.`,
+      payload: {
+        observationBacked: true,
+        simulated: false,
+        targetExecution: false,
+        hostSetup: true,
+        repositoryUrl: materialized.repositoryUrl,
+        localPath: materialized.localPath,
+        cloned: materialized.cloned,
+        ref: materialized.ref,
+        head: materialized.head,
+        sourceAssetId: selection.candidate.sourceAssetId,
+        activeScopeVersion: nextScope.version,
+        indexingDeferred: true,
+        indexingHint: 'Project inventory, structure, semantic, and graph indexing are deferred after source materialization; search can scan the materialized source directly until indexing catches up.',
         searchNext: true
       }
     };
@@ -981,6 +1053,224 @@ export class BealeToolRouter {
         recoveryHint: exactMiss
           ? 'Use resource_lookup with kind any and a text query, or inspect current artifacts/evidence/verifier runs by kind. Do not search target source code for Beale resource ids.'
           : 'Use code_browser with an artifact id when you need artifact content. Use resource_lookup for verifier_run, evidence, finding, hypothesis, and trace metadata.'
+      }
+    };
+  }
+
+  private async lookupProgramPolicy(args: Record<string, unknown>): Promise<ToolResult> {
+    const provider = normalizeProgramLookupProvider(stringValue(args.provider, 'auto'));
+    const requestedIdentifier = stringValue(args.identifier, '').trim();
+    const query = stringValue(args.query, '').trim();
+    const activeHackerOneHint = this.activeHackerOneProgramLookupHint();
+    const useActiveHackerOneHint = shouldUseActiveHackerOneHint(provider, requestedIdentifier, activeHackerOneHint);
+    const identifier = useActiveHackerOneHint && activeHackerOneHint ? activeHackerOneHint.sourceUrl || activeHackerOneHint.handle : requestedIdentifier;
+    if (!identifier) {
+      return {
+        status: 'error',
+        summary: 'Program lookup requires an identifier or URL, or an active program imported from a supported provider.',
+        payload: {
+          observationBacked: false,
+          error: 'missing_program_identifier',
+          activeProgramProviderHint: activeHackerOneHint ? { provider: 'hackerone', handle: activeHackerOneHint.handle, sourceUrl: activeHackerOneHint.sourceUrl } : null
+        }
+      };
+    }
+    const detected = useActiveHackerOneHint ? 'hackerone' : provider === 'auto' ? detectProgramLookupProvider(identifier) : provider;
+    const fetcher = this.options.fetch ?? fetch;
+    if (detected === 'hackerone') {
+      return this.lookupHackerOneProgramPolicy(fetcher, identifier, query, {
+        requestedIdentifier,
+        activeProgramHintUsed: useActiveHackerOneHint,
+        activeProgramHint: activeHackerOneHint
+      });
+    }
+    return this.lookupGenericProgramPolicy(fetcher, detected, identifier, query);
+  }
+
+  private activeHackerOneProgramLookupHint(): { handle: string; sourceUrl: string; programName: string } | null {
+    const scope = this.db.getActiveScope();
+    for (const asset of scope.assets) {
+      if (asset.attributes?.source !== 'hackerone') continue;
+      const handle =
+        stringValue(asset.attributes.hackerOneHandle, '') ||
+        stringValue(asset.attributes.hackeroneHandle, '') ||
+        stringValue(asset.attributes.hackerOneProgramHandle, '') ||
+        hackerOneHandleFromUrl(stringValue(asset.attributes.hackerOneSourceUrl, '') || stringValue(asset.attributes.sourceUrl, '') || stringValue(asset.attributes.url, ''));
+      if (!handle) continue;
+      const sourceUrl =
+        stringValue(asset.attributes.hackerOneSourceUrl, '') ||
+        stringValue(asset.attributes.sourceUrl, '') ||
+        `https://hackerone.com/${handle}`;
+      return { handle, sourceUrl, programName: scope.programName };
+    }
+    const rulesHandle = hackerOneHandleFromUrl(scope.rulesMarkdown);
+    return rulesHandle ? { handle: rulesHandle, sourceUrl: `https://hackerone.com/${rulesHandle}`, programName: scope.programName } : null;
+  }
+
+  private async lookupHackerOneProgramPolicy(
+    fetcher: ToolFetch,
+    identifier: string,
+    query: string,
+    options: { requestedIdentifier?: string; activeProgramHintUsed?: boolean; activeProgramHint?: { handle: string; sourceUrl: string; programName: string } | null } = {}
+  ): Promise<ToolResult> {
+    const handle = normalizeHackerOneProgramIdentifier(identifier);
+    if (!handle) {
+      return {
+        status: 'error',
+        summary: 'HackerOne lookup requires a handle or HackerOne program URL.',
+        payload: {
+          observationBacked: false,
+          provider: 'hackerone',
+          error: 'missing_hackerone_handle'
+        }
+      };
+    }
+    const response = await fetcher('https://hackerone.com/graphql', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'user-agent': 'Beale/0.1 program_lookup'
+      },
+      body: JSON.stringify({
+        query: PROGRAM_LOOKUP_HACKERONE_QUERY,
+        variables: { handle }
+      })
+    });
+    if (!response.ok) {
+      return {
+        status: 'error',
+        summary: `HackerOne program lookup failed with HTTP ${response.status}.`,
+        payload: {
+          observationBacked: false,
+          provider: 'hackerone',
+          handle,
+          error: `http_${response.status}`
+        }
+      };
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    const errors = Array.isArray(payload.errors) ? payload.errors : [];
+    if (errors.length > 0) {
+      return {
+        status: 'error',
+        summary: 'HackerOne program lookup returned errors.',
+        payload: {
+          observationBacked: false,
+          provider: 'hackerone',
+          handle,
+          errors: errors.slice(0, 5)
+        }
+      };
+    }
+    const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? (payload.data as Record<string, unknown>) : {};
+    const team = data.team && typeof data.team === 'object' && !Array.isArray(data.team) ? (data.team as Record<string, unknown>) : null;
+    if (!team) {
+      return {
+        status: 'error',
+        summary: `HackerOne program not found: ${handle}.`,
+        payload: {
+          observationBacked: false,
+          provider: 'hackerone',
+          handle,
+          error: 'program_not_found'
+        }
+      };
+    }
+    const scopeContainer = team.structured_scopes && typeof team.structured_scopes === 'object' && !Array.isArray(team.structured_scopes) ? (team.structured_scopes as Record<string, unknown>) : {};
+    const scopeNodes = Array.isArray(scopeContainer.nodes) ? scopeContainer.nodes.filter((node): node is Record<string, unknown> => Boolean(node) && typeof node === 'object' && !Array.isArray(node)) : [];
+    const assets = scopeNodes.slice(0, 120).map(programLookupHackerOneAsset).filter((asset): asset is Record<string, unknown> => Boolean(asset));
+    const queryMatches = programLookupQueryMatches(query, assets, [stringValue(team.name, ''), stringValue(team.handle, ''), stringValue(team.url, '')]);
+    const inScopeCount = assets.filter((asset) => asset.direction === 'in_scope').length;
+    const outOfScopeCount = assets.filter((asset) => asset.direction === 'out_of_scope').length;
+    return {
+      status: 'success',
+      summary: `HackerOne program lookup returned ${assets.length} structured scope asset${assets.length === 1 ? '' : 's'} for ${stringValue(team.name, handle)}.`,
+      payload: {
+        observationBacked: true,
+        provider: 'hackerone',
+        lookupMethod: 'public_graphql',
+        checkedAt: new Date().toISOString(),
+        requestedIdentifier: options.requestedIdentifier ?? identifier,
+        activeProgramHintUsed: options.activeProgramHintUsed === true,
+        activeProgramHint: options.activeProgramHint ? { handle: options.activeProgramHint.handle, sourceUrl: options.activeProgramHint.sourceUrl, programName: options.activeProgramHint.programName } : null,
+        handle: stringValue(team.handle, handle),
+        sourceUrl: stringValue(team.url, `https://hackerone.com/${handle}`),
+        programName: stringValue(team.name, handle),
+        submissionState: stringValue(team.submission_state, ''),
+        totalScopeCount: numberValue(scopeContainer.total_count, assets.length),
+        returnedScopeCount: assets.length,
+        inScopeCount,
+        outOfScopeCount,
+        query,
+        queryMatches,
+        assets,
+        operationalGuidance: [
+          'Use this result as the bounded scope-verification artifact for this target.',
+          'Do not scrape HackerOne JavaScript unless this lookup is unavailable or lacks the needed public fields.',
+          'Move to target mapping or hypothesis testing after recording scope evidence.'
+        ]
+      }
+    };
+  }
+
+  private async lookupGenericProgramPolicy(fetcher: ToolFetch, provider: string, identifier: string, query: string): Promise<ToolResult> {
+    const url = normalizeProgramPolicyUrl(provider, identifier);
+    if (!url) {
+      return {
+        status: 'error',
+        summary: 'Program lookup requires a URL for this provider.',
+        payload: {
+          observationBacked: false,
+          provider,
+          error: 'missing_program_url'
+        }
+      };
+    }
+    const response = await fetcher(url, {
+      method: 'GET',
+      headers: {
+        accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.8',
+        'user-agent': 'Beale/0.1 program_lookup'
+      }
+    });
+    if (!response.ok) {
+      return {
+        status: 'error',
+        summary: `Program policy lookup failed with HTTP ${response.status}.`,
+        payload: {
+          observationBacked: false,
+          provider,
+          sourceUrl: url,
+          error: `http_${response.status}`
+        }
+      };
+    }
+    const contentType = response.headers.get('content-type') ?? '';
+    const body = (await response.text()).slice(0, 240_000);
+    const extracted = extractProgramPolicyPage(body, url, contentType);
+    const queryMatches = programLookupQueryMatches(query, extracted.assets, [extracted.title, extracted.description, url]);
+    return {
+      status: 'success',
+      summary: `Program policy lookup fetched ${provider} policy page${extracted.title ? `: ${extracted.title}` : ''}.`,
+      payload: {
+        observationBacked: true,
+        provider,
+        lookupMethod: 'bounded_policy_url_fetch',
+        checkedAt: new Date().toISOString(),
+        sourceUrl: url,
+        title: extracted.title,
+        description: extracted.description,
+        query,
+        queryMatches,
+        assets: extracted.assets,
+        policyLinks: extracted.policyLinks,
+        notableText: extracted.notableText,
+        operationalGuidance: [
+          'Use this result as bounded public policy context, not as proof that every listed-looking host is in scope.',
+          'If the page does not expose structured scope, validate target eligibility manually from the returned policy text before live testing.',
+          'Do not scrape application JavaScript for program metadata unless this policy page points to a documented data source.'
+        ]
       }
     };
   }
@@ -3520,15 +3810,18 @@ export class BealeToolRouter {
         head
       }
     });
-    return this.db.saveProgramScope({
-      programName: scope.programName,
-      organizationName: scope.organizationName,
-      descriptionMarkdown: scope.descriptionMarkdown,
-      rulesMarkdown: scope.rulesMarkdown,
-      networkProfile: scope.networkProfile,
-      expiresAt: scope.expiresAt,
-      assets
-    });
+    return this.db.saveProgramScope(
+      {
+        programName: scope.programName,
+        organizationName: scope.organizationName,
+        descriptionMarkdown: scope.descriptionMarkdown,
+        rulesMarkdown: scope.rulesMarkdown,
+        networkProfile: scope.networkProfile,
+        expiresAt: scope.expiresAt,
+        assets
+      },
+      { refreshInventory: false }
+    );
   }
 
   private toolPolicy(toolName: ToolName): Record<string, unknown> {
@@ -3540,6 +3833,8 @@ export class BealeToolRouter {
         return { execution: 'host_scoped_read_only', targetExecution: false, liveNetwork: false };
       case 'resource_lookup':
         return { execution: 'host_run_resource_lookup', targetExecution: false, liveNetwork: false, currentRunOnly: true };
+      case 'program_lookup':
+        return { execution: 'host_public_program_lookup', targetExecution: false, liveNetwork: 'public_program_metadata', importsScope: false, bounded: true };
       case 'python':
       case 'debugger':
         return { execution: 'active_session_sandbox', defaultExecution: 'host_research_only', vmOption: 'local_disposable_vm', hostDatabaseMounted: false, openAiCredentialsMounted: false };
@@ -3673,9 +3968,206 @@ function isToolName(value: string): value is ToolName {
 }
 
 function extractDestination(toolName: ToolName, args: Record<string, unknown>): string | null {
-  if (toolName === 'source' || toolName === 'search' || toolName === 'code_browser' || toolName === 'resource_lookup') return null;
+  if (toolName === 'source' || toolName === 'search' || toolName === 'code_browser' || toolName === 'resource_lookup' || toolName === 'program_lookup') return null;
   const destination = args.destination ?? args.url ?? args.host ?? args.target;
   return typeof destination === 'string' && /^https?:\/\//.test(destination) ? destination : null;
+}
+
+const PROGRAM_LOOKUP_HACKERONE_QUERY = `
+query BealeProgramLookup($handle: String!) {
+  team(handle: $handle) {
+    handle
+    name
+    url
+    submission_state
+    structured_scopes(first: 120) {
+      total_count
+      nodes {
+        asset_type
+        asset_identifier
+        instruction
+        eligible_for_bounty
+        eligible_for_submission
+        max_severity
+        url
+      }
+    }
+  }
+}
+`;
+
+function normalizeProgramLookupProvider(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (['auto', 'hackerone', 'msrc', 'apple', 'url'].includes(normalized)) return normalized;
+  return 'auto';
+}
+
+function shouldUseActiveHackerOneHint(
+  provider: string,
+  requestedIdentifier: string,
+  hint: { handle: string; sourceUrl: string; programName: string } | null
+): boolean {
+  if (!hint || (provider !== 'auto' && provider !== 'hackerone')) return false;
+  if (!requestedIdentifier.trim()) return true;
+  if (/^https?:\/\//i.test(requestedIdentifier.trim())) return false;
+  const requestedHandle = normalizeHackerOneProgramIdentifier(requestedIdentifier);
+  return requestedHandle.toLowerCase() !== hint.handle.toLowerCase();
+}
+
+function detectProgramLookupProvider(identifier: string): string {
+  const normalized = identifier.trim().toLowerCase();
+  if (normalized.includes('hackerone.com/') || /^[a-z0-9][a-z0-9_-]{1,80}$/i.test(identifier.trim())) return 'hackerone';
+  if (normalized.includes('microsoft.com/msrc') || normalized.includes('msrc.microsoft.com')) return 'msrc';
+  if (normalized.includes('security.apple.com') || normalized.includes('apple.com')) return 'apple';
+  return 'url';
+}
+
+function hackerOneHandleFromUrl(value: string): string {
+  const match = /hackerone\.com\/([^/?#\s]+)/i.exec(value);
+  return match?.[1]?.trim() ?? '';
+}
+
+function normalizeHackerOneProgramIdentifier(identifier: string): string {
+  return identifier
+    .trim()
+    .replace(/^https?:\/\/(?:www\.)?hackerone\.com\//i, '')
+    .replace(/^@/, '')
+    .split(/[/?#]/, 1)[0]
+    .trim();
+}
+
+function normalizeProgramPolicyUrl(provider: string, identifier: string): string | null {
+  const trimmed = identifier.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (provider === 'msrc') return 'https://www.microsoft.com/msrc/bounty';
+  if (provider === 'apple') return 'https://security.apple.com/bounty/';
+  return null;
+}
+
+function programLookupHackerOneAsset(scope: Record<string, unknown>): Record<string, unknown> | null {
+  const value = stringValue(scope.asset_identifier, '').trim();
+  if (!value) return null;
+  const assetType = stringValue(scope.asset_type, 'OTHER');
+  return {
+    direction: scope.eligible_for_submission === false ? 'out_of_scope' : 'in_scope',
+    kind: programLookupAssetKind(assetType, value),
+    value,
+    assetType,
+    instruction: stringValue(scope.instruction, ''),
+    eligibleForBounty: scope.eligible_for_bounty === true,
+    eligibleForSubmission: scope.eligible_for_submission !== false,
+    maxSeverity: stringValue(scope.max_severity, ''),
+    url: stringValue(scope.url, '')
+  };
+}
+
+function programLookupAssetKind(assetType: string, value: string): string {
+  const normalized = assetType.toUpperCase();
+  if (normalized.includes('SOURCE')) return 'repo';
+  if (normalized.includes('EXECUTABLE') || normalized.includes('BINARY')) return 'binary';
+  if (normalized.includes('IP') || /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/.test(value)) return 'ip_range';
+  if (normalized.includes('URL') || normalized.includes('DOMAIN') || value.includes('*') || /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)) return 'domain';
+  return 'other';
+}
+
+function extractProgramPolicyPage(
+  body: string,
+  sourceUrl: string,
+  contentType: string
+): { title: string; description: string; assets: Array<Record<string, unknown>>; policyLinks: Array<Record<string, unknown>>; notableText: string[] } {
+  const text = contentType.includes('json') ? body : htmlToText(body);
+  const title = contentType.includes('json') ? '' : decodeHtmlEntity(firstMatch(body, /<title[^>]*>([\s\S]*?)<\/title>/i));
+  const description = contentType.includes('json') ? '' : decodeHtmlEntity(firstMatch(body, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i));
+  const assets = extractProgramLookupAssets(text);
+  const policyLinks = extractProgramPolicyLinks(body, sourceUrl);
+  const notableText = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 35 && /scope|eligible|bounty|reward|domain|credential|account|authorization|testing|out of scope/i.test(line))
+    .slice(0, 30);
+  return { title: title || sourceUrl, description, assets, policyLinks, notableText };
+}
+
+function extractProgramLookupAssets(text: string): Array<Record<string, unknown>> {
+  const candidates = new Set<string>();
+  for (const match of text.matchAll(/\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s"'<>)]*)?/gi)) {
+    const value = match[0]?.replace(/[.,;:]+$/, '') ?? '';
+    if (!value || value.length > 180) continue;
+    candidates.add(value);
+  }
+  return [...candidates].slice(0, 80).map((value) => ({
+    direction: 'unknown',
+    kind: /^https?:\/\//i.test(value) ? 'url' : 'domain',
+    value
+  }));
+}
+
+function extractProgramPolicyLinks(body: string, sourceUrl: string): Array<Record<string, unknown>> {
+  const links: Array<Record<string, unknown>> = [];
+  for (const match of body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = match[1] ?? '';
+    const label = htmlToText(match[2] ?? '').trim();
+    if (!href || !/scope|bounty|program|security|research|policy|rules|reward|eligible/i.test(`${href} ${label}`)) continue;
+    links.push({
+      href: resolveProgramPolicyHref(href, sourceUrl),
+      label: label.slice(0, 160)
+    });
+    if (links.length >= 30) break;
+  }
+  return links;
+}
+
+function resolveProgramPolicyHref(href: string, sourceUrl: string): string {
+  try {
+    return new URL(href, sourceUrl).toString();
+  } catch {
+    return href;
+  }
+}
+
+function programLookupQueryMatches(query: string, assets: Array<Record<string, unknown>>, texts: string[]): Array<Record<string, unknown>> {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+  if (terms.length === 0) return [];
+  const matches: Array<Record<string, unknown>> = [];
+  for (const asset of assets) {
+    const haystack = JSON.stringify(asset).toLowerCase();
+    if (terms.every((term) => haystack.includes(term))) matches.push(asset);
+    if (matches.length >= 20) return matches;
+  }
+  const textHaystack = texts.join('\n').toLowerCase();
+  if (terms.every((term) => textHaystack.includes(term))) matches.push({ kind: 'program_text', value: query });
+  return matches.slice(0, 20);
+}
+
+function htmlToText(value: string): string {
+  return decodeHtmlEntity(
+    value
+      .replace(/<script\b[\s\S]*?<\/script>/gi, '\n')
+      .replace(/<style\b[\s\S]*?<\/style>/gi, '\n')
+      .replace(/<[^>]+>/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+  ).trim();
+}
+
+function firstMatch(value: string, pattern: RegExp): string {
+  return pattern.exec(value)?.[1]?.trim() ?? '';
+}
+
+function decodeHtmlEntity(value: string): string {
+  return value
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeResourceLookupKind(value: string): ResourceLookupKind {

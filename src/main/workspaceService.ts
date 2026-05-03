@@ -379,8 +379,11 @@ export class WorkspaceService {
     }
 
     const scopeNodes = team.structured_scopes?.nodes ?? [];
-    const assets = scopeNodes.map(hackerOneScopeToAsset).filter((asset): asset is NonNullable<ReturnType<typeof hackerOneScopeToAsset>> => Boolean(asset));
     const sourceUrl = team.url || `https://hackerone.com/${team.handle}`;
+    const assets = scopeNodes
+      .map(hackerOneScopeToAsset)
+      .filter((asset): asset is NonNullable<ReturnType<typeof hackerOneScopeToAsset>> => Boolean(asset))
+      .map((asset) => annotateHackerOneImportedAsset(asset, team.handle, sourceUrl));
     const totalScopeCount = team.structured_scopes?.total_count ?? scopeNodes.length;
     const modelReview = await this.reviewHackerOneProgramImport({
       handle: team.handle,
@@ -2391,6 +2394,17 @@ function hackerOneScopeToAsset(scope: HackerOneScopeNode): ScopeAssetInput | nul
       eligibleForSubmission: scope.eligible_for_submission,
       maxSeverity: scope.max_severity,
       url: scope.url
+    }
+  };
+}
+
+function annotateHackerOneImportedAsset(asset: ScopeAssetInput, handle: string, sourceUrl: string): ScopeAssetInput {
+  return {
+    ...asset,
+    attributes: {
+      ...(asset.attributes ?? {}),
+      hackerOneHandle: handle,
+      hackerOneSourceUrl: sourceUrl
     }
   };
 }

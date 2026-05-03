@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
@@ -113,6 +113,61 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
     runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
     if (cleanRef) {
       runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', '-C', tempPath, 'checkout', '--detach', cleanRef]);
+    }
+    renameSync(tempPath, localPath);
+  } catch (error) {
+    rmSync(tempPath, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    repositoryUrl: candidate.url,
+    localPath,
+    cloned: true,
+    ref: cleanRef || null,
+    head: gitHead(localPath)
+  };
+}
+
+export async function materializeGitRepositoryAsync(candidate: SourceRepositoryCandidate, databasePath: string, ref: string): Promise<MaterializedSourceRepository> {
+  const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
+  const managedRoot = join(workspaceRoot, 'targets', 'repositories');
+  const slug = repositorySlug(candidate.url);
+  const localPath = join(managedRoot, slug);
+  const cleanRef = ref.trim();
+  mkdirSync(managedRoot, { recursive: true });
+
+  const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
+  if (existingCheckout) {
+    return {
+      repositoryUrl: candidate.url,
+      localPath: existingCheckout,
+      cloned: false,
+      ref: cleanRef || null,
+      head: gitHead(existingCheckout)
+    };
+  }
+
+  if (existsSync(join(localPath, '.git'))) {
+    return {
+      repositoryUrl: candidate.url,
+      localPath,
+      cloned: false,
+      ref: cleanRef || null,
+      head: gitHead(localPath)
+    };
+  }
+  if (existsSync(localPath)) {
+    const stat = statSync(localPath);
+    throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
+  }
+
+  const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
+  rmSync(tempPath, { recursive: true, force: true });
+  try {
+    await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
+    if (cleanRef) {
+      await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', '-C', tempPath, 'checkout', '--detach', cleanRef]);
     }
     renameSync(tempPath, localPath);
   } catch (error) {
@@ -293,6 +348,46 @@ function runGit(args: string[]): { stdout: string; stderr: string } {
     throw new Error(`git ${args.join(' ')} failed with exit ${result.status}: ${String(result.stderr || result.stdout).slice(0, 800)}`);
   }
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+function runGitAsync(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  const command = process.env.BEALE_GIT_COMMAND?.trim() || 'git';
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      env: gitEnv(),
+      windowsHide: true
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error(`git ${args.join(' ')} timed out after ${GIT_TIMEOUT_MS}ms`));
+    }, GIT_TIMEOUT_MS);
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout = boundedAppend(stdout, chunk);
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = boundedAppend(stderr, chunk);
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(`git ${args.join(' ')} failed with exit ${code}: ${String(stderr || stdout).slice(0, 800)}`));
+        return;
+      }
+      resolvePromise({ stdout, stderr });
+    });
+  });
+}
+
+function boundedAppend(current: string, chunk: string): string {
+  return (current + chunk).slice(-16_000);
 }
 
 function gitEnv(): NodeJS.ProcessEnv {

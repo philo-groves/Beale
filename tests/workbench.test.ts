@@ -518,8 +518,20 @@ describe('Beale workbench skeleton', () => {
     expect(lookup.rulesMarkdown).not.toContain('# GitHub policy');
     expect(lookup.assets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ direction: 'in_scope', kind: 'domain', value: 'github.com', sensitivity: 'public' }),
-        expect.objectContaining({ direction: 'out_of_scope', kind: 'other', value: 'Third-party services', sensitivity: 'public' })
+        expect.objectContaining({
+          direction: 'in_scope',
+          kind: 'domain',
+          value: 'github.com',
+          sensitivity: 'public',
+          attributes: expect.objectContaining({ hackerOneHandle: 'github', hackerOneSourceUrl: 'https://hackerone.com/github' })
+        }),
+        expect.objectContaining({
+          direction: 'out_of_scope',
+          kind: 'other',
+          value: 'Third-party services',
+          sensitivity: 'public',
+          attributes: expect.objectContaining({ hackerOneHandle: 'github', hackerOneSourceUrl: 'https://hackerone.com/github' })
+        })
       ])
     );
 

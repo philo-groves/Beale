@@ -9,6 +9,7 @@ Beale's first model-facing structured research tool set should be minimal:
 - `search`
 - `code_browser`
 - `resource_lookup`
+- `program_lookup`
 - `python`
 - `debugger`
 - `artifact`
@@ -39,6 +40,7 @@ The operating rule:
 - `search` finds where to look.
 - `code_browser` explains what is there.
 - `resource_lookup` retrieves Beale run-state resources by id or query.
+- `program_lookup` retrieves bounded public program policy/scope metadata without ad hoc program-site JavaScript scraping.
 - `python` creates and mutates inputs.
 - `debugger` observes runtime truth.
 - `artifact` preserves evidence.
@@ -151,6 +153,21 @@ Capabilities:
 - Direct the model to use `code_browser` with a Beale artifact id when artifact content should be inspected.
 
 `resource_lookup` is not cross-workspace or cross-program search. It exists to keep the model from confusing Beale state identifiers, such as `verifier_run_*` or `artifact_*`, with target repository symbols.
+
+## Tool: `program_lookup`
+
+Purpose:
+
+- Retrieve bounded public vulnerability program metadata before live testing, without sending the model to scrape HackerOne JavaScript or broad program pages.
+
+Capabilities:
+
+- Query HackerOne public GraphQL by handle or URL for structured scope assets.
+- Prefer the active program's recorded HackerOne handle from onboarding metadata when the model supplies a display-name guess.
+- Fetch bounded policy pages for providers such as MSRC, Apple, or a supplied URL when no structured provider adapter exists.
+- Return timestamped provider facts, scope-like assets when available, query matches, and operational guidance that tells the model to move on after recording scope evidence.
+
+`program_lookup` does not import scope or authorize testing by itself. It is a public metadata lookup and should be paired with recorded program scope and Beale network policy before live validation.
 
 ## Tool: `python`
 

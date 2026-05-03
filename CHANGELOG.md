@@ -54,6 +54,10 @@
 - Added cross-run retrieval feedback from accepted code reads, verifier-backed research outcomes, and corrected negative research states into search scoring and diagnostics.
 - Added layer-specific operational retrieval hints for source materialization, indexing, semantic, graph, structure, binary, and research-memory gaps.
 - Added prompt-generation guardrails for one-time scope verification, credential-aware fallback plans, and bounded external program-page exploration.
+- Added a model-facing `program_lookup` tool for bounded public vulnerability program metadata, including HackerOne GraphQL and generic MSRC/Apple/policy URL lookups.
+- Changed model-run source repository materialization to use non-blocking git clone execution so slow remote clone failures do not freeze the Electron main process.
+- Changed model-run source materialization to defer project inventory refresh after adding cloned repositories so large checkouts do not block the main process before the `source` result returns.
+- Changed HackerOne onboarding and `program_lookup` so imported program handles are preserved and preferred over guessed display-name identifiers.
 
 ### Changed
 
