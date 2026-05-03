@@ -1,10 +1,12 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
+import { Network } from 'lucide-react';
 import type { RunDetail, SteeringAction } from '@shared/types';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import type { SessionMainView } from './sessionViews';
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
@@ -13,6 +15,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
+  sessionView,
   visibleTraceCategories,
   busy,
   onExpandResearchPanel,
@@ -26,6 +29,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   onExpandResearchPanel: () => void;
@@ -34,6 +38,19 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   if (!selectedRunId) return null;
+
+  if (sessionView === 'graph') {
+    return (
+      <div className="program-graph-workspace" aria-label="Program graph view">
+        <div className="program-graph-placeholder">
+          <span className="program-graph-placeholder-icon" aria-hidden="true">
+            <Network size={22} />
+          </span>
+          <strong>Program Graph</strong>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`main-session-grid ${researchPanelCollapsed ? 'research-collapsed' : ''}`}>

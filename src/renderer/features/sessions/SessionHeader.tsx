@@ -1,27 +1,43 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Clock, FileText, GitFork, Pause, RefreshCw, Square, X } from 'lucide-react';
+import { Clock, FileText, GitFork, List, Network, Pause, RefreshCw, Square, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
+import type { SessionMainView } from './sessionViews';
 
 export function SessionHeader({
   detail,
   events,
-  visibleTraceCategories
+  visibleTraceCategories,
+  sessionView,
+  onSessionViewChange
 }: {
   detail: RunDetail | null;
   events: TraceEventRecord[];
   visibleTraceCategories: TraceCategoryId[];
+  sessionView: SessionMainView;
+  onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   return (
     <div className="workbench-header">
       <div className="workbench-program">
-        <RunStatusIndicator detail={detail} />
-        {detail ? <SessionConfigPills detail={detail} /> : null}
+        {detail ? (
+          <>
+            <RunStatusIndicator detail={detail} />
+            <SessionViewToggle sessionView={sessionView} onSessionViewChange={onSessionViewChange} />
+          </>
+        ) : null}
       </div>
-      <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
+      <div className="workbench-session-controls">
+        {detail ? (
+          <>
+            <SessionConfigPills detail={detail} />
+            <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -105,6 +121,37 @@ function SessionTimestamps({
         <Clock size={13} />
         <span>{timing.durationLabel}</span>
       </span>
+    </div>
+  );
+}
+
+function SessionViewToggle({
+  sessionView,
+  onSessionViewChange
+}: {
+  sessionView: SessionMainView;
+  onSessionViewChange: (view: SessionMainView) => void;
+}): JSX.Element {
+  const options: Array<{ view: SessionMainView; label: string; icon: JSX.Element }> = [
+    { view: 'list', label: 'Trace and evidence lists', icon: <List size={15} /> },
+    { view: 'graph', label: 'Program graph and indexing', icon: <Network size={15} /> }
+  ];
+
+  return (
+    <div className="session-view-toggle" role="group" aria-label="Session view">
+      {options.map((option) => (
+        <button
+          type="button"
+          className={`session-view-button ${sessionView === option.view ? 'active' : ''}`}
+          title={option.label}
+          aria-label={option.label}
+          aria-pressed={sessionView === option.view}
+          key={option.view}
+          onClick={() => onSessionViewChange(option.view)}
+        >
+          {option.icon}
+        </button>
+      ))}
     </div>
   );
 }

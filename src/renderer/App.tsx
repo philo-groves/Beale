@@ -21,6 +21,7 @@ import { ProgramSidebar } from './features/programs/ProgramSidebar';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
+import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
@@ -85,6 +86,7 @@ export function App(): JSX.Element {
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
+  const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
   const [busy, setBusy] = useState(false);
   const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
@@ -123,6 +125,10 @@ export function App(): JSX.Element {
   useDevInputLatencyProbe();
   useSidebarPerformanceProbe({ appShellRef, profile: sidebarToggleProfile });
   useInsetScrollbarActivation();
+
+  useEffect(() => {
+    setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
+  }, [selectedRunId]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -536,7 +542,9 @@ export function App(): JSX.Element {
         <SessionHeader
           detail={activeRunDetail}
           events={activeTraceEvents}
+          sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
+          onSessionViewChange={setSessionMainView}
         />
         <div className="workspace-page">
           <MainSessionWorkspace
@@ -546,6 +554,7 @@ export function App(): JSX.Element {
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
+            sessionView={sessionMainView}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
             onExpandResearchPanel={closeInspector}
