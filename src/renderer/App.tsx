@@ -18,6 +18,7 @@ import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
+import type { ProgramMainView } from './features/programs/programViews';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
@@ -87,6 +88,7 @@ export function App(): JSX.Element {
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
+  const [programMainView, setProgramMainView] = useState<ProgramMainView>('understanding');
   const [busy, setBusy] = useState(false);
   const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
@@ -129,6 +131,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
   }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId) setProgramMainView('understanding');
+  }, [selectedRunId, snapshot?.activeScope.id]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -554,18 +560,27 @@ export function App(): JSX.Element {
         <SessionHeader
           detail={activeRunDetail}
           events={activeTraceEvents}
+          programGraphStatus={!selectedRunId && snapshot ? snapshot.projectGraph.status : null}
+          programSemanticStatus={!selectedRunId && snapshot ? snapshot.projectSemantic.status : null}
+          programView={!selectedRunId && snapshot ? programMainView : null}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
+          onProgramViewChange={setProgramMainView}
           onSessionViewChange={setSessionMainView}
         />
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
             events={activeTraceEvents}
+            graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
+            programView={programMainView}
             researchPanelCollapsed={inspectorOpen}
+            runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
+            scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
+            semantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
             sessionView={sessionMainView}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}

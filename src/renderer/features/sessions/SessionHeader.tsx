@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Clock, FileText, GitFork, List, Network, Pause, RefreshCw, Square, X } from 'lucide-react';
+import { Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Square, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { traceLabel } from '../../lib/formatting';
+import { stateClass, traceLabel } from '../../lib/formatting';
+import type { ProgramMainView } from '../programs/programViews';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
 import type { SessionMainView } from './sessionViews';
@@ -10,14 +11,22 @@ import type { SessionMainView } from './sessionViews';
 export function SessionHeader({
   detail,
   events,
+  programGraphStatus,
+  programSemanticStatus,
+  programView,
   visibleTraceCategories,
   sessionView,
+  onProgramViewChange,
   onSessionViewChange
 }: {
   detail: RunDetail | null;
   events: TraceEventRecord[];
+  programGraphStatus: string | null;
+  programSemanticStatus: string | null;
+  programView: ProgramMainView | null;
   visibleTraceCategories: TraceCategoryId[];
   sessionView: SessionMainView;
+  onProgramViewChange: (view: ProgramMainView) => void;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   return (
@@ -28,6 +37,11 @@ export function SessionHeader({
             <RunStatusIndicator detail={detail} />
             <SessionViewToggle sessionView={sessionView} onSessionViewChange={onSessionViewChange} />
           </>
+        ) : programView ? (
+          <>
+            <ProgramViewToggle programView={programView} onProgramViewChange={onProgramViewChange} />
+            <span className="program-header-view-title">{programViewTitle(programView)}</span>
+          </>
         ) : null}
       </div>
       <div className="workbench-session-controls">
@@ -36,8 +50,68 @@ export function SessionHeader({
             <SessionConfigPills detail={detail} />
             <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
           </>
+        ) : programView ? (
+          <ProgramHeaderStatusPills graphStatus={programGraphStatus} semanticStatus={programSemanticStatus} />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function programViewTitle(programView: ProgramMainView): string {
+  return programView === 'graph' ? 'Relationship Graph' : 'Program Understanding';
+}
+
+function ProgramHeaderStatusPills({
+  graphStatus,
+  semanticStatus
+}: {
+  graphStatus: string | null;
+  semanticStatus: string | null;
+}): JSX.Element {
+  return (
+    <div className="program-header-status-strip" aria-label="Index status">
+      <ProgramHeaderStatusPill label="Graph" value={graphStatus ?? 'empty'} />
+      <ProgramHeaderStatusPill label="Search Memory" value={semanticStatus ?? 'empty'} />
+    </div>
+  );
+}
+
+function ProgramHeaderStatusPill({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <span className={`program-understanding-status status-${stateClass(value)}`} title={`${label}: ${traceLabel(value)}`}>
+      {label}: {traceLabel(value)}
+    </span>
+  );
+}
+
+function ProgramViewToggle({
+  programView,
+  onProgramViewChange
+}: {
+  programView: ProgramMainView;
+  onProgramViewChange: (view: ProgramMainView) => void;
+}): JSX.Element {
+  const options: Array<{ view: ProgramMainView; label: string; icon: JSX.Element }> = [
+    { view: 'understanding', label: 'Program Understanding', icon: <GitBranch size={15} /> },
+    { view: 'graph', label: 'Relationship graph visualization', icon: <Network size={15} /> }
+  ];
+
+  return (
+    <div className="session-view-toggle" role="group" aria-label="Program view">
+      {options.map((option) => (
+        <button
+          type="button"
+          className={`session-view-button ${programView === option.view ? 'active' : ''}`}
+          title={option.label}
+          aria-label={option.label}
+          aria-pressed={programView === option.view}
+          key={option.view}
+          onClick={() => onProgramViewChange(option.view)}
+        >
+          {option.icon}
+        </button>
+      ))}
     </div>
   );
 }
@@ -134,7 +208,7 @@ function SessionViewToggle({
 }): JSX.Element {
   const options: Array<{ view: SessionMainView; label: string; icon: JSX.Element }> = [
     { view: 'list', label: 'Trace and evidence lists', icon: <List size={15} /> },
-    { view: 'graph', label: 'Program graph and indexing', icon: <Network size={15} /> }
+    { view: 'graph', label: 'Graph view', icon: <Network size={15} /> }
   ];
 
   return (

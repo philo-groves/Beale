@@ -58,6 +58,7 @@ import type {
   ProfilingMetricDetail,
   ProfilingReport,
   ProfilingState,
+  ProgramGraphVisualization,
   ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -970,6 +971,11 @@ export class WorkspaceService {
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
     return this.requireDb().getRunDetailUpdate(runId, cursor);
+  }
+
+  public getProgramGraphVisualization(): ProgramGraphVisualization {
+    const db = this.requireDb();
+    return db.getProgramGraphVisualization(db.getActiveScope().id);
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {

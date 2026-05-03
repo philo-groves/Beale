@@ -1,7 +1,9 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
 import { Network } from 'lucide-react';
-import type { RunDetail, SteeringAction } from '@shared/types';
+import type { ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
+import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
+import type { ProgramMainView } from '../programs/programViews';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -11,10 +13,15 @@ import type { SessionMainView } from './sessionViews';
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
+  graph,
+  programView,
   researchPanelCollapsed,
+  runCount,
+  scope,
   selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
+  semantic,
   sessionView,
   visibleTraceCategories,
   busy,
@@ -28,10 +35,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  graph: ProjectGraphSummary | null;
+  programView: ProgramMainView;
   researchPanelCollapsed: boolean;
+  runCount: number;
+  scope: ProgramScopeVersion | null;
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  semantic: ProjectSemanticSummary | null;
   sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
@@ -43,19 +55,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
-  if (!selectedRunId) return null;
+  if (!selectedRunId) return <ProgramUnderstandingView graph={graph} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
 
   if (sessionView === 'graph') {
-    return (
-      <div className="program-graph-workspace" aria-label="Program graph view">
-        <div className="program-graph-placeholder">
-          <span className="program-graph-placeholder-icon" aria-hidden="true">
-            <Network size={22} />
-          </span>
-          <strong>Program Graph</strong>
-        </div>
-      </div>
-    );
+    return <SessionGraphWorkspace />;
   }
 
   return (
@@ -86,3 +89,16 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     </div>
   );
 });
+
+function SessionGraphWorkspace(): JSX.Element {
+  return (
+    <div className="program-graph-workspace" aria-label="Session graph view">
+      <div className="program-graph-placeholder">
+        <span className="program-graph-placeholder-icon" aria-hidden="true">
+          <Network size={22} />
+        </span>
+        <strong>Session Graph</strong>
+      </div>
+    </div>
+  );
+}

@@ -340,6 +340,39 @@ export interface ProjectGraphSummary {
   indexedAt: string | null;
 }
 
+export interface ProgramGraphVisualizationNode {
+  id: string;
+  nodeKind: string;
+  entityType: string;
+  entityId: string;
+  label: string;
+  sourcePath: string | null;
+  degree: number;
+  indexedAt: string;
+}
+
+export interface ProgramGraphVisualizationEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  edgeKind: string;
+  targetLabel: string;
+  indexedAt: string;
+}
+
+export interface ProgramGraphVisualization {
+  scopeVersionId: string;
+  status: string;
+  nodeCount: number;
+  edgeCount: number;
+  sampledNodeCount: number;
+  sampledEdgeCount: number;
+  truncated: boolean;
+  nodes: ProgramGraphVisualizationNode[];
+  edges: ProgramGraphVisualizationEdge[];
+  generatedAt: string;
+}
+
 export interface ProjectSemanticSummary {
   scopeVersionId: string;
   enabled: boolean;
@@ -1164,6 +1197,7 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
   refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
+  getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

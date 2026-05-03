@@ -198,7 +198,7 @@ function GeneralSettingsView({
             <DatabaseZap size={18} />
           </div>
           <div>
-            <h4>Project Understanding</h4>
+            <h4>Program Understanding</h4>
             <p>{semanticHeading(projectSemantic, programName)}</p>
           </div>
           <StatusPill status={projectSemantic?.status ?? 'disabled'} />
@@ -272,7 +272,7 @@ function GeneralSettingsView({
 
 function semanticHeading(summary: ProjectSemanticSummary | null, programName: string | null): string {
   const name = programName?.trim() || 'the active program';
-  if (!summary) return 'Open a program to manage project understanding indexes.';
+  if (!summary) return 'Open a program to manage program understanding indexes.';
   if (!summary.enabled) return `Semantic search is off for ${name}.`;
   if (summary.status === 'queued') return `Semantic indexing is queued for ${name}.`;
   if (summary.status === 'indexing') return `Semantic indexing is running for ${name}.`;

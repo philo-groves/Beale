@@ -27,6 +27,7 @@ import type {
   OpenAiTransport,
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
+  ProgramGraphVisualization,
   ProjectGraphSummary,
   ProjectSearchResult,
   ProjectSemanticSearchResult,
@@ -5618,6 +5619,160 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProgramGraphVisualization(
+    scopeVersionId = this.getActiveScope().id,
+    options: { nodeLimit?: number; edgeLimit?: number } = {}
+  ): ProgramGraphVisualization {
+    const summary = this.getProjectGraphSummary(scopeVersionId);
+    const nodeLimit = Math.max(12, Math.min(120, Math.floor(options.nodeLimit ?? 64)));
+    const edgeLimit = Math.max(12, Math.min(180, Math.floor(options.edgeLimit ?? 36)));
+    const candidateEdges = rows(
+      this.db
+        .prepare(
+          `WITH candidate_edges AS (
+             SELECT e.*,
+                    CASE
+                      WHEN COALESCE(s.source_path, '') LIKE '%.test.%' THEN 1
+                      WHEN COALESCE(s.source_path, '') LIKE '%/test/%' THEN 1
+                      WHEN COALESCE(s.source_path, '') LIKE '%/.github/workflows/%' THEN 2
+                      WHEN COALESCE(s.source_path, '') LIKE '%README.md' THEN 2
+                      ELSE 0
+                    END AS source_priority,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY e.edge_kind, LOWER(e.target_label), COALESCE(s.source_path, ''), COALESCE(t.source_path, ''), LOWER(s.label)
+                      ORDER BY e.indexed_at DESC, e.id ASC
+                    ) AS relation_rank
+             FROM project_graph_edges e
+             JOIN project_graph_nodes s ON s.scope_version_id = e.scope_version_id
+              AND s.id = e.source_node_id
+             LEFT JOIN project_graph_nodes t ON t.scope_version_id = e.scope_version_id
+              AND t.id = e.target_node_id
+             WHERE e.scope_version_id = ?
+               AND e.target_node_id IS NOT NULL
+               AND e.source_node_id <> e.target_node_id
+           )
+           SELECT *
+           FROM candidate_edges
+           WHERE relation_rank = 1
+           ORDER BY
+             CASE edge_kind
+               WHEN 'routes_to' THEN 0
+               WHEN 'handles_with' THEN 1
+               WHEN 'uses_middleware' THEN 2
+               WHEN 'checks_permission' THEN 3
+               WHEN 'reaches_sink' THEN 4
+               WHEN 'parses_body' THEN 5
+               WHEN 'serializes_response' THEN 6
+               WHEN 'reads_model' THEN 7
+               WHEN 'writes_model' THEN 8
+               WHEN 'supports_hypothesis' THEN 9
+               WHEN 'verifies_finding' THEN 10
+               WHEN 'evidence_for' THEN 11
+               WHEN 'calls' THEN 12
+               WHEN 'imports_symbol' THEN 13
+               WHEN 'exports_symbol' THEN 14
+               WHEN 'references_permission' THEN 15
+               WHEN 'references_url' THEN 16
+               ELSE 30
+             END,
+             source_priority ASC,
+             indexed_at DESC,
+             edge_kind ASC,
+             target_label ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, edgeLimit * 4)
+    ).map((row) => this.mapProjectGraphEdge(row));
+    const selectedEdges: ProjectGraphEdgeRecord[] = [];
+    const nodeIds = new Set<string>();
+    const edgeKindCounts = new Map<string, number>();
+    const targetCounts = new Map<string, number>();
+    const edgeKindLimit = Math.max(4, Math.ceil(edgeLimit / 10));
+    const targetLimit = Math.max(3, Math.ceil(edgeLimit / 14));
+    for (const edge of candidateEdges) {
+      if (!edge.targetNodeId) continue;
+      const edgeKindCount = edgeKindCounts.get(edge.edgeKind) ?? 0;
+      if (edgeKindCount >= edgeKindLimit) continue;
+      const targetKey = `${edge.targetEntityType}:${edge.targetLabel.trim().toLowerCase()}`;
+      const targetCount = targetCounts.get(targetKey) ?? 0;
+      if (targetCount >= targetLimit) continue;
+      const additions = [edge.sourceNodeId, edge.targetNodeId].filter((nodeId) => !nodeIds.has(nodeId));
+      if (selectedEdges.length > 0 && nodeIds.size + additions.length > nodeLimit) continue;
+      selectedEdges.push(edge);
+      nodeIds.add(edge.sourceNodeId);
+      nodeIds.add(edge.targetNodeId);
+      edgeKindCounts.set(edge.edgeKind, edgeKindCount + 1);
+      targetCounts.set(targetKey, targetCount + 1);
+      if (selectedEdges.length >= edgeLimit) break;
+    }
+    if (selectedEdges.length === 0 && nodeIds.size < nodeLimit) {
+      const supplementalLimit = nodeLimit - nodeIds.size;
+      for (const node of rows(
+        this.db
+          .prepare(
+            `SELECT n.*
+             FROM project_graph_nodes n
+             WHERE n.scope_version_id = ?
+             ORDER BY
+               CASE n.entity_type
+                 WHEN 'scope_version' THEN 0
+                 WHEN 'scope_asset' THEN 1
+                 WHEN 'run' THEN 2
+                 WHEN 'hypothesis' THEN 3
+                 WHEN 'finding' THEN 4
+                 WHEN 'evidence' THEN 5
+                 WHEN 'structure_entity' THEN 6
+                 WHEN 'inventory_item' THEN 7
+                 ELSE 20
+               END,
+               n.indexed_at DESC,
+               n.label ASC
+             LIMIT ?`
+          )
+          .all(scopeVersionId, supplementalLimit + nodeIds.size)
+      ).map((row) => this.mapProjectGraphNode(row))) {
+        if (nodeIds.size >= nodeLimit) break;
+        nodeIds.add(node.id);
+      }
+    }
+    const selectedNodes = nodeIds.size > 0 ? this.getProjectGraphNodesById(scopeVersionId, [...nodeIds]) : [];
+    const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
+    const displayEdges = selectedEdges.filter((edge) => selectedNodeIds.has(edge.sourceNodeId) && Boolean(edge.targetNodeId) && selectedNodeIds.has(edge.targetNodeId ?? ''));
+    const selectedDegreeCounts = new Map<string, number>();
+    for (const edge of displayEdges) {
+      selectedDegreeCounts.set(edge.sourceNodeId, (selectedDegreeCounts.get(edge.sourceNodeId) ?? 0) + 1);
+      if (edge.targetNodeId) selectedDegreeCounts.set(edge.targetNodeId, (selectedDegreeCounts.get(edge.targetNodeId) ?? 0) + 1);
+    }
+    return {
+      scopeVersionId,
+      status: summary.status,
+      nodeCount: summary.nodeCount,
+      edgeCount: summary.edgeCount,
+      sampledNodeCount: selectedNodes.length,
+      sampledEdgeCount: displayEdges.length,
+      truncated: summary.nodeCount > selectedNodes.length || summary.edgeCount > displayEdges.length,
+      nodes: selectedNodes.map((node) => ({
+        id: node.id,
+        nodeKind: node.nodeKind,
+        entityType: node.entityType,
+        entityId: node.entityId,
+        label: node.label,
+        sourcePath: node.sourcePath,
+        degree: selectedDegreeCounts.get(node.id) ?? 0,
+        indexedAt: node.indexedAt
+      })),
+      edges: displayEdges.map((edge) => ({
+        id: edge.id,
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId ?? '',
+        edgeKind: edge.edgeKind,
+        targetLabel: edge.targetLabel,
+        indexedAt: edge.indexedAt
+      })),
+      generatedAt: nowIso()
+    };
+  }
+
   public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
     const startedAt = Date.now();
     this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
@@ -9602,6 +9757,35 @@ export class WorkspaceDatabase {
   private getProjectGraphNodeById(scopeVersionId: string, nodeId: string): ProjectGraphNodeRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM project_graph_nodes WHERE scope_version_id = ? AND id = ?').get(scopeVersionId, nodeId));
     return row ? this.mapProjectGraphNode(row) : null;
+  }
+
+  private getProjectGraphNodesById(scopeVersionId: string, nodeIds: string[]): ProjectGraphNodeRecord[] {
+    const uniqueNodeIds = [...new Set(nodeIds)].filter(Boolean);
+    if (uniqueNodeIds.length === 0) return [];
+    const placeholders = uniqueNodeIds.map(() => '?').join(', ');
+    return rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_graph_nodes
+           WHERE scope_version_id = ?
+             AND id IN (${placeholders})
+           ORDER BY
+             CASE entity_type
+               WHEN 'scope_version' THEN 0
+               WHEN 'scope_asset' THEN 1
+               WHEN 'run' THEN 2
+               WHEN 'hypothesis' THEN 3
+               WHEN 'finding' THEN 4
+               WHEN 'evidence' THEN 5
+               WHEN 'structure_entity' THEN 6
+               WHEN 'inventory_item' THEN 7
+               ELSE 20
+             END,
+             label ASC`
+        )
+        .all(scopeVersionId, ...uniqueNodeIds)
+    ).map((row) => this.mapProjectGraphNode(row));
   }
 
   private mapProjectGraphNode(row: SqlRow): ProjectGraphNodeRecord {

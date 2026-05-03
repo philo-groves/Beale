@@ -74,6 +74,8 @@
 - Added a README-ready multi-layer project understanding diagram to the indexing planning chapter.
 - Added a wider New Program onboarding modal with repository listing, manual repository entry, default-on Index Now selections, HackerOne in-scope repository import, and background clone/index scheduling for selected repositories.
 - Added New Program repository onboarding progress tracking with per-repository Clone Later and Index Later actions.
+- Added a Program Understanding workspace with relationship graph, search memory, scope, repository, and session summaries.
+- Added workbench-header Program Understanding view toggles and a bounded relationship graph visualization backed by indexed graph nodes and edges.
 
 ### Changed
 
@@ -157,6 +159,12 @@
 - Removed the Evidence Trail header from the research side panel.
 - Moved Trace Filters from the window footer into the steering input control row.
 - Changed the session header trace metric to show total trace count instead of filtered/total fraction.
+- Changed the no-session workspace to show Program Understanding by default.
+- Changed program selection from the sidebar to open Program Understanding instead of implicitly selecting a session.
+- Changed the session graph toggle tooltip so program-level understanding is no longer described as a session view.
+- Changed the relationship graph visualization sample and layout to reduce dense node clustering and improve label readability.
+- Moved Program Understanding titles and index statuses into the workbench header, removing the duplicate header inside the program content area.
+- Changed relationship graph visualization to exclude self-edge/filler-node samples, diversify repeated targets, and list readable source-to-target relationship paths.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
@@ -223,6 +231,7 @@
 - Fixed source materialization for requested refs in reused workspace checkouts by fetching tags/refs and detaching to the resolved commit.
 - Fixed new verifier run metadata so passing runs record `blockedIssue: confirmed` instead of the ambiguous `yes` value.
 - Fixed New Program repository onboarding so completed semantic refreshes do not immediately reappear as unindexed source-document notifications, and onboarding or first-session search-memory refreshes suppress duplicate global indexing alerts.
+- Fixed sidebar program selection so the Program Understanding view remains selected after the opened program snapshot is applied.
 - Fixed evidence sidebar card contents so rows stretch left-to-right instead of centering inside the card.
 - Fixed Evidence Trail hierarchy styling by removing the child connector rail and relying on indentation for structure.
 - Fixed Evidence Trail grouping visuals by removing the extra wrapper background around each trail.

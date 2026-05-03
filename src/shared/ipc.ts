@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
   recordProfilingReport: 'beale:record-profiling-report',
   setProjectSemanticIndexEnabled: 'beale:set-project-semantic-index-enabled',
   refreshProjectSemanticIndex: 'beale:refresh-project-semantic-index',
+  getProgramGraphVisualization: 'beale:get-program-graph-visualization',
   generateResearchPrompt: 'beale:generate-research-prompt',
   cancelResearchPromptGeneration: 'beale:cancel-research-prompt-generation',
   researchPromptGenerationUpdated: 'beale:research-prompt-generation-updated',

@@ -11,10 +11,10 @@ import {
 } from '../src/renderer/view-models/runDetailUpdates';
 
 describe('renderer run detail update view model', () => {
-  it('keeps selected run id when the run remains present', () => {
+  it('keeps selected run id only when the run remains present', () => {
     expect(selectRunId('run_two', snapshot(['run_one', 'run_two']))).toBe('run_two');
     expect(selectRunId('missing', snapshot(['run_one', 'run_two']))).toBeNull();
-    expect(selectRunId('missing', snapshot(['run_one', 'run_two'], { run_two: 'active' }))).toBe('run_two');
+    expect(selectRunId('missing', snapshot(['run_one', 'run_two'], { run_two: 'active' }))).toBeNull();
     expect(selectRunId('run_one', null)).toBeNull();
   });
 

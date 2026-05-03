@@ -54,22 +54,30 @@ export function useProgramActions({
       const selection = await window.beale.selectProgramDirectory();
       if (selection.canceled) return;
       if (selection.knownProgram) {
-        applySnapshot(await window.beale.openProgram(selection.knownProgram.id));
+        clearRunDetail();
+        setSelectedRunId(null);
+        const next = await window.beale.openProgram(selection.knownProgram.id);
+        applySnapshot(next);
+        setSelectedRunId(null);
         return;
       }
       if (selection.defaults) {
         setProgramDraft(onboardingFormFromDefaults(selection.defaults));
       }
     });
-  }, [applySnapshot, runProgramAction, setProgramDraft]);
+  }, [applySnapshot, clearRunDetail, runProgramAction, setProgramDraft, setSelectedRunId]);
 
   const openRegisteredProgram = useCallback(
     (program: ProgramRegistryEntry): void => {
       void runProgramAction(async () => {
-        applySnapshot(await window.beale.openProgram(program.id));
+        clearRunDetail();
+        setSelectedRunId(null);
+        const next = await window.beale.openProgram(program.id);
+        applySnapshot(next);
+        setSelectedRunId(null);
       });
     },
-    [applySnapshot, runProgramAction]
+    [applySnapshot, clearRunDetail, runProgramAction, setSelectedRunId]
   );
 
   const openResearchSession = useCallback(
@@ -137,6 +145,7 @@ export function useProgramActions({
         clearRunDetail();
         setSelectedRunId(null);
         applySnapshot(next);
+        setSelectedRunId(null);
         if (!shouldTrackProgress) {
           setProgramDraft(null);
         }
