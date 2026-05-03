@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarClock, FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
@@ -60,10 +60,6 @@ export const ProgramSidebar = memo(function ProgramSidebar({
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
           <Search size={15} />
           <span>Search</span>
-        </button>
-        <button type="button" className="sidebar-utility-button" title="Schedules">
-          <CalendarClock size={15} />
-          <span>Schedules</span>
         </button>
       </div>
       <div className="sidebar-section program-list">

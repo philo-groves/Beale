@@ -870,7 +870,7 @@ code {
   right: 78px;
 }
 
-.app-header-program-title,
+.app-header-program-title span,
 .app-header-session-title span {
   min-width: 0;
   overflow: hidden;
@@ -879,12 +879,22 @@ code {
 }
 
 .app-header-program-title {
+  min-width: 0;
+  min-height: 24px;
+  max-width: min(360px, 34vw);
   flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border-color: transparent;
+  background: transparent;
   color: #dddddd;
+  padding: 3px 6px 1px;
   font-size: 0.94rem;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1;
+  -webkit-app-region: no-drag;
 }
 
 .app-header-title-separator {
@@ -912,10 +922,18 @@ code {
   -webkit-app-region: no-drag;
 }
 
+.app-header-program-title:hover:not(:disabled),
 .app-header-session-title:hover:not(:disabled) {
   border-color: transparent;
   background: #202020;
   color: #d6d6d6;
+}
+
+.app-header-program-title:disabled {
+  border-color: transparent;
+  background: transparent;
+  color: #8a8a8a;
+  cursor: default;
 }
 
 .mac-window-control-spacer {
@@ -2070,6 +2088,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trail-view {
   flex: 1 1 auto;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
 }
 
 .main-surface-header {
@@ -2858,7 +2878,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   min-height: var(--trace-footer-min-height);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   overflow: hidden;
   border-radius: var(--trace-footer-radius) var(--trace-footer-radius) var(--trace-footer-radius) 0;
@@ -2887,6 +2907,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-steer-model-picker,
+.main-steer-filter,
 .main-steer-send {
   min-height: 0;
   flex: 0 0 auto;
@@ -2921,11 +2942,21 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #171717;
 }
 
+.main-steer-filter {
+  width: 31px;
+  height: 31px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  margin-right: 8px;
+}
+
 .main-steer-model-picker:hover:not(:disabled) {
   background: #171717;
   color: var(--text);
 }
 
+.main-steer-filter:hover:not(:disabled),
 .main-steer-send:hover:not(:disabled) {
   background: #242424;
   color: var(--text);

@@ -18,7 +18,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   sessionView,
   visibleTraceCategories,
   busy,
+  traceFilterCount,
+  totalTraceFilterCount,
   onExpandResearchPanel,
+  onOpenTraceFilters,
   onSelectTraceEvent,
   onSessionAction,
   onSteerInstruction
@@ -32,7 +35,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
+  traceFilterCount: number;
+  totalTraceFilterCount: number;
   onExpandResearchPanel: () => void;
+  onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
@@ -61,7 +67,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         selectedRunId={selectedRunId}
         selectedTraceEventId={selectedTraceEventId}
         searchHighlightQuery={searchHighlightQuery}
+        traceFilterCount={traceFilterCount}
+        totalTraceFilterCount={totalTraceFilterCount}
         visibleTraceCategories={visibleTraceCategories}
+        onOpenTraceFilters={onOpenTraceFilters}
         onSelectTraceEvent={onSelectTraceEvent}
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}

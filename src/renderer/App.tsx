@@ -314,6 +314,16 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
+  const activeProgramEntry = useMemo(() => {
+    if (!snapshot || !programRegistry) return null;
+    return (
+      programRegistry.programs.find(
+        (program) =>
+          (snapshot.workspace.workspaceId.length > 0 && program.workspaceId === snapshot.workspace.workspaceId) ||
+          program.workspacePath === snapshot.workspace.workspacePath
+      ) ?? null
+    );
+  }, [programRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
@@ -511,9 +521,11 @@ export function App(): JSX.Element {
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
         programName={snapshot?.activeScope.programName ?? 'No Program Selected'}
+        activeProgram={activeProgramEntry}
         activeRunDetail={activeRunDetail}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenResearchPrompt={setResearchPromptDetail}
+        onOpenProgramInfo={setProgramInfo}
         onOpenProfiling={openProfiling}
         onAddProgram={addProgram}
         onToggleSidebar={toggleSidebar}
@@ -557,7 +569,10 @@ export function App(): JSX.Element {
             sessionView={sessionMainView}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
+            traceFilterCount={visibleTraceCategories.length}
+            totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onExpandResearchPanel={closeInspector}
+            onOpenTraceFilters={openTraceFilters}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
@@ -580,11 +595,8 @@ export function App(): JSX.Element {
         momentum={researchMomentum}
         notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
         inspectorOpen={inspectorOpen}
-        traceFilterCount={visibleTraceCategories.length}
-        totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
         onConfigureVm={configureVm}
         onOpenSettings={openSettings}
-        onOpenTraceFilters={openTraceFilters}
         onToggleInspector={toggleInspector}
       />
       <NotificationStack

@@ -92,13 +92,6 @@ const EvidenceTrailList = memo(function EvidenceTrailList({
 
   return (
     <section className="main-side-section main-trail-view" aria-label="Evidence Trail">
-      <div className="main-surface-header">
-        <div>
-          <GitBranch size={14} />
-          <span>Evidence Trail</span>
-        </div>
-        <span>{loading ? 'Loading' : `${trails.length}`}</span>
-      </div>
       {loading ? <div className="main-trace-empty">Loading evidence trail.</div> : null}
       {!loading && trails.length === 0 ? <div className="main-trace-empty">No hypotheses, findings, or evidence recorded.</div> : null}
       {!loading && trails.length > 0 ? (

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { Bell, Monitor, PanelRightClose, PanelRightOpen, Server, Settings, SlidersHorizontal } from 'lucide-react';
+import { Bell, Monitor, PanelRightClose, PanelRightOpen, Server, Settings } from 'lucide-react';
 import type { ExecutorStatus, HostEnvironment, RunDetail, VmPreference } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { ResearchMomentumLine } from '../features/momentum/ResearchMomentumLine';
@@ -16,11 +16,8 @@ export const StatusBar = memo(function StatusBar({
   momentum,
   notificationCount,
   inspectorOpen,
-  traceFilterCount,
-  totalTraceFilterCount,
   onConfigureVm,
   onOpenSettings,
-  onOpenTraceFilters,
   onToggleInspector
 }: {
   hostEnvironment: HostEnvironment | null;
@@ -31,11 +28,8 @@ export const StatusBar = memo(function StatusBar({
   momentum: ResearchMomentum;
   notificationCount: number;
   inspectorOpen: boolean;
-  traceFilterCount: number;
-  totalTraceFilterCount: number;
   onConfigureVm: () => void;
   onOpenSettings: () => void;
-  onOpenTraceFilters: () => void;
   onToggleInspector: () => void;
 }): JSX.Element {
   useDevRenderProbe('footer.statusBar', () => ({
@@ -67,15 +61,6 @@ export const StatusBar = memo(function StatusBar({
       </div>
       <ResearchMomentumLine detail={detail} momentum={momentum} />
       <div className="status-actions" aria-label="Application actions">
-        <button
-          type="button"
-          className="status-icon-button"
-          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          onClick={onOpenTraceFilters}
-        >
-          <SlidersHorizontal size={14} />
-        </button>
         <button type="button" className="status-icon-button" title="Settings" aria-label="Settings" onClick={onOpenSettings}>
           <Settings size={14} />
         </button>

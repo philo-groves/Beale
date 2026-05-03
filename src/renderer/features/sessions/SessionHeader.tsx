@@ -111,8 +111,8 @@ function SessionTimestamps({
       </span>
       <span
         className="session-header-metric"
-        title="Visible trace events after filters, followed by total trace events when filters are active."
-        aria-label={`${timing.visibleEventCount} visible trace events out of ${timing.totalEventCount} total trace events`}
+        title="Total trace events recorded for this session."
+        aria-label={`${timing.totalEventCount} total trace events`}
       >
         <FileText size={13} />
         <span>{timing.eventMetric}</span>

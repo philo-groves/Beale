@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, GitFork, Play, RefreshCw, Square } from 'lucide-react';
+import { ArrowRight, GitFork, Play, RefreshCw, SlidersHorizontal, Square } from 'lucide-react';
 import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -34,7 +34,10 @@ export const TraceView = memo(function TraceView({
   selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
+  traceFilterCount,
+  totalTraceFilterCount,
   visibleTraceCategories,
+  onOpenTraceFilters,
   onSelectTraceEvent,
   onSessionAction,
   onSteerInstruction
@@ -45,7 +48,10 @@ export const TraceView = memo(function TraceView({
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  traceFilterCount: number;
+  totalTraceFilterCount: number;
   visibleTraceCategories: TraceCategoryId[];
+  onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
@@ -464,6 +470,9 @@ export const TraceView = memo(function TraceView({
         detail={detail}
         modelLabel={detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
         runId={detail?.run.id ?? null}
+        traceFilterCount={traceFilterCount}
+        totalTraceFilterCount={totalTraceFilterCount}
+        onOpenTraceFilters={onOpenTraceFilters}
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
@@ -476,6 +485,9 @@ const MainSteerArea = memo(function MainSteerArea({
   detail,
   modelLabel,
   busy,
+  traceFilterCount,
+  totalTraceFilterCount,
+  onOpenTraceFilters,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -483,6 +495,9 @@ const MainSteerArea = memo(function MainSteerArea({
   detail: RunDetail | null;
   modelLabel: string;
   busy: boolean;
+  traceFilterCount: number;
+  totalTraceFilterCount: number;
+  onOpenTraceFilters: () => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element {
@@ -651,6 +666,15 @@ const MainSteerArea = memo(function MainSteerArea({
         />
         <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
           {modelLabel}
+        </button>
+        <button
+          type="button"
+          className="main-steer-filter"
+          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          onClick={onOpenTraceFilters}
+        >
+          <SlidersHorizontal size={14} />
         </button>
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />

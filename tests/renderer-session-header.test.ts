@@ -32,7 +32,7 @@ describe('renderer session header view models', () => {
       latestTurn: 2,
       visibleEventCount: 1,
       totalEventCount: 2,
-      eventMetric: '1/2',
+      eventMetric: '2',
       durationLabel: '00:30:00',
       turnTooltip: 'Current model turn.'
     });

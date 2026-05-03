@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
+import type { HostEnvironment, ProgramRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
@@ -12,9 +12,11 @@ export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   platform,
   programName,
+  activeProgram,
   activeRunDetail,
   profilingEnabled,
   onOpenResearchPrompt,
+  onOpenProgramInfo,
   onOpenProfiling,
   onAddProgram,
   onToggleSidebar
@@ -22,9 +24,11 @@ export const TopBar = memo(function TopBar({
   sidebarCollapsed: boolean;
   platform: HostEnvironment['platform'];
   programName: string;
+  activeProgram: ProgramRegistryEntry | null;
   activeRunDetail: RunDetail | null;
   profilingEnabled: boolean;
   onOpenResearchPrompt: (detail: RunDetail) => void;
+  onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
   onOpenProfiling: () => void;
   onAddProgram: () => void;
   onToggleSidebar: () => void;
@@ -231,7 +235,13 @@ export const TopBar = memo(function TopBar({
           ) : null}
         </div>
       </nav>
-      <AppHeaderTitle programName={programName} detail={activeRunDetail} onOpenResearchPrompt={onOpenResearchPrompt} />
+      <AppHeaderTitle
+        programName={programName}
+        activeProgram={activeProgram}
+        detail={activeRunDetail}
+        onOpenProgramInfo={onOpenProgramInfo}
+        onOpenResearchPrompt={onOpenResearchPrompt}
+      />
       {profilingEnabled || !isMac ? (
         <div className="window-controls" aria-label="Window controls">
           {profilingEnabled ? (

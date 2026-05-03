@@ -152,6 +152,11 @@
 - Adjusted the steering textarea padding so its single-line input and placeholder are vertically centered.
 - Moved the current program and session title into the app header while keeping run status, session tags, and metrics in the session header.
 - Moved session mode, strategy, and network tags into the right-side session header metrics cluster and added left-side status and list/graph view toggles.
+- Changed the app-header program title into a button that opens Program Information.
+- Hid the incomplete Schedules quick action from the sidebar while leaving scheduler internals intact.
+- Removed the Evidence Trail header from the research side panel.
+- Moved Trace Filters from the window footer into the steering input control row.
+- Changed the session header trace metric to show total trace count instead of filtered/total fraction.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.

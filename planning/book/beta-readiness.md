@@ -56,7 +56,7 @@ Beta requirement:
 
 ### Sidebar Utility Buttons
 
-The sidebar includes Search and Schedules.
+The sidebar includes Search. The planned Schedules entry is currently hidden.
 
 Current risk:
 
@@ -65,7 +65,7 @@ Current risk:
 Beta requirement:
 
 - Search should either open a scoped search modal for the current program or be hidden.
-- Schedules should either open a planned-feature modal or be hidden.
+- Schedules is hidden until the scheduled-session UI is ready.
 - Cross-workspace search is not a first-release default because workspace databases are intentionally isolated.
 
 ### Export and Disclosure Controls
@@ -214,4 +214,3 @@ Before closed beta:
 - Hypothesis/finding controls should support at least dismiss, reproduce, and duplicate review.
 - VM and host-execution state should be understandable from the footer and settings.
 - README should clearly state the project status and authorized-use boundary.
-

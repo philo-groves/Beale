@@ -60,7 +60,7 @@ export function sessionHeaderTiming(
     latestTurn,
     visibleEventCount,
     totalEventCount,
-    eventMetric: `${visibleEventCount}/${totalEventCount}`,
+    eventMetric: totalEventCount.toLocaleString(),
     turnTooltip,
     durationMs,
     durationLabel: formatDurationHms(durationMs),

@@ -1,17 +1,21 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { RunDetail } from '@shared/types';
+import type { ProgramRegistryEntry, RunDetail } from '@shared/types';
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { displayProgramHeaderName } from '../view-models/appHeader';
 
 export const AppHeaderTitle = memo(function AppHeaderTitle({
   programName,
+  activeProgram,
   detail,
+  onOpenProgramInfo,
   onOpenResearchPrompt
 }: {
   programName: string;
+  activeProgram: ProgramRegistryEntry | null;
   detail: RunDetail | null;
+  onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
   onOpenResearchPrompt: (detail: RunDetail) => void;
 }): JSX.Element {
   const programLabel = displayProgramHeaderName(programName);
@@ -20,7 +24,17 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
 
   return (
     <div className="app-header-title" aria-label="Current program and session">
-      <span className="app-header-program-title">{programLabel}</span>
+      <button
+        type="button"
+        className="app-header-program-title"
+        title={activeProgram ? 'Open program information' : programLabel}
+        disabled={!activeProgram}
+        onClick={() => {
+          if (activeProgram) onOpenProgramInfo(activeProgram);
+        }}
+      >
+        <span>{programLabel}</span>
+      </button>
       {detail && sessionTitle ? (
         <>
           <span className="app-header-title-separator" aria-hidden="true" />
