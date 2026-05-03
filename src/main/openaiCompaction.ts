@@ -109,6 +109,7 @@ export function representedCompactionState(detail: RunDetail): Record<string, un
       id: finding.id,
       state: finding.state,
       verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+      reportability: finding.reportability,
       cweMappings: cweMappingSnapshot(finding.cweMappings)
     })),
     artifacts: detail.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, modelVisible: artifact.modelVisible })),

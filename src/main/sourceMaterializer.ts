@@ -23,6 +23,10 @@ export interface MaterializedSourceRepository {
   cloned: boolean;
   ref: string | null;
   head: string | null;
+  headRefName: string | null;
+  headDescribe: string | null;
+  requestedRefHead: string | null;
+  requestedRefMatchesHead: boolean | null;
 }
 
 const GIT_TIMEOUT_MS = 180_000;
@@ -89,7 +93,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
       localPath: existingCheckout,
       cloned: false,
       ref: cleanRef || null,
-      head: gitHead(existingCheckout)
+      ...gitCheckoutMetadata(existingCheckout, cleanRef)
     };
   }
 
@@ -99,7 +103,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
       localPath,
       cloned: false,
       ref: cleanRef || null,
-      head: gitHead(localPath)
+      ...gitCheckoutMetadata(localPath, cleanRef)
     };
   }
   if (existsSync(localPath)) {
@@ -125,7 +129,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
     localPath,
     cloned: true,
     ref: cleanRef || null,
-    head: gitHead(localPath)
+    ...gitCheckoutMetadata(localPath, cleanRef)
   };
 }
 
@@ -144,7 +148,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
       localPath: existingCheckout,
       cloned: false,
       ref: cleanRef || null,
-      head: gitHead(existingCheckout)
+      ...gitCheckoutMetadata(existingCheckout, cleanRef)
     };
   }
 
@@ -154,7 +158,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
       localPath,
       cloned: false,
       ref: cleanRef || null,
-      head: gitHead(localPath)
+      ...gitCheckoutMetadata(localPath, cleanRef)
     };
   }
   if (existsSync(localPath)) {
@@ -180,7 +184,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
     localPath,
     cloned: true,
     ref: cleanRef || null,
-    head: gitHead(localPath)
+    ...gitCheckoutMetadata(localPath, cleanRef)
   };
 }
 
@@ -267,6 +271,29 @@ function workspaceRootFromDatabasePath(databasePath: string): string {
 function gitHead(localPath: string): string | null {
   try {
     const result = runGit(['-C', localPath, 'rev-parse', 'HEAD']);
+    return result.stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function gitCheckoutMetadata(localPath: string, requestedRef: string): Omit<MaterializedSourceRepository, 'repositoryUrl' | 'localPath' | 'cloned' | 'ref'> {
+  const head = gitHead(localPath);
+  const headRefName = gitOutput(localPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const headDescribe = gitOutput(localPath, ['describe', '--tags', '--always', '--dirty']);
+  const requestedRefHead = requestedRef ? gitOutput(localPath, ['rev-parse', `${requestedRef}^{commit}`]) : null;
+  return {
+    head,
+    headRefName: headRefName === 'HEAD' ? null : headRefName,
+    headDescribe,
+    requestedRefHead,
+    requestedRefMatchesHead: requestedRefHead && head ? requestedRefHead === head : requestedRef ? false : null
+  };
+}
+
+function gitOutput(localPath: string, args: string[]): string | null {
+  try {
+    const result = runGit(['-C', localPath, ...args]);
     return result.stdout.trim() || null;
   } catch {
     return null;

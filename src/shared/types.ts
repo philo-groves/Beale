@@ -726,6 +726,7 @@ export interface FindingRecord {
   summaryMarkdown: string;
   affectedAssets: Record<string, unknown>;
   affectedVersions: Record<string, unknown>;
+  reportability: Record<string, unknown>;
   impactMarkdown: string;
   priorityScore: number;
   verifiedByVerifierRunId: string | null;

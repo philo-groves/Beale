@@ -63,6 +63,8 @@
 - Added `code_browser` read-budget advice when the same file is paged repeatedly in one run.
 - Added post-source deferred indexing state, repeated broad-search advice, Python setup-state tracking, and verifier supersedence metadata for stronger canonical verifier runs.
 - Added evidence-level verifier supersedence fields, structured Python setup-state input, and delayed post-source inventory/graph refresh scheduling.
+- Added model-facing source version mismatch advice, reusable Python setup-state advice, post-source indexing deferred search hints, and reportability framing checks for disclosure-ready findings.
+- Added schema-backed finding reportability metadata, persisted run fixture setup records, and git checkout ref metadata for stronger version/ref discipline during source-backed research.
 
 ### Changed
 

@@ -247,7 +247,7 @@ const MAX_MODEL_ARTIFACT_BYTES = 256 * 1024;
 
 export function bealeToolDefinitions(): OpenAiToolDefinition[] {
   return [
-    tool('source', 'Materialize an in-scope source repository into the Beale workspace with a host-safe shallow git clone. Use before source search when a scoped repo is not checked out yet.', {
+    tool('source', 'Materialize an in-scope source repository into the Beale workspace with a host-safe shallow git clone. Use before source search when a scoped repo is not checked out yet, and use the prompt-requested branch/tag/commit/version ref before reading source for version-specific research.', {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
@@ -255,7 +255,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
-    tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings. If a file is large or truncated, continue with line_start/line_end chunks from nextLineStart.', {
+    tool('code_browser', 'Read bounded chunks from scoped source, text artifacts, or binary-derived strings. Prefer suggestedNextRead from search results and sourceVersionAdvice/readBudgetAdvice from prior reads. If repeated-file advice asks for narrowing, use a symbol or explicit line range before paging more.', {
       path: stringProp('Scoped file path or artifact id'),
       symbol: stringProp('Symbol or text anchor; use an empty string when not needed'),
       line_start: stringProp('Optional 1-based start line for chunked reads; use an empty string when not needed'),
@@ -275,7 +275,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       task: stringProp('Analysis task'),
       script: stringProp('Python script to run in the active sandbox'),
       artifact_path: stringProp('Path to collect as an artifact after execution; use an empty string when not needed'),
-      setup_state_json: stringProp('Optional structured setup-state update as JSON, e.g. {"packageManagerProbe":true,"packageManagers":{"pnpm":true},"dependencySetup":"completed","buildSetup":"completed"}. Use an empty string when not applicable.')
+      setup_state_json: stringProp('Optional structured setup-state update as JSON, e.g. {"packageManagerProbe":true,"packageManagers":{"pnpm":true},"dependencySetup":"completed","buildSetup":"completed","fixturePath":"/tmp/beale-app","frameworkVersion":"1.2.3","knownGoodBuildFlags":["next build"]}. Reuse prior setupState facts from Python results and use an empty string only when not applicable.')
     }),
     tool('debugger', 'Run a wrapper-first debugger observation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       operation: stringProp('Debugger operation, such as crash_summary or gdb_probe'),
@@ -314,7 +314,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       exploit_practicality: stringProp('Exploit practicality label, preferably prefixed with 0-4'),
       scope_confidence: stringProp('Scope confidence label, preferably prefixed with 0-4')
     }),
-    tool('finding', 'Create or update a finding record. Verified and reportable findings require a passing real verifier run id; reportable also means reachability and exploitability are certain enough for disclosure review.', {
+    tool('finding', 'Create or update a finding record. Verified and reportable findings require a passing real verifier run id; reportable also means reachability, exploitability, scope, affected versions, and deployment assumptions are certain enough for disclosure review.', {
       finding_id: stringProp('Existing finding id to update; use an empty string to create a new finding'),
       hypothesis_id: stringProp('Linked hypothesis id; use an empty string when not linked'),
       state: stringProp('State, such as needs_evidence, reproduced, verified, reportable, disclosure_ready, false_positive, out_of_scope, dismissed, or duplicate'),
@@ -328,6 +328,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       affected_assets_json: stringProp('JSON object describing affected assets or components; use {} when unknown'),
       affected_versions_json: stringProp('JSON object describing affected versions or commits; use {} when unknown'),
       impact: stringProp('Impact explanation'),
+      reportability_json: stringProp('JSON object for disclosure readiness when relevant, e.g. {"verifierBacked":true,"attackerReachability":"remote HTTP client","exploitPracticality":"requires non-Vary-aware shared cache","deploymentAssumptions":["self-hosted behind URL-keyed cache"],"scopeRationale":"in-scope OSS package","stableCanaryDelta":"stable affected, canary fixed","residualUncertainty":"depends on intermediary cache behavior"}. Use {} when not relevant.'),
       verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified or reportable; otherwise use an empty string')
     }),
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
@@ -699,6 +700,7 @@ export class BealeToolRouter {
     const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
     const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
     const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
+    const indexingDeferredState = this.db.getProjectIndexingDeferredState(context.run.scopeVersionId);
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
         ? `Scoped repository ${collection.unmaterializedSource.url} is not materialized. Use the source tool, then retry search.`
@@ -730,6 +732,7 @@ export class BealeToolRouter {
         structureSummary,
         graphSummary,
         semanticSummary,
+        indexingDeferredState,
         sourceHint,
         missingReasons
       })
@@ -770,6 +773,7 @@ export class BealeToolRouter {
         projectStructure: structureSummary,
         projectGraph: graphSummary,
         projectSemantic: semanticSummary,
+        indexingDeferredState,
         sourceRepositoriesAvailable: this.sourceRepositoryStatuses(sourceCandidates),
         sourceAcquisitionHint: sourceHint,
         matches
@@ -799,7 +803,20 @@ export class BealeToolRouter {
     }
 
     const materialized = materializeGitRepository(selection.candidate, this.db.getDatabasePath(), ref);
-    const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+    const nextScope = this.ensureLocalSourceInScope(
+      selection.candidate.sourceAssetId,
+      selection.candidate.sensitivity,
+      materialized.localPath,
+      materialized.repositoryUrl,
+      materialized.head,
+      materialized.ref,
+      {
+        headRefName: materialized.headRefName,
+        headDescribe: materialized.headDescribe,
+        requestedRefHead: materialized.requestedRefHead,
+        requestedRefMatchesHead: materialized.requestedRefMatchesHead
+      }
+    );
     this.db.markPostSourceIndexingDeferred(nextScope.id, 'source_materialized');
     this.options.onSourceMaterialized?.(nextScope.id, 'source_materialized');
 
@@ -816,6 +833,10 @@ export class BealeToolRouter {
         cloned: materialized.cloned,
         ref: materialized.ref,
         head: materialized.head,
+        headRefName: materialized.headRefName,
+        headDescribe: materialized.headDescribe,
+        requestedRefHead: materialized.requestedRefHead,
+        requestedRefMatchesHead: materialized.requestedRefMatchesHead,
         sourceAssetId: selection.candidate.sourceAssetId,
         activeScopeVersion: nextScope.version,
         indexingDeferred: true,
@@ -848,7 +869,20 @@ export class BealeToolRouter {
     }
 
     const materialized = await materializeGitRepositoryAsync(selection.candidate, this.db.getDatabasePath(), ref);
-    const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+    const nextScope = this.ensureLocalSourceInScope(
+      selection.candidate.sourceAssetId,
+      selection.candidate.sensitivity,
+      materialized.localPath,
+      materialized.repositoryUrl,
+      materialized.head,
+      materialized.ref,
+      {
+        headRefName: materialized.headRefName,
+        headDescribe: materialized.headDescribe,
+        requestedRefHead: materialized.requestedRefHead,
+        requestedRefMatchesHead: materialized.requestedRefMatchesHead
+      }
+    );
     this.db.markPostSourceIndexingDeferred(nextScope.id, 'source_materialized');
     this.options.onSourceMaterialized?.(nextScope.id, 'source_materialized');
 
@@ -865,6 +899,10 @@ export class BealeToolRouter {
         cloned: materialized.cloned,
         ref: materialized.ref,
         head: materialized.head,
+        headRefName: materialized.headRefName,
+        headDescribe: materialized.headDescribe,
+        requestedRefHead: materialized.requestedRefHead,
+        requestedRefMatchesHead: materialized.requestedRefMatchesHead,
         sourceAssetId: selection.candidate.sourceAssetId,
         activeScopeVersion: nextScope.version,
         indexingDeferred: true,
@@ -996,7 +1034,8 @@ export class BealeToolRouter {
     const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
     const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
     const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(context, filePath, symbol, structureEntity, selection);
-    const readBudgetAdvice = this.codeBrowserReadBudgetAdvice(context, filePath, symbol);
+    const readBudgetAdvice = this.codeBrowserReadBudgetAdvice(context, filePath, symbol, selection);
+    const sourceVersionAdvice = artifactTarget ? null : this.sourceVersionAdvice(context, filePath);
 
     return {
       status: 'success',
@@ -1020,19 +1059,37 @@ export class BealeToolRouter {
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         structureNavigation,
         readBudgetAdvice,
+        sourceVersionAdvice,
         excerpt
       }
     };
   }
 
-  private codeBrowserReadBudgetAdvice(context: CreatedRunContext, filePath: string, symbol: string): Record<string, unknown> | null {
+  private codeBrowserReadBudgetAdvice(context: CreatedRunContext, filePath: string, symbol: string, selection: CodeBrowserTextSelection): Record<string, unknown> | null {
     const priorSameFileReads = this.db.countCodeBrowserReadsForPath(context.run.id, filePath);
     if (priorSameFileReads < 3) return null;
+    const nextRange =
+      selection.lineStart !== null && selection.lineEnd !== null
+        ? {
+            path: filePath,
+            symbol: symbol || '',
+            line_start: String(selection.lineStart),
+            line_end: String(Math.min(selection.lineEnd, selection.lineStart + 60))
+          }
+        : null;
     return {
       code: 'repeated_file_paging',
       priorSameFileReads,
-      message: 'This file has already been read several times in this run; prefer a symbol/range read, search for a narrower term, or follow structureNavigation instead of continuing broad paging.',
-      action: symbol ? 'Use structureNavigation or a narrower line range for the next read.' : 'Use search to locate a narrower symbol/term, then call code_browser with symbol or explicit line_start/line_end.'
+      severity: priorSameFileReads >= 5 ? 'high' : 'medium',
+      requiresNarrowing: priorSameFileReads >= 5,
+      message: 'This file has already been read several times in this run. Do not continue broad paging unless the current hypothesis depends on adjacent lines.',
+      action: symbol
+        ? 'Use structureNavigation outgoingRelations/incomingReferences or a narrower line range for the next read.'
+        : 'Run search for a narrower symbol/term from this excerpt, then call code_browser with symbol or explicit line_start/line_end.',
+      suggestedNextReads: [
+        nextRange ? { tool: 'code_browser', reason: 'Re-read only a tight range from the current chunk if more local context is required.', args: nextRange } : null,
+        { tool: 'search', reason: 'Find a narrower symbol or related file before another same-file page.', args: { query: symbol || basename(filePath), target: dirname(filePath) } }
+      ].filter(Boolean)
     };
   }
 
@@ -1377,7 +1434,9 @@ export class BealeToolRouter {
 
   private pythonExecutionResult(context: CreatedRunContext, args: Record<string, unknown>, script: string, execution: GuestToolResult): ToolResult {
     const setupStateUpdate = setupStateUpdateFromPythonExecution(args, script, execution);
-    const setupState = setupStateUpdate ? this.db.recordRunSetupState(context.run.id, setupStateUpdate) : this.db.getRunSetupState(context.run.id);
+    const setupState = (setupStateUpdate ? this.db.recordRunSetupState(context.run.id, setupStateUpdate) : this.db.getRunSetupState(context.run.id)) ?? {};
+    const setupStateAdvice = pythonSetupStateAdvice(setupState, setupStateUpdate, execution);
+    const setupRegistry = this.db.listRunFixtureSetups(context.run.id).slice(0, 5);
     return {
       status: execution.result.status === 'success' ? 'success' : 'error',
       summary: `${execution.hostExecution ? 'Host' : 'Guest'} python operation finished with ${execution.result.status}.`,
@@ -1405,7 +1464,9 @@ export class BealeToolRouter {
         requestedNetworkProfile: execution.requestedNetworkProfile,
         networkProfile: execution.networkProfile,
         runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile),
-        setupState
+        setupState,
+        setupStateAdvice,
+        setupRegistry
       }
     };
   }
@@ -1772,8 +1833,25 @@ export class BealeToolRouter {
     const title = stringValue(args.title, existing?.title ?? '').trim() || existing?.title || 'Untitled finding';
     const summaryMarkdown = stringValue(args.summary, existing?.summaryMarkdown ?? '').trim() || existing?.summaryMarkdown || 'No summary provided.';
     const affectedAssets = jsonRecordFromString(args.affected_assets_json, existing?.affectedAssets ?? {});
+    const reportability = jsonRecordFromString(args.reportability_json, existing?.reportability ?? {});
     const affectedVersions = jsonRecordFromString(args.affected_versions_json, existing?.affectedVersions ?? {});
     const impactMarkdown = stringValue(args.impact, existing?.impactMarkdown ?? '').trim() || existing?.impactMarkdown || 'Impact not yet assessed.';
+    if (state === 'reportable') {
+      const reportabilityIssues = reportabilityReviewIssues(reportability, affectedAssets, impactMarkdown);
+      if (reportabilityIssues.length > 0) {
+        return {
+          status: 'error',
+          summary: 'Reportable findings require explicit disclosure-readiness framing.',
+          payload: {
+            observationBacked: false,
+            error: 'missing_reportability_framing',
+            reportabilityIssues,
+            requiredReportabilityFields: ['attackerReachability', 'exploitPracticality', 'scopeRationale'],
+            optionalReportabilityFields: ['deploymentAssumptions', 'affectedStableVersion', 'fixedCanaryVersion', 'residualUncertainty']
+          }
+        };
+      }
+    }
     const linkedHypothesisId = hypothesisId || existing?.hypothesisId || '';
     const linkedHypothesis = linkedHypothesisId ? detail.hypotheses.find((hypothesis) => hypothesis.id === linkedHypothesisId) ?? null : null;
     const priorityScore = clampPriorityScore(linkedHypothesis?.priorityScore ?? existing?.priorityScore ?? 0);
@@ -1832,6 +1910,7 @@ export class BealeToolRouter {
           summaryMarkdown,
           affectedAssets,
           affectedVersions,
+          reportability,
           impactMarkdown,
           priorityScore,
           verifiedByVerifierRunId: verifierRunId || existing.verifiedByVerifierRunId,
@@ -1845,6 +1924,7 @@ export class BealeToolRouter {
           summaryMarkdown,
           affectedAssets,
           affectedVersions,
+          reportability,
           impactMarkdown,
           priorityScore,
           verifiedByVerifierRunId: verifierRunId,
@@ -1871,6 +1951,7 @@ export class BealeToolRouter {
         priorityScore: finding.priorityScore,
         cweMappings: cwePayload(finding.cweMappings),
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+        reportability: Object.keys(reportability).length > 0 ? reportability : null,
         supersededVerifierRunIds,
         duplicateReview: duplicateReview ? duplicateReviewPayload(duplicateReview) : null
       }
@@ -2237,7 +2318,12 @@ export class BealeToolRouter {
         label: candidate.label,
         url: candidate.url,
         materialized: Boolean(local),
-        localPath: local?.value ?? null
+        localPath: local?.value ?? null,
+        materializedRef: stringValue(local?.attributes?.materializedRef, '') || null,
+        head: stringValue(local?.attributes?.head, '') || null,
+        headRefName: stringValue(local?.attributes?.headRefName, '') || null,
+        headDescribe: stringValue(local?.attributes?.headDescribe, '') || null,
+        requestedRefMatchesHead: local?.attributes?.requestedRefMatchesHead ?? null
       };
     });
   }
@@ -2912,6 +2998,7 @@ export class BealeToolRouter {
     structureSummary: ReturnType<WorkspaceDatabase['getProjectStructureSummary']>;
     graphSummary: ReturnType<WorkspaceDatabase['getProjectGraphSummary']>;
     semanticSummary: ReturnType<WorkspaceDatabase['getProjectSemanticSummary']>;
+    indexingDeferredState: Record<string, unknown> | null;
     sourceHint: string | null;
     missingReasons: Array<Record<string, unknown>>;
   }): Array<Record<string, unknown>> {
@@ -2925,6 +3012,15 @@ export class BealeToolRouter {
 
     if (input.sourceHint) {
       add('source', 'materialize_source', input.sourceHint, 'Use the source tool to materialize the scoped repository, then rerun search.');
+    }
+    if (input.indexingDeferredState) {
+      add(
+        'indexing',
+        'post_source_indexing_deferred',
+        'Source was materialized recently and one or more indexes are still deferred or queued.',
+        'Direct source scanning is usable now. For metadata, structure, semantic, or graph misses, wait for background indexing or trigger indexing from Settings, then rerun search.',
+        { indexingState: input.indexingDeferredState }
+      );
     }
     if (input.inventorySummary.itemCount === 0 && !input.inventorySummary.indexedAt) {
       add('inventory', 'run_indexing', 'Project inventory is empty.', 'Run project indexing or materialize source before relying on metadata, structure, semantic, or graph retrieval.');
@@ -3878,16 +3974,99 @@ export class BealeToolRouter {
     return this.db.getActiveScope().assets.some((asset) => isScopedLocalAsset(asset) && isWithinPath(resolved, resolve(asset.value)));
   }
 
+  private sourceVersionAdvice(context: CreatedRunContext, filePath: string): Record<string, unknown> | null {
+    const scopedAsset = scopedLocalAssetForPath(this.db.getActiveScope().assets, filePath);
+    if (!scopedAsset) return null;
+    const promptVersions = versionRefsFromPrompt(context.run.promptMarkdown);
+    if (promptVersions.length === 0) return null;
+    const materializedRef = stringValue(scopedAsset.attributes?.materializedRef, '');
+    const headDescribe = stringValue(scopedAsset.attributes?.headDescribe, '');
+    const headRefName = stringValue(scopedAsset.attributes?.headRefName, '');
+    const requestedRefMatchesHead = scopedAsset.attributes?.requestedRefMatchesHead === true;
+    const packageInfo = nearestPackageVersion(filePath, scopedAsset.value);
+    const refMatches =
+      materializedRef && scopedAsset.attributes?.requestedRefMatchesHead !== false
+        ? promptVersions.some((version) => normalizedVersionRef(materializedRef) === normalizedVersionRef(version))
+        : false;
+    const gitMatches = promptVersions.some((version) => [headDescribe, headRefName].some((candidate) => normalizedVersionRef(candidate) === normalizedVersionRef(version)));
+    const packageMatches = packageInfo ? promptVersions.some((version) => normalizedVersionRef(packageInfo.version) === normalizedVersionRef(version)) : false;
+    if (requestedRefMatchesHead || refMatches || gitMatches || packageMatches) return null;
+    return {
+      code: 'possible_source_ref_mismatch',
+      severity: 'high',
+      message: 'The run prompt names a released version/ref, but this source read is not clearly from that ref.',
+      promptVersionRefs: promptVersions,
+      materializedRef: materializedRef || null,
+      headRefName: headRefName || null,
+      headDescribe: headDescribe || null,
+      requestedRefHead: stringValue(scopedAsset.attributes?.requestedRefHead, '') || null,
+      requestedRefMatchesHead,
+      packageVersion: packageInfo?.version ?? null,
+      packagePath: packageInfo?.path ?? null,
+      repositoryUrl: stringValue(scopedAsset.attributes?.repositoryUrl, '') || null,
+      action: 'Before relying on this source observation, call source with the prompt-requested tag/ref or inspect the installed package/source for that exact version.'
+    };
+  }
+
   private firstScopedImport(): { hostPath: string } | null {
     const asset = this.db.getActiveScope().assets.find((candidate) => isScopedLocalAsset(candidate) && existsSync(candidate.value));
     return asset ? { hostPath: resolve(asset.value) } : null;
   }
 
-  private ensureLocalSourceInScope(sourceAssetId: string, sensitivity: string, localPath: string, repositoryUrl: string, head: string | null): ReturnType<WorkspaceDatabase['getActiveScope']> {
+  private ensureLocalSourceInScope(
+    sourceAssetId: string,
+    sensitivity: string,
+    localPath: string,
+    repositoryUrl: string,
+    head: string | null,
+    materializedRef: string | null = null,
+    gitMetadata: Record<string, unknown> = {}
+  ): ReturnType<WorkspaceDatabase['getActiveScope']> {
     const scope = this.db.getActiveScope();
     const resolvedLocalPath = resolve(localPath);
-    if (scope.assets.some((asset) => asset.direction === 'in_scope' && isScopedLocalAsset(asset) && resolve(asset.value) === resolvedLocalPath)) {
-      return scope;
+    const existing = scope.assets.find((asset) => asset.direction === 'in_scope' && isScopedLocalAsset(asset) && resolve(asset.value) === resolvedLocalPath);
+    if (existing) {
+      const existingRef = stringValue(existing.attributes?.materializedRef, '');
+      const existingHead = stringValue(existing.attributes?.head, '');
+      if (existingRef === (materializedRef ?? '') && existingHead === (head ?? '')) return scope;
+      const assets: ScopeAssetInput[] = scope.assets.map((asset) => {
+        if (asset.id !== existing.id) {
+          return {
+            direction: asset.direction,
+            kind: asset.kind,
+            value: asset.value,
+            sensitivity: asset.sensitivity,
+            attributes: asset.attributes
+          };
+        }
+        return {
+          direction: asset.direction,
+          kind: asset.kind,
+          value: asset.value,
+          sensitivity: asset.sensitivity,
+          attributes: {
+            ...asset.attributes,
+            source: 'beale_source_materializer',
+            repositoryUrl,
+            sourceAssetId,
+            head,
+            materializedRef: materializedRef ?? '',
+            ...gitMetadata
+          }
+        };
+      });
+      return this.db.saveProgramScope(
+        {
+          programName: scope.programName,
+          organizationName: scope.organizationName,
+          descriptionMarkdown: scope.descriptionMarkdown,
+          rulesMarkdown: scope.rulesMarkdown,
+          networkProfile: scope.networkProfile,
+          expiresAt: scope.expiresAt,
+          assets
+        },
+        { refreshInventory: false }
+      );
     }
     const assets: ScopeAssetInput[] = scope.assets.map((asset) => ({
       direction: asset.direction,
@@ -3905,7 +4084,9 @@ export class BealeToolRouter {
         source: 'beale_source_materializer',
         repositoryUrl,
         sourceAssetId,
-        head
+        head,
+        materializedRef: materializedRef ?? '',
+        ...gitMetadata
       }
     });
     return this.db.saveProgramScope(
@@ -4368,6 +4549,7 @@ function findingResourceRecord(finding: FindingRecord): ResourceLookupRecord {
     impactMarkdown: finding.impactMarkdown,
     affectedAssets: finding.affectedAssets,
     affectedVersions: finding.affectedVersions,
+    reportability: finding.reportability,
     priorityScore: finding.priorityScore,
     hypothesisId: finding.hypothesisId,
     verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
@@ -4782,7 +4964,112 @@ function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, scri
     relevant = true;
     update.localHarness = execution.result.status === 'success' ? 'ran' : 'failed';
   }
+  if (/fixture|tmp\/beale|test app|minimal app/.test(haystack)) {
+    relevant = true;
+    const fixturePath = /(?:fixture|app|workdir)[^/\n\r]*(\/tmp\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)/.exec(`${task}\n${execution.result.stdoutSummary}`)?.[1];
+    if (fixturePath) update.fixturePath = fixturePath;
+  }
+  if (/unknown option ['"]?--no-lint|--no-lint/.test(haystack)) {
+    relevant = true;
+    update.knownBadBuildFlags = uniqueStrings([...(arrayOfStrings(explicit.knownBadBuildFlags)), '--no-lint']);
+    update.buildAdvice = 'Do not retry Next.js builds with --no-lint for this version; rerun the known-good plain build command unless inputs changed.';
+  }
+  const nextVersion = /\bnext(?:\.js)?\s*(?:version|latest|package)?[^0-9]{0,24}(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/i.exec(`${task}\n${execution.result.stdoutSummary}`)?.[1];
+  if (nextVersion) {
+    relevant = true;
+    update.framework = 'next';
+    update.frameworkVersion = nextVersion;
+  }
   return relevant ? update : null;
+}
+
+function pythonSetupStateAdvice(setupState: Record<string, unknown>, setupStateUpdate: Record<string, unknown> | null, execution: GuestToolResult): Record<string, unknown> {
+  const knownBadBuildFlags = arrayOfStrings(setupState.knownBadBuildFlags);
+  const packageManagers = setupState.packageManagers && typeof setupState.packageManagers === 'object' && !Array.isArray(setupState.packageManagers);
+  const fixturePath = stringValue(setupState.fixturePath, '');
+  const frameworkVersion = stringValue(setupState.frameworkVersion, '');
+  const actions: string[] = [];
+  if (packageManagers) actions.push('Reuse recorded package manager availability instead of probing again.');
+  if (setupState.dependencySetup === 'completed' || setupState.dependencySetup === 'completed_or_available') {
+    actions.push('Avoid reinstalling dependencies unless package files or fixture path changed.');
+  }
+  if (setupState.buildSetup === 'completed' || setupState.buildSetup === 'completed_or_available') {
+    actions.push('Reuse the existing build output or fixture when possible.');
+  }
+  if (knownBadBuildFlags.length > 0) actions.push(`Do not retry known-bad build flags: ${knownBadBuildFlags.join(', ')}.`);
+  if (execution.result.status === 'failure' && setupStateUpdate?.buildSetup === 'failed') {
+    actions.push('Before another build attempt, change the build command or fixture inputs; do not rerun the same failed setup unchanged.');
+  }
+  return {
+    reusable: actions.length > 0,
+    fixturePath: fixturePath || null,
+    frameworkVersion: frameworkVersion || null,
+    knownBadBuildFlags,
+    action: actions.join(' ') || 'No durable setup facts recorded yet; include setup_state_json when this operation discovers reusable environment or fixture facts.'
+  };
+}
+
+function reportabilityReviewIssues(reportability: Record<string, unknown>, affectedAssets: Record<string, unknown>, impactMarkdown: string): string[] {
+  const issues: string[] = [];
+  const haystack = `${JSON.stringify(reportability)}\n${JSON.stringify(affectedAssets)}\n${impactMarkdown}`.toLowerCase();
+  if (!stringValue(reportability.attackerReachability, '') && !/attacker|remote|local http|client|authenticated|unauthenticated/.test(haystack)) {
+    issues.push('missing_attacker_reachability');
+  }
+  if (!stringValue(reportability.exploitPracticality, '') && !/practical|requires|browser|cache|proxy|default|configuration|deployment/.test(haystack)) {
+    issues.push('missing_exploit_practicality');
+  }
+  if (!stringValue(reportability.scopeRationale, '') && !/scope|in-scope|program|oss|repository|package/.test(haystack)) {
+    issues.push('missing_scope_rationale');
+  }
+  if (/cache|proxy|cdn|deployment|self-host|intermediary/.test(haystack) && !Array.isArray(reportability.deploymentAssumptions) && !stringValue(reportability.deploymentAssumptions, '')) {
+    issues.push('missing_deployment_assumptions');
+  }
+  return issues;
+}
+
+function scopedLocalAssetForPath(assets: ScopeAsset[], filePath: string): ScopeAsset | null {
+  const resolved = resolve(filePath);
+  return (
+    assets
+      .filter((asset) => isScopedLocalAsset(asset) && isWithinPath(resolved, resolve(asset.value)))
+      .sort((left, right) => resolve(right.value).length - resolve(left.value).length)[0] ?? null
+  );
+}
+
+function versionRefsFromPrompt(promptMarkdown: string): string[] {
+  const refs = new Set<string>();
+  for (const match of promptMarkdown.matchAll(/\bv?(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)\b/g)) {
+    if (match[1]) refs.add(match[1]);
+  }
+  for (const match of promptMarkdown.matchAll(/\b(?:ref|tag|branch|version)\s*[:=]?\s*([A-Za-z0-9_.\/-]*\d[A-Za-z0-9_.\/-]*)/gi)) {
+    if (match[1]) refs.add(match[1].replace(/^v(?=\d+\.\d+\.\d+)/i, ''));
+  }
+  return [...refs].slice(0, 6);
+}
+
+function normalizedVersionRef(value: string): string {
+  return value.trim().replace(/^refs\/tags\//i, '').replace(/^v(?=\d+\.\d+\.\d+)/i, '').toLowerCase();
+}
+
+function nearestPackageVersion(filePath: string, scopedRoot: string): { path: string; version: string } | null {
+  const root = resolve(scopedRoot);
+  let current = dirname(resolve(filePath));
+  while (isWithinPath(current, root)) {
+    const packagePath = join(current, 'package.json');
+    if (existsSync(packagePath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packagePath, 'utf8')) as Record<string, unknown>;
+        const version = stringValue(parsed.version, '');
+        if (version) return { path: packagePath, version };
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
 }
 
 function verifierLinkedHypothesisId(args: Record<string, unknown>, detail: ReturnType<WorkspaceDatabase['getRunDetail']>): string | null {

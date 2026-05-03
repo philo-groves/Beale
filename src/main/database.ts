@@ -148,6 +148,7 @@ export interface CreateFindingInput {
   summaryMarkdown: string;
   affectedAssets?: Record<string, unknown>;
   affectedVersions?: Record<string, unknown>;
+  reportability?: Record<string, unknown>;
   impactMarkdown: string;
   priorityScore: number;
   verifiedByVerifierRunId?: string | null;
@@ -553,7 +554,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -790,6 +791,10 @@ function parseStringArray(value: SqlPrimitive | undefined): string[] {
   }
   const parsed: unknown = JSON.parse(value);
   return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
 }
 
 function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
@@ -4521,9 +4526,9 @@ export class WorkspaceDatabase {
       .prepare(
         `INSERT INTO findings (
           id, run_id, hypothesis_id, state, title, summary_markdown, affected_assets_json,
-          affected_versions_json, impact_markdown, priority_score, verified_by_verifier_run_id,
+          affected_versions_json, reportability_json, impact_markdown, priority_score, verified_by_verifier_run_id,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -4534,6 +4539,7 @@ export class WorkspaceDatabase {
         input.summaryMarkdown,
         toJson(input.affectedAssets),
         toJson(input.affectedVersions),
+        toJson(input.reportability ?? {}),
         input.impactMarkdown,
         clampPriorityScore(input.priorityScore),
         input.verifiedByVerifierRunId ?? null,
@@ -4569,6 +4575,7 @@ export class WorkspaceDatabase {
       summaryMarkdown?: string;
       affectedAssets?: Record<string, unknown>;
       affectedVersions?: Record<string, unknown>;
+      reportability?: Record<string, unknown>;
       impactMarkdown?: string;
       priorityScore?: number;
       verifiedByVerifierRunId?: string | null;
@@ -4591,6 +4598,7 @@ export class WorkspaceDatabase {
              summary_markdown = ?,
              affected_assets_json = ?,
              affected_versions_json = ?,
+             reportability_json = ?,
              impact_markdown = ?,
              priority_score = ?,
              verified_by_verifier_run_id = ?,
@@ -4604,6 +4612,7 @@ export class WorkspaceDatabase {
         patch.summaryMarkdown ?? existing.summaryMarkdown,
         toJson(patch.affectedAssets ?? existing.affectedAssets),
         toJson(patch.affectedVersions ?? existing.affectedVersions),
+        toJson(patch.reportability ?? existing.reportability),
         patch.impactMarkdown ?? existing.impactMarkdown,
         clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
         nextVerifierRunId ?? null,
@@ -4700,6 +4709,7 @@ export class WorkspaceDatabase {
       updatedAt: nowIso()
     };
     this.setMetaValue(key, JSON.stringify(next));
+    this.upsertRunFixtureSetupFromState(runId, next);
     return next;
   }
 
@@ -4708,6 +4718,60 @@ export class WorkspaceDatabase {
     if (!value) return null;
     const parsed = parseJson(value);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  }
+
+  public listRunFixtureSetups(runId: string): Array<Record<string, unknown>> {
+    return rows(this.db.prepare('SELECT * FROM run_fixture_setups WHERE run_id = ? ORDER BY updated_at DESC').all(runId)).map((row) => ({
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      fixturePath: text(row, 'fixture_path'),
+      framework: text(row, 'framework'),
+      frameworkVersion: text(row, 'framework_version'),
+      dependencySetup: text(row, 'dependency_setup'),
+      buildSetup: text(row, 'build_setup'),
+      knownGoodBuildFlags: parseStringArray(row.known_good_build_flags_json),
+      knownBadBuildFlags: parseStringArray(row.known_bad_build_flags_json),
+      metadata: parseJson(row.metadata_json),
+      createdAt: text(row, 'created_at'),
+      updatedAt: text(row, 'updated_at')
+    }));
+  }
+
+  private upsertRunFixtureSetupFromState(runId: string, setupState: Record<string, unknown>): void {
+    const fixturePath = stringValueForJson(setupState.fixturePath);
+    if (!fixturePath) return;
+    const now = nowIso();
+    const existing = rowOrUndefined(this.db.prepare('SELECT id, created_at FROM run_fixture_setups WHERE run_id = ? AND fixture_path = ?').get(runId, fixturePath));
+    this.db
+      .prepare(
+        `INSERT INTO run_fixture_setups (
+          id, run_id, fixture_path, framework, framework_version, dependency_setup, build_setup,
+          known_good_build_flags_json, known_bad_build_flags_json, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, fixture_path) DO UPDATE SET
+          framework = excluded.framework,
+          framework_version = excluded.framework_version,
+          dependency_setup = excluded.dependency_setup,
+          build_setup = excluded.build_setup,
+          known_good_build_flags_json = excluded.known_good_build_flags_json,
+          known_bad_build_flags_json = excluded.known_bad_build_flags_json,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        existing ? text(existing, 'id') : createId('fixture'),
+        runId,
+        fixturePath,
+        stringValueForJson(setupState.framework),
+        stringValueForJson(setupState.frameworkVersion),
+        stringValueForJson(setupState.dependencySetup),
+        stringValueForJson(setupState.buildSetup),
+        toJson(arrayOfStrings(setupState.knownGoodBuildFlags)),
+        toJson(arrayOfStrings(setupState.knownBadBuildFlags)),
+        toJson(setupState),
+        existing ? text(existing, 'created_at') : now,
+        now
+      );
   }
 
   public markPriorVerifierRunsSuperseded(runId: string, hypothesisId: string | null, findingId: string | null, verifierRunId: string): string[] {
@@ -6939,6 +7003,10 @@ export class WorkspaceDatabase {
         this.applyEvidenceSupersedenceMigration();
         this.insertMigration(16, 'evidence_supersedence');
       }
+      if (currentVersion < 17) {
+        this.applyRunFixtureSetupAndReportabilityMigration();
+        this.insertMigration(17, 'run_fixture_setup_and_reportability');
+      }
     });
   }
 
@@ -7111,6 +7179,11 @@ export class WorkspaceDatabase {
     this.addColumnIfMissing('evidence', 'superseded_at', 'superseded_at TEXT');
     this.addColumnIfMissing('evidence', 'canonical', 'canonical INTEGER NOT NULL DEFAULT 1');
     this.db.prepare('UPDATE evidence SET canonical = 1 WHERE canonical IS NULL').run();
+  }
+
+  private applyRunFixtureSetupAndReportabilityMigration(): void {
+    this.addColumnIfMissing('findings', 'reportability_json', "reportability_json TEXT NOT NULL DEFAULT '{}'");
+    this.db.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -9081,6 +9154,7 @@ export class WorkspaceDatabase {
         finding.state,
         JSON.stringify(finding.affectedAssets),
         JSON.stringify(finding.affectedVersions),
+        JSON.stringify(finding.reportability),
         finding.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
       ].join('\n'),
       metadata: {
@@ -9088,6 +9162,7 @@ export class WorkspaceDatabase {
         hypothesisId: finding.hypothesisId,
         priorityScore: finding.priorityScore,
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+        reportability: finding.reportability,
         cweMappings: finding.cweMappings
       },
       createdAt: finding.createdAt,
@@ -9692,6 +9767,7 @@ export class WorkspaceDatabase {
       summaryMarkdown: text(row, 'summary_markdown'),
       affectedAssets: parseJson(row.affected_assets_json),
       affectedVersions: parseJson(row.affected_versions_json),
+      reportability: parseJson(row.reportability_json),
       impactMarkdown: text(row, 'impact_markdown'),
       priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
       verifiedByVerifierRunId: nullableText(row, 'verified_by_verifier_run_id'),
@@ -9930,6 +10006,26 @@ CREATE TABLE IF NOT EXISTS context_compactions (
 
 CREATE INDEX IF NOT EXISTS idx_context_compactions_run_created ON context_compactions(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_context_compactions_previous ON context_compactions(previous_compaction_id);
+`;
+
+const RUN_FIXTURE_SETUP_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS run_fixture_setups (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  fixture_path TEXT NOT NULL,
+  framework TEXT NOT NULL,
+  framework_version TEXT NOT NULL,
+  dependency_setup TEXT NOT NULL,
+  build_setup TEXT NOT NULL,
+  known_good_build_flags_json TEXT NOT NULL,
+  known_bad_build_flags_json TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(run_id, fixture_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_fixture_setups_run_updated ON run_fixture_setups(run_id, updated_at);
 `;
 
 const TRANSCRIPT_MESSAGES_SCHEMA_SQL = `
@@ -10364,6 +10460,7 @@ CREATE TABLE IF NOT EXISTS findings (
   summary_markdown TEXT NOT NULL,
   affected_assets_json TEXT NOT NULL,
   affected_versions_json TEXT NOT NULL,
+  reportability_json TEXT NOT NULL DEFAULT '{}',
   impact_markdown TEXT NOT NULL,
   priority_score REAL NOT NULL,
   verified_by_verifier_run_id TEXT,

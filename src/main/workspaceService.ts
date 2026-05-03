@@ -2065,6 +2065,9 @@ function buildFindingBundleMarkdown(detail: RunDetail, finding: FindingRecord | 
     '## Scope and Assets',
     codeBlockJson(redactJsonForModel(selectedFinding?.affectedAssets ?? { runNetworkProfile: detail.run.networkProfile })),
     '',
+    '## Reportability',
+    codeBlockJson(redactJsonForModel(selectedFinding?.reportability ?? {})),
+    '',
     '## Hypothesis',
     hypothesis ? `${redactForModelText(hypothesis.title)}\n\n${redactForModelText(hypothesis.descriptionMarkdown)}` : 'No linked hypothesis.',
     '',
@@ -2092,6 +2095,9 @@ function buildReportDraftMarkdown(detail: RunDetail, finding: FindingRecord | nu
     '',
     '## Affected Assets',
     codeBlockJson(redactJsonForModel(selectedFinding?.affectedAssets ?? { networkProfile: detail.run.networkProfile })),
+    '',
+    '## Reportability',
+    codeBlockJson(redactJsonForModel(selectedFinding?.reportability ?? {})),
     '',
     '## Impact',
     redactForModelText(selectedFinding?.impactMarkdown ?? 'Impact requires more evidence before disclosure.'),
@@ -2612,6 +2618,7 @@ function buildResearchPromptRecommendationInput(scope: ProgramScopeVersion, deta
         title: trimRedactedText(finding.title, 220),
         state: finding.state,
         summaryMarkdown: trimRedactedText(finding.summaryMarkdown, 700),
+        reportability: redactJsonForModel(finding.reportability),
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId
       })),
       verifierContracts: detail.verifierContracts.slice(0, 8).map((contract) => ({

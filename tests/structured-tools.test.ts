@@ -43,10 +43,12 @@ describe('structured research tools', () => {
       ]
     });
 
-    const source = callTool(router, context, 'source', { repository: 'Zuul', ref: '' });
+    const source = callTool(router, context, 'source', { repository: 'Zuul', ref: 'v1.2.3' });
     expect(source.status).toBe('success');
     expect(source.payload.repositoryUrl).toBe('https://github.com/Netflix/zuul');
     expect(String(source.payload.localPath)).toContain('targets/repositories/github.com_Netflix_zuul');
+    expect(source.payload.requestedRefMatchesHead).toBe(true);
+    expect(source.payload.requestedRefHead).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(source.payload.indexingDeferred).toBe(true);
     expect(source.payload.indexingState).toMatchObject({ reason: 'source_materialized', inventory: 'deferred', structure: 'deferred', graph: 'deferred' });
     expect(db.getProjectInventorySummary(db.getActiveScope().id).fileCount).toBe(0);
@@ -445,6 +447,10 @@ describe('structured research tools', () => {
     const repeatedChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '600', line_end: '620' });
     expect(repeatedChunk.status).toBe('success');
     expect(repeatedChunk.payload.readBudgetAdvice).toMatchObject({ code: 'repeated_file_paging', priorSameFileReads: 3 });
+    expect(repeatedChunk.payload.readBudgetAdvice).toMatchObject({
+      requiresNarrowing: false,
+      suggestedNextReads: expect.arrayContaining([expect.objectContaining({ tool: 'search' })])
+    });
 
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
     expect(blocked.status).toBe('policy_blocked');
@@ -782,10 +788,14 @@ describe('structured research tools', () => {
       task: 'check package manager and build setup state',
       script: 'print("npm version 10.0.0\\npnpm not found\\nbuild completed")',
       artifact_path: '',
-      setup_state_json: '{"dependencySetup":"completed","packageManagers":{"npm":true,"pnpm":false}}'
+      setup_state_json: '{"dependencySetup":"completed","packageManagers":{"npm":true,"pnpm":false},"fixturePath":"/tmp/beale-fixture","knownGoodBuildFlags":["npm run build"]}'
     });
     expect(setup.status).toBe('success');
     expect(setup.payload.setupState).toMatchObject({ packageManagerProbe: true, dependencySetup: 'completed', buildSetup: 'completed_or_available' });
+    expect(setup.payload.setupStateAdvice).toMatchObject({ reusable: true });
+    expect(setup.payload.setupRegistry).toEqual(
+      expect.arrayContaining([expect.objectContaining({ fixturePath: '/tmp/beale-fixture', knownGoodBuildFlags: ['npm run build'] })])
+    );
 
     const first = callTool(router, context, 'verifier', {
       hypothesis: hypothesisId,
@@ -827,6 +837,96 @@ describe('structured research tools', () => {
     expect(canonical?.result.supersedesVerifierRunIds).toEqual(expect.arrayContaining([first.payload.verifierRunId]));
     const supersededEvidence = detail.evidence.find((item) => item.id === firstEvidence.payload.evidenceId);
     expect(supersededEvidence).toMatchObject({ canonical: false, supersededByVerifierRunId: second.payload.verifierRunId });
+    db.close();
+  });
+
+  it('warns on source version mismatch and requires reportability framing', () => {
+    const { db, context, routeFile, targetDir } = openStructuredToolDb('host_research_only', {
+      promptMarkdown: '# Next.js v2.0.0 audit'
+    });
+    writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2));
+    const router = new BealeToolRouter(db);
+
+    const read = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'listUsers' });
+    expect(read.status).toBe('success');
+    expect(read.payload.sourceVersionAdvice).toMatchObject({
+      code: 'possible_source_ref_mismatch',
+      promptVersionRefs: expect.arrayContaining(['2.0.0']),
+      packageVersion: '1.0.0'
+    });
+
+    const hypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'reproduced',
+      title: 'Reportability fixture',
+      description: 'Fixture hypothesis.',
+      component: 'fixture',
+      bug_class: 'cache_poisoning',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      attacker_reachability: '3 remote HTTP client',
+      impact: '2 cache confusion',
+      evidence_confidence: '3 verifier-backed',
+      exploit_practicality: '2 practical with proxy',
+      scope_confidence: '4 in scope'
+    });
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: hypothesis.payload.hypothesisId as string,
+      expectation: 'reportability verifier',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'VERIFIER_PASS'",
+      artifact_path: '',
+      expected_stdout: 'VERIFIER_PASS'
+    });
+    expect(verifier.status).toBe('success');
+
+    const missingFraming = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: hypothesis.payload.hypothesisId as string,
+      state: 'reportable',
+      title: 'Reportable without framing',
+      summary: 'Cache issue.',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      affected_assets_json: '{}',
+      affected_versions_json: '{}',
+      impact: 'Cache confusion.',
+      reportability_json: '{}',
+      verified_by_verifier_run_id: verifier.payload.verifierRunId as string
+    });
+    expect(missingFraming.status).toBe('error');
+    expect(missingFraming.payload.error).toBe('missing_reportability_framing');
+
+    const framed = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: hypothesis.payload.hypothesisId as string,
+      state: 'reportable',
+      title: 'Reportable with framing',
+      summary: 'Cache issue.',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      affected_assets_json: '{}',
+      affected_versions_json: '{"affected":"1.0.0"}',
+      impact: 'Cache confusion.',
+      reportability_json:
+        '{"attackerReachability":"remote HTTP client","exploitPracticality":"requires non-Vary-aware shared cache","scopeRationale":"in-scope package","deploymentAssumptions":["URL-keyed shared cache"]}',
+      verified_by_verifier_run_id: verifier.payload.verifierRunId as string
+    });
+    expect(framed.status).toBe('success');
+    expect(framed.payload.reportability).toMatchObject({ attackerReachability: 'remote HTTP client' });
+    expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === framed.payload.findingId)?.reportability).toMatchObject({
+      attackerReachability: 'remote HTTP client'
+    });
     db.close();
   });
 
@@ -1068,6 +1168,7 @@ describe('structured research tools', () => {
       affected_assets_json: '{"component":"android content provider"}',
       affected_versions_json: '{"commit":"fixture"}',
       impact: 'Reachable local IPC callers can read token-store rows.',
+      reportability_json: '{"attackerReachability":"local app IPC caller","exploitPracticality":"moderate constraints with verifier-backed reproduction","scopeRationale":"in-scope asset"}',
       verified_by_verifier_run_id: verifierRunId
     });
     expect(reportable.status).toBe('success');
