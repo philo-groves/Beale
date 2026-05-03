@@ -190,6 +190,9 @@
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
 - Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.
 - Shortened duplicate-blocked trace rows to `Duplicate Blocked` while rendering the proposed duplicate name as a prose detail line.
+- Fixed delayed post-source indexing so foreground OpenAI runs refresh project inventory, structure, and graph indexes after source materialization.
+- Fixed semantic indexing cancellation recovery so enabled indexes canceled by workspace disposal or shutdown are requeued instead of staying parked as `canceled`.
+- Fixed active-scope search and graph rebuilds so current-run research memory remains visible after source materialization advances the active scope version.
 - Made Electron startup show the shell before reopening the last workspace, so slow workspace/index state cannot make launch look dead.
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.

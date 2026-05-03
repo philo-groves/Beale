@@ -80,8 +80,13 @@ export class ProjectSemanticIndexExecutor {
     const key = semanticIndexJobKey(runtime.workspacePath, activeScope.id);
     if (this.timers.has(key)) return;
     const summary = runtime.db.getProjectSemanticSummary(activeScope.id);
-    if (summary.enabled && (summary.status === 'queued' || summary.status === 'indexing')) {
-      const reason = summary.status === 'indexing' ? 'resume_interrupted' : summary.jobReason ?? 'resume_queued';
+    if (summary.enabled && (summary.status === 'queued' || summary.status === 'indexing' || summary.status === 'canceled')) {
+      const reason =
+        summary.status === 'indexing'
+          ? 'resume_interrupted'
+          : summary.status === 'canceled'
+            ? summary.jobReason ?? 'resume_canceled'
+            : summary.jobReason ?? 'resume_queued';
       runtime.db.queueProjectSemanticIndex(activeScope.id, reason);
       this.schedule(activeScope.id, reason, runtime.workspacePath);
     }

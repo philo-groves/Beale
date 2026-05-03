@@ -4741,6 +4741,10 @@ export class WorkspaceDatabase {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
   }
 
+  private clearProjectIndexingDeferredState(scopeVersionId: string): void {
+    this.deleteMetaValue(`project_indexing_deferred:${scopeVersionId}`);
+  }
+
   public recordRunSetupState(runId: string, update: Record<string, unknown>): Record<string, unknown> {
     const key = `run_setup_state:${runId}`;
     const existing = this.getRunSetupState(runId) ?? {};
@@ -5368,11 +5372,21 @@ export class WorkspaceDatabase {
     };
   }
 
+  private scopeVersionLineagePredicate(column: string): string {
+    return `${column} IN (
+      SELECT id
+      FROM program_scope_versions
+      WHERE version <= (SELECT version FROM program_scope_versions WHERE id = ?)
+    )`;
+  }
+
   public getProjectRetrievalFeedbackSummary(scopeVersionId = this.getActiveScope().id): {
     readPathCounts: Record<string, number>;
     verifiedEntityKeys: string[];
     correctedNegativeEntityKeys: string[];
   } {
+    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
+    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
     const readPathCounts: Record<string, number> = {};
     const readRows = rows(
       this.db
@@ -5381,7 +5395,7 @@ export class WorkspaceDatabase {
            FROM trace_events te
            JOIN tool_calls tc ON tc.trace_event_id = te.id
            JOIN runs r ON r.id = te.run_id
-           WHERE r.scope_version_id = ?
+           WHERE ${joinedLineageRunSql}
              AND tc.tool_name = 'code_browser'
              AND te.type = 'tool_result'`
         )
@@ -5395,13 +5409,13 @@ export class WorkspaceDatabase {
     }
 
     const verifiedEntityKeys = new Set<string>();
-    for (const row of rows(this.db.prepare("SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('reproduced', 'verified', 'reportable', 'disclosure_ready')").all(scopeVersionId))) {
+    for (const row of rows(this.db.prepare(`SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('reproduced', 'verified', 'reportable', 'disclosure_ready')`).all(scopeVersionId))) {
       verifiedEntityKeys.add(`finding:${text(row, 'id')}`);
     }
-    for (const row of rows(this.db.prepare("SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('reproduced', 'verified', 'promoted')").all(scopeVersionId))) {
+    for (const row of rows(this.db.prepare(`SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('reproduced', 'verified', 'promoted')`).all(scopeVersionId))) {
       verifiedEntityKeys.add(`hypothesis:${text(row, 'id')}`);
     }
-    for (const row of rows(this.db.prepare("SELECT vc.hypothesis_id, vc.finding_id FROM verifier_runs vr JOIN verifier_contracts vc ON vc.id = vr.contract_id JOIN runs r ON r.id = vr.run_id WHERE r.scope_version_id = ? AND vr.status = 'pass'").all(scopeVersionId))) {
+    for (const row of rows(this.db.prepare(`SELECT vc.hypothesis_id, vc.finding_id FROM verifier_runs vr JOIN verifier_contracts vc ON vc.id = vr.contract_id JOIN runs r ON r.id = vr.run_id WHERE ${joinedLineageRunSql} AND vr.status = 'pass'`).all(scopeVersionId))) {
       const hypothesisId = nullableText(row, 'hypothesis_id');
       const findingId = nullableText(row, 'finding_id');
       if (hypothesisId) verifiedEntityKeys.add(`hypothesis:${hypothesisId}`);
@@ -5409,10 +5423,10 @@ export class WorkspaceDatabase {
     }
 
     const correctedNegativeEntityKeys = new Set<string>();
-    for (const row of rows(this.db.prepare("SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')").all(scopeVersionId))) {
+    for (const row of rows(this.db.prepare(`SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')`).all(scopeVersionId))) {
       correctedNegativeEntityKeys.add(`hypothesis:${text(row, 'id')}`);
     }
-    for (const row of rows(this.db.prepare("SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')").all(scopeVersionId))) {
+    for (const row of rows(this.db.prepare(`SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')`).all(scopeVersionId))) {
       correctedNegativeEntityKeys.add(`finding:${text(row, 'id')}`);
     }
     return {
@@ -5594,38 +5608,40 @@ export class WorkspaceDatabase {
       const row = rowOrUndefined(this.db.prepare(sql).get(...params));
       return row ? numberValue(row, 'count') : 0;
     };
+    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
+    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
     const families: Record<string, number> = {
       scope_version: 1,
       scope_asset: count('SELECT COUNT(*) AS count FROM scope_assets WHERE scope_version_id = ?', scopeVersionId),
       inventory_item: count('SELECT COUNT(*) AS count FROM project_inventory_items WHERE scope_version_id = ?', scopeVersionId),
       structure_entity: count('SELECT COUNT(*) AS count FROM project_structure_entities WHERE scope_version_id = ?', scopeVersionId),
-      run: count('SELECT COUNT(*) AS count FROM runs WHERE scope_version_id = ?', scopeVersionId),
-      trace_event: count('SELECT COUNT(*) AS count FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
-      transcript: count('SELECT COUNT(*) AS count FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      run: count(`SELECT COUNT(*) AS count FROM runs WHERE ${lineageRunSql}`, scopeVersionId),
+      trace_event: count(`SELECT COUNT(*) AS count FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
+      transcript: count(`SELECT COUNT(*) AS count FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
       artifact: count(
         `SELECT COUNT(DISTINCT a.id) AS count
          FROM artifacts a
          JOIN trace_events t ON t.artifact_id = a.id
          JOIN runs r ON r.id = t.run_id
-         WHERE r.scope_version_id = ?`,
+         WHERE ${joinedLineageRunSql}`,
         scopeVersionId
       ),
-      hypothesis: count('SELECT COUNT(*) AS count FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
-      finding: count('SELECT COUNT(*) AS count FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
-      evidence: count('SELECT COUNT(*) AS count FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
-      verifier_contract: count('SELECT COUNT(*) AS count FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
-      verifier_run: count('SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)', scopeVersionId),
+      hypothesis: count(`SELECT COUNT(*) AS count FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
+      finding: count(`SELECT COUNT(*) AS count FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
+      evidence: count(`SELECT COUNT(*) AS count FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
+      verifier_contract: count(`SELECT COUNT(*) AS count FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
+      verifier_run: count(`SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
       research_component: count(
         `SELECT COUNT(*) AS count
          FROM (
            SELECT LOWER(TRIM(component)) AS component_key
            FROM hypotheses
-           WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+           WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})
              AND TRIM(component) <> ''
            UNION
            SELECT LOWER(TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), ''))) AS component_key
            FROM findings
-           WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)
+           WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})
              AND TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), '')) <> ''
          )`,
         scopeVersionId,
@@ -5634,8 +5650,8 @@ export class WorkspaceDatabase {
       weakness: count(
         `SELECT COUNT(DISTINCT cwe_id) AS count
          FROM weakness_mappings
-         WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE r.scope_version_id = ?))
-            OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE r.scope_version_id = ?))`,
+         WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE ${joinedLineageRunSql}))
+            OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE ${joinedLineageRunSql}))`,
         scopeVersionId,
         scopeVersionId
       )
@@ -6174,7 +6190,8 @@ export class WorkspaceDatabase {
   public getProjectSemanticAutoRefreshReason(scopeVersionId = this.getActiveScope().id, fallbackReason = 'auto_refresh'): string | null {
     if (!this.getProjectSemanticIndexEnabled(scopeVersionId)) return null;
     const job = this.getProjectSemanticJobState(scopeVersionId);
-    if (job?.status === 'queued' || job?.status === 'indexing' || job?.status === 'error' || job?.status === 'canceled') return null;
+    if (job?.status === 'queued' || job?.status === 'indexing' || job?.status === 'error') return null;
+    if (job?.status === 'canceled') return job.reason || fallbackReason;
     const dirty = this.getProjectSemanticDirtyState(scopeVersionId);
     if (dirty) return dirty.reason;
     const summary = this.getProjectSemanticSummary(scopeVersionId);
@@ -6460,6 +6477,7 @@ export class WorkspaceDatabase {
       truncated: state.truncated
     };
     this.setMetaValue(`project_inventory:${scopeVersionId}:last_report`, JSON.stringify(report), indexedAt);
+    this.clearProjectIndexingDeferredState(scopeVersionId);
     return report;
   }
 
@@ -6515,6 +6533,8 @@ export class WorkspaceDatabase {
     if (options.refreshInventory !== false) {
       this.ensureProjectInventory(scopeVersionId);
     }
+    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
+    const visibleDocumentSql = `(d.scope_version_id = ? OR d.run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}))`;
 
     const ftsQuery = projectFtsQuery(trimmed);
     if (ftsQuery) {
@@ -6526,11 +6546,11 @@ export class WorkspaceDatabase {
                FROM project_search_fts
                JOIN project_search_documents d ON d.id = project_search_fts.document_id
                WHERE project_search_fts MATCH ?
-                 AND (d.scope_version_id = ? OR d.run_id IS NOT NULL)
+                 AND ${visibleDocumentSql}
                ORDER BY rank ASC, d.updated_at DESC
                LIMIT ?`
             )
-            .all(ftsQuery, scopeVersionId, Math.max(1, Math.floor(limit)))
+            .all(ftsQuery, scopeVersionId, scopeVersionId, Math.max(1, Math.floor(limit)))
         );
         return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
       } catch {
@@ -6548,11 +6568,11 @@ export class WorkspaceDatabase {
           `SELECT d.*, 100.0 AS rank
            FROM project_search_documents d
            WHERE ${conditions}
-             AND (d.scope_version_id = ? OR d.run_id IS NOT NULL)
+             AND ${visibleDocumentSql}
            ORDER BY d.updated_at DESC
            LIMIT ?`
         )
-        .all(...params, scopeVersionId, Math.max(1, Math.floor(limit)))
+        .all(...params, scopeVersionId, scopeVersionId, Math.max(1, Math.floor(limit)))
     );
     return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
   }
@@ -7740,7 +7760,9 @@ export class WorkspaceDatabase {
       });
     }
 
-    const runRows = rows(this.db.prepare('SELECT * FROM runs WHERE scope_version_id = ?').all(scopeVersionId));
+    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
+    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
+    const runRows = rows(this.db.prepare(`SELECT * FROM runs WHERE ${lineageRunSql}`).all(scopeVersionId));
     for (const row of runRows) {
       const run = this.mapRun(row);
       const runNodeId = this.upsertProjectGraphNode({
@@ -7773,7 +7795,7 @@ export class WorkspaceDatabase {
       });
     }
 
-    const traceRows = rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const traceRows = rows(this.db.prepare(`SELECT * FROM trace_events WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of traceRows) {
       const event = this.mapTraceEvent(row);
       const traceNodeId = this.upsertProjectGraphNode({
@@ -7807,7 +7829,7 @@ export class WorkspaceDatabase {
       });
     }
 
-    const transcriptRows = rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const transcriptRows = rows(this.db.prepare(`SELECT * FROM transcript_messages WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of transcriptRows) {
       const message = this.mapTranscriptMessage(row);
       const transcriptNodeId = this.upsertProjectGraphNode({
@@ -7859,7 +7881,7 @@ export class WorkspaceDatabase {
            FROM artifacts a
            JOIN trace_events t ON t.artifact_id = a.id
            JOIN runs r ON r.id = t.run_id
-           WHERE r.scope_version_id = ?`
+           WHERE ${joinedLineageRunSql}`
         )
         .all(scopeVersionId)
     );
@@ -7926,7 +7948,7 @@ export class WorkspaceDatabase {
       });
     }
 
-    const hypothesisRows = rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const hypothesisRows = rows(this.db.prepare(`SELECT * FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of hypothesisRows) {
       const hypothesis = this.mapHypothesis(row);
       const nodeId = this.upsertProjectGraphNode({
@@ -8032,7 +8054,7 @@ export class WorkspaceDatabase {
       });
     }
 
-    const findingRows = rows(this.db.prepare('SELECT * FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const findingRows = rows(this.db.prepare(`SELECT * FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of findingRows) {
       const finding = this.mapFinding(row);
       const nodeId = this.upsertProjectGraphNode({
@@ -8131,7 +8153,7 @@ export class WorkspaceDatabase {
       }
     }
 
-    const contractRows = rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const contractRows = rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of contractRows) {
       const contract = this.mapVerifierContract(row);
       const nodeId = this.upsertProjectGraphNode({
@@ -8210,7 +8232,7 @@ export class WorkspaceDatabase {
       }
     }
 
-    const verifierRunRows = rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const verifierRunRows = rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of verifierRunRows) {
       const verifierRun = this.mapVerifierRun(row);
       const nodeId = this.upsertProjectGraphNode({
@@ -8320,7 +8342,7 @@ export class WorkspaceDatabase {
       }
     }
 
-    const evidenceRows = rows(this.db.prepare('SELECT * FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE scope_version_id = ?)').all(scopeVersionId));
+    const evidenceRows = rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of evidenceRows) {
       const evidence = this.mapEvidence(row);
       const nodeId = this.upsertProjectGraphNode({

@@ -1388,7 +1388,7 @@ export class WorkspaceService {
       openAiEngine: new OpenAiRunEngine(
         db,
         this.openAiAuth,
-        new OpenAiResponsesAdapter(this.openAiAuth, undefined, undefined, undefined, undefined, (name, durationMs, detail) =>
+        new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch, undefined, undefined, undefined, (name, durationMs, detail) =>
           this.recordProfilingMainTiming(name, durationMs, detail)
         ),
         executorManager,
@@ -1397,7 +1397,7 @@ export class WorkspaceService {
         (scopeVersionId, reason) => {
           this.semanticIndexExecutor.schedule(scopeVersionId, reason, workspacePath, 250);
           const inventoryTimer = setTimeout(() => {
-            const runtime = this.backgroundRuntimes.get(workspacePath);
+            const runtime = this.runtimeForWorkspacePath(workspacePath);
             if (!runtime) return;
             try {
               runtime.db.refreshProjectInventory(scopeVersionId);

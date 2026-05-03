@@ -569,6 +569,20 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('requeues enabled semantic indexing after cancellation instead of parking the index', () => {
+    const { db } = openStructuredToolDb();
+    const scope = db.getActiveScope();
+
+    db.queueProjectSemanticIndex(scope.id, 'manual_rebuild');
+    expect(db.markProjectSemanticIndexingCanceled(scope.id, 'workspace_dispose')).toMatchObject({ enabled: true, status: 'canceled' });
+    expect(db.getProjectSemanticAutoRefreshReason(scope.id, 'workspace_open')).toBe('workspace_dispose');
+
+    db.setProjectSemanticIndexEnabled(false, scope.id, { refresh: false });
+    expect(db.markProjectSemanticIndexingCanceled(scope.id, 'disabled')).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(db.getProjectSemanticAutoRefreshReason(scope.id, 'workspace_open')).toBeNull();
+    db.close();
+  });
+
   it('preserves explicit semantic indexing disables across scope versions', () => {
     const { db, targetDir } = openStructuredToolDb();
     const previousScope = db.getActiveScope();
@@ -590,6 +604,45 @@ describe('structured research tools', () => {
 
     expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: false, status: 'disabled' });
     expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBeNull();
+    db.close();
+  });
+
+  it('keeps current-run research memory visible after active scope advances', () => {
+    const { db, context, sourceFile } = openStructuredToolDb();
+    const router = new BealeToolRouter(db);
+    const oldScopeId = context.run.scopeVersionId;
+    const read = callTool(router, context, 'code_browser', { path: sourceFile, symbol: '', line_start: '1', line_end: '2' });
+    expect(read.status).toBe('success');
+    const hypothesis = db.createHypothesis({
+      runId: context.run.id,
+      state: 'needs_evidence',
+      title: 'Scope shift memory authorization bypass',
+      descriptionMarkdown: 'Current-run memory should remain available after source materialization advances scope.',
+      component: 'scope shift component',
+      bugClass: 'missing_authz',
+      priorityScore: 14,
+      attackerReachability: '1 unclear',
+      impact: '2 possible authorization bypass',
+      evidenceConfidence: '1 source correlation',
+      exploitPracticality: '1 needs setup',
+      scopeConfidence: '2 in-scope asset',
+      cweMappings: [{ cweId: 'CWE-862', confidence: 'medium', rationaleMarkdown: 'Potential missing authorization.', source: 'model' }]
+    });
+
+    const activeDraft = scopeDraftFromActive(db);
+    const nextScope = db.saveProgramScope({
+      ...activeDraft,
+      rulesMarkdown: `${activeDraft.rulesMarkdown}\nScope version advanced after source materialization.`
+    });
+
+    expect(nextScope.id).not.toBe(oldScopeId);
+    const search = callTool(router, context, 'search', { query: 'scope shift memory authorization', target: '' });
+    expect(search.status).toBe('success');
+    expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
+    const graphNodes = db.findProjectGraphNodes(nextScope.id, 'scope shift memory', { entityType: 'hypothesis', refresh: false });
+    expect(graphNodes.some((node) => node.entityId === hypothesis.id)).toBe(true);
+    const feedback = db.getProjectRetrievalFeedbackSummary(nextScope.id);
+    expect(feedback.readPathCounts[sourceFile]).toBeGreaterThanOrEqual(1);
     db.close();
   });
 
