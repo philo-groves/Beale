@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -125,6 +125,51 @@ describe('source materializer', () => {
     expect(materialized.localPath).toBe(managedCheckout);
     expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
     expect(materialized.requestedRefMatchesHead).toBe(true);
+  });
+
+  it('checks out requested refs in matching workspace checkouts and detaches resolved commits', () => {
+    const workspace = tempDir();
+    const checkout = join(workspace, 'skills');
+    mkdirSync(join(workspace, '.beale'), { recursive: true });
+    mkdirSync(join(checkout, '.git'), { recursive: true });
+    const stateFile = join(workspace, 'git-head.txt');
+    const logFile = join(workspace, 'git-log.jsonl');
+    writeFileSync(stateFile, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const fakeGit = join(workspace, 'fake-git-workspace-ref.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        `const stateFile = ${JSON.stringify(stateFile)};`,
+        `const logFile = ${JSON.stringify(logFile)};`,
+        'appendFileSync(logFile, JSON.stringify(args) + "\\n");',
+        'const command = args.find((arg) => ["rev-parse", "fetch", "checkout", "remote", "config"].includes(arg));',
+        'if (command === "remote") { process.stdout.write("https://github.com/vercel-labs/skills.git\\n"); process.exit(0); }',
+        'if (command === "config") { process.stdout.write("remote.origin.url https://github.com/vercel-labs/skills.git\\n"); process.exit(0); }',
+        'if (command === "rev-parse" && args.at(-1) === "HEAD") { process.stdout.write(`${readFileSync(stateFile, "utf8").trim()}\\n`); process.exit(0); }',
+        'if (command === "rev-parse" && args.at(-1) === "v1.5.3^{commit}") { process.stdout.write("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n"); process.exit(0); }',
+        'if (command === "rev-parse") { process.stdout.write("main\\n"); process.exit(0); }',
+        'if (command === "fetch") process.exit(0);',
+        'if (command === "checkout") { writeFileSync(stateFile, args.at(-1)); process.exit(0); }',
+        'process.exit(1);'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const scope = scopeWithAssets([sourceAsset('repo_skills', 'https://github.com/vercel-labs/skills')]);
+    const candidate = sourceRepositoryCandidates(scope)[0];
+
+    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'v1.5.3');
+    const log = readFileSync(logFile, 'utf8');
+
+    expect(materialized.localPath).toBe(checkout);
+    expect(materialized.cloned).toBe(false);
+    expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(materialized.requestedRefMatchesHead).toBe(true);
+    expect(log).toContain('"fetch"');
+    expect(log).toContain('"checkout","--detach","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"');
   });
 });
 

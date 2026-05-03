@@ -4,6 +4,8 @@ Beale needs better project understanding than ad hoc `search` and `code_browser`
 
 The goal is not to make Beale "know the whole project" in one opaque index. The goal is to give the research agent and the researcher reliable ways to answer questions such as:
 
+![Beale multi-layer project understanding diagram](multi-layer-indexing-diagram.png)
+
 - Which components exist in this target?
 - Where does data enter, transform, cross trust boundaries, and reach sinks?
 - What source, binary, web, artifact, trace, hypothesis, and finding records relate to this claim?

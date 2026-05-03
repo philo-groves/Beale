@@ -106,7 +106,7 @@ export function runVerifierContract(
       attemptId: context.attempt.id,
       vmContextId: context.vmContext.id,
       status: verdict.status,
-      blockedIssue: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'no' : 'error',
+      blockedIssue: verifierBlockedIssue(verdict.status),
       behaviorPreserved: contract.mode === 'patch_validation' ? (verdict.status === 'pass' ? 'yes' : 'inconclusive') : 'not_applicable',
       diagnosticsClean: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'fail' : 'inconclusive',
       regressionTests: contract.mode === 'patch_validation' && verdict.status === 'pass' ? 'pass' : 'not_run',
@@ -215,7 +215,7 @@ function runHostVerifierContract(
       attemptId: context.attempt.id,
       vmContextId: context.vmContext.id,
       status: verdict.status,
-      blockedIssue: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'no' : 'error',
+      blockedIssue: verifierBlockedIssue(verdict.status),
       behaviorPreserved: contract.mode === 'patch_validation' ? (verdict.status === 'pass' ? 'yes' : 'inconclusive') : 'not_applicable',
       diagnosticsClean: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'fail' : 'inconclusive',
       regressionTests: contract.mode === 'patch_validation' && verdict.status === 'pass' ? 'pass' : 'not_run',
@@ -418,6 +418,10 @@ function verifierVerdict(result: GuestExecuteResult, spec: VerifierExecutionSpec
       expectedStderrIncludes: spec.expectedStderrIncludes
     }
   };
+}
+
+function verifierBlockedIssue(status: 'pass' | 'fail'): string {
+  return status === 'pass' ? 'confirmed' : 'not_observed';
 }
 
 function firstScopedImport(db: WorkspaceDatabase): { hostPath: string } | null {

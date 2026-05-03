@@ -69,6 +69,9 @@
 - Added source materialization backoff after transient clone failures so repeated source calls do not loop on the same remote outage.
 - Added setup-aware retrieval hints for recorded fixture paths, in-progress package installs, duplicate code reads, and repository/package version mismatches.
 - Added structured `packagesUnderTest` setup-state tracking so package versions are not conflated with framework versions.
+- Added schema-backed finding impact assessments with general impact classification, evidence-aware CVSS 3.1 draft scoring, and follow-up planning for verified findings with uncertain consequence.
+- Added large-file `code_browser` read-planning advice and stronger CVSS-metrics guidance for impact-supported findings with incomplete scoring.
+- Added a README-ready multi-layer project understanding diagram to the indexing planning chapter.
 
 ### Changed
 
@@ -201,6 +204,8 @@
 - Fixed transcript search status counts so they use the full matching transcript total instead of the capped visible result list.
 - Fixed large trace-list manual scrolling so virtualized window slides no longer bounce back to a selected or earlier trace.
 - Fixed failed verifier execution traces so their marker uses the red failure tone while remaining categorized under Verifier.
+- Fixed source materialization for requested refs in reused workspace checkouts by fetching tags/refs and detaching to the resolved commit.
+- Fixed new verifier run metadata so passing runs record `blockedIssue: confirmed` instead of the ambiguous `yes` value.
 - Fixed evidence sidebar card contents so rows stretch left-to-right instead of centering inside the card.
 - Fixed Evidence Trail hierarchy styling by removing the child connector rail and relying on indentation for structure.
 - Fixed Evidence Trail grouping visuals by removing the extra wrapper background around each trail.

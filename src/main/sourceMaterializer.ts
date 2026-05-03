@@ -88,16 +88,14 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
-    const metadata = gitCheckoutMetadata(existingCheckout, cleanRef);
-    if (!cleanRef || metadata.requestedRefMatchesHead === true) {
-      return {
-        repositoryUrl: candidate.url,
-        localPath: existingCheckout,
-        cloned: false,
-        ref: cleanRef || null,
-        ...metadata
-      };
-    }
+    materializeRequestedRef(existingCheckout, cleanRef);
+    return {
+      repositoryUrl: candidate.url,
+      localPath: existingCheckout,
+      cloned: false,
+      ref: cleanRef || null,
+      ...gitCheckoutMetadata(existingCheckout, cleanRef)
+    };
   }
 
   if (existsSync(join(localPath, '.git'))) {
@@ -120,7 +118,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
   try {
     runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
     if (cleanRef) {
-      runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', '-C', tempPath, 'checkout', '--detach', cleanRef]);
+      materializeRequestedRef(tempPath, cleanRef);
     }
     renameSync(tempPath, localPath);
   } catch (error) {
@@ -147,16 +145,14 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
-    const metadata = gitCheckoutMetadata(existingCheckout, cleanRef);
-    if (!cleanRef || metadata.requestedRefMatchesHead === true) {
-      return {
-        repositoryUrl: candidate.url,
-        localPath: existingCheckout,
-        cloned: false,
-        ref: cleanRef || null,
-        ...metadata
-      };
-    }
+    await materializeRequestedRefAsync(existingCheckout, cleanRef);
+    return {
+      repositoryUrl: candidate.url,
+      localPath: existingCheckout,
+      cloned: false,
+      ref: cleanRef || null,
+      ...gitCheckoutMetadata(existingCheckout, cleanRef)
+    };
   }
 
   if (existsSync(join(localPath, '.git'))) {
@@ -179,7 +175,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
   try {
     await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
     if (cleanRef) {
-      await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', '-C', tempPath, 'checkout', '--detach', cleanRef]);
+      await materializeRequestedRefAsync(tempPath, cleanRef);
     }
     renameSync(tempPath, localPath);
   } catch (error) {
@@ -308,7 +304,8 @@ function materializeRequestedRef(localPath: string, requestedRef: string): void 
   } catch {
     runGit(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin']);
   }
-  runGit(['-C', localPath, 'checkout', '--detach', requestedRef]);
+  const requestedCommit = gitOutput(localPath, ['rev-parse', `${requestedRef}^{commit}`]);
+  runGit(['-C', localPath, 'checkout', '--detach', requestedCommit ?? requestedRef]);
 }
 
 async function materializeRequestedRefAsync(localPath: string, requestedRef: string): Promise<void> {
@@ -320,7 +317,8 @@ async function materializeRequestedRefAsync(localPath: string, requestedRef: str
   } catch {
     await runGitAsync(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin']);
   }
-  await runGitAsync(['-C', localPath, 'checkout', '--detach', requestedRef]);
+  const requestedCommit = gitOutput(localPath, ['rev-parse', `${requestedRef}^{commit}`]);
+  await runGitAsync(['-C', localPath, 'checkout', '--detach', requestedCommit ?? requestedRef]);
 }
 
 function gitOutput(localPath: string, args: string[]): string | null {

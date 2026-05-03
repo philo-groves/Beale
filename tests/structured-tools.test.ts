@@ -480,6 +480,10 @@ describe('structured research tools', () => {
     expect(firstChunk.payload.lineStart).toBe(1);
     expect(firstChunk.payload.lineEnd).toBe(180);
     expect(firstChunk.payload.nextLineStart).toBe(181);
+    expect(firstChunk.payload.readPlanningAdvice).toMatchObject({
+      code: 'large_file_read_plan',
+      suggestedNextReads: expect.arrayContaining([expect.objectContaining({ tool: 'search' })])
+    });
 
     const laterChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '400', line_end: '405' });
     expect(laterChunk.status).toBe('success');
@@ -1038,6 +1042,161 @@ describe('structured research tools', () => {
     const read = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'listUsers' });
     expect(read.status).toBe('success');
     expect(read.payload.sourceVersionAdvice).toBeNull();
+    db.close();
+  });
+
+  it('records general impact assessment, CVSS drafts, and follow-up plans for findings', () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    const router = new BealeToolRouter(db);
+
+    const hypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'reproduced',
+      title: 'Impact assessment fixture',
+      description: 'Fixture hypothesis.',
+      component: 'fixture',
+      bug_class: 'info_leak',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      attacker_reachability: '2 needs trigger',
+      impact: '1 unclear',
+      evidence_confidence: '3 verifier-backed',
+      exploit_practicality: '1 unclear',
+      scope_confidence: '3 in scope'
+    });
+    const verifier = callTool(router, context, 'verifier', {
+      hypothesis: hypothesis.payload.hypothesisId as string,
+      expectation: 'behavior verifier',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'VERIFIER_PASS'",
+      artifact_path: '',
+      expected_stdout: 'VERIFIER_PASS'
+    });
+    expect(verifier.status).toBe('success');
+
+    const uncertain = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: hypothesis.payload.hypothesisId as string,
+      state: 'verified',
+      title: 'Verified behavior with uncertain impact',
+      summary: 'The behavior is reproducible, but the consequence is not established.',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      affected_assets_json: '{"component":"fixture"}',
+      affected_versions_json: '{}',
+      impact: 'Impact remains uncertain.',
+      impact_assessment_json: '{}',
+      reportability_json: '{}',
+      verified_by_verifier_run_id: verifier.payload.verifierRunId as string
+    });
+    expect(uncertain.status).toBe('success');
+    expect(uncertain.payload.impactAssessment).toMatchObject({
+      assessmentState: 'needs_impact',
+      cvss: { score: null, confidence: 'insufficient_evidence' }
+    });
+    expect((uncertain.payload.impactAssessment as Record<string, unknown>).followUpPlan).toEqual(
+      expect.arrayContaining([expect.objectContaining({ objective: 'demonstrate_security_consequence' })])
+    );
+    expect(uncertain.payload.impactAssessmentAdvice).toMatchObject({ code: 'verified_behavior_needs_impact' });
+    expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === uncertain.payload.findingId)?.impactAssessment).toMatchObject({
+      assessmentState: 'needs_impact'
+    });
+
+    const scoredHypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'reproduced',
+      title: 'CVSS fixture',
+      description: 'Fixture hypothesis.',
+      component: 'fixture',
+      bug_class: 'info_leak',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      attacker_reachability: '3 remote',
+      impact: '2 confidentiality',
+      evidence_confidence: '3 verifier-backed',
+      exploit_practicality: '3 practical',
+      scope_confidence: '3 in scope'
+    });
+    const scoredVerifier = callTool(router, context, 'verifier', {
+      hypothesis: scoredHypothesis.payload.hypothesisId as string,
+      expectation: 'impact verifier',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'VERIFIER_PASS'",
+      artifact_path: '',
+      expected_stdout: 'VERIFIER_PASS'
+    });
+    expect(scoredVerifier.status).toBe('success');
+    const scored = callTool(router, context, 'finding', {
+      finding_id: '',
+      hypothesis_id: scoredHypothesis.payload.hypothesisId as string,
+      state: 'verified',
+      title: 'Verified confidentiality impact',
+      summary: 'A remote actor can disclose low-sensitivity data.',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      affected_assets_json: '{"component":"fixture"}',
+      affected_versions_json: '{"affected":"1.0.0"}',
+      impact: 'Remote disclosure of low-sensitivity data.',
+      impact_assessment_json:
+        '{"impactType":"confidentiality","attackerControl":"remote request","victimContext":"server response","securityConsequence":"low-sensitivity data disclosure","missingImpactEvidence":"No production validation performed.","cvss":{"version":"3.1","vector":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"}}',
+      reportability_json: '{}',
+      verified_by_verifier_run_id: scoredVerifier.payload.verifierRunId as string
+    });
+    expect(scored.status).toBe('success');
+    expect(scored.payload.impactAssessment).toMatchObject({
+      assessmentState: 'impact_supported',
+      cvss: {
+        version: '3.1',
+        vector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N',
+        score: 5.3,
+        severity: 'medium'
+      }
+    });
+    expect((scored.payload.impactAssessment as Record<string, unknown>).missingImpactEvidence).toEqual(['No production validation performed.']);
+
+    const partial = callTool(router, context, 'finding', {
+      finding_id: scored.payload.findingId as string,
+      hypothesis_id: scoredHypothesis.payload.hypothesisId as string,
+      state: 'verified',
+      title: 'Verified confidentiality impact',
+      summary: 'A remote actor can disclose token data.',
+      primary_cwe_id: 'needs_classification',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: '',
+      affected_assets_json: '{"component":"fixture"}',
+      affected_versions_json: '{"affected":"1.0.0"}',
+      impact: 'Remote disclosure of token data.',
+      impact_assessment_json:
+        '{"impactType":"confidentiality","attackerControl":"remote request","victimContext":"server response","securityConsequence":"token disclosure","missingImpactEvidence":["deployment reachability"]}',
+      reportability_json: '{}',
+      verified_by_verifier_run_id: scoredVerifier.payload.verifierRunId as string
+    });
+    expect(partial.status).toBe('success');
+    expect(partial.payload.impactAssessmentAdvice).toMatchObject({ code: 'cvss_metrics_needed' });
+    expect(partial.payload.impactAssessment).toMatchObject({
+      assessmentState: 'impact_supported',
+      cvss: {
+        score: null,
+        inferredMetrics: { C: 'H' }
+      },
+      missingImpactEvidence: ['deployment reachability']
+    });
     db.close();
   });
 
@@ -1628,6 +1787,7 @@ describe('structured research tools', () => {
     expect(verifier.payload.realExecution).toBe(true);
     expect(verifier.payload.hostExecution).toBe(true);
     expect(verifier.payload.vmExecution).toBe(false);
+    expect(db.getRunDetail(context.run.id).verifierRuns.at(-1)?.blockedIssue).toBe('confirmed');
     expect(db.getRunDetail(context.run.id).traceEvents.some((event) => event.summary === 'Verifier contract executed on host with pass.')).toBe(true);
     db.close();
   });

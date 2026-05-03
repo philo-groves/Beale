@@ -377,7 +377,7 @@ function recordVerifier(
     attemptId: context.attempt.id,
     vmContextId: context.vmContext.id,
     status,
-    blockedIssue: status === 'pass' ? 'yes' : status === 'fail' ? 'no' : 'inconclusive',
+    blockedIssue: status === 'pass' ? 'confirmed' : status === 'fail' ? 'not_observed' : 'inconclusive',
     behaviorPreserved: 'not_applicable',
     diagnosticsClean: status === 'pass' ? 'yes' : 'inconclusive',
     regressionTests: 'not_run',

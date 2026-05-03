@@ -341,7 +341,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       affected_assets_json: stringProp('JSON object describing affected assets or components; use {} when unknown'),
       affected_versions_json: stringProp('JSON object describing affected versions or commits; use {} when unknown'),
       impact: stringProp('Impact explanation'),
-      reportability_json: stringProp('JSON object for disclosure readiness when relevant, e.g. {"verifierBacked":true,"attackerReachability":"remote HTTP client","exploitPracticality":"requires non-Vary-aware shared cache","deploymentAssumptions":["self-hosted behind URL-keyed cache"],"scopeRationale":"in-scope OSS package","stableCanaryDelta":"stable affected, canary fixed","residualUncertainty":"depends on intermediary cache behavior"}. Use {} when not relevant.'),
+      impact_assessment_json: stringProp('General JSON object for structured impact analysis. Use fields such as impactType, attackerControl, victimContext, securityConsequence, missingImpactEvidence, cvss, and followUpPlan. Include cvss.vector or cvss.metrics only when evidence supports it; use {} when impact is not assessed yet.'),
+      reportability_json: stringProp('JSON object for disclosure readiness when relevant, e.g. {"verifierBacked":true,"attackerReachability":"remote client","exploitPracticality":"practical under documented deployment assumptions","deploymentAssumptions":["production-like default configuration"],"scopeRationale":"in-scope asset","stableCanaryDelta":"stable affected, canary fixed","residualUncertainty":"depends on deployment-specific exposure"}. Use {} when not relevant.'),
       verified_by_verifier_run_id: stringProp('Passing real verifier run id when state is verified or reportable; otherwise use an empty string')
     }),
     tool('verifier', 'Record a verifier contract and structured pass, fail, or inconclusive evidence state.', {
@@ -1135,6 +1136,7 @@ export class BealeToolRouter {
     const duplicateReadAdvice = this.duplicateCodeReadAdvice(context, filePath, symbol, selection);
     const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
     const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(effectiveScopeVersionId, filePath, symbol, structureEntity, selection);
+    const readPlanningAdvice = artifactTarget ? null : this.codeBrowserReadPlanningAdvice(filePath, symbol, selection, structureNavigation);
     const sourceVersionAdvice = artifactTarget ? null : this.sourceVersionAdvice(context, filePath);
 
     return {
@@ -1158,11 +1160,55 @@ export class BealeToolRouter {
         nextLineStart: selection.nextLineStart,
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         structureNavigation,
+        readPlanningAdvice,
         readBudgetAdvice,
         duplicateReadAdvice,
         sourceVersionAdvice,
         excerpt
       }
+    };
+  }
+
+  private codeBrowserReadPlanningAdvice(
+    filePath: string,
+    symbol: string,
+    selection: CodeBrowserTextSelection,
+    structureNavigation: Record<string, unknown> | null
+  ): Record<string, unknown> | null {
+    if (!selection.largeFile) return null;
+    const containedEntities = structureNavigation ? arrayOfRecords(structureNavigation.containedEntities).slice(0, 12) : [];
+    const suggestedFromEntities = containedEntities
+      .map((entity) => {
+        const name = stringValue(entity.name, '');
+        const lineStart = numberValue(entity.lineStart, 0);
+        const lineEnd = numberValue(entity.lineEnd, 0);
+        return name && lineStart > 0
+          ? {
+              tool: 'code_browser',
+              reason: `Read indexed ${stringValue(entity.entityKind, 'entity')} ${name} instead of paging the large file.`,
+              args: {
+                path: filePath,
+                symbol: name,
+                line_start: String(lineStart),
+                line_end: lineEnd > 0 ? String(Math.min(lineEnd, lineStart + 80)) : ''
+              }
+            }
+          : null;
+      })
+      .filter(Boolean);
+    return {
+      code: symbol ? 'large_file_symbol_context' : 'large_file_read_plan',
+      message: 'This is a large file. Prefer indexed symbols, targeted search terms, or graph/structure neighbors before continuing linear paging.',
+      outline: containedEntities.map((entity) => ({
+        entityKind: stringValue(entity.entityKind, ''),
+        name: stringValue(entity.name, ''),
+        lineStart: numberValue(entity.lineStart, 0) || null,
+        lineEnd: numberValue(entity.lineEnd, 0) || null
+      })),
+      suggestedNextReads: [
+        ...suggestedFromEntities,
+        { tool: 'search', reason: 'Find a specific symbol, sink, route, or related file before paging more of this large file.', args: { query: symbol || basename(filePath), target: dirname(filePath) } }
+      ].slice(0, 8)
     };
   }
 
@@ -1985,6 +2031,14 @@ export class BealeToolRouter {
     const reportability = jsonRecordFromString(args.reportability_json, existing?.reportability ?? {});
     const affectedVersions = jsonRecordFromString(args.affected_versions_json, existing?.affectedVersions ?? {});
     const impactMarkdown = stringValue(args.impact, existing?.impactMarkdown ?? '').trim() || existing?.impactMarkdown || 'Impact not yet assessed.';
+    const impactAssessment = normalizeImpactAssessment({
+      input: jsonRecordFromString(args.impact_assessment_json, existing?.impactAssessment ?? {}),
+      state,
+      impactMarkdown,
+      reportability,
+      affectedAssets,
+      affectedVersions
+    });
     if (state === 'reportable') {
       const reportabilityIssues = reportabilityReviewIssues(reportability, affectedAssets, impactMarkdown);
       if (reportabilityIssues.length > 0) {
@@ -2060,6 +2114,7 @@ export class BealeToolRouter {
           affectedAssets,
           affectedVersions,
           reportability,
+          impactAssessment,
           impactMarkdown,
           priorityScore,
           verifiedByVerifierRunId: verifierRunId || existing.verifiedByVerifierRunId,
@@ -2074,6 +2129,7 @@ export class BealeToolRouter {
           affectedAssets,
           affectedVersions,
           reportability,
+          impactAssessment,
           impactMarkdown,
           priorityScore,
           verifiedByVerifierRunId: verifierRunId,
@@ -2101,6 +2157,8 @@ export class BealeToolRouter {
         cweMappings: cwePayload(finding.cweMappings),
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
         reportability: Object.keys(reportability).length > 0 ? reportability : null,
+        impactAssessment,
+        impactAssessmentAdvice: impactAssessmentAdvice(impactAssessment),
         supersededVerifierRunIds,
         duplicateReview: duplicateReview ? duplicateReviewPayload(duplicateReview) : null
       }
@@ -4652,6 +4710,218 @@ function findingStateIsObservationBacked(state: string): boolean {
   return state === 'verified' || state === 'reportable' || state === 'reproduced';
 }
 
+interface ImpactAssessmentInput {
+  input: Record<string, unknown>;
+  state: string;
+  impactMarkdown: string;
+  reportability: Record<string, unknown>;
+  affectedAssets: Record<string, unknown>;
+  affectedVersions: Record<string, unknown>;
+}
+
+function normalizeImpactAssessment(input: ImpactAssessmentInput): Record<string, unknown> {
+  const impactAssessment = { ...input.input };
+  const haystack = `${JSON.stringify(input.input)}\n${input.impactMarkdown}\n${JSON.stringify(input.reportability)}`.toLowerCase();
+  const securityConsequence = stringValue(impactAssessment.securityConsequence, '').trim();
+  const missingImpactEvidence = impactEvidenceGaps(impactAssessment, input);
+  const assessmentState = impactAssessmentState(input.state, securityConsequence, missingImpactEvidence, input.reportability);
+  const followUpPlan = impactFollowUpPlan(impactAssessment, input, assessmentState);
+  const cvss = draftCvssAssessment(impactAssessment, input.impactMarkdown);
+
+  return {
+    ...impactAssessment,
+    impactType: stringValue(impactAssessment.impactType, '') || inferImpactType(haystack),
+    attackerControl: stringValue(impactAssessment.attackerControl, '') || stringValue(input.reportability.attackerReachability, '') || null,
+    victimContext: stringValue(impactAssessment.victimContext, '') || null,
+    securityConsequence: securityConsequence || null,
+    affectedAssets: input.affectedAssets,
+    affectedVersions: input.affectedVersions,
+    assessmentState,
+    missingImpactEvidence,
+    cvss,
+    followUpPlan
+  };
+}
+
+function inferImpactType(haystack: string): string | null {
+  if (/auth|permission|access control|privilege/.test(haystack)) return 'authorization';
+  if (/secret|token|credential|confidential|leak|expos/.test(haystack)) return 'confidentiality';
+  if (/inject|xss|script|template|sql|command/.test(haystack)) return 'injection';
+  if (/dos|denial|resource|crash|hang|availability/.test(haystack)) return 'availability';
+  if (/integrity|tamper|modify|write|overwrite/.test(haystack)) return 'integrity';
+  return null;
+}
+
+function impactEvidenceGaps(assessment: Record<string, unknown>, input: ImpactAssessmentInput): string[] {
+  const provided = uniqueStrings([...impactEvidenceGapValues(assessment.missingImpactEvidence), ...impactEvidenceGapValues(assessment.missingEvidence)]);
+  const gaps = [...provided];
+  if (!stringValue(assessment.securityConsequence, '').trim()) gaps.push('security_consequence');
+  if (!stringValue(assessment.attackerControl, '').trim() && !stringValue(input.reportability.attackerReachability, '').trim()) gaps.push('attacker_control');
+  if (!stringValue(assessment.victimContext, '').trim()) gaps.push('victim_context');
+  if (Object.keys(input.affectedVersions).length === 0) gaps.push('affected_versions');
+  return uniqueStrings(gaps);
+}
+
+function impactEvidenceGapValues(value: unknown): string[] {
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  if (Array.isArray(value)) return value.flatMap((entry) => impactEvidenceGapValues(entry));
+  if (value && typeof value === 'object') return flattenJsonStrings(value).map((entry) => entry.trim()).filter(Boolean);
+  return [];
+}
+
+function impactAssessmentState(state: string, securityConsequence: string, gaps: string[], reportability: Record<string, unknown>): string {
+  if (state === 'reportable' && reportabilityReviewIssues(reportability, {}, securityConsequence).length === 0 && securityConsequence) return 'reportability_ready';
+  if (securityConsequence && !gaps.includes('security_consequence')) return 'impact_supported';
+  if (findingStateIsObservationBacked(state)) return 'needs_impact';
+  return 'impact_unassessed';
+}
+
+function impactFollowUpPlan(assessment: Record<string, unknown>, input: ImpactAssessmentInput, assessmentState: string): Array<Record<string, unknown>> {
+  const existing = Array.isArray(assessment.followUpPlan)
+    ? assessment.followUpPlan.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+  if (existing.length > 0) return existing.slice(0, 8);
+  if (assessmentState === 'impact_supported' || assessmentState === 'reportability_ready') return [];
+  const gaps = impactEvidenceGaps(assessment, input);
+  const plan: Array<Record<string, unknown>> = [];
+  if (gaps.includes('attacker_control')) {
+    plan.push({ objective: 'demonstrate_attacker_control', reason: 'Show the trigger is controlled by an attacker or untrusted actor.' });
+  }
+  if (gaps.includes('security_consequence')) {
+    plan.push({ objective: 'demonstrate_security_consequence', reason: 'Show a confidentiality, integrity, availability, authorization, or execution consequence beyond verified behavior.' });
+  }
+  if (gaps.includes('victim_context')) {
+    plan.push({ objective: 'identify_victim_context', reason: 'Define who or what is affected and whether the consequence crosses a trust boundary.' });
+  }
+  if (gaps.includes('affected_versions')) {
+    plan.push({ objective: 'bound_affected_versions', reason: 'Record affected and fixed versions, commits, or default configurations when available.' });
+  }
+  plan.push({ objective: 'tighten_verifier', reason: 'Prefer a verifier that passes only when the security consequence is present, not just when behavior changes.' });
+  return plan.slice(0, 8);
+}
+
+function impactAssessmentAdvice(assessment: Record<string, unknown>): Record<string, unknown> | null {
+  const state = stringValue(assessment.assessmentState, '');
+  const cvss = assessment.cvss && typeof assessment.cvss === 'object' && !Array.isArray(assessment.cvss) ? (assessment.cvss as Record<string, unknown>) : {};
+  if ((state === 'impact_supported' || state === 'reportability_ready') && numberValue(cvss.score, -1) < 0) {
+    return {
+      code: 'cvss_metrics_needed',
+      action: 'Impact is supported, but CVSS metrics are still incomplete; provide cvss.vector or cvss.metrics when preparing a disclosure package.',
+      unknownFields: arrayOfStrings(cvss.unknownFields)
+    };
+  }
+  if (state !== 'needs_impact') return null;
+  return {
+    code: 'verified_behavior_needs_impact',
+    action: 'Keep this as verifier-backed behavior until follow-up evidence demonstrates a concrete security consequence.'
+  };
+}
+
+function draftCvssAssessment(assessment: Record<string, unknown>, impactMarkdown: string): Record<string, unknown> {
+  const explicit = assessment.cvss && typeof assessment.cvss === 'object' && !Array.isArray(assessment.cvss) ? (assessment.cvss as Record<string, unknown>) : {};
+  const vector = stringValue(explicit.vector, '').trim();
+  const vectorMetrics = vector ? parseCvss31Vector(vector) : null;
+  const metricsInput = explicit.metrics && typeof explicit.metrics === 'object' && !Array.isArray(explicit.metrics) ? normalizeCvss31Metrics(explicit.metrics as Record<string, unknown>) : vectorMetrics;
+  if (metricsInput) {
+    const missingFields = missingCvss31Fields(metricsInput);
+    if (missingFields.length === 0) {
+      const score = calculateCvss31BaseScore(metricsInput);
+      return {
+        version: stringValue(explicit.version, '') || '3.1',
+        vector: vector || cvss31VectorFromMetrics(metricsInput),
+        score,
+        severity: cvss31Severity(score),
+        confidence: stringValue(explicit.confidence, '') || 'medium',
+        fieldRationale: explicit.fieldRationale ?? null
+      };
+    }
+    return { version: '3.1', vector: vector || null, score: null, confidence: 'low', unknownFields: missingFields };
+  }
+  const unknownFields = ['AV', 'AC', 'PR', 'UI', 'S', 'C', 'I', 'A'];
+  const inferredMetrics = inferCvss31ImpactMetrics(`${JSON.stringify(assessment)}\n${impactMarkdown}`);
+  const knownImpactFields = Object.keys(inferredMetrics);
+  const remainingUnknownFields = unknownFields.filter((field) => !knownImpactFields.includes(field));
+  const hasConcreteImpact = Boolean(
+    stringValue(assessment.securityConsequence, '').trim() ||
+      knownImpactFields.length > 0 ||
+      /confidential|integrity|availability|execute|privilege|bypass|access|expos|leak|write|delete|modify|crash/i.test(impactMarkdown)
+  );
+  return {
+    version: '3.1',
+    vector: null,
+    score: null,
+    confidence: hasConcreteImpact ? 'low' : 'insufficient_evidence',
+    unknownFields: hasConcreteImpact ? remainingUnknownFields : unknownFields,
+    inferredMetrics: knownImpactFields.length > 0 ? inferredMetrics : null
+  };
+}
+
+function inferCvss31ImpactMetrics(text: string): Record<string, string> {
+  const lower = text.toLowerCase();
+  const metrics: Record<string, string> = {};
+  if (/secret|token|credential|confidential|\\.env|environment|file contents|expos|leak|disclos|read/.test(lower)) metrics.C = /secret|token|credential|\\.env|confidential/.test(lower) ? 'H' : 'L';
+  if (/write|overwrite|modify|tamper|delete|corrupt|integrity/.test(lower)) metrics.I = /arbitrary|overwrite|delete|tamper/.test(lower) ? 'H' : 'L';
+  if (/crash|hang|resource exhaustion|denial|availability|dos/.test(lower)) metrics.A = /crash|denial|dos/.test(lower) ? 'H' : 'L';
+  return metrics;
+}
+
+function parseCvss31Vector(vector: string): Record<string, string> | null {
+  const trimmed = vector.trim();
+  if (!/^CVSS:3\.[01]\//.test(trimmed)) return null;
+  const metrics: Record<string, string> = {};
+  for (const part of trimmed.split('/').slice(1)) {
+    const [key, value] = part.split(':');
+    if (key && value) metrics[key] = value;
+  }
+  return normalizeCvss31Metrics(metrics);
+}
+
+function normalizeCvss31Metrics(metrics: Record<string, unknown>): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const key of ['AV', 'AC', 'PR', 'UI', 'S', 'C', 'I', 'A']) {
+    const value = stringValue(metrics[key], '').trim().toUpperCase();
+    if (value) normalized[key] = value;
+  }
+  return normalized;
+}
+
+function missingCvss31Fields(metrics: Record<string, string>): string[] {
+  return ['AV', 'AC', 'PR', 'UI', 'S', 'C', 'I', 'A'].filter((key) => !metrics[key]);
+}
+
+function calculateCvss31BaseScore(metrics: Record<string, string>): number {
+  const av = { N: 0.85, A: 0.62, L: 0.55, P: 0.2 }[metrics.AV] ?? 0;
+  const ac = { L: 0.77, H: 0.44 }[metrics.AC] ?? 0;
+  const scopeChanged = metrics.S === 'C';
+  const pr = scopeChanged ? ({ N: 0.85, L: 0.68, H: 0.5 }[metrics.PR] ?? 0) : ({ N: 0.85, L: 0.62, H: 0.27 }[metrics.PR] ?? 0);
+  const ui = { N: 0.85, R: 0.62 }[metrics.UI] ?? 0;
+  const c = { H: 0.56, L: 0.22, N: 0 }[metrics.C] ?? 0;
+  const i = { H: 0.56, L: 0.22, N: 0 }[metrics.I] ?? 0;
+  const a = { H: 0.56, L: 0.22, N: 0 }[metrics.A] ?? 0;
+  const iscBase = 1 - (1 - c) * (1 - i) * (1 - a);
+  const impact = scopeChanged ? 7.52 * (iscBase - 0.029) - 3.25 * Math.pow(iscBase - 0.02, 15) : 6.42 * iscBase;
+  if (impact <= 0) return 0;
+  const exploitability = 8.22 * av * ac * pr * ui;
+  const raw = scopeChanged ? Math.min(1.08 * (impact + exploitability), 10) : Math.min(impact + exploitability, 10);
+  return roundUpCvss(raw);
+}
+
+function roundUpCvss(value: number): number {
+  return Math.ceil(value * 10 - 0.000001) / 10;
+}
+
+function cvss31VectorFromMetrics(metrics: Record<string, string>): string {
+  return `CVSS:3.1/AV:${metrics.AV}/AC:${metrics.AC}/PR:${metrics.PR}/UI:${metrics.UI}/S:${metrics.S}/C:${metrics.C}/I:${metrics.I}/A:${metrics.A}`;
+}
+
+function cvss31Severity(score: number): string {
+  if (score === 0) return 'none';
+  if (score < 4) return 'low';
+  if (score < 7) return 'medium';
+  if (score < 9) return 'high';
+  return 'critical';
+}
+
 function inferResourceLookupKind(id: string): Exclude<ResourceLookupKind, 'any'> | null {
   if (/^artifact_[a-z0-9_]+/i.test(id)) return 'artifact';
   if (/^evidence_[a-z0-9_]+/i.test(id)) return 'evidence';
@@ -4888,6 +5158,10 @@ function rangesOverlap(left: { start: number; end: number }, right: { start: num
 
 function arrayOfStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0) : [];
+}
+
+function arrayOfRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry)) : [];
 }
 
 function uniqueStrings(values: string[]): string[] {

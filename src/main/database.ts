@@ -149,6 +149,7 @@ export interface CreateFindingInput {
   affectedAssets?: Record<string, unknown>;
   affectedVersions?: Record<string, unknown>;
   reportability?: Record<string, unknown>;
+  impactAssessment?: Record<string, unknown>;
   impactMarkdown: string;
   priorityScore: number;
   verifiedByVerifierRunId?: string | null;
@@ -554,7 +555,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -4526,9 +4527,9 @@ export class WorkspaceDatabase {
       .prepare(
         `INSERT INTO findings (
           id, run_id, hypothesis_id, state, title, summary_markdown, affected_assets_json,
-          affected_versions_json, reportability_json, impact_markdown, priority_score, verified_by_verifier_run_id,
+          affected_versions_json, reportability_json, impact_assessment_json, impact_markdown, priority_score, verified_by_verifier_run_id,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -4540,6 +4541,7 @@ export class WorkspaceDatabase {
         toJson(input.affectedAssets),
         toJson(input.affectedVersions),
         toJson(input.reportability ?? {}),
+        toJson(input.impactAssessment ?? {}),
         input.impactMarkdown,
         clampPriorityScore(input.priorityScore),
         input.verifiedByVerifierRunId ?? null,
@@ -4576,6 +4578,7 @@ export class WorkspaceDatabase {
       affectedAssets?: Record<string, unknown>;
       affectedVersions?: Record<string, unknown>;
       reportability?: Record<string, unknown>;
+      impactAssessment?: Record<string, unknown>;
       impactMarkdown?: string;
       priorityScore?: number;
       verifiedByVerifierRunId?: string | null;
@@ -4599,6 +4602,7 @@ export class WorkspaceDatabase {
              affected_assets_json = ?,
              affected_versions_json = ?,
              reportability_json = ?,
+             impact_assessment_json = ?,
              impact_markdown = ?,
              priority_score = ?,
              verified_by_verifier_run_id = ?,
@@ -4613,6 +4617,7 @@ export class WorkspaceDatabase {
         toJson(patch.affectedAssets ?? existing.affectedAssets),
         toJson(patch.affectedVersions ?? existing.affectedVersions),
         toJson(patch.reportability ?? existing.reportability),
+        toJson(patch.impactAssessment ?? existing.impactAssessment),
         patch.impactMarkdown ?? existing.impactMarkdown,
         clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
         nextVerifierRunId ?? null,
@@ -7047,6 +7052,10 @@ export class WorkspaceDatabase {
         this.applyRunFixtureSetupAndReportabilityMigration();
         this.insertMigration(17, 'run_fixture_setup_and_reportability');
       }
+      if (currentVersion < 18) {
+        this.applyFindingImpactAssessmentMigration();
+        this.insertMigration(18, 'finding_impact_assessment');
+      }
     });
   }
 
@@ -7224,6 +7233,10 @@ export class WorkspaceDatabase {
   private applyRunFixtureSetupAndReportabilityMigration(): void {
     this.addColumnIfMissing('findings', 'reportability_json', "reportability_json TEXT NOT NULL DEFAULT '{}'");
     this.db.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
+  }
+
+  private applyFindingImpactAssessmentMigration(): void {
+    this.addColumnIfMissing('findings', 'impact_assessment_json', "impact_assessment_json TEXT NOT NULL DEFAULT '{}'");
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -9195,6 +9208,7 @@ export class WorkspaceDatabase {
         JSON.stringify(finding.affectedAssets),
         JSON.stringify(finding.affectedVersions),
         JSON.stringify(finding.reportability),
+        JSON.stringify(finding.impactAssessment),
         finding.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
       ].join('\n'),
       metadata: {
@@ -9203,6 +9217,7 @@ export class WorkspaceDatabase {
         priorityScore: finding.priorityScore,
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
         reportability: finding.reportability,
+        impactAssessment: finding.impactAssessment,
         cweMappings: finding.cweMappings
       },
       createdAt: finding.createdAt,
@@ -9808,6 +9823,7 @@ export class WorkspaceDatabase {
       affectedAssets: parseJson(row.affected_assets_json),
       affectedVersions: parseJson(row.affected_versions_json),
       reportability: parseJson(row.reportability_json),
+      impactAssessment: parseJson(row.impact_assessment_json),
       impactMarkdown: text(row, 'impact_markdown'),
       priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
       verifiedByVerifierRunId: nullableText(row, 'verified_by_verifier_run_id'),
@@ -10501,6 +10517,7 @@ CREATE TABLE IF NOT EXISTS findings (
   affected_assets_json TEXT NOT NULL,
   affected_versions_json TEXT NOT NULL,
   reportability_json TEXT NOT NULL DEFAULT '{}',
+  impact_assessment_json TEXT NOT NULL DEFAULT '{}',
   impact_markdown TEXT NOT NULL,
   priority_score REAL NOT NULL,
   verified_by_verifier_run_id TEXT,
