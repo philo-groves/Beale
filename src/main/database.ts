@@ -4659,6 +4659,24 @@ export class WorkspaceDatabase {
     return numberValue(row ?? { count: 0 }, 'count');
   }
 
+  public countCodeBrowserReadsForPathAndHash(runId: string, sourcePath: string, contentHash: string): number {
+    if (!contentHash) return 0;
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM trace_events
+           WHERE run_id = ?
+             AND type = 'tool_result'
+             AND summary LIKE 'Code browser returned%'
+             AND instr(payload_json, ?) > 0
+             AND instr(payload_json, ?) > 0`
+        )
+        .get(runId, JSON.stringify(sourcePath), JSON.stringify(contentHash))
+    );
+    return numberValue(row ?? { count: 0 }, 'count');
+  }
+
   public countBroadSearchesForRun(runId: string, fileLimit: number): number {
     const row = rowOrUndefined(
       this.db

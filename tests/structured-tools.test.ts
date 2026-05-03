@@ -501,14 +501,17 @@ describe('structured research tools', () => {
       requiresNarrowing: false,
       suggestedNextReads: expect.arrayContaining([expect.objectContaining({ tool: 'search' })])
     });
+    const duplicateChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '600', line_end: '620' });
+    expect(duplicateChunk.status).toBe('success');
+    expect(duplicateChunk.payload.duplicateReadAdvice).toMatchObject({ code: 'duplicate_code_read', priorSameContentReads: 1 });
 
     expect(callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '700', line_end: '720' }).status).toBe('success');
     const blockedBroadRead = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '', line_end: '' });
     expect(blockedBroadRead.status).toBe('error');
     expect(blockedBroadRead.payload).toMatchObject({
-      error: 'read_budget_requires_narrowing',
-      priorSameFileReads: 5
+      error: 'read_budget_requires_narrowing'
     });
+    expect(Number(blockedBroadRead.payload.priorSameFileReads)).toBeGreaterThanOrEqual(5);
 
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
     expect(blocked.status).toBe('policy_blocked');
@@ -854,6 +857,20 @@ describe('structured research tools', () => {
     expect(setup.payload.setupRegistry).toEqual(
       expect.arrayContaining([expect.objectContaining({ fixturePath: '/tmp/beale-fixture', knownGoodBuildFlags: ['npm run build'] })])
     );
+    const inProgress = callTool(router, context, 'python', {
+      task: 'background dependency install status',
+      script: 'print("install still running")',
+      artifact_path: '',
+      setup_state_json: '{"dependencySetup":"in_progress","fixturePath":"/tmp/beale-fixture","installPid":12345,"installLogPath":"/tmp/beale-install.log","retryAfterMs":30000}'
+    });
+    expect(inProgress.status).toBe('success');
+    expect(inProgress.payload.setupStateAdvice).toMatchObject({
+      dependencySetup: 'in_progress',
+      installPid: 12345,
+      installLogPath: '/tmp/beale-install.log',
+      retryAfterMs: 30000
+    });
+    expect(String((inProgress.payload.setupStateAdvice as Record<string, unknown>).action)).toContain('already in progress');
 
     const first = callTool(router, context, 'verifier', {
       hypothesis: hypothesisId,
@@ -998,6 +1015,60 @@ describe('structured research tools', () => {
     const read = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'listUsers' });
     expect(read.status).toBe('success');
     expect(read.payload.sourceVersionAdvice).toBeNull();
+    db.close();
+  });
+
+  it('uses setup package versions when warning about repository source reads', () => {
+    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+    const repoDir = join(targetDir, 'repo-main');
+    mkdirSync(repoDir, { recursive: true });
+    const repoFile = join(repoDir, 'package.js');
+    writeFileSync(repoFile, 'export const version = "4.4.4";\n');
+    writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ name: 'nuxt', version: '4.4.4' }, null, 2));
+    db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'path',
+          value: repoDir,
+          sensitivity: 'public',
+          attributes: { repositoryUrl: 'https://github.com/nuxt/nuxt', headRefName: 'main', headDescribe: 'main', requestedRefMatchesHead: null }
+        }
+      ]
+    });
+    db.recordRunSetupState(context.run.id, { framework: 'nuxt', frameworkVersion: 'nuxt@4.4.4', fixturePath: targetDir, dependencySetup: 'completed' });
+    const router = new BealeToolRouter(db);
+
+    const read = callTool(router, context, 'code_browser', { path: repoFile, symbol: '' });
+    expect(read.status).toBe('success');
+    expect(read.payload.sourceVersionAdvice).toMatchObject({
+      code: 'possible_source_ref_mismatch',
+      setupVersionRefs: ['4.4.4'],
+      packageVersion: '4.4.4'
+    });
+    expect(String((read.payload.sourceVersionAdvice as Record<string, unknown>).action)).toContain('installed package source');
+    db.close();
+  });
+
+  it('suggests recorded fixture paths when search targets stale setup paths', () => {
+    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+    const fixtureDir = join(targetDir, 'fixture-app');
+    mkdirSync(fixtureDir, { recursive: true });
+    writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({ dependencies: { nuxt: '4.4.4' } }, null, 2));
+    db.recordRunSetupState(context.run.id, { framework: 'nuxt', frameworkVersion: '4.4.4', fixturePath: fixtureDir, dependencySetup: 'completed', buildSetup: 'completed' });
+    const router = new BealeToolRouter(db);
+
+    const search = callTool(router, context, 'search', { query: 'nuxt', target: '/tmp/beale-stale-fixture/node_modules/nuxt' });
+    expect(search.status).toBe('success');
+    expect(search.payload.setupSearchAdvice).toMatchObject({
+      code: 'known_fixture_path_available',
+      fixturePaths: expect.arrayContaining([fixtureDir])
+    });
+    expect(((search.payload.retrievalDiagnostics as Record<string, unknown>).operationalHints as unknown[])).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'use_known_fixture_path' })])
+    );
     db.close();
   });
 

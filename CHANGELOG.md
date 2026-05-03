@@ -67,6 +67,7 @@
 - Added schema-backed finding reportability metadata, persisted run fixture setup records, and git checkout ref metadata for stronger version/ref discipline during source-backed research.
 - Added explicit source materialization recovery hints for clone timeouts, remote load failures, and requested refs that are not actually checked out.
 - Added source materialization backoff after transient clone failures so repeated source calls do not loop on the same remote outage.
+- Added setup-aware retrieval hints for recorded fixture paths, in-progress package installs, duplicate code reads, and repository/package version mismatches.
 
 ### Changed
 
@@ -124,6 +125,7 @@
 - Changed repeated broad `code_browser` reads so high-severity read-budget advice requires a symbol or explicit line range before returning more file content.
 - Changed source version mismatch detection so IPv4 addresses in prompts are not treated as release versions.
 - Changed managed source checkout reuse to fetch and detach-checkout requested refs before returning version-backed source material.
+- Changed Python setup-state handling so explicit in-progress dependency setup is preserved instead of being overwritten by a successful status probe.
 - Added search retrieval diagnostics with candidate counts by layer, selected counts by layer, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Added explicit retrieval missing-reason diagnostics for stale or empty semantic/graph indexes, missing graph seeds, and query-intent/index mismatches such as route/API queries without route entities or route graph edges.
 - Added bounded adaptive follow-up search planning for weak first-pass coverage such as no semantic hits, no graph hits, or same-file lexical-only results.

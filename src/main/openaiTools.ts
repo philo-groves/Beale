@@ -731,6 +731,9 @@ export class BealeToolRouter {
       graphSummary,
       semanticSummary
     });
+    const setupState = this.db.getRunSetupState(context.run.id) ?? {};
+    const setupRegistry = this.db.listRunFixtureSetups(context.run.id).slice(0, 5);
+    const setupSearchAdvice = this.setupSearchAdvice(targetHint, collection, files.length, setupState, setupRegistry);
     const broadSearchAdvice = this.broadSearchAdvice(context, targetHint, collection, files.length);
     const retrievalDiagnostics = {
       ...searchAssembly.diagnostics,
@@ -750,7 +753,8 @@ export class BealeToolRouter {
         semanticSummary,
         indexingDeferredState,
         sourceHint,
-        missingReasons
+        missingReasons,
+        setupSearchAdvice
       })
     };
 
@@ -785,6 +789,7 @@ export class BealeToolRouter {
         graphVariantMatches: searchAssembly.graphVariantMatches,
         retrievalDiagnostics,
         broadSearchAdvice,
+        setupSearchAdvice,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -1127,6 +1132,7 @@ export class BealeToolRouter {
     const startLine = selection.lineStart ?? 1;
     const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
     const readBudgetAdvice = this.codeBrowserReadBudgetAdvice(context, filePath, symbol, selection);
+    const duplicateReadAdvice = this.duplicateCodeReadAdvice(context, filePath, symbol, selection);
     const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
     const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(effectiveScopeVersionId, filePath, symbol, structureEntity, selection);
     const sourceVersionAdvice = artifactTarget ? null : this.sourceVersionAdvice(context, filePath);
@@ -1153,6 +1159,7 @@ export class BealeToolRouter {
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         structureNavigation,
         readBudgetAdvice,
+        duplicateReadAdvice,
         sourceVersionAdvice,
         excerpt
       }
@@ -1187,6 +1194,22 @@ export class BealeToolRouter {
     };
   }
 
+  private duplicateCodeReadAdvice(context: CreatedRunContext, filePath: string, symbol: string, selection: CodeBrowserTextSelection): Record<string, unknown> | null {
+    if (!selection.contentHash) return null;
+    const priorSameContentReads = this.db.countCodeBrowserReadsForPathAndHash(context.run.id, filePath, selection.contentHash);
+    if (priorSameContentReads < 1) return null;
+    return {
+      code: 'duplicate_code_read',
+      priorSameContentReads,
+      contentHash: selection.contentHash,
+      contentHashScope: selection.contentHashScope,
+      message: 'This exact code_browser content has already been returned in this run.',
+      action: symbol
+        ? 'Use the prior excerpt or inspect structureNavigation relations instead of re-reading the same symbol/range.'
+        : 'Use the prior excerpt, a narrower line range, or search for a related symbol instead of rereading the same content.'
+    };
+  }
+
   private broadSearchAdvice(context: CreatedRunContext, targetHint: string, collection: SearchCollection, filesConsidered: number): Record<string, unknown> | null {
     if (filesConsidered < MAX_SEARCH_FILES) return null;
     const priorBroadSearches = this.db.countBroadSearchesForRun(context.run.id, MAX_SEARCH_FILES);
@@ -1206,6 +1229,33 @@ export class BealeToolRouter {
       rootsConsidered: collection.roots.map((root) => root.path).slice(0, 5),
       message: `This run has already performed ${priorBroadSearches} broad capped source searches. Repeating full-root scans is likely lower value than narrowing by package, symbol, or prior result.`,
       action: 'Switch to a narrower target, code_browser suggested reads, or wait for indexing instead of issuing another full-repository search.'
+    };
+  }
+
+  private setupSearchAdvice(
+    targetHint: string,
+    collection: SearchCollection,
+    filesConsidered: number,
+    setupState: Record<string, unknown>,
+    setupRegistry: Array<Record<string, unknown>>
+  ): Record<string, unknown> | null {
+    const fixturePaths = uniqueStrings([
+      stringValue(setupState.fixturePath, ''),
+      ...setupRegistry.map((entry) => stringValue(entry.fixturePath, ''))
+    ]).filter((candidate) => candidate && existsSync(candidate));
+    if (fixturePaths.length === 0) return null;
+    const targetLooksMissing =
+      filesConsidered === 0 ||
+      collection.unresolvedTargets.length > 0 ||
+      (/\/tmp\/beale/i.test(targetHint) && !fixturePaths.some((fixturePath) => targetHint.includes(fixturePath)));
+    if (!targetLooksMissing) return null;
+    return {
+      code: 'known_fixture_path_available',
+      fixturePaths: fixturePaths.slice(0, 5),
+      setupState: setupStateSummary(setupState),
+      unresolvedTargets: collection.unresolvedTargets,
+      message: 'This run has recorded fixture/setup paths that may be better targets than the requested path.',
+      action: 'Retry search or code_browser against a recorded fixturePath, especially for node_modules/package source or generated build output.'
     };
   }
 
@@ -3096,6 +3146,7 @@ export class BealeToolRouter {
     indexingDeferredState: Record<string, unknown> | null;
     sourceHint: string | null;
     missingReasons: Array<Record<string, unknown>>;
+    setupSearchAdvice: Record<string, unknown> | null;
   }): Array<Record<string, unknown>> {
     const hints: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
@@ -3107,6 +3158,19 @@ export class BealeToolRouter {
 
     if (input.sourceHint) {
       add('source', 'materialize_source', input.sourceHint, 'Use the source tool to materialize the scoped repository, then rerun search.');
+    }
+    if (input.setupSearchAdvice) {
+      add(
+        'setup',
+        'use_known_fixture_path',
+        stringValue(input.setupSearchAdvice.message, 'This run has recorded fixture paths.'),
+        stringValue(input.setupSearchAdvice.action, 'Retry against a recorded fixturePath.'),
+        {
+          fixturePaths: input.setupSearchAdvice.fixturePaths,
+          setupState: input.setupSearchAdvice.setupState,
+          unresolvedTargets: input.setupSearchAdvice.unresolvedTargets
+        }
+      );
     }
     if (input.indexingDeferredState) {
       add(
@@ -4072,25 +4136,32 @@ export class BealeToolRouter {
   private sourceVersionAdvice(context: CreatedRunContext, filePath: string): Record<string, unknown> | null {
     const scopedAsset = scopedLocalAssetForPath(this.db.getActiveScope().assets, filePath);
     if (!scopedAsset) return null;
-    const promptVersions = versionRefsFromPrompt(context.run.promptMarkdown);
+    const setupState = this.db.getRunSetupState(context.run.id) ?? {};
+    const setupVersionRefs = versionRefsFromSetupState(setupState);
+    const promptVersions = uniqueStrings([...versionRefsFromPrompt(context.run.promptMarkdown), ...setupVersionRefs]);
     if (promptVersions.length === 0) return null;
     const materializedRef = stringValue(scopedAsset.attributes?.materializedRef, '');
     const headDescribe = stringValue(scopedAsset.attributes?.headDescribe, '');
     const headRefName = stringValue(scopedAsset.attributes?.headRefName, '');
     const requestedRefMatchesHead = scopedAsset.attributes?.requestedRefMatchesHead === true;
     const packageInfo = nearestPackageVersion(filePath, scopedAsset.value);
+    const repositoryBacked = Boolean(stringValue(scopedAsset.attributes?.repositoryUrl, ''));
+    const setupVersionRelevant = setupVersionRefs.length > 0 && repositoryBacked;
     const refMatches =
       materializedRef && scopedAsset.attributes?.requestedRefMatchesHead !== false
         ? promptVersions.some((version) => normalizedVersionRef(materializedRef) === normalizedVersionRef(version))
         : false;
     const gitMatches = promptVersions.some((version) => [headDescribe, headRefName].some((candidate) => normalizedVersionRef(candidate) === normalizedVersionRef(version)));
     const packageMatches = packageInfo ? promptVersions.some((version) => normalizedVersionRef(packageInfo.version) === normalizedVersionRef(version)) : false;
-    if (requestedRefMatchesHead || refMatches || gitMatches || packageMatches) return null;
+    if (requestedRefMatchesHead || refMatches || gitMatches || (packageMatches && !setupVersionRelevant)) return null;
     return {
       code: 'possible_source_ref_mismatch',
       severity: 'high',
-      message: 'The run prompt names a released version/ref, but this source read is not clearly from that ref.',
+      message: setupVersionRelevant
+        ? 'The run setup records a tested package version, but this repository source read is not clearly from that exact ref.'
+        : 'The run prompt names a released version/ref, but this source read is not clearly from that ref.',
       promptVersionRefs: promptVersions,
+      setupVersionRefs,
       materializedRef: materializedRef || null,
       headRefName: headRefName || null,
       headDescribe: headDescribe || null,
@@ -4099,7 +4170,9 @@ export class BealeToolRouter {
       packageVersion: packageInfo?.version ?? null,
       packagePath: packageInfo?.path ?? null,
       repositoryUrl: stringValue(scopedAsset.attributes?.repositoryUrl, '') || null,
-      action: 'Before relying on this source observation, call source with the prompt-requested tag/ref or inspect the installed package/source for that exact version.'
+      action: setupVersionRelevant
+        ? 'Prefer installed package source under the recorded fixture/node_modules for static confirmation, or call source with the exact tested package tag/ref before relying on repository source.'
+        : 'Before relying on this source observation, call source with the prompt-requested tag/ref or inspect the installed package/source for that exact version.'
     };
   }
 
@@ -5045,11 +5118,15 @@ function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, scri
   }
   if (/install|node_modules|dependencies|npm i|npm install|pnpm install|yarn install/.test(haystack)) {
     relevant = true;
-    update.dependencySetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+    if (!Object.prototype.hasOwnProperty.call(explicit, 'dependencySetup')) {
+      update.dependencySetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+    }
   }
   if (/\bbuild\b|tsc|turbo|dist|compiled|compile/.test(haystack)) {
     relevant = true;
-    update.buildSetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+    if (!Object.prototype.hasOwnProperty.call(explicit, 'buildSetup')) {
+      update.buildSetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+    }
   }
   if (/npm view|latest stable|dist-tags|package metadata|published/.test(haystack)) {
     relevant = true;
@@ -5075,6 +5152,12 @@ function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, scri
     update.framework = 'next';
     update.frameworkVersion = nextVersion;
   }
+  const nuxtVersion = /\bnuxt\s*(?:version|latest|package)?[^0-9]{0,24}(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/i.exec(`${task}\n${execution.result.stdoutSummary}`)?.[1];
+  if (nuxtVersion) {
+    relevant = true;
+    update.framework = 'nuxt';
+    update.frameworkVersion = nuxtVersion;
+  }
   return relevant ? update : null;
 }
 
@@ -5083,10 +5166,19 @@ function pythonSetupStateAdvice(setupState: Record<string, unknown>, setupStateU
   const packageManagers = setupState.packageManagers && typeof setupState.packageManagers === 'object' && !Array.isArray(setupState.packageManagers);
   const fixturePath = stringValue(setupState.fixturePath, '');
   const frameworkVersion = stringValue(setupState.frameworkVersion, '');
+  const installPid = setupState.installPid ?? setupState.pid;
+  const installLogPath = stringValue(setupState.installLogPath, '') || stringValue(setupState.logPath, '');
+  const retryAfterMs = typeof setupState.retryAfterMs === 'number' ? setupState.retryAfterMs : null;
   const actions: string[] = [];
   if (packageManagers) actions.push('Reuse recorded package manager availability instead of probing again.');
+  if (setupState.dependencySetup === 'in_progress' || setupState.dependencySetup === 'install_in_progress') {
+    actions.push('Dependency installation is already in progress; check the recorded pid/log once instead of starting another install.');
+  }
   if (setupState.dependencySetup === 'completed' || setupState.dependencySetup === 'completed_or_available') {
     actions.push('Avoid reinstalling dependencies unless package files or fixture path changed.');
+  }
+  if (setupState.dependencySetup === 'failed' && retryAfterMs !== null && retryAfterMs > 0) {
+    actions.push(`Dependency installation recently failed; wait about ${retryAfterMs}ms or change inputs before retrying.`);
   }
   if (setupState.buildSetup === 'completed' || setupState.buildSetup === 'completed_or_available') {
     actions.push('Reuse the existing build output or fixture when possible.');
@@ -5099,6 +5191,11 @@ function pythonSetupStateAdvice(setupState: Record<string, unknown>, setupStateU
     reusable: actions.length > 0,
     fixturePath: fixturePath || null,
     frameworkVersion: frameworkVersion || null,
+    dependencySetup: stringValue(setupState.dependencySetup, '') || null,
+    buildSetup: stringValue(setupState.buildSetup, '') || null,
+    installPid: installPid ?? null,
+    installLogPath: installLogPath || null,
+    retryAfterMs,
     knownBadBuildFlags,
     action: actions.join(' ') || 'No durable setup facts recorded yet; include setup_state_json when this operation discovers reusable environment or fixture facts.'
   };
@@ -5144,6 +5241,33 @@ function versionRefsFromPrompt(promptMarkdown: string): string[] {
     refs.add(match[1].replace(/^v(?=\d+\.\d+\.\d+)/i, ''));
   }
   return [...refs].slice(0, 6);
+}
+
+function versionRefsFromSetupState(setupState: Record<string, unknown>): string[] {
+  const refs = new Set<string>();
+  for (const value of [
+    stringValue(setupState.frameworkVersion, ''),
+    stringValue(setupState.packageVersion, ''),
+    stringValue(setupState.version, '')
+  ]) {
+    for (const match of value.matchAll(/\bv?(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)\b/g)) {
+      if (match[1]) refs.add(match[1]);
+    }
+  }
+  return [...refs].slice(0, 4);
+}
+
+function setupStateSummary(setupState: Record<string, unknown>): Record<string, unknown> {
+  return {
+    fixturePath: stringValue(setupState.fixturePath, '') || null,
+    framework: stringValue(setupState.framework, '') || null,
+    frameworkVersion: stringValue(setupState.frameworkVersion, '') || null,
+    dependencySetup: stringValue(setupState.dependencySetup, '') || null,
+    buildSetup: stringValue(setupState.buildSetup, '') || null,
+    installPid: setupState.installPid ?? setupState.pid ?? null,
+    installLogPath: stringValue(setupState.installLogPath, '') || stringValue(setupState.logPath, '') || null,
+    retryAfterMs: typeof setupState.retryAfterMs === 'number' ? setupState.retryAfterMs : null
+  };
 }
 
 function looksLikeIpv4Segment(text: string, start: number, value: string): boolean {
