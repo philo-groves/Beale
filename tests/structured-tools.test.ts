@@ -48,6 +48,7 @@ describe('structured research tools', () => {
     expect(source.payload.repositoryUrl).toBe('https://github.com/Netflix/zuul');
     expect(String(source.payload.localPath)).toContain('targets/repositories/github.com_Netflix_zuul');
     expect(source.payload.indexingDeferred).toBe(true);
+    expect(source.payload.indexingState).toMatchObject({ reason: 'source_materialized', inventory: 'deferred', structure: 'deferred', graph: 'deferred' });
     expect(db.getProjectInventorySummary(db.getActiveScope().id).fileCount).toBe(0);
 
     for (let index = 0; index < 325; index += 1) {
@@ -64,6 +65,14 @@ describe('structured research tools', () => {
     expect(regexSearch.status).toBe('success');
     expect(regexSearch.payload.queryMode).toBe('regex_or_terms');
     expect(JSON.stringify(regexSearch.payload)).toContain('ProxyEndpoint.java');
+
+    const localPath = String(source.payload.localPath);
+    const multiTargetSearch = callTool(router, context, 'search', { query: 'authorizationBoundary|Netflix', target: `${join(localPath, 'zuul-core')} ${localPath}` });
+    expect(multiTargetSearch.status).toBe('success');
+    expect(multiTargetSearch.payload.targetResolution).toBe('multi_local_path_target');
+    expect(multiTargetSearch.payload.rootsConsidered).toHaveLength(2);
+    expect(multiTargetSearch.payload.unresolvedTargets).toEqual([]);
+    expect(JSON.stringify(multiTargetSearch.payload)).toContain('ProxyEndpoint.java');
     db.close();
   });
 
@@ -433,6 +442,10 @@ describe('structured research tools', () => {
     expect(anchoredChunk.payload.lineStart).toBeLessThanOrEqual(420);
     expect(anchoredChunk.payload.lineEnd).toBeGreaterThanOrEqual(420);
 
+    const repeatedChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '600', line_end: '620' });
+    expect(repeatedChunk.status).toBe('success');
+    expect(repeatedChunk.payload.readBudgetAdvice).toMatchObject({ code: 'repeated_file_paging', priorSameFileReads: 3 });
+
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
     expect(blocked.status).toBe('policy_blocked');
     expect(JSON.stringify(blocked.payload)).toContain('path_outside_active_scope');
@@ -740,6 +753,70 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('tracks setup state and supersedes weaker verifier passes for the same hypothesis', () => {
+    const { db, context } = openStructuredToolDb('host_research_only');
+    const router = new BealeToolRouter(db);
+
+    const hypothesis = callTool(router, context, 'hypothesis', {
+      hypothesis_id: '',
+      state: 'needs_evidence',
+      title: 'Repeated verifier canonicalization',
+      description: 'A verifier can be strengthened without keeping all passes canonical.',
+      component: 'test harness',
+      bug_class: 'test',
+      primary_cwe_id: 'CWE-200',
+      primary_cwe_name: '',
+      alternate_cwe_ids_json: '[]',
+      cwe_mapping_confidence: 'low',
+      cwe_mapping_rationale: 'Fixture mapping.',
+      attacker_reachability: '1 fixture',
+      impact: '1 fixture',
+      evidence_confidence: '1 fixture',
+      exploit_practicality: '1 fixture',
+      scope_confidence: '1 fixture',
+      priority_score: 10
+    });
+    const hypothesisId = hypothesis.payload.hypothesisId as string;
+
+    const setup = callTool(router, context, 'python', {
+      task: 'check package manager and build setup state',
+      script: 'print("npm version 10.0.0\\npnpm not found\\nbuild completed")',
+      artifact_path: ''
+    });
+    expect(setup.status).toBe('success');
+    expect(setup.payload.setupState).toMatchObject({ packageManagerProbe: true, buildSetup: 'completed_or_available' });
+
+    const first = callTool(router, context, 'verifier', {
+      hypothesis: hypothesisId,
+      expectation: 'first pass',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'VERIFIER_PASS first'",
+      artifact_path: '',
+      expected_stdout: 'VERIFIER_PASS'
+    });
+    expect(first.status).toBe('success');
+    expect(first.payload.supersededVerifierRunIds).toEqual([]);
+
+    const second = callTool(router, context, 'verifier', {
+      hypothesis: hypothesisId,
+      expectation: 'stronger second pass',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_script: "echo 'VERIFIER_PASS second'",
+      artifact_path: '',
+      expected_stdout: 'VERIFIER_PASS'
+    });
+    expect(second.status).toBe('success');
+    expect(second.payload.supersededVerifierRunIds).toContain(first.payload.verifierRunId);
+    const detail = db.getRunDetail(context.run.id);
+    const superseded = detail.verifierRuns.find((run) => run.id === first.payload.verifierRunId);
+    const canonical = detail.verifierRuns.find((run) => run.id === second.payload.verifierRunId);
+    expect(superseded?.result).toMatchObject({ supersededByVerifierRunId: second.payload.verifierRunId, canonical: false });
+    expect(canonical?.result.supersedesVerifierRunIds).toEqual(expect.arrayContaining([first.payload.verifierRunId]));
+    db.close();
+  });
+
   it('lets OpenAI tools record hypotheses, evidence, and findings without bypassing verifier gates', () => {
     const { db, context } = openStructuredToolDb();
     const router = new BealeToolRouter(db);
@@ -965,7 +1042,7 @@ describe('structured research tools', () => {
     expect(detail.traceEvents.some((event) => event.type === 'finding_event' && event.payload.action === 'auto_create')).toBe(true);
 
     const reportable = callTool(router, context, 'finding', {
-      finding_id: finding?.id ?? '',
+      finding_id: '',
       hypothesis_id: hypothesisId,
       state: 'reportable',
       title: 'Exported provider exposes token store',
@@ -981,7 +1058,10 @@ describe('structured research tools', () => {
       verified_by_verifier_run_id: verifierRunId
     });
     expect(reportable.status).toBe('success');
+    expect(reportable.payload.action).toBe('update');
+    expect(reportable.payload.findingId).toBe(finding?.id);
     expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === finding?.id)?.state).toBe('reportable');
+    expect(db.getRunDetail(context.run.id).findings.filter((item) => item.hypothesisId === hypothesisId)).toHaveLength(1);
     const verifierRunNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'verifier_run', verifierRunId, { depth: 1 });
     expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'verifies_finding_outcome' && edge.targetEntityId === finding?.id)).toBe(true);
     expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'backs_evidence')).toBe(true);

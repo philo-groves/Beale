@@ -70,7 +70,8 @@ export class OpenAiRunEngine {
     private readonly adapter: OpenAiResponsesAdapter,
     private readonly executor: ExecutorManager | null = null,
     private readonly onChange: () => void = () => undefined,
-    private readonly profilingRecorder: OpenAiProfilingRecorder | null = null
+    private readonly profilingRecorder: OpenAiProfilingRecorder | null = null,
+    private readonly onSourceMaterialized: (scopeVersionId: string, reason: string) => void = () => undefined
   ) {}
 
   public startRun(input: StartRunInput): OpenAiRunHandle {
@@ -356,7 +357,7 @@ export class OpenAiRunEngine {
   }
 
   private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
-    const router = new BealeToolRouter(this.db, this.executor);
+    const router = new BealeToolRouter(this.db, this.executor, { onSourceMaterialized: this.onSourceMaterialized });
     let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
     let manualConversationInput: ResponseInputItem[] = state?.manualConversationInput ?? buildInitialOpenAiInput(input);
     let previousResponseId: string | null = state?.previousResponseId ?? null;

@@ -132,6 +132,7 @@ interface SearchCollection {
   roots: ScopedSearchRoot[];
   targetResolution: string;
   unmaterializedSource: SourceRepositoryCandidate | null;
+  unresolvedTargets: string[];
 }
 
 interface SearchQueryPlan {
@@ -197,8 +198,9 @@ const TOOL_NAMES = ['source', 'search', 'code_browser', 'resource_lookup', 'prog
 type ToolName = (typeof TOOL_NAMES)[number];
 type ResourceLookupKind = 'any' | 'artifact' | 'evidence' | 'finding' | 'hypothesis' | 'verifier_run' | 'verifier_contract' | 'trace_event';
 
-interface ProgramLookupOptions {
+interface ToolRouterOptions {
   fetch?: ToolFetch;
+  onSourceMaterialized?: (scopeVersionId: string, reason: string) => void;
 }
 
 interface ResourceLookupRecord {
@@ -343,7 +345,7 @@ export class BealeToolRouter {
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly executor: ExecutorManager | null = null,
-    private readonly options: ProgramLookupOptions = {}
+    private readonly options: ToolRouterOptions = {}
   ) {}
 
   public execute(context: CreatedRunContext, call: OpenAiFunctionCall): FunctionCallOutputItem {
@@ -710,6 +712,7 @@ export class BealeToolRouter {
       graphSummary,
       semanticSummary
     });
+    const broadSearchAdvice = this.broadSearchAdvice(context, targetHint, collection, files.length);
     const retrievalDiagnostics = {
       ...searchAssembly.diagnostics,
       feedback: {
@@ -718,6 +721,7 @@ export class BealeToolRouter {
         correctedNegativeEntityCount: feedbackSummary.correctedNegativeEntityKeys.length
       },
       missingReasons,
+      broadSearchAdvice,
       operationalHints: this.retrievalOperationalHints({
         queryPlan,
         diagnostics: searchAssembly.diagnostics,
@@ -746,6 +750,7 @@ export class BealeToolRouter {
         queryIntents: queryPlan.intents,
         targetHint,
         targetResolution: collection.targetResolution,
+        unresolvedTargets: collection.unresolvedTargets,
         rootsConsidered: collection.roots.map((root) => ({
           path: root.path,
           assetId: root.asset.id,
@@ -759,6 +764,7 @@ export class BealeToolRouter {
         graphMatches: searchAssembly.graphMatches,
         graphVariantMatches: searchAssembly.graphVariantMatches,
         retrievalDiagnostics,
+        broadSearchAdvice,
         projectInventory: inventorySummary,
         projectStructure: structureSummary,
         projectGraph: graphSummary,
@@ -793,6 +799,8 @@ export class BealeToolRouter {
 
     const materialized = materializeGitRepository(selection.candidate, this.db.getDatabasePath(), ref);
     const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+    this.db.markPostSourceIndexingDeferred(nextScope.id, 'source_materialized');
+    this.options.onSourceMaterialized?.(nextScope.id, 'source_materialized');
 
     return {
       status: 'success',
@@ -810,6 +818,7 @@ export class BealeToolRouter {
         sourceAssetId: selection.candidate.sourceAssetId,
         activeScopeVersion: nextScope.version,
         indexingDeferred: true,
+        indexingState: this.db.getProjectIndexingDeferredState(nextScope.id),
         indexingHint: 'Project inventory, structure, semantic, and graph indexing are deferred after source materialization; search can scan the materialized source directly until indexing catches up.',
         searchNext: true
       }
@@ -839,6 +848,8 @@ export class BealeToolRouter {
 
     const materialized = await materializeGitRepositoryAsync(selection.candidate, this.db.getDatabasePath(), ref);
     const nextScope = this.ensureLocalSourceInScope(selection.candidate.sourceAssetId, selection.candidate.sensitivity, materialized.localPath, materialized.repositoryUrl, materialized.head);
+    this.db.markPostSourceIndexingDeferred(nextScope.id, 'source_materialized');
+    this.options.onSourceMaterialized?.(nextScope.id, 'source_materialized');
 
     return {
       status: 'success',
@@ -856,6 +867,7 @@ export class BealeToolRouter {
         sourceAssetId: selection.candidate.sourceAssetId,
         activeScopeVersion: nextScope.version,
         indexingDeferred: true,
+        indexingState: this.db.getProjectIndexingDeferredState(nextScope.id),
         indexingHint: 'Project inventory, structure, semantic, and graph indexing are deferred after source materialization; search can scan the materialized source directly until indexing catches up.',
         searchNext: true
       }
@@ -983,6 +995,7 @@ export class BealeToolRouter {
     const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
     const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
     const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(context, filePath, symbol, structureEntity, selection);
+    const readBudgetAdvice = this.codeBrowserReadBudgetAdvice(context, filePath, symbol);
 
     return {
       status: 'success',
@@ -1005,8 +1018,42 @@ export class BealeToolRouter {
         nextLineStart: selection.nextLineStart,
         truncated: selection.truncated || excerpt.length >= MAX_EXCERPT_CHARS,
         structureNavigation,
+        readBudgetAdvice,
         excerpt
       }
+    };
+  }
+
+  private codeBrowserReadBudgetAdvice(context: CreatedRunContext, filePath: string, symbol: string): Record<string, unknown> | null {
+    const priorSameFileReads = this.db.countCodeBrowserReadsForPath(context.run.id, filePath);
+    if (priorSameFileReads < 3) return null;
+    return {
+      code: 'repeated_file_paging',
+      priorSameFileReads,
+      message: 'This file has already been read several times in this run; prefer a symbol/range read, search for a narrower term, or follow structureNavigation instead of continuing broad paging.',
+      action: symbol ? 'Use structureNavigation or a narrower line range for the next read.' : 'Use search to locate a narrower symbol/term, then call code_browser with symbol or explicit line_start/line_end.'
+    };
+  }
+
+  private broadSearchAdvice(context: CreatedRunContext, targetHint: string, collection: SearchCollection, filesConsidered: number): Record<string, unknown> | null {
+    if (filesConsidered < MAX_SEARCH_FILES) return null;
+    const priorBroadSearches = this.db.countBroadSearchesForRun(context.run.id, MAX_SEARCH_FILES);
+    if (priorBroadSearches < 2) {
+      return {
+        code: 'broad_search_limit_reached',
+        priorBroadSearches,
+        message: `This search reached the ${MAX_SEARCH_FILES} file scan cap. Prefer narrower target roots, exact filenames, or indexed search before another full-root scan.`,
+        action: 'Use a package/subdirectory target or inspect suggestedNextRead entries before repeating broad search.'
+      };
+    }
+    return {
+      code: 'repeated_broad_searches',
+      priorBroadSearches,
+      targetHint,
+      targetResolution: collection.targetResolution,
+      rootsConsidered: collection.roots.map((root) => root.path).slice(0, 5),
+      message: `This run has already performed ${priorBroadSearches} broad capped source searches. Repeating full-root scans is likely lower value than narrowing by package, symbol, or prior result.`,
+      action: 'Switch to a narrower target, code_browser suggested reads, or wait for indexing instead of issuing another full-repository search.'
     };
   }
 
@@ -1328,6 +1375,8 @@ export class BealeToolRouter {
   }
 
   private pythonExecutionResult(context: CreatedRunContext, args: Record<string, unknown>, script: string, execution: GuestToolResult): ToolResult {
+    const setupStateUpdate = setupStateUpdateFromPythonExecution(args, script, execution);
+    const setupState = setupStateUpdate ? this.db.recordRunSetupState(context.run.id, setupStateUpdate) : this.db.getRunSetupState(context.run.id);
     return {
       status: execution.result.status === 'success' ? 'success' : 'error',
       summary: `${execution.hostExecution ? 'Host' : 'Guest'} python operation finished with ${execution.result.status}.`,
@@ -1354,7 +1403,8 @@ export class BealeToolRouter {
         hostArtifactPath: execution.hostArtifactPath ?? null,
         requestedNetworkProfile: execution.requestedNetworkProfile,
         networkProfile: execution.networkProfile,
-        runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile)
+        runNetworkProfile: normalizeNetworkProfile(context.run.networkProfile),
+        setupState
       }
     };
   }
@@ -1691,7 +1741,11 @@ export class BealeToolRouter {
     const findingId = nonEmptyStringValue(args.finding_id);
     const hypothesisId = nonEmptyStringValue(args.hypothesis_id);
     const verifierRunId = nonEmptyStringValue(args.verified_by_verifier_run_id);
-    const existing = findingId ? detail.findings.find((finding) => finding.id === findingId) ?? null : null;
+    const sameHypothesisFinding =
+      !findingId && hypothesisId
+        ? detail.findings.find((finding) => finding.hypothesisId === hypothesisId && !['dismissed', 'out_of_scope', 'false_positive', 'duplicate'].includes(finding.state)) ?? null
+        : null;
+    const existing = findingId ? detail.findings.find((finding) => finding.id === findingId) ?? null : sameHypothesisFinding;
     if (findingId && !existing) {
       return { status: 'error', summary: 'Finding update references an unknown finding.', payload: { observationBacked: false, error: 'unknown_finding', findingId } };
     }
@@ -1792,6 +1846,10 @@ export class BealeToolRouter {
           verifiedByVerifierRunId: verifierRunId,
           ...(cweMappings ? { cweMappings } : {})
         });
+    const supersededVerifierRunIds =
+      verifierRunId && existing?.verifiedByVerifierRunId && existing.verifiedByVerifierRunId !== verifierRunId
+        ? this.db.markPriorVerifierRunsSuperseded(context.run.id, linkedHypothesisId || finding.hypothesisId, finding.id, verifierRunId)
+        : [];
 
     return {
       status: 'success',
@@ -1809,6 +1867,7 @@ export class BealeToolRouter {
         priorityScore: finding.priorityScore,
         cweMappings: cwePayload(finding.cweMappings),
         verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+        supersededVerifierRunIds,
         duplicateReview: duplicateReview ? duplicateReviewPayload(duplicateReview) : null
       }
     };
@@ -1821,12 +1880,16 @@ export class BealeToolRouter {
     const verifierArtifactPath = stringValue(args.artifact_path, '').trim();
     const expectedStdout = stringValue(args.expected_stdout, '').trim();
     const detail = this.db.getRunDetail(context.run.id);
+    const linkedHypothesisId = verifierLinkedHypothesisId(args, detail);
+    const linkedFindingId = verifierLinkedFindingId(args, detail);
     const referencedArtifact = artifactId ? detail.artifacts.find((artifact) => artifact.id === artifactId) ?? null : null;
     const referencedTrace = traceEventId ? detail.traceEvents.find((event) => event.id === traceEventId) ?? null : null;
     const hasEvidenceReference = Boolean(referencedArtifact || referencedTrace);
 
     const contract = this.db.createVerifierContract({
       runId: context.run.id,
+      hypothesisId: linkedHypothesisId,
+      findingId: linkedFindingId,
       mode: 'reproduction',
       status: 'declared',
       setupStepsMarkdown: 'Use Beale controlled guest execution and scoped artifacts only.',
@@ -1866,6 +1929,10 @@ export class BealeToolRouter {
 
     if (verifierScript) {
       const outcome = runVerifierContract(this.db, this.executor, context.run.id, contract, context.attempt.id, context.vmContext.id, 'OpenAI verifier tool execution.');
+      const supersededVerifierRunIds =
+        outcome.verifierRun.status === 'pass'
+          ? this.db.markPriorVerifierRunsSuperseded(context.run.id, linkedHypothesisId, linkedFindingId, outcome.verifierRun.id)
+          : [];
       return {
         status: outcome.verifierRun.status === 'error' ? 'error' : 'success',
         summary: `Verifier contract executed with ${outcome.verifierRun.status}; finding promotion remains gated by real pass results.`,
@@ -1883,6 +1950,8 @@ export class BealeToolRouter {
           vmExecution: outcome.verifierRun.result.vmExecution === true,
           hostExecution: outcome.verifierRun.result.hostExecution === true,
           promotedFinding: false,
+          canonicalVerifierRun: outcome.verifierRun.status === 'pass',
+          supersededVerifierRunIds,
           artifactId: outcome.artifactId,
           readHint: outcome.artifactId
             ? `Use code_browser with path "${outcome.artifactId}" or resource_lookup with resource_id "${outcome.artifactId}" to inspect verifier output. Do not use the raw artifact_path.`
@@ -2043,11 +2112,12 @@ export class BealeToolRouter {
       files,
       roots: rootResolution.roots,
       targetResolution: rootResolution.targetResolution,
-      unmaterializedSource: rootResolution.unmaterializedSource
+      unmaterializedSource: rootResolution.unmaterializedSource,
+      unresolvedTargets: rootResolution.unresolvedTargets
     };
   }
 
-  private resolveSearchRoots(targetHint: string): { roots: ScopedSearchRoot[]; targetResolution: string; unmaterializedSource: SourceRepositoryCandidate | null } {
+  private resolveSearchRoots(targetHint: string): { roots: ScopedSearchRoot[]; targetResolution: string; unmaterializedSource: SourceRepositoryCandidate | null; unresolvedTargets: string[] } {
     const scope = this.db.getActiveScope();
     const localAssets = scope.assets.filter(isScopedLocalAsset);
     const trimmedTarget = targetHint.trim();
@@ -2055,7 +2125,28 @@ export class BealeToolRouter {
       return {
         roots: dedupeSearchRoots(localAssets.map((asset) => ({ path: resolve(asset.value), asset, reason: 'all_local_scope' }))),
         targetResolution: localAssets.length > 0 ? 'all_local_scope' : 'no_local_scope',
-        unmaterializedSource: null
+        unmaterializedSource: null,
+        unresolvedTargets: []
+      };
+    }
+
+    const targetParts = splitSearchTargetHints(trimmedTarget);
+    if (targetParts.length > 1) {
+      const roots: ScopedSearchRoot[] = [];
+      const unresolvedTargets: string[] = [];
+      for (const target of targetParts) {
+        const targetRoots = this.searchRootsForPathHint(target, localAssets);
+        if (targetRoots.length > 0) {
+          roots.push(...targetRoots.map((root) => ({ ...root, reason: `multi_${root.reason}` })));
+        } else {
+          unresolvedTargets.push(target);
+        }
+      }
+      return {
+        roots: dedupeSearchRoots(roots),
+        targetResolution: roots.length > 0 && unresolvedTargets.length === 0 ? 'multi_local_path_target' : roots.length > 0 ? 'multi_local_path_target_partial' : 'multi_target_not_found_in_local_scope',
+        unmaterializedSource: null,
+        unresolvedTargets
       };
     }
 
@@ -2064,7 +2155,8 @@ export class BealeToolRouter {
       return {
         roots: dedupeSearchRoots(byPath),
         targetResolution: 'local_path_target',
-        unmaterializedSource: null
+        unmaterializedSource: null,
+        unresolvedTargets: []
       };
     }
 
@@ -2074,7 +2166,8 @@ export class BealeToolRouter {
       return {
         roots: materialized ? [{ path: resolve(materialized.value), asset: materialized, reason: 'materialized_source_repository' }] : [],
         targetResolution: materialized ? 'materialized_source_repository' : 'source_repository_not_materialized',
-        unmaterializedSource: materialized ? null : selection.candidate
+        unmaterializedSource: materialized ? null : selection.candidate,
+        unresolvedTargets: []
       };
     }
 
@@ -2085,7 +2178,8 @@ export class BealeToolRouter {
     return {
       roots: dedupeSearchRoots(byMetadata),
       targetResolution: byMetadata.length > 0 ? 'local_asset_metadata_match' : 'target_not_found_in_local_scope',
-      unmaterializedSource: null
+      unmaterializedSource: null,
+      unresolvedTargets: byMetadata.length > 0 ? [] : [trimmedTarget]
     };
   }
 
@@ -4631,6 +4725,70 @@ function dedupeSearchRoots(roots: ScopedSearchRoot[]): ScopedSearchRoot[] {
     deduped.push({ ...root, path: resolved });
   }
   return deduped;
+}
+
+function splitSearchTargetHints(targetHint: string): string[] {
+  const trimmed = targetHint.trim();
+  if (!trimmed) return [];
+  const parts = trimmed.split(/[\s,]+/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return [trimmed];
+  if (parts.every((part) => isAbsolute(part) || part.startsWith('.'))) return parts;
+  return [trimmed];
+}
+
+function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, script: string, execution: GuestToolResult): Record<string, unknown> | null {
+  const task = stringValue(args.task, '').trim();
+  const haystack = `${task}\n${script}\n${execution.result.stdoutSummary}\n${execution.result.stderrSummary}`.toLowerCase();
+  const update: Record<string, unknown> = {
+    task,
+    status: execution.result.status,
+    durationMs: execution.result.durationMs,
+    scriptHash: createHash('sha256').update(script).digest('hex'),
+    hostTargetPath: execution.hostTargetPath ?? null
+  };
+  let relevant = false;
+  if (/package manager|pnpm|npm|yarn|corepack/.test(haystack)) {
+    relevant = true;
+    update.packageManagerProbe = true;
+    update.packageManagers = {
+      pnpm: /pnpm(?:[_ -]?version)?[^a-z0-9]*(?:v?\d|available|found|ok)/i.test(haystack) && !/pnpm[^.\n]*(err|not found|no such file|missing)/i.test(haystack),
+      npm: /npm(?:[_ -]?version)?[^a-z0-9]*(?:v?\d|available|found|ok)/i.test(haystack) && !/npm[^.\n]*(err|not found|no such file|missing)/i.test(haystack),
+      yarn: /yarn(?:[_ -]?version)?[^a-z0-9]*(?:v?\d|available|found|ok)/i.test(haystack) && !/yarn[^.\n]*(err|not found|no such file|missing)/i.test(haystack),
+      corepack: /corepack[^.\n]*(?:v?\d|available|found|ok|enabled)/i.test(haystack) && !/corepack[^.\n]*(err|not found|no such file|missing)/i.test(haystack)
+    };
+  }
+  if (/install|node_modules|dependencies|npm i|npm install|pnpm install|yarn install/.test(haystack)) {
+    relevant = true;
+    update.dependencySetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+  }
+  if (/\bbuild\b|tsc|turbo|dist|compiled|compile/.test(haystack)) {
+    relevant = true;
+    update.buildSetup = execution.result.status === 'success' ? 'completed_or_available' : 'failed';
+  }
+  if (/npm view|latest stable|dist-tags|package metadata|published/.test(haystack)) {
+    relevant = true;
+    update.packageMetadataChecked = execution.result.status === 'success';
+  }
+  if (/harness|repro|reproduce|verifier|poc/.test(haystack)) {
+    relevant = true;
+    update.localHarness = execution.result.status === 'success' ? 'ran' : 'failed';
+  }
+  return relevant ? update : null;
+}
+
+function verifierLinkedHypothesisId(args: Record<string, unknown>, detail: ReturnType<WorkspaceDatabase['getRunDetail']>): string | null {
+  const direct = nonEmptyStringValue(args.hypothesis_id);
+  if (direct && detail.hypotheses.some((hypothesis) => hypothesis.id === direct)) return direct;
+  const hypothesis = stringValue(args.hypothesis, '').trim();
+  if (hypothesis && detail.hypotheses.some((item) => item.id === hypothesis)) return hypothesis;
+  const byTitle = hypothesis ? detail.hypotheses.find((item) => item.title === hypothesis) ?? null : null;
+  return byTitle?.id ?? null;
+}
+
+function verifierLinkedFindingId(args: Record<string, unknown>, detail: ReturnType<WorkspaceDatabase['getRunDetail']>): string | null {
+  const direct = nonEmptyStringValue(args.finding_id);
+  if (direct && detail.findings.some((finding) => finding.id === direct)) return direct;
+  return null;
 }
 
 function buildSearchQueryPlan(query: string): SearchQueryPlan {

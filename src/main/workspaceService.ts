@@ -1393,7 +1393,11 @@ export class WorkspaceService {
         ),
         executorManager,
         () => this.emitRuntimeChange(workspacePath),
-        (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
+        (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail),
+        (scopeVersionId, reason) => {
+          this.semanticIndexExecutor.schedule(scopeVersionId, reason, workspacePath, 250);
+          this.emitRuntimeChange(workspacePath);
+        }
       ),
       executorManager,
       executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),

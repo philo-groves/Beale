@@ -58,6 +58,10 @@
 - Changed model-run source repository materialization to use non-blocking git clone execution so slow remote clone failures do not freeze the Electron main process.
 - Changed model-run source materialization to defer project inventory refresh after adding cloned repositories so large checkouts do not block the main process before the `source` result returns.
 - Changed HackerOne onboarding and `program_lookup` so imported program handles are preserved and preferred over guessed display-name identifiers.
+- Changed scoped search to accept multiple absolute/relative target roots in one target hint and report unresolved target parts.
+- Changed finding recording so a verifier-backed auto finding for the same hypothesis is updated instead of creating a second manual finding.
+- Added `code_browser` read-budget advice when the same file is paged repeatedly in one run.
+- Added post-source deferred indexing state, repeated broad-search advice, Python setup-state tracking, and verifier supersedence metadata for stronger canonical verifier runs.
 
 ### Changed
 

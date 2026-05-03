@@ -857,6 +857,14 @@ function stringFromUnknown(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function stringValueForJson(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function uniqueStringsForJson(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+}
+
 function artifactRunId(db: DatabaseSync, artifactId: string): string | null {
   const row = rowOrUndefined(db.prepare('SELECT run_id FROM trace_events WHERE artifact_id = ? ORDER BY created_at ASC LIMIT 1').get(artifactId));
   return row ? text(row, 'run_id') : null;
@@ -4617,6 +4625,127 @@ export class WorkspaceDatabase {
     this.indexFindingSearchDocument(updated);
     this.refreshProjectGraphForRun(updated.runId);
     return updated;
+  }
+
+  public countCodeBrowserReadsForPath(runId: string, sourcePath: string): number {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM trace_events
+           WHERE run_id = ?
+             AND type = 'tool_result'
+             AND summary LIKE 'Code browser returned%'
+             AND instr(payload_json, ?) > 0`
+        )
+        .get(runId, JSON.stringify(sourcePath))
+    );
+    return numberValue(row ?? { count: 0 }, 'count');
+  }
+
+  public countBroadSearchesForRun(runId: string, fileLimit: number): number {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM trace_events
+           WHERE run_id = ?
+             AND type = 'tool_result'
+             AND summary LIKE ?`
+        )
+        .get(runId, `Examined ${fileLimit} files%`)
+    );
+    return numberValue(row ?? { count: 0 }, 'count');
+  }
+
+  public markPostSourceIndexingDeferred(scopeVersionId: string, reason: string): void {
+    const markedAt = nowIso();
+    this.queueProjectSemanticIndex(scopeVersionId, reason);
+    this.setMetaValue(
+      `project_indexing_deferred:${scopeVersionId}`,
+      JSON.stringify({
+        reason,
+        markedAt,
+        inventory: 'deferred',
+        structure: 'deferred',
+        graph: 'deferred',
+        semantic: this.getProjectSemanticIndexEnabled(scopeVersionId) ? 'queued' : 'disabled'
+      }),
+      markedAt
+    );
+  }
+
+  public getProjectIndexingDeferredState(scopeVersionId: string): Record<string, unknown> | null {
+    const value = this.getMetaValue(`project_indexing_deferred:${scopeVersionId}`);
+    if (!value) return null;
+    const parsed = parseJson(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  }
+
+  public recordRunSetupState(runId: string, update: Record<string, unknown>): Record<string, unknown> {
+    const key = `run_setup_state:${runId}`;
+    const existing = this.getRunSetupState(runId) ?? {};
+    const probes = Array.isArray(existing.probes) ? existing.probes : [];
+    const next = {
+      ...existing,
+      ...update,
+      probes: [...probes, { ...update, recordedAt: nowIso() }].slice(-25),
+      updatedAt: nowIso()
+    };
+    this.setMetaValue(key, JSON.stringify(next));
+    return next;
+  }
+
+  public getRunSetupState(runId: string): Record<string, unknown> | null {
+    const value = this.getMetaValue(`run_setup_state:${runId}`);
+    if (!value) return null;
+    const parsed = parseJson(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  }
+
+  public markPriorVerifierRunsSuperseded(runId: string, hypothesisId: string | null, findingId: string | null, verifierRunId: string): string[] {
+    if (!hypothesisId && !findingId) return [];
+    const current = this.getVerifierRun(verifierRunId);
+    if (!current || current.status !== 'pass') return [];
+    const rowsToSupersede = rows(
+      this.db
+        .prepare(
+          `SELECT vr.*
+           FROM verifier_runs vr
+           JOIN verifier_contracts vc ON vc.id = vr.contract_id
+           WHERE vr.run_id = ?
+             AND vr.id <> ?
+             AND vr.status = 'pass'
+             AND (? IS NULL OR vc.hypothesis_id = ?)
+             AND (? IS NULL OR vc.finding_id = ?)
+           ORDER BY vr.started_at ASC, vr.id ASC`
+        )
+        .all(runId, verifierRunId, hypothesisId, hypothesisId, findingId, findingId)
+    ).map((row) => this.mapVerifierRun(row));
+    const supersededIds = rowsToSupersede
+      .filter((run) => stringValueForJson(run.result.supersededByVerifierRunId) !== verifierRunId)
+      .map((run) => run.id);
+    if (supersededIds.length === 0) return [];
+    const updatedAt = nowIso();
+    for (const run of rowsToSupersede) {
+      const result = {
+        ...run.result,
+        supersededByVerifierRunId: verifierRunId,
+        supersededAt: updatedAt,
+        canonical: false
+      };
+      this.db.prepare('UPDATE verifier_runs SET result_json = ? WHERE id = ?').run(toJson(result), run.id);
+      this.indexVerifierRunSearchDocument({ ...run, result });
+    }
+    const nextCurrentResult = {
+      ...current.result,
+      supersedesVerifierRunIds: uniqueStringsForJson([...(Array.isArray(current.result.supersedesVerifierRunIds) ? current.result.supersedesVerifierRunIds : []), ...supersededIds]),
+      canonical: true
+    };
+    this.db.prepare('UPDATE verifier_runs SET result_json = ? WHERE id = ?').run(toJson(nextCurrentResult), verifierRunId);
+    this.indexVerifierRunSearchDocument({ ...current, result: nextCurrentResult });
+    this.refreshProjectGraphForRun(runId);
+    return supersededIds;
   }
 
   public replaceWeaknessMappings(entityKind: WeaknessMappingEntityKind, entityId: string, mappings: WeaknessMappingInput[]): WeaknessMappingRecord[] {
