@@ -2314,6 +2314,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trail-list {
   gap: 10px;
+  padding-top: 8px;
   padding-bottom: 12px;
 }
 
