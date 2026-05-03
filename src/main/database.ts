@@ -553,7 +553,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 16;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -4350,12 +4350,16 @@ export class WorkspaceDatabase {
 
   public createEvidence(input: CreateEvidenceInput): EvidenceRecord {
     const id = createId('evidence');
+    const verifierRun = input.verifierRunId ? this.getVerifierRun(input.verifierRunId) : null;
+    const supersededByVerifierRunId = verifierRun ? stringValueForJson(verifierRun.result.supersededByVerifierRunId) || null : null;
+    const supersededAt = verifierRun ? stringValueForJson(verifierRun.result.supersededAt) || null : null;
+    const canonical = supersededByVerifierRunId ? 0 : 1;
     this.db
       .prepare(
         `INSERT INTO evidence (
           id, run_id, hypothesis_id, finding_id, kind, summary, observation_trace_event_id,
-          artifact_id, verifier_run_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          artifact_id, verifier_run_id, superseded_by_verifier_run_id, superseded_at, canonical, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -4367,6 +4371,9 @@ export class WorkspaceDatabase {
         input.observationTraceEventId ?? null,
         input.artifactId ?? null,
         input.verifierRunId ?? null,
+        supersededByVerifierRunId,
+        supersededAt,
+        canonical,
         nowIso()
       );
     const evidence = this.getEvidence(id);
@@ -4736,6 +4743,29 @@ export class WorkspaceDatabase {
       };
       this.db.prepare('UPDATE verifier_runs SET result_json = ? WHERE id = ?').run(toJson(result), run.id);
       this.indexVerifierRunSearchDocument({ ...run, result });
+    }
+    this.db
+      .prepare(
+        `UPDATE evidence
+         SET superseded_by_verifier_run_id = ?,
+             superseded_at = ?,
+             canonical = 0
+         WHERE run_id = ?
+           AND verifier_run_id IN (${supersededIds.map(() => '?').join(',')})`
+      )
+      .run(verifierRunId, updatedAt, runId, ...supersededIds);
+    this.db
+      .prepare(
+        `UPDATE evidence
+         SET superseded_by_verifier_run_id = NULL,
+             superseded_at = NULL,
+             canonical = 1
+         WHERE run_id = ?
+           AND verifier_run_id = ?`
+      )
+      .run(runId, verifierRunId);
+    for (const row of rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id = ? AND (verifier_run_id = ? OR verifier_run_id IN (${supersededIds.map(() => '?').join(',')}))`).all(runId, verifierRunId, ...supersededIds))) {
+      this.indexEvidenceSearchDocument(this.mapEvidence(row));
     }
     const nextCurrentResult = {
       ...current.result,
@@ -6905,6 +6935,10 @@ export class WorkspaceDatabase {
         this.applyProjectGraphStatusMigration();
         this.insertMigration(15, 'project_graph_operational_status');
       }
+      if (currentVersion < 16) {
+        this.applyEvidenceSupersedenceMigration();
+        this.insertMigration(16, 'evidence_supersedence');
+      }
     });
   }
 
@@ -7070,6 +7104,13 @@ export class WorkspaceDatabase {
     for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
       this.recordProjectGraphStatus(text(row, 'id'), { rebuildReason: null, indexedAt: null, durationMs: null, incrementBuildCount: false });
     }
+  }
+
+  private applyEvidenceSupersedenceMigration(): void {
+    this.addColumnIfMissing('evidence', 'superseded_by_verifier_run_id', 'superseded_by_verifier_run_id TEXT');
+    this.addColumnIfMissing('evidence', 'superseded_at', 'superseded_at TEXT');
+    this.addColumnIfMissing('evidence', 'canonical', 'canonical INTEGER NOT NULL DEFAULT 1');
+    this.db.prepare('UPDATE evidence SET canonical = 1 WHERE canonical IS NULL').run();
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -9070,7 +9111,10 @@ export class WorkspaceDatabase {
         findingId: evidence.findingId,
         observationTraceEventId: evidence.observationTraceEventId,
         artifactId: evidence.artifactId,
-        verifierRunId: evidence.verifierRunId
+        verifierRunId: evidence.verifierRunId,
+        supersededByVerifierRunId: evidence.supersededByVerifierRunId,
+        supersededAt: evidence.supersededAt,
+        canonical: evidence.canonical
       },
       createdAt: evidence.createdAt,
       updatedAt: evidence.createdAt
@@ -9630,6 +9674,9 @@ export class WorkspaceDatabase {
       observationTraceEventId: nullableText(row, 'observation_trace_event_id'),
       artifactId: nullableText(row, 'artifact_id'),
       verifierRunId: nullableText(row, 'verifier_run_id'),
+      supersededByVerifierRunId: nullableText(row, 'superseded_by_verifier_run_id'),
+      supersededAt: nullableText(row, 'superseded_at'),
+      canonical: booleanValue(row, 'canonical'),
       createdAt: text(row, 'created_at')
     };
   }
@@ -10334,6 +10381,9 @@ CREATE TABLE IF NOT EXISTS evidence (
   observation_trace_event_id TEXT REFERENCES trace_events(id),
   artifact_id TEXT REFERENCES artifacts(id),
   verifier_run_id TEXT,
+  superseded_by_verifier_run_id TEXT,
+  superseded_at TEXT,
+  canonical INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 

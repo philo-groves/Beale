@@ -274,7 +274,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
     tool('python', 'Run a small Python analysis operation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       task: stringProp('Analysis task'),
       script: stringProp('Python script to run in the active sandbox'),
-      artifact_path: stringProp('Path to collect as an artifact after execution; use an empty string when not needed')
+      artifact_path: stringProp('Path to collect as an artifact after execution; use an empty string when not needed'),
+      setup_state_json: stringProp('Optional structured setup-state update as JSON, e.g. {"packageManagerProbe":true,"packageManagers":{"pnpm":true},"dependencySetup":"completed","buildSetup":"completed"}. Use an empty string when not applicable.')
     }),
     tool('debugger', 'Run a wrapper-first debugger observation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       operation: stringProp('Debugger operation, such as crash_summary or gdb_probe'),
@@ -1601,7 +1602,10 @@ export class BealeToolRouter {
         findingId,
         artifactId,
         traceEventId,
-        verifierRunId
+        verifierRunId,
+        supersededByVerifierRunId: evidence.supersededByVerifierRunId,
+        supersededAt: evidence.supersededAt,
+        canonical: evidence.canonical
       }
     };
   }
@@ -4346,7 +4350,10 @@ function evidenceResourceRecord(evidence: EvidenceRecord): ResourceLookupRecord 
     findingId: evidence.findingId,
     artifactId: evidence.artifactId,
     verifierRunId: evidence.verifierRunId,
-    observationTraceEventId: evidence.observationTraceEventId
+    observationTraceEventId: evidence.observationTraceEventId,
+    supersededByVerifierRunId: evidence.supersededByVerifierRunId,
+    supersededAt: evidence.supersededAt,
+    canonical: evidence.canonical
   };
   return resourceRecord('evidence', evidence.id, evidence.summary || `${evidence.kind} evidence`, payload, evidence.createdAt, null);
 }
@@ -4738,15 +4745,17 @@ function splitSearchTargetHints(targetHint: string): string[] {
 
 function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, script: string, execution: GuestToolResult): Record<string, unknown> | null {
   const task = stringValue(args.task, '').trim();
+  const explicit = jsonRecordFromString(args.setup_state_json, {});
   const haystack = `${task}\n${script}\n${execution.result.stdoutSummary}\n${execution.result.stderrSummary}`.toLowerCase();
   const update: Record<string, unknown> = {
     task,
     status: execution.result.status,
     durationMs: execution.result.durationMs,
     scriptHash: createHash('sha256').update(script).digest('hex'),
-    hostTargetPath: execution.hostTargetPath ?? null
+    hostTargetPath: execution.hostTargetPath ?? null,
+    ...explicit
   };
-  let relevant = false;
+  let relevant = Object.keys(explicit).length > 0;
   if (/package manager|pnpm|npm|yarn|corepack/.test(haystack)) {
     relevant = true;
     update.packageManagerProbe = true;

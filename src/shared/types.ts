@@ -711,6 +711,9 @@ export interface EvidenceRecord {
   observationTraceEventId: string | null;
   artifactId: string | null;
   verifierRunId: string | null;
+  supersededByVerifierRunId: string | null;
+  supersededAt: string | null;
+  canonical: boolean;
   createdAt: string;
 }
 

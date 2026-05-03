@@ -781,10 +781,11 @@ describe('structured research tools', () => {
     const setup = callTool(router, context, 'python', {
       task: 'check package manager and build setup state',
       script: 'print("npm version 10.0.0\\npnpm not found\\nbuild completed")',
-      artifact_path: ''
+      artifact_path: '',
+      setup_state_json: '{"dependencySetup":"completed","packageManagers":{"npm":true,"pnpm":false}}'
     });
     expect(setup.status).toBe('success');
-    expect(setup.payload.setupState).toMatchObject({ packageManagerProbe: true, buildSetup: 'completed_or_available' });
+    expect(setup.payload.setupState).toMatchObject({ packageManagerProbe: true, dependencySetup: 'completed', buildSetup: 'completed_or_available' });
 
     const first = callTool(router, context, 'verifier', {
       hypothesis: hypothesisId,
@@ -797,6 +798,16 @@ describe('structured research tools', () => {
     });
     expect(first.status).toBe('success');
     expect(first.payload.supersededVerifierRunIds).toEqual([]);
+    const firstEvidence = callTool(router, context, 'evidence', {
+      kind: 'verifier',
+      summary: 'First verifier pass.',
+      hypothesis_id: hypothesisId,
+      finding_id: '',
+      artifact_id: '',
+      trace_event_id: '',
+      verifier_run_id: first.payload.verifierRunId
+    });
+    expect(firstEvidence.status).toBe('success');
 
     const second = callTool(router, context, 'verifier', {
       hypothesis: hypothesisId,
@@ -814,6 +825,8 @@ describe('structured research tools', () => {
     const canonical = detail.verifierRuns.find((run) => run.id === second.payload.verifierRunId);
     expect(superseded?.result).toMatchObject({ supersededByVerifierRunId: second.payload.verifierRunId, canonical: false });
     expect(canonical?.result.supersedesVerifierRunIds).toEqual(expect.arrayContaining([first.payload.verifierRunId]));
+    const supersededEvidence = detail.evidence.find((item) => item.id === firstEvidence.payload.evidenceId);
+    expect(supersededEvidence).toMatchObject({ canonical: false, supersededByVerifierRunId: second.payload.verifierRunId });
     db.close();
   });
 

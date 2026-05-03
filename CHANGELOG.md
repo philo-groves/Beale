@@ -62,6 +62,7 @@
 - Changed finding recording so a verifier-backed auto finding for the same hypothesis is updated instead of creating a second manual finding.
 - Added `code_browser` read-budget advice when the same file is paged repeatedly in one run.
 - Added post-source deferred indexing state, repeated broad-search advice, Python setup-state tracking, and verifier supersedence metadata for stronger canonical verifier runs.
+- Added evidence-level verifier supersedence fields, structured Python setup-state input, and delayed post-source inventory/graph refresh scheduling.
 
 ### Changed
 

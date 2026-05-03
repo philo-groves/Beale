@@ -1396,6 +1396,17 @@ export class WorkspaceService {
         (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail),
         (scopeVersionId, reason) => {
           this.semanticIndexExecutor.schedule(scopeVersionId, reason, workspacePath, 250);
+          const inventoryTimer = setTimeout(() => {
+            const runtime = this.backgroundRuntimes.get(workspacePath);
+            if (!runtime) return;
+            try {
+              runtime.db.refreshProjectInventory(scopeVersionId);
+              this.emitRuntimeChange(workspacePath);
+            } catch {
+              // Search diagnostics still report stale/deferred indexing if refresh fails.
+            }
+          }, 500);
+          inventoryTimer.unref?.();
           this.emitRuntimeChange(workspacePath);
         }
       ),
