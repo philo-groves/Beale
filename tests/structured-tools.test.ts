@@ -53,6 +53,14 @@ describe('structured research tools', () => {
     expect(source.payload.indexingState).toMatchObject({ reason: 'source_materialized', inventory: 'deferred', structure: 'deferred', graph: 'deferred' });
     expect(db.getProjectInventorySummary(db.getActiveScope().id).fileCount).toBe(0);
 
+    const missingRefSource = callTool(router, context, 'source', { repository: 'Zuul', ref: 'missing-ref' });
+    expect(missingRefSource.status).toBe('error');
+    expect(missingRefSource.payload).toMatchObject({
+      error: 'requested_ref_not_materialized',
+      requestedRef: 'missing-ref',
+      requestedRefMatchesHead: false
+    });
+
     for (let index = 0; index < 325; index += 1) {
       writeFileSync(join(targetDir, `filler-${index}.txt`), 'unrelated filler\n');
     }
@@ -75,6 +83,48 @@ describe('structured research tools', () => {
     expect(multiTargetSearch.payload.rootsConsidered).toHaveLength(2);
     expect(multiTargetSearch.payload.unresolvedTargets).toEqual([]);
     expect(JSON.stringify(multiTargetSearch.payload)).toContain('ProxyEndpoint.java');
+    db.close();
+  });
+
+  it('backs off repeated source clone attempts after transient remote failures', () => {
+    const { db, context, targetDir } = openStructuredToolDb();
+    const fakeGit = join(targetDir, 'remote-fail-git.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'if (args.includes("clone")) {',
+        '  process.stderr.write("fatal: remote error: GitLab is currently unable to handle this request due to load\\n");',
+        '  process.exit(128);',
+        '}',
+        'process.exit(1);'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const router = new BealeToolRouter(db);
+    db.saveProgramScope({
+      ...scopeDraftFromActive(db),
+      assets: [
+        ...scopeDraftFromActive(db).assets,
+        {
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://gitlab.com/gitlab-org/gitlab',
+          sensitivity: 'public',
+          attributes: {}
+        }
+      ]
+    });
+
+    const first = callTool(router, context, 'source', { repository: 'https://gitlab.com/gitlab-org/gitlab', ref: '' });
+    expect(first.status).toBe('error');
+    expect(first.payload.error).toBe('source_materialization_failed');
+    const second = callTool(router, context, 'source', { repository: 'https://gitlab.com/gitlab-org/gitlab', ref: '' });
+    expect(second.status).toBe('error');
+    expect(second.payload.error).toBe('source_materialization_backoff');
+    expect(Number(second.payload.retryAfterMs)).toBeGreaterThan(0);
     db.close();
   });
 
@@ -450,6 +500,14 @@ describe('structured research tools', () => {
     expect(repeatedChunk.payload.readBudgetAdvice).toMatchObject({
       requiresNarrowing: false,
       suggestedNextReads: expect.arrayContaining([expect.objectContaining({ tool: 'search' })])
+    });
+
+    expect(callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '700', line_end: '720' }).status).toBe('success');
+    const blockedBroadRead = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '', line_end: '' });
+    expect(blockedBroadRead.status).toBe('error');
+    expect(blockedBroadRead.payload).toMatchObject({
+      error: 'read_budget_requires_narrowing',
+      priorSameFileReads: 5
     });
 
     const blocked = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
@@ -927,6 +985,19 @@ describe('structured research tools', () => {
     expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === framed.payload.findingId)?.reportability).toMatchObject({
       attackerReachability: 'remote HTTP client'
     });
+    db.close();
+  });
+
+  it('does not treat IPv4 addresses as prompt source versions', () => {
+    const { db, context, routeFile, targetDir } = openStructuredToolDb('host_research_only', {
+      promptMarkdown: '# Local callback audit\nUse http://127.0.0.1:3000 during fixture checks.'
+    });
+    writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2));
+    const router = new BealeToolRouter(db);
+
+    const read = callTool(router, context, 'code_browser', { path: routeFile, symbol: 'listUsers' });
+    expect(read.status).toBe('success');
+    expect(read.payload.sourceVersionAdvice).toBeNull();
     db.close();
   });
 

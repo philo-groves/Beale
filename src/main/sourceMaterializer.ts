@@ -88,16 +88,20 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
-    return {
-      repositoryUrl: candidate.url,
-      localPath: existingCheckout,
-      cloned: false,
-      ref: cleanRef || null,
-      ...gitCheckoutMetadata(existingCheckout, cleanRef)
-    };
+    const metadata = gitCheckoutMetadata(existingCheckout, cleanRef);
+    if (!cleanRef || metadata.requestedRefMatchesHead === true) {
+      return {
+        repositoryUrl: candidate.url,
+        localPath: existingCheckout,
+        cloned: false,
+        ref: cleanRef || null,
+        ...metadata
+      };
+    }
   }
 
   if (existsSync(join(localPath, '.git'))) {
+    materializeRequestedRef(localPath, cleanRef);
     return {
       repositoryUrl: candidate.url,
       localPath,
@@ -143,16 +147,20 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
-    return {
-      repositoryUrl: candidate.url,
-      localPath: existingCheckout,
-      cloned: false,
-      ref: cleanRef || null,
-      ...gitCheckoutMetadata(existingCheckout, cleanRef)
-    };
+    const metadata = gitCheckoutMetadata(existingCheckout, cleanRef);
+    if (!cleanRef || metadata.requestedRefMatchesHead === true) {
+      return {
+        repositoryUrl: candidate.url,
+        localPath: existingCheckout,
+        cloned: false,
+        ref: cleanRef || null,
+        ...metadata
+      };
+    }
   }
 
   if (existsSync(join(localPath, '.git'))) {
+    await materializeRequestedRefAsync(localPath, cleanRef);
     return {
       repositoryUrl: candidate.url,
       localPath,
@@ -289,6 +297,30 @@ function gitCheckoutMetadata(localPath: string, requestedRef: string): Omit<Mate
     requestedRefHead,
     requestedRefMatchesHead: requestedRefHead && head ? requestedRefHead === head : requestedRef ? false : null
   };
+}
+
+function materializeRequestedRef(localPath: string, requestedRef: string): void {
+  if (!requestedRef) return;
+  const metadata = gitCheckoutMetadata(localPath, requestedRef);
+  if (metadata.requestedRefMatchesHead === true) return;
+  try {
+    runGit(['-C', localPath, 'fetch', '--depth', '1', 'origin', requestedRef]);
+  } catch {
+    runGit(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin']);
+  }
+  runGit(['-C', localPath, 'checkout', '--detach', requestedRef]);
+}
+
+async function materializeRequestedRefAsync(localPath: string, requestedRef: string): Promise<void> {
+  if (!requestedRef) return;
+  const metadata = gitCheckoutMetadata(localPath, requestedRef);
+  if (metadata.requestedRefMatchesHead === true) return;
+  try {
+    await runGitAsync(['-C', localPath, 'fetch', '--depth', '1', 'origin', requestedRef]);
+  } catch {
+    await runGitAsync(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin']);
+  }
+  await runGitAsync(['-C', localPath, 'checkout', '--detach', requestedRef]);
 }
 
 function gitOutput(localPath: string, args: string[]): string | null {

@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
-const commandIndex = args.findIndex((arg) => arg === 'clone' || arg === 'rev-parse' || arg === 'checkout');
+const commandIndex = args.findIndex((arg) => arg === 'clone' || arg === 'rev-parse' || arg === 'checkout' || arg === 'fetch');
 const command = commandIndex >= 0 ? args[commandIndex] : '';
 
 if (command === 'clone') {
@@ -17,11 +17,19 @@ if (command === 'clone') {
 }
 
 if (command === 'rev-parse') {
+  if (args.some((arg) => arg.includes('missing-ref'))) {
+    process.stderr.write('fatal: ambiguous argument missing-ref\n');
+    process.exit(1);
+  }
   process.stdout.write('0123456789abcdef0123456789abcdef01234567\n');
   process.exit(0);
 }
 
 if (command === 'checkout') {
+  process.exit(0);
+}
+
+if (command === 'fetch') {
   process.exit(0);
 }
 

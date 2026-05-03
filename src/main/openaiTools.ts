@@ -86,6 +86,18 @@ interface ScopedSearchRoot {
   reason: string;
 }
 
+interface MaterializedSourceInfo {
+  repositoryUrl: string;
+  localPath: string;
+  cloned: boolean;
+  ref: string | null;
+  head: string | null;
+  headRefName: string | null;
+  headDescribe: string | null;
+  requestedRefHead: string | null;
+  requestedRefMatchesHead: boolean | null;
+}
+
 interface SearchAssemblyResult {
   matches: Array<Record<string, unknown>>;
   metadataMatches: number;
@@ -244,6 +256,7 @@ const MAX_BROWSER_LINES = 180;
 const MAX_EXCERPT_CHARS = 16_000;
 const MAX_LARGE_BROWSER_SCAN_BYTES = 32 * 1024 * 1024;
 const MAX_MODEL_ARTIFACT_BYTES = 256 * 1024;
+const SOURCE_MATERIALIZATION_BACKOFF_MS = 5 * 60 * 1000;
 
 export function bealeToolDefinitions(): OpenAiToolDefinition[] {
   return [
@@ -344,6 +357,8 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
 }
 
 export class BealeToolRouter {
+  private readonly sourceMaterializationBackoff = new Map<string, { failedAtMs: number; detail: string }>();
+
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly executor: ExecutorManager | null = null,
@@ -652,11 +667,12 @@ export class BealeToolRouter {
     }
 
     const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES);
-    const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES);
-    const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES);
+    const effectiveScopeVersionId = this.db.getActiveScope().id;
+    const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES, effectiveScopeVersionId);
+    const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES, effectiveScopeVersionId);
     const directPhaseASeeds = this.selectPhaseASeedMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [] }, 24, queryPlan);
-    const phaseAGraphMatches = this.searchProjectGraph(context, directPhaseASeeds, MAX_SEARCH_MATCHES);
-    const phaseAGraphVariantMatches = this.searchProjectGraphVariants(context, [...directPhaseASeeds, ...phaseAGraphMatches], MAX_SEARCH_MATCHES);
+    const phaseAGraphMatches = this.searchProjectGraph(effectiveScopeVersionId, directPhaseASeeds, MAX_SEARCH_MATCHES);
+    const phaseAGraphVariantMatches = this.searchProjectGraphVariants(effectiveScopeVersionId, [...directPhaseASeeds, ...phaseAGraphMatches], MAX_SEARCH_MATCHES);
     const phaseASeeds = this.selectPhaseASeedMatches(
       {
         fileMatches,
@@ -668,13 +684,13 @@ export class BealeToolRouter {
       16,
       queryPlan
     );
-    const sourceStructureSeeds = this.searchSourceStructureSeeds(context, phaseASeeds, 8);
-    const sourceInventorySeeds = this.searchSourceInventorySeeds(context, phaseASeeds, 8);
+    const sourceStructureSeeds = this.searchSourceStructureSeeds(effectiveScopeVersionId, phaseASeeds, 8);
+    const sourceInventorySeeds = this.searchSourceInventorySeeds(effectiveScopeVersionId, phaseASeeds, 8);
     const phaseBSeeds = [...phaseASeeds, ...sourceStructureSeeds, ...sourceInventorySeeds];
-    const phaseBGraphMatches = this.searchProjectGraph(context, phaseBSeeds, MAX_SEARCH_MATCHES);
-    const phaseBGraphVariantMatches = this.searchProjectGraphVariants(context, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
+    const phaseBGraphMatches = this.searchProjectGraph(effectiveScopeVersionId, phaseBSeeds, MAX_SEARCH_MATCHES);
+    const phaseBGraphVariantMatches = this.searchProjectGraphVariants(effectiveScopeVersionId, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
     const initialGraphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
-    const adaptiveFollowUp = this.adaptiveFollowUpSearch(context, queryPlan, {
+    const adaptiveFollowUp = this.adaptiveFollowUpSearch(context, effectiveScopeVersionId, queryPlan, {
       fileMatches,
       artifactMatches,
       metadataMatches,
@@ -684,7 +700,7 @@ export class BealeToolRouter {
     const combinedMetadataMatches = [...metadataMatches, ...adaptiveFollowUp.metadataMatches];
     const combinedSemanticMatches = [...semanticMatches, ...adaptiveFollowUp.semanticMatches];
     const graphMatches = [...initialGraphMatches, ...adaptiveFollowUp.graphMatches];
-    const feedbackSummary = this.db.getProjectRetrievalFeedbackSummary(context.run.scopeVersionId);
+    const feedbackSummary = this.db.getProjectRetrievalFeedbackSummary(effectiveScopeVersionId);
     const searchAssembly = this.assembleRankedSearchMatches({
       fileMatches,
       artifactMatches,
@@ -696,11 +712,11 @@ export class BealeToolRouter {
       feedback: retrievalFeedbackContext(feedbackSummary)
     });
     const matches = searchAssembly.matches;
-    const inventorySummary = this.db.getProjectInventorySummary(context.run.scopeVersionId);
-    const structureSummary = this.db.getProjectStructureSummary(context.run.scopeVersionId);
-    const graphSummary = this.db.getProjectGraphSummary(context.run.scopeVersionId);
-    const semanticSummary = this.db.getProjectSemanticSummary(context.run.scopeVersionId);
-    const indexingDeferredState = this.db.getProjectIndexingDeferredState(context.run.scopeVersionId);
+    const inventorySummary = this.db.getProjectInventorySummary(effectiveScopeVersionId);
+    const structureSummary = this.db.getProjectStructureSummary(effectiveScopeVersionId);
+    const graphSummary = this.db.getProjectGraphSummary(effectiveScopeVersionId);
+    const semanticSummary = this.db.getProjectSemanticSummary(effectiveScopeVersionId);
+    const indexingDeferredState = this.db.getProjectIndexingDeferredState(effectiveScopeVersionId);
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
         ? `Scoped repository ${collection.unmaterializedSource.url} is not materialized. Use the source tool, then retry search.`
@@ -802,7 +818,18 @@ export class BealeToolRouter {
       };
     }
 
-    const materialized = materializeGitRepository(selection.candidate, this.db.getDatabasePath(), ref);
+    const backoff = this.sourceBackoffResult(selection.candidate.url, ref);
+    if (backoff) return backoff;
+    let materialized: MaterializedSourceInfo;
+    try {
+      materialized = materializeGitRepository(selection.candidate, this.db.getDatabasePath(), ref);
+    } catch (error) {
+      this.recordSourceBackoff(selection.candidate.url, ref, errorMessage(error));
+      return sourceMaterializationError(selection.candidate.url, ref, error);
+    }
+    const refMismatch = requestedSourceRefMismatch(ref, materialized);
+    if (!refMismatch) this.clearSourceBackoff(selection.candidate.url, ref);
+    if (refMismatch) return refMismatch;
     const nextScope = this.ensureLocalSourceInScope(
       selection.candidate.sourceAssetId,
       selection.candidate.sensitivity,
@@ -868,7 +895,18 @@ export class BealeToolRouter {
       };
     }
 
-    const materialized = await materializeGitRepositoryAsync(selection.candidate, this.db.getDatabasePath(), ref);
+    const backoff = this.sourceBackoffResult(selection.candidate.url, ref);
+    if (backoff) return backoff;
+    let materialized: MaterializedSourceInfo;
+    try {
+      materialized = await materializeGitRepositoryAsync(selection.candidate, this.db.getDatabasePath(), ref);
+    } catch (error) {
+      this.recordSourceBackoff(selection.candidate.url, ref, errorMessage(error));
+      return sourceMaterializationError(selection.candidate.url, ref, error);
+    }
+    const refMismatch = requestedSourceRefMismatch(ref, materialized);
+    if (!refMismatch) this.clearSourceBackoff(selection.candidate.url, ref);
+    if (refMismatch) return refMismatch;
     const nextScope = this.ensureLocalSourceInScope(
       selection.candidate.sourceAssetId,
       selection.candidate.sensitivity,
@@ -911,6 +949,43 @@ export class BealeToolRouter {
         searchNext: true
       }
     };
+  }
+
+  private sourceBackoffResult(repositoryUrl: string, ref: string): ToolResult | null {
+    const key = sourceBackoffKey(repositoryUrl, ref);
+    const entry = this.sourceMaterializationBackoff.get(key);
+    if (!entry) return null;
+    const elapsedMs = Date.now() - entry.failedAtMs;
+    const retryAfterMs = SOURCE_MATERIALIZATION_BACKOFF_MS - elapsedMs;
+    if (retryAfterMs <= 0) {
+      this.sourceMaterializationBackoff.delete(key);
+      return null;
+    }
+    return {
+      status: 'error',
+      summary: `Source repository materialization is backing off after a recent failure: ${repositoryUrl}.`,
+      payload: {
+        observationBacked: false,
+        simulated: false,
+        targetExecution: false,
+        hostSetup: true,
+        repositoryUrl,
+        requestedRef: ref || null,
+        error: 'source_materialization_backoff',
+        previousFailure: entry.detail,
+        retryAfterMs,
+        recoveryHint: 'Do not retry source for this repository/ref until retryAfterMs has elapsed. Use existing local/package artifacts or search other scoped material in the meantime.'
+      }
+    };
+  }
+
+  private recordSourceBackoff(repositoryUrl: string, ref: string, detail: string): void {
+    if (!sourceMaterializationShouldBackoff(detail)) return;
+    this.sourceMaterializationBackoff.set(sourceBackoffKey(repositoryUrl, ref), { failedAtMs: Date.now(), detail });
+  }
+
+  private clearSourceBackoff(repositoryUrl: string, ref: string): void {
+    this.sourceMaterializationBackoff.delete(sourceBackoffKey(repositoryUrl, ref));
   }
 
   private browseCode(context: CreatedRunContext, call: OpenAiFunctionCall, args: Record<string, unknown>): ToolResult {
@@ -1010,8 +1085,27 @@ export class BealeToolRouter {
     }
 
     const requestedRange = requestedLineRangeFromArgs(args);
-    const structureEntity = !artifactTarget && symbol ? this.db.findProjectStructureEntity(context.run.scopeVersionId, filePath, symbol, { refreshInventory: false }) : null;
+    const effectiveScopeVersionId = this.db.getActiveScope().id;
+    const structureEntity = !artifactTarget && symbol ? this.db.findProjectStructureEntity(effectiveScopeVersionId, filePath, symbol, { refreshInventory: false }) : null;
     const structureRange = structureEntity && !requestedRange ? requestedLineRangeFromProjectStructureEntity(structureEntity) : null;
+    const priorSameFileReads = this.db.countCodeBrowserReadsForPath(context.run.id, filePath);
+    if (priorSameFileReads >= 5 && !symbol && !requestedRange && !structureRange) {
+      return {
+        status: 'error',
+        summary: 'Code browser requires a symbol or explicit line range before another broad read of this file.',
+        payload: {
+          observationBacked: false,
+          path: requestedPath,
+          sourcePath: filePath,
+          error: 'read_budget_requires_narrowing',
+          priorSameFileReads,
+          recoveryHint: 'Run search for a narrower symbol/term from prior excerpts, or retry code_browser with symbol, line_start, and line_end.',
+          suggestedNextReads: [
+            { tool: 'search', reason: 'Find a narrower symbol or related file before another same-file page.', args: { query: basename(filePath), target: dirname(filePath) } }
+          ]
+        }
+      };
+    }
     const selection = readCodeBrowserText(filePath, symbol, requestedRange ?? structureRange);
     if (!selection) {
       const readFailure = codeBrowserReadFailure(filePath, stat.size);
@@ -1032,9 +1126,9 @@ export class BealeToolRouter {
     const selected = selection.text ? selection.text.split(/\r?\n/) : [];
     const startLine = selection.lineStart ?? 1;
     const endLine = selection.lineEnd ?? Math.max(startLine, startLine + selected.length - 1);
-    const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
-    const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(context, filePath, symbol, structureEntity, selection);
     const readBudgetAdvice = this.codeBrowserReadBudgetAdvice(context, filePath, symbol, selection);
+    const excerpt = selected.map((line, index) => `${startLine + index}: ${line}`).join('\n').slice(0, MAX_EXCERPT_CHARS);
+    const structureNavigation = artifactTarget ? null : this.projectStructureNavigation(effectiveScopeVersionId, filePath, symbol, structureEntity, selection);
     const sourceVersionAdvice = artifactTarget ? null : this.sourceVersionAdvice(context, filePath);
 
     return {
@@ -2363,19 +2457,19 @@ export class BealeToolRouter {
     return matches;
   }
 
-  private searchProjectMetadata(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
+  private searchProjectMetadata(context: CreatedRunContext, query: string, remaining: number, scopeVersionId = context.run.scopeVersionId): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
-    return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining, { refreshInventory: false }).map((result) => this.projectSearchResultToToolMatch(result));
+    return this.db.searchProjectDocumentsForRun(context.run.id, query, remaining, { refreshInventory: false, scopeVersionId }).map((result) => this.projectSearchResultToToolMatch(result));
   }
 
-  private searchProjectSemantic(context: CreatedRunContext, query: string, remaining: number): Array<Record<string, unknown>> {
+  private searchProjectSemantic(context: CreatedRunContext, query: string, remaining: number, scopeVersionId = context.run.scopeVersionId): Array<Record<string, unknown>> {
     if (remaining <= 0) return [];
     return this.db
-      .searchProjectSemanticChunksForRun(context.run.id, query, Math.min(8, remaining), { refreshIndex: false })
+      .searchProjectSemanticChunksForRun(context.run.id, query, Math.min(8, remaining), { refreshIndex: false, scopeVersionId })
       .map((result) => this.projectSemanticSearchResultToToolMatch(result));
   }
 
-  private searchProjectGraph(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
+  private searchProjectGraph(scopeVersionId: string, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0 || seeds.length === 0) return [];
     const candidates: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
@@ -2384,7 +2478,7 @@ export class BealeToolRouter {
       const entityType = stringValue(seed.entityType, '');
       const entityId = stringValue(seed.entityId, '');
       if (!entityType || !entityId) continue;
-      const neighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, entityType, entityId, { depth: 1, limit: 24, refresh: false });
+      const neighborhood = this.db.getProjectGraphNeighborhood(scopeVersionId, entityType, entityId, { depth: 1, limit: 24, refresh: false });
       if (neighborhood.status !== 'hit') continue;
       const seedNodeId = neighborhood.root?.id ?? '';
       for (const edge of neighborhood.edges) {
@@ -2410,7 +2504,7 @@ export class BealeToolRouter {
     return candidates;
   }
 
-  private searchProjectGraphVariants(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
+  private searchProjectGraphVariants(scopeVersionId: string, seeds: Array<Record<string, unknown>>, remaining: number): Array<Record<string, unknown>> {
     if (remaining <= 0 || seeds.length === 0) return [];
     const candidates: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
@@ -2419,9 +2513,9 @@ export class BealeToolRouter {
       const entityType = stringValue(seed.entityType, '');
       const entityId = stringValue(seed.entityId, '');
       if (!entityType || !entityId) continue;
-      const neighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, entityType, entityId, { depth: 1, edgeKinds: [...GRAPH_VARIANT_EDGE_KINDS], limit: 16, refresh: false });
+      const neighborhood = this.db.getProjectGraphNeighborhood(scopeVersionId, entityType, entityId, { depth: 1, edgeKinds: [...GRAPH_VARIANT_EDGE_KINDS], limit: 16, refresh: false });
       if (neighborhood.status !== 'hit' || !neighborhood.root) continue;
-      const variants = this.db.listProjectGraphVariantNodesForNode(context.run.scopeVersionId, neighborhood.root.id, {
+      const variants = this.db.listProjectGraphVariantNodesForNode(scopeVersionId, neighborhood.root.id, {
         edgeKinds: [...GRAPH_VARIANT_EDGE_KINDS],
         limit: 16,
         refresh: false
@@ -2436,10 +2530,10 @@ export class BealeToolRouter {
       }
       const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
       if (!sourcePath) continue;
-      const componentNodes = this.db.findProjectGraphNodes(context.run.scopeVersionId, sourcePath, { entityType: 'research_component', limit: 3, refresh: false });
+      const componentNodes = this.db.findProjectGraphNodes(scopeVersionId, sourcePath, { entityType: 'research_component', limit: 3, refresh: false });
       for (const componentNode of componentNodes) {
         if (candidates.length >= Math.min(8, remaining)) break;
-        const componentNeighborhood = this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, componentNode.entityType, componentNode.entityId, {
+        const componentNeighborhood = this.db.getProjectGraphNeighborhood(scopeVersionId, componentNode.entityType, componentNode.entityId, {
           depth: 1,
           edgeKinds: ['affects_component'],
           limit: 16,
@@ -2499,7 +2593,7 @@ export class BealeToolRouter {
       .map((entry) => entry.candidate.output);
   }
 
-  private searchSourceStructureSeeds(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
+  private searchSourceStructureSeeds(scopeVersionId: string, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
     const matches: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
     for (const seed of seeds) {
@@ -2508,11 +2602,11 @@ export class BealeToolRouter {
       const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
       const line = numberValue(seed.line, 0);
       if (!sourcePath || line <= 0) continue;
-      const entity = this.db.findProjectStructureEntityContainingLine(context.run.scopeVersionId, sourcePath, line, { refreshInventory: false });
+      const entity = this.db.findProjectStructureEntityContainingLine(scopeVersionId, sourcePath, line, { refreshInventory: false });
       if (!entity) continue;
       const seedEntities = [
         entity,
-        ...this.db.listProjectStructureEntitiesInRange(context.run.scopeVersionId, sourcePath, entity.lineStart, entity.lineEnd, 12, { refreshInventory: false })
+        ...this.db.listProjectStructureEntitiesInRange(scopeVersionId, sourcePath, entity.lineStart, entity.lineEnd, 12, { refreshInventory: false })
       ];
       for (const seedEntity of seedEntities) {
         if (matches.length >= limit) break;
@@ -2524,7 +2618,7 @@ export class BealeToolRouter {
     return matches;
   }
 
-  private searchSourceInventorySeeds(context: CreatedRunContext, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
+  private searchSourceInventorySeeds(scopeVersionId: string, seeds: Array<Record<string, unknown>>, limit: number): Array<Record<string, unknown>> {
     const matches: Array<Record<string, unknown>> = [];
     const seen = new Set<string>();
     for (const seed of seeds) {
@@ -2536,7 +2630,7 @@ export class BealeToolRouter {
       if (!binaryDerived) continue;
       const sourcePath = stringValue(seed.sourcePath, '') || stringValue(seed.path, '');
       if (!sourcePath) continue;
-      const item = this.db.findProjectInventoryItemByPath(context.run.scopeVersionId, sourcePath, { refreshInventory: false });
+      const item = this.db.findProjectInventoryItemByPath(scopeVersionId, sourcePath, { refreshInventory: false });
       if (!item || seen.has(item.id)) continue;
       seen.add(item.id);
       matches.push(this.projectInventoryItemToToolMatch(item, 'source_hit_inventory_seed'));
@@ -2546,6 +2640,7 @@ export class BealeToolRouter {
 
   private adaptiveFollowUpSearch(
     context: CreatedRunContext,
+    scopeVersionId: string,
     queryPlan: SearchQueryPlan,
     current: {
       fileMatches: Array<Record<string, unknown>>;
@@ -2565,8 +2660,8 @@ export class BealeToolRouter {
     const followUpQuery = this.adaptiveFollowUpQuery(queryPlan);
     if (!followUpQuery || followUpQuery.toLowerCase() === queryPlan.rawLower) return { metadataMatches: [], semanticMatches: [], graphMatches: [], diagnostics: null };
     const followUpPlan = buildSearchQueryPlan(followUpQuery);
-    const metadataMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectMetadata(context, followUpQuery, 12), followUpQuery, reasons);
-    const semanticMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectSemantic(context, followUpQuery, 8), followUpQuery, reasons);
+    const metadataMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectMetadata(context, followUpQuery, 12, scopeVersionId), followUpQuery, reasons);
+    const semanticMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectSemantic(context, followUpQuery, 8, scopeVersionId), followUpQuery, reasons);
     const seeds = this.selectPhaseASeedMatches(
       {
         fileMatches: [],
@@ -2579,7 +2674,7 @@ export class BealeToolRouter {
       followUpPlan
     );
     const graphMatches = this.tagAdaptiveFollowUpMatches(
-      [...this.searchProjectGraph(context, seeds, 12), ...this.searchProjectGraphVariants(context, seeds, 12)],
+      [...this.searchProjectGraph(scopeVersionId, seeds, 12), ...this.searchProjectGraphVariants(scopeVersionId, seeds, 12)],
       followUpQuery,
       reasons
     );
@@ -3916,7 +4011,7 @@ export class BealeToolRouter {
   }
 
   private projectStructureNavigation(
-    context: CreatedRunContext,
+    scopeVersionId: string,
     filePath: string,
     symbol: string,
     matchedEntity: ProjectStructureEntityRecord | null,
@@ -3930,24 +4025,24 @@ export class BealeToolRouter {
     }
 
     const rangeEntities = this.db
-      .listProjectStructureEntitiesInRange(context.run.scopeVersionId, filePath, selection.lineStart, selection.lineEnd, 40, { refreshInventory: false })
+      .listProjectStructureEntitiesInRange(scopeVersionId, filePath, selection.lineStart, selection.lineEnd, 40, { refreshInventory: false })
       .filter((entity) => entity.id !== matchedEntity?.id);
     const containedEntities = rangeEntities
       .filter((entity) => entity.parentId === matchedEntity?.id || !matchedEntity)
       .slice(0, 20)
       .map(projectStructureEntityPayload);
     const outgoingRelations = matchedEntity
-      ? this.db.listProjectStructureRelationsForEntity(context.run.scopeVersionId, matchedEntity.id, 40, { refreshInventory: false }).map(projectStructureRelationPayload)
+      ? this.db.listProjectStructureRelationsForEntity(scopeVersionId, matchedEntity.id, 40, { refreshInventory: false }).map(projectStructureRelationPayload)
       : [];
     const incomingReferences = matchedEntity
       ? this.db
-          .listProjectStructureReferencesForTarget(context.run.scopeVersionId, { name: matchedEntity.name, entityId: matchedEntity.id }, 40, { refreshInventory: false })
+          .listProjectStructureReferencesForTarget(scopeVersionId, { name: matchedEntity.name, entityId: matchedEntity.id }, 40, { refreshInventory: false })
           .filter((relation) => relation.sourceEntityId !== matchedEntity.id)
           .slice(0, 20)
           .map(projectStructureRelationPayload)
       : [];
     const graphNeighborhood = matchedEntity
-      ? projectGraphNeighborhoodPayload(this.db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'structure_entity', matchedEntity.id, { depth: 1, limit: 40, refresh: false }))
+      ? projectGraphNeighborhoodPayload(this.db.getProjectGraphNeighborhood(scopeVersionId, 'structure_entity', matchedEntity.id, { depth: 1, limit: 40, refresh: false }))
       : null;
 
     return {
@@ -5039,12 +5134,22 @@ function scopedLocalAssetForPath(assets: ScopeAsset[], filePath: string): ScopeA
 function versionRefsFromPrompt(promptMarkdown: string): string[] {
   const refs = new Set<string>();
   for (const match of promptMarkdown.matchAll(/\bv?(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)\b/g)) {
+    if (looksLikeIpv4Segment(promptMarkdown, match.index ?? 0, match[0])) continue;
     if (match[1]) refs.add(match[1]);
   }
   for (const match of promptMarkdown.matchAll(/\b(?:ref|tag|branch|version)\s*[:=]?\s*([A-Za-z0-9_.\/-]*\d[A-Za-z0-9_.\/-]*)/gi)) {
-    if (match[1]) refs.add(match[1].replace(/^v(?=\d+\.\d+\.\d+)/i, ''));
+    if (!match[1]) continue;
+    const refStart = (match.index ?? 0) + match[0].lastIndexOf(match[1]);
+    if (looksLikeIpv4Segment(promptMarkdown, refStart, match[1])) continue;
+    refs.add(match[1].replace(/^v(?=\d+\.\d+\.\d+)/i, ''));
   }
   return [...refs].slice(0, 6);
+}
+
+function looksLikeIpv4Segment(text: string, start: number, value: string): boolean {
+  const before = start > 0 ? text[start - 1] : '';
+  const after = text[start + value.length] ?? '';
+  return (before === '.' && /\d/.test(text[start - 2] ?? '')) || (after === '.' && /\d/.test(text[start + value.length + 1] ?? ''));
 }
 
 function normalizedVersionRef(value: string): string {
@@ -5158,6 +5263,66 @@ function searchMatchDescription(line: string, plan: SearchQueryPlan): string {
 
 function isScopedLocalAsset(asset: ScopeAsset): boolean {
   return asset.direction === 'in_scope' && LOCAL_ASSET_KINDS.has(asset.kind) && isAbsolute(asset.value) && existsSync(asset.value) && !looksLikeUrl(asset.value);
+}
+
+function requestedSourceRefMismatch(ref: string, materialized: MaterializedSourceInfo): ToolResult | null {
+  if (!ref || materialized.requestedRefMatchesHead === true) return null;
+  return {
+    status: 'error',
+    summary: `Requested source ref was not materialized: ${ref}.`,
+    payload: {
+      observationBacked: false,
+      simulated: false,
+      targetExecution: false,
+      hostSetup: true,
+      error: 'requested_ref_not_materialized',
+      requestedRef: ref,
+      repositoryUrl: materialized.repositoryUrl,
+      localPath: materialized.localPath,
+      cloned: materialized.cloned,
+      ref: materialized.ref,
+      head: materialized.head,
+      headRefName: materialized.headRefName,
+      headDescribe: materialized.headDescribe,
+      requestedRefHead: materialized.requestedRefHead,
+      requestedRefMatchesHead: materialized.requestedRefMatchesHead,
+      recoveryHint: 'Retry source with an existing tag, branch, or commit for this repository. Do not treat the current checkout as version-specific evidence until requestedRefMatchesHead is true.'
+    }
+  };
+}
+
+function sourceMaterializationError(repositoryUrl: string, ref: string, error: unknown): ToolResult {
+  const message = errorMessage(error);
+  return {
+    status: 'error',
+    summary: `Source repository materialization failed: ${repositoryUrl}.`,
+    payload: {
+      observationBacked: false,
+      simulated: false,
+      targetExecution: false,
+      hostSetup: true,
+      repositoryUrl,
+      requestedRef: ref || null,
+      error: 'source_materialization_failed',
+      detail: message,
+      recoveryHint: sourceMaterializationRecoveryHint(message)
+    }
+  };
+}
+
+function sourceMaterializationRecoveryHint(message: string): string {
+  if (/timed out|timeout|unable to handle this request due to load|remote error/i.test(message)) {
+    return 'Do not retry clone in a loop. Retry source later, use a recorded local checkout if one exists, or continue with package/source artifacts while marking observations as not repository-backed.';
+  }
+  return 'Check the repository identifier/ref against program scope, then retry source once. If it still fails, continue with other scoped material and record that source materialization failed.';
+}
+
+function sourceMaterializationShouldBackoff(message: string): boolean {
+  return /timed out|timeout|unable to handle this request due to load|remote error|connection reset|network is unreachable|temporary failure/i.test(message);
+}
+
+function sourceBackoffKey(repositoryUrl: string, ref: string): string {
+  return `${normalizeSourceRepositoryUrl(repositoryUrl) ?? repositoryUrl}#${ref.trim()}`;
 }
 
 function readScopedText(path: string): { text: string; binaryDerived: boolean } | null {

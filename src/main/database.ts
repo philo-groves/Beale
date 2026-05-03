@@ -6324,13 +6324,14 @@ export class WorkspaceDatabase {
     }
   }
 
-  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8, options: { refreshIndex?: boolean } = {}): ProjectSemanticSearchResult[] {
+  public searchProjectSemanticChunksForRun(runId: string, query: string, limit = 8, options: { refreshIndex?: boolean; scopeVersionId?: string } = {}): ProjectSemanticSearchResult[] {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
+    const scopeVersionId = options.scopeVersionId ?? run.scopeVersionId;
     const trimmed = query.trim();
-    if (!trimmed || !this.getProjectSemanticIndexEnabled(run.scopeVersionId)) return [];
+    if (!trimmed || !this.getProjectSemanticIndexEnabled(scopeVersionId)) return [];
     if (options.refreshIndex !== false) {
-      this.ensureProjectSemanticIndex(run.scopeVersionId);
+      this.ensureProjectSemanticIndex(scopeVersionId);
     }
     const profile = semanticQueryProfile(trimmed);
     const queryVector = semanticVectorForText(trimmed, 'query');
@@ -6342,7 +6343,7 @@ export class WorkspaceDatabase {
            WHERE scope_version_id = ?
            ORDER BY indexed_at DESC`
         )
-        .all(run.scopeVersionId)
+        .all(scopeVersionId)
     )
       .map((row) => ({ row, score: semanticRankScore(row, profile, queryVector) }))
       .filter((candidate) => candidate.score.baseScore >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
@@ -6462,13 +6463,14 @@ export class WorkspaceDatabase {
     }
   }
 
-  public searchProjectDocumentsForRun(runId: string, query: string, limit = 20, options: { refreshInventory?: boolean } = {}): ProjectSearchResult[] {
+  public searchProjectDocumentsForRun(runId: string, query: string, limit = 20, options: { refreshInventory?: boolean; scopeVersionId?: string } = {}): ProjectSearchResult[] {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
+    const scopeVersionId = options.scopeVersionId ?? run.scopeVersionId;
     const trimmed = query.trim();
     if (!trimmed) return [];
     if (options.refreshInventory !== false) {
-      this.ensureProjectInventory(run.scopeVersionId);
+      this.ensureProjectInventory(scopeVersionId);
     }
 
     const ftsQuery = projectFtsQuery(trimmed);
@@ -6485,7 +6487,7 @@ export class WorkspaceDatabase {
                ORDER BY rank ASC, d.updated_at DESC
                LIMIT ?`
             )
-            .all(ftsQuery, run.scopeVersionId, Math.max(1, Math.floor(limit)))
+            .all(ftsQuery, scopeVersionId, Math.max(1, Math.floor(limit)))
         );
         return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
       } catch {
@@ -6507,7 +6509,7 @@ export class WorkspaceDatabase {
            ORDER BY d.updated_at DESC
            LIMIT ?`
         )
-        .all(...params, run.scopeVersionId, Math.max(1, Math.floor(limit)))
+        .all(...params, scopeVersionId, Math.max(1, Math.floor(limit)))
     );
     return resultRows.map((row) => this.mapProjectSearchResult(row, trimmed));
   }

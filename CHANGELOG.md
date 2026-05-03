@@ -65,6 +65,8 @@
 - Added evidence-level verifier supersedence fields, structured Python setup-state input, and delayed post-source inventory/graph refresh scheduling.
 - Added model-facing source version mismatch advice, reusable Python setup-state advice, post-source indexing deferred search hints, and reportability framing checks for disclosure-ready findings.
 - Added schema-backed finding reportability metadata, persisted run fixture setup records, and git checkout ref metadata for stronger version/ref discipline during source-backed research.
+- Added explicit source materialization recovery hints for clone timeouts, remote load failures, and requested refs that are not actually checked out.
+- Added source materialization backoff after transient clone failures so repeated source calls do not loop on the same remote outage.
 
 ### Changed
 
@@ -118,6 +120,10 @@
 - Changed search dedupe to merge candidates that share an entity or precise file/range, preserving direct lexical, semantic, graph-adjacent, and variant contribution provenance while preferring richer entity-backed records over plain file hits.
 - Added lightweight search query intent hints for symbol, route/API, auth/permission, sink/data-flow, binary, prior research-memory, and variant/similarity queries, using them as ranking weights without excluding other retrieval layers.
 - Changed search result selection to preserve the top exact result, then diversify by source path and relationship family unless the query is clearly focused on one file or symbol.
+- Changed active-run search and code structural navigation to use the latest active scope version after source materialization instead of the run's original scope version.
+- Changed repeated broad `code_browser` reads so high-severity read-budget advice requires a symbol or explicit line range before returning more file content.
+- Changed source version mismatch detection so IPv4 addresses in prompts are not treated as release versions.
+- Changed managed source checkout reuse to fetch and detach-checkout requested refs before returning version-backed source material.
 - Added search retrieval diagnostics with candidate counts by layer, selected counts by layer, dedupe count, graph expansion count, top scoring signals, and selected relationship-family counts.
 - Added explicit retrieval missing-reason diagnostics for stale or empty semantic/graph indexes, missing graph seeds, and query-intent/index mismatches such as route/API queries without route entities or route graph edges.
 - Added bounded adaptive follow-up search planning for weak first-pass coverage such as no semantic hits, no graph hits, or same-file lexical-only results.

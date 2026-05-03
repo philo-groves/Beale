@@ -91,6 +91,41 @@ describe('source materializer', () => {
     expect(materialized.cloned).toBe(true);
     expect(materialized.head).toBe('0123456789abcdef0123456789abcdef01234567');
   });
+
+  it('fetches and checks out requested refs in managed existing checkouts', () => {
+    const workspace = tempDir();
+    mkdirSync(join(workspace, '.beale'), { recursive: true });
+    const managedCheckout = join(workspace, 'targets', 'repositories', 'github.com_Netflix_zuul');
+    mkdirSync(join(managedCheckout, '.git'), { recursive: true });
+    const stateFile = join(workspace, 'git-head.txt');
+    writeFileSync(stateFile, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const fakeGit = join(workspace, 'fake-git-ref.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { readFileSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        `const stateFile = ${JSON.stringify(stateFile)};`,
+        'const command = args.find((arg) => ["rev-parse", "fetch", "checkout"].includes(arg));',
+        'if (command === "rev-parse" && args.at(-1) === "HEAD") { process.stdout.write(`${readFileSync(stateFile, "utf8").trim()}\\n`); process.exit(0); }',
+        'if (command === "rev-parse" && args.at(-1) === "feature-ref^{commit}") { process.stdout.write("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n"); process.exit(0); }',
+        'if (command === "fetch") process.exit(0);',
+        'if (command === "checkout") { writeFileSync(stateFile, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); process.exit(0); }',
+        'process.exit(1);'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const scope = scopeWithAssets([sourceAsset('repo_zuul', 'https://github.com/Netflix/zuul')]);
+    const candidate = sourceRepositoryCandidates(scope)[0];
+
+    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'feature-ref');
+
+    expect(materialized.localPath).toBe(managedCheckout);
+    expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(materialized.requestedRefMatchesHead).toBe(true);
+  });
 });
 
 function tempDir(): string {
