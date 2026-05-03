@@ -5,6 +5,7 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   NotificationRecord,
   OpenAiOAuthStartResult,
+  ProgramOnboardingProgressUpdate,
   RunDetail,
   SessionTranscriptSearchResult,
   SteeringAction,
@@ -43,6 +44,7 @@ import {
 } from './view-models/appShell';
 import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
+import { semanticIndexAlertBody, semanticIndexRunningKey, shouldSuppressSemanticIndexInfoAlert } from './view-models/semanticIndexAlerts';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
@@ -69,6 +71,7 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
+  const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -165,6 +168,26 @@ export function App(): JSX.Element {
   const dismissWorkspaceAlert = useCallback((alertId: string) => {
     setWorkspaceAlerts((current) => current.filter((alert) => alert.id !== alertId));
   }, []);
+
+  const closeProgramOnboarding = useCallback((): void => {
+    setProgramDraft(null);
+    setProgramOnboardingProgress(null);
+  }, []);
+
+  const skipProgramOnboardingRepository = useCallback(
+    async (repositoryUrl: string, stage: 'clone' | 'index'): Promise<void> => {
+      if (!programOnboardingProgress) return;
+      const update = await window.beale.skipProgramOnboardingRepository({
+        requestId: programOnboardingProgress.requestId,
+        repositoryUrl,
+        stage
+      });
+      if (update) {
+        setProgramOnboardingProgress(update);
+      }
+    },
+    [programOnboardingProgress]
+  );
 
   const openWorkspaceAlert = useCallback(
     (alert: WorkspaceAlert) => {
@@ -267,6 +290,7 @@ export function App(): JSX.Element {
     clearRunDetail,
     setSelectedRunId,
     setProgramDraft,
+    setProgramOnboardingProgress,
     setProgramInfo,
     setOpenProgramMenuId
   });
@@ -395,6 +419,14 @@ export function App(): JSX.Element {
       return;
     }
 
+    if (
+      shouldSuppressSemanticIndexInfoAlert(summary) ||
+      (programOnboardingProgress && programOnboardingProgress.phase !== 'complete' && programOnboardingProgress.workspacePath === snapshot?.workspace.workspacePath)
+    ) {
+      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
+      return;
+    }
+
     if (status === 'queued' || status === 'indexing') {
       const runningKey = semanticIndexRunningKey(summary);
       if (semanticIndexRunningAlertKeyRef.current === runningKey) return;
@@ -426,15 +458,23 @@ export function App(): JSX.Element {
     snapshot?.activeScope.programName,
     snapshot?.projectSemantic?.finishedAt,
     snapshot?.projectSemantic?.lastError,
+    snapshot?.projectSemantic?.jobReason,
     snapshot?.projectSemantic?.queuedAt,
     snapshot?.projectSemantic?.scopeVersionId,
     snapshot?.projectSemantic?.startedAt,
-    snapshot?.projectSemantic?.status
+    snapshot?.projectSemantic?.status,
+    snapshot?.workspace.workspacePath,
+    programOnboardingProgress?.phase,
+    programOnboardingProgress?.workspacePath
   ]);
 
   useEffect(() => {
     const summary = snapshot?.projectSemantic ?? null;
     if (!summary || (summary.status !== 'queued' && summary.status !== 'indexing')) return;
+    if (shouldSuppressSemanticIndexInfoAlert(summary)) {
+      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
+      return;
+    }
     const alertId = `semantic-index-running:${semanticIndexRunningKey(summary)}`;
     const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program');
     setWorkspaceAlerts((current) => {
@@ -448,6 +488,7 @@ export function App(): JSX.Element {
     });
   }, [
     snapshot?.activeScope.programName,
+    snapshot?.projectSemantic?.jobReason,
     snapshot?.projectSemantic?.progressProcessed,
     snapshot?.projectSemantic?.progressTotal,
     snapshot?.projectSemantic?.queuedAt,
@@ -463,7 +504,10 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
+        programName={snapshot?.activeScope.programName ?? 'No Program Selected'}
+        activeRunDetail={activeRunDetail}
         profilingEnabled={profilingState?.enabled ?? false}
+        onOpenResearchPrompt={setResearchPromptDetail}
         onOpenProfiling={openProfiling}
         onAddProgram={addProgram}
         onToggleSidebar={toggleSidebar}
@@ -492,9 +536,7 @@ export function App(): JSX.Element {
         <SessionHeader
           detail={activeRunDetail}
           events={activeTraceEvents}
-          programName={snapshot?.activeScope.programName ?? 'No Program Selected'}
           visibleTraceCategories={visibleTraceCategories}
-          onOpenResearchPrompt={setResearchPromptDetail}
         />
         <div className="workspace-page">
           <MainSessionWorkspace
@@ -556,6 +598,7 @@ export function App(): JSX.Element {
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
         programDraft={programDraft}
+        programOnboardingProgress={programOnboardingProgress}
         programInfo={programInfo}
         researchPromptDetail={researchPromptDetail}
         searchOpen={searchOpen}
@@ -573,7 +616,7 @@ export function App(): JSX.Element {
         visibleTraceCategories={visibleTraceCategories}
         vmPreference={vmPreference}
         onCancelNewResearch={() => setNewResearchOpen(false)}
-        onCancelProgramOnboarding={() => setProgramDraft(null)}
+        onCancelProgramOnboarding={closeProgramOnboarding}
         onChangeProgramDraft={setProgramDraft}
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
@@ -610,33 +653,13 @@ export function App(): JSX.Element {
           setActiveNotification(null);
         }}
         onSubmitProgramOnboarding={submitProgramOnboarding}
+        onSkipProgramOnboardingRepository={skipProgramOnboardingRepository}
         runAction={runAction}
       />
     </div>
   );
 }
 
-function semanticIndexRunningKey(summary: WorkspaceSnapshot['projectSemantic']): string {
-  return `${summary.scopeVersionId}:${summary.queuedAt ?? summary.startedAt ?? ''}`;
-}
-
-function semanticIndexAlertBody(summary: WorkspaceSnapshot['projectSemantic'], programName: string): string {
-  if (summary.status === 'queued') {
-    const total = Math.max(0, summary.progressTotal ?? summary.sourceDocumentCount);
-    const sourceText = total > 0 ? ` ${total.toLocaleString()} source document${total === 1 ? '' : 's'} are waiting to be indexed.` : '';
-    return `Semantic indexing is queued for ${programName}.${sourceText} Waiting for the background worker to start. Search remains available with exact and stale indexed results.`;
-  }
-  const progress = semanticIndexProgressText(summary);
-  return `Semantic indexing is running for ${programName}.${progress} Search remains available with exact and stale indexed results.`;
-}
-
-function semanticIndexProgressText(summary: WorkspaceSnapshot['projectSemantic']): string {
-  const processed = Math.max(0, typeof summary.progressProcessed === 'number' ? summary.progressProcessed : 0);
-  const total = Math.max(0, typeof summary.progressTotal === 'number' ? summary.progressTotal : summary.sourceDocumentCount);
-  if (total <= 0) return ` ${processed.toLocaleString()} source documents processed.`;
-  const percent = Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
-  return ` ${processed.toLocaleString()}/${total.toLocaleString()} source documents processed (${percent}%).`;
-}
 
 function traceEventForSearchResult(events: TraceDisplayEvent[], result: SessionTranscriptSearchResult): TraceDisplayEvent | null {
   const transcriptEventId = `transcript:${result.transcriptMessageId}`;

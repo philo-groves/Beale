@@ -41,7 +41,7 @@ export function useRunDetailPolling({
 
   useEffect(() => {
     const requestSeq = ++requestSeqRef.current;
-    if (!selectedRunId) {
+    if (!selectedRunId || selectedRunState === null) {
       clearRunDetail();
       return undefined;
     }

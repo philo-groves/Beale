@@ -7,6 +7,7 @@ import type {
   OpenAiOAuthStartResult,
   ProfilingReport,
   ProfilingState,
+  ProgramOnboardingProgressUpdate,
   ProgramRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
@@ -41,6 +42,7 @@ export function AppModals({
   profilingState,
   lastProfilingReport,
   programDraft,
+  programOnboardingProgress,
   programInfo,
   researchPromptDetail,
   searchOpen,
@@ -84,6 +86,7 @@ export function AppModals({
   onStartedNewResearch,
   onSteerNotification,
   onSubmitProgramOnboarding,
+  onSkipProgramOnboardingRepository,
   onOpenSearchResult,
   runAction
 }: {
@@ -98,6 +101,7 @@ export function AppModals({
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
   programDraft: ProgramOnboardingFormState | null;
+  programOnboardingProgress: ProgramOnboardingProgressUpdate | null;
   programInfo: ProgramRegistryEntry | null;
   researchPromptDetail: RunDetail | null;
   searchOpen: boolean;
@@ -141,6 +145,7 @@ export function AppModals({
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitProgramOnboarding: () => void;
+  onSkipProgramOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
@@ -150,9 +155,11 @@ export function AppModals({
         <ProgramOnboardingModal
           busy={busy}
           form={programDraft}
+          progress={programOnboardingProgress}
           onCancel={onCancelProgramOnboarding}
           onChange={onChangeProgramDraft}
           onLookupHackerOne={onLookupHackerOne}
+          onSkipRepository={onSkipProgramOnboardingRepository}
           onTemplate={onProgramTemplate}
           onSubmit={onSubmitProgramOnboarding}
         />

@@ -2,6 +2,12 @@ import type { ContextCompactionRecord, ProgramScopeVersion, RunDetail, ScopeAsse
 import type { ResponseInputMessage } from './openaiAdapter';
 import { redactForModelText, redactJsonForModel } from './redaction';
 
+const COMPACTED_REPLAY_ARTIFACT_LIMIT = 16;
+const COMPACTED_REPLAY_EVIDENCE_LIMIT = 16;
+const COMPACTED_REPLAY_REASONING_LIMIT = 8;
+const COMPACTED_REPLAY_REASONING_MAX_CHARS = 420;
+const COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS = 180;
+
 export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: StartRunInput): string {
   const inScope = scope.assets
     .filter((asset) => asset.direction === 'in_scope')
@@ -108,6 +114,14 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { re
   const verifierRuns = detail.verifierRuns
     .slice(-20)
     .map((run) => `- ${run.id}: ${run.status}; blocked=${run.blockedIssue}; diagnostics=${run.diagnosticsClean}`);
+  const durableResources = compactedReplayArtifactLines(detail);
+  const evidence = detail.evidence
+    .slice(-COMPACTED_REPLAY_EVIDENCE_LIMIT)
+    .map(
+      (record) =>
+        `- ${record.id}: ${compactReplayValue(record.kind, 48)}; summary=${compactReplayValue(record.summary, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}; artifact=${record.artifactId ?? 'none'}; verifier=${record.verifierRunId ?? 'none'}`
+    );
+  const recentReasoning = compactedReplayRecentReasoningLines(detail.traceEvents);
   const previousCompaction = options.previousCompaction;
 
   return messageInput(
@@ -127,8 +141,17 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { re
       '## Recent Model-Visible Trace',
       recentEvents.join('\n') || 'No model-visible trace events were recorded.',
       '',
+      '## Durable Resources',
+      durableResources.join('\n') || 'No durable model-visible artifacts recorded.',
+      '',
+      '## Recent Reasoning / Intent',
+      recentReasoning.join('\n') || 'No recent model reasoning summaries were recorded.',
+      '',
       '## Active Hypotheses',
       activeHypotheses.join('\n') || 'No active hypotheses recorded.',
+      '',
+      '## Evidence',
+      evidence.join('\n') || 'No evidence records recorded.',
       '',
       '## Findings',
       findings.join('\n') || 'No findings recorded.',
@@ -137,7 +160,7 @@ export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { re
       verifierRuns.join('\n') || 'No verifier runs recorded.',
       '',
       '## Next Goal',
-      'Continue the run from this state. Prefer concrete next actions over asking for user help when a Beale tool can safely proceed.'
+      'Continue from the listed resources, recent reasoning, and original objective. Prefer concrete next actions over asking for user help when a Beale tool can safely proceed. Use listed artifact ids with code_browser or resource_lookup instead of rediscovering completed work, then record hypotheses, evidence, findings, or verifier state when observations support them.'
     ].join('\n')
   );
 }
@@ -180,6 +203,37 @@ function stringAttribute(value: unknown): string {
 function primaryCweLabel(mappings: Array<{ cweId: string; mappingRole: string; confidence: string }>): string {
   const primary = mappings.find((mapping) => mapping.mappingRole === 'primary') ?? mappings[0];
   return primary ? `${primary.cweId}/${primary.confidence}` : 'needs_classification';
+}
+
+function compactedReplayArtifactLines(detail: RunDetail): string[] {
+  return detail.artifacts
+    .filter((artifact) => artifact.modelVisible)
+    .slice(-COMPACTED_REPLAY_ARTIFACT_LIMIT)
+    .map((artifact) => {
+      const name = stringAttribute(artifact.metadata.name);
+      const sourcePath = stringAttribute(artifact.metadata.sourcePath);
+      const parts = [
+        `kind=${compactReplayValue(artifact.kind, 64)}`,
+        `size=${artifact.sizeBytes} bytes`,
+        name ? `name=${compactReplayValue(name, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}` : null,
+        sourcePath ? `sourcePath=${compactReplayValue(sourcePath, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}` : null,
+        `created=${artifact.createdAt}`
+      ].filter((part): part is string => Boolean(part));
+      return `- ${artifact.id}: ${parts.join('; ')}. Inspect with code_browser path="${artifact.id}" when its content is needed.`;
+    });
+}
+
+function compactedReplayRecentReasoningLines(events: TraceEventRecord[]): string[] {
+  return events
+    .filter((event) => event.source === 'model' && event.type === 'model_message' && typeof event.payload.text === 'string')
+    .slice(-COMPACTED_REPLAY_REASONING_LIMIT)
+    .map((event) => `- #${event.sequence}: ${compactReplayValue(String(event.payload.text), COMPACTED_REPLAY_REASONING_MAX_CHARS)}`);
+}
+
+function compactReplayValue(value: string, maxLength: number): string {
+  const compacted = redactForModelText(value).replace(/\s+/g, ' ').trim();
+  if (compacted.length <= maxLength) return compacted;
+  return `${compacted.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function formatTraceEventForReplay(event: TraceEventRecord): string {

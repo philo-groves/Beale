@@ -2,34 +2,23 @@ import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { Clock, FileText, GitFork, Pause, RefreshCw, Square, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { displaySessionTitle } from '../../../shared/sessionTitle';
 import { traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
 
 export function SessionHeader({
-  programName,
   detail,
   events,
-  visibleTraceCategories,
-  onOpenResearchPrompt
+  visibleTraceCategories
 }: {
-  programName: string;
   detail: RunDetail | null;
   events: TraceEventRecord[];
   visibleTraceCategories: TraceCategoryId[];
-  onOpenResearchPrompt: (detail: RunDetail) => void;
 }): JSX.Element {
   return (
     <div className="workbench-header">
       <div className="workbench-program">
         <RunStatusIndicator detail={detail} />
-        <span className="workbench-title">{programName}</span>
-        {detail ? (
-          <button type="button" className="workbench-session-title" title="View original research prompt" onClick={() => onOpenResearchPrompt(detail)}>
-            <span>{displaySessionTitle(detail.run.title, detail.run.promptMarkdown)}</span>
-          </button>
-        ) : null}
         {detail ? <SessionConfigPills detail={detail} /> : null}
       </div>
       <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />

@@ -112,11 +112,34 @@ export function representedCompactionState(detail: RunDetail): Record<string, un
       reportability: finding.reportability,
       cweMappings: cweMappingSnapshot(finding.cweMappings)
     })),
-    artifacts: detail.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, modelVisible: artifact.modelVisible })),
+    artifacts: detail.artifacts.map((artifact) => ({
+      id: artifact.id,
+      kind: artifact.kind,
+      modelVisible: artifact.modelVisible,
+      name: stringValue(artifact.metadata.name),
+      sourcePath: stringValue(artifact.metadata.sourcePath),
+      sizeBytes: artifact.sizeBytes
+    })),
+    evidence: detail.evidence.map((evidence) => ({
+      id: evidence.id,
+      kind: evidence.kind,
+      hypothesisId: evidence.hypothesisId,
+      findingId: evidence.findingId,
+      artifactId: evidence.artifactId,
+      verifierRunId: evidence.verifierRunId
+    })),
+    latestReasoning: detail.traceEvents
+      .filter((event) => event.source === 'model' && event.type === 'model_message' && typeof event.payload.text === 'string')
+      .slice(-5)
+      .map((event) => ({ sequence: event.sequence, summary: String(event.payload.text).replace(/\s+/g, ' ').trim().slice(0, 240) })),
     verifierRuns: detail.verifierRuns.map((run) => ({ id: run.id, status: run.status, contractId: run.contractId })),
     policyEvents: detail.policyEvents.map((event) => ({ id: event.id, decision: event.decision, requestKind: event.requestKind })),
     vmContexts: detail.vmContexts.map((context) => ({ id: context.id, backend: context.backend, state: context.state, networkProfile: context.networkProfile }))
   };
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function cweMappingSnapshot(mappings: Array<{ cweId: string; mappingRole: string; confidence: string }>): Array<Record<string, string>> {

@@ -19,6 +19,18 @@ export interface ProgramOnboardingFormState {
 
 export type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 
+export interface OnboardingRepository {
+  assetIndex: number;
+  url: string;
+  label: string;
+  source: string;
+  indexNow: boolean;
+}
+
+export const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
+
+const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
+
 const APPLE_PROGRAM_DESCRIPTION =
   'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
 
@@ -104,7 +116,80 @@ export function onboardingInputFromForm(form: ProgramOnboardingFormState): Progr
     rulesMarkdown: form.rulesMarkdown,
     networkProfile: form.networkProfile,
     expiresAt: optionalDateOrNever(form.expiresAt),
-    assets: form.assets
+    assets: form.assets.map((asset) => {
+      const isRepository = asset.direction === 'in_scope' && extractOnboardingRepositoryUrls([asset.value, stringAttribute(asset.attributes?.repositoryUrl), stringAttribute(asset.attributes?.instruction)].join('\n')).length > 0;
+      if (!isRepository || asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== undefined) return asset;
+      return {
+        ...asset,
+        attributes: {
+          ...(asset.attributes ?? {}),
+          [ONBOARDING_INDEX_NOW_ATTRIBUTE]: true
+        }
+      };
+    })
+  };
+}
+
+export function onboardingRepositories(form: ProgramOnboardingFormState): OnboardingRepository[] {
+  const repositories: OnboardingRepository[] = [];
+  const seenUrls = new Set<string>();
+  form.assets.forEach((asset, assetIndex) => {
+    if (asset.direction !== 'in_scope') return;
+    const urls = extractOnboardingRepositoryUrls([asset.value, stringAttribute(asset.attributes?.repositoryUrl), stringAttribute(asset.attributes?.instruction)].join('\n'));
+    for (const url of urls) {
+      const key = url.toLowerCase();
+      if (seenUrls.has(key)) continue;
+      seenUrls.add(key);
+      repositories.push({
+        assetIndex,
+        url,
+        label: stringAttribute(asset.attributes?.displayName) || asset.value || repositoryName(url),
+        source: stringAttribute(asset.attributes?.source) || 'manual',
+        indexNow: asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== false
+      });
+    }
+  });
+  return repositories;
+}
+
+export function hasIndexNowRepository(form: ProgramOnboardingFormState): boolean {
+  return onboardingRepositories(form).some((repository) => repository.indexNow);
+}
+
+export function setRepositoryIndexNow(form: ProgramOnboardingFormState, assetIndex: number, indexNow: boolean): ProgramOnboardingFormState {
+  return updateAssetAttributes(form, assetIndex, { [ONBOARDING_INDEX_NOW_ATTRIBUTE]: indexNow });
+}
+
+export function addRepositoryToOnboardingForm(form: ProgramOnboardingFormState, repositoryUrl: string): ProgramOnboardingFormState {
+  const normalizedUrl = normalizeOnboardingRepositoryUrl(repositoryUrl);
+  if (!normalizedUrl) {
+    throw new Error('Enter a GitHub or GitLab repository URL.');
+  }
+  const existing = onboardingRepositories(form).some((repository) => repository.url.toLowerCase() === normalizedUrl.toLowerCase());
+  if (existing) return form;
+  return {
+    ...form,
+    assets: [
+      ...form.assets,
+      {
+        direction: 'in_scope',
+        kind: 'repo',
+        value: normalizedUrl,
+        sensitivity: 'public',
+        attributes: {
+          source: 'manual',
+          repositoryUrl: normalizedUrl,
+          [ONBOARDING_INDEX_NOW_ATTRIBUTE]: true
+        }
+      }
+    ]
+  };
+}
+
+export function removeRepositoryFromOnboardingForm(form: ProgramOnboardingFormState, assetIndex: number): ProgramOnboardingFormState {
+  return {
+    ...form,
+    assets: form.assets.filter((_asset, index) => index !== assetIndex)
   };
 }
 
@@ -166,6 +251,62 @@ export function applyProgramTemplate(form: ProgramOnboardingFormState, templateK
     expiresAt: '',
     assets: []
   };
+}
+
+function updateAssetAttributes(form: ProgramOnboardingFormState, assetIndex: number, attributes: Record<string, unknown>): ProgramOnboardingFormState {
+  return {
+    ...form,
+    assets: form.assets.map((asset, index) =>
+      index === assetIndex
+        ? {
+            ...asset,
+            attributes: {
+              ...(asset.attributes ?? {}),
+              ...attributes
+            }
+          }
+        : asset
+    )
+  };
+}
+
+function extractOnboardingRepositoryUrls(text: string): string[] {
+  const urls = new Set<string>();
+  for (const match of text.matchAll(SOURCE_REPOSITORY_RE)) {
+    const normalized = normalizeOnboardingRepositoryUrl(match[0]);
+    if (normalized) urls.add(normalized);
+  }
+  return [...urls];
+}
+
+function normalizeOnboardingRepositoryUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/[),.;]+$/, '');
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== 'https:' || (host !== 'github.com' && host !== 'gitlab.com')) return null;
+  const pathSegments = parsed.pathname
+    .split('/')
+    .filter(Boolean)
+    .slice(0, host === 'github.com' ? 2 : undefined);
+  if (pathSegments.length < 2) return null;
+  pathSegments[pathSegments.length - 1] = pathSegments[pathSegments.length - 1].replace(/\.git$/i, '');
+  if (pathSegments.some((segment) => !/^[A-Za-z0-9_.-]+$/.test(segment))) return null;
+  return `https://${host}/${pathSegments.join('/')}`;
+}
+
+function repositoryName(url: string): string {
+  return url.split('/').filter(Boolean).at(-1) ?? url;
+}
+
+function stringAttribute(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function optionalDateOrNever(value: string | null | undefined): string | null {

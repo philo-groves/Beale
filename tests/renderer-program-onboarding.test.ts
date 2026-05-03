@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ProgramOnboardingDefaults } from '@shared/types';
 import {
+  addRepositoryToOnboardingForm,
   applyProgramTemplate,
+  hasIndexNowRepository,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
-  onboardingInputFromForm
+  onboardingInputFromForm,
+  onboardingRepositories,
+  setRepositoryIndexNow
 } from '../src/renderer/view-models/programOnboarding';
 
 describe('renderer program onboarding view model', () => {
@@ -23,6 +27,24 @@ describe('renderer program onboarding view model', () => {
     });
 
     expect(input.expiresAt).toBeNull();
+  });
+
+  it('tracks onboarding repository index requests on submitted scope assets', () => {
+    const withRepository = addRepositoryToOnboardingForm(onboardingFormFromDefaults(defaults()), 'github.com/example/project.git');
+
+    expect(onboardingRepositories(withRepository)).toMatchObject([
+      {
+        url: 'https://github.com/example/project',
+        indexNow: true
+      }
+    ]);
+    expect(hasIndexNowRepository(withRepository)).toBe(true);
+    expect(onboardingInputFromForm(withRepository).assets?.[0]?.attributes).toMatchObject({ bealeOnboardingIndexNow: true });
+
+    const disabled = setRepositoryIndexNow(withRepository, 0, false);
+    expect(onboardingRepositories(disabled)[0]?.indexNow).toBe(false);
+    expect(hasIndexNowRepository(disabled)).toBe(false);
+    expect(onboardingInputFromForm(disabled).assets?.[0]?.attributes).toMatchObject({ bealeOnboardingIndexNow: false });
   });
 
   it('applies global Apple and MSRC template defaults', () => {
@@ -49,8 +71,8 @@ describe('renderer program onboarding view model', () => {
       assets: [
         {
           direction: 'in_scope',
-          kind: 'domain',
-          value: 'example.test',
+          kind: 'repo',
+          value: 'https://github.com/example/project',
           sensitivity: 'normal',
           attributes: { source: 'hackerone', hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' }
         }
@@ -64,6 +86,7 @@ describe('renderer program onboarding view model', () => {
     expect(form.expiresAt).toBe('');
     expect(form.assets).toHaveLength(1);
     expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
+    expect(onboardingRepositories(form)).toMatchObject([{ url: 'https://github.com/example/project', indexNow: true }]);
   });
 });
 

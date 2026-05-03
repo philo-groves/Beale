@@ -18,6 +18,10 @@ async function runWorker(): Promise<void> {
   try {
     db.initialize();
     const detail = workerDetail(input);
+    if (input.refreshInventory) {
+      profile('projectSemantic.worker.refreshInventory', detail, () => db.refreshProjectInventory(input.scopeVersionId));
+      post({ type: 'progress', processed: 0, total: 0 });
+    }
     const refresh = profile('projectSemantic.worker.begin', detail, () => db.beginProjectSemanticIndexRefresh(input.scopeVersionId, input.reason));
     await sleep(0);
 

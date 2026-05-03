@@ -72,6 +72,8 @@
 - Added schema-backed finding impact assessments with general impact classification, evidence-aware CVSS 3.1 draft scoring, and follow-up planning for verified findings with uncertain consequence.
 - Added large-file `code_browser` read-planning advice and stronger CVSS-metrics guidance for impact-supported findings with incomplete scoring.
 - Added a README-ready multi-layer project understanding diagram to the indexing planning chapter.
+- Added a wider New Program onboarding modal with repository listing, manual repository entry, default-on Index Now selections, HackerOne in-scope repository import, and background clone/index scheduling for selected repositories.
+- Added New Program repository onboarding progress tracking with per-repository Clone Later and Index Later actions.
 
 ### Changed
 
@@ -109,6 +111,7 @@
 - Changed model-facing code browser structural navigation to use existing structure indexes only, avoiding inline inventory rebuilds during active tool turns.
 - Changed background semantic indexing so queued rebuilds may start during active research sessions instead of waiting for sessions to finish.
 - Changed local semantic indexing to be enabled by default per program while preserving explicit per-program disables.
+- Changed New Program repository onboarding so cloned repositories are added without a synchronous main-process inventory refresh, and indexing refreshes inventory through the semantic indexing job.
 - Changed model-facing search to add bounded graph-proximity matches from metadata and semantic seed hits.
 - Changed model-facing search ranking so graph seed and proximity signals can promote or diversify final search results instead of only filling remaining result slots.
 - Changed model-facing search to add graph-backed variant matches for entities that share important relationship targets such as sinks, permission checks, middleware, hypotheses, and findings.
@@ -147,6 +150,7 @@
 - Changed the footer host and VM tags to sit flush without borders or arrow separator, using vertically centered contents and top-right rounded surfaces with the VM surface behind the host radius.
 - Increased the left padding before the footer momentum snake mascot.
 - Adjusted the steering textarea padding so its single-line input and placeholder are vertically centered.
+- Moved the current program and session title into the app header while keeping run status, session tags, and metrics in the session header.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
@@ -197,6 +201,9 @@
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
+- Retried repeated OpenAI context-window failures with additional compacted replay passes instead of requiring a manual Continue between compactions.
+- Reduced model-run search stalls by prefiltering semantic candidates before JS reranking, adding graph/semantic search indexes, and recording structured tool calls as running until the final result is linked.
+- Fixed compacted OpenAI replay context so it carries durable artifact ids, evidence summaries, and recent reasoning intent instead of leaving the agent to rediscover session history from scratch.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Reduced active trace-list churn by memoizing stable trace rows and cached syntax/prose markup.
 - Reduced sidebar toggle churn by memoizing the main session workspace, trace view, research lists, and evidence sidebar so unchanged session surfaces do not repaint during sidebar-only state changes.
@@ -209,6 +216,7 @@
 - Fixed failed verifier execution traces so their marker uses the red failure tone while remaining categorized under Verifier.
 - Fixed source materialization for requested refs in reused workspace checkouts by fetching tags/refs and detaching to the resolved commit.
 - Fixed new verifier run metadata so passing runs record `blockedIssue: confirmed` instead of the ambiguous `yes` value.
+- Fixed New Program repository onboarding so completed semantic refreshes do not immediately reappear as unindexed source-document notifications, and onboarding or first-session search-memory refreshes suppress duplicate global indexing alerts.
 - Fixed evidence sidebar card contents so rows stretch left-to-right instead of centering inside the card.
 - Fixed Evidence Trail hierarchy styling by removing the child connector rail and relying on indentation for structure.
 - Fixed Evidence Trail grouping visuals by removing the extra wrapper background around each trail.

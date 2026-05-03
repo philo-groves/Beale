@@ -4,6 +4,8 @@ export const IPC_CHANNELS = {
   getProgramRegistry: 'beale:get-program-registry',
   lookupHackerOneProgram: 'beale:lookup-hackerone-program',
   createProgram: 'beale:create-program',
+  programOnboardingUpdated: 'beale:program-onboarding-updated',
+  skipProgramOnboardingRepository: 'beale:skip-program-onboarding-repository',
   openProgram: 'beale:open-program',
   removeProgram: 'beale:remove-program',
   openWorkspace: 'beale:open-workspace',

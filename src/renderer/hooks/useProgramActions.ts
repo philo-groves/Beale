@@ -1,11 +1,12 @@
 import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { ProgramRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
+import type { ProgramOnboardingProgressUpdate, ProgramRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
 import {
   applyProgramTemplate,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
   onboardingInputFromForm,
+  onboardingRepositories,
   type ProgramOnboardingFormState,
   type ProgramTemplateKind
 } from '../view-models/programOnboarding';
@@ -33,6 +34,7 @@ export function useProgramActions({
   clearRunDetail,
   setSelectedRunId,
   setProgramDraft,
+  setProgramOnboardingProgress,
   setProgramInfo,
   setOpenProgramMenuId
 }: {
@@ -43,6 +45,7 @@ export function useProgramActions({
   clearRunDetail: () => void;
   setSelectedRunId: Dispatch<SetStateAction<string | null>>;
   setProgramDraft: Dispatch<SetStateAction<ProgramOnboardingFormState | null>>;
+  setProgramOnboardingProgress: Dispatch<SetStateAction<ProgramOnboardingProgressUpdate | null>>;
   setProgramInfo: Dispatch<SetStateAction<ProgramRegistryEntry | null>>;
   setOpenProgramMenuId: (programId: string | null) => void;
 }): ProgramActions {
@@ -97,11 +100,54 @@ export function useProgramActions({
   const submitProgramOnboarding = useCallback((): void => {
     if (!programDraft) return;
     void runProgramAction(async () => {
-      const next = await window.beale.createProgram(onboardingInputFromForm(programDraft));
-      setProgramDraft(null);
-      applySnapshot(next);
+      const requestId = `onboarding_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const repositoryRows = onboardingRepositories(programDraft).filter((repository) => repository.indexNow);
+      const shouldTrackProgress = repositoryRows.length > 0;
+      setProgramOnboardingProgress(
+        shouldTrackProgress
+          ? {
+              requestId,
+              workspacePath: programDraft.workspacePath,
+              phase: 'creating',
+              repositories: repositoryRows.map((repository) => ({
+                repositoryUrl: repository.url,
+                label: repository.label,
+                stage: 'queued',
+                message: 'Waiting to create program.',
+                localPath: null,
+                error: null,
+                updatedAt: new Date().toISOString()
+              }))
+            }
+          : null
+      );
+      let unsubscribe: (() => void) | null = null;
+      if (shouldTrackProgress) {
+        unsubscribe = window.beale.onProgramOnboardingUpdate((update) => {
+          if (update.requestId !== requestId) return;
+          setProgramOnboardingProgress(update);
+          if (update.phase === 'complete') {
+            unsubscribe?.();
+            unsubscribe = null;
+          }
+        });
+      }
+      try {
+        const next = await window.beale.createProgram({ ...onboardingInputFromForm(programDraft), onboardingRequestId: shouldTrackProgress ? requestId : undefined });
+        clearRunDetail();
+        setSelectedRunId(null);
+        applySnapshot(next);
+        if (!shouldTrackProgress) {
+          setProgramDraft(null);
+        }
+      } catch (error) {
+        unsubscribe?.();
+        unsubscribe = null;
+        setProgramOnboardingProgress(null);
+        throw error;
+      }
     });
-  }, [applySnapshot, programDraft, runProgramAction, setProgramDraft]);
+  }, [applySnapshot, clearRunDetail, programDraft, runProgramAction, setProgramDraft, setProgramOnboardingProgress, setSelectedRunId]);
 
   const applyOnboardingTemplate = useCallback(
     (templateKind: ProgramTemplateKind): void => {

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
@@ -15,7 +15,7 @@ import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
 import { ProjectSemanticIndexExecutor } from './projectSemanticIndexExecutor';
-import { extractSourceRepositoryUrls } from './sourceMaterializer';
+import { extractSourceRepositoryUrls, materializeGitRepositoryAsync, normalizeSourceRepositoryUrl, sourceRepositoryCandidates } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
@@ -29,6 +29,9 @@ import type {
   PriorityFactorInput,
   ProgramDirectorySelection,
   ProgramOnboardingInput,
+  ProgramOnboardingProgressUpdate,
+  ProgramOnboardingRepositoryProgress,
+  ProgramOnboardingSkipInput,
   ProgramRegistryEntry,
   ProgramRegistryState,
   ProgramScopeDraft,
@@ -72,8 +75,22 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
+const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
+type ProgramOnboardingProgressHandler = (update: ProgramOnboardingProgressUpdate) => void;
+
+interface ProgramOnboardingRepositoryJob {
+  requestId: string;
+  workspacePath: string;
+  progressHandler: ProgramOnboardingProgressHandler | null;
+  repositories: Map<string, ProgramOnboardingRepositoryProgress>;
+  skippedCloneUrls: Set<string>;
+  indexSkipped: boolean;
+  activeClone: { repositoryUrl: string; abortController: AbortController } | null;
+  scopeVersionId: string | null;
+  phase: ProgramOnboardingProgressUpdate['phase'];
+}
 
 const HACKERONE_PROGRAM_QUERY = `
   query BealeProgram($handle: String!) {
@@ -246,6 +263,7 @@ export class WorkspaceService {
   private pendingChangeRequiresProgramRegistrySync = false;
   private pendingChangeIncludesProgramRegistry = false;
   private readonly researchPromptControllers = new Map<string, AbortController>();
+  private readonly onboardingRepositoryJobs = new Map<string, ProgramOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
   private readonly semanticIndexExecutor: ProjectSemanticIndexExecutor;
 
@@ -380,10 +398,11 @@ export class WorkspaceService {
 
     const scopeNodes = team.structured_scopes?.nodes ?? [];
     const sourceUrl = team.url || `https://hackerone.com/${team.handle}`;
-    const assets = scopeNodes
+    const baseAssets = scopeNodes
       .map(hackerOneScopeToAsset)
       .filter((asset): asset is NonNullable<ReturnType<typeof hackerOneScopeToAsset>> => Boolean(asset))
       .map((asset) => annotateHackerOneImportedAsset(asset, team.handle, sourceUrl));
+    const assets = addHackerOneInScopeRepositoryAssets(baseAssets, scopeNodes, team.handle, sourceUrl);
     const totalScopeCount = team.structured_scopes?.total_count ?? scopeNodes.length;
     const modelReview = await this.reviewHackerOneProgramImport({
       handle: team.handle,
@@ -410,7 +429,7 @@ export class WorkspaceService {
     };
   }
 
-  public createProgram(input: ProgramOnboardingInput): WorkspaceSnapshot {
+  public createProgram(input: ProgramOnboardingInput, onProgress: ProgramOnboardingProgressHandler | null = null): WorkspaceSnapshot {
     this.getProgramRegistry();
     if (hasHackerOneImportedAssets(input.assets)) {
       requireOpenAiAuthenticationForHackerOneImport(this.openAiAuth);
@@ -431,9 +450,326 @@ export class WorkspaceService {
       expiresAt: optionalDateOrNever(input.expiresAt),
       assets: input.assets ?? []
     });
+    const onboardingRepositoryIndexUrls = onboardingRepositoryIndexRequests(input.assets ?? []);
+    const requestId = input.onboardingRequestId?.trim() ?? '';
+    if (onboardingRepositoryIndexUrls.length > 0 && requestId) {
+      const job = this.createOnboardingRepositoryJob(requestId, workspacePath, onboardingRepositoryIndexUrls, onProgress);
+      this.onboardingRepositoryJobs.set(requestId, job);
+      this.emitOnboardingRepositoryProgress(job);
+      void this.runOnboardingRepositoryJob(job)
+        .catch((error: unknown) => {
+          this.recordProfilingMainTiming('onboarding.repositoryMaterialize.error', 0, { error: errorMessage(error) });
+        })
+        .finally(() => {
+          this.onboardingRepositoryJobs.delete(requestId);
+        });
+    } else if (onboardingRepositoryIndexUrls.length > 0) {
+      void this.materializeOnboardingRepositoriesWithoutProgress(workspacePath, onboardingRepositoryIndexUrls).catch((error: unknown) => {
+        this.recordProfilingMainTiming('onboarding.repositoryMaterialize.error', 0, { error: errorMessage(error) });
+      });
+    }
     this.syncProgramRegistry();
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  public skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): ProgramOnboardingProgressUpdate | null {
+    const job = this.onboardingRepositoryJobs.get(input.requestId);
+    if (!job) return null;
+    const repositoryUrl = normalizeSourceRepositoryUrl(input.repositoryUrl);
+    if (!repositoryUrl) return this.onboardingRepositoryProgress(job);
+    if (input.stage === 'clone') {
+      job.skippedCloneUrls.add(repositoryUrl.toLowerCase());
+      const row = job.repositories.get(repositoryUrl.toLowerCase());
+      if (row && (row.stage === 'queued' || row.stage === 'cloning' || row.stage === 'clone_failed')) {
+        job.repositories.set(repositoryUrl.toLowerCase(), {
+          ...row,
+          stage: 'clone_skipped',
+          message: 'Clone skipped. Repository can be cloned later from the source tool or program scope.',
+          updatedAt: nowIso()
+        });
+      }
+      if (job.activeClone?.repositoryUrl.toLowerCase() === repositoryUrl.toLowerCase()) {
+        job.activeClone.abortController.abort();
+      }
+    } else {
+      job.indexSkipped = true;
+      if (job.scopeVersionId) {
+        this.semanticIndexExecutor.cancel(job.scopeVersionId, job.workspacePath, 'index_later');
+      }
+      for (const [key, row] of job.repositories) {
+        if (row.stage === 'index_queued' || row.stage === 'indexing') {
+          job.repositories.set(key, {
+            ...row,
+            stage: 'index_skipped',
+            message: 'Indexing skipped. Rebuild the program index later from Settings.',
+            updatedAt: nowIso()
+          });
+        }
+      }
+    }
+    this.emitOnboardingRepositoryProgress(job);
+    return this.onboardingRepositoryProgress(job);
+  }
+
+  private async materializeOnboardingRepositoriesWithoutProgress(workspacePath: string, requestedUrls: string[]): Promise<void> {
+    const requestId = `legacy_${Date.now()}`;
+    const job = this.createOnboardingRepositoryJob(requestId, workspacePath, requestedUrls, null);
+    await this.runOnboardingRepositoryJob(job);
+  }
+
+  private createOnboardingRepositoryJob(
+    requestId: string,
+    workspacePath: string,
+    requestedUrls: string[],
+    progressHandler: ProgramOnboardingProgressHandler | null
+  ): ProgramOnboardingRepositoryJob {
+    const runtime = this.runtimeForWorkspacePath(workspacePath);
+    const scope = runtime?.db.getActiveScope();
+    const requested = new Set(requestedUrls.map((url) => normalizeSourceRepositoryUrl(url)).filter((url): url is string => Boolean(url)).map((url) => url.toLowerCase()));
+    const candidates = scope ? sourceRepositoryCandidates(scope).filter((candidate) => requested.has(candidate.url.toLowerCase())) : [];
+    const repositories = new Map<string, ProgramOnboardingRepositoryProgress>();
+    for (const candidate of candidates) {
+      repositories.set(candidate.url.toLowerCase(), {
+        repositoryUrl: candidate.url,
+        label: candidate.label,
+        stage: 'queued',
+        message: 'Waiting to clone.',
+        localPath: null,
+        error: null,
+        updatedAt: nowIso()
+      });
+    }
+    return {
+      requestId,
+      workspacePath,
+      progressHandler,
+      repositories,
+      skippedCloneUrls: new Set(),
+      indexSkipped: false,
+      activeClone: null,
+      scopeVersionId: null,
+      phase: 'repositories'
+    };
+  }
+
+  private async runOnboardingRepositoryJob(job: ProgramOnboardingRepositoryJob): Promise<void> {
+    const runtime = this.runtimeForWorkspacePath(job.workspacePath);
+    if (!runtime) return;
+    const scope = runtime.db.getActiveScope();
+    const candidates = sourceRepositoryCandidates(scope).filter((candidate) => job.repositories.has(candidate.url.toLowerCase()));
+    if (candidates.length === 0) return;
+
+    const materializedAssets: ScopeAssetInput[] = [];
+    for (const candidate of candidates) {
+      const key = candidate.url.toLowerCase();
+      const row = job.repositories.get(key);
+      if (!row) continue;
+      if (job.skippedCloneUrls.has(key) || row.stage === 'clone_skipped') {
+        job.repositories.set(key, { ...row, stage: 'clone_skipped', message: 'Clone skipped.', updatedAt: nowIso() });
+        this.emitOnboardingRepositoryProgress(job);
+        continue;
+      }
+      const abortController = new AbortController();
+      job.activeClone = { repositoryUrl: candidate.url, abortController };
+      job.repositories.set(key, { ...row, stage: 'cloning', message: 'Cloning repository into the workspace.', updatedAt: nowIso() });
+      this.emitOnboardingRepositoryProgress(job);
+      try {
+        const materialized = await materializeGitRepositoryAsync(candidate, runtime.db.getDatabasePath(), '', { signal: abortController.signal });
+        const latest = job.repositories.get(key) ?? row;
+        materializedAssets.push({
+          direction: 'in_scope',
+          kind: 'repo',
+          value: materialized.localPath,
+          sensitivity: candidate.sensitivity,
+          attributes: {
+            source: 'beale_onboarding_index',
+            repositoryUrl: materialized.repositoryUrl,
+            sourceAssetId: candidate.sourceAssetId,
+            head: materialized.head,
+            materializedRef: materialized.ref ?? '',
+            cloned: materialized.cloned,
+            headRefName: materialized.headRefName,
+            headDescribe: materialized.headDescribe,
+            requestedRefHead: materialized.requestedRefHead,
+            requestedRefMatchesHead: materialized.requestedRefMatchesHead
+          }
+        });
+        job.repositories.set(key, {
+          ...latest,
+          stage: 'index_queued',
+          message: 'Clone complete. Waiting to index.',
+          localPath: materialized.localPath,
+          error: null,
+          updatedAt: nowIso()
+        });
+      } catch (error) {
+        const latest = job.repositories.get(key) ?? row;
+        const skipped = job.skippedCloneUrls.has(key) || abortController.signal.aborted;
+        job.repositories.set(key, {
+          ...latest,
+          stage: skipped ? 'clone_skipped' : 'clone_failed',
+          message: skipped ? 'Clone skipped. Repository can be cloned later.' : 'Clone failed. Repository can be cloned later.',
+          error: skipped ? null : errorMessage(error),
+          updatedAt: nowIso()
+        });
+        this.recordProfilingMainTiming('onboarding.repositoryMaterialize.cloneError', 0, {
+          repositoryUrl: candidate.url,
+          error: errorMessage(error)
+        });
+      } finally {
+        job.activeClone = null;
+        this.emitOnboardingRepositoryProgress(job);
+      }
+    }
+    if (materializedAssets.length === 0) {
+      job.phase = 'complete';
+      this.emitOnboardingRepositoryProgress(job);
+      return;
+    }
+
+    const latestRuntime = this.runtimeForWorkspacePath(job.workspacePath);
+    if (!latestRuntime) return;
+    const latestScope = latestRuntime.db.getActiveScope();
+    const existingLocalPaths = new Set(latestScope.assets.map((asset) => (isAbsolute(asset.value) ? resolve(asset.value).toLowerCase() : asset.value.toLowerCase())));
+    const nextAssets: ScopeAssetInput[] = latestScope.assets.map(scopeAssetInput);
+    for (const asset of materializedAssets) {
+      const localKey = resolve(asset.value).toLowerCase();
+      if (existingLocalPaths.has(localKey)) continue;
+      nextAssets.push(asset);
+      existingLocalPaths.add(localKey);
+    }
+    if (nextAssets.length === latestScope.assets.length) {
+      for (const [key, row] of job.repositories) {
+        if (row.stage === 'index_queued') {
+          job.repositories.set(key, { ...row, stage: 'indexed', message: 'Repository already available in the workspace.', updatedAt: nowIso() });
+        }
+      }
+      job.phase = 'complete';
+      this.emitOnboardingRepositoryProgress(job);
+      return;
+    }
+
+    const nextScope = latestRuntime.db.saveProgramScope(
+      {
+        programName: latestScope.programName,
+        organizationName: latestScope.organizationName,
+        descriptionMarkdown: latestScope.descriptionMarkdown,
+        rulesMarkdown: latestScope.rulesMarkdown,
+        networkProfile: latestScope.networkProfile,
+        expiresAt: latestScope.expiresAt,
+        assets: nextAssets
+      },
+      { refreshInventory: false }
+    );
+    job.scopeVersionId = nextScope.id;
+    for (const [key, row] of job.repositories) {
+      if (row.stage === 'index_queued') {
+        job.repositories.set(key, { ...row, stage: 'indexing', message: 'Indexing repository content.', updatedAt: nowIso() });
+      }
+    }
+    this.emitOnboardingRepositoryProgress(job);
+    if (job.indexSkipped) {
+      for (const [key, row] of job.repositories) {
+        if (row.stage === 'indexing' || row.stage === 'index_queued') {
+          job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing skipped. Rebuild the index later from Settings.', updatedAt: nowIso() });
+        }
+      }
+      job.phase = 'complete';
+      this.emitOnboardingRepositoryProgress(job);
+      return;
+    }
+    latestRuntime.db.queueProjectSemanticIndex(nextScope.id, 'onboarding_repository_index');
+    this.semanticIndexExecutor.schedule(nextScope.id, 'onboarding_repository_index', latestRuntime.workspacePath, 0, { refreshInventory: true });
+    this.emitRuntimeChange(job.workspacePath);
+    await this.waitForOnboardingRepositoryIndex(job, nextScope.id);
+  }
+
+  private async waitForOnboardingRepositoryIndex(job: ProgramOnboardingRepositoryJob, scopeVersionId: string): Promise<void> {
+    while (!job.indexSkipped) {
+      await sleep(500);
+      const runtime = this.runtimeForWorkspacePath(job.workspacePath);
+      if (!runtime) return;
+      const summary = runtime.db.getProjectSemanticSummary(scopeVersionId);
+      if (summary.status === 'queued' || summary.status === 'indexing') {
+        for (const [key, row] of job.repositories) {
+          if (row.stage === 'indexing' || row.stage === 'index_queued') {
+            job.repositories.set(key, {
+              ...row,
+              stage: 'indexing',
+              message:
+                summary.progressTotal != null && summary.progressProcessed != null
+                  ? `Indexing repository content (${summary.progressProcessed}/${summary.progressTotal}).`
+                  : 'Indexing repository content.',
+              updatedAt: nowIso()
+            });
+          }
+        }
+        this.emitOnboardingRepositoryProgress(job);
+        continue;
+      }
+      if (summary.status === 'ready' || (summary.status === 'empty' && summary.sourceDocumentCount === 0)) {
+        for (const [key, row] of job.repositories) {
+          if (row.stage === 'indexing' || row.stage === 'index_queued') {
+            job.repositories.set(key, { ...row, stage: 'indexed', message: 'Repository indexed.', updatedAt: nowIso() });
+          }
+        }
+        job.phase = 'complete';
+        this.emitOnboardingRepositoryProgress(job);
+        return;
+      }
+      if (summary.status === 'stale') {
+        for (const [key, row] of job.repositories) {
+          if (row.stage === 'indexing' || row.stage === 'index_queued') {
+            job.repositories.set(key, {
+              ...row,
+              stage: 'indexing',
+              message: 'Index needs another pass after repository inventory changed.',
+              updatedAt: nowIso()
+            });
+          }
+        }
+        runtime.db.queueProjectSemanticIndex(scopeVersionId, 'onboarding_repository_index_stale');
+        this.semanticIndexExecutor.schedule(scopeVersionId, 'onboarding_repository_index_stale', runtime.workspacePath);
+        this.emitOnboardingRepositoryProgress(job);
+        continue;
+      }
+      if (summary.status === 'canceled') {
+        for (const [key, row] of job.repositories) {
+          if (row.stage === 'indexing' || row.stage === 'index_queued') {
+            job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing skipped. Rebuild the index later from Settings.', updatedAt: nowIso() });
+          }
+        }
+        job.phase = 'complete';
+        this.emitOnboardingRepositoryProgress(job);
+        return;
+      }
+      if (summary.status === 'error') {
+        for (const [key, row] of job.repositories) {
+          if (row.stage === 'indexing' || row.stage === 'index_queued') {
+            job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing failed. Rebuild the index later from Settings.', error: summary.lastError, updatedAt: nowIso() });
+          }
+        }
+        job.phase = 'complete';
+        this.emitOnboardingRepositoryProgress(job);
+        return;
+      }
+    }
+    job.phase = 'complete';
+    this.emitOnboardingRepositoryProgress(job);
+  }
+
+  private onboardingRepositoryProgress(job: ProgramOnboardingRepositoryJob): ProgramOnboardingProgressUpdate {
+    return {
+      requestId: job.requestId,
+      workspacePath: job.workspacePath,
+      phase: job.phase,
+      repositories: [...job.repositories.values()]
+    };
+  }
+
+  private emitOnboardingRepositoryProgress(job: ProgramOnboardingRepositoryJob): void {
+    job.progressHandler?.(this.onboardingRepositoryProgress(job));
   }
 
   public openProgram(programId: string): WorkspaceSnapshot {
@@ -1315,6 +1651,10 @@ export class WorkspaceService {
   public close(): void {
     this.clearPendingChange();
     this.semanticIndexExecutor.dispose();
+    for (const job of this.onboardingRepositoryJobs.values()) {
+      job.activeClone?.abortController.abort();
+    }
+    this.onboardingRepositoryJobs.clear();
     for (const controller of this.researchPromptControllers.values()) {
       controller.abort();
     }
@@ -2369,6 +2709,22 @@ function optionalDateOrNever(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function stringValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
 function requireOpenAiAuthenticationForHackerOneImport(auth: OpenAiAuthService): void {
   if (auth.getStatus().configured) return;
   throw new Error('Authenticate with OpenAI first before looking up or importing HackerOne program information.');
@@ -2381,6 +2737,27 @@ function requireOpenAiAuthenticationForResearchPrompt(auth: OpenAiAuthService): 
 
 function hasHackerOneImportedAssets(assets: ScopeAssetInput[] | undefined): boolean {
   return (assets ?? []).some((asset) => asset.attributes?.source === 'hackerone');
+}
+
+function onboardingRepositoryIndexRequests(assets: ScopeAssetInput[]): string[] {
+  const urls = new Set<string>();
+  for (const asset of assets) {
+    if (asset.direction !== 'in_scope' || asset.attributes?.[ONBOARDING_INDEX_NOW_ATTRIBUTE] !== true) continue;
+    for (const url of extractSourceRepositoryUrls([asset.value, stringValue(asset.attributes?.repositoryUrl, ''), stringValue(asset.attributes?.instruction, '')].join('\n'))) {
+      urls.add(url);
+    }
+  }
+  return [...urls];
+}
+
+function scopeAssetInput(asset: ProgramScopeVersion['assets'][number]): ScopeAssetInput {
+  return {
+    direction: asset.direction,
+    kind: asset.kind,
+    value: asset.value,
+    sensitivity: asset.sensitivity,
+    attributes: asset.attributes
+  };
 }
 
 function normalizeHackerOneIdentifier(identifier: string): string {
@@ -2428,6 +2805,50 @@ function annotateHackerOneImportedAsset(asset: ScopeAssetInput, handle: string, 
       hackerOneSourceUrl: sourceUrl
     }
   };
+}
+
+function addHackerOneInScopeRepositoryAssets(assets: ScopeAssetInput[], scopeNodes: HackerOneScopeNode[], handle: string, sourceUrl: string): ScopeAssetInput[] {
+  const next = [...assets];
+  const knownRepositoryUrls = new Set(
+    assets
+      .flatMap((asset) => extractSourceRepositoryUrls([asset.value, stringValue(asset.attributes?.repositoryUrl, ''), stringValue(asset.attributes?.instruction, '')].join('\n')))
+      .map((url) => url.toLowerCase())
+  );
+  for (const scope of scopeNodes) {
+    if (scope.eligible_for_submission === false) continue;
+    const assetIdentifier = scope.asset_identifier?.trim() ?? '';
+    const instruction = scope.instruction?.trim() ?? '';
+    const assetType = scope.asset_type?.trim() || 'SOURCE_REPOSITORY';
+    for (const repositoryUrl of extractSourceRepositoryUrls(`${assetIdentifier}\n${instruction}`)) {
+      const key = repositoryUrl.toLowerCase();
+      if (knownRepositoryUrls.has(key)) continue;
+      knownRepositoryUrls.add(key);
+      next.push(
+        annotateHackerOneImportedAsset(
+          {
+            direction: 'in_scope',
+            kind: 'repo',
+            value: repositoryUrl,
+            sensitivity: 'public',
+            attributes: {
+              source: 'hackerone',
+              assetType,
+              displayName: assetIdentifier && assetIdentifier !== repositoryUrl ? assetIdentifier : undefined,
+              instruction,
+              repositoryUrl,
+              eligibleForBounty: scope.eligible_for_bounty,
+              eligibleForSubmission: scope.eligible_for_submission,
+              maxSeverity: scope.max_severity,
+              url: scope.url
+            }
+          },
+          handle,
+          sourceUrl
+        )
+      );
+    }
+  }
+  return next;
 }
 
 function firstSourceRepositoryUrl(text: string): string | null {

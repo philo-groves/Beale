@@ -209,6 +209,79 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
+  it('keeps durable resources and recent intent in compacted replay even with a tiny recent trace window', () => {
+    const { db } = openDb();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Compaction continuity',
+      promptMarkdown: '# Continuity test\nAudit the scoped MCP server.',
+      mode: 'open_discovery',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'local_disposable_vm',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
+    });
+    const artifact = db.createArtifact({
+      kind: 'python_generated_output',
+      mimeType: 'application/json',
+      sensitivity: 'public',
+      modelVisible: true,
+      source: 'host_tool_output',
+      metadata: {
+        name: 'architecture-tool-inventory',
+        sourcePath: '/tmp/beale-architecture-token=supersecret.json'
+      },
+      content: '{"summary":"tool inventory completed"}'
+    });
+    const artifactTrace = db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'artifact_created',
+      source: 'tool',
+      summary: 'Python preserved architecture inventory artifact.',
+      payload: { artifactId: artifact.id },
+      artifactId: artifact.id
+    });
+    db.createEvidence({
+      runId: context.run.id,
+      kind: 'artifact',
+      summary: 'Architecture inventory completed and should not be rediscovered.',
+      observationTraceEventId: artifactTrace.id,
+      artifactId: artifact.id
+    });
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: 'OpenAI completed thought.',
+      payload: { text: 'Architecture inventory completed; next inspect branch scoping and API platform authorization.' }
+    });
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Recent filler event should be the only kept trace event.',
+      payload: { ok: true }
+    });
+
+    const replay = buildCompactedReplayOpenAiInput(db.getRunDetail(context.run.id), { recentEventLimit: 1 });
+    const replayText = replay[0].content[0].text;
+    expect(replayText).toContain('## Durable Resources');
+    expect(replayText).toContain(artifact.id);
+    expect(replayText).toContain('architecture-tool-inventory');
+    expect(replayText).toContain('Use listed artifact ids');
+    expect(replayText).toContain('## Recent Reasoning / Intent');
+    expect(replayText).toContain('branch scoping and API platform authorization');
+    expect(replayText).toContain('## Evidence');
+    expect(replayText).toContain('Architecture inventory completed');
+    expect(replayText).not.toContain('supersecret');
+    db.close();
+  });
+
   it('gives autonomy-forward dynamic mode transition guidance to the model', () => {
     const { db } = openDb();
     const instructions = buildOpenAiInstructions(db.getActiveScope(), { ...openAiInput(), mode: 'dynamic' });
@@ -643,6 +716,46 @@ describe('OpenAI Responses run engine', () => {
     expect(detail.contextCompactions[0].reason).toBe('context_window_error');
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'OpenAI compacted retry recovered from context window pressure.')).toBe(true);
+    db.close();
+  });
+
+  it('keeps compacting automatically after repeated context-window errors in one run loop', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        return new Response(sse(toolCallEvents('resp_before_pressure', 'call_before_pressure')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      if (requests.length === 2 || requests.length === 4) {
+        return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model. Please adjust your input and try again.' } }), {
+          status: 400
+        });
+      }
+      if (requests.length === 3) {
+        return new Response(sse(toolCallEvents('resp_after_first_compaction', 'call_after_first_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return new Response(sse(finalResponseEvents('resp_after_second_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(5);
+    expect(detail.contextCompactions).toHaveLength(2);
+    expect(detail.contextCompactions.map((compaction) => compaction.reason)).toEqual(['context_window_error', 'context_window_error']);
+    const retryTraces = detail.traceEvents.filter((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.');
+    expect(retryTraces).toHaveLength(2);
+    expect(retryTraces.map((event) => event.payload.retryAttempt)).toEqual([1, 2]);
+    expect(retryTraces.map((event) => event.payload.recentModelVisibleEventLimit)).toEqual([40, 20]);
+    expect(detail.traceEvents.filter((event) => event.summary === 'OpenAI compacted retry recovered from context window pressure.')).toHaveLength(2);
     db.close();
   });
 

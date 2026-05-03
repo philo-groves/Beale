@@ -7,18 +7,21 @@ export function Modal({
   children,
   footer,
   onClose,
-  wide = false
+  wide = false,
+  className = ''
 }: {
   title: string;
   children: ReactNode;
   footer: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  className?: string;
 }): JSX.Element {
   useDevRenderProbe('modal', () => ({ title, wide: Boolean(wide) }));
+  const panelClassName = ['modal-panel', wide ? 'wide-modal' : '', className].filter(Boolean).join(' ');
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className={`modal-panel ${wide ? 'wide-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <section className={panelClassName} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <header className="modal-header">
           <h2 id="modal-title">{title}</h2>
           <button type="button" title="Close" onClick={onClose}>

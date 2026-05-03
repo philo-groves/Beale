@@ -7,6 +7,8 @@ import type {
   HostEnvironment,
   HackerOneProgramLookupResult,
   ProgramOnboardingInput,
+  ProgramOnboardingProgressUpdate,
+  ProgramOnboardingSkipInput,
   ProgramRegistryState,
   ProfilingReport,
   ProfilingState,
@@ -46,6 +48,14 @@ const api: BealeApi = {
   },
   createProgram(input: ProgramOnboardingInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.createProgram, input);
+  },
+  skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.skipProgramOnboardingRepository, input);
+  },
+  onProgramOnboardingUpdate(listener: (update: ProgramOnboardingProgressUpdate) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, update: ProgramOnboardingProgressUpdate): void => listener(update);
+    ipcRenderer.on(IPC_CHANNELS.programOnboardingUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.programOnboardingUpdated, wrapped);
   },
   openProgram(programId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.openProgram, programId);

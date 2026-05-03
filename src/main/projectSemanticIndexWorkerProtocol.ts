@@ -8,6 +8,7 @@ export interface ProjectSemanticIndexWorkerInput {
   reason: string;
   batchSize: number;
   batchDelayMs: number;
+  refreshInventory?: boolean;
 }
 
 export type ProjectSemanticIndexWorkerMessage =

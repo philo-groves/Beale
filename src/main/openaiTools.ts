@@ -419,8 +419,8 @@ export class BealeToolRouter {
         arguments: args,
         policy
       },
-      status: 'completed',
-      resultSummary: `Structured ${toolName} call accepted by Beale tool router.`,
+      status: 'running',
+      resultSummary: `Structured ${toolName} call started by Beale tool router.`,
       result: { toolName, normalizedInTrace: true },
       vmContextId: context.vmContext.id
     });
@@ -483,8 +483,8 @@ export class BealeToolRouter {
         arguments: args,
         policy
       },
-      status: 'completed',
-      resultSummary: `Structured ${toolName} call accepted by Beale tool router.`,
+      status: 'running',
+      resultSummary: `Structured ${toolName} call started by Beale tool router.`,
       result: { toolName, normalizedInTrace: true },
       vmContextId: context.vmContext.id
     });
@@ -525,6 +525,12 @@ export class BealeToolRouter {
   private finishToolResult(context: CreatedRunContext, toolCallId: string, result: ToolResult): ToolResult {
     if (result.traceEventId) {
       this.db.linkToolCallTrace(toolCallId, result.traceEventId);
+      this.db.finishToolCall(toolCallId, result.status, result.summary, {
+        status: result.status,
+        summary: result.summary,
+        traceEventId: result.traceEventId,
+        artifactId: result.artifactId ?? null
+      });
       return result;
     }
     const event = this.db.appendTraceEvent({
@@ -545,7 +551,14 @@ export class BealeToolRouter {
     if (event.type === 'hypothesis_event' && typeof result.payload.hypothesisId === 'string') {
       this.db.setHypothesisTrace(result.payload.hypothesisId, event.id);
     }
-    return { ...result, traceEventId: event.id };
+    const completed = { ...result, traceEventId: event.id };
+    this.db.finishToolCall(toolCallId, completed.status, completed.summary, {
+      status: completed.status,
+      summary: completed.summary,
+      traceEventId: completed.traceEventId,
+      artifactId: completed.artifactId ?? null
+    });
+    return completed;
   }
 
   private async dispatchAsync(context: CreatedRunContext, toolName: ToolName, call: OpenAiFunctionCall, args: Record<string, unknown>): Promise<ToolResult> {

@@ -421,6 +421,40 @@ export interface ProgramOnboardingDefaults {
 
 export interface ProgramOnboardingInput extends Omit<ProgramOnboardingDefaults, 'assets'> {
   assets?: ScopeAssetInput[];
+  onboardingRequestId?: string;
+}
+
+export type ProgramOnboardingRepositoryStage =
+  | 'queued'
+  | 'cloning'
+  | 'clone_skipped'
+  | 'clone_failed'
+  | 'index_queued'
+  | 'indexing'
+  | 'index_skipped'
+  | 'indexed';
+
+export interface ProgramOnboardingRepositoryProgress {
+  repositoryUrl: string;
+  label: string;
+  stage: ProgramOnboardingRepositoryStage;
+  message: string;
+  localPath: string | null;
+  error: string | null;
+  updatedAt: string;
+}
+
+export interface ProgramOnboardingProgressUpdate {
+  requestId: string;
+  workspacePath: string;
+  phase: 'creating' | 'repositories' | 'complete';
+  repositories: ProgramOnboardingRepositoryProgress[];
+}
+
+export interface ProgramOnboardingSkipInput {
+  requestId: string;
+  repositoryUrl: string;
+  stage: 'clone' | 'index';
 }
 
 export interface HackerOneProgramLookupResult {
@@ -1113,6 +1147,8 @@ export interface BealeApi {
   getProgramRegistry(): Promise<ProgramRegistryState>;
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
+  skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null>;
+  onProgramOnboardingUpdate(listener: (update: ProgramOnboardingProgressUpdate) => void): () => void;
   openProgram(programId: string): Promise<WorkspaceSnapshot>;
   removeProgram(programId: string): Promise<WorkspaceSnapshot | null>;
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;

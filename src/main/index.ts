@@ -9,6 +9,7 @@ import type {
   ProfilingReport,
   ProgramRegistryState,
   ProgramOnboardingInput,
+  ProgramOnboardingSkipInput,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   RunDetailUpdateCursor,
@@ -380,7 +381,10 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => timedMainIpc('getProgramRegistry', {}, () => workspaceService.getProgramRegistryState()));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
-  ipcMain.handle(IPC_CHANNELS.createProgram, (_event, input: ProgramOnboardingInput) => workspaceService.createProgram(input));
+  ipcMain.handle(IPC_CHANNELS.createProgram, (event, input: ProgramOnboardingInput) =>
+    workspaceService.createProgram(input, (update) => event.sender.send(IPC_CHANNELS.programOnboardingUpdated, update))
+  );
+  ipcMain.handle(IPC_CHANNELS.skipProgramOnboardingRepository, (_event, input: ProgramOnboardingSkipInput) => workspaceService.skipProgramOnboardingRepository(input));
   ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) =>
     timedMainIpc('openProgram', { program: shortMetricId(programId) }, () => workspaceService.openProgram(programId))
   );

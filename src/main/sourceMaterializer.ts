@@ -135,7 +135,12 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
   };
 }
 
-export async function materializeGitRepositoryAsync(candidate: SourceRepositoryCandidate, databasePath: string, ref: string): Promise<MaterializedSourceRepository> {
+export async function materializeGitRepositoryAsync(
+  candidate: SourceRepositoryCandidate,
+  databasePath: string,
+  ref: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<MaterializedSourceRepository> {
   const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
   const managedRoot = join(workspaceRoot, 'targets', 'repositories');
   const slug = repositorySlug(candidate.url);
@@ -145,7 +150,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
-    await materializeRequestedRefAsync(existingCheckout, cleanRef);
+    await materializeRequestedRefAsync(existingCheckout, cleanRef, options);
     return {
       repositoryUrl: candidate.url,
       localPath: existingCheckout,
@@ -156,7 +161,7 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
   }
 
   if (existsSync(join(localPath, '.git'))) {
-    await materializeRequestedRefAsync(localPath, cleanRef);
+    await materializeRequestedRefAsync(localPath, cleanRef, options);
     return {
       repositoryUrl: candidate.url,
       localPath,
@@ -173,9 +178,9 @@ export async function materializeGitRepositoryAsync(candidate: SourceRepositoryC
   const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
   rmSync(tempPath, { recursive: true, force: true });
   try {
-    await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
+    await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath], options.signal);
     if (cleanRef) {
-      await materializeRequestedRefAsync(tempPath, cleanRef);
+      await materializeRequestedRefAsync(tempPath, cleanRef, options);
     }
     renameSync(tempPath, localPath);
   } catch (error) {
@@ -308,17 +313,17 @@ function materializeRequestedRef(localPath: string, requestedRef: string): void 
   runGit(['-C', localPath, 'checkout', '--detach', requestedCommit ?? requestedRef]);
 }
 
-async function materializeRequestedRefAsync(localPath: string, requestedRef: string): Promise<void> {
+async function materializeRequestedRefAsync(localPath: string, requestedRef: string, options: { signal?: AbortSignal } = {}): Promise<void> {
   if (!requestedRef) return;
   const metadata = gitCheckoutMetadata(localPath, requestedRef);
   if (metadata.requestedRefMatchesHead === true) return;
   try {
-    await runGitAsync(['-C', localPath, 'fetch', '--depth', '1', 'origin', requestedRef]);
+    await runGitAsync(['-C', localPath, 'fetch', '--depth', '1', 'origin', requestedRef], options.signal);
   } catch {
-    await runGitAsync(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin']);
+    await runGitAsync(['-C', localPath, 'fetch', '--tags', '--depth', '1', 'origin'], options.signal);
   }
   const requestedCommit = gitOutput(localPath, ['rev-parse', `${requestedRef}^{commit}`]);
-  await runGitAsync(['-C', localPath, 'checkout', '--detach', requestedCommit ?? requestedRef]);
+  await runGitAsync(['-C', localPath, 'checkout', '--detach', requestedCommit ?? requestedRef], options.signal);
 }
 
 function gitOutput(localPath: string, args: string[]): string | null {
@@ -407,9 +412,13 @@ function runGit(args: string[]): { stdout: string; stderr: string } {
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-function runGitAsync(args: string[]): Promise<{ stdout: string; stderr: string }> {
+function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
   const command = process.env.BEALE_GIT_COMMAND?.trim() || 'git';
   return new Promise((resolvePromise, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('git operation aborted'));
+      return;
+    }
     const child = spawn(command, args, {
       env: gitEnv(),
       windowsHide: true
@@ -420,6 +429,11 @@ function runGitAsync(args: string[]): Promise<{ stdout: string; stderr: string }
       child.kill('SIGTERM');
       reject(new Error(`git ${args.join(' ')} timed out after ${GIT_TIMEOUT_MS}ms`));
     }, GIT_TIMEOUT_MS);
+    const abort = (): void => {
+      child.kill('SIGTERM');
+      reject(new Error('git operation aborted'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
@@ -430,10 +444,12 @@ function runGitAsync(args: string[]): Promise<{ stdout: string; stderr: string }
     });
     child.on('error', (error) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       reject(error);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (code !== 0) {
         reject(new Error(`git ${args.join(' ')} failed with exit ${code}: ${String(stderr || stdout).slice(0, 800)}`));
         return;

@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, ZoomState } from '@shared/types';
+import type { HostEnvironment, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
+import { AppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
 type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
@@ -10,19 +11,25 @@ type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   platform,
+  programName,
+  activeRunDetail,
   profilingEnabled,
+  onOpenResearchPrompt,
   onOpenProfiling,
   onAddProgram,
   onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
   platform: HostEnvironment['platform'];
+  programName: string;
+  activeRunDetail: RunDetail | null;
   profilingEnabled: boolean;
+  onOpenResearchPrompt: (detail: RunDetail) => void;
   onOpenProfiling: () => void;
   onAddProgram: () => void;
   onToggleSidebar: () => void;
 }): JSX.Element {
-  useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled }));
+  useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, programName, run: activeRunDetail?.run.id ?? 'none' }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -224,6 +231,7 @@ export const TopBar = memo(function TopBar({
           ) : null}
         </div>
       </nav>
+      <AppHeaderTitle programName={programName} detail={activeRunDetail} onOpenResearchPrompt={onOpenResearchPrompt} />
       {profilingEnabled || !isMac ? (
         <div className="window-controls" aria-label="Window controls">
           {profilingEnabled ? (

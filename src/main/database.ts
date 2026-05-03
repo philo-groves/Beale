@@ -482,6 +482,14 @@ interface ProjectSemanticDirtyState {
   markedAt: string;
 }
 
+interface ProjectSemanticRefreshState {
+  indexedAt: string | null;
+  durationMs: number | null;
+  sourceDocumentCount: number;
+  chunkCount: number;
+  indexSizeBytes: number;
+}
+
 export interface ProjectStructureEntityRecord {
   id: string;
   scopeVersionId: string;
@@ -555,7 +563,7 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -584,6 +592,8 @@ const PROJECT_SEMANTIC_MAX_SOURCE_CHUNKS_PER_DOCUMENT = 24;
 const PROJECT_SEMANTIC_MAX_ENTITY_CHUNKS_PER_DOCUMENT = 8;
 const PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES = 3;
 const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
+const PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT = 768;
+const PROJECT_SEMANTIC_SEARCH_PREFILTER_TERM_LIMIT = 18;
 
 function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}`;
@@ -934,6 +944,20 @@ function projectFtsQuery(query: string): string | null {
   const terms = projectSearchTerms(query);
   if (terms.length === 0) return null;
   return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' AND ');
+}
+
+function projectSemanticPrefilterTerms(query: string, profile: ProjectSemanticQueryProfile): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  const add = (term: string): void => {
+    const normalized = term.trim().toLowerCase();
+    if (normalized.length < 2 || seen.has(normalized)) return;
+    seen.add(normalized);
+    terms.push(normalized);
+  };
+  for (const term of projectSearchTerms(query)) add(term);
+  for (const term of profile.terms) add(term);
+  return terms.slice(0, PROJECT_SEMANTIC_SEARCH_PREFILTER_TERM_LIMIT);
 }
 
 function projectSearchPreview(title: string, body: string, query: string, maxLength = 260): string {
@@ -4064,6 +4088,19 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE tool_calls SET trace_event_id = ? WHERE id = ?').run(traceEventId, toolCallId);
   }
 
+  public finishToolCall(toolCallId: string, status: string, resultSummary: string, result: Record<string, unknown>): void {
+    this.db
+      .prepare(
+        `UPDATE tool_calls
+         SET status = ?,
+             result_summary = ?,
+             result_json = ?,
+             ended_at = COALESCE(ended_at, ?)
+         WHERE id = ?`
+      )
+      .run(status, resultSummary, toJson(result), nowIso(), toolCallId);
+  }
+
   public updateRunStatus(runId: string, status: RunStatus, summary: string): void {
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
     this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
@@ -5841,77 +5878,79 @@ export class WorkspaceDatabase {
     if (options.refresh !== false) this.ensureProjectGraphFresh(scopeVersionId);
     const edgeKinds = (options.edgeKinds ?? []).map((kind) => kind.trim()).filter(Boolean);
     if (edgeKinds.length === 0) return [];
-    const edgeKindSql = edgeKinds.map(() => '?').join(', ');
     const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 24)));
-    return rows(
-      this.db
-        .prepare(
-          `WITH seed_edges AS (
-             SELECT *
-             FROM project_graph_edges
-             WHERE scope_version_id = ?
-               AND (source_node_id = ? OR target_node_id = ?)
-               AND edge_kind IN (${edgeKindSql})
-           )
-           SELECT n.*, e.id AS variant_edge_id, e.scope_version_id AS variant_edge_scope_version_id,
-                  e.source_node_id AS variant_edge_source_node_id, e.edge_kind AS variant_edge_kind,
-                  e.target_node_id AS variant_edge_target_node_id, e.target_entity_type AS variant_edge_target_entity_type,
-                  e.target_entity_id AS variant_edge_target_entity_id, e.target_label AS variant_edge_target_label,
-                  e.metadata_json AS variant_edge_metadata_json, e.indexed_at AS variant_edge_indexed_at
-           FROM project_graph_edges e
-           JOIN seed_edges s ON s.scope_version_id = e.scope_version_id
-            AND s.edge_kind = e.edge_kind
-            AND s.id <> e.id
-            AND s.source_node_id <> e.source_node_id
-            AND (
-              (s.target_node_id IS NOT NULL AND e.target_node_id = s.target_node_id)
-              OR (
-                s.target_node_id IS NULL
-                AND e.target_node_id IS NULL
-                AND e.target_entity_type = s.target_entity_type
-                AND LOWER(e.target_label) = LOWER(s.target_label)
-              )
-            )
-           JOIN project_graph_nodes n ON n.scope_version_id = e.scope_version_id
-            AND n.id = e.source_node_id
-           WHERE e.scope_version_id = ?
-           ORDER BY
-             CASE e.edge_kind
-               WHEN 'reaches_sink' THEN 0
-               WHEN 'checks_permission' THEN 1
-               WHEN 'routes_to' THEN 2
-               WHEN 'handles_with' THEN 3
-               WHEN 'uses_middleware' THEN 4
-               WHEN 'calls' THEN 5
-	               WHEN 'supports_hypothesis' THEN 6
-	               WHEN 'verifies_finding' THEN 7
-	               WHEN 'imports_symbol' THEN 8
-	               WHEN 'exports_symbol' THEN 9
-	               WHEN 'references_permission' THEN 10
-	               WHEN 'references_url' THEN 11
-	               WHEN 'contains_string' THEN 12
-	               ELSE 13
-	             END,
-             n.node_kind ASC,
-             n.label ASC
-           LIMIT ?`
-        )
-        .all(scopeVersionId, nodeId, nodeId, ...edgeKinds, scopeVersionId, limit)
-    ).map((row) => ({
-      node: this.mapProjectGraphNode(row),
-      edge: this.mapProjectGraphEdge({
-        id: row.variant_edge_id,
-        scope_version_id: row.variant_edge_scope_version_id,
-        source_node_id: row.variant_edge_source_node_id,
-        edge_kind: row.variant_edge_kind,
-        target_node_id: row.variant_edge_target_node_id,
-        target_entity_type: row.variant_edge_target_entity_type,
-        target_entity_id: row.variant_edge_target_entity_id,
-        target_label: row.variant_edge_target_label,
-        metadata_json: row.variant_edge_metadata_json,
-        indexed_at: row.variant_edge_indexed_at
-      })
-    }));
+    const records: ProjectGraphVariantRecord[] = [];
+    const seen = new Set<string>();
+    const seedEdges = this.listProjectGraphEdgesForNode(scopeVersionId, nodeId, { edgeKinds, limit: Math.min(100, limit * 4), refresh: false });
+    for (const seed of seedEdges) {
+      if (records.length >= limit) break;
+      const remaining = limit - records.length;
+      const targetPredicate = seed.targetNodeId
+        ? 'e.target_node_id = ?'
+        : "e.target_node_id IS NULL AND e.target_entity_type = ? AND LOWER(e.target_label) = LOWER(?)";
+      const targetParams: SqlPrimitive[] = seed.targetNodeId ? [seed.targetNodeId] : [seed.targetEntityType, seed.targetLabel];
+      const resultRows = rows(
+        this.db
+          .prepare(
+            `SELECT n.*, e.id AS variant_edge_id, e.scope_version_id AS variant_edge_scope_version_id,
+                    e.source_node_id AS variant_edge_source_node_id, e.edge_kind AS variant_edge_kind,
+                    e.target_node_id AS variant_edge_target_node_id, e.target_entity_type AS variant_edge_target_entity_type,
+                    e.target_entity_id AS variant_edge_target_entity_id, e.target_label AS variant_edge_target_label,
+                    e.metadata_json AS variant_edge_metadata_json, e.indexed_at AS variant_edge_indexed_at
+             FROM project_graph_edges e
+             JOIN project_graph_nodes n ON n.scope_version_id = e.scope_version_id
+              AND n.id = e.source_node_id
+             WHERE e.scope_version_id = ?
+               AND e.edge_kind = ?
+               AND e.id <> ?
+               AND e.source_node_id <> ?
+               AND ${targetPredicate}
+             ORDER BY
+               CASE e.edge_kind
+                 WHEN 'reaches_sink' THEN 0
+                 WHEN 'checks_permission' THEN 1
+                 WHEN 'routes_to' THEN 2
+                 WHEN 'handles_with' THEN 3
+                 WHEN 'uses_middleware' THEN 4
+                 WHEN 'calls' THEN 5
+                 WHEN 'supports_hypothesis' THEN 6
+                 WHEN 'verifies_finding' THEN 7
+                 WHEN 'imports_symbol' THEN 8
+                 WHEN 'exports_symbol' THEN 9
+                 WHEN 'references_permission' THEN 10
+                 WHEN 'references_url' THEN 11
+                 WHEN 'contains_string' THEN 12
+                 ELSE 13
+               END,
+               n.node_kind ASC,
+               n.label ASC
+             LIMIT ?`
+          )
+          .all(scopeVersionId, seed.edgeKind, seed.id, seed.sourceNodeId, ...targetParams, remaining)
+      );
+      for (const row of resultRows) {
+        if (records.length >= limit) break;
+        const key = text(row, 'variant_edge_id');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        records.push({
+          node: this.mapProjectGraphNode(row),
+          edge: this.mapProjectGraphEdge({
+            id: row.variant_edge_id,
+            scope_version_id: row.variant_edge_scope_version_id,
+            source_node_id: row.variant_edge_source_node_id,
+            edge_kind: row.variant_edge_kind,
+            target_node_id: row.variant_edge_target_node_id,
+            target_entity_type: row.variant_edge_target_entity_type,
+            target_entity_id: row.variant_edge_target_entity_id,
+            target_label: row.variant_edge_target_label,
+            metadata_json: row.variant_edge_metadata_json,
+            indexed_at: row.variant_edge_indexed_at
+          })
+        });
+      }
+    }
+    return records;
   }
 
   public getProjectGraphNeighborhood(
@@ -6278,6 +6317,7 @@ export class WorkspaceDatabase {
     this.setMetaValue(
       projectSemanticRefreshMetaKey(scopeVersionId),
       JSON.stringify({
+        indexedAt,
         durationMs: Date.now() - startedAtMs,
         sourceDocumentCount,
         chunkCount: refreshed.chunkCount,
@@ -6322,9 +6362,15 @@ export class WorkspaceDatabase {
         .get(scopeVersionId)
     );
     const sourceRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS source_document_count FROM project_search_documents WHERE scope_version_id = ?').get(scopeVersionId));
-    const indexedAt = row ? nullableText(row, 'indexed_at') : null;
+    const lastRefresh = this.getProjectSemanticLastRefreshState(scopeVersionId);
+    const chunkIndexedAt = row ? nullableText(row, 'indexed_at') : null;
+    const indexedAt = chunkIndexedAt ?? lastRefresh?.indexedAt ?? null;
     const sourceDocumentCount = sourceRow ? numberValue(sourceRow, 'source_document_count') : 0;
-    const indexedSourceDocumentCount = row ? numberValue(row, 'indexed_source_document_count') : 0;
+    const chunkIndexedSourceDocumentCount = row ? numberValue(row, 'indexed_source_document_count') : 0;
+    const indexedSourceDocumentCount =
+      lastRefresh?.indexedAt === indexedAt
+        ? Math.max(chunkIndexedSourceDocumentCount, Math.min(lastRefresh.sourceDocumentCount, sourceDocumentCount))
+        : chunkIndexedSourceDocumentCount;
     const stale = enabled && chunkCount > 0 && (indexedSourceDocumentCount !== sourceDocumentCount || this.projectSemanticIndexLooksStale(scopeVersionId, indexedAt));
     const job = this.getProjectSemanticJobState(scopeVersionId);
     const derivedStatus: ProjectSemanticSummary['status'] = !enabled ? 'disabled' : stale ? 'stale' : chunkCount > 0 ? 'ready' : 'empty';
@@ -6341,7 +6387,7 @@ export class WorkspaceDatabase {
       sourceDocumentCount,
       indexedSourceDocumentCount,
       indexSizeBytes: row ? numberValue(row, 'index_size_bytes') : 0,
-      lastRefreshDurationMs: this.getProjectSemanticLastRefreshDurationMs(scopeVersionId),
+      lastRefreshDurationMs: lastRefresh?.durationMs ?? null,
       namespaceCounts,
       indexedAt,
       queuedAt: job?.queuedAt ?? null,
@@ -6395,21 +6441,62 @@ export class WorkspaceDatabase {
     }
     const profile = semanticQueryProfile(trimmed);
     const queryVector = semanticVectorForText(trimmed, 'query');
-    const rankedCandidates = rows(
-      this.db
-        .prepare(
-          `SELECT *
-           FROM project_semantic_chunks
-           WHERE scope_version_id = ?
-           ORDER BY indexed_at DESC`
-        )
-        .all(scopeVersionId)
-    )
+    const rankedCandidates = this.projectSemanticCandidateRows(scopeVersionId, trimmed, profile)
       .map((row) => ({ row, score: semanticRankScore(row, profile, queryVector) }))
       .filter((candidate) => candidate.score.baseScore >= 0.08 && (candidate.score.vectorScore > 0 || candidate.score.lexicalScore > 0 || candidate.score.titleScore > 0))
       .sort((left, right) => right.score.score - left.score.score || text(right.row, 'indexed_at').localeCompare(text(left.row, 'indexed_at')));
     return semanticDiversifyRankedCandidates(rankedCandidates, limit)
       .map(({ row, score }) => this.mapProjectSemanticSearchResult(row, trimmed, score));
+  }
+
+  private projectSemanticCandidateRows(scopeVersionId: string, query: string, profile: ProjectSemanticQueryProfile): SqlRow[] {
+    const candidates: SqlRow[] = [];
+    const seen = new Set<string>();
+    const append = (candidateRows: SqlRow[]): void => {
+      for (const row of candidateRows) {
+        if (candidates.length >= PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT) return;
+        const id = text(row, 'id');
+        if (seen.has(id)) continue;
+        seen.add(id);
+        candidates.push(row);
+      }
+    };
+    const terms = projectSemanticPrefilterTerms(query, profile);
+    if (terms.length === 0) return candidates;
+    const scoreSql = terms
+      .map(
+        () =>
+          `(CASE WHEN LOWER(c.title) LIKE ? ESCAPE '\\' THEN 8 ELSE 0 END +
+            CASE WHEN LOWER(COALESCE(c.source_path, '')) LIKE ? ESCAPE '\\' THEN 6 ELSE 0 END +
+            CASE WHEN LOWER(c.content) LIKE ? ESCAPE '\\' THEN 4 ELSE 0 END +
+            CASE WHEN LOWER(c.vector_json) LIKE ? ESCAPE '\\' THEN 3 ELSE 0 END +
+            CASE WHEN LOWER(c.metadata_json) LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END)`
+      )
+      .join(' + ');
+    const params: SqlPrimitive[] = [];
+    for (const term of terms) {
+      const pattern = `%${escapeLike(term)}%`;
+      params.push(pattern, pattern, pattern, pattern, pattern);
+    }
+    params.push(scopeVersionId, PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT);
+    append(
+      rows(
+        this.db
+          .prepare(
+            `SELECT *
+             FROM (
+               SELECT c.*, ${scoreSql} AS semantic_prefilter_score
+               FROM project_semantic_chunks c
+               WHERE c.scope_version_id = ?
+             )
+             WHERE semantic_prefilter_score > 0
+             ORDER BY semantic_prefilter_score DESC, indexed_at DESC
+             LIMIT ?`
+          )
+          .all(...params)
+      )
+    );
+    return candidates;
   }
 
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
@@ -7076,6 +7163,10 @@ export class WorkspaceDatabase {
         this.applyFindingImpactAssessmentMigration();
         this.insertMigration(18, 'finding_impact_assessment');
       }
+      if (currentVersion < 19) {
+        this.applyProjectSearchPerformanceIndexesMigration();
+        this.insertMigration(19, 'project_search_performance_indexes');
+      }
     });
   }
 
@@ -7241,6 +7332,10 @@ export class WorkspaceDatabase {
     for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
       this.recordProjectGraphStatus(text(row, 'id'), { rebuildReason: null, indexedAt: null, durationMs: null, incrementBuildCount: false });
     }
+  }
+
+  private applyProjectSearchPerformanceIndexesMigration(): void {
+    this.db.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
   }
 
   private applyEvidenceSupersedenceMigration(): void {
@@ -7519,11 +7614,18 @@ export class WorkspaceDatabase {
     return Boolean(documentUpdatedAt && Date.parse(documentUpdatedAt) > Date.parse(indexedAt));
   }
 
-  private getProjectSemanticLastRefreshDurationMs(scopeVersionId: string): number | null {
+  private getProjectSemanticLastRefreshState(scopeVersionId: string): ProjectSemanticRefreshState | null {
     const value = this.getMetaValue(projectSemanticRefreshMetaKey(scopeVersionId));
     if (!value) return null;
     const parsed = parseJson(value);
-    return typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs) ? parsed.durationMs : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return {
+      indexedAt: typeof parsed.indexedAt === 'string' && parsed.indexedAt.trim() ? parsed.indexedAt : null,
+      durationMs: typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs) ? parsed.durationMs : null,
+      sourceDocumentCount: typeof parsed.sourceDocumentCount === 'number' && Number.isFinite(parsed.sourceDocumentCount) ? Math.max(0, Math.floor(parsed.sourceDocumentCount)) : 0,
+      chunkCount: typeof parsed.chunkCount === 'number' && Number.isFinite(parsed.chunkCount) ? Math.max(0, Math.floor(parsed.chunkCount)) : 0,
+      indexSizeBytes: typeof parsed.indexSizeBytes === 'number' && Number.isFinite(parsed.indexSizeBytes) ? Math.max(0, Math.floor(parsed.indexSizeBytes)) : 0
+    };
   }
 
   private resolveProjectStructureRelationTargets(scopeVersionId: string): void {
@@ -10337,6 +10439,14 @@ CREATE INDEX IF NOT EXISTS idx_project_semantic_scope_namespace ON project_seman
 CREATE INDEX IF NOT EXISTS idx_project_semantic_source_document ON project_semantic_chunks(source_document_id);
 CREATE INDEX IF NOT EXISTS idx_project_semantic_entity ON project_semantic_chunks(scope_version_id, entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_project_semantic_updated ON project_semantic_chunks(indexed_at);
+`;
+
+const PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL = `
+CREATE INDEX IF NOT EXISTS idx_project_semantic_scope_document ON project_semantic_chunks(scope_version_id, source_document_id);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_scope_source_kind ON project_graph_edges(scope_version_id, source_node_id, edge_kind);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_scope_target_node_kind ON project_graph_edges(scope_version_id, target_node_id, edge_kind);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_node ON project_graph_edges(scope_version_id, edge_kind, target_node_id);
+CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_label ON project_graph_edges(scope_version_id, edge_kind, target_entity_type, target_label);
 `;
 
 const SCHEMA_SQL = `

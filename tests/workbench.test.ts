@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ScopeAssetKind, StartRunInput } from '@shared/types';
+import type { ProgramOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
@@ -430,6 +430,74 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('materializes onboarding repositories marked for immediate indexing', async () => {
+    const workspace = tempWorkspace();
+    const fakeGit = join(workspace, 'fake-git-onboarding.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args.includes('clone')) {",
+        '  const target = args.at(-1);',
+        "  mkdirSync(`${target}/.git`, { recursive: true });",
+        "  mkdirSync(`${target}/src`, { recursive: true });",
+        "  writeFileSync(`${target}/src/index.js`, 'export const vulnerable = false;\\n');",
+        '  process.exit(0);',
+        '}',
+        "if (args.includes('rev-parse') && args.at(-1) === 'HEAD') {",
+        '  process.stdout.write("0123456789abcdef0123456789abcdef01234567\\n");',
+        '  process.exit(0);',
+        '}',
+        'process.exit(1);'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const service = new WorkspaceService();
+    const progressUpdates: ProgramOnboardingProgressUpdate[] = [];
+
+    service.createProgram(
+      {
+        workspacePath: workspace,
+        programName: 'Onboarding Source Program',
+        organizationName: 'Example Org',
+        descriptionMarkdown: 'Onboarding should clone selected repositories.',
+        rulesMarkdown: 'Offline source review.',
+        networkProfile: 'offline',
+        expiresAt: null,
+        onboardingRequestId: 'onboarding-index-now-test',
+        assets: [
+          {
+            direction: 'in_scope',
+            kind: 'repo',
+            value: 'https://github.com/Netflix/zuul',
+            sensitivity: 'public',
+            attributes: { bealeOnboardingIndexNow: true }
+          }
+        ]
+      },
+      (update) => {
+        progressUpdates.push(update);
+      }
+    );
+
+    await waitForCondition(() => service.getSnapshot()?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul')) ?? false);
+    await waitForCondition(() => Number(service.getSnapshot()?.projectGraph.nodeFamilyCounts.inventory_item ?? 0) > 0);
+    await waitForCondition(() => progressUpdates.at(-1)?.phase === 'complete', 5000);
+
+    const snapshot = service.getSnapshot();
+    const completedProgress = progressUpdates.at(-1);
+    expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(true);
+    expect(completedProgress?.repositories[0]).toMatchObject({ stage: 'indexed' });
+    expect(progressUpdates.some((update) => update.repositories.some((repository) => repository.stage === 'indexing'))).toBe(true);
+    expect(snapshot?.projectSemantic.status).toBe('ready');
+    expect(snapshot?.projectSemantic.sourceDocumentCount).toBeGreaterThan(0);
+    expect(snapshot?.projectSemantic.indexedSourceDocumentCount).toBe(snapshot?.projectSemantic.sourceDocumentCount);
+    service.close();
+  });
+
   it('does not broadcast full workspace snapshots for active trace-only runtime updates', async () => {
     const workspace = tempWorkspace();
     const changes: boolean[] = [];
@@ -545,7 +613,7 @@ describe('Beale workbench skeleton', () => {
                 policy: '# GitHub policy\nStay in scope.',
                 submission_state: 'open',
                 structured_scopes: {
-                  total_count: 2,
+                  total_count: 3,
                   nodes: [
                     {
                       asset_type: 'URL',
@@ -564,6 +632,15 @@ describe('Beale workbench skeleton', () => {
                       eligible_for_submission: false,
                       max_severity: null,
                       url: 'https://hackerone.com/github/asset/2'
+                    },
+                    {
+                      asset_type: 'SOURCE_CODE',
+                      asset_identifier: 'https://github.com/github/securitylab',
+                      instruction: 'In-scope public repository.',
+                      eligible_for_bounty: true,
+                      eligible_for_submission: true,
+                      max_severity: 'high',
+                      url: 'https://hackerone.com/github/asset/3'
                     }
                   ]
                 }
@@ -605,7 +682,7 @@ describe('Beale workbench skeleton', () => {
       organizationName: 'GitHub',
       descriptionMarkdown: 'Authorized research under the GitHub Security Bounty program on HackerOne.',
       networkProfile: 'elevated',
-      importedScopeCount: 2
+      importedScopeCount: 3
     });
     expect(modelRequests).toHaveLength(1);
     expect(JSON.stringify(modelRequests[0])).not.toContain('descriptionMarkdown');
@@ -625,6 +702,13 @@ describe('Beale workbench skeleton', () => {
           direction: 'out_of_scope',
           kind: 'other',
           value: 'Third-party services',
+          sensitivity: 'public',
+          attributes: expect.objectContaining({ hackerOneHandle: 'github', hackerOneSourceUrl: 'https://hackerone.com/github' })
+        }),
+        expect.objectContaining({
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://github.com/github/securitylab',
           sensitivity: 'public',
           attributes: expect.objectContaining({ hackerOneHandle: 'github', hackerOneSourceUrl: 'https://hackerone.com/github' })
         })
@@ -1020,6 +1104,7 @@ describe('Beale workbench skeleton', () => {
     const projectSemanticMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 13').get();
     const projectGraphMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 14').get();
     const projectGraphStatusMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 15').get();
+    const projectSearchPerformanceMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 19').get();
     const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
     const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
     const weaknessTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'weakness_mappings'").get();
@@ -1032,6 +1117,9 @@ describe('Beale workbench skeleton', () => {
     const graphNodesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_nodes'").get();
     const graphEdgesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_edges'").get();
     const graphStatusTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_status'").get();
+    const semanticScopeDocumentIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_semantic_scope_document'").get();
+    const graphVariantNodeIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_graph_edges_variant_node'").get();
+    const graphVariantLabelIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_graph_edges_variant_label'").get();
     const cweEntry = migrated.prepare("SELECT name FROM cwe_entries WHERE cwe_id = 'CWE-862'").get();
     migrated.close();
     expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
@@ -1045,6 +1133,7 @@ describe('Beale workbench skeleton', () => {
     expect(projectSemanticMigration).toBeTruthy();
     expect(projectGraphMigration).toBeTruthy();
     expect(projectGraphStatusMigration).toBeTruthy();
+    expect(projectSearchPerformanceMigration).toBeTruthy();
     expect(notificationsTable).toBeTruthy();
     expect(transcriptTable).toBeTruthy();
     expect(weaknessTable).toBeTruthy();
@@ -1057,6 +1146,9 @@ describe('Beale workbench skeleton', () => {
     expect(graphNodesTable).toBeTruthy();
     expect(graphEdgesTable).toBeTruthy();
     expect(graphStatusTable).toBeTruthy();
+    expect(semanticScopeDocumentIndex).toBeTruthy();
+    expect(graphVariantNodeIndex).toBeTruthy();
+    expect(graphVariantLabelIndex).toBeTruthy();
     expect(cweEntry).toBeTruthy();
   });
 

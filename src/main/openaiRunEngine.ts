@@ -44,6 +44,8 @@ const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const OUTPUT_DELTA_TRACE_INTERVAL_MS = 1000;
 const DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT = 2;
 const DEFAULT_OPENAI_TRANSPORT_RETRY_DELAY_MS = 250;
+const DEFAULT_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT = 8;
+const MAX_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT = 32;
 
 interface RunLoopState {
   responseInput: ResponseInputItem[];
@@ -364,7 +366,7 @@ export class OpenAiRunEngine {
     let previousResponseIdUnsupported = state?.previousResponseIdUnsupported ?? this.adapter.usesManualConversationState();
     let replayMode = state?.replayMode ?? 'initial';
     let replayedAfterMissingPrevious = replayMode === 'compacted_replay';
-    let retriedAfterContextWindowError = false;
+    let contextWindowRetryAttempts = 0;
     let pendingContextWindowRecoveryTrace = false;
     let latestReportedInputTokens: number | null = null;
     let latestCompletedModelOutput: { text: string; traceEventId: string } | null = null;
@@ -372,6 +374,7 @@ export class OpenAiRunEngine {
     const maxToolTurns = openAiToolTurnLimit();
     const compactionPolicy = openAiCompactionPolicyFromEnv();
     const transportRetryLimit = openAiTransportRetryLimit();
+    const contextWindowRetryLimit = openAiContextWindowRetryLimit();
 
     try {
       for (let turn = 0; turn < maxToolTurns; turn += 1) {
@@ -597,8 +600,9 @@ export class OpenAiRunEngine {
             });
             continue;
           }
-          if (isContextWindowError(error) && !retriedAfterContextWindowError) {
-            retriedAfterContextWindowError = true;
+          if (isContextWindowError(error) && contextWindowRetryAttempts < contextWindowRetryLimit) {
+            contextWindowRetryAttempts += 1;
+            const recentEventLimit = recentEventLimitForContextWindowRetry(compactionPolicy.recentModelVisibleEventLimit, contextWindowRetryAttempts);
             this.db.appendTraceEvent({
               runId: context.run.id,
               attemptId: context.attempt.id,
@@ -608,7 +612,10 @@ export class OpenAiRunEngine {
               payload: {
                 error: errorMessage(error),
                 replayMode,
-                retryAttempted: true
+                retryAttempted: true,
+                retryAttempt: contextWindowRetryAttempts,
+                retryLimit: contextWindowRetryLimit,
+                recentModelVisibleEventLimit: recentEventLimit
               },
               vmContextId: context.vmContext.id
             });
@@ -620,7 +627,7 @@ export class OpenAiRunEngine {
                 serializedSizeBytes: serializedInputBytes(manualConversationInput)
               },
               replayMode,
-              compactionPolicy.recentModelVisibleEventLimit,
+              recentEventLimit,
               true
             );
             responseInput = compacted.responseInput;
@@ -1438,6 +1445,19 @@ function openAiTransportRetryLimit(): number {
     return Math.min(configured, 10);
   }
   return DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT;
+}
+
+function openAiContextWindowRetryLimit(): number {
+  const configured = Number(process.env.BEALE_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT);
+  if (Number.isInteger(configured) && configured >= 0) {
+    return Math.min(configured, MAX_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT);
+  }
+  return DEFAULT_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT;
+}
+
+function recentEventLimitForContextWindowRetry(baseLimit: number, attempt: number): number {
+  const divisor = 2 ** Math.max(0, attempt - 1);
+  return Math.max(5, Math.floor(Math.max(1, baseLimit) / divisor));
 }
 
 function openAiTransportRetryDelayMs(attempt: number): number {

@@ -27,6 +27,7 @@ interface ProjectSemanticIndexTimerJob {
   workspacePath: string;
   scopeVersionId: string;
   reason: string;
+  refreshInventory: boolean;
 }
 
 interface ActiveProjectSemanticIndexJob {
@@ -36,6 +37,7 @@ interface ActiveProjectSemanticIndexJob {
   runtime: ProjectSemanticIndexRuntime;
   worker: Worker | null;
   cancelReason: string | null;
+  refreshInventory: boolean;
 }
 
 export class ProjectSemanticIndexExecutor {
@@ -49,15 +51,20 @@ export class ProjectSemanticIndexExecutor {
     this.batchDelayMs = Math.max(0, Math.floor(options.batchDelayMs ?? DEFAULT_SEMANTIC_INDEX_BATCH_DELAY_MS));
   }
 
-  public schedule(scopeVersionId: string, reason: string, workspacePath: string | null, delayMs = 0): void {
+  public schedule(scopeVersionId: string, reason: string, workspacePath: string | null, delayMs = 0, options: { refreshInventory?: boolean } = {}): void {
     if (!workspacePath) return;
     const key = semanticIndexJobKey(workspacePath, scopeVersionId);
-    if (this.timers.has(key) || this.activeJobs.has(key)) return;
+    if (this.timers.has(key)) return;
     const timer = setTimeout(() => {
-      void this.runScheduled(workspacePath, scopeVersionId, reason);
+      this.timers.delete(key);
+      if (this.activeJobs.has(key)) {
+        this.schedule(scopeVersionId, reason, workspacePath, 50, options);
+        return;
+      }
+      void this.runScheduled(workspacePath, scopeVersionId, reason, options.refreshInventory === true);
     }, Math.max(0, delayMs));
     timer.unref?.();
-    this.timers.set(key, { timer, workspacePath, scopeVersionId, reason });
+    this.timers.set(key, { timer, workspacePath, scopeVersionId, reason, refreshInventory: options.refreshInventory === true });
   }
 
   public cancel(scopeVersionId: string, workspacePath: string | null, reason = 'canceled'): void {
@@ -123,9 +130,13 @@ export class ProjectSemanticIndexExecutor {
     }
   }
 
-  private async runScheduled(workspacePath: string, scopeVersionId: string, reason: string): Promise<void> {
+  private async runScheduled(workspacePath: string, scopeVersionId: string, reason: string, refreshInventory: boolean): Promise<void> {
     const key = semanticIndexJobKey(workspacePath, scopeVersionId);
     this.timers.delete(key);
+    if (this.activeJobs.has(key)) {
+      this.schedule(scopeVersionId, reason, workspacePath, 50, { refreshInventory });
+      return;
+    }
     const runtime = this.options.getRuntime(workspacePath);
     if (!runtime || !runtime.db.getProjectSemanticIndexEnabled(scopeVersionId)) return;
 
@@ -135,7 +146,8 @@ export class ProjectSemanticIndexExecutor {
       reason,
       runtime,
       worker: null,
-      cancelReason: null
+      cancelReason: null,
+      refreshInventory
     };
     this.activeJobs.set(key, job);
     try {
@@ -169,7 +181,8 @@ export class ProjectSemanticIndexExecutor {
         scopeVersionId: job.scopeVersionId,
         reason: job.reason,
         batchSize: this.batchSize,
-        batchDelayMs: this.batchDelayMs
+        batchDelayMs: this.batchDelayMs,
+        refreshInventory: job.refreshInventory
       } satisfies ProjectSemanticIndexWorkerInput
     });
     job.worker = worker;
@@ -238,6 +251,11 @@ export class ProjectSemanticIndexExecutor {
     const reason = job.reason;
     const workspacePath = runtime.workspacePath;
     const detail = { workspace: workspacePath.split(/[\\/]/).pop() ?? 'workspace', reason };
+    if (job.refreshInventory) {
+      this.profile('projectSemantic.refresh.inventory', detail, () => runtime.db.refreshProjectInventory(scopeVersionId));
+      this.options.emitChange(workspacePath);
+      await sleep(0);
+    }
     const refresh = this.profile('projectSemantic.refresh.begin', detail, () => runtime.db.beginProjectSemanticIndexRefresh(scopeVersionId, reason));
     this.options.emitChange(workspacePath);
     await sleep(0);
