@@ -288,7 +288,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       task: stringProp('Analysis task'),
       script: stringProp('Python script to run in the active sandbox'),
       artifact_path: stringProp('Path to collect as an artifact after execution; use an empty string when not needed'),
-      setup_state_json: stringProp('Optional structured setup-state update as JSON, e.g. {"packageManagerProbe":true,"packageManagers":{"pnpm":true},"dependencySetup":"completed","buildSetup":"completed","fixturePath":"/tmp/beale-app","frameworkVersion":"1.2.3","knownGoodBuildFlags":["next build"]}. Reuse prior setupState facts from Python results and use an empty string only when not applicable.')
+      setup_state_json: stringProp('Optional structured setup-state update as JSON, e.g. {"packageManagerProbe":true,"packageManagers":{"pnpm":true},"dependencySetup":"completed","buildSetup":"completed","fixturePath":"/tmp/beale-app","packagesUnderTest":[{"name":"flags","version":"4.0.6"}],"knownGoodBuildFlags":["npm run build"]}. Reuse prior setupState facts from Python results and use an empty string only when not applicable.')
     }),
     tool('debugger', 'Run a wrapper-first debugger observation in the active session sandbox. Default sessions run on the host; VM sessions run inside a disposable guest.', {
       operation: stringProp('Debugger operation, such as crash_summary or gdb_probe'),
@@ -1196,14 +1196,19 @@ export class BealeToolRouter {
 
   private duplicateCodeReadAdvice(context: CreatedRunContext, filePath: string, symbol: string, selection: CodeBrowserTextSelection): Record<string, unknown> | null {
     if (!selection.contentHash) return null;
-    const priorSameContentReads = this.db.countCodeBrowserReadsForPathAndHash(context.run.id, filePath, selection.contentHash);
+    const hasRange = selection.lineStart !== null && selection.lineEnd !== null;
+    const priorSameContentReads = hasRange
+      ? this.db.countCodeBrowserReadsForPathHashAndRange(context.run.id, filePath, selection.contentHash, selection.lineStart, selection.lineEnd)
+      : this.db.countCodeBrowserReadsForPathAndHash(context.run.id, filePath, selection.contentHash);
     if (priorSameContentReads < 1) return null;
     return {
       code: 'duplicate_code_read',
       priorSameContentReads,
       contentHash: selection.contentHash,
       contentHashScope: selection.contentHashScope,
-      message: 'This exact code_browser content has already been returned in this run.',
+      lineStart: selection.lineStart,
+      lineEnd: selection.lineEnd,
+      message: hasRange ? 'This exact code_browser file/range has already been returned in this run.' : 'This exact code_browser content has already been returned in this run.',
       action: symbol
         ? 'Use the prior excerpt or inspect structureNavigation relations instead of re-reading the same symbol/range.'
         : 'Use the prior excerpt, a narrower line range, or search for a related symbol instead of rereading the same content.'
@@ -4138,6 +4143,7 @@ export class BealeToolRouter {
     if (!scopedAsset) return null;
     const setupState = this.db.getRunSetupState(context.run.id) ?? {};
     const setupVersionRefs = versionRefsFromSetupState(setupState);
+    const packagesUnderTest = packagesUnderTestFromSetupState(setupState);
     const promptVersions = uniqueStrings([...versionRefsFromPrompt(context.run.promptMarkdown), ...setupVersionRefs]);
     if (promptVersions.length === 0) return null;
     const materializedRef = stringValue(scopedAsset.attributes?.materializedRef, '');
@@ -4147,6 +4153,7 @@ export class BealeToolRouter {
     const packageInfo = nearestPackageVersion(filePath, scopedAsset.value);
     const repositoryBacked = Boolean(stringValue(scopedAsset.attributes?.repositoryUrl, ''));
     const setupVersionRelevant = setupVersionRefs.length > 0 && repositoryBacked;
+    const packageSourceSuggestions = repositoryBacked ? packageSourceCandidates(setupState, packagesUnderTest) : [];
     const refMatches =
       materializedRef && scopedAsset.attributes?.requestedRefMatchesHead !== false
         ? promptVersions.some((version) => normalizedVersionRef(materializedRef) === normalizedVersionRef(version))
@@ -4162,6 +4169,7 @@ export class BealeToolRouter {
         : 'The run prompt names a released version/ref, but this source read is not clearly from that ref.',
       promptVersionRefs: promptVersions,
       setupVersionRefs,
+      packagesUnderTest,
       materializedRef: materializedRef || null,
       headRefName: headRefName || null,
       headDescribe: headDescribe || null,
@@ -4169,6 +4177,7 @@ export class BealeToolRouter {
       requestedRefMatchesHead,
       packageVersion: packageInfo?.version ?? null,
       packagePath: packageInfo?.path ?? null,
+      packageSourceSuggestions,
       repositoryUrl: stringValue(scopedAsset.attributes?.repositoryUrl, '') || null,
       action: setupVersionRelevant
         ? 'Prefer installed package source under the recorded fixture/node_modules for static confirmation, or call source with the exact tested package tag/ref before relying on repository source.'
@@ -5132,6 +5141,14 @@ function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, scri
     relevant = true;
     update.packageMetadataChecked = execution.result.status === 'success';
   }
+  const packagesUnderTest = mergePackagesUnderTest(
+    packagesUnderTestFromSetupState(explicit),
+    packagesUnderTestFromText(`${task}\n${execution.result.stdoutSummary}\n${execution.result.stderrSummary}`)
+  );
+  if (packagesUnderTest.length > 0) {
+    relevant = true;
+    update.packagesUnderTest = packagesUnderTest;
+  }
   if (/harness|repro|reproduce|verifier|poc/.test(haystack)) {
     relevant = true;
     update.localHarness = execution.result.status === 'success' ? 'ran' : 'failed';
@@ -5147,13 +5164,13 @@ function setupStateUpdateFromPythonExecution(args: Record<string, unknown>, scri
     update.buildAdvice = 'Do not retry Next.js builds with --no-lint for this version; rerun the known-good plain build command unless inputs changed.';
   }
   const nextVersion = /\bnext(?:\.js)?\s*(?:version|latest|package)?[^0-9]{0,24}(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/i.exec(`${task}\n${execution.result.stdoutSummary}`)?.[1];
-  if (nextVersion) {
+  if (nextVersion && packagesUnderTest.length === 0 && !Object.prototype.hasOwnProperty.call(explicit, 'frameworkVersion')) {
     relevant = true;
     update.framework = 'next';
     update.frameworkVersion = nextVersion;
   }
   const nuxtVersion = /\bnuxt\s*(?:version|latest|package)?[^0-9]{0,24}(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/i.exec(`${task}\n${execution.result.stdoutSummary}`)?.[1];
-  if (nuxtVersion) {
+  if (nuxtVersion && packagesUnderTest.length === 0 && !Object.prototype.hasOwnProperty.call(explicit, 'frameworkVersion')) {
     relevant = true;
     update.framework = 'nuxt';
     update.frameworkVersion = nuxtVersion;
@@ -5166,11 +5183,13 @@ function pythonSetupStateAdvice(setupState: Record<string, unknown>, setupStateU
   const packageManagers = setupState.packageManagers && typeof setupState.packageManagers === 'object' && !Array.isArray(setupState.packageManagers);
   const fixturePath = stringValue(setupState.fixturePath, '');
   const frameworkVersion = stringValue(setupState.frameworkVersion, '');
+  const packagesUnderTest = packagesUnderTestFromSetupState(setupState);
   const installPid = setupState.installPid ?? setupState.pid;
   const installLogPath = stringValue(setupState.installLogPath, '') || stringValue(setupState.logPath, '');
   const retryAfterMs = typeof setupState.retryAfterMs === 'number' ? setupState.retryAfterMs : null;
   const actions: string[] = [];
   if (packageManagers) actions.push('Reuse recorded package manager availability instead of probing again.');
+  if (packagesUnderTest.length > 0) actions.push('Use packagesUnderTest as the package/version authority for dynamic evidence and static confirmation.');
   if (setupState.dependencySetup === 'in_progress' || setupState.dependencySetup === 'install_in_progress') {
     actions.push('Dependency installation is already in progress; check the recorded pid/log once instead of starting another install.');
   }
@@ -5191,6 +5210,7 @@ function pythonSetupStateAdvice(setupState: Record<string, unknown>, setupStateU
     reusable: actions.length > 0,
     fixturePath: fixturePath || null,
     frameworkVersion: frameworkVersion || null,
+    packagesUnderTest,
     dependencySetup: stringValue(setupState.dependencySetup, '') || null,
     buildSetup: stringValue(setupState.buildSetup, '') || null,
     installPid: installPid ?? null,
@@ -5245,6 +5265,7 @@ function versionRefsFromPrompt(promptMarkdown: string): string[] {
 
 function versionRefsFromSetupState(setupState: Record<string, unknown>): string[] {
   const refs = new Set<string>();
+  for (const item of packagesUnderTestFromSetupState(setupState)) refs.add(item.version);
   for (const value of [
     stringValue(setupState.frameworkVersion, ''),
     stringValue(setupState.packageVersion, ''),
@@ -5262,12 +5283,72 @@ function setupStateSummary(setupState: Record<string, unknown>): Record<string, 
     fixturePath: stringValue(setupState.fixturePath, '') || null,
     framework: stringValue(setupState.framework, '') || null,
     frameworkVersion: stringValue(setupState.frameworkVersion, '') || null,
+    packagesUnderTest: packagesUnderTestFromSetupState(setupState),
     dependencySetup: stringValue(setupState.dependencySetup, '') || null,
     buildSetup: stringValue(setupState.buildSetup, '') || null,
     installPid: setupState.installPid ?? setupState.pid ?? null,
     installLogPath: stringValue(setupState.installLogPath, '') || stringValue(setupState.logPath, '') || null,
     retryAfterMs: typeof setupState.retryAfterMs === 'number' ? setupState.retryAfterMs : null
   };
+}
+
+function packagesUnderTestFromSetupState(setupState: Record<string, unknown>): Array<{ name: string; version: string; sourcePath?: string }> {
+  const raw = setupState.packagesUnderTest;
+  if (!Array.isArray(raw)) return [];
+  const packages = raw
+    .map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const record = item as Record<string, unknown>;
+      const name = stringValue(record.name, '').trim();
+      const version = stringValue(record.version, '').trim().replace(/^v(?=\d+\.\d+\.\d+)/i, '');
+      const sourcePath = stringValue(record.sourcePath, '').trim();
+      if (!validPackageName(name) || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?$/.test(version)) return null;
+      return { name, version, ...(sourcePath ? { sourcePath } : {}) };
+    })
+    .filter((item): item is { name: string; version: string; sourcePath?: string } => item !== null);
+  return mergePackagesUnderTest(packages).slice(0, 12);
+}
+
+function packagesUnderTestFromText(text: string): Array<{ name: string; version: string }> {
+  const packages: Array<{ name: string; version: string }> = [];
+  for (const match of text.matchAll(/\b(@[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)@(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/g)) {
+    if (validPackageName(match[1])) packages.push({ name: match[1], version: match[2] });
+  }
+  for (const match of text.matchAll(/"([^"]+)":\s*\{[^{}]*"stdout":\s*"(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)"/g)) {
+    if (validPackageName(match[1])) packages.push({ name: match[1], version: match[2] });
+  }
+  for (const match of text.matchAll(/\b(flags|nuxt|next|react|vue|devalue|nitropack|@vercel\/flags-core|@flags-sdk\/vercel)\b[^0-9\n\r]{0,24}(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)/gi)) {
+    if (validPackageName(match[1])) packages.push({ name: match[1], version: match[2] });
+  }
+  return mergePackagesUnderTest(packages).slice(0, 12);
+}
+
+function mergePackagesUnderTest(...groups: Array<Array<{ name: string; version: string; sourcePath?: string }>>): Array<{ name: string; version: string; sourcePath?: string }> {
+  const byKey = new Map<string, { name: string; version: string; sourcePath?: string }>();
+  for (const item of groups.flat()) {
+    const key = `${item.name}@${item.version}`.toLowerCase();
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return [...byKey.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));
+}
+
+function validPackageName(value: string | undefined): value is string {
+  if (!value) return false;
+  if (['node', 'npm', 'pnpm', 'yarn', 'corepack', 'python'].includes(value.toLowerCase())) return false;
+  return /^(?:@[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+$/.test(value);
+}
+
+function packageSourceCandidates(setupState: Record<string, unknown>, packages: Array<{ name: string; version: string; sourcePath?: string }>): Array<{ name: string; version: string; sourcePath: string }> {
+  const fixturePath = stringValue(setupState.fixturePath, '').trim();
+  return packages
+    .map((pkg) => {
+      const explicitPath = pkg.sourcePath && existsSync(pkg.sourcePath) ? pkg.sourcePath : '';
+      const nodeModulesPath = fixturePath ? join(fixturePath, 'node_modules', ...pkg.name.split('/')) : '';
+      const sourcePath = explicitPath || (nodeModulesPath && existsSync(nodeModulesPath) ? nodeModulesPath : '');
+      return sourcePath ? { name: pkg.name, version: pkg.version, sourcePath } : null;
+    })
+    .filter((item): item is { name: string; version: string; sourcePath: string } => item !== null)
+    .slice(0, 8);
 }
 
 function looksLikeIpv4Segment(text: string, start: number, value: string): boolean {

@@ -501,6 +501,14 @@ describe('structured research tools', () => {
       requiresNarrowing: false,
       suggestedNextReads: expect.arrayContaining([expect.objectContaining({ tool: 'search' })])
     });
+    const sourceRangeA = callTool(router, context, 'code_browser', { path: sourceFile, symbol: '', line_start: '1', line_end: '2' });
+    expect(sourceRangeA.status).toBe('success');
+    const sourceRangeB = callTool(router, context, 'code_browser', { path: sourceFile, symbol: '', line_start: '3', line_end: '4' });
+    expect(sourceRangeB.status).toBe('success');
+    expect(sourceRangeB.payload.duplicateReadAdvice).toBeNull();
+    const sourceRangeADuplicate = callTool(router, context, 'code_browser', { path: sourceFile, symbol: '', line_start: '1', line_end: '2' });
+    expect(sourceRangeADuplicate.status).toBe('success');
+    expect(sourceRangeADuplicate.payload.duplicateReadAdvice).toMatchObject({ code: 'duplicate_code_read', lineStart: 1, lineEnd: 2 });
     const duplicateChunk = callTool(router, context, 'code_browser', { path: largeFile, symbol: '', line_start: '600', line_end: '620' });
     expect(duplicateChunk.status).toBe('success');
     expect(duplicateChunk.payload.duplicateReadAdvice).toMatchObject({ code: 'duplicate_code_read', priorSameContentReads: 1 });
@@ -872,6 +880,21 @@ describe('structured research tools', () => {
     });
     expect(String((inProgress.payload.setupStateAdvice as Record<string, unknown>).action)).toContain('already in progress');
 
+    const packageProbe = callTool(router, context, 'python', {
+      task: 'npm view flags version and package metadata',
+      script: 'print(\'{"flags":{"stdout":"4.0.6"},"@vercel/flags-core":{"stdout":"1.4.0"}}\')',
+      artifact_path: '',
+      setup_state_json: ''
+    });
+    expect(packageProbe.status).toBe('success');
+    expect(packageProbe.payload.setupStateAdvice).toMatchObject({
+      packagesUnderTest: expect.arrayContaining([
+        { name: 'flags', version: '4.0.6' },
+        { name: '@vercel/flags-core', version: '1.4.0' }
+      ])
+    });
+    expect(String((packageProbe.payload.setupStateAdvice as Record<string, unknown>).action)).toContain('packagesUnderTest');
+
     const first = callTool(router, context, 'verifier', {
       hypothesis: hypothesisId,
       expectation: 'first pass',
@@ -1023,8 +1046,11 @@ describe('structured research tools', () => {
     const repoDir = join(targetDir, 'repo-main');
     mkdirSync(repoDir, { recursive: true });
     const repoFile = join(repoDir, 'package.js');
+    const packageSourceDir = join(targetDir, 'node_modules', 'nuxt');
+    mkdirSync(packageSourceDir, { recursive: true });
     writeFileSync(repoFile, 'export const version = "4.4.4";\n');
     writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ name: 'nuxt', version: '4.4.4' }, null, 2));
+    writeFileSync(join(packageSourceDir, 'package.json'), JSON.stringify({ name: 'nuxt', version: '4.4.4' }, null, 2));
     db.saveProgramScope({
       ...scopeDraftFromActive(db),
       assets: [
@@ -1038,7 +1064,7 @@ describe('structured research tools', () => {
         }
       ]
     });
-    db.recordRunSetupState(context.run.id, { framework: 'nuxt', frameworkVersion: 'nuxt@4.4.4', fixturePath: targetDir, dependencySetup: 'completed' });
+    db.recordRunSetupState(context.run.id, { fixturePath: targetDir, dependencySetup: 'completed', packagesUnderTest: [{ name: 'nuxt', version: '4.4.4' }] });
     const router = new BealeToolRouter(db);
 
     const read = callTool(router, context, 'code_browser', { path: repoFile, symbol: '' });
@@ -1046,6 +1072,8 @@ describe('structured research tools', () => {
     expect(read.payload.sourceVersionAdvice).toMatchObject({
       code: 'possible_source_ref_mismatch',
       setupVersionRefs: ['4.4.4'],
+      packagesUnderTest: [{ name: 'nuxt', version: '4.4.4' }],
+      packageSourceSuggestions: [{ name: 'nuxt', version: '4.4.4', sourcePath: packageSourceDir }],
       packageVersion: '4.4.4'
     });
     expect(String((read.payload.sourceVersionAdvice as Record<string, unknown>).action)).toContain('installed package source');
