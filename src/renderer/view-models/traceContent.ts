@@ -79,6 +79,7 @@ const TRACE_SUMMARY_VERBS = new Set([
   'verify',
   'verified'
 ]);
+const DEFAULT_TRACE_PREVIEW_LINE_LIMIT = 5;
 
 export function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
   return trimTraceLabelPeriod(rawTraceEventSummary(event, category));
@@ -167,6 +168,12 @@ export interface CodeBrowserTracePreview {
   excerptTruncated: boolean;
 }
 
+export interface SearchTracePreview {
+  title: string;
+  description: string;
+  facts: string[];
+}
+
 export function isProseTraceEvent(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): boolean {
   if (hasStructuredProseTraceDetail(event, detail)) return true;
 
@@ -198,16 +205,16 @@ export function reasoningTraceThoughtsForEvent(event: TraceEventRecord, category
   return text ? reasoningTraceThoughtsFromText(text) : [];
 }
 
-export function pythonToolCallPreview(event: TraceEventRecord): PythonToolCallPreview | null {
+export function pythonToolCallPreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): PythonToolCallPreview | null {
   if (event.type !== 'tool_call') return null;
   const script = pythonTraceScript(event, null);
-  return script ? pythonPreviewFromScript(script, null) : null;
+  return script ? pythonPreviewFromScript(script, null, maxLines) : null;
 }
 
-export function pythonTracePreview(event: TraceEventRecord, detail: RunDetail | null = null): PythonToolCallPreview | null {
+export function pythonTracePreview(event: TraceEventRecord, detail: RunDetail | null = null, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): PythonToolCallPreview | null {
   if (!isPythonExecutionTraceEvent(event)) return null;
   const script = pythonTraceScript(event, detail);
-  return script ? pythonPreviewFromScript(script, event) : null;
+  return script ? pythonPreviewFromScript(script, event, maxLines) : null;
 }
 
 export function pythonTraceScript(event: TraceEventRecord, detail: RunDetail | null = null): PythonTraceScript | null {
@@ -277,7 +284,7 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
   };
 }
 
-export function codeBrowserTracePreview(event: TraceEventRecord): CodeBrowserTracePreview | null {
+export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): CodeBrowserTracePreview | null {
   const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
   if (event.type === 'tool_call' && toolName === 'code_browser') {
     const args = tracePayloadRecord(event.payload, 'arguments');
@@ -301,7 +308,7 @@ export function codeBrowserTracePreview(event: TraceEventRecord): CodeBrowserTra
   const sourcePath = tracePayloadPrimitive(event.payload, 'sourcePath') ?? tracePayloadPrimitive(event.payload, 'path');
   const excerpt = tracePayloadPrimitive(event.payload, 'excerpt') ?? '';
   const excerptLines = excerpt ? excerpt.replace(/\r\n?/g, '\n').trim().split('\n').filter(Boolean) : [];
-  const visibleExcerptLines = excerptLines.slice(0, 5);
+  const visibleExcerptLines = excerptLines.slice(0, maxLines);
   const boundedLineCount = boundedLineCountFromSummary(event.summary) ?? excerptLines.length;
   const reason = tracePayloadPrimitive(event.payload, 'reason') ?? tracePayloadPrimitive(event.payload, 'error');
   const status = tracePayloadPrimitive(event.payload, 'status');
@@ -320,6 +327,44 @@ export function codeBrowserTracePreview(event: TraceEventRecord): CodeBrowserTra
     excerptLines: visibleExcerptLines,
     excerptLineCount: boundedLineCount,
     excerptTruncated: excerptLines.length > visibleExcerptLines.length || tracePayloadPrimitive(event.payload, 'truncated') === 'true'
+  };
+}
+
+export function searchTracePreview(event: TraceEventRecord): SearchTracePreview | null {
+  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  if (event.type === 'tool_call' && toolName === 'search') {
+    const args = tracePayloadRecord(event.payload, 'arguments');
+    if (!args) return null;
+    const query = stringRecordValue(args, 'query');
+    const target = stringRecordValue(args, 'target');
+    return {
+      title: 'Search prepared',
+      description: query ?? 'Scoped search prepared.',
+      facts: [target ? compactTracePath(target) : null, policyPart(event.payload)].filter((part): part is string => Boolean(part))
+    };
+  }
+
+  if (event.type !== 'tool_result') return null;
+  const query = tracePayloadPrimitive(event.payload, 'query');
+  const counts = searchCountsFromTraceEvent(event);
+  const isSearchResult = toolName === 'search' || Boolean(query && counts);
+  if (!isSearchResult) return null;
+  const matchCount = counts?.matches ?? tracePayloadArray(event.payload, 'matches')?.length ?? 0;
+  const filesConsidered = counts?.files ?? numberPayloadValue(event.payload, 'filesConsidered');
+  const target = tracePayloadPrimitive(event.payload, 'targetHint');
+  const metadataMatches = numberPayloadValue(event.payload, 'metadataMatches');
+  const semanticMatches = numberPayloadValue(event.payload, 'semanticMatches');
+  const graphMatches = numberPayloadValue(event.payload, 'graphMatches');
+  return {
+    title: query ? `Search ${truncateText(query, 64)}` : 'Search result',
+    description: `${matchCount} match${matchCount === 1 ? '' : 'es'}`,
+    facts: [
+      filesConsidered !== null ? `${filesConsidered} file${filesConsidered === 1 ? '' : 's'}` : null,
+      target ? compactTracePath(target) : null,
+      metadataMatches && metadataMatches > 0 ? `${metadataMatches} metadata` : null,
+      semanticMatches && semanticMatches > 0 ? `${semanticMatches} semantic` : null,
+      graphMatches && graphMatches > 0 ? `${graphMatches} graph` : null
+    ].filter((part): part is string => Boolean(part))
   };
 }
 
@@ -363,11 +408,31 @@ function boundedLineCountFromSummary(summary: string): number | null {
   return Number.isFinite(count) ? count : null;
 }
 
-function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: TraceEventRecord | null): PythonToolCallPreview | null {
+function searchCountsFromTraceEvent(event: TraceEventRecord): { files: number; matches: number } | null {
+  const match =
+    event.summary.match(/^Search examined (\d+) scoped files? and returned (\d+) match(?:es)?\.$/i) ??
+    event.summary.match(/^Examined (\d+) files? and returned (\d+) match(?:es)?\.$/i);
+  if (!match) return null;
+  const files = Number(match[1]);
+  const matches = Number(match[2]);
+  return Number.isFinite(files) && Number.isFinite(matches) ? { files, matches } : null;
+}
+
+function numberPayloadValue(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: TraceEventRecord | null, maxLines: number): PythonToolCallPreview | null {
   const allScriptLines = script ? script.split('\n') : [];
-  const scriptLines = allScriptLines.slice(0, 5);
+  const scriptLines = allScriptLines.slice(0, maxLines);
   const truncated = allScriptLines.length > scriptLines.length;
-  const output = event ? pythonExecutionOutput(event) : null;
+  const output = event ? pythonExecutionOutput(event, maxLines) : null;
   if (!task && scriptLines.length === 0 && !output) return null;
 
   return {
@@ -382,12 +447,12 @@ function pythonPreviewFromScript({ task, script }: PythonTraceScript, event: Tra
   };
 }
 
-function pythonExecutionOutput(event: TraceEventRecord): { lines: string[]; lineCount: number; truncated: boolean; exitCode: string | null } {
+function pythonExecutionOutput(event: TraceEventRecord, maxLines: number): { lines: string[]; lineCount: number; truncated: boolean; exitCode: string | null } {
   const stdout = tracePayloadPrimitive(event.payload, 'stdoutSummary') ?? '';
   const stderr = tracePayloadPrimitive(event.payload, 'stderrSummary') ?? '';
   const text = formatPythonExecutionOutput(stdout, stderr);
   const allLines = text.split('\n');
-  const lines = allLines.slice(0, 5);
+  const lines = allLines.slice(0, maxLines);
   return {
     lines,
     lineCount: allLines.length,

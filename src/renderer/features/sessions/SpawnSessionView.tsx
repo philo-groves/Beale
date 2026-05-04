@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { Bug, ClipboardCheck, FileOutput, RefreshCw, Search, X } from 'lucide-react';
+import { Bug, ClipboardCheck, FileOutput, Search, X } from 'lucide-react';
 import type { EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import {
@@ -11,9 +11,18 @@ import {
   type EvidenceTrail
 } from '../../view-models/researchItems';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import { pythonToolCallPreview, pythonTracePreview, reasoningTraceThoughtsFromText, type PythonToolCallPreview } from '../../view-models/traceContent';
+import {
+  codeBrowserTracePreview,
+  pythonToolCallPreview,
+  pythonTracePreview,
+  reasoningTraceThoughtsFromText,
+  searchTracePreview,
+  type CodeBrowserTracePreview,
+  type PythonToolCallPreview,
+  type SearchTracePreview
+} from '../../view-models/traceContent';
 import { formatPriorityPill, formatSessionTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
-import { highlightPythonCode } from '../traces/traceMarkup';
+import { codeBlockLineRows, highlightPythonCode, type CodeBlockLineNumberMode } from '../traces/traceMarkup';
 
 interface SpawnTrailLayout {
   trail: EvidenceTrail;
@@ -37,11 +46,30 @@ interface SpawnThoughtSegment {
 }
 
 interface SpawnPythonPreview {
+  kind: 'python';
   id: string;
+  event: TraceDisplayEvent;
   codeEvent: TraceDisplayEvent;
   resultEvent: TraceDisplayEvent | null;
   preview: PythonToolCallPreview;
 }
+
+interface SpawnCodeBrowserPreview {
+  kind: 'code_browser';
+  id: string;
+  event: TraceDisplayEvent;
+  preview: CodeBrowserTracePreview;
+}
+
+interface SpawnSearchPreview {
+  kind: 'search';
+  id: string;
+  event: TraceDisplayEvent;
+  preview: SearchTracePreview;
+}
+
+type SpawnSecondaryPreview = SpawnPythonPreview | SpawnCodeBrowserPreview | SpawnSearchPreview;
+type SpawnSecondaryPhase = 'enter' | 'exit';
 
 interface SpawnWorkspaceSize {
   width: number;
@@ -90,6 +118,14 @@ const SPAWN_TRAIL_GAP = 28;
 const SPAWN_TRAIL_MIN_WIDTH = 208;
 const SPAWN_MAX_TRAIL_LIST_ITEMS = 4;
 const SPAWN_TRAIL_VERTICAL_ANCHORS = [0, -0.24, 0.24, -0.38, 0.38, -0.12, 0.12, -0.5, 0.5];
+const SPAWN_SECONDARY_MIN_DWELL_MS = 1800;
+const SPAWN_SECONDARY_EXIT_MS = 180;
+const SPAWN_CODE_PREVIEW_LINE_LIMIT = 24;
+const SPAWN_HYPOTHESIS_HIGH_STATE_CLASSES = new Set(['verified', 'promoted', 'reproduced', 'reportable', 'disclosure_ready', 'disclosure-ready']);
+const SPAWN_FINDING_HIGH_STATE_CLASSES = new Set(['reportable', 'verified', 'disclosure_ready', 'disclosure-ready']);
+const SPAWN_HYPOTHESIS_MEDIUM_STATE_CLASSES = new Set(['needs_evidence', 'needs-evidence', 'inconclusive', 'open']);
+const SPAWN_FINDING_MEDIUM_STATE_CLASSES = new Set(['needs_evidence', 'needs-evidence', 'inconclusive', 'open', 'reproduced']);
+const SPAWN_DISMISSED_STATE_CLASSES = new Set(['false_positive', 'false-positive', 'out_of_scope', 'out-of-scope', 'dismissed', 'duplicate']);
 
 export const SpawnSessionView = memo(function SpawnSessionView({
   detail,
@@ -109,9 +145,13 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   const [expandedTrailId, setExpandedTrailId] = useState<string | null>(null);
   const trails = useMemo(() => (detail ? buildEvidenceTrails(detail.hypotheses, detail.findings, detail.evidence) : []), [detail]);
   const latestThought = useMemo(() => latestAgentThought(events), [events]);
-  const latestPython = useMemo(() => latestSpawnPythonPreview(events, detail), [detail, events]);
+  const latestSecondary = useMemo(() => latestSpawnSecondaryPreview(events, detail), [detail, events]);
   const [visibleThought, setVisibleThought] = useState<SpawnThought>(latestThought);
   const [thoughtPhase, setThoughtPhase] = useState<'enter' | 'exit'>('enter');
+  const [visibleSecondary, setVisibleSecondary] = useState<SpawnSecondaryPreview | null>(latestSecondary);
+  const [secondaryPhase, setSecondaryPhase] = useState<SpawnSecondaryPhase>('enter');
+  const secondaryShownAtRef = useRef(Date.now());
+  const pendingSecondaryRef = useRef<SpawnSecondaryPreview | null>(latestSecondary);
   const normalizedSearch = normalizeSpawnSearch(searchQuery);
   const layoutMetrics = useMemo(() => spawnLayoutMetrics(trails, normalizedSearch, workspaceSize), [normalizedSearch, trails, workspaceSize]);
   const displayedTrails = useMemo(() => spawnTrailLayouts(trails, normalizedSearch, layoutMetrics), [layoutMetrics, normalizedSearch, trails]);
@@ -119,6 +159,7 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   const expandedTrail = expandedTrailId ? trails.find((trail) => trail.id === expandedTrailId) ?? null : null;
   const artifactById = useMemo(() => new Map((detail?.artifacts ?? []).map((artifact) => [artifact.id, artifact])), [detail?.artifacts]);
   const verifierRunById = useMemo(() => new Map((detail?.verifierRuns ?? []).map((run) => [run.id, run])), [detail?.verifierRuns]);
+  const coreMinHeight = Math.max(136, visibleThought.estimatedHeight);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -160,6 +201,34 @@ export const SpawnSessionView = memo(function SpawnSessionView({
     return () => window.clearTimeout(timeout);
   }, [latestThought, visibleThought.id, visibleThought.sourceText]);
 
+  useEffect(() => {
+    if (sameSpawnSecondaryPreview(latestSecondary, visibleSecondary)) {
+      if (latestSecondary && latestSecondary !== visibleSecondary) {
+        setVisibleSecondary(latestSecondary);
+        secondaryShownAtRef.current = Date.now();
+      }
+      return undefined;
+    }
+
+    pendingSecondaryRef.current = latestSecondary;
+    const elapsedMs = Date.now() - secondaryShownAtRef.current;
+    const dwellDelayMs = visibleSecondary ? Math.max(0, SPAWN_SECONDARY_MIN_DWELL_MS - elapsedMs) : 0;
+    let exitTimeout = 0;
+    const dwellTimeout = window.setTimeout(() => {
+      setSecondaryPhase('exit');
+      exitTimeout = window.setTimeout(() => {
+        setVisibleSecondary(pendingSecondaryRef.current);
+        secondaryShownAtRef.current = Date.now();
+        setSecondaryPhase('enter');
+      }, SPAWN_SECONDARY_EXIT_MS);
+    }, dwellDelayMs);
+
+    return () => {
+      window.clearTimeout(dwellTimeout);
+      if (exitTimeout !== 0) window.clearTimeout(exitTimeout);
+    };
+  }, [latestSecondary, visibleSecondary]);
+
   return (
     <div className="spawn-session-workspace" ref={workspaceRef} aria-label="Spawn view">
       <div className="spawn-trail-field" aria-hidden={displayedTrails.length === 0}>
@@ -177,8 +246,17 @@ export const SpawnSessionView = memo(function SpawnSessionView({
         ))}
       </div>
 
-      <div className="spawn-center-stack" style={{ '--spawn-center-width': `${layoutMetrics.centerWidth}px` } as CSSProperties}>
-        <section className="spawn-core" aria-label="Latest agent thought" style={{ '--spawn-core-min-height': `${Math.max(136, visibleThought.estimatedHeight)}px` } as CSSProperties}>
+      <div
+        className="spawn-center-stack"
+        style={
+          {
+            '--spawn-center-width': `${layoutMetrics.centerWidth}px`,
+            '--spawn-core-min-height': `${coreMinHeight}px`,
+            '--spawn-workspace-height': `${layoutMetrics.workspaceHeight}px`
+          } as CSSProperties
+        }
+      >
+        <section className="spawn-core" aria-label="Latest agent thought">
           <SquircleBackdrop className="spawn-core-shape" />
           <div className={`spawn-core-content ${thoughtPhase}`} key={visibleThought.id}>
             <div className="spawn-thought-list">
@@ -194,10 +272,11 @@ export const SpawnSessionView = memo(function SpawnSessionView({
             </div>
           </div>
         </section>
-        {latestPython ? (
-          <SpawnPythonChain
-            key={latestPython.id}
-            python={latestPython}
+        {visibleSecondary ? (
+          <SpawnSecondaryChain
+            key={visibleSecondary.id}
+            phase={secondaryPhase}
+            secondary={visibleSecondary}
             selectedTraceEventId={selectedTraceEventId}
             onSelectTraceEvent={onSelectTraceEvent}
           />
@@ -271,11 +350,15 @@ function SpawnTrail({
   const findingCount = layout.trail.findings.length;
   const standaloneEvidence = !layout.trail.hypothesis && evidenceCount > 0 && findingCount === 0;
   const listItems = compactSpawnTrailItems(layout.trail);
-  const firstExtensionSurface = spawnTrailFirstContentSurface(listItems);
+  const firstExtensionItem = spawnTrailFirstContentItem(listItems);
+  const firstExtensionSurface = spawnTrailItemSurface(firstExtensionItem);
+  const firstExtensionSurfaceValue = spawnTrailItemSurfaceCssValue(firstExtensionItem);
+  const hypothesisStateClass = layout.trail.hypothesis ? stateClass(layout.trail.hypothesis.state) : null;
+  const dismissedClass = hypothesisStateClass && SPAWN_DISMISSED_STATE_CLASSES.has(hypothesisStateClass) ? 'dismissed' : '';
 
   return (
     <article
-      className="spawn-trail"
+      className={`spawn-trail ${hypothesisStateClass ? `state-${hypothesisStateClass}` : ''} ${dismissedClass}`}
       style={
         {
           '--trail-x': layout.x,
@@ -292,6 +375,7 @@ function SpawnTrail({
             events={events}
             hypothesis={layout.trail.hypothesis}
             nextSurface={firstExtensionSurface}
+            nextSurfaceValue={firstExtensionSurfaceValue}
             selectedTraceEventId={selectedTraceEventId}
             onSelectTraceEvent={onSelectTraceEvent}
           />
@@ -310,20 +394,24 @@ function SpawnTrail({
           ))
         ) : (
           <div className={`spawn-trail-stack ${layout.trail.hypothesis ? '' : 'rootless'}`}>
-            {listItems.map((item, index) => (
-              <SpawnTrailListItemNode
-                artifactById={artifactById}
-                events={events}
-                item={item}
-                key={spawnTrailListItemKey(item)}
-                nextSurface={spawnTrailItemSurface(listItems[index + 1] ?? null)}
-                selectedTraceEventId={selectedTraceEventId}
-                trail={layout.trail}
-                verifierRunById={verifierRunById}
-                onOpenFullTrail={onOpenFullTrail}
-                onSelectTraceEvent={onSelectTraceEvent}
-              />
-            ))}
+            {listItems.map((item, index) => {
+              const nextItem = listItems[index + 1] ?? null;
+              return (
+                <SpawnTrailListItemNode
+                  artifactById={artifactById}
+                  events={events}
+                  item={item}
+                  key={spawnTrailListItemKey(item)}
+                  nextSurface={spawnTrailItemSurface(nextItem)}
+                  nextSurfaceValue={spawnTrailItemSurfaceCssValue(nextItem)}
+                  selectedTraceEventId={selectedTraceEventId}
+                  trail={layout.trail}
+                  verifierRunById={verifierRunById}
+                  onOpenFullTrail={onOpenFullTrail}
+                  onSelectTraceEvent={onSelectTraceEvent}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -336,6 +424,7 @@ function SpawnTrailListItemNode({
   events,
   item,
   nextSurface,
+  nextSurfaceValue,
   selectedTraceEventId,
   trail,
   verifierRunById,
@@ -346,6 +435,7 @@ function SpawnTrailListItemNode({
   events: TraceDisplayEvent[];
   item: SpawnTrailListItem;
   nextSurface: SpawnTrailSurface;
+  nextSurfaceValue: string;
   selectedTraceEventId: string | null;
   trail: EvidenceTrail;
   verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
@@ -353,7 +443,7 @@ function SpawnTrailListItemNode({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   if (item.kind === 'overflow') {
-    return <SpawnTrailOverflowNode hiddenCount={item.hiddenCount} nextSurface={nextSurface} onOpen={() => onOpenFullTrail(trail.id)} />;
+    return <SpawnTrailOverflowNode hiddenCount={item.hiddenCount} nextSurface={nextSurface} nextSurfaceValue={nextSurfaceValue} onOpen={() => onOpenFullTrail(trail.id)} />;
   }
   if (item.kind === 'evidence') {
     const evidence = item.evidence;
@@ -363,6 +453,7 @@ function SpawnTrailListItemNode({
         evidence={evidence}
         event={traceEventForEvidence(events, evidence)}
         nextSurface={nextSurface}
+        nextSurfaceValue={nextSurfaceValue}
         selectedTraceEventId={selectedTraceEventId}
         verifierStatus={evidence.verifierRunId ? verifierRunById.get(evidence.verifierRunId)?.status ?? null : null}
         onSelectTraceEvent={onSelectTraceEvent}
@@ -375,6 +466,7 @@ function SpawnTrailListItemNode({
       finding={item.finding}
       hypothesis={trail.hypothesis}
       nextSurface={nextSurface}
+      nextSurfaceValue={nextSurfaceValue}
       selectedTraceEventId={selectedTraceEventId}
       onSelectTraceEvent={onSelectTraceEvent}
     />
@@ -385,12 +477,14 @@ function SpawnHypothesisNode({
   events,
   hypothesis,
   nextSurface,
+  nextSurfaceValue,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
   events: TraceDisplayEvent[];
   hypothesis: HypothesisRecord;
   nextSurface: SpawnTrailSurface;
+  nextSurfaceValue: string;
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
@@ -400,7 +494,12 @@ function SpawnHypothesisNode({
     <button
       type="button"
       className={`spawn-trail-hypothesis ${spawnNextSurfaceClass(nextSurface)} state-${stateClass(hypothesis.state)} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
-      style={{ '--spawn-next-surface': spawnTrailSurfaceCssValue(nextSurface) } as CSSProperties}
+      style={
+        {
+          '--spawn-next-surface': nextSurfaceValue,
+          '--spawn-squircle-surface': spawnHypothesisStateSurfaceCssValue(hypothesis.state)
+        } as CSSProperties
+      }
       disabled={disabled}
       onClick={() => event && onSelectTraceEvent(event)}
     >
@@ -420,9 +519,24 @@ function SpawnHypothesisNode({
   );
 }
 
-function SpawnTrailOverflowNode({ hiddenCount, nextSurface, onOpen }: { hiddenCount: number; nextSurface: SpawnTrailSurface; onOpen: () => void }): JSX.Element {
+function SpawnTrailOverflowNode({
+  hiddenCount,
+  nextSurface,
+  nextSurfaceValue,
+  onOpen
+}: {
+  hiddenCount: number;
+  nextSurface: SpawnTrailSurface;
+  nextSurfaceValue: string;
+  onOpen: () => void;
+}): JSX.Element {
   return (
-    <button type="button" className={`spawn-trail-extension spawn-trail-overflow ${spawnNextSurfaceClass(nextSurface)}`} onClick={onOpen}>
+    <button
+      type="button"
+      className={`spawn-trail-extension spawn-trail-overflow ${spawnNextSurfaceClass(nextSurface)}`}
+      style={{ '--spawn-next-surface': nextSurfaceValue } as CSSProperties}
+      onClick={onOpen}
+    >
       <strong>{`Show ${hiddenCount} More Artifact${hiddenCount === 1 ? '' : 's'}`}</strong>
     </button>
   );
@@ -433,6 +547,7 @@ function SpawnFindingNode({
   finding,
   hypothesis,
   nextSurface,
+  nextSurfaceValue,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
@@ -440,6 +555,7 @@ function SpawnFindingNode({
   finding: FindingRecord;
   hypothesis: HypothesisRecord | null;
   nextSurface: SpawnTrailSurface;
+  nextSurfaceValue: string;
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
@@ -449,6 +565,7 @@ function SpawnFindingNode({
     <button
       type="button"
       className={`spawn-trail-extension spawn-trail-finding ${spawnNextSurfaceClass(nextSurface)} state-${stateClass(finding.state)} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
+      style={{ '--spawn-next-surface': nextSurfaceValue } as CSSProperties}
       disabled={disabled}
       onClick={() => event && onSelectTraceEvent(event)}
     >
@@ -467,6 +584,7 @@ function SpawnEvidenceNode({
   evidence,
   event,
   nextSurface,
+  nextSurfaceValue,
   selectedTraceEventId,
   verifierStatus,
   onSelectTraceEvent
@@ -475,6 +593,7 @@ function SpawnEvidenceNode({
   evidence: EvidenceRecord;
   event: TraceDisplayEvent | null;
   nextSurface: SpawnTrailSurface;
+  nextSurfaceValue: string;
   selectedTraceEventId: string | null;
   verifierStatus: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
@@ -486,6 +605,7 @@ function SpawnEvidenceNode({
     <button
       type="button"
       className={`spawn-trail-extension spawn-trail-evidence ${spawnNextSurfaceClass(nextSurface)} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
+      style={{ '--spawn-next-surface': nextSurfaceValue } as CSSProperties}
       disabled={disabled}
       onClick={() => event && onSelectTraceEvent(event)}
     >
@@ -499,11 +619,33 @@ function SpawnEvidenceNode({
   );
 }
 
+function SpawnSecondaryChain({
+  phase,
+  secondary,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  phase: SpawnSecondaryPhase;
+  secondary: SpawnSecondaryPreview;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  if (secondary.kind === 'python') {
+    return <SpawnPythonChain phase={phase} python={secondary} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+  }
+  if (secondary.kind === 'code_browser') {
+    return <SpawnCodeBrowserChain phase={phase} read={secondary} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+  }
+  return <SpawnSearchChain phase={phase} search={secondary} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+}
+
 function SpawnPythonChain({
+  phase,
   python,
   selectedTraceEventId,
   onSelectTraceEvent
 }: {
+  phase: SpawnSecondaryPhase;
   python: SpawnPythonPreview;
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
@@ -511,14 +653,17 @@ function SpawnPythonChain({
   const resultEvent = python.resultEvent;
   const exitCode = python.preview.exitCode ?? '?';
   const statusClass = resultEvent ? (exitCode === '0' ? 'success' : 'review') : 'running';
+  const statusEvent = resultEvent ?? python.codeEvent;
+  const statusLabel = resultEvent ? `Exit ${exitCode}` : 'Running...';
+  const hasOutput = Boolean(resultEvent && hasRecordedPythonOutput(python.preview));
   return (
-    <div className="spawn-python-chain" aria-label="Latest Python execution">
+    <div className={`spawn-python-chain spawn-secondary-chain ${phase}`} aria-label="Latest Python execution">
       <button
         type="button"
         className={`spawn-python-node spawn-python-code-node ${python.codeEvent.id === selectedTraceEventId ? 'selected' : ''}`}
         onClick={() => onSelectTraceEvent(python.codeEvent)}
       >
-        <SquircleBackdrop className="spawn-python-shape" />
+        <span className="spawn-python-shape" aria-hidden="true" />
         <div className="spawn-python-content">
           {python.preview.task ? <p className="spawn-python-task">{python.preview.task}</p> : null}
           <SpawnPythonBlock
@@ -528,23 +673,103 @@ function SpawnPythonChain({
             lineCount={python.preview.scriptLineCount}
             truncated={python.preview.truncated}
           />
-          {!resultEvent ? (
-            <div className="spawn-python-status running">
-              <RefreshCw size={11} />
-              <span>Running...</span>
-            </div>
-          ) : null}
         </div>
       </button>
-      {resultEvent ? (
-        <button
-          type="button"
-          className={`spawn-python-result-node ${statusClass} ${resultEvent.id === selectedTraceEventId ? 'selected' : ''}`}
-          onClick={() => onSelectTraceEvent(resultEvent)}
-        >
-          <SquircleBackdrop className="spawn-python-result-shape" />
-          <span>Exit {exitCode}</span>
-        </button>
+      <button
+        type="button"
+        className={`spawn-python-result-node ${statusClass} ${hasOutput ? 'has-output' : ''} ${statusEvent.id === selectedTraceEventId ? 'selected' : ''}`}
+        onClick={() => onSelectTraceEvent(statusEvent)}
+      >
+        <SquircleBackdrop className="spawn-python-result-shape" />
+        <div className="spawn-python-result-content">
+          {hasOutput ? (
+            <SpawnPythonBlock
+              label="Output"
+              lines={python.preview.outputLines}
+              lineCount={python.preview.outputLineCount}
+              truncated={python.preview.outputTruncated}
+            />
+          ) : null}
+          <span className="spawn-python-result-label">{statusLabel}</span>
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function SpawnCodeBrowserChain({
+  phase,
+  read,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  phase: SpawnSecondaryPhase;
+  read: SpawnCodeBrowserPreview;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  return (
+    <div className={`spawn-python-chain spawn-secondary-chain spawn-secondary-read-chain ${phase}`} aria-label="Latest file read">
+      <button
+        type="button"
+        className={`spawn-python-node spawn-secondary-node ${read.event.id === selectedTraceEventId ? 'selected' : ''}`}
+        onClick={() => onSelectTraceEvent(read.event)}
+      >
+        <span className="spawn-python-shape" aria-hidden="true" />
+        <div className="spawn-python-content spawn-secondary-content">
+          <SpawnSecondarySummary eyebrow="File read" title={read.preview.title} description={read.preview.description} facts={read.preview.facts} />
+          <SpawnPythonBlock
+            label="Excerpt"
+            lines={read.preview.excerptLines}
+            lineCount={read.preview.excerptLineCount}
+            lineNumberMode="source-prefix"
+            truncated={read.preview.excerptTruncated}
+          />
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function SpawnSearchChain({
+  phase,
+  search,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  phase: SpawnSecondaryPhase;
+  search: SpawnSearchPreview;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  return (
+    <div className={`spawn-python-chain spawn-secondary-chain spawn-secondary-search-chain ${phase}`} aria-label="Latest search">
+      <button
+        type="button"
+        className={`spawn-python-node spawn-secondary-node spawn-secondary-search-node ${search.event.id === selectedTraceEventId ? 'selected' : ''}`}
+        onClick={() => onSelectTraceEvent(search.event)}
+      >
+        <span className="spawn-python-shape" aria-hidden="true" />
+        <div className="spawn-python-content spawn-secondary-content">
+          <SpawnSecondarySummary eyebrow="Search" title={search.preview.title} description={search.preview.description} facts={search.preview.facts} />
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function SpawnSecondarySummary({ eyebrow, title, description, facts }: { eyebrow: string; title: string; description: string; facts: string[] }): JSX.Element {
+  return (
+    <div className="spawn-secondary-summary">
+      <span className="spawn-secondary-eyebrow">{eyebrow}</span>
+      <strong className="spawn-secondary-title">{title}</strong>
+      {description ? <p className="spawn-secondary-description">{description}</p> : null}
+      {facts.length > 0 ? (
+        <div className="spawn-secondary-facts">
+          {facts.map((fact) => (
+            <span key={fact}>{fact}</span>
+          ))}
+        </div>
       ) : null}
     </div>
   );
@@ -554,6 +779,7 @@ function SpawnPythonBlock({
   label,
   language,
   lineCount,
+  lineNumberMode = 'generated',
   lines,
   meta,
   truncated
@@ -561,13 +787,15 @@ function SpawnPythonBlock({
   label: string;
   language?: 'python';
   lineCount: number;
+  lineNumberMode?: CodeBlockLineNumberMode;
   lines: string[];
   meta?: string;
   truncated: boolean;
 }): JSX.Element | null {
   if (lines.length === 0) return null;
   const lineLabel = meta ?? `${lineCount} line${lineCount === 1 ? '' : 's'}`;
-  const text = lines.join('\n');
+  const rows = codeBlockLineRows(lines, lineNumberMode);
+  const text = rows.codeLines.join('\n');
   return (
     <div className="spawn-python-block">
       <div className="spawn-python-heading">
@@ -575,6 +803,11 @@ function SpawnPythonBlock({
         <span>{lineLabel}</span>
       </div>
       <pre className={truncated ? 'is-truncated' : undefined}>
+        <span className="code-line-gutter" aria-hidden="true">
+          {rows.lineNumbers.map((lineNumber, index) => (
+            <span data-line={lineNumber} key={`${lineNumber}-${index}`} />
+          ))}
+        </span>
         <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(text) : text}</code>
       </pre>
     </div>
@@ -724,35 +957,81 @@ function SquircleBackdrop({ className }: { className: string }): JSX.Element {
   );
 }
 
-function latestSpawnPythonPreview(events: TraceDisplayEvent[], detail: RunDetail | null): SpawnPythonPreview | null {
+function latestSpawnSecondaryPreview(events: TraceDisplayEvent[], detail: RunDetail | null): SpawnSecondaryPreview | null {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (!event) continue;
 
-    const resultPreview = pythonTracePreview(event, detail);
-    if (resultPreview && (resultPreview.scriptLines.length > 0 || resultPreview.outputLines.length > 0)) {
-      const codeEvent = pythonCodeEventForResult(events, event) ?? event;
+    const python = spawnPythonPreviewForEvent(events, event, detail);
+    if (python) return python;
+
+    if (event.type !== 'tool_result' && event.type !== 'artifact_created') continue;
+
+    const codeBrowser = codeBrowserTracePreview(event, SPAWN_CODE_PREVIEW_LINE_LIMIT);
+    if (codeBrowser) {
       return {
-        id: `${codeEvent.id}:${event.id}`,
-        codeEvent,
-        resultEvent: event,
-        preview: resultPreview
+        kind: 'code_browser',
+        id: `code_browser:${event.id}`,
+        event,
+        preview: codeBrowser
       };
     }
 
-    const codePreview = pythonToolCallPreview(event);
-    if (codePreview && (codePreview.scriptLines.length > 0 || codePreview.task)) {
-      const resultEvent = pythonResultEventForCall(events, event, detail);
-      const preview = resultEvent ? pythonTracePreview(resultEvent, detail) ?? codePreview : codePreview;
+    const search = searchTracePreview(event);
+    if (search) {
       return {
-        id: resultEvent ? `${event.id}:${resultEvent.id}` : event.id,
-        codeEvent: event,
-        resultEvent,
-        preview
+        kind: 'search',
+        id: `search:${event.id}`,
+        event,
+        preview: search
       };
     }
   }
   return null;
+}
+
+function spawnPythonPreviewForEvent(events: TraceDisplayEvent[], event: TraceDisplayEvent, detail: RunDetail | null): SpawnPythonPreview | null {
+  const resultPreview = pythonTracePreview(event, detail, SPAWN_CODE_PREVIEW_LINE_LIMIT);
+  if (resultPreview && (resultPreview.scriptLines.length > 0 || resultPreview.outputLines.length > 0)) {
+    const codeEvent = pythonCodeEventForResult(events, event) ?? event;
+    return {
+      kind: 'python',
+      id: spawnPythonPreviewId(codeEvent, event),
+      event,
+      codeEvent,
+      resultEvent: event,
+      preview: resultPreview
+    };
+  }
+
+  const codePreview = pythonToolCallPreview(event, SPAWN_CODE_PREVIEW_LINE_LIMIT);
+  if (codePreview && (codePreview.scriptLines.length > 0 || codePreview.task)) {
+    const resultEvent = pythonResultEventForCall(events, event, detail);
+    const preview = resultEvent ? pythonTracePreview(resultEvent, detail, SPAWN_CODE_PREVIEW_LINE_LIMIT) ?? codePreview : codePreview;
+    return {
+      kind: 'python',
+      id: spawnPythonPreviewId(event, resultEvent),
+      event: resultEvent ?? event,
+      codeEvent: event,
+      resultEvent,
+      preview
+    };
+  }
+
+  return null;
+}
+
+function hasRecordedPythonOutput(preview: PythonToolCallPreview): boolean {
+  return preview.outputLines.some((line) => line.trim() && line !== 'No output recorded.');
+}
+
+function spawnPythonPreviewId(codeEvent: TraceDisplayEvent, resultEvent: TraceDisplayEvent | null): string {
+  return `python:${codeEvent.toolCallId ?? resultEvent?.toolCallId ?? codeEvent.id}`;
+}
+
+function sameSpawnSecondaryPreview(left: SpawnSecondaryPreview | null, right: SpawnSecondaryPreview | null): boolean {
+  if (!left || !right) return left === right;
+  return left.kind === right.kind && left.id === right.id;
 }
 
 function pythonCodeEventForResult(events: TraceDisplayEvent[], resultEvent: TraceDisplayEvent): TraceDisplayEvent | null {
@@ -796,15 +1075,31 @@ function spawnTrailItemSurface(item: SpawnTrailListItem | null): SpawnTrailSurfa
   return item.kind;
 }
 
-function spawnTrailFirstContentSurface(items: SpawnTrailListItem[]): SpawnTrailSurface {
-  return spawnTrailItemSurface(items.find((item) => item.kind !== 'overflow') ?? null);
+function spawnTrailFirstContentItem(items: SpawnTrailListItem[]): SpawnTrailListItem | null {
+  return items.find((item) => item.kind !== 'overflow') ?? null;
 }
 
-function spawnTrailSurfaceCssValue(surface: SpawnTrailSurface): string {
-  if (surface === 'evidence') return 'var(--spawn-evidence-surface)';
-  if (surface === 'finding') return 'var(--spawn-finding-surface)';
-  if (surface === 'overflow') return 'var(--spawn-overflow-surface)';
-  return 'transparent';
+function spawnTrailItemSurfaceCssValue(item: SpawnTrailListItem | null): string {
+  if (!item) return 'transparent';
+  if (item.kind === 'evidence') return 'var(--spawn-evidence-surface)';
+  if (item.kind === 'finding') return spawnFindingStateSurfaceCssValue(item.finding.state);
+  return 'var(--spawn-overflow-surface)';
+}
+
+function spawnFindingStateSurfaceCssValue(state: string): string {
+  const normalizedState = stateClass(state);
+  if (SPAWN_FINDING_HIGH_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-high-surface)';
+  if (SPAWN_FINDING_MEDIUM_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-medium-surface)';
+  if (SPAWN_DISMISSED_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-dismissed-surface)';
+  return 'var(--spawn-finding-surface)';
+}
+
+function spawnHypothesisStateSurfaceCssValue(state: string): string {
+  const normalizedState = stateClass(state);
+  if (SPAWN_HYPOTHESIS_HIGH_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-high-surface)';
+  if (SPAWN_HYPOTHESIS_MEDIUM_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-medium-surface)';
+  if (SPAWN_DISMISSED_STATE_CLASSES.has(normalizedState)) return 'var(--spawn-state-dismissed-surface)';
+  return 'var(--spawn-hypothesis-surface)';
 }
 
 function latestAgentThought(events: TraceDisplayEvent[]): SpawnThought {

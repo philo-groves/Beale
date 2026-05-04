@@ -13,6 +13,7 @@ import {
   pythonTracePreview,
   pythonToolCallPreview,
   reasoningTraceThoughtsFromText,
+  searchTracePreview,
   traceEventDetailText,
   traceEventSummary,
   verifierTracePreview
@@ -164,6 +165,11 @@ describe('renderer trace content view models', () => {
       truncated: true,
       outputLines: []
     });
+    expect(pythonToolCallPreview(python, 8)).toMatchObject({
+      scriptLines: ['print(0)', 'print(1)', 'print(2)', 'print(3)', 'print(4)', 'print(5)', 'print(6)', 'print(7)'],
+      scriptLineCount: 10,
+      truncated: true
+    });
 
     const result = traceEvent({
       id: 'trace_result',
@@ -284,6 +290,45 @@ describe('renderer trace content view models', () => {
       excerptLines: ['10: public void decode() {', '11:   parse(input);', '12: }', '13:', '14: // extra'],
       excerptLineCount: 12,
       excerptTruncated: true
+    });
+    expect(
+      codeBrowserTracePreview(
+        traceEvent({
+          type: 'tool_result',
+          source: 'tool',
+          summary: 'Code browser returned 12 bounded lines.',
+          payload: {
+            sourcePath: '/repo/services/payments/src/main/java/com/example/security/Decoder.java',
+            excerpt: ['1: a', '2: b', '3: c', '4: d', '5: e', '6: f'].join('\n')
+          }
+        }),
+        8
+      )?.excerptLines
+    ).toEqual(['1: a', '2: b', '3: c', '4: d', '5: e', '6: f']);
+  });
+
+  it('builds structured search previews from ranked search results', () => {
+    expect(
+      searchTracePreview(
+        traceEvent({
+          type: 'tool_result',
+          source: 'tool',
+          summary: 'Examined 47 files and returned 31 matches.',
+          payload: {
+            query: 'auth middleware bypass',
+            filesConsidered: 47,
+            targetHint: '/repo/apps/api',
+            metadataMatches: 4,
+            semanticMatches: 2,
+            graphMatches: 3,
+            matches: ['direct']
+          }
+        })
+      )
+    ).toEqual({
+      title: 'Search auth middleware bypass',
+      description: '31 matches',
+      facts: ['47 files', '/repo/apps/api', '4 metadata', '2 semantic', '3 graph']
     });
   });
 

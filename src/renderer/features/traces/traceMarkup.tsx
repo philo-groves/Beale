@@ -9,6 +9,13 @@ const inlineMarkupCache = new Map<string, ReactNode[]>();
 const pythonMarkupCache = new Map<string, ReactNode[]>();
 const jsonMarkupCache = new Map<string, ReactNode[]>();
 
+export type CodeBlockLineNumberMode = 'generated' | 'source-prefix';
+
+export interface CodeBlockLineRows {
+  codeLines: string[];
+  lineNumbers: string[];
+}
+
 export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
   const proseCategory = category === 'agent_output' || category === 'evidence' || category === 'failure_recovery' || category === 'hypotheses' || category === 'reasoning';
   const cache = proseCategory ? proseMarkupCache : inlineMarkupCache;
@@ -63,6 +70,25 @@ export function highlightJsonCode(code: string): ReactNode[] {
       { chars: code.length, lines: countLines(code) }
     )
   );
+}
+
+export function codeBlockLineRows(lines: string[], mode: CodeBlockLineNumberMode = 'generated'): CodeBlockLineRows {
+  if (mode === 'source-prefix') {
+    return lines.reduce<CodeBlockLineRows>(
+      (rows, line, index) => {
+        const match = line.match(/^\s*(\d+)(?::|\|)\s?(.*)$/);
+        rows.lineNumbers.push(match?.[1] ?? '');
+        rows.codeLines.push(match?.[2] ?? line);
+        return rows;
+      },
+      { codeLines: [], lineNumbers: [] }
+    );
+  }
+
+  return {
+    codeLines: lines,
+    lineNumbers: lines.map((_, index) => String(index + 1))
+  };
 }
 
 function cachedMarkup(cache: Map<string, ReactNode[]>, key: string, create: () => ReactNode[]): ReactNode[] {

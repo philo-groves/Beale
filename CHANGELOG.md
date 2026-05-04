@@ -119,6 +119,14 @@
 - Changed New Program repository onboarding so cloned repositories are added without a synchronous main-process inventory refresh, and indexing refreshes inventory through the semantic indexing job.
 - Changed model-facing search to add bounded graph-proximity matches from metadata and semantic seed hits.
 - Changed Spawn view layout to reserve side lanes for evidence trails and pack trails with measured non-overlap spacing.
+- Changed Spawn secondary center previews to rotate between Python executions, file reads, and searches with dwell-timed slide transitions.
+- Changed trace and Spawn code blocks to render non-selectable line-number gutters outside copied code text.
+- Changed Spawn ambient highlight and evidence trail spawn origin to align with the top-centered thought stack.
+- Changed Spawn Python result previews to show captured output in the attached status squircle and allow Spawn code blocks to use more available vertical space.
+- Changed Spawn secondary preview containers under the thought squircle to rounded rectangles while preserving nested result squircles.
+- Changed Spawn secondary rounded rectangles to use tighter side and bottom padding.
+- Changed trace and Spawn evidence trail colors so high-severity/status surfaces use red, Spawn standalone evidence stays black, Spawn evidence rows use grey, and Spawn finding rows follow finding status.
+- Changed dismissed Spawn hypothesis trails to use lighter translucent neutral surfaces instead of red dismissal backgrounds.
 - Changed model-facing search ranking so graph seed and proximity signals can promote or diversify final search results instead of only filling remaining result slots.
 - Changed model-facing search to add graph-backed variant matches for entities that share important relationship targets such as sinks, permission checks, middleware, hypotheses, and findings.
 - Changed relationship graph research-memory coverage to add component and CWE anchor nodes plus explicit duplicate, evidence, verifier outcome, and artifact provenance edges.
@@ -217,6 +225,12 @@
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
+- Fixed Spawn trail text clarity by removing the idle floating animation from trail cards.
+- Fixed Spawn Python status previews so running and exit states update in one attached status squircle without duplicate slides.
+- Fixed long Spawn code blocks crowding the bottom curves of their surrounding squircles.
+- Fixed Spawn codeblock alignment and Python output sizing so short output still fills the result squircle width.
+- Fixed Spawn Python output result layout so the exit marker floats below output while the result squircle rides farther under the code squircle.
+- Fixed Spawn Python output result width and added slide-in motion for the result squircle and output block.
 - Fixed tall Spawn evidence trails by capping compact trail rows, preserving the first evidence row, and opening hidden evidence/finding items in a full-trail modal.
 - Fixed Spawn trail title wrapping, row separators, and curved-corner layering so stacked evidence and finding rows do not bleed through to the workspace background.
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.

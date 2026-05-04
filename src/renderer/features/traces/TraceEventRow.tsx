@@ -23,7 +23,7 @@ import {
 } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
-import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
+import { codeBlockLineRows, highlightPythonCode, renderTraceProseText, type CodeBlockLineNumberMode } from './traceMarkup';
 import { traceCategoryBadgeLabel, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
 
 interface TraceEventRowProps {
@@ -133,6 +133,7 @@ function CodeBrowserTracePreviewRow({
         <PythonTraceBlock
           label="Excerpt"
           meta={`${preview.excerptLineCount} line${preview.excerptLineCount === 1 ? '' : 's'}`}
+          lineNumberMode="source-prefix"
           text={preview.excerptLines.join('\n')}
           truncated={preview.excerptTruncated}
         />
@@ -238,16 +239,20 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
 function PythonTraceBlock({
   label,
   language,
+  lineNumberMode = 'generated',
   meta,
   text,
   truncated
 }: {
   label: string;
   language?: 'python';
+  lineNumberMode?: CodeBlockLineNumberMode;
   meta: string;
   text: string;
   truncated: boolean;
 }): JSX.Element {
+  const rows = codeBlockLineRows(text.split('\n'), lineNumberMode);
+  const codeText = rows.codeLines.join('\n');
   return (
     <div className="main-trace-python-block">
       <div className="main-trace-python-heading">
@@ -255,7 +260,12 @@ function PythonTraceBlock({
         <span>{meta}</span>
       </div>
       <pre className={truncated ? 'is-truncated' : undefined}>
-        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(text) : text}</code>
+        <span className="code-line-gutter" aria-hidden="true">
+          {rows.lineNumbers.map((lineNumber, index) => (
+            <span data-line={lineNumber} key={`${lineNumber}-${index}`} />
+          ))}
+        </span>
+        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(codeText) : codeText}</code>
       </pre>
     </div>
   );
