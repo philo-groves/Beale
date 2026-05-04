@@ -17,6 +17,7 @@
 - Added a profiling overview modal and Debug header button while profiling is enabled.
 - Added Developer Mode settings with automatic profiling enablement, CyberGym benchmarking path/cache controls, cache helpers, a CyberGym sidebar entry, and a searchable CyberGym scenario picker backed by Beale-local `benchmarks/tasks_YYYYMMDD.json` catalogs with Last Refreshed metadata.
 - Added a main-content CyberGym benchmark workspace with scenario selection beside persisted task-level run history.
+- Added CyberGym workspace header toggles for the default scenario/run list view and a benchmark analysis dashboard with pass-rate, result-mix, efficiency, and harness-comparison visualizations.
 - Added persisted benchmark task metrics for pass/fail status, fail reason, token count, session time, turn count, and time-to-finding.
 - Added an orange CyberGym scenario warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
@@ -93,6 +94,8 @@
 
 ### Changed
 
+- Changed the CyberGym scenario picker from a sortable table to a compact searchable scenario list.
+- Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a placeholder run action.
 - Changed user-facing executor language from VM to Sandbox while keeping VM-specific backend names where they identify the underlying technology.
 - Changed sandbox settings into a dedicated Settings tab with a horizontal sandbox selector and per-sandbox detail panel.
 - Changed sandbox planning docs to make local disposable VMs preferred rather than mandatory, with Docker and host execution recorded as degraded explicit options.

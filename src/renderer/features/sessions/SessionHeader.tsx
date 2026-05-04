@@ -1,31 +1,36 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Check, Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ChartNoAxesCombined, Check, Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
 import type { ProgramMainView } from '../programs/programViews';
+import type { CyberGymMainView } from '../settings/cyberGymViews';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
 import type { SessionMainView } from './sessionViews';
 
 export function SessionHeader({
   detail,
+  cyberGymView,
   events,
   programGraphStatus,
   programSemanticStatus,
   programView,
   visibleTraceCategories,
   sessionView,
+  onCyberGymViewChange,
   onProgramViewChange,
   onSessionViewChange
 }: {
   detail: RunDetail | null;
+  cyberGymView: CyberGymMainView | null;
   events: TraceEventRecord[];
   programGraphStatus: string | null;
   programSemanticStatus: string | null;
   programView: ProgramMainView | null;
   visibleTraceCategories: TraceCategoryId[];
   sessionView: SessionMainView;
+  onCyberGymViewChange: (view: CyberGymMainView) => void;
   onProgramViewChange: (view: ProgramMainView) => void;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
@@ -41,6 +46,11 @@ export function SessionHeader({
           <>
             <ProgramViewToggle programView={programView} onProgramViewChange={onProgramViewChange} />
             <span className="program-header-view-title">{programViewTitle(programView)}</span>
+          </>
+        ) : cyberGymView ? (
+          <>
+            <CyberGymViewToggle cyberGymView={cyberGymView} onCyberGymViewChange={onCyberGymViewChange} />
+            <span className="program-header-view-title">{cyberGymViewTitle(cyberGymView)}</span>
           </>
         ) : null}
       </div>
@@ -60,6 +70,10 @@ export function SessionHeader({
 
 function programViewTitle(programView: ProgramMainView): string {
   return programView === 'graph' ? 'Relationship Graph' : 'Program Understanding';
+}
+
+function cyberGymViewTitle(cyberGymView: CyberGymMainView): string {
+  return cyberGymView === 'analysis' ? 'Benchmark Analysis' : 'CyberGym Scenario Runs';
 }
 
 function ProgramHeaderStatusPills({
@@ -108,6 +122,37 @@ function ProgramViewToggle({
           aria-pressed={programView === option.view}
           key={option.view}
           onClick={() => onProgramViewChange(option.view)}
+        >
+          {option.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CyberGymViewToggle({
+  cyberGymView,
+  onCyberGymViewChange
+}: {
+  cyberGymView: CyberGymMainView;
+  onCyberGymViewChange: (view: CyberGymMainView) => void;
+}): JSX.Element {
+  const options: Array<{ view: CyberGymMainView; label: string; icon: JSX.Element }> = [
+    { view: 'list', label: 'CyberGym scenario and run lists', icon: <List size={15} /> },
+    { view: 'analysis', label: 'Benchmark analysis dashboard', icon: <ChartNoAxesCombined size={15} /> }
+  ];
+
+  return (
+    <div className="session-view-toggle" role="group" aria-label="CyberGym view">
+      {options.map((option) => (
+        <button
+          type="button"
+          className={`session-view-button ${cyberGymView === option.view ? 'active' : ''}`}
+          title={option.label}
+          aria-label={option.label}
+          aria-pressed={cyberGymView === option.view}
+          key={option.view}
+          onClick={() => onCyberGymViewChange(option.view)}
         >
           {option.icon}
         </button>

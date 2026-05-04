@@ -31,6 +31,7 @@ import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
 import { CyberGymBenchmarkWorkspace } from './features/settings/CyberGymBenchmarkWorkspace';
+import { DEFAULT_CYBERGYM_MAIN_VIEW, type CyberGymMainView } from './features/settings/cyberGymViews';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
@@ -100,6 +101,7 @@ export function App(): JSX.Element {
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
   const [programMainView, setProgramMainView] = useState<ProgramMainView>('understanding');
+  const [cyberGymMainView, setCyberGymMainView] = useState<CyberGymMainView>(DEFAULT_CYBERGYM_MAIN_VIEW);
   const [busy, setBusy] = useState(false);
   const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
@@ -361,6 +363,7 @@ export function App(): JSX.Element {
     clearRunDetail();
     setInspectorOpen(false);
     setSelectedRunId(null);
+    setCyberGymMainView(DEFAULT_CYBERGYM_MAIN_VIEW);
     setCyberGymWorkspaceOpen(true);
     void refreshCyberGymScenarios();
   }, [clearRunDetail, refreshCyberGymScenarios, setSelectedRunId]);
@@ -709,12 +712,14 @@ export function App(): JSX.Element {
       <main className="workbench" data-session-heat={sessionHeat}>
         <SessionHeader
           detail={activeRunDetail}
+          cyberGymView={cyberGymWorkspaceOpen ? cyberGymMainView : null}
           events={activeTraceEvents}
           programGraphStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectGraph.status : null}
           programSemanticStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectSemantic.status : null}
           programView={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? programMainView : null}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
+          onCyberGymViewChange={setCyberGymMainView}
           onProgramViewChange={setProgramMainView}
           onSessionViewChange={setSessionMainView}
         />
@@ -725,6 +730,7 @@ export function App(): JSX.Element {
               busy={busy}
               scenarioList={cyberGymScenarioList}
               selectedScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
+              view={cyberGymMainView}
               onRefreshScenarios={() => void refreshCyberGymScenarios()}
               onSelectScenario={(scenario) => void selectCyberGymScenario(scenario)}
             />
