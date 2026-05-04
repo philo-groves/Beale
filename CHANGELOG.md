@@ -216,7 +216,7 @@
 
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
-- Fixed tall Spawn evidence trails by capping compact trail rows and opening hidden evidence/finding items in a full-trail modal.
+- Fixed tall Spawn evidence trails by capping compact trail rows, preserving the first evidence row, and opening hidden evidence/finding items in a full-trail modal.
 - Fixed Spawn trail title wrapping, row separators, and curved-corner layering so stacked evidence and finding rows do not bleed through to the workspace background.
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
 - Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.

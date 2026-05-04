@@ -88,7 +88,7 @@ const SPAWN_EDGE_PADDING = 24;
 const SPAWN_SEARCH_CONTROL_CLEARANCE = 84;
 const SPAWN_TRAIL_GAP = 28;
 const SPAWN_TRAIL_MIN_WIDTH = 208;
-const SPAWN_MAX_TRAIL_LIST_ITEMS = 3;
+const SPAWN_MAX_TRAIL_LIST_ITEMS = 4;
 const SPAWN_TRAIL_VERTICAL_ANCHORS = [0, -0.24, 0.24, -0.38, 0.38, -0.12, 0.12, -0.5, 0.5];
 
 export const SpawnSessionView = memo(function SpawnSessionView({
@@ -271,7 +271,7 @@ function SpawnTrail({
   const findingCount = layout.trail.findings.length;
   const standaloneEvidence = !layout.trail.hypothesis && evidenceCount > 0 && findingCount === 0;
   const listItems = compactSpawnTrailItems(layout.trail);
-  const firstExtensionSurface = spawnTrailItemSurface(listItems[0] ?? null);
+  const firstExtensionSurface = spawnTrailFirstContentSurface(listItems);
 
   return (
     <article
@@ -400,6 +400,7 @@ function SpawnHypothesisNode({
     <button
       type="button"
       className={`spawn-trail-hypothesis ${spawnNextSurfaceClass(nextSurface)} state-${stateClass(hypothesis.state)} ${event?.id === selectedTraceEventId ? 'selected' : ''}`}
+      style={{ '--spawn-next-surface': spawnTrailSurfaceCssValue(nextSurface) } as CSSProperties}
       disabled={disabled}
       onClick={() => event && onSelectTraceEvent(event)}
     >
@@ -422,12 +423,7 @@ function SpawnHypothesisNode({
 function SpawnTrailOverflowNode({ hiddenCount, nextSurface, onOpen }: { hiddenCount: number; nextSurface: SpawnTrailSurface; onOpen: () => void }): JSX.Element {
   return (
     <button type="button" className={`spawn-trail-extension spawn-trail-overflow ${spawnNextSurfaceClass(nextSurface)}`} onClick={onOpen}>
-      <span>
-        <Search size={12} />
-        More
-      </span>
-      <strong>{`Hiding ${hiddenCount} Artifact${hiddenCount === 1 ? '' : 's'}`}</strong>
-      <small>Open full trail</small>
+      <strong>{`Show ${hiddenCount} More Artifact${hiddenCount === 1 ? '' : 's'}`}</strong>
     </button>
   );
 }
@@ -783,8 +779,10 @@ function fullSpawnTrailItems(trail: EvidenceTrail): Array<Exclude<SpawnTrailList
 function compactSpawnTrailItems(trail: EvidenceTrail): SpawnTrailListItem[] {
   const items = fullSpawnTrailItems(trail);
   if (items.length <= SPAWN_MAX_TRAIL_LIST_ITEMS) return items;
-  const visibleItems = items.slice(0, SPAWN_MAX_TRAIL_LIST_ITEMS - 1);
-  return [{ kind: 'overflow', hiddenCount: items.length - visibleItems.length }, ...visibleItems];
+  const firstItem = items[0];
+  if (!firstItem) return [];
+  const visibleTailItems = items.slice(1, SPAWN_MAX_TRAIL_LIST_ITEMS - 1);
+  return [firstItem, { kind: 'overflow', hiddenCount: items.length - 1 - visibleTailItems.length }, ...visibleTailItems];
 }
 
 function spawnTrailListItemKey(item: SpawnTrailListItem): string {
@@ -796,6 +794,17 @@ function spawnTrailListItemKey(item: SpawnTrailListItem): string {
 function spawnTrailItemSurface(item: SpawnTrailListItem | null): SpawnTrailSurface {
   if (!item) return null;
   return item.kind;
+}
+
+function spawnTrailFirstContentSurface(items: SpawnTrailListItem[]): SpawnTrailSurface {
+  return spawnTrailItemSurface(items.find((item) => item.kind !== 'overflow') ?? null);
+}
+
+function spawnTrailSurfaceCssValue(surface: SpawnTrailSurface): string {
+  if (surface === 'evidence') return 'var(--spawn-evidence-surface)';
+  if (surface === 'finding') return 'var(--spawn-finding-surface)';
+  if (surface === 'overflow') return 'var(--spawn-overflow-surface)';
+  return 'transparent';
 }
 
 function latestAgentThought(events: TraceDisplayEvent[]): SpawnThought {
