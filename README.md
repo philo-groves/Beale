@@ -34,7 +34,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - **Authorization first** — everything stays within scoped, permitted programs/targets
 - **Evidence over claims** — model reasoning must be backed by observable tool results and artifacts
 - **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
-- **Isolation** — execution happens in controlled environments (with plans for strong VM sandboxing)
+- **Isolation** — execution happens in controlled environments, with VM-backed sandboxes preferred for high-risk target execution
 - **Human in the loop** — steering, review, hypothesis validation, and patch checking remain researcher-driven
 
 ---
@@ -53,7 +53,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
-- **Execution Sandbox**: Targets and tools can run on the host with warnings today; Firecracker is the most exercised VM path
+- **Execution Sandbox**: Targets and tools can run on the host with warnings today; Firecracker is the most exercised VM path, and Docker is available as a lower-assurance sandbox option
 - **Model Integration**: Tool-calling loop with strict verification requirements
 
 ---
@@ -83,7 +83,7 @@ See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on 
 - Export, disclosure draft, and redacted trace review are incomplete.
 - Full pause/resume/stop/fork/restart run controls are incomplete.
 - Full verifier contract, artifact review, and evidence bundle controls are incomplete.
-- Hyper-V and Tart VM backends are not implemented yet.
+- Hyper-V and Tart sandbox backends are not implemented yet.
 - Settings coverage is still narrow.
 
 See `planning/book/beta-readiness.md` for the current beta-readiness checklist.
@@ -129,9 +129,9 @@ Live OpenAI and Firecracker tests are opt-in because they require local credenti
 
 ---
 
-## Firecracker / VM Notes
+## Sandbox Notes
 
-The Linux/WSL Firecracker path is the most exercised VM backend today.
+The Linux/WSL Firecracker path is the most exercised VM-backed sandbox today.
 
 ```bash
 npm run firecracker:init
@@ -146,13 +146,15 @@ npm run firecracker:install-privileged-helper
 
 Host execution is currently supported for product practicality, but VM-backed execution remains the safer direction for target code, generated PoCs, fuzzing, debugging, and closed-source executables.
 
+Docker can be selected as a sandbox backend for convenience, but it is less secure than a virtual machine and should not be treated as equivalent isolation for high-risk target execution.
+
 ---
 
 ## OpenAI Notes
 
 Live model runs require OpenAI credentials with Responses API access.
 
-OpenAI credentials should stay on the host. They should not be mounted into guest VMs.
+OpenAI credentials should stay on the host. They should not be mounted into sandboxes.
 
 ---
 

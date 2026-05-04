@@ -46,7 +46,7 @@ describe('OpenAI + Firecracker live integration', () => {
         programName: 'OpenAI Firecracker Vulnerable Fixture',
         organizationName: 'Local',
         descriptionMarkdown: 'Local intentionally vulnerable target for live OpenAI + Firecracker integration.',
-        rulesMarkdown: 'Only inspect the scoped fixture and execute verifier commands inside the disposable VM.',
+        rulesMarkdown: 'Only inspect the scoped fixture and execute verifier commands inside the selected sandbox.',
         networkProfile: 'offline',
         expiresAt: null,
         assets: [{ direction: 'in_scope', kind: 'path', value: targetDir, sensitivity: 'internal', attributes: {} }]
@@ -62,7 +62,7 @@ describe('OpenAI + Firecracker live integration', () => {
         expect(verifierPass).toBeTruthy();
         expect(detail.traceEvents.some((event) => event.summary === 'OpenAI adapter prepared host-only model session.')).toBe(true);
         expect(detail.traceEvents.some((event) => event.summary.includes('OpenAI completed function call arguments for verifier'))).toBe(true);
-        expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable VM with pass.')).toBe(true);
+        expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable sandbox with pass.')).toBe(true);
         expect(detail.artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
         expect(detail.vmContexts.some((context) => context.backend === 'vmctl' && context.state === 'destroyed')).toBe(true);
       } finally {

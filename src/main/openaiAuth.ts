@@ -300,7 +300,7 @@ function credentialHintFor(readiness: OpenAiAuthReadiness): string {
   if (readiness === 'oauth_ready') return 'Credential is available only to the trusted host process.';
   if (readiness === 'development_fallback') return 'Development fallback is active. OAuth remains the first-release path.';
   if (readiness === 'oauth_command_failed') return 'The configured OAuth command did not produce a usable bearer token.';
-  return 'Authenticate through Codex OAuth. Beale reads the resulting host-side session without exposing tokens to the renderer or guest VMs.';
+  return 'Authenticate through Codex OAuth. Beale reads the resulting host-side session without exposing tokens to the renderer or sandboxes.';
 }
 
 function statusDetailFor(probe: CredentialProbe, readiness: OpenAiAuthReadiness, codexCliAvailable: boolean): string {
@@ -348,7 +348,7 @@ function onboardingStepsFor(probe: CredentialProbe, readiness: OpenAiAuthReadine
       id: 'secret_isolation',
       label: 'Secret isolation',
       status: 'complete',
-      detail: 'OpenAI credentials stay in the host process and are not mounted into guest VMs.',
+      detail: 'OpenAI credentials stay in the host process and are not mounted into sandboxes.',
       command: null
     },
     {

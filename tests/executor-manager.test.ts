@@ -17,6 +17,13 @@ const ENV_KEYS = [
   'BEALE_FIRECRACKER_CONFIG',
   'BEALE_NODE_COMMAND',
   'BEALE_VM_BACKEND',
+  'BEALE_SANDBOX_BACKEND',
+  'BEALE_DOCKER_COMMAND',
+  'BEALE_DOCKER_IMAGE',
+  'BEALE_DOCKER_STATE_DIR',
+  'BEALE_DOCKER_TIMEOUT_MS',
+  'BEALE_DOCKER_STATUS_TIMEOUT_MS',
+  'BEALE_DOCKER_STATUS_CACHE_MS',
   'OPENAI_API_KEY',
   'BEALE_OPENAI_ACCESS_TOKEN'
 ];
@@ -31,7 +38,7 @@ afterEach(() => {
   }
 });
 
-describe('VM executor alpha', () => {
+describe('Sandbox executor alpha', () => {
   it('drives lifecycle, scoped import, guest execution, host-controlled export, and destroy through vmctl', () => {
     process.env.OPENAI_API_KEY = 'sk-host-secret-should-not-reach-vmctl';
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-host-secret-should-not-reach-vmctl';
@@ -44,7 +51,7 @@ describe('VM executor alpha', () => {
     expect(status.available).toBe(true);
     expect(status.targetExecution).toBe(true);
     expect(status.supportedNetworkProfiles).toEqual(['offline', 'scoped']);
-    expect(status.backends.map((backend) => backend.kind)).toEqual(['firecracker', 'hyperv', 'tart', 'custom_vmctl']);
+    expect(status.backends.map((backend) => backend.kind)).toEqual(['firecracker', 'hyperv', 'tart', 'docker', 'custom_vmctl']);
     expect(status.backends.find((backend) => backend.kind === 'firecracker')?.configured).toBe(true);
 
     manager.createContext(context, 'fixture-image', 'clean-fixture');
@@ -80,8 +87,8 @@ describe('VM executor alpha', () => {
     expect(detail.vmContexts[0].state).toBe('destroyed');
     expect(detail.vmContexts[0].metadata.hostDatabaseMounted).toBe(false);
     expect(detail.vmContexts[0].metadata.openAiCredentialsMounted).toBe(false);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM executor created disposable guest context.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM context cloned from clean snapshot.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox executor created disposable context.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context cloned from clean snapshot.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Scoped target material imported into guest.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Guest shell operation finished with success.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'network_event' && event.payload.decision === 'block_external_network')).toBe(true);
@@ -110,7 +117,7 @@ describe('VM executor alpha', () => {
     expect(dir).toContain('beale-executor-test-');
   });
 
-  it('blocks workspace metadata imports before reaching the VM controller', () => {
+  it('blocks workspace metadata imports before reaching the sandbox controller', () => {
     const { db, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
     const context = createExecutorRun(db, [{ direction: 'in_scope', kind: 'path', value: db.getDatabasePath(), sensitivity: 'internal', attributes: {} }]);
@@ -183,7 +190,7 @@ describe('VM executor alpha', () => {
     });
 
     const detail = db.getRunDetail(context.run.id);
-    const createEvent = detail.traceEvents.find((event) => event.summary === 'VM executor created disposable guest context.');
+    const createEvent = detail.traceEvents.find((event) => event.summary === 'Sandbox executor created disposable context.');
     const networkEvent = detail.traceEvents.find((event) => event.type === 'network_event' && event.payload.decision === 'allow_scoped_network');
     expect(createEvent?.payload.requestedNetworkProfile).toBe('elevated');
     expect(createEvent?.payload.networkProfile).toBe('scoped');
@@ -192,7 +199,7 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
-  it('passes elevated network operations to online VM backends without requiring a scoped allowlist', () => {
+  it('passes elevated network operations to online sandbox backends without requiring a scoped allowlist', () => {
     const { db, logPath } = openExecutorDb();
     configureVmctlFixture(logPath, '', ['offline', 'scoped', 'elevated']);
     const context = createExecutorRun(db, undefined, 'elevated');
@@ -231,7 +238,7 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
-  it('blocks guest import destinations outside /workspace before reaching the VM controller', () => {
+  it('blocks guest import destinations outside /workspace before reaching the sandbox controller', () => {
     const { db, targetFile, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
     const context = createExecutorRun(db);
@@ -246,7 +253,7 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
-  it.skipIf(process.platform === 'win32')('blocks symlinks inside scoped import trees before reaching the VM controller', () => {
+  it.skipIf(process.platform === 'win32')('blocks symlinks inside scoped import trees before reaching the sandbox controller', () => {
     const { db, dir, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
     const context = createExecutorRun(db);
@@ -279,7 +286,7 @@ describe('VM executor alpha', () => {
     db.close();
   });
 
-  it('blocks clean clone once the VM context is contaminated', () => {
+  it('blocks clean clone once the sandbox context is contaminated', () => {
     const { db, logPath } = openExecutorDb();
     configureVmctlFixture(logPath);
     const context = createExecutorRun(db);
@@ -297,14 +304,14 @@ describe('VM executor alpha', () => {
       expectedOutput: 'summary'
     });
 
-    expect(() => manager.cloneContext(context, 'clean-fixture')).toThrow(/clean VM context/);
+    expect(() => manager.cloneContext(context, 'clean-fixture')).toThrow(/clean sandbox context/);
     const detail = db.getRunDetail(context.run.id);
-    expect(detail.policyEvents.some((event) => event.reason === 'Clean snapshot clone requires a clean VM context.')).toBe(true);
+    expect(detail.policyEvents.some((event) => event.reason === 'Clean snapshot clone requires a clean sandbox context.')).toBe(true);
     expect(readVmctlActions(logPath).filter((action) => action === 'clone_context')).toHaveLength(1);
     db.close();
   });
 
-  it('fails closed when no local VM controller is configured', () => {
+  it('fails closed when no sandbox controller is configured', () => {
     const { db } = openExecutorDb();
     const manager = new ExecutorManager(db);
     const status = manager.getStatus();
@@ -373,18 +380,18 @@ describe('VM executor alpha', () => {
     expect(detail.run.status).toBe('completed');
     expect(detail.vmContexts[0].backend).toBe('vmctl');
     expect(detail.vmContexts[0].state).toBe('destroyed');
-    expect(detail.traceEvents.some((event) => event.summary === 'VM executor alpha run started from markdown prompt.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM context cloned from clean snapshot.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox executor alpha run started from markdown prompt.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context cloned from clean snapshot.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Guest shell operation finished with success.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Guest python operation finished with success.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM context reverted to clean snapshot.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context reverted to clean snapshot.')).toBe(true);
     expect(detail.traceEvents.filter((event) => event.type === 'network_event')).toHaveLength(2);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'executor_smoke')).toBe(true);
     expect(readVmctlActions(logPath).filter((action) => action === 'execute')).toHaveLength(2);
     service.close();
   });
 
-  it('marks VM contexts for recovery review when run failure cleanup also fails', () => {
+  it('marks sandbox contexts for recovery review when run failure cleanup also fails', () => {
     const dir = mkdtempSync(join(tmpdir(), 'beale-executor-service-failure-'));
     createdDirs.push(dir);
     const targetDir = join(dir, 'target');
@@ -411,7 +418,7 @@ describe('VM executor alpha', () => {
     expect(detail.run.status).toBe('failed');
     expect(detail.vmContexts[0].state).toBe('recovery_pending');
     expect(detail.vmContexts[0].metadata.recoveryRequired).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM executor alpha failed to destroy guest after run failure.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox executor alpha failed to destroy context after run failure.')).toBe(true);
     expect(readVmctlActions(logPath)).toContain('destroy');
     service.close();
   });

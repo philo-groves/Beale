@@ -184,7 +184,7 @@ Capabilities:
 - Minimize or transform crash inputs.
 - Perform local calculations and quick experiments.
 
-Execution is on the host in default sessions and inside the guest VM when `local_disposable_vm` is selected.
+Execution is on the host in default sessions and inside the selected sandbox when sandbox-backed execution is selected.
 
 Python outputs should be captured as trace events, with generated files preserved through the `artifact` tool when relevant.
 
@@ -320,7 +320,7 @@ Rules:
 
 - Prefer structured tools when they cover the task.
 - Use shell inside the active sandbox for target setup, uncommon tooling, package commands, and one-off operations.
-- Shell runs on the host in default sessions and inside the guest VM when VM isolation is selected.
+- Shell runs on the host in default sessions and inside the selected sandbox when sandbox-backed execution is selected.
 - Shell output should be summarized and artifact-backed when it becomes evidence.
 - Shell is not a replacement for `artifact` or `verifier`.
 

@@ -267,7 +267,7 @@ export function StartRunForm({
         {input.sandboxProfile === 'host_research_only' ? (
           <div className="policy-line host-sandbox-warning">
             <ShieldAlert size={15} />
-            Commands and executables will run on this host machine. A disposable VM is recommended.
+            Commands and executables will run on this host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.
           </div>
         ) : null}
         {generateError ? (

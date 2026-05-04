@@ -32,12 +32,12 @@ export class ExecutorRunEngine {
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
       budget: { ...input.budget, runEngine: 'executor_alpha' },
-      vmBackend: 'vmctl',
+      vmBackend: status.provider,
       vmImageId: imageRef,
       vmSnapshotId: snapshotRef,
       vmState: 'clean',
       vmMetadata: {
-        executor: 'vmctl',
+        executor: status.provider,
         targetExecution: true,
         hostDatabaseMounted: false,
         openAiCredentialsMounted: false,
@@ -51,7 +51,7 @@ export class ExecutorRunEngine {
       attemptId: context.attempt.id,
       type: 'user_note',
       source: 'user',
-      summary: 'VM executor alpha run started from markdown prompt.',
+      summary: 'Sandbox executor alpha run started from markdown prompt.',
       payload: {
         runEngine: 'executor_alpha',
         prompt: input.promptMarkdown
@@ -60,7 +60,7 @@ export class ExecutorRunEngine {
     });
 
     if (!status.available) {
-      this.blockRun(context, 'VM executor alpha run blocked because no local VM controller is available.', {
+      this.blockRun(context, 'Sandbox executor alpha run blocked because no sandbox backend is available.', {
         reason: status.reason,
         configured: status.configured
       });
@@ -69,7 +69,7 @@ export class ExecutorRunEngine {
 
     const target = selectScopedImport(scope);
     if (!target) {
-      this.blockRun(context, 'VM executor alpha run blocked because no in-scope local path exists for import.', {
+      this.blockRun(context, 'Sandbox executor alpha run blocked because no in-scope local path exists for import.', {
         scopeVersionId: scope.id
       });
       return context;
@@ -121,8 +121,8 @@ export class ExecutorRunEngine {
       });
       this.executor.revertContext(context, snapshotRef);
       this.executor.destroyContext(context);
-      this.db.updateAttemptState(context.attempt.id, 'completed', 'VM executor alpha smoke completed.');
-      this.db.updateRunStatus(context.run.id, 'completed', 'VM executor alpha smoke completed.');
+      this.db.updateAttemptState(context.attempt.id, 'completed', 'Sandbox executor alpha smoke completed.');
+      this.db.updateRunStatus(context.run.id, 'completed', 'Sandbox executor alpha smoke completed.');
     } catch (error) {
       if (contextCreated) {
         try {
@@ -141,20 +141,20 @@ export class ExecutorRunEngine {
             attemptId: context.attempt.id,
             type: 'vm_event',
             source: 'executor',
-            summary: 'VM executor alpha failed to destroy guest after run failure.',
+            summary: 'Sandbox executor alpha failed to destroy context after run failure.',
             payload: { error: errorMessage(destroyError) },
             vmContextId: context.vmContext.id
           });
         }
       }
-      this.db.updateAttemptState(context.attempt.id, 'failed', 'VM executor alpha run failed.');
-      this.db.updateRunStatus(context.run.id, 'failed', 'VM executor alpha run failed.');
+      this.db.updateAttemptState(context.attempt.id, 'failed', 'Sandbox executor alpha run failed.');
+      this.db.updateRunStatus(context.run.id, 'failed', 'Sandbox executor alpha run failed.');
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
         type: 'vm_event',
         source: 'executor',
-        summary: 'VM executor alpha run failed.',
+        summary: 'Sandbox executor alpha run failed.',
         payload: { error: errorMessage(error) },
         vmContextId: context.vmContext.id
       });

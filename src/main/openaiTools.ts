@@ -2332,12 +2332,12 @@ export class BealeToolRouter {
     }
 
     if (!this.executor) {
-      throw new Error('VM executor is not available to the OpenAI tool router.');
+      throw new Error('Sandbox executor is not available to the OpenAI tool router.');
     }
 
     const status = this.executor.getStatus();
     if (!status.available) {
-      throw new Error(status.reason ?? 'VM executor is not available.');
+      throw new Error(status.reason ?? 'Sandbox executor is not available.');
     }
 
     const importSpec = this.firstScopedImport();

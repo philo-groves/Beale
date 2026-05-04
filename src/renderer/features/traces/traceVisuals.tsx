@@ -29,7 +29,7 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
   { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
-  { id: 'vm_execution', label: 'VM / Execution', description: 'Guest VM lifecycle, imports, commands, cleanup, and target execution.' },
+  { id: 'vm_execution', label: 'Sandbox / Execution', description: 'Sandbox lifecycle, imports, commands, cleanup, and target execution.' },
   { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
   { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },

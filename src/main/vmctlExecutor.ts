@@ -51,7 +51,7 @@ export class VmctlExecutorProvider implements ExecutorProvider {
   private readStatus(): ExecutorCapabilities {
     if (!this.command) {
       return unavailableCapabilities(
-        'No local VM controller is configured. Set BEALE_VMCTL_COMMAND to a VM controller that implements the Beale vmctl JSON protocol.',
+        'No VM sandbox controller is configured. Set BEALE_VMCTL_COMMAND to a controller that implements the Beale vmctl JSON protocol.',
         this.controller
       );
     }
@@ -65,7 +65,7 @@ export class VmctlExecutorProvider implements ExecutorProvider {
         configured: true,
         available: result.available ?? true,
         targetExecution: true,
-        label: result.label ?? 'Configured local VM controller',
+        label: result.label ?? 'Configured VM sandbox controller',
         reason: result.reason ?? null,
         metadata: {
           ...(result as Record<string, unknown>),
@@ -171,7 +171,7 @@ function unavailableCapabilities(reason: string, controller: VmctlController): E
     provider: 'vmctl',
     configured: Boolean(controller.command),
     available: false,
-    label: 'Local VM executor unavailable',
+    label: 'VM sandbox executor unavailable',
     reason,
     targetExecution: false,
     metadata: {
@@ -186,7 +186,7 @@ function defaultCapabilities(available: boolean, controller: VmctlController): E
     provider: 'vmctl',
     configured: true,
     available,
-    label: available ? 'Local VM executor' : 'Local VM executor unavailable',
+    label: available ? 'VM sandbox executor' : 'VM sandbox executor unavailable',
     reason: null,
     targetExecution: available,
     supportedNetworkProfiles: ['offline', 'scoped', 'elevated'],

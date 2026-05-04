@@ -17,6 +17,8 @@ import type {
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
+  SandboxSetupInput,
+  SandboxSetupResult,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   StartRunInput,
@@ -79,6 +81,9 @@ const api: BealeApi = {
   },
   setVmPreference(input: VmPreferenceInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.setVmPreference, input);
+  },
+  setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setupSandbox, input);
   },
   getOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.getOpenAiStatus);

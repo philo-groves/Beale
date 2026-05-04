@@ -7,6 +7,8 @@ import type {
   OpenAiOAuthStartResult,
   ProgramOnboardingProgressUpdate,
   RunDetail,
+  SandboxSetupInput,
+  SandboxSetupResult,
   SessionTranscriptSearchResult,
   SteeringAction,
   VmPreferenceInput,
@@ -244,6 +246,27 @@ export function App(): JSX.Element {
     [loadSnapshot, runProgramAction]
   );
 
+  const setupSandbox = useCallback(
+    async (input: SandboxSetupInput): Promise<SandboxSetupResult> => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await window.beale.setupSandbox(input);
+        await loadSnapshot();
+        if (!result.ok) {
+          setError(result.detail);
+        }
+        return result;
+      } catch (caught) {
+        setError(errorMessage(caught));
+        throw caught;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadSnapshot]
+  );
+
   const setProjectSemanticIndexEnabled = useCallback(
     async (enabled: boolean) => {
       await runAction(() => window.beale.setProjectSemanticIndexEnabled(enabled));
@@ -363,7 +386,7 @@ export function App(): JSX.Element {
   });
   const vmPreference = vmPreferenceForState(programRegistry, snapshot);
   const configureVm = useCallback(() => {
-    setSettingsSection('general');
+    setSettingsSection('sandboxes');
     setSettingsOpen(true);
   }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
@@ -676,6 +699,7 @@ export function App(): JSX.Element {
         onRefreshProjectSemanticIndex={refreshProjectSemanticIndex}
         onSetProjectSemanticIndexEnabled={setProjectSemanticIndexEnabled}
         onSetProfilingEnabled={setProfilingEnabled}
+        onSetupSandbox={setupSandbox}
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartedNewResearch={(runId) => {

@@ -106,7 +106,7 @@ describe.skipIf(process.env.BEALE_FIRECRACKER_LIVE_TEST !== '1')('Firecracker li
       const detail = db.getRunDetail(context.run.id);
       expect(detail.traceEvents.some((event) => event.summary === 'Guest python operation finished with success.')).toBe(true);
       expect(detail.traceEvents.some((event) => event.summary.startsWith('Debugger wrapper operation finished with'))).toBe(true);
-      expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable VM with pass.')).toBe(true);
+      expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable sandbox with pass.')).toBe(true);
       expect(detail.vmContexts[0].backend).toBe('vmctl');
       expect(detail.vmContexts[0].state).toBe('destroyed');
     } finally {

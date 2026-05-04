@@ -53,7 +53,7 @@ export function runVerifierContract(
 
   if (!executor) {
     return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed before VM start.', {
-      issues: ['VM executor is not available'],
+      issues: ['Sandbox executor is not available'],
       note: redactForModelText(note)
     });
   }
@@ -61,7 +61,7 @@ export function runVerifierContract(
   const status = executor.getStatus();
   if (!status.available) {
     return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed before VM start.', {
-      issues: [status.reason ?? 'VM executor is not available'],
+      issues: [status.reason ?? 'Sandbox executor is not available'],
       note: redactForModelText(note)
     });
   }
@@ -145,7 +145,7 @@ export function runVerifierContract(
       attemptId: context.attempt.id,
       type: 'verifier_result',
       source: 'verifier',
-      summary: `Verifier contract executed in disposable VM with ${verdict.status}.`,
+      summary: `Verifier contract executed in disposable sandbox with ${verdict.status}.`,
       payload: {
         verifierRunId: verifierRun.id,
         contractId: contract.id,
@@ -161,7 +161,7 @@ export function runVerifierContract(
     });
     return { verifierRun, traceEventId: event.id, artifactId: exportedArtifactId };
   } catch (error) {
-    return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed in disposable VM.', {
+    return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed in disposable sandbox.', {
       issues: [errorMessage(error)],
       note: redactForModelText(note),
       realExecution: false,
@@ -344,7 +344,7 @@ function verifierContext(db: WorkspaceDatabase, runId: string, attemptId: string
   const attempt = attemptId ? detail.attempts.find((item) => item.id === attemptId) : db.getFirstAttempt(runId);
   if (!attempt) throw new Error(`Run has no attempt for verifier execution: ${runId}`);
   const vmContext = detail.vmContexts.find((item) => item.id === (vmContextId ?? attempt.vmContextId)) ?? detail.vmContexts[0];
-  if (!vmContext) throw new Error(`Run has no VM context for verifier execution: ${runId}`);
+  if (!vmContext) throw new Error(`Run has no sandbox context for verifier execution: ${runId}`);
   return { run, attempt, vmContext };
 }
 

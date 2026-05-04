@@ -7455,6 +7455,144 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.sandboxes-settings-page {
+  gap: 12px;
+}
+
+.sandbox-settings-card {
+  gap: 14px;
+}
+
+.sandbox-selector {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 7px;
+}
+
+.sandbox-selector > button {
+  min-width: 0;
+  height: auto;
+  min-height: 76px;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 5px;
+  border-color: var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 9px;
+  text-align: left;
+}
+
+.sandbox-selector > button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #191919;
+}
+
+.sandbox-selector > button.selected {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: #1b1b1b;
+}
+
+.sandbox-selector strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-selector span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.sandbox-detail-heading {
+  padding-top: 2px;
+}
+
+.sandbox-backend-warning {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #ffb347;
+  background: rgba(255, 143, 31, 0.1);
+  border: 1px solid rgba(255, 143, 31, 0.28);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.sandbox-backend-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.sandbox-setup-message {
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 8px 9px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.sandbox-setup-message.ok {
+  color: #7bd88f;
+  background: rgba(82, 184, 105, 0.1);
+}
+
+.sandbox-setup-message.error {
+  color: #ffb347;
+  background: rgba(255, 143, 31, 0.1);
+}
+
+.sandbox-property-list {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.sandbox-property-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr) minmax(150px, 0.8fr);
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 8px;
+}
+
+.sandbox-property-row span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sandbox-property-row strong,
+.sandbox-property-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-property-row code {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.sandbox-actions {
+  justify-content: space-between;
+}
+
 .semantic-provider-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

@@ -136,6 +136,10 @@ describe('Beale workbench skeleton', () => {
     expect(reopened.getProgramRegistryState().vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
     expect(reopened.openWorkspace(workspace).vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
 
+    const docker = reopened.setVmPreference({ enabled: true, backendKind: 'docker' });
+    expect(docker.vmPreference).toMatchObject({ enabled: true, backendKind: 'docker' });
+    expect(reopened.getProgramRegistryState().vmPreference).toMatchObject({ enabled: true, backendKind: 'docker' });
+
     const disabled = reopened.setVmPreference({ enabled: false, backendKind: null });
     expect(disabled.vmPreference).toMatchObject({ enabled: false, backendKind: null });
     reopened.close();
@@ -1383,7 +1387,7 @@ describe('Beale workbench skeleton', () => {
       runId,
       verifierContractId: contract?.id ?? '',
       patch: {
-        triggerStepsMarkdown: 'Run the edited verifier trigger inside the disposable VM.',
+        triggerStepsMarkdown: 'Run the edited verifier trigger inside the selected sandbox.',
         expectedObservations: { stdout: 'edited verifier output' }
       }
     });
@@ -1410,15 +1414,15 @@ describe('Beale workbench skeleton', () => {
     expect(updatedFinding?.state).toBe('needs_evidence');
     expect(exportKinds).toEqual(expect.arrayContaining(['finding_bundle', 'redacted_trace', 'report_draft']));
     expect(detail.traceEvents.some((event) => event.summary === 'Run budget updated by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Run restarted from VM snapshot by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Run restarted from sandbox snapshot by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract approved by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked disclosure ready by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked as needing more evidence by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding bundle export created.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Redacted trace export created.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Report draft export created.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM context preserved by explicit request.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'VM context destroyed.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context preserved by explicit request.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context destroyed.')).toBe(true);
 
     for (const exportRecord of detail.exports.filter((item) => ['finding_bundle', 'redacted_trace', 'report_draft'].includes(item.kind))) {
       const exportPath = join(snapshot.workspace.workspacePath, exportRecord.relativePath);
@@ -1592,8 +1596,8 @@ describe('Beale workbench skeleton', () => {
       hypothesisId: hypothesis.id,
       mode: 'reproduction',
       status: 'approved',
-      setupStepsMarkdown: 'Import scoped target into the disposable VM.',
-      triggerStepsMarkdown: 'Run the verifier script inside the disposable VM.',
+      setupStepsMarkdown: 'Import scoped target into the selected sandbox.',
+      triggerStepsMarkdown: 'Run the verifier script inside the selected sandbox.',
       expectedObservations: { stdout: 'fixture guest stdout' },
       invariants: { hostDatabaseMounted: false, openAiCredentialsMounted: false },
       artifactsToCollect: { verifierOutput: '/tmp/beale-output.txt' },
@@ -1622,7 +1626,7 @@ describe('Beale workbench skeleton', () => {
     expect(realVerifierRun?.result.realExecution).toBe(true);
     expect(realVerifierRun?.result.vmExecution).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable VM with pass.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable sandbox with pass.')).toBe(true);
 
     service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: hypothesis.id });
     detail = service.getRunDetail(context.run.id);

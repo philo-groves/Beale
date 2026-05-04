@@ -4,7 +4,7 @@ Status: revised product default, 2026-04-28.
 
 ## Decision
 
-Beale should be VM-free by default for normal research sessions, with local virtual machines available and recommended for risky execution.
+Beale should be VM-free by default for normal research sessions, with local virtual machines available and recommended for risky execution. The local disposable VM is preferred but not required.
 
 Platform backends:
 
@@ -12,17 +12,17 @@ Platform backends:
 - macOS: Tart.
 - Linux: Firecracker or a comparable local microVM/VM backend.
 
-Docker and devcontainers are not the default sandbox boundary for v1. Benchmark mode remains a separate Dockerized harness.
+Docker containers are supported as a lower-assurance sandbox option for convenience. They must be labeled as less secure than virtual machines in settings. Benchmark mode remains a separate Dockerized harness.
 
 ## Rationale
 
 Beale's first-release priorities include binary reverse engineering, debugger-driven workflows, memory corruption, closed-source executables, crash reproduction, and open-ended discovery. These workflows justify keeping VM support first-class, but the VM cost can also impair practical source research and raise setup friction.
 
-The default product path prioritizes usability: commands and executables run on the host unless the session is explicitly configured for a disposable VM. The New Research Session flow must show an orange warning that host execution is dangerous and that a VM is recommended.
+The default product path prioritizes usability: commands and executables run on the host unless the session is explicitly configured for a sandbox backend. The New Research Session flow must show an orange warning that host execution is dangerous and that a disposable sandbox is recommended, with virtual machines preferred for high-risk target execution.
 
 ## Security Posture
 
-Host execution is the default convenience boundary. VM isolation is the recommended safety boundary.
+Host execution is the default convenience boundary. VM isolation is the recommended safety boundary. Docker container isolation is a degraded convenience boundary and should not be presented as equivalent to a virtual machine.
 
 Design requirements:
 
@@ -30,6 +30,7 @@ Design requirements:
 - A session sandbox profile recorded in the run and trace.
 - Host execution tools avoid mounting or exposing OpenAI credentials and `.beale/` state through model-visible outputs where possible.
 - Disposable VM per attempt or per tightly scoped task when the user selects VM execution.
+- Docker container sandbox when explicitly selected, with visible lower-security warning and without mounting the Docker socket into the sandbox.
 - Snapshot and revert instead of long-lived mutable guests.
 - No provider/model credentials inside guests.
 - No Docker socket or equivalent host-control socket exposed to guests.
@@ -40,7 +41,7 @@ Design requirements:
 - Guest images are versioned and reproducible.
 - Sandbox lifecycle events are written to the trace.
 
-VMs reduce escape risk, but they are not treated as perfect. Host execution is more dangerous and should be treated as a documented convenience mode, not as a security boundary.
+VMs reduce escape risk, but they are not treated as perfect. Docker containers reduce accidental host impact but share more host kernel/control surface than a VM. Host execution is more dangerous and should be treated as a documented convenience mode, not as a security boundary.
 
 ## Snapshot Flow
 
@@ -140,15 +141,16 @@ Planning requirements:
 
 ## Docker and Devcontainers
 
-Docker is not the primary sandbox provider.
+Docker is a supported degraded sandbox provider, not the primary safety boundary.
 
-Possible later roles:
+Roles:
 
+- Convenience sandbox for lower-risk trusted-source workflows.
 - Build tool inside a VM guest.
 - Compatibility mode for trusted source projects.
 - Importing project devcontainer definitions into a Beale-controlled VM image.
 
-Project-authored devcontainers are untrusted configuration and must not become an automatic host-level execution path.
+Docker settings must show an orange warning that Docker is less secure than a virtual machine. Project-authored devcontainers are untrusted configuration and must not become an automatic host-level execution path.
 
 ## Hosted Sandboxes
 
@@ -169,7 +171,7 @@ The trusted Beale host owns:
 - Trace and audit logs.
 - Verifier promotion decisions.
 
-In VM-backed sessions, the guest VM owns:
+In sandbox-backed sessions, the guest VM or container owns:
 
 - Target execution.
 - Build/test/debug/fuzz commands.
@@ -188,6 +190,7 @@ Executor
   WindowsHyperVExecutor
   TartExecutor
   LinuxFirecrackerExecutor
+  DockerContainerExecutor
 ```
 
-The exact class names are placeholders. The important point is that local VM execution remains a recommended safety option, while host execution is the default product path and must be clearly traceable.
+The exact class names are placeholders. The important point is that local VM execution remains the recommended safety option, while host and Docker execution are explicit degraded product paths and must be clearly traceable.

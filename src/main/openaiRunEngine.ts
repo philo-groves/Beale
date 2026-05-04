@@ -146,7 +146,7 @@ export class OpenAiRunEngine {
         payload: {
           sandboxProfile: input.sandboxProfile,
           hostExecutionDefault: true,
-          warning: 'Commands and executables run on the host machine. A disposable VM is recommended.'
+          warning: 'Commands and executables run on the host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.'
         },
         vmContextId: context.vmContext.id
       });
@@ -213,7 +213,7 @@ export class OpenAiRunEngine {
     }
     const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
     if (!vmContext) {
-      throw new Error(`OpenAI run has no VM context to resume: ${runId}`);
+      throw new Error(`OpenAI run has no sandbox context to resume: ${runId}`);
     }
 
     const context: CreatedRunContext = { run: detail.run, attempt, vmContext };
@@ -304,7 +304,7 @@ export class OpenAiRunEngine {
     }
     const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
     if (!vmContext) {
-      throw new Error(`OpenAI run has no VM context to steer: ${runId}`);
+      throw new Error(`OpenAI run has no sandbox context to steer: ${runId}`);
     }
 
     const state = buildSteeredRunState(detail.modelSessions.at(-1), detail, instruction);

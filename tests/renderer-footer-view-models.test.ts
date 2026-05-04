@@ -73,7 +73,7 @@ describe('renderer footer view models', () => {
     expect(meter.source).toBe('compaction pressure');
   });
 
-  it('formats host and VM footer labels from host-owned capability state', () => {
+  it('formats host and sandbox footer labels from host-owned capability state', () => {
     expect(hostEnvironmentLabel({ platform: 'linux', osLabel: '', isWsl: true, remoteName: 'Ubuntu' })).toBe('WSL: Ubuntu');
 
     const vmPreference: VmPreference = {

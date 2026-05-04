@@ -2,8 +2,9 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { nowIso } from './database';
-import type { ExecutorNetworkProfile, ExecutorStatus, ProgramScopeVersion, ScopeAsset } from '@shared/types';
+import type { ExecutorBackendKind, ExecutorNetworkProfile, ExecutorStatus, ProgramScopeVersion, SandboxSetupResult, ScopeAsset } from '@shared/types';
 import type {
+  ExecutorCapabilities,
   ExecutorProvider,
   GuestExecuteRequest,
   GuestExecuteResult,
@@ -12,6 +13,7 @@ import type {
   GuestNetworkDestination,
   GuestNetworkPolicy
 } from './executorTypes';
+import { DockerExecutorProvider } from './dockerExecutor';
 import { VmctlExecutorProvider } from './vmctlExecutor';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
@@ -41,11 +43,15 @@ interface ValidatedGuestImport {
 export class ExecutorManager {
   public constructor(
     private readonly db: WorkspaceDatabase,
-    private readonly provider: ExecutorProvider = new VmctlExecutorProvider()
+    private readonly provider: ExecutorProvider = new VmctlExecutorProvider(),
+    private readonly backendPreference: () => ExecutorBackendKind | null = () => null,
+    private readonly dockerProvider: DockerExecutorProvider = new DockerExecutorProvider()
   ) {}
 
   public getStatus(): ExecutorStatus {
-    const status = this.provider.getStatus();
+    const activeProvider = this.activeProvider();
+    const status = activeProvider.getStatus();
+    const inactiveStatuses = this.inactiveProviders(status.provider).map((provider) => provider.getStatus());
     return {
       provider: status.provider,
       configured: status.configured,
@@ -56,13 +62,18 @@ export class ExecutorManager {
       supportedNetworkProfiles: status.supportedNetworkProfiles,
       metadata: status.metadata,
       supports: status.supports,
-      backends: status.backends
+      backends: mergeBackendStatuses([status, ...inactiveStatuses])
     };
   }
 
   public resolveNetworkProfile(requestedNetworkProfile: string): ExecutorNetworkProfile {
     const status = this.requireAvailable();
     return this.resolveSupportedNetworkProfile(status, normalizeNetworkProfile(requestedNetworkProfile));
+  }
+
+  public async setupSandboxBackend(backendKind: ExecutorBackendKind): Promise<SandboxSetupResult> {
+    if (backendKind === 'docker') return this.dockerProvider.setup();
+    throw new Error(`Automated setup is not available for sandbox backend: ${backendKind}`);
   }
 
   public createContext(context: CreatedRunContext, imageRef = 'beale-default-toolchain', snapshotRef = 'clean', requestedNetworkProfile = context.run.networkProfile): void {
@@ -74,7 +85,8 @@ export class ExecutorManager {
     }
     const networkPolicy = this.networkPolicyFor(context, networkProfile);
 
-    const result = this.provider.createContext({ context, imageRef, snapshotRef, networkProfile, networkPolicy });
+    const provider = this.activeProvider();
+    const result = provider.createContext({ context, imageRef, snapshotRef, networkProfile, networkPolicy });
     this.db.updateVmContext(context.vmContext.id, {
       backend: status.provider,
       imageId: imageRef,
@@ -97,7 +109,7 @@ export class ExecutorManager {
         }
       }
     });
-    this.recordVmEvent(context, 'VM executor created disposable guest context.', {
+    this.recordVmEvent(context, 'Sandbox executor created disposable context.', {
       provider: status.provider,
       imageRef,
       snapshotRef,
@@ -113,9 +125,10 @@ export class ExecutorManager {
   }
 
   public restoreSnapshot(context: CreatedRunContext, snapshotRef: string): void {
-    const result = this.provider.restoreSnapshot(context, snapshotRef);
+    const provider = this.activeProvider();
+    const result = provider.restoreSnapshot(context, snapshotRef);
     this.db.updateVmContext(context.vmContext.id, { snapshotId: snapshotRef, state: 'clean', metadata: { restoredSnapshot: snapshotRef, providerResult: result } });
-    this.recordVmEvent(context, 'VM snapshot restored.', { snapshotRef, providerResult: result });
+    this.recordVmEvent(context, 'Sandbox snapshot restored.', { snapshotRef, providerResult: result });
   }
 
   public cloneContext(context: CreatedRunContext, snapshotRef: string, requestedNetworkProfile = context.run.networkProfile): void {
@@ -127,17 +140,18 @@ export class ExecutorManager {
     const networkProfile = this.resolveSupportedNetworkProfile(status, normalizeNetworkProfile(requestedNetworkProfile));
     const currentState = this.currentVmState(context);
     if (currentState !== 'clean') {
-      this.recordPolicyBlock(context, 'Clean snapshot clone requires a clean VM context.', {
+      this.recordPolicyBlock(context, 'Clean snapshot clone requires a clean sandbox context.', {
         snapshotRef,
         provider: status.provider,
         currentState
       });
-      throw new Error(`Clean snapshot clone requires a clean VM context; current state is ${currentState}.`);
+      throw new Error(`Clean snapshot clone requires a clean sandbox context; current state is ${currentState}.`);
     }
     const providerContext = { ...context, vmContext: { ...context.vmContext, networkProfile } };
-    const result = this.provider.cloneContext(providerContext, snapshotRef);
+    const provider = this.activeProvider();
+    const result = provider.cloneContext(providerContext, snapshotRef);
     this.db.updateVmContext(context.vmContext.id, { snapshotId: snapshotRef, state: 'clean', metadata: { clonedFromSnapshot: snapshotRef, providerResult: result } });
-    this.recordVmEvent(context, 'VM context cloned from clean snapshot.', { snapshotRef, providerResult: result });
+    this.recordVmEvent(context, 'Sandbox context cloned from clean snapshot.', { snapshotRef, providerResult: result });
   }
 
   public importWorkspaceMaterial(context: CreatedRunContext, spec: GuestImportSpec): void {
@@ -147,7 +161,8 @@ export class ExecutorManager {
       throw new Error('Executor backend does not support scoped target import.');
     }
     const validated = this.validateImport(context, spec);
-    const result = this.provider.importWorkspaceMaterial(context, validated.spec);
+    const provider = this.activeProvider();
+    const result = provider.importWorkspaceMaterial(context, validated.spec);
     this.db.updateVmContext(context.vmContext.id, {
       state: 'working',
       metadata: {
@@ -207,7 +222,7 @@ export class ExecutorManager {
         liveTargetAllowed: networkPolicy.liveTargetAllowed
       },
       status: 'running',
-      resultSummary: 'Guest operation scheduled through VM executor.',
+      resultSummary: 'Guest operation scheduled through sandbox executor.',
       vmContextId: context.vmContext.id
     });
     this.db.appendTraceEvent({
@@ -215,7 +230,7 @@ export class ExecutorManager {
       attemptId: context.attempt.id,
       type: 'tool_call',
       source: 'system',
-      summary: `Guest ${request.operationKind} operation sent to VM executor.`,
+      summary: `Guest ${request.operationKind} operation sent to sandbox executor.`,
       payload: {
         operationKind: request.operationKind,
         command: request.command,
@@ -232,7 +247,8 @@ export class ExecutorManager {
     });
     this.recordNetworkEnforcement(context, toolCallId, networkPolicy, status);
 
-    const result = this.provider.execute(context, sanitizedRequest);
+    const provider = this.activeProvider();
+    const result = provider.execute(context, sanitizedRequest);
     if (result.contaminated) {
       this.db.updateVmContext(context.vmContext.id, { state: 'contaminated', metadata: { contaminationReason: 'guest_operation', lastOperationKind: request.operationKind } });
     }
@@ -264,7 +280,8 @@ export class ExecutorManager {
   }
 
   public exportArtifact(context: CreatedRunContext, request: GuestExportRequest): string {
-    const result = this.provider.exportArtifact(context, request);
+    const provider = this.activeProvider();
+    const result = provider.exportArtifact(context, request);
     const content = Buffer.from(result.contentBase64, 'base64');
     const artifact = this.db.createArtifact({
       kind: request.kind,
@@ -274,7 +291,7 @@ export class ExecutorManager {
       source: 'vm_export',
       metadata: {
         guestPath: request.guestPath,
-        provider: this.provider.getStatus().provider,
+        provider: provider.getStatus().provider,
         candidateAcceptedAt: nowIso()
       },
       content
@@ -300,21 +317,24 @@ export class ExecutorManager {
   }
 
   public revertContext(context: CreatedRunContext, snapshotRef: string): void {
-    const result = this.provider.revert(context, snapshotRef);
+    const provider = this.activeProvider();
+    const result = provider.revert(context, snapshotRef);
     this.db.updateVmContext(context.vmContext.id, { state: 'clean', snapshotId: snapshotRef, metadata: { revertedTo: snapshotRef, providerResult: result } });
-    this.recordVmEvent(context, 'VM context reverted to clean snapshot.', { snapshotRef, providerResult: result });
+    this.recordVmEvent(context, 'Sandbox context reverted to clean snapshot.', { snapshotRef, providerResult: result });
   }
 
   public preserveContext(context: CreatedRunContext, reason: string): void {
-    const result = this.provider.preserve(context, reason);
+    const provider = this.activeProvider();
+    const result = provider.preserve(context, reason);
     this.db.updateVmContext(context.vmContext.id, { state: 'preserved', metadata: { preserveReason: reason, providerResult: result } });
-    this.recordVmEvent(context, 'VM context preserved by explicit request.', { reason, providerResult: result });
+    this.recordVmEvent(context, 'Sandbox context preserved by explicit request.', { reason, providerResult: result });
   }
 
   public destroyContext(context: CreatedRunContext): void {
-    const result = this.provider.destroy(context);
+    const provider = this.activeProvider();
+    const result = provider.destroy(context);
     this.db.updateVmContext(context.vmContext.id, { state: 'destroyed', metadata: { destroyedByExecutor: true, providerResult: result } });
-    this.recordVmEvent(context, 'VM context destroyed.', { providerResult: result });
+    this.recordVmEvent(context, 'Sandbox context destroyed.', { providerResult: result });
   }
 
   private requireAvailable(): ExecutorStatus {
@@ -323,6 +343,21 @@ export class ExecutorManager {
       throw new Error(status.reason ?? 'Executor backend is unavailable.');
     }
     return status;
+  }
+
+  private activeProvider(): ExecutorProvider {
+    return this.preferredBackendKind() === 'docker' ? this.dockerProvider : this.provider;
+  }
+
+  private inactiveProviders(activeProviderKind: string): ExecutorProvider[] {
+    return activeProviderKind === 'docker' ? [this.provider] : [this.dockerProvider];
+  }
+
+  private preferredBackendKind(): ExecutorBackendKind | null {
+    const preferred = this.backendPreference();
+    if (preferred) return preferred;
+    const env = (process.env.BEALE_SANDBOX_BACKEND ?? process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase();
+    return env === 'docker' ? 'docker' : null;
   }
 
   private validateImport(context: CreatedRunContext, spec: GuestImportSpec): ValidatedGuestImport {
@@ -430,7 +465,7 @@ export class ExecutorManager {
       attemptId: context.attempt.id,
       type: 'network_event',
       source: 'policy',
-      summary: `VM network profile enforced: ${networkPolicy.profile}.`,
+      summary: `Sandbox network profile enforced: ${networkPolicy.profile}.`,
       payload: {
         networkProfile: networkPolicy.profile,
         destinationHostname: null,
@@ -539,6 +574,20 @@ function stringAttribute(value: unknown): string | null {
 function numberAttribute(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) return null;
   return value;
+}
+
+function mergeBackendStatuses(statuses: ExecutorCapabilities[]): ExecutorStatus['backends'] {
+  const byKind = new Map<ExecutorBackendKind, ExecutorStatus['backends'][number]>();
+  for (const status of statuses) {
+    for (const backend of status.backends) {
+      byKind.set(backend.kind, backend);
+    }
+  }
+  const preferredOrder: ExecutorBackendKind[] = ['firecracker', 'hyperv', 'tart', 'docker', 'custom_vmctl'];
+  return preferredOrder.flatMap((kind) => {
+    const backend = byKind.get(kind);
+    return backend ? [backend] : [];
+  });
 }
 
 function sanitizeEnv(env: Record<string, string>): Record<string, string> {

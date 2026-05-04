@@ -471,7 +471,7 @@ function normalizeVmPreference(value: unknown): VmPreference {
 }
 
 function isExecutorBackendKind(value: unknown): value is ExecutorBackendKind {
-  return value === 'firecracker' || value === 'hyperv' || value === 'tart' || value === 'custom_vmctl';
+  return value === 'firecracker' || value === 'hyperv' || value === 'tart' || value === 'docker' || value === 'custom_vmctl';
 }
 
 function sessionUpdatedAt(row: WorkspaceSnapshot['runs'][number]): string {

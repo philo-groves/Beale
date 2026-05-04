@@ -60,11 +60,11 @@ export interface OpenAiOnboardingStep {
   command: string | null;
 }
 
-export type ExecutorProviderKind = 'fake' | 'vmctl';
+export type ExecutorProviderKind = 'fake' | 'vmctl' | 'docker';
 
 export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
 
-export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'custom_vmctl';
+export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'docker' | 'custom_vmctl';
 
 export interface VmPreference {
   enabled: boolean;
@@ -75,6 +75,18 @@ export interface VmPreference {
 export interface VmPreferenceInput {
   enabled: boolean;
   backendKind?: ExecutorBackendKind | null;
+}
+
+export interface SandboxSetupInput {
+  backendKind: ExecutorBackendKind;
+}
+
+export interface SandboxSetupResult {
+  backendKind: ExecutorBackendKind;
+  ok: boolean;
+  label: string;
+  detail: string;
+  command: string;
 }
 
 export interface ExecutorBackendStatus {
@@ -1248,6 +1260,7 @@ export interface BealeApi {
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
   setVmPreference(input: VmPreferenceInput): Promise<ProgramRegistryState>;
+  setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;

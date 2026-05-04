@@ -18,8 +18,8 @@ Answered:
 - Primary OpenAI integration is OpenAI-first, OAuth-first, Responses API first, WebSocket-first for active runs, with `gpt-5.5` and `xhigh` reasoning as defaults. Beale owns the research orchestration while using OpenAI agent patterns where they help. See `planning/book/openai-integration.md`.
 - Agent loop ownership is hybrid: Beale owns the outer vulnerability-research loop, while OpenAI owns the inner model mechanics where they improve model performance and API alignment. See `planning/book/agent-loop-ownership.md`.
 - Persistence is local-only embedded SQLite, with one database per workspace directory to prevent accidental cross-program lookup. Remote persistence and sync are non-goals. See `planning/book/persistence-model.md`.
-- Default sandboxing is local VM-based: Hyper-V on Windows, Tart on macOS, and Firecracker or comparable local VM technology on Linux. Docker/devcontainers are not the primary sandbox boundary. See `planning/book/sandbox-model.md`.
-- The trusted harness stays on the host, while target code runs only inside disposable guest VMs. Speed comes from snapshots, artifact channels, and GUI workflow, not from weakening the boundary. See `planning/book/trusted-harness-boundary.md`.
+- Default sandboxing is host-backed for convenience, with local disposable VMs preferred for high-risk execution and Docker available as a lower-assurance explicit sandbox option. See `planning/book/sandbox-model.md`.
+- The trusted harness stays on the host, while target code runs in the selected sandbox boundary and VM isolation remains preferred for risky targets. Speed comes from snapshots, artifact channels, and GUI workflow, not from hiding degraded boundaries. See `planning/book/trusted-harness-boundary.md`.
 
 ## Tooling
 
@@ -55,14 +55,14 @@ Answered:
 
 - Essential GUI views are program/workspace side navigation, program scope editor, markdown start-run interface, primary multi-run tracker, and run detail views with trace, tools, artifacts, hypotheses, findings, and verifiers. Chat is not a primary view. See `planning/book/electron-gui.md`.
 - Live steering should include run control, hypothesis/finding control, verifier/artifact control, policy control, and disclosure/export control. Steers are immediate, trace-recorded, and reversible where practical. See `planning/book/electron-gui.md`.
-- Beale should be terminal-compatible but not terminal-centered. Terminal/PTY use is a fallback and audit surface inside guest VMs; every meaningful operation should become structured research state. See `planning/book/electron-gui.md`.
+- Beale should be terminal-compatible but not terminal-centered. Terminal/PTY use is a fallback and audit surface inside selected sandboxes; every meaningful operation should become structured research state. See `planning/book/electron-gui.md`.
 
 ## Safety and Operations
 
 Answered:
 
 - Human approval is required for potentially dangerous host-machine actions or out-of-scope actions. Routine in-scope work proceeds autonomously, with target execution routed into the VM. See `planning/book/authorization-model.md`.
-- Benchmark sandbox networking is strict and offline by default, with only benchmark-declared endpoints allowed. Authorized project VM networking supports `offline`, `scoped`, and approved `elevated` profiles. Elevated access is not time-limited by default. See `planning/book/network-policy.md`.
+- Benchmark sandbox networking is strict and offline by default, with only benchmark-declared endpoints allowed. Authorized project sandbox networking supports `offline`, `scoped`, and approved `elevated` profiles when the selected backend can enforce them. Elevated access is not time-limited by default. See `planning/book/network-policy.md`.
 - Accidental live-target testing is prevented through explicit program scope, scoped network profiles, approved test-account records, visible GUI state, and VM-local reproduction by default. Live-target testing is allowed only when scope and active network policy permit it. See `planning/book/network-policy.md`.
 - Secrets are isolated through the host/VM boundary, OS credential storage where practical, host deny paths, scoped credential injection, model-visible redaction, sensitivity labels, and minimal subprocess environments. Encryption is hardening, not the core local security model. See `planning/book/secret-isolation.md`.
 - Beale should not add a separate heavyweight audit subsystem in v1. The structured trace should be audit-capable by design and support redacted disclosure or accident-review exports. See `planning/book/trace-evidence-provenance.md`.

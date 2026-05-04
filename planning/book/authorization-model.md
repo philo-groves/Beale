@@ -19,7 +19,7 @@ Examples of scoped assets:
 - Documentation.
 - Test accounts or credentials provided for the program.
 
-The sandbox exists to protect the human Beale researcher and their machine from potentially dangerous commands and executables. It is not primarily an authorization prompt mechanism. The default session sandbox is host execution with a visible warning; VM execution remains recommended for risky work.
+The sandbox exists to protect the human Beale researcher and their machine from potentially dangerous commands and executables. It is not primarily an authorization prompt mechanism. The default session sandbox is host execution with a visible warning; VM execution remains preferred for risky work, while Docker is an explicit lower-assurance option.
 
 ## Scope Model
 
@@ -39,9 +39,9 @@ Each workspace should record the active program scope:
 
 The agent can operate autonomously inside this recorded scope.
 
-## Host vs VM Policy
+## Host vs Sandbox Policy
 
-Beale should choose the session sandbox from the user's session settings. The default is `host_research_only`; users can opt into `local_disposable_vm`.
+Beale should choose the session sandbox from the user's session settings. The default is `host_research_only`; users can opt into a sandbox-backed profile through the sandbox settings.
 
 Host-allowed without approval:
 
@@ -50,9 +50,9 @@ Host-allowed without approval:
 - Search/read documentation.
 - Inspect already imported metadata.
 - Manage Beale workspace state.
-- Prepare artifact imports for the VM.
+- Prepare artifact imports for the selected sandbox.
 
-VM-recommended:
+VM-preferred:
 
 - Running target executables.
 - Running generated PoCs.
@@ -64,7 +64,7 @@ VM-recommended:
 - Executing closed-source binaries.
 - Running commands that may be influenced by untrusted target code.
 
-For source repositories, Beale may clone and inspect on the host. In the default host sandbox, build, test, mutation, sanitizer, debugger, and PoC execution also run on the host and are covered by the New Research Session warning. In VM-backed sessions, the same operations should happen on a scoped copy inside the VM.
+For source repositories, Beale may clone and inspect on the host. In the default host sandbox, build, test, mutation, sanitizer, debugger, and PoC execution also run on the host and are covered by the New Research Session warning. In sandbox-backed sessions, the same operations should happen on a scoped copy inside the selected sandbox.
 
 Host-safe setup should use Beale-managed workspace operations, not a general host shell.
 
@@ -73,7 +73,7 @@ Examples:
 - Clone an in-scope repository into the workspace.
 - Fetch read-only metadata for an in-scope repository.
 - Import a local in-scope file, binary, archive, or source tree.
-- Copy selected workspace material into a guest VM.
+- Copy selected workspace material into the selected sandbox.
 
 These operations should validate scope mechanically, record trace events, and expose only narrow parameters. If the model requests host setup, Beale should route it through this workspace/import surface rather than arbitrary host command execution.
 
@@ -91,8 +91,8 @@ Approval-required examples:
 - Changing host firewall, hypervisor, credential, or system settings.
 - Accessing paths outside configured scope.
 - Making network requests outside configured scope.
-- Preserving or exporting a contaminated VM beyond default lifecycle.
-- Importing credentials into a VM.
+- Preserving or exporting a contaminated sandbox beyond default lifecycle.
+- Importing credentials into a sandbox.
 
 Approval-not-required examples:
 
@@ -110,14 +110,14 @@ Default posture:
 
 - Host network use is allowed for scoped clone/read/research operations.
 - Host network use in host-backed sessions follows the recorded scope and session network profile.
-- VM network can be enabled for in-scope domains, hosts, or services in VM-backed sessions.
+- Sandbox network can be enabled for in-scope domains, hosts, or services when the backend can enforce the selected profile.
 - Out-of-scope network access is blocked unless approval records a scoped exception or scope amendment.
 
 Program scope should drive allowlists rather than ad hoc model decisions.
 
 ## Target Executables
 
-If a target executable needs to run, the VM is recommended but no longer mandatory by default.
+If a target executable needs to run, a VM-backed sandbox is preferred but no longer mandatory by default.
 
 Authorization to research a target is not authorization to ignore host risk. Beale must make host execution visible before the session starts and keep the selected sandbox in trace metadata.
 
@@ -127,7 +127,7 @@ The agent should respect the selected session sandbox.
 
 Beale should still enforce this decision mechanically:
 
-- Tool metadata should indicate whether a command ran on host, VM, or both.
+- Tool metadata should indicate whether a command ran on host, VM, Docker, or another sandbox backend.
 - Target execution tools should run in the active session sandbox.
 - Host shell should still avoid unrelated host paths and secrets.
 - Host setup should prefer narrow workspace/import operations over host shell.

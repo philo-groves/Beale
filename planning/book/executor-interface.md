@@ -6,12 +6,12 @@ Status: draft implementation direction, 2026-04-27.
 
 Beale should define a sandbox-aware executor interface owned by the trusted host harness.
 
-The executor is not an agent. It is a controlled execution substrate. It receives scoped target material, runs commands or structured tool backends, returns observations and candidate artifacts, and records whether execution happened on the host or in a disposable VM.
+The executor is not an agent. It is a controlled execution substrate. It receives scoped target material, runs commands or structured tool backends, returns observations and candidate artifacts, and records whether execution happened on the host or in a selected sandbox.
 
 ## Design Goals
 
 - Make host execution explicit and traceable when it is selected.
-- Support Hyper-V, Tart, Firecracker, and comparable local VM backends.
+- Support Hyper-V, Tart, Firecracker, comparable local VM backends, and Docker as a lower-assurance container sandbox.
 - Support snapshot, clone, revert, preserve, and destroy.
 - Support explicit import and export channels.
 - Support offline, scoped, and elevated network profiles.
@@ -26,18 +26,18 @@ The executor is not an agent. It is a controlled execution substrate. It receive
 - Letting guest code write authoritative artifacts directly.
 - Exposing host control sockets to the guest.
 - Passing OpenAI credentials into the guest.
-- Treating Docker as the normal research sandbox boundary.
+- Presenting Docker as equivalent to a virtual machine.
 
 ## Core Concepts
 
 `ExecutorProvider`:
 
 - Represents a backend implementation.
-- Examples: fake, Hyper-V, Tart, Firecracker.
+- Examples: fake, Hyper-V, Tart, Firecracker, Docker.
 
 `ExecutionContext`:
 
-- Represents one guest VM or equivalent isolated execution context.
+- Represents one guest VM, container, or equivalent isolated execution context.
 - Bound to one workspace, scope version, run, and attempt.
 
 `GuestOperation`:
@@ -119,7 +119,7 @@ Every execution request should include:
 - Run ID.
 - Attempt ID.
 - Scope version ID.
-- VM context ID.
+- Sandbox context ID.
 - Tool name or operation kind.
 - Working directory.
 - Arguments.
@@ -201,7 +201,7 @@ Executor backends should support:
 
 If a backend cannot enforce a requested network profile, Beale should fail closed or require explicit degraded-mode approval.
 
-VM network traffic should flow through a Beale-controlled broker or proxy where feasible.
+VM network traffic should flow through a Beale-controlled broker or proxy where feasible. Docker initially supports offline and elevated profiles only; scoped live-target enforcement should fail closed until a container-specific broker exists.
 
 ## Interactive Sessions
 
@@ -240,11 +240,12 @@ Recommended order:
 1. Host execution for default research sessions.
 2. Fake executor.
 3. One local VM backend on the primary development platform.
-4. Guest command execution and artifact export.
-5. Snapshot lifecycle.
-6. Network profiles.
-7. Debugger wrapper.
-8. Additional platform backends.
+4. Docker container sandbox as a degraded explicit option.
+5. Guest command execution and artifact export.
+6. Snapshot lifecycle.
+7. Network profiles.
+8. Debugger wrapper.
+9. Additional platform backends.
 
 ## Security Invariants
 

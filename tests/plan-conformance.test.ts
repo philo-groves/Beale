@@ -68,7 +68,15 @@ describe('plan conformance', () => {
   it('keeps host subprocess use limited to auth, sandbox, VM controller, benchmark, and source setup boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
-      (hit) => !['src/main/openaiAuth.ts', 'src/main/hostToolExecutor.ts', 'src/main/vmctlExecutor.ts', 'src/main/benchmarkDockerRunner.ts', 'src/main/sourceMaterializer.ts'].includes(normalizePath(hit.path))
+      (hit) =>
+        ![
+          'src/main/openaiAuth.ts',
+          'src/main/hostToolExecutor.ts',
+          'src/main/vmctlExecutor.ts',
+          'src/main/dockerExecutor.ts',
+          'src/main/benchmarkDockerRunner.ts',
+          'src/main/sourceMaterializer.ts'
+        ].includes(normalizePath(hit.path))
     );
 
     expect(hits).toEqual([]);
@@ -80,6 +88,7 @@ describe('plan conformance', () => {
       'search',
       'code_browser',
       'resource_lookup',
+      'program_lookup',
       'python',
       'debugger',
       'artifact',

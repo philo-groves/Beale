@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added Docker as an explicit lower-assurance sandbox backend with offline/elevated execution support and host-controlled import/export paths.
+- Added a Settings > Sandboxes action that pulls the configured Docker sandbox image and refreshes sandbox availability.
+- Added an orange Docker sandbox warning in Settings that explains Docker is less secure than a virtual machine.
 - Added opt-in developer performance instrumentation for renderer render counts, trace derivation timing, syntax/markdown timing, IPC payload sizing, and input latency probes.
 - Added dev-only renderer DevTools shortcuts and launch opt-ins for debugging performance instrumentation.
 - Added a cheap run-detail version IPC path and main-process timing logs for active-session performance diagnosis.
@@ -84,6 +87,9 @@
 
 ### Changed
 
+- Changed user-facing executor language from VM to Sandbox while keeping VM-specific backend names where they identify the underlying technology.
+- Changed sandbox settings into a dedicated Settings tab with a horizontal sandbox selector and per-sandbox detail panel.
+- Changed sandbox planning docs to make local disposable VMs preferred rather than mandatory, with Docker and host execution recorded as degraded explicit options.
 - Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.
 - Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
 - Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.

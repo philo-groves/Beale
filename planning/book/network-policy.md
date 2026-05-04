@@ -4,7 +4,7 @@ Status: accepted initial direction, 2026-04-26.
 
 ## Decision
 
-Beale should support VM networking because real authorized vulnerability research often requires networked debugging and target interaction.
+Beale should support sandbox networking because real authorized vulnerability research often requires networked debugging and target interaction.
 
 Networking must be authorized, observable, and revocable. Scope enforcement belongs at the session policy layer for the normal Firecracker path.
 
@@ -12,7 +12,7 @@ Benchmark mode is stricter than authorized project mode.
 
 ## Network Profiles
 
-Beale should support three VM network profiles:
+Beale should support three sandbox network profiles:
 
 - `offline`
 - `scoped`
@@ -24,8 +24,8 @@ Beale should support three VM network profiles:
 
 Allowed:
 
-- Loopback inside the VM or benchmark execution environment.
-- Local target services started inside the same VM or benchmark execution environment.
+- Loopback inside the sandbox or benchmark execution environment.
+- Local target services started inside the same sandbox or benchmark execution environment.
 
 Blocked:
 
@@ -60,14 +60,14 @@ Out-of-scope destinations should be blocked unless approval records a scoped exc
 
 ## Elevated Profile
 
-`elevated` allows broader VM connectivity than the current allowlist, but it is not a substitute for authorization scope.
+`elevated` allows broader sandbox connectivity than the current allowlist, but it is not a substitute for authorization scope.
 
 Elevated access is the normal Firecracker VM transport for authorized research sessions. Scope enforcement belongs at the session/tool policy layer, where Beale can reason over program metadata, tool intent, and recorded approvals before a command is sent to the VM.
 
 Requirements:
 
 - Attempt ID recorded.
-- VM ID or snapshot context recorded.
+- Sandbox ID or snapshot context recorded.
 - Network policy profile recorded in the trace.
 - Destination pattern recorded as specifically as possible when Beale can infer one.
 
@@ -101,12 +101,13 @@ Authorized project mode should follow program scope:
 - Host network is allowed for safe setup and research such as cloning in-scope repositories and reading public advisories.
 - Default host-backed sessions use the host network under session/tool policy.
 - Firecracker VM sessions normally use `elevated` online NAT for authorized research sessions.
+- Docker sandbox sessions initially support `offline` and `elevated`; `scoped` should fail closed until a container-specific network broker exists.
 - Scope enforcement happens at the session/tool policy layer instead of the Firecracker NAT layer.
 - `offline` remains available for high-risk local analysis and benchmark paths.
 - `scoped` remains available when controller-level allowlist enforcement is explicitly desired.
 - Out-of-scope network requests are blocked by session policy unless approval records a scoped exception or scope amendment.
 - The GUI should show the active network profile and allowed destinations.
-- Each run records whether the active network profile was `offline`, `scoped`, or `elevated`, and whether execution happened on host or VM.
+- Each run records whether the active network profile was `offline`, `scoped`, or `elevated`, and whether execution happened on host, VM, or Docker.
 
 ## Live-Target Testing
 
@@ -116,12 +117,12 @@ Beale should prevent accidental live-target testing by making scope and executio
 
 Policy:
 
-- Local VM reproduction is preferred by default.
-- Build from source and test against local VM services when practical.
-- Generated PoCs run against local VM targets unless program scope explicitly permits live target execution.
+- Local sandbox reproduction is preferred by default, with VM-backed reproduction preferred for high-risk targets.
+- Build from source and test against local sandbox services when practical.
+- Generated PoCs run against local sandbox targets unless program scope explicitly permits live target execution.
 - Live-target interaction must be represented in the recorded program scope.
 - Approved test accounts and credentials must be recorded as scoped assets.
-- VM network must be online before reaching live assets.
+- The selected sandbox network must be online before reaching live assets.
 - Live-target interaction under `elevated` is valid only when the target is already in scope or the approval flow records a scope amendment.
 - Commands that appear to target out-of-scope live assets should be blocked until scope is corrected.
 - Benchmark mode must not perform arbitrary live-target testing.
@@ -133,7 +134,7 @@ Live-target testing is allowed only when the program scope explicitly includes t
 
 ## Host-Controlled Network Broker
 
-VM traffic should flow through a Beale-controlled broker or proxy where feasible.
+Sandbox traffic should flow through a Beale-controlled broker or proxy where feasible.
 
 The broker should:
 

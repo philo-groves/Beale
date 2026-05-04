@@ -375,14 +375,14 @@ export function isPythonExecutionTraceEvent(event: TraceEventRecord): boolean {
 }
 
 function verifierExecutionSubstrate(payload: Record<string, unknown>): string {
-  if (tracePayloadPrimitive(payload, 'vmExecution') === 'true') return 'Disposable VM verifier';
+  if (tracePayloadPrimitive(payload, 'vmExecution') === 'true') return 'Disposable sandbox verifier';
   if (tracePayloadPrimitive(payload, 'hostExecution') === 'true') return 'Host verifier';
   if (tracePayloadPrimitive(payload, 'realExecution') === 'true') return 'Real verifier';
   return 'Verifier review';
 }
 
 function verifierStatusFromSummary(summary: string): string | null {
-  const match = summary.match(/^Verifier contract executed (?:in disposable VM|on host|with) with ([^.]+)\./i);
+  const match = summary.match(/^Verifier contract executed (?:in disposable (?:VM|sandbox)|on host|with) with ([^.]+)\./i);
   return match?.[1]?.trim() || null;
 }
 
@@ -602,14 +602,14 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
   if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
   if (summary === 'Run started from markdown prompt.') return 'Start run from prompt';
-  if (summary === 'Fake executor allocated a simulated disposable VM context.') return 'Allocate simulated VM context';
+  if (summary === 'Fake executor allocated a simulated disposable VM context.' || summary === 'Fake executor allocated a simulated disposable sandbox context.') return 'Allocate simulated sandbox context';
   if (summary === 'Simulated model planned an open-ended discovery pass.') return 'Plan discovery pass';
   if (summary === 'No network request was sent.') return 'Skip network request';
-  if (summary === 'Simulated finding recorded; real VM verifier required for verified state.') return 'Record simulated finding';
+  if (summary === 'Simulated finding recorded; real VM verifier required for verified state.' || summary === 'Simulated finding recorded; real sandbox verifier required for verified state.') return 'Record simulated finding';
   if (summary === 'Verifier failed to destroy guest after execution.') return 'Review verifier cleanup failure';
-  if (summary === 'VM executor alpha failed to destroy guest after run failure.') return 'Review VM cleanup failure';
-  if (summary === 'VM executor alpha run failed.') return 'Fail VM executor run';
-  if (summary === 'VM executor alpha run started from markdown prompt.') return 'Start VM executor run';
+  if (summary === 'VM executor alpha failed to destroy guest after run failure.' || summary === 'Sandbox executor alpha failed to destroy context after run failure.') return 'Review sandbox cleanup failure';
+  if (summary === 'VM executor alpha run failed.' || summary === 'Sandbox executor alpha run failed.') return 'Fail sandbox executor run';
+  if (summary === 'VM executor alpha run started from markdown prompt.' || summary === 'Sandbox executor alpha run started from markdown prompt.') return 'Start sandbox executor run';
   if (isDuplicateBlockedSummary(summary)) return 'Duplicate Blocked';
 
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
@@ -632,8 +632,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return 'Read Code';
   if (summary === 'Code browser could not read the requested bounded text.') return 'Code Browser Error';
   if (summary === 'Code browser requires a scoped file path or artifact id.') return 'Code Browser Error';
-  match = summary.match(/^Guest ([\w -]+) operation sent to VM executor\.$/i);
-  if (match) return `Send ${match[1].toLowerCase()} operation to VM`;
+  match = summary.match(/^Guest ([\w -]+) operation sent to (?:VM|sandbox) executor\.$/i);
+  if (match) return `Send ${match[1].toLowerCase()} operation to sandbox`;
   match = summary.match(/^Guest ([\w -]+) operation finished with ([^.]+)\.$/i);
   if (match?.[1].toLowerCase() === 'python') return `Run Python: ${match[2]}`;
   if (match) return `Finish ${match[1].toLowerCase()} operation: ${match[2]}`;
@@ -646,9 +646,9 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Finish debugger wrapper: ${match[1]}`;
   match = summary.match(/^Guest artifact exported and accepted: (.+)\.$/);
   if (match) return `Accept exported artifact: ${match[1]}`;
-  match = summary.match(/^VM network profile enforced: ([^.]+)\.$/);
+  match = summary.match(/^(?:VM|Sandbox) network profile enforced: ([^.]+)\.$/);
   if (match) return `Enforce network profile: ${match[1]}`;
-  match = summary.match(/^Verifier contract executed in disposable VM with ([^.]+)\.$/);
+  match = summary.match(/^Verifier contract executed in disposable (?:VM|sandbox) with ([^.]+)\.$/);
   if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier contract executed on host with ([^.]+)\.$/);
   if (match) return 'Verifier Execution';

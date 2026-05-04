@@ -1737,7 +1737,7 @@ describe('structured research tools', () => {
     db.close();
   });
 
-  it('runs Python and the debugger wrapper through the disposable VM controller boundary', () => {
+  it('runs Python and the debugger wrapper through the disposable sandbox controller boundary', () => {
     const { db, context, logPath } = openStructuredToolDb();
     context.run.networkProfile = 'elevated';
     configureVmctlFixture(logPath);

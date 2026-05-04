@@ -22,7 +22,7 @@ export function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: Vm
       configured: false,
       showConfigure: true,
       label: 'None',
-      title: 'No local VM is enabled. Configure a VM to run target commands in a disposable guest.'
+      title: 'No sandbox is enabled. Configure a sandbox to run target commands outside the default host path.'
     };
   }
 
@@ -41,7 +41,7 @@ export function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: Vm
     configured: false,
     showConfigure: true,
     label: 'Unavailable',
-    title: 'The enabled local VM backend is no longer reported by this host.'
+    title: 'The enabled sandbox backend is no longer reported by this host.'
   };
 }
 

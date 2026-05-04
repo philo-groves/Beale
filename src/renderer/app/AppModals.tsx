@@ -11,6 +11,8 @@ import type {
   ProgramRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
+  SandboxSetupInput,
+  SandboxSetupResult,
   SessionTranscriptSearchResult,
   VmPreference,
   VmPreferenceInput,
@@ -81,6 +83,7 @@ export function AppModals({
   onRefreshProjectSemanticIndex,
   onSetProjectSemanticIndexEnabled,
   onSetProfilingEnabled,
+  onSetupSandbox,
   onSetVmPreference,
   onStartOpenAiOAuth,
   onStartedNewResearch,
@@ -140,6 +143,7 @@ export function AppModals({
   onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
+  onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
@@ -191,6 +195,7 @@ export function AppModals({
           onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
           onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
           onSetProfilingEnabled={onSetProfilingEnabled}
+          onSetupSandbox={onSetupSandbox}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
         />

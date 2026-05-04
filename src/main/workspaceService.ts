@@ -11,6 +11,7 @@ import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
 import { ExecutorManager } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
+import { DockerExecutorProvider } from './dockerExecutor';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
@@ -41,6 +42,8 @@ import type {
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
+  SandboxSetupInput,
+  SandboxSetupResult,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -67,7 +70,7 @@ import type {
   WorkspaceSummary
 } from '@shared/types';
 
-const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake VM executor. No target code execution.';
+const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake sandbox executor. No target code execution.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
@@ -316,6 +319,18 @@ export class WorkspaceService {
     registry.setVmPreference(input);
     this.onChange({ programRegistryChanged: true });
     return registry.getState();
+  }
+
+  public async setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult> {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime && input.backendKind !== 'docker') {
+      throw new Error(`Automated setup is not available for sandbox backend: ${input.backendKind}`);
+    }
+    const result = runtime
+      ? await runtime.executorManager.setupSandboxBackend(input.backendKind)
+      : await new DockerExecutorProvider().setup();
+    this.emitChange({ syncProgramRegistry: Boolean(runtime), programRegistryChanged: false });
+    return result;
   }
 
   public getProfilingState(): ProfilingState {
@@ -1190,15 +1205,15 @@ export class WorkspaceService {
           });
         }
         if (attempt && (run.status === 'paused' || run.status === 'blocked')) {
-          db.updateAttemptState(attempt.id, 'active', `Restarted from VM snapshot ${snapshotRef}.`);
-          db.updateRunStatus(action.runId, 'active', `Restarted from VM snapshot ${snapshotRef}.`);
+          db.updateAttemptState(attempt.id, 'active', `Restarted from sandbox snapshot ${snapshotRef}.`);
+          db.updateRunStatus(action.runId, 'active', `Restarted from sandbox snapshot ${snapshotRef}.`);
         }
         db.appendTraceEvent({
           runId: action.runId,
           attemptId: attempt?.id ?? null,
           type: 'vm_event',
           source: 'user',
-          summary: 'Run restarted from VM snapshot by user.',
+          summary: 'Run restarted from sandbox snapshot by user.',
           payload: {
             vmContextId: vmContext.id,
             snapshotRef,
@@ -1534,7 +1549,7 @@ export class WorkspaceService {
             attemptId: attempt?.id ?? null,
             type: 'vm_event',
             source: 'user',
-            summary: vmContext.state === 'destroyed' ? 'VM preserve request recorded for already-destroyed context.' : 'VM context preserved by explicit request.',
+            summary: vmContext.state === 'destroyed' ? 'Sandbox preserve request recorded for already-destroyed context.' : 'Sandbox context preserved by explicit request.',
             payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
             vmContextId: vmContext.id,
             modelVisible: false
@@ -1563,7 +1578,7 @@ export class WorkspaceService {
             attemptId: attempt?.id ?? null,
             type: 'vm_event',
             source: 'user',
-            summary: 'VM context destroyed.',
+            summary: 'Sandbox context destroyed.',
             payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
             vmContextId: vmContext.id,
             modelVisible: false
@@ -1730,7 +1745,7 @@ export class WorkspaceService {
     const db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     db.initialize();
     const openedAt = new Date().toISOString();
-    const executorManager = new ExecutorManager(db);
+    const executorManager = new ExecutorManager(db, undefined, () => this.getVmPreferenceForSnapshot().backendKind);
     return {
       workspacePath,
       openedAt,
@@ -1944,14 +1959,14 @@ export class WorkspaceService {
 
   private requireExecutorManager(): ExecutorManager {
     if (!this.executorManager) {
-      throw new Error('No VM executor manager is available');
+      throw new Error('No sandbox executor manager is available');
     }
     return this.executorManager;
   }
 
   private requireExecutorRunEngine(): ExecutorRunEngine {
     if (!this.executorRunEngine) {
-      throw new Error('No VM executor run engine is available');
+      throw new Error('No sandbox executor run engine is available');
     }
     return this.executorRunEngine;
   }
@@ -2185,7 +2200,7 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
     targetStates: {
       baseline: { vmContextId, label: 'current scoped target state' }
     },
-    setupStepsMarkdown: 'Prepare the scoped target inside the disposable VM. Do not mount host credentials or .beale/beale.sqlite.',
+    setupStepsMarkdown: 'Prepare the scoped target inside the selected sandbox. Do not mount host credentials or .beale/beale.sqlite.',
     triggerStepsMarkdown: note || `Develop and run the smallest trigger that can confirm or falsify: ${hypothesis.title}.`,
     expectedObservations: {
       hypothesisId: hypothesis.id,
@@ -2229,7 +2244,7 @@ function createPatchValidationContract(
       baseline: { vmContextId, expected: 'vulnerable behavior reproduces' },
       candidate_patch: { vmContextId: null, expected: 'vulnerable behavior is blocked' }
     },
-    setupStepsMarkdown: 'Prepare baseline and candidate patch states in disposable VM contexts.',
+    setupStepsMarkdown: 'Prepare baseline and candidate patch states in disposable sandbox contexts.',
     triggerStepsMarkdown: note || 'Replay the reproduced PoC or regression check against baseline and candidate patch states.',
     expectedObservations: {
       baseline: 'issue reproduces',
@@ -2282,12 +2297,12 @@ function selectVmContext(detail: RunDetail, attempt: AttemptRecord | null, vmCon
   const selectedId = vmContextId ?? attempt?.vmContextId ?? null;
   const selected = selectedId ? detail.vmContexts.find((item) => item.id === selectedId) : null;
   const vmContext = selected ?? detail.vmContexts[0] ?? null;
-  if (!vmContext) throw new Error(`No VM context found for run: ${detail.run.id}`);
+  if (!vmContext) throw new Error(`No sandbox context found for run: ${detail.run.id}`);
   return vmContext;
 }
 
 function shouldUseRealVmProvider(vmContext: VmContextRecord): boolean {
-  return vmContext.backend === 'vmctl' || vmContext.metadata.executor === 'vmctl' || vmContext.metadata.targetExecution === true;
+  return vmContext.backend === 'vmctl' || vmContext.backend === 'docker' || vmContext.metadata.executor === 'vmctl' || vmContext.metadata.executor === 'docker' || vmContext.metadata.targetExecution === true;
 }
 
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {

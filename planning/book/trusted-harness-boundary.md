@@ -4,13 +4,13 @@ Status: revised sandbox default, 2026-04-28.
 
 ## Decision
 
-Beale should keep the trusted harness on the host. Normal research sessions are VM-free by default and run commands/executables on the host after an orange warning in the New Research Session flow. Disposable guest VMs remain the recommended isolation boundary and can be selected for sessions that need stronger protection.
+Beale should keep the trusted harness on the host. Normal research sessions are VM-free by default and run commands/executables on the host after an orange warning in the New Research Session flow. Disposable guest VMs remain the preferred isolation boundary and can be selected for sessions that need stronger protection. Docker containers are available as an explicit lower-assurance sandbox option.
 
-The VM is a tool the harness controls. The VM is not where the harness lives.
+The sandbox is a tool the harness controls. The sandbox is not where the harness lives.
 
 ## Boundary
 
-| Component | Trusted Host | Guest VM |
+| Component | Trusted Host | Selected Sandbox |
 | --- | --- | --- |
 | Electron GUI | yes | no |
 | OpenAI OAuth credentials | yes | never |
@@ -21,8 +21,8 @@ The VM is a tool the harness controls. The VM is not where the harness lives.
 | Tool policy and approvals | yes | no |
 | Trace/audit log authority | yes | no direct write |
 | Target source or binary | scoped copy/reference | yes |
-| Build/test/debug/fuzz execution | default | VM sessions |
-| Temporary execution state | default | VM sessions |
+| Build/test/debug/fuzz execution | default | sandbox sessions |
+| Temporary execution state | default | sandbox sessions |
 | Verifier promotion decision | yes | no |
 
 ## Rationale
@@ -47,7 +47,7 @@ VM performance work still matters, but usability requires a host-default path fo
 Required workflow aids:
 
 - Orange host-execution warning when creating a default session.
-- Clear session metadata showing host vs VM execution.
+- Clear session metadata showing host vs sandbox execution.
 - Prebuilt toolchain snapshots.
 - Clone/revert per attempt.
 - Clean target snapshots when setup is expensive.
@@ -55,7 +55,7 @@ Required workflow aids:
 - Incremental target import.
 - Explicit artifact export.
 - Fast rerun, fork, and revert controls in the GUI.
-- Clear display of VM state: clean, working, contaminated, preserved, destroyed.
+- Clear display of sandbox state: clean, working, contaminated, preserved, destroyed.
 
 ## Data Flow
 
@@ -71,7 +71,7 @@ Typical host-default execution flow:
 8. Beale stores trace events and artifact metadata in the host database.
 9. Beale stores selected artifacts in the host artifact store.
 
-VM-backed sessions insert the VM clone/import/execute/export/revert lifecycle between steps 2 and 9.
+Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle between steps 2 and 9.
 
 ## Prohibited Defaults
 
@@ -91,7 +91,7 @@ Beale should not:
 
 The executor API should be command/artifact oriented:
 
-- Host runner or guest VM runs a scoped operation.
+- Host runner or selected sandbox runs a scoped operation.
 - The selected sandbox returns observations and candidate artifacts.
 - Host records, validates, indexes, and decides what becomes evidence.
 
