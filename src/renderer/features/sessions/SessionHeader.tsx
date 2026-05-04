@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, Square, X } from 'lucide-react';
+import { Check, Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
 import type { ProgramMainView } from '../programs/programViews';
@@ -127,7 +127,7 @@ function RunStatusIndicator({ detail }: { detail: RunDetail | null }): JSX.Eleme
     ) : statusClass === 'paused' ? (
       <Pause size={17} strokeWidth={2.8} />
     ) : statusClass === 'completed' ? (
-      <Square size={16} strokeWidth={2.6} />
+      <Check size={17} strokeWidth={3} />
     ) : statusClass === 'failed' ? (
       <X size={17} strokeWidth={3.2} />
     ) : null;
