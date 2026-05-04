@@ -232,7 +232,7 @@ function SandboxSettingsView({
     setSetupState({
       backendKind: 'docker',
       status: 'running',
-      detail: 'Pulling the Docker sandbox image. This may take several minutes.'
+      detail: 'Preparing the Docker sandbox image. This may take several minutes.'
     });
     try {
       const result = await onSetupSandbox({ backendKind: 'docker' });
@@ -552,8 +552,9 @@ function sandboxStatusDetail(backend: ExecutorBackendStatus, active: boolean, ha
 
 function executorSandboxSetupCommand(executor: ExecutorStatus | null, backendKind: ExecutorBackendKind): string {
   if (backendKind === 'docker') {
-    const image = typeof executor?.metadata?.image === 'string' && executor.metadata.image.trim() ? executor.metadata.image : 'python:3.12-slim';
-    return executor?.available ? 'docker info' : `docker pull ${image}`;
+    const setupCommand = metadataString(executor, 'setupCommand');
+    const image = metadataString(executor, 'image') ?? 'beale-sandbox-toolchain:local';
+    return executor?.available ? 'docker info' : setupCommand ?? `docker build -t ${image} docker/sandbox-toolchain`;
   }
   if (executor?.available) return 'npm run firecracker:doctor';
   if (executor?.configured) return 'npm run firecracker:doctor';
@@ -629,8 +630,10 @@ function sandboxNetworkProfiles(kind: ExecutorBackendKind, executor: ExecutorSta
 function sandboxPropertyRows(backend: ExecutorBackendStatus, executor: ExecutorStatus | null, controller: ReturnType<typeof executorControllerMetadata>): SandboxPropertyRow[] {
   if (backend.kind === 'docker') {
     return [
-      { label: 'Docker Image', value: metadataString(executor, 'image') ?? 'python:3.12-slim', setting: 'BEALE_DOCKER_IMAGE' },
+      { label: 'Docker Image', value: metadataString(executor, 'image') ?? 'beale-sandbox-toolchain:local', setting: 'BEALE_DOCKER_IMAGE' },
       { label: 'Docker Command', value: metadataString(executor, 'dockerCommand') ?? 'docker', setting: 'BEALE_DOCKER_COMMAND' },
+      { label: 'Setup Mode', value: metadataString(executor, 'setupMode') ?? 'build local image' },
+      { label: 'Dockerfile', value: metadataString(executor, 'dockerfile') ?? 'docker/sandbox-toolchain/Dockerfile', setting: 'BEALE_DOCKERFILE' },
       { label: 'State Directory', value: metadataString(executor, 'stateRoot') ?? 'system temp / beale-docker-sandboxes', setting: 'BEALE_DOCKER_STATE_DIR' },
       { label: 'Execution Timeout', value: '120000 ms', setting: 'BEALE_DOCKER_TIMEOUT_MS' },
       { label: 'Status Timeout', value: '1500 ms', setting: 'BEALE_DOCKER_STATUS_TIMEOUT_MS' }

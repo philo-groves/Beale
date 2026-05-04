@@ -49,7 +49,37 @@ export interface GuestExecuteRequest {
   timeoutMs: number;
   networkProfile: ExecutorNetworkProfile;
   networkPolicy?: GuestNetworkPolicy;
+  telemetry?: GuestExecutionTelemetry;
   expectedOutput: 'summary' | 'artifact';
+}
+
+export interface GuestExecutionTelemetry {
+  operationId: string;
+  runId: string;
+  attemptId: string;
+  vmContextId: string;
+  toolCallId: string;
+}
+
+export type GuestExecutionEventPhase =
+  | 'container_spawned'
+  | 'container_started'
+  | 'stdout'
+  | 'stderr'
+  | 'resource_sample'
+  | 'container_finished'
+  | 'container_timeout'
+  | 'container_cleanup';
+
+export interface GuestExecutionEvent {
+  phase: GuestExecutionEventPhase;
+  at: string;
+  summary: string;
+  payload: Record<string, unknown>;
+}
+
+export interface GuestExecutionObserver {
+  onEvent(event: GuestExecutionEvent): void;
 }
 
 export interface GuestCandidateArtifact {
@@ -96,6 +126,7 @@ export interface ExecutorProvider {
   cloneContext(context: CreatedRunContext, snapshotRef: string): Record<string, unknown>;
   importWorkspaceMaterial(context: CreatedRunContext, spec: GuestImportSpec): Record<string, unknown>;
   execute(context: CreatedRunContext, request: GuestExecuteRequest): GuestExecuteResult;
+  executeAsync?(context: CreatedRunContext, request: GuestExecuteRequest, observer?: GuestExecutionObserver): Promise<GuestExecuteResult>;
   exportArtifact(context: CreatedRunContext, request: GuestExportRequest): GuestExportResult;
   revert(context: CreatedRunContext, snapshotRef: string): Record<string, unknown>;
   preserve(context: CreatedRunContext, reason: string): Record<string, unknown>;

@@ -6,6 +6,7 @@ import type { ExecutorBackendKind, ExecutorNetworkProfile, ExecutorStatus, Progr
 import type {
   ExecutorCapabilities,
   ExecutorProvider,
+  GuestExecutionEvent,
   GuestExecuteRequest,
   GuestExecuteResult,
   GuestExportRequest,
@@ -38,6 +39,10 @@ interface ValidatedGuestImport {
   spec: GuestImportSpec;
   summary: ImportTreeSummary;
   requestedHostPath: string;
+}
+
+interface GuestExecutionOptions {
+  onTraceEvent?: () => void;
 }
 
 export class ExecutorManager {
@@ -276,6 +281,134 @@ export class ExecutorManager {
       vmContextId: context.vmContext.id
     });
     this.db.linkToolCallTrace(toolCallId, resultEvent.id);
+    this.db.finishToolCall(toolCallId, result.status, `Guest ${request.operationKind} operation finished with ${result.status}.`, {
+      status: result.status,
+      traceEventId: resultEvent.id,
+      stdoutSummary: result.stdoutSummary,
+      stderrSummary: result.stderrSummary,
+      structured: result.structured
+    });
+    return result;
+  }
+
+  public async executeGuestOperationAsync(context: CreatedRunContext, request: GuestExecuteRequest, options: GuestExecutionOptions = {}): Promise<GuestExecuteResult> {
+    const status = this.requireAvailable();
+    const requestedProfile = normalizeNetworkProfile(request.networkProfile);
+    const networkProfile = this.resolveSupportedNetworkProfile(status, requestedProfile);
+    if (!status.supportedNetworkProfiles.includes(networkProfile)) {
+      this.recordPolicyBlock(context, `Executor backend cannot enforce requested network profile: ${networkProfile}`, { networkProfile });
+      throw new Error(`Executor backend cannot enforce requested network profile: ${networkProfile}`);
+    }
+    if (!status.supports.shell && request.operationKind === 'shell') {
+      throw new Error('Executor backend does not support guest shell execution.');
+    }
+    if (!status.supports.python && request.operationKind === 'python') {
+      throw new Error('Executor backend does not support guest Python execution.');
+    }
+    const networkPolicy = this.networkPolicyFor(context, networkProfile);
+
+    const toolName = request.operationKind === 'python' ? 'python' : 'guest_shell';
+    const toolCallId = this.db.createToolCall({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      toolName,
+      toolVersion: `${status.provider}-executor-alpha`,
+      input: {
+        operationKind: request.operationKind,
+        command: request.command,
+        cwd: request.cwd,
+        timeoutMs: request.timeoutMs,
+        requestedNetworkProfile: requestedProfile,
+        networkProfile,
+        allowedDestinations: networkPolicy.allowedDestinations.map((destination) => destination.value),
+        liveTargetAllowed: networkPolicy.liveTargetAllowed
+      },
+      status: 'running',
+      resultSummary: 'Guest operation scheduled through sandbox executor.',
+      vmContextId: context.vmContext.id
+    });
+    const operationId = `guest_exec_${toolCallId}`;
+    const sanitizedRequest: GuestExecuteRequest = {
+      ...request,
+      env: sanitizeEnv(request.env ?? {}),
+      networkProfile,
+      networkPolicy,
+      telemetry: {
+        operationId,
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        vmContextId: context.vmContext.id,
+        toolCallId
+      }
+    };
+
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'tool_call',
+      source: 'system',
+      summary: `Guest ${request.operationKind} operation sent to sandbox executor.`,
+      payload: {
+        operationKind: request.operationKind,
+        command: request.command,
+        cwd: request.cwd,
+        timeoutMs: request.timeoutMs,
+        requestedNetworkProfile: requestedProfile,
+        networkProfile,
+        operationId,
+        allowedDestinations: networkPolicy.allowedDestinations,
+        liveTargetAllowed: networkPolicy.liveTargetAllowed,
+        hostExecution: false
+      },
+      toolCallId,
+      vmContextId: context.vmContext.id
+    });
+    this.recordNetworkEnforcement(context, toolCallId, networkPolicy, status);
+
+    const provider = this.activeProvider();
+    const result = provider.executeAsync
+      ? await provider.executeAsync(context, sanitizedRequest, {
+          onEvent: (event) => {
+            this.recordExecutionTelemetry(context, toolCallId, event);
+            options.onTraceEvent?.();
+          }
+        })
+      : provider.execute(context, sanitizedRequest);
+    if (result.contaminated) {
+      this.db.updateVmContext(context.vmContext.id, { state: 'contaminated', metadata: { contaminationReason: 'guest_operation', lastOperationKind: request.operationKind } });
+    }
+    const resultEvent = this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'tool_result',
+      source: 'executor',
+      summary: `Guest ${request.operationKind} operation finished with ${result.status}.`,
+      payload: {
+        observationBacked: true,
+        status: result.status,
+        exitCode: result.exitCode,
+        signal: result.signal,
+        durationMs: result.durationMs,
+        stdoutSummary: result.stdoutSummary,
+        stderrSummary: result.stderrSummary,
+        structured: result.structured,
+        candidateArtifactCount: result.candidateArtifacts.length,
+        contaminated: result.contaminated,
+        requestedNetworkProfile: requestedProfile,
+        networkProfile
+      },
+      toolCallId,
+      vmContextId: context.vmContext.id
+    });
+    this.db.linkToolCallTrace(toolCallId, resultEvent.id);
+    this.db.finishToolCall(toolCallId, result.status, `Guest ${request.operationKind} operation finished with ${result.status}.`, {
+      status: result.status,
+      traceEventId: resultEvent.id,
+      stdoutSummary: result.stdoutSummary,
+      stderrSummary: result.stderrSummary,
+      structured: result.structured
+    });
+    options.onTraceEvent?.();
     return result;
   }
 
@@ -482,6 +615,27 @@ export class ExecutorManager {
         enforcement: networkPolicy.enforcement,
         backend: status.provider,
         hostExecution: false
+      },
+      toolCallId,
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+  }
+
+  private recordExecutionTelemetry(context: CreatedRunContext, toolCallId: string, event: GuestExecutionEvent): void {
+    const isOutput = event.phase === 'stdout' || event.phase === 'stderr';
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: isOutput ? 'tool_result' : 'vm_event',
+      source: 'executor',
+      summary: event.summary,
+      payload: {
+        observationBacked: isOutput,
+        executorTelemetry: true,
+        lifecyclePhase: event.phase,
+        observedAt: event.at,
+        ...event.payload
       },
       toolCallId,
       vmContextId: context.vmContext.id

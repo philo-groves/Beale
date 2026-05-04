@@ -19,6 +19,7 @@
     "test:openai:live": "BEALE_LIVE_OPENAI_TEST=1 vitest run tests/openai-live.test.ts",
     "test:openai-firecracker:live": "BEALE_LIVE_OPENAI_FIRECRACKER_TEST=1 BEALE_VMCTL_COMMAND=$(command -v node) BEALE_VMCTL_ARGS_JSON='[\"scripts/firecracker-vmctl.mjs\",\"--config\",\".beale/firecracker/config.json\"]' vitest run tests/openai-firecracker-live.test.ts",
     "build": "npm run typecheck && electron-vite build",
+    "sandbox:docker:build": "docker build -t beale-sandbox-toolchain:local docker/sandbox-toolchain",
     "firecracker:init": "node scripts/firecracker-setup.mjs --init",
     "firecracker:doctor": "node scripts/firecracker-setup.mjs --doctor",
     "firecracker:install-binary": "node scripts/firecracker-setup.mjs --install-binary",

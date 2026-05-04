@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -1801,6 +1801,25 @@ describe('structured research tools', () => {
       .slice(0, 2)
       .map((entry) => entry.input.payload.operation?.networkPolicy?.profile);
     expect(localAnalysisProfiles).toEqual(['scoped', 'scoped']);
+    db.close();
+  });
+
+  it('blocks Python scripts from reading raw Beale artifact-store paths before sandbox launch', () => {
+    const { db, context, logPath } = openStructuredToolDb();
+    configureVmctlFixture(logPath);
+    const router = new BealeToolRouter(db, new ExecutorManager(db));
+
+    const python = callTool(router, context, 'python', {
+      task: 'read prior artifact content',
+      script: "open('/home/philo/bounty/supabase-h1/.beale/artifacts/sha256/e3/example', encoding='utf-8').read()",
+      artifact_path: ''
+    });
+
+    expect(python.status).toBe('error');
+    expect(python.summary).toBe('Python cannot read raw Beale workspace metadata or artifact-store paths.');
+    expect(python.payload.error).toBe('host_beale_state_path_not_mounted');
+    expect(String(python.payload.recoveryHint)).toContain('artifact_id');
+    expect(existsSync(logPath) ? readVmctlEntries(logPath) : []).toHaveLength(0);
     db.close();
   });
 

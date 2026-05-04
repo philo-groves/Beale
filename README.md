@@ -148,6 +148,14 @@ Host execution is currently supported for product practicality, but VM-backed ex
 
 Docker can be selected as a sandbox backend for convenience, but it is less secure than a virtual machine and should not be treated as equivalent isolation for high-risk target execution.
 
+Beale's default Docker backend uses a local toolchain image:
+
+```bash
+npm run sandbox:docker:build
+```
+
+The image definition lives in `docker/sandbox-toolchain/` and is tagged as `beale-sandbox-toolchain:local`. Set `BEALE_DOCKER_IMAGE` to use a different local or remote image.
+
 ---
 
 ## OpenAI Notes

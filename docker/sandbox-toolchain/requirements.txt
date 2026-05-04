@@ -1,0 +1,11 @@
+beautifulsoup4==4.14.2
+certifi==2025.11.12
+defusedxml==0.7.1
+dnspython==2.8.0
+httpx==0.28.1
+jsonschema==4.25.1
+lxml==6.0.2
+packaging==25.0
+pyyaml==6.0.3
+requests==2.32.5
+semver==3.0.4

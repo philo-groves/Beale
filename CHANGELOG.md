@@ -5,7 +5,9 @@
 ### Added
 
 - Added Docker as an explicit lower-assurance sandbox backend with offline/elevated execution support and host-controlled import/export paths.
-- Added a Settings > Sandboxes action that pulls the configured Docker sandbox image and refreshes sandbox availability.
+- Added a Settings > Sandboxes action that prepares the configured Docker sandbox image and refreshes sandbox availability.
+- Added host-observed Docker sandbox execution telemetry with container lifecycle, stdout/stderr chunks, resource samples, and Docker labels tied to run/tool context ids.
+- Added a local Docker sandbox toolchain image definition and made Docker setup build `beale-sandbox-toolchain:local` by default.
 - Added an orange Docker sandbox warning in Settings that explains Docker is less secure than a virtual machine.
 - Added opt-in developer performance instrumentation for renderer render counts, trace derivation timing, syntax/markdown timing, IPC payload sizing, and input latency probes.
 - Added dev-only renderer DevTools shortcuts and launch opt-ins for debugging performance instrumentation.
@@ -231,6 +233,7 @@
 
 ### Fixed
 
+- Fixed Docker sandbox context cleanup to retry transient non-empty directory removal and block raw `.beale` artifact-store paths before launching sandbox Python.
 - Fixed OpenAI run compaction so high-context responses compact before the hard window limit and reasoning-only no-output responses near the limit continue automatically after compacted replay.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.

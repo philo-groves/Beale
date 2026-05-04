@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,8 @@ const ENV_KEYS = [
   'BEALE_SANDBOX_BACKEND',
   'BEALE_DOCKER_COMMAND',
   'BEALE_DOCKER_IMAGE',
+  'BEALE_DOCKER_BUILD_CONTEXT',
+  'BEALE_DOCKERFILE',
   'BEALE_DOCKER_STATE_DIR',
   'BEALE_DOCKER_TIMEOUT_MS',
   'BEALE_DOCKER_STATUS_TIMEOUT_MS',
@@ -311,6 +313,89 @@ describe('Sandbox executor alpha', () => {
     db.close();
   });
 
+  it.skipIf(process.platform === 'win32')('streams Docker sandbox lifecycle, output, and resource telemetry into host traces', async () => {
+    const { db, dir, targetFile } = openExecutorDb();
+    const dockerLogPath = join(dir, 'docker.log');
+    configureDockerFixture(dir, dockerLogPath);
+    process.env.BEALE_SANDBOX_BACKEND = 'docker';
+    process.env.BEALE_DOCKER_STATE_DIR = join(dir, 'docker-state');
+    process.env.BEALE_DOCKER_STATS_INTERVAL_MS = '10';
+    process.env.BEALE_DOCKER_STATS_TIMEOUT_MS = '1000';
+    const context = createExecutorRun(db);
+    const manager = new ExecutorManager(db);
+
+    expect(manager.getStatus().provider).toBe('docker');
+    expect(manager.getStatus().available).toBe(true);
+    manager.createContext(context, 'fixture-image', 'clean-fixture');
+    manager.importWorkspaceMaterial(context, { hostPath: targetFile, guestPath: '/workspace/target.txt', mode: 'copy' });
+    const traceNotifications: string[] = [];
+
+    const result = await manager.executeGuestOperationAsync(
+      context,
+      {
+        operationKind: 'python',
+        command: ['python3', '-c', 'print("hello")'],
+        cwd: '/workspace',
+        env: { SAFE_FLAG: '1' },
+        timeoutMs: 5000,
+        networkProfile: 'offline',
+        expectedOutput: 'summary'
+      },
+      { onTraceEvent: () => traceNotifications.push('trace') }
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.stdoutSummary).toContain('docker stdout one');
+    expect(result.stderrSummary).toContain('docker stderr one');
+    expect(result.structured.containerName).toMatch(/^beale-/);
+    const detail = db.getRunDetail(context.run.id);
+    const telemetryEvents = detail.traceEvents.filter((event) => event.payload.executorTelemetry === true);
+    const phases = telemetryEvents.map((event) => event.payload.lifecyclePhase);
+    expect(phases).toContain('container_spawned');
+    expect(phases).toContain('container_started');
+    expect(phases).toContain('stdout');
+    expect(phases).toContain('stderr');
+    expect(phases).toContain('resource_sample');
+    expect(phases).toContain('container_finished');
+    expect(telemetryEvents.find((event) => event.payload.lifecyclePhase === 'stdout')?.payload.chunk).toContain('docker stdout one');
+    expect(telemetryEvents.find((event) => event.payload.lifecyclePhase === 'stderr')?.payload.chunk).toContain('docker stderr one');
+    expect(traceNotifications.length).toBeGreaterThanOrEqual(telemetryEvents.length);
+
+    const dockerCalls = readDockerCalls(dockerLogPath);
+    const runCall = dockerCalls.find((call) => call.args[0] === 'run');
+    expect(runCall?.args).toContain('--name');
+    expect(runCall?.args).toContain('--cidfile');
+    expect(runCall?.args.some((arg) => arg.startsWith('beale.run_id='))).toBe(true);
+    expect(runCall?.args.some((arg) => arg.startsWith('beale.vm_context_id='))).toBe(true);
+    expect(runCall?.args.some((arg) => arg.startsWith('beale.operation_id='))).toBe(true);
+    expect(dockerCalls.some((call) => call.args[0] === 'stats')).toBe(true);
+    db.close();
+  });
+
+  it.skipIf(process.platform === 'win32')('builds the local Docker sandbox toolchain during setup', async () => {
+    const { db, dir } = openExecutorDb();
+    const dockerLogPath = join(dir, 'docker-setup.log');
+    const buildContext = join(dir, 'toolchain');
+    mkdirSync(buildContext, { recursive: true });
+    writeFileSync(join(buildContext, 'Dockerfile'), 'FROM scratch\n');
+    configureDockerFixture(dir, dockerLogPath);
+    process.env.BEALE_DOCKER_BUILD_CONTEXT = buildContext;
+    process.env.BEALE_DOCKERFILE = join(buildContext, 'Dockerfile');
+    const manager = new ExecutorManager(db);
+
+    const result = await manager.setupSandboxBackend('docker');
+
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain('Built beale-sandbox-toolchain:local');
+    const dockerCalls = readDockerCalls(dockerLogPath);
+    const buildCall = dockerCalls.find((call) => call.args[0] === 'build');
+    expect(buildCall?.args).toContain('-t');
+    expect(buildCall?.args).toContain('beale-sandbox-toolchain:local');
+    expect(buildCall?.args).toContain(join(buildContext, 'Dockerfile'));
+    expect(buildCall?.args).toContain(buildContext);
+    db.close();
+  });
+
   it('fails closed when no sandbox controller is configured', () => {
     const { db } = openExecutorDb();
     const manager = new ExecutorManager(db);
@@ -427,6 +512,44 @@ describe('Sandbox executor alpha', () => {
 function configureVmctlFixture(logPath: string, failActions = '', supportedNetworkProfiles = ['offline', 'scoped']): void {
   process.env.BEALE_VMCTL_COMMAND = process.execPath;
   process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions, JSON.stringify(supportedNetworkProfiles)]);
+}
+
+function configureDockerFixture(dir: string, logPath: string): void {
+  const fixturePath = join(dir, 'fake-docker.mjs');
+  writeFileSync(
+    fixturePath,
+    [
+      '#!/usr/bin/env node',
+      "import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';",
+      "import { dirname } from 'node:path';",
+      `const logPath = ${JSON.stringify(logPath)};`,
+      'const args = process.argv.slice(2);',
+      'appendFileSync(logPath, `${JSON.stringify({ args })}\\n`);',
+      "if (args[0] === '--version') { console.log('Docker version 99.0.0'); process.exit(0); }",
+      "if (args[0] === 'info') { console.log('{}'); process.exit(0); }",
+      "if (args[0] === 'image' && args[1] === 'inspect') { console.log('[]'); process.exit(0); }",
+      "if (args[0] === 'build') { console.error('fake docker build complete'); process.exit(0); }",
+      "if (args[0] === 'stats') { console.log(JSON.stringify({ Name: args.at(-1), CPUPerc: '0.10%', MemUsage: '1MiB / 1GiB', NetIO: '0B / 0B', BlockIO: '0B / 0B' })); process.exit(0); }",
+      "if (args[0] === 'rm') { process.exit(0); }",
+      "if (args[0] === 'run') {",
+      "  const cidIndex = args.indexOf('--cidfile');",
+      "  if (cidIndex >= 0) { mkdirSync(dirname(args[cidIndex + 1]), { recursive: true }); writeFileSync(args[cidIndex + 1], 'fake-container-id\\n'); }",
+      "  process.stdout.write('docker stdout one\\n');",
+      "  setTimeout(() => process.stderr.write('docker stderr one\\n'), 20);",
+      "  setTimeout(() => process.stdout.write('docker stdout two\\n'), 40);",
+      "  setTimeout(() => process.exit(0), 80);",
+      '}',
+      "else { console.error(`unexpected docker args ${args.join(' ')}`); process.exit(2); }"
+    ].join('\n')
+  );
+  chmodSync(fixturePath, 0o755);
+  process.env.BEALE_DOCKER_COMMAND = fixturePath;
+}
+
+function readDockerCalls(logPath: string): Array<{ args: string[] }> {
+  const content = readFileSync(logPath, 'utf8').trim();
+  if (!content) return [];
+  return content.split('\n').map((line) => JSON.parse(line) as { args: string[] });
 }
 
 function readVmctlActions(logPath: string): string[] {

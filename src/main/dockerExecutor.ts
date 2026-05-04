@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,8 @@ import type { SandboxSetupResult } from '@shared/types';
 import type {
   ExecutorCapabilities,
   ExecutorProvider,
+  GuestExecutionEvent,
+  GuestExecutionObserver,
   GuestContextRequest,
   GuestExecuteRequest,
   GuestExecuteResult,
@@ -16,11 +19,19 @@ import type {
 } from './executorTypes';
 
 const PROTOCOL_VERSION = 1;
-const DEFAULT_DOCKER_IMAGE = 'python:3.12-slim';
+const DEFAULT_DOCKER_IMAGE = 'beale-sandbox-toolchain:local';
+const DEFAULT_TOOLCHAIN_CONTEXT = resolve(process.cwd(), 'docker', 'sandbox-toolchain');
+const DEFAULT_TOOLCHAIN_DOCKERFILE = join(DEFAULT_TOOLCHAIN_CONTEXT, 'Dockerfile');
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_SETUP_TIMEOUT_MS = 10 * 60_000;
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
 const MAX_SETUP_OUTPUT_BYTES = 32_000;
+const MAX_EXECUTION_OUTPUT_CHARS = 16_000;
+const MAX_STREAM_CHUNK_CHARS = 2_000;
+const MAX_STREAM_EVENTS = 80;
+const DEFAULT_STATS_INTERVAL_MS = 2_000;
+const DEFAULT_STATS_TIMEOUT_MS = 1_000;
+const MAX_RESOURCE_SAMPLES = 20;
 
 interface DockerContextState {
   vmContextId: string;
@@ -56,23 +67,27 @@ export class DockerExecutorProvider implements ExecutorProvider {
       throw new Error(`Docker daemon is not available: ${safeOutput(dockerInfo.stderr || dockerInfo.error)}`);
     }
 
-    const pull = await runDockerAsync(this.dockerCommand, ['pull', image], positiveIntegerFromEnv('BEALE_DOCKER_SETUP_TIMEOUT_MS', DEFAULT_SETUP_TIMEOUT_MS));
-    if (pull.status !== 0) {
-      throw new Error(`Docker image pull failed: ${safeOutput(pull.stderr || pull.stdout || pull.error)}`);
+    const setup = dockerSetupPlan(image);
+    if (setup.kind === 'build' && !existsSync(setup.dockerfilePath)) {
+      throw new Error(`Docker sandbox toolchain Dockerfile is missing: ${setup.dockerfilePath}`);
+    }
+    const result = await runDockerAsync(this.dockerCommand, setup.args, positiveIntegerFromEnv('BEALE_DOCKER_SETUP_TIMEOUT_MS', DEFAULT_SETUP_TIMEOUT_MS));
+    if (result.status !== 0) {
+      throw new Error(`Docker image ${setup.kind} failed: ${safeOutput(result.stderr || result.stdout || result.error)}`);
     }
     this.statusCache = null;
     return {
       backendKind: 'docker',
       ok: true,
       label: 'Docker sandbox image ready',
-      detail: `Pulled ${image}.`,
-      command: `${this.dockerCommand} pull ${image}`
+      detail: setup.kind === 'build' ? `Built ${image} from ${setup.contextPath}.` : `Pulled ${image}.`,
+      command: `${this.dockerCommand} ${setup.args.join(' ')}`
     };
   }
 
   public createContext(request: GuestContextRequest): Record<string, unknown> {
     const dir = contextDir(this.stateRoot, request.context.vmContext.id);
-    rmSync(dir, { recursive: true, force: true });
+    removeSandboxPath(dir);
     mkdirSync(workspaceDir(dir), { recursive: true });
     mkdirSync(tmpDir(dir), { recursive: true });
     writeState(dir, {
@@ -145,6 +160,62 @@ export class DockerExecutorProvider implements ExecutorProvider {
     };
   }
 
+  public async executeAsync(context: CreatedRunContext, request: GuestExecuteRequest, observer?: GuestExecutionObserver): Promise<GuestExecuteResult> {
+    const dir = contextDir(this.stateRoot, context.vmContext.id);
+    const state = readState(dir, context);
+    mkdirSync(workspaceDir(dir), { recursive: true });
+    mkdirSync(tmpDir(dir), { recursive: true });
+    const operationId = dockerOperationId(context, request);
+    const containerName = dockerContainerName(context, operationId);
+    const cidFile = join(tmpDir(dir), `${safeName(operationId)}.cid`);
+    rmSync(cidFile, { force: true });
+
+    const started = Date.now();
+    const result = await runDockerExecution(
+      this.dockerCommand,
+      dockerRunArgs(state, request, workspaceDir(dir), tmpDir(dir), {
+        containerName,
+        cidFile,
+        labels: dockerLabels(context, request, operationId)
+      }),
+      {
+        timeoutMs: request.timeoutMs || this.timeoutMs,
+        observer,
+        operationKind: request.operationKind,
+        imageRef: state.imageRef,
+        networkProfile: request.networkProfile,
+        containerName,
+        cidFile
+      }
+    );
+    const status = result.timedOut ? 'timeout' : result.status === 0 ? 'success' : 'failure';
+    const ended = Date.now();
+    return {
+      status,
+      exitCode: typeof result.status === 'number' ? result.status : null,
+      signal: result.signal,
+      startedAt: new Date(started).toISOString(),
+      endedAt: new Date(ended).toISOString(),
+      durationMs: ended - started,
+      stdoutSummary: result.stdout.slice(0, 4000),
+      stderrSummary: (result.stderr || result.error).slice(0, 4000),
+      structured: {
+        backend: 'docker',
+        image: state.imageRef,
+        networkProfile: request.networkProfile,
+        isolation: 'container',
+        containerName,
+        containerId: result.containerId,
+        streamedEvents: result.streamEvents,
+        resourceSamples: result.resourceSamples,
+        warning: 'Docker is less isolated than a virtual machine.'
+      },
+      candidateArtifacts: [],
+      contaminated: true,
+      error: status === 'success' ? null : (result.stderr || result.error).slice(0, 1000)
+    };
+  }
+
   public exportArtifact(context: CreatedRunContext, request: GuestExportRequest): GuestExportResult {
     const dir = contextDir(this.stateRoot, context.vmContext.id);
     const hostPath = dockerGuestPathToHostPath(dir, request.guestPath);
@@ -174,7 +245,7 @@ export class DockerExecutorProvider implements ExecutorProvider {
   }
 
   public destroy(context: CreatedRunContext): Record<string, unknown> {
-    rmSync(contextDir(this.stateRoot, context.vmContext.id), { recursive: true, force: true });
+    removeSandboxPath(contextDir(this.stateRoot, context.vmContext.id));
     return { destroyed: true };
   }
 
@@ -183,6 +254,7 @@ export class DockerExecutorProvider implements ExecutorProvider {
     const dockerConfigured = dockerVersion.status === 0;
     const dockerInfo = dockerConfigured ? runDocker(this.dockerCommand, ['info'], this.statusTimeoutMs) : dockerVersion;
     const image = dockerImage('beale-default-toolchain');
+    const setup = dockerSetupPlan(image);
     const imageInspect = dockerInfo.status === 0 ? runDocker(this.dockerCommand, ['image', 'inspect', image], this.statusTimeoutMs) : dockerInfo;
     const available = dockerConfigured && dockerInfo.status === 0 && imageInspect.status === 0;
     const reason = available
@@ -191,7 +263,9 @@ export class DockerExecutorProvider implements ExecutorProvider {
         ? 'Docker CLI is not available. Install Docker and make the docker command available.'
         : dockerInfo.status !== 0
           ? `Docker daemon is not available: ${safeOutput(dockerInfo.stderr || dockerInfo.error)}`
-          : `Docker sandbox image is not available locally: ${image}. Pull it or set BEALE_DOCKER_IMAGE.`;
+          : setup.kind === 'build'
+            ? `Docker sandbox image is not available locally: ${image}. Build it from Settings or set BEALE_DOCKER_IMAGE.`
+            : `Docker sandbox image is not available locally: ${image}. Pull it or set BEALE_DOCKER_IMAGE.`;
     return {
       protocolVersion: PROTOCOL_VERSION,
       provider: 'docker',
@@ -204,6 +278,11 @@ export class DockerExecutorProvider implements ExecutorProvider {
       metadata: {
         dockerCommand: this.dockerCommand,
         image,
+        setupCommand: `${this.dockerCommand} ${setup.args.join(' ')}`,
+        setupMode: setup.kind,
+        defaultToolchain: setup.kind === 'build',
+        dockerfile: setup.kind === 'build' ? setup.dockerfilePath : null,
+        buildContext: setup.kind === 'build' ? setup.contextPath : null,
         stateRoot: this.stateRoot,
         isolation: 'container',
         lessSecureThanVirtualMachine: true
@@ -234,8 +313,8 @@ export class DockerExecutorProvider implements ExecutorProvider {
   private resetContext(context: CreatedRunContext, snapshotRef: string): Record<string, unknown> {
     const dir = contextDir(this.stateRoot, context.vmContext.id);
     const state = readState(dir, context);
-    rmSync(workspaceDir(dir), { recursive: true, force: true });
-    rmSync(tmpDir(dir), { recursive: true, force: true });
+    removeSandboxPath(workspaceDir(dir));
+    removeSandboxPath(tmpDir(dir));
     mkdirSync(workspaceDir(dir), { recursive: true });
     mkdirSync(tmpDir(dir), { recursive: true });
     state.imports = [];
@@ -244,19 +323,32 @@ export class DockerExecutorProvider implements ExecutorProvider {
   }
 }
 
-function dockerRunArgs(state: DockerContextState, request: GuestExecuteRequest, workspacePath: string, tmpPath: string): string[] {
+function dockerRunArgs(
+  state: DockerContextState,
+  request: GuestExecuteRequest,
+  workspacePath: string,
+  tmpPath: string,
+  options: { containerName?: string; cidFile?: string; labels?: Record<string, string> } = {}
+): string[] {
   const args = [
     'run',
     '--rm',
     '--pull',
-    'never',
+    'never'
+  ];
+  if (options.containerName) args.push('--name', options.containerName);
+  if (options.cidFile) args.push('--cidfile', options.cidFile);
+  for (const [key, value] of Object.entries(options.labels ?? {})) {
+    args.push('--label', `${key}=${value}`);
+  }
+  args.push(
     '--network',
     request.networkProfile === 'offline' ? 'none' : 'bridge',
     '-v',
     `${workspacePath}:/workspace`,
     '-v',
     `${tmpPath}:/tmp`
-  ];
+  );
   for (const spec of state.imports) {
     args.push('-v', `${spec.hostPath}:${spec.guestPath}:${spec.mode === 'read_only' ? 'ro' : 'rw'}`);
   }
@@ -267,6 +359,234 @@ function dockerRunArgs(state: DockerContextState, request: GuestExecuteRequest, 
   }
   args.push('-w', request.cwd || '/workspace', state.imageRef, ...request.command);
   return args;
+}
+
+function dockerOperationId(context: CreatedRunContext, request: GuestExecuteRequest): string {
+  if (request.telemetry?.operationId) return request.telemetry.operationId;
+  const hash = createHash('sha256')
+    .update(`${context.run.id}:${context.attempt.id}:${context.vmContext.id}:${request.operationKind}:${Date.now()}`)
+    .digest('hex')
+    .slice(0, 12);
+  return `guest_exec_${hash}`;
+}
+
+function dockerContainerName(context: CreatedRunContext, operationId: string): string {
+  const runPart = safeName(context.run.id).slice(0, 24);
+  const operationPart = safeName(operationId).slice(0, 48);
+  return `beale-${runPart}-${operationPart}`.slice(0, 120);
+}
+
+function dockerLabels(context: CreatedRunContext, request: GuestExecuteRequest, operationId: string): Record<string, string> {
+  return {
+    'beale.run_id': context.run.id,
+    'beale.attempt_id': context.attempt.id,
+    'beale.vm_context_id': context.vmContext.id,
+    'beale.tool_call_id': request.telemetry?.toolCallId ?? '',
+    'beale.operation_id': operationId,
+    'beale.operation_kind': request.operationKind,
+    'beale.network_profile': request.networkProfile
+  };
+}
+
+interface DockerExecutionProcessResult {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error: string;
+  timedOut: boolean;
+  containerId: string | null;
+  streamEvents: number;
+  resourceSamples: number;
+}
+
+interface DockerExecutionOptions {
+  timeoutMs: number;
+  observer?: GuestExecutionObserver;
+  operationKind: GuestExecuteRequest['operationKind'];
+  imageRef: string;
+  networkProfile: GuestExecuteRequest['networkProfile'];
+  containerName: string;
+  cidFile: string;
+}
+
+function runDockerExecution(command: string, args: string[], options: DockerExecutionOptions): Promise<DockerExecutionProcessResult> {
+  return new Promise((resolveResult) => {
+    const child = spawn(command, args, {
+      windowsHide: true,
+      env: minimalDockerEnv(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let timeoutError = '';
+    let containerId: string | null = null;
+    let streamEvents = 0;
+    let resourceSamples = 0;
+    let resourceSampleRunning = false;
+
+    emitExecutionEvent(options.observer, 'container_spawned', 'Docker sandbox operation spawned by host harness.', {
+      backend: 'docker',
+      operationKind: options.operationKind,
+      image: options.imageRef,
+      networkProfile: options.networkProfile,
+      containerName: options.containerName,
+      hostProcessId: child.pid ?? null
+    });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      timeoutError = `Docker sandbox operation timed out after ${options.timeoutMs} ms.`;
+      emitExecutionEvent(options.observer, 'container_timeout', 'Docker sandbox operation timed out; cleanup requested.', {
+        backend: 'docker',
+        containerName: options.containerName,
+        containerId,
+        timeoutMs: options.timeoutMs
+      });
+      child.kill('SIGTERM');
+      void runDockerAsync(command, ['rm', '-f', options.containerName], DEFAULT_STATS_TIMEOUT_MS).then((cleanup) => {
+        emitExecutionEvent(options.observer, 'container_cleanup', 'Docker sandbox timeout cleanup finished.', {
+          backend: 'docker',
+          containerName: options.containerName,
+          containerId,
+          status: cleanup.status,
+          stderr: safeOutput(cleanup.stderr || cleanup.error)
+        });
+      });
+    }, options.timeoutMs);
+    timeout.unref?.();
+
+    const cidPoll = setInterval(() => {
+      if (containerId || !existsSync(options.cidFile)) return;
+      const value = readFileSync(options.cidFile, 'utf8').trim();
+      if (!value) return;
+      containerId = value;
+      emitExecutionEvent(options.observer, 'container_started', 'Docker sandbox container started.', {
+        backend: 'docker',
+        containerName: options.containerName,
+        containerId,
+        image: options.imageRef,
+        networkProfile: options.networkProfile
+      });
+    }, 50);
+    cidPoll.unref?.();
+
+    const statsIntervalMs = positiveIntegerFromEnv('BEALE_DOCKER_STATS_INTERVAL_MS', DEFAULT_STATS_INTERVAL_MS);
+    const statsTimer = setInterval(() => {
+      if (settled || resourceSampleRunning || resourceSamples >= MAX_RESOURCE_SAMPLES) return;
+      const target = containerId ?? (existsSync(options.cidFile) ? readFileSync(options.cidFile, 'utf8').trim() : options.containerName);
+      if (!target) return;
+      resourceSampleRunning = true;
+      void runDockerAsync(command, ['stats', '--no-stream', '--format', '{{json .}}', target], positiveIntegerFromEnv('BEALE_DOCKER_STATS_TIMEOUT_MS', DEFAULT_STATS_TIMEOUT_MS))
+        .then((sample) => {
+          if (settled) return;
+          if (sample.status !== 0 || !sample.stdout.trim()) return;
+          resourceSamples += 1;
+          emitExecutionEvent(options.observer, 'resource_sample', 'Docker sandbox resource sample observed.', {
+            backend: 'docker',
+            containerName: options.containerName,
+            containerId,
+            sample: parseDockerStats(sample.stdout)
+          });
+        })
+        .finally(() => {
+          resourceSampleRunning = false;
+        });
+    }, statsIntervalMs);
+    statsTimer.unref?.();
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      stdout = boundedExecutionAppend(stdout, text);
+      streamEvents += emitStreamEvent(options.observer, 'stdout', options, text, streamEvents);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      stderr = boundedExecutionAppend(stderr, text);
+      streamEvents += emitStreamEvent(options.observer, 'stderr', options, text, streamEvents);
+    });
+    child.on('error', (error) => finish(null, null, error.message));
+    child.on('close', (status, signal) => finish(status, signal, ''));
+
+    function finish(status: number | null, signal: NodeJS.Signals | null, error: string): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(cidPoll);
+      clearInterval(statsTimer);
+      if (!containerId && existsSync(options.cidFile)) {
+        const value = readFileSync(options.cidFile, 'utf8').trim();
+        containerId = value || null;
+      }
+      emitExecutionEvent(options.observer, 'container_finished', `Docker sandbox operation finished with ${timedOut ? 'timeout' : status === 0 ? 'success' : 'failure'}.`, {
+        backend: 'docker',
+        containerName: options.containerName,
+        containerId,
+        exitCode: status,
+        signal,
+        timedOut,
+        resourceSamples,
+        streamEvents
+      });
+      resolveResult({
+        status,
+        signal,
+        stdout,
+        stderr,
+        error: error || timeoutError,
+        timedOut,
+        containerId,
+        streamEvents,
+        resourceSamples
+      });
+    }
+  });
+}
+
+function emitStreamEvent(
+  observer: GuestExecutionObserver | undefined,
+  stream: 'stdout' | 'stderr',
+  options: DockerExecutionOptions,
+  chunk: string,
+  emittedCount: number
+): number {
+  if (!observer || emittedCount >= MAX_STREAM_EVENTS) return 0;
+  const boundedChunk = chunk.slice(0, MAX_STREAM_CHUNK_CHARS);
+  emitExecutionEvent(observer, stream, `Docker sandbox ${stream} chunk observed.`, {
+    backend: 'docker',
+    containerName: options.containerName,
+    stream,
+    chunk: boundedChunk,
+    chunkChars: chunk.length,
+    truncated: chunk.length > boundedChunk.length
+  });
+  return 1;
+}
+
+function emitExecutionEvent(
+  observer: GuestExecutionObserver | undefined,
+  phase: GuestExecutionEvent['phase'],
+  summary: string,
+  payload: Record<string, unknown>
+): void {
+  observer?.onEvent({
+    phase,
+    at: new Date().toISOString(),
+    summary,
+    payload
+  });
+}
+
+function parseDockerStats(stdout: string): Record<string, unknown> {
+  const line = stdout.trim().split('\n')[0] ?? '';
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : { raw: line.slice(0, 1000) };
+  } catch {
+    return { raw: line.slice(0, 1000) };
+  }
 }
 
 function dockerGuestPathToHostPath(contextPath: string, guestPath: string): string | null {
@@ -315,10 +635,28 @@ function writeState(dir: string, state: DockerContextState): void {
   writeFileSync(join(dir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
 }
 
+function removeSandboxPath(path: string): void {
+  rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 function dockerImage(imageRef: string): string {
   const configured = process.env.BEALE_DOCKER_IMAGE?.trim();
   if (configured) return configured;
   return imageRef && imageRef !== 'beale-default-toolchain' ? imageRef : DEFAULT_DOCKER_IMAGE;
+}
+
+function dockerSetupPlan(image: string): { kind: 'build'; args: string[]; dockerfilePath: string; contextPath: string } | { kind: 'pull'; args: string[] } {
+  if (process.env.BEALE_DOCKER_IMAGE?.trim()) {
+    return { kind: 'pull', args: ['pull', image] };
+  }
+  const contextPath = resolve(process.env.BEALE_DOCKER_BUILD_CONTEXT?.trim() || DEFAULT_TOOLCHAIN_CONTEXT);
+  const dockerfilePath = resolve(process.env.BEALE_DOCKERFILE?.trim() || DEFAULT_TOOLCHAIN_DOCKERFILE);
+  return {
+    kind: 'build',
+    args: ['build', '-t', image, '-f', dockerfilePath, contextPath],
+    dockerfilePath,
+    contextPath
+  };
 }
 
 function runDocker(command: string, args: string[], timeoutMs: number): { status: number | null; stderr: string; error: string } {
@@ -367,6 +705,11 @@ function runDockerAsync(command: string, args: string[], timeoutMs: number): Pro
 function boundedAppend(current: string, next: string): string {
   const combined = `${current}${next}`;
   return combined.length > MAX_SETUP_OUTPUT_BYTES ? combined.slice(-MAX_SETUP_OUTPUT_BYTES) : combined;
+}
+
+function boundedExecutionAppend(current: string, next: string): string {
+  const combined = `${current}${next}`;
+  return combined.length > MAX_EXECUTION_OUTPUT_CHARS ? combined.slice(-MAX_EXECUTION_OUTPUT_CHARS) : combined;
 }
 
 function minimalDockerEnv(): NodeJS.ProcessEnv {
