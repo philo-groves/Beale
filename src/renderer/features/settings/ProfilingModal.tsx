@@ -43,7 +43,7 @@ export function ProfilingModal({
             </div>
             <div>
               <h4>{enabled ? 'Profiling enabled' : 'Profiling disabled'}</h4>
-              <p>{enabled ? 'Renderer reports plus main IPC and OpenAI stream timings are being written as JSONL.' : 'Enable profiling from Settings > General to capture structured reports.'}</p>
+              <p>{enabled ? 'Renderer reports plus main IPC and OpenAI stream timings are being written as JSONL.' : 'Enable Developer Mode from Settings > Developer to capture structured reports.'}</p>
             </div>
           </div>
           <div className="provider-grid profiling-grid">

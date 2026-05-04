@@ -1,12 +1,15 @@
-import { useState, type JSX } from 'react';
-import { Activity, DatabaseZap, KeyRound, RefreshCw, Server, ShieldAlert, Terminal } from 'lucide-react';
+import { useEffect, useState, type JSX } from 'react';
+import { Bug, DatabaseZap, FolderPlus, KeyRound, RefreshCw, Save, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
 import type {
+  CyberGymBenchmarkSettings,
+  CyberGymSettingsInput,
+  CyberGymStorageActionResult,
+  DeveloperSettings,
   ExecutorBackendKind,
   ExecutorBackendStatus,
   ExecutorStatus,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
-  ProfilingState,
   ProjectSemanticSummary,
   SandboxSetupInput,
   SandboxSetupResult,
@@ -18,47 +21,59 @@ import { StatusPill } from '../../app/StatusPill';
 import { formatSessionDateTime, stateClass } from '../../lib/formatting';
 import { findBackendByKind } from '../../view-models/environmentDisplay';
 
-export type SettingsSection = 'general' | 'sandboxes' | 'providers';
+export type SettingsSection = 'general' | 'sandboxes' | 'providers' | 'benchmarking' | 'developer';
 
 export function SettingsModal({
   section,
+  developerSettings,
   executor,
   projectSemantic,
   programName,
   vmPreference,
   openAiStatus,
   openAiOAuthResult,
-  profilingState,
   busy,
   onChangeSection,
+  onClearCyberGymCache,
   onClose,
+  onPrepareCyberGymStorage,
   onSetVmPreference,
   onRefreshProjectSemanticIndex,
+  onSetDeveloperModeEnabled,
   onSetProjectSemanticIndexEnabled,
-  onSetProfilingEnabled,
   onSetupSandbox,
   onRefreshOpenAi,
-  onStartOpenAiOAuth
+  onStartOpenAiOAuth,
+  onUpdateCyberGymSettings
 }: {
   section: SettingsSection;
+  developerSettings: DeveloperSettings | null;
   executor: ExecutorStatus | null;
   projectSemantic: ProjectSemanticSummary | null;
   programName: string | null;
   vmPreference: VmPreference;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
-  profilingState: ProfilingState | null;
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
+  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onClose: () => void;
+  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onRefreshProjectSemanticIndex: () => Promise<void>;
+  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
-  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
   onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
 }): JSX.Element {
+  const developerModeEnabled = developerSettings?.developerModeEnabled ?? false;
+  const sections: SettingsSection[] = developerModeEnabled
+    ? ['general', 'sandboxes', 'providers', 'benchmarking', 'developer']
+    : ['general', 'sandboxes', 'providers', 'developer'];
+  const activeSection = section === 'benchmarking' && !developerModeEnabled ? 'developer' : section;
+
   return (
     <Modal
       title="Settings"
@@ -72,27 +87,35 @@ export function SettingsModal({
     >
       <div className="settings-layout">
         <nav className="settings-sections" aria-label="Settings sections">
-          {(['general', 'sandboxes', 'providers'] as SettingsSection[]).map((item) => (
-            <button type="button" className={section === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
+          {sections.map((item) => (
+            <button type="button" className={activeSection === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
               {settingsSectionLabel(item)}
             </button>
           ))}
         </nav>
         <section className="settings-view">
-          {section === 'general' ? (
+          {activeSection === 'general' ? (
             <GeneralSettingsView
               busy={busy}
               projectSemantic={projectSemantic}
               programName={programName}
-              profilingState={profilingState}
               onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
               onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
-              onSetProfilingEnabled={onSetProfilingEnabled}
             />
-          ) : section === 'sandboxes' ? (
+          ) : activeSection === 'sandboxes' ? (
             <SandboxSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetupSandbox={onSetupSandbox} onSetVmPreference={onSetVmPreference} />
-          ) : (
+          ) : activeSection === 'providers' ? (
             <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
+          ) : activeSection === 'benchmarking' ? (
+            <BenchmarkingSettingsView
+              busy={busy}
+              developerSettings={developerSettings}
+              onClearCyberGymCache={onClearCyberGymCache}
+              onPrepareCyberGymStorage={onPrepareCyberGymStorage}
+              onUpdateCyberGymSettings={onUpdateCyberGymSettings}
+            />
+          ) : (
+            <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
           )}
         </section>
       </div>
@@ -103,19 +126,15 @@ export function SettingsModal({
 function GeneralSettingsView({
   projectSemantic,
   programName,
-  profilingState,
   busy,
   onRefreshProjectSemanticIndex,
-  onSetProjectSemanticIndexEnabled,
-  onSetProfilingEnabled
+  onSetProjectSemanticIndexEnabled
 }: {
   projectSemantic: ProjectSemanticSummary | null;
   programName: string | null;
-  profilingState: ProfilingState | null;
   busy: boolean;
   onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
-  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
 }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
@@ -173,31 +192,185 @@ function GeneralSettingsView({
           </button>
         </div>
       </section>
-      <section className="provider-card profiling-settings-card">
+    </div>
+  );
+}
+
+function DeveloperSettingsView({
+  developerSettings,
+  busy,
+  onSetDeveloperModeEnabled
+}: {
+  developerSettings: DeveloperSettings | null;
+  busy: boolean;
+  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+}): JSX.Element {
+  const enabled = developerSettings?.developerModeEnabled ?? false;
+  return (
+    <div className="settings-page developer-settings-page">
+      <div className="settings-page-header">
+        <h3>Developer</h3>
+      </div>
+      <section className={`provider-card readiness-${enabled ? 'enabled' : 'disabled'}`}>
         <div className="provider-heading">
           <div className="status-icon">
-            <Activity size={18} />
+            <Bug size={18} />
           </div>
           <div>
-            <h4>Profiling</h4>
-            <p>Capture renderer reports and main IPC timings to a local JSONL file.</p>
+            <h4>Developer Mode</h4>
+            <p>Enables Beale diagnostics and benchmark configuration. Debug profiling starts automatically while this mode is on.</p>
           </div>
           <label className="settings-switch">
             <input
               type="checkbox"
-              checked={profilingState?.enabled ?? false}
+              checked={enabled}
               disabled={busy}
-              onChange={(event) => void onSetProfilingEnabled(event.target.checked)}
+              onChange={(event) => void onSetDeveloperModeEnabled(event.target.checked)}
             />
-            <span>{profilingState?.enabled ? 'On' : 'Off'}</span>
+            <span>Enabled Developer Mode</span>
           </label>
         </div>
-        <p className="provider-detail">
-          {profilingState?.outputPath ? `Output: ${profilingState.outputPath}` : 'Enable profiling to create a temporary output file.'}
-        </p>
       </section>
     </div>
   );
+}
+
+function BenchmarkingSettingsView({
+  developerSettings,
+  busy,
+  onClearCyberGymCache,
+  onPrepareCyberGymStorage,
+  onUpdateCyberGymSettings
+}: {
+  developerSettings: DeveloperSettings | null;
+  busy: boolean;
+  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
+  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
+  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
+}): JSX.Element {
+  const settings = developerSettings?.cyberGym ?? emptyCyberGymSettings();
+  const [draft, setDraft] = useState<CyberGymBenchmarkSettings>(settings);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(settings);
+  }, [settings.sourceRootPath, settings.selectedBenchmark, settings.cachePath, settings.outputPath]);
+
+  const dirty =
+    draft.sourceRootPath !== settings.sourceRootPath ||
+    draft.selectedBenchmark !== settings.selectedBenchmark ||
+    draft.cachePath !== settings.cachePath ||
+    draft.outputPath !== settings.outputPath;
+
+  const save = async (): Promise<void> => {
+    await onUpdateCyberGymSettings(draft);
+    setActionMessage('CyberGym settings saved.');
+  };
+
+  const prepareStorage = async (): Promise<void> => {
+    const result = await onPrepareCyberGymStorage();
+    setActionMessage(result.detail);
+  };
+
+  const clearCache = async (): Promise<void> => {
+    const result = await onClearCyberGymCache();
+    setActionMessage(result.detail);
+  };
+
+  return (
+    <div className="settings-page benchmarking-settings-page">
+      <div className="settings-page-header">
+        <h3>Benchmarking</h3>
+      </div>
+      <section className="provider-card benchmarking-settings-card">
+        <div className="provider-heading">
+          <div className="status-icon">
+            <DatabaseZap size={18} />
+          </div>
+          <div>
+            <h4>CyberGym</h4>
+            <p>CyberGym can be very large. Beale stores paths now and will use the selected benchmark for runner execution.</p>
+          </div>
+          <StatusPill status="developer" />
+        </div>
+
+        <div className="settings-field-grid">
+          <SettingsTextField
+            label="CyberGym Root"
+            value={draft.sourceRootPath}
+            placeholder="/path/to/cybergym"
+            onChange={(sourceRootPath) => setDraft((current) => ({ ...current, sourceRootPath }))}
+          />
+          <SettingsTextField
+            label="Selected Benchmark"
+            value={draft.selectedBenchmark}
+            placeholder="task id or relative path"
+            onChange={(selectedBenchmark) => setDraft((current) => ({ ...current, selectedBenchmark }))}
+          />
+          <SettingsTextField
+            label="Cache Path"
+            value={draft.cachePath}
+            placeholder="/path/to/cybergym-cache"
+            onChange={(cachePath) => setDraft((current) => ({ ...current, cachePath }))}
+          />
+          <SettingsTextField
+            label="Results Path"
+            value={draft.outputPath}
+            placeholder="/path/to/cybergym-results"
+            onChange={(outputPath) => setDraft((current) => ({ ...current, outputPath }))}
+          />
+        </div>
+
+        <div className="provider-actions benchmarking-actions">
+          <button className="primary-button" type="button" disabled={busy || !dirty} onClick={() => void save()}>
+            <Save size={15} />
+            Save
+          </button>
+          <button type="button" disabled={busy} onClick={() => void prepareStorage()}>
+            <FolderPlus size={15} />
+            Create Folders
+          </button>
+          <button type="button" disabled={busy} onClick={() => void clearCache()}>
+            <Trash2 size={15} />
+            Clear Cache
+          </button>
+        </div>
+        {actionMessage ? (
+          <p className="settings-action-message" role="status">
+            {actionMessage}
+          </p>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function SettingsTextField({
+  label,
+  value,
+  placeholder,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <label className="settings-field">
+      <span>{label}</span>
+      <input type="text" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function emptyCyberGymSettings(): CyberGymBenchmarkSettings {
+  return {
+    sourceRootPath: '',
+    selectedBenchmark: '',
+    cachePath: '',
+    outputPath: ''
+  };
 }
 
 function SandboxSettingsView({
@@ -669,5 +842,9 @@ function settingsSectionLabel(section: SettingsSection): string {
       return 'Sandboxes';
     case 'providers':
       return 'Providers';
+    case 'benchmarking':
+      return 'Benchmarking';
+    case 'developer':
+      return 'Developer';
   }
 }

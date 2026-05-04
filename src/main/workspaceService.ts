@@ -1,7 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { release, tmpdir } from 'node:os';
+import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
@@ -22,6 +22,11 @@ import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
   AttemptRecord,
   BenchmarkRunInput,
+  CyberGymScenarioList,
+  CyberGymScenarioSummary,
+  CyberGymSettingsInput,
+  CyberGymStorageActionResult,
+  DeveloperSettings,
   FakeScenario,
   FindingRecord,
   GeneratedResearchPrompt,
@@ -197,6 +202,18 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
 ].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
+const CYBERGYM_FALLBACK_SCENARIOS: CyberGymScenarioSummary[] = [
+  cyberGymFallbackScenario('arvo:47101'),
+  cyberGymFallbackScenario('arvo:3938'),
+  cyberGymFallbackScenario('arvo:24993'),
+  cyberGymFallbackScenario('arvo:1065'),
+  cyberGymFallbackScenario('arvo:10400'),
+  cyberGymFallbackScenario('arvo:368'),
+  cyberGymFallbackScenario('oss-fuzz:42535201'),
+  cyberGymFallbackScenario('oss-fuzz:42535468'),
+  cyberGymFallbackScenario('oss-fuzz:370689421'),
+  cyberGymFallbackScenario('oss-fuzz:385167047')
+];
 
 export interface WorkspaceChange {
   programRegistryChanged: boolean;
@@ -234,6 +251,7 @@ export function getHostEnvironment(): HostEnvironment {
 
 export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
+  benchmarkTasksDirectory?: string;
   programRegistryDirectory?: string;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
@@ -319,6 +337,89 @@ export class WorkspaceService {
     registry.setVmPreference(input);
     this.onChange({ programRegistryChanged: true });
     return registry.getState();
+  }
+
+  public getDeveloperSettings(): DeveloperSettings {
+    return this.getProgramRegistry().getDeveloperSettings();
+  }
+
+  public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
+    const registry = this.getProgramRegistry();
+    const settings = registry.setDeveloperModeEnabled(enabled);
+    registry.setProfilingEnabled(enabled);
+    this.profiling.applyPreference(enabled);
+    this.onChange({ programRegistryChanged: true });
+    return settings;
+  }
+
+  public updateCyberGymSettings(input: CyberGymSettingsInput): DeveloperSettings {
+    const settings = this.getProgramRegistry().updateCyberGymSettings(input);
+    this.onChange({ programRegistryChanged: true });
+    return settings;
+  }
+
+  public prepareCyberGymStorage(): CyberGymStorageActionResult {
+    const settings = this.getProgramRegistry().getCyberGymSettings();
+    const cachePath = safeCyberGymStoragePath(settings.cachePath, 'cache');
+    const outputPath = safeCyberGymStoragePath(settings.outputPath, 'output');
+    mkdirSync(cachePath, { recursive: true });
+    mkdirSync(outputPath, { recursive: true });
+    return {
+      ok: true,
+      action: 'prepare_storage',
+      detail: 'CyberGym cache and result directories are ready.',
+      affectedPaths: [cachePath, outputPath]
+    };
+  }
+
+  public clearCyberGymCache(): CyberGymStorageActionResult {
+    const settings = this.getProgramRegistry().getCyberGymSettings();
+    const cachePath = safeCyberGymStoragePath(settings.cachePath, 'cache');
+    rmSync(cachePath, { recursive: true, force: true });
+    mkdirSync(cachePath, { recursive: true });
+    return {
+      ok: true,
+      action: 'clear_cache',
+      detail: 'CyberGym cache directory was cleared.',
+      affectedPaths: [cachePath]
+    };
+  }
+
+  public getCyberGymScenarios(): CyberGymScenarioList {
+    const tasksFile = findLatestCyberGymTasksFile(this.options.benchmarkTasksDirectory ?? join(process.cwd(), 'benchmarks'));
+    if (!tasksFile) {
+      return {
+        scenarios: CYBERGYM_FALLBACK_SCENARIOS,
+        source: 'fallback_subset',
+        sourcePath: null,
+        lastRefreshedAt: null,
+        totalCount: CYBERGYM_FALLBACK_SCENARIOS.length,
+        loadedAt: nowIso()
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(readFileSync(tasksFile.path, 'utf8')) as unknown;
+      const scenarios = cyberGymScenariosFromTasks(parsed);
+      if (scenarios.length === 0) throw new Error('CyberGym tasks file did not contain selectable scenarios.');
+      return {
+        scenarios,
+        source: 'project_tasks_json',
+        sourcePath: tasksFile.path,
+        lastRefreshedAt: tasksFile.lastRefreshedAt,
+        totalCount: scenarios.length,
+        loadedAt: nowIso()
+      };
+    } catch {
+      return {
+        scenarios: CYBERGYM_FALLBACK_SCENARIOS,
+        source: 'fallback_subset',
+        sourcePath: tasksFile.path,
+        lastRefreshedAt: tasksFile.lastRefreshedAt,
+        totalCount: CYBERGYM_FALLBACK_SCENARIOS.length,
+        loadedAt: nowIso()
+      };
+    }
   }
 
   public async setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult> {
@@ -2746,6 +2847,175 @@ function errorMessage(error: unknown): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function safeCyberGymStoragePath(path: string, label: 'cache' | 'output'): string {
+  if (!path.trim()) {
+    throw new Error(`CyberGym ${label} path is empty.`);
+  }
+  const resolved = resolve(path);
+  const root = parse(resolved).root;
+  if (resolved === root || resolved === resolve(homedir()) || resolved === resolve(tmpdir())) {
+    throw new Error(`Refusing to use broad system directory as CyberGym ${label} path: ${resolved}`);
+  }
+  const normalized = resolved.toLowerCase();
+  if (!normalized.includes('cybergym') && !normalized.includes('benchmark') && !normalized.includes('.beale')) {
+    throw new Error(`CyberGym ${label} path must include cybergym, benchmark, or .beale: ${resolved}`);
+  }
+  return resolved;
+}
+
+function findLatestCyberGymTasksFile(tasksDirectory: string): { path: string; lastRefreshedAt: string | null } | null {
+  const directory = resolve(tasksDirectory);
+  if (!existsSync(directory)) return null;
+  const candidates = readdirSync(directory)
+    .map((name) => {
+      const match = /^tasks_(\d{8})\.json$/i.exec(name);
+      if (!match) return null;
+      const path = join(directory, name);
+      const stats = statSync(path);
+      if (!stats.isFile()) return null;
+      return {
+        path,
+        sortKey: match[1],
+        lastRefreshedAt: isoDateFromCompactDate(match[1]) ?? stats.mtime.toISOString().slice(0, 10),
+        modifiedAtMs: stats.mtimeMs
+      };
+    })
+    .filter((candidate): candidate is { path: string; sortKey: string; lastRefreshedAt: string; modifiedAtMs: number } => Boolean(candidate))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey) || right.modifiedAtMs - left.modifiedAtMs);
+  const latest = candidates[0] ?? null;
+  return latest ? { path: latest.path, lastRefreshedAt: latest.lastRefreshedAt } : null;
+}
+
+function isoDateFromCompactDate(value: string): string | null {
+  if (!/^\d{8}$/.test(value)) return null;
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+  return `${year}-${month}-${day}`;
+}
+
+function cyberGymScenariosFromTasks(value: unknown): CyberGymScenarioSummary[] {
+  return cyberGymTaskRecords(value)
+    .map((record, index) => cyberGymScenarioFromTaskRecord(record, index))
+    .filter((scenario): scenario is CyberGymScenarioSummary => Boolean(scenario))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function cyberGymTaskRecords(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (!isRecord(value)) return [];
+
+  for (const key of ['tasks', 'instances', 'benchmarks', 'scenarios']) {
+    const candidate = value[key];
+    if (Array.isArray(candidate)) return candidate.filter(isRecord);
+  }
+
+  return Object.entries(value)
+    .filter(([, entry]) => isRecord(entry))
+    .map(([key, entry]) => {
+      const record = entry as Record<string, unknown>;
+      return firstString(record, ['task_id', 'taskId', 'id']) ? record : { ...record, id: key };
+    });
+}
+
+function cyberGymScenarioFromTaskRecord(record: Record<string, unknown>, index: number): CyberGymScenarioSummary | null {
+  const id = firstString(record, ['task_id', 'taskId', 'id', 'benchmark_id', 'instance_id']) ?? `cybergym:${index + 1}`;
+  const projectName = firstString(record, ['project_name', 'projectName', 'project', 'repo_name', 'repoName', 'repository', 'package']) ?? projectFromCyberGymId(id);
+  const source = firstString(record, ['source', 'origin', 'dataset']) ?? projectFromCyberGymId(id);
+  const difficulty = firstString(record, ['difficulty', 'level']) ?? difficultySummary(record.task_difficulty) ?? 'level1';
+  const title = firstString(record, ['title', 'name', 'bug_id', 'bugId', 'vulnerability_id', 'vulnerabilityId']) ?? `CyberGym ${id}`;
+  const description = firstString(record, ['description', 'vulnerability_description', 'vulnerabilityDescription', 'summary', 'prompt', 'cve']) ?? '';
+  const language = firstString(record, ['project_language', 'language', 'sanitizer', 'cwe', 'cwe_id', 'cweId']);
+  const tags = uniqueNonEmptyStrings([
+    ...stringArray(record.tags),
+    projectName,
+    source,
+    difficulty,
+    language
+  ]);
+  return {
+    id,
+    title,
+    projectName,
+    source,
+    difficulty,
+    description,
+    tags,
+    searchText: searchableJsonText(record),
+    local: true
+  };
+}
+
+function difficultySummary(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const levels = Object.keys(value).filter((key) => key.trim()).sort();
+  return levels.length ? levels.join(', ') : null;
+}
+
+function cyberGymFallbackScenario(id: string): CyberGymScenarioSummary {
+  const projectName = projectFromCyberGymId(id);
+  return {
+    id,
+    title: `CyberGym ${id}`,
+    projectName,
+    source: 'official_subset',
+    difficulty: 'level1',
+    description: 'Documented CyberGym subset task for selected benchmark setup before the full task catalog is available locally.',
+    tags: ['official subset', projectName, 'level1'],
+    searchText: `${id} ${projectName} official subset level1`,
+    local: false
+  };
+}
+
+function searchableJsonText(value: unknown): string {
+  const parts: string[] = [];
+  collectSearchableJsonText(value, parts);
+  return parts.join(' ').slice(0, 60_000);
+}
+
+function collectSearchableJsonText(value: unknown, parts: string[]): void {
+  if (parts.join(' ').length > 60_000) return;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    parts.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchableJsonText(item, parts);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, nested] of Object.entries(value)) {
+    parts.push(key);
+    collectSearchableJsonText(nested, parts);
+  }
+}
+
+function projectFromCyberGymId(id: string): string {
+  return id.includes(':') ? id.split(':')[0] || 'CyberGym' : 'CyberGym';
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim());
+}
+
+function uniqueNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map((value) => value.trim())));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function sleep(ms: number): Promise<void> {

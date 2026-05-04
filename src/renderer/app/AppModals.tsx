@@ -1,5 +1,10 @@
 import type { JSX } from 'react';
 import type {
+  CyberGymScenarioList,
+  CyberGymScenarioSummary,
+  CyberGymSettingsInput,
+  CyberGymStorageActionResult,
+  DeveloperSettings,
   FindingRecord,
   HypothesisRecord,
   NotificationRecord,
@@ -25,6 +30,7 @@ import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingMo
 import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
 import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
+import { CyberGymScenarioPickerModal } from '../features/settings/CyberGymScenarioPickerModal';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
@@ -37,6 +43,9 @@ export function AppModals({
   activeRunDetail,
   activeProgramName,
   busy,
+  cyberGymScenarioList,
+  cyberGymScenarioPickerOpen,
+  developerSettings,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
@@ -63,6 +72,8 @@ export function AppModals({
   vmPreference,
   onCancelNewResearch,
   onCancelProgramOnboarding,
+  onChooseCyberGymScenario,
+  onClearCyberGymCache,
   onChangeProgramDraft,
   onChangeSettingsSection,
   onChangeVisibleTraceCategories,
@@ -73,16 +84,18 @@ export function AppModals({
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
+  onCloseCyberGymScenarioPicker,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
   onOpenSessionHistorySession,
+  onPrepareCyberGymStorage,
   onProgramTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
   onRefreshProjectSemanticIndex,
   onSetProjectSemanticIndexEnabled,
-  onSetProfilingEnabled,
+  onSetDeveloperModeEnabled,
   onSetupSandbox,
   onSetVmPreference,
   onStartOpenAiOAuth,
@@ -91,12 +104,16 @@ export function AppModals({
   onSubmitProgramOnboarding,
   onSkipProgramOnboardingRepository,
   onOpenSearchResult,
+  onUpdateCyberGymSettings,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
   activeProgramName: string;
   busy: boolean;
+  cyberGymScenarioList: CyberGymScenarioList | null;
+  cyberGymScenarioPickerOpen: boolean;
+  developerSettings: DeveloperSettings | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -123,6 +140,8 @@ export function AppModals({
   vmPreference: VmPreference;
   onCancelNewResearch: () => void;
   onCancelProgramOnboarding: () => void;
+  onChooseCyberGymScenario: (scenario: CyberGymScenarioSummary) => void;
+  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
@@ -133,16 +152,18 @@ export function AppModals({
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
+  onCloseCyberGymScenarioPicker: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
   onOpenSessionHistorySession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
+  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
   onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
-  onSetProfilingEnabled: (enabled: boolean) => Promise<void>;
+  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -151,6 +172,7 @@ export function AppModals({
   onSubmitProgramOnboarding: () => void;
   onSkipProgramOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
+  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
@@ -181,23 +203,35 @@ export function AppModals({
       {settingsOpen ? (
         <SettingsModal
           section={settingsSection}
+          developerSettings={developerSettings}
           executor={snapshot?.executor ?? null}
           projectSemantic={snapshot?.projectSemantic ?? null}
           programName={snapshot?.activeScope.programName ?? null}
           vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
-          profilingState={profilingState}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
+          onClearCyberGymCache={onClearCyberGymCache}
           onClose={onCloseSettings}
+          onPrepareCyberGymStorage={onPrepareCyberGymStorage}
           onSetVmPreference={onSetVmPreference}
           onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
+          onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
           onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
-          onSetProfilingEnabled={onSetProfilingEnabled}
           onSetupSandbox={onSetupSandbox}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
+          onUpdateCyberGymSettings={onUpdateCyberGymSettings}
+        />
+      ) : null}
+      {cyberGymScenarioPickerOpen ? (
+        <CyberGymScenarioPickerModal
+          activeScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
+          busy={busy}
+          scenarioList={cyberGymScenarioList}
+          onClose={onCloseCyberGymScenarioPicker}
+          onSelect={onChooseCyberGymScenario}
         />
       ) : null}
       {profilingOpen ? (

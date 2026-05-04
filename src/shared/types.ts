@@ -512,6 +512,53 @@ export interface ProgramRegistryState {
   researchSessions: ResearchSessionSummary[];
 }
 
+export interface CyberGymBenchmarkSettings {
+  sourceRootPath: string;
+  selectedBenchmark: string;
+  cachePath: string;
+  outputPath: string;
+}
+
+export interface DeveloperSettings {
+  developerModeEnabled: boolean;
+  cyberGym: CyberGymBenchmarkSettings;
+}
+
+export interface CyberGymSettingsInput {
+  sourceRootPath?: string;
+  selectedBenchmark?: string;
+  cachePath?: string;
+  outputPath?: string;
+}
+
+export interface CyberGymStorageActionResult {
+  ok: boolean;
+  action: 'prepare_storage' | 'clear_cache';
+  detail: string;
+  affectedPaths: string[];
+}
+
+export interface CyberGymScenarioSummary {
+  id: string;
+  title: string;
+  projectName: string;
+  source: string;
+  difficulty: string;
+  description: string;
+  tags: string[];
+  searchText: string;
+  local: boolean;
+}
+
+export interface CyberGymScenarioList {
+  scenarios: CyberGymScenarioSummary[];
+  source: 'project_tasks_json' | 'fallback_subset';
+  sourcePath: string | null;
+  lastRefreshedAt: string | null;
+  totalCount: number;
+  loadedAt: string;
+}
+
 export interface ProgramOnboardingDefaults {
   workspacePath: string;
   programName: string;
@@ -1249,6 +1296,12 @@ export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
   selectProgramDirectory(): Promise<ProgramDirectorySelection>;
   getProgramRegistry(): Promise<ProgramRegistryState>;
+  getDeveloperSettings(): Promise<DeveloperSettings>;
+  setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
+  updateCyberGymSettings(input: CyberGymSettingsInput): Promise<DeveloperSettings>;
+  prepareCyberGymStorage(): Promise<CyberGymStorageActionResult>;
+  clearCyberGymCache(): Promise<CyberGymStorageActionResult>;
+  getCyberGymScenarios(): Promise<CyberGymScenarioList>;
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
   skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null>;

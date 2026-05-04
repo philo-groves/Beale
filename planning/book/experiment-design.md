@@ -321,9 +321,14 @@ External benchmark pass rates are useful context, but they should not replace tr
 
 The full CyberGym suite is large and costly. Beale should use a stable small subset for frequent comparison.
 
+Developer Mode should expose CyberGym selection and storage paths, but benchmark UX should remain framed as calibration support for authorized vulnerability research rather than a product goal.
+
+The scenario selector should load the newest Beale-local `benchmarks/tasks_YYYYMMDD.json` CyberGym catalog and fall back to a small documented subset so users can choose a single target before downloading or preparing large benchmark data.
+
 Policy:
 
 - Choose a fixed CyberGym subset, preferably stratified by project, language, and bug type.
+- Run only the selected benchmark or subset unless a major evaluation explicitly calls for broader coverage.
 - Assign a stable subset ID, such as `cybergym-l1-beale-smoke-25`.
 - Record exact task IDs.
 - Compare Beale results to published Codex CLI and OpenAI Agent results only when task level and trial conditions are compatible.

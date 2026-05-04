@@ -10,6 +10,7 @@ export function useProfilingRuntime(
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
   setProfilingEnabled: (enabled: boolean) => Promise<void>;
+  refreshProfilingState: () => Promise<void>;
   flushProfilingReport: () => ProfilingReport;
 } {
   const [profilingState, setProfilingState] = useState<ProfilingState | null>(null);
@@ -20,12 +21,17 @@ export function useProfilingRuntime(
     observeReportsRef.current = observeReports;
   }, [observeReports]);
 
-  useEffect(() => {
-    window.beale
-      .getProfilingState()
-      .then(setProfilingState)
-      .catch((caught: unknown) => onError(errorMessage(caught)));
+  const refreshProfilingState = useCallback(async (): Promise<void> => {
+    try {
+      setProfilingState(await window.beale.getProfilingState());
+    } catch (caught) {
+      onError(errorMessage(caught));
+    }
   }, [onError]);
+
+  useEffect(() => {
+    void refreshProfilingState();
+  }, [refreshProfilingState]);
 
   const recordReport = useCallback(
     (report: ProfilingReport): void => {
@@ -77,6 +83,7 @@ export function useProfilingRuntime(
     profilingState,
     lastProfilingReport,
     setProfilingEnabled,
+    refreshProfilingState,
     flushProfilingReport
   };
 }

@@ -4,6 +4,9 @@ import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type {
+  CyberGymBenchmarkSettings,
+  CyberGymSettingsInput,
+  DeveloperSettings,
   ProgramDirectorySelection,
   ProgramOnboardingDefaults,
   ProgramRegistryEntry,
@@ -29,11 +32,13 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
 
 export class ProgramRegistry {
   private readonly db: DatabaseSync;
+  private readonly defaultCyberGymSettings: CyberGymBenchmarkSettings;
   public readonly registryPath: string;
 
   public constructor(registryDirectory = join(homedir(), '.beale')) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'registry.sqlite');
+    this.defaultCyberGymSettings = defaultCyberGymSettings(registryDirectory);
     this.db = new DatabaseSync(this.registryPath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initialize();
@@ -79,6 +84,38 @@ export class ProgramRegistry {
 
   public setProfilingEnabled(enabled: boolean): void {
     this.setMeta('profiling_enabled', enabled ? '1' : '0');
+  }
+
+  public getDeveloperSettings(): DeveloperSettings {
+    return {
+      developerModeEnabled: this.getDeveloperModeEnabled(),
+      cyberGym: this.getCyberGymSettings()
+    };
+  }
+
+  public getDeveloperModeEnabled(): boolean {
+    return this.getMeta('developer_mode_enabled') === '1';
+  }
+
+  public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
+    this.setMeta('developer_mode_enabled', enabled ? '1' : '0');
+    return this.getDeveloperSettings();
+  }
+
+  public getCyberGymSettings(): CyberGymBenchmarkSettings {
+    const raw = this.getMeta('cybergym_settings');
+    if (!raw) return this.defaultCyberGymSettings;
+    try {
+      return normalizeCyberGymSettings(JSON.parse(raw), this.defaultCyberGymSettings);
+    } catch {
+      return this.defaultCyberGymSettings;
+    }
+  }
+
+  public updateCyberGymSettings(input: CyberGymSettingsInput): DeveloperSettings {
+    const next = normalizeCyberGymSettings({ ...this.getCyberGymSettings(), ...input }, this.defaultCyberGymSettings);
+    this.setMeta('cybergym_settings', JSON.stringify(next));
+    return this.getDeveloperSettings();
   }
 
   public inspectDirectory(path: string): ProgramDirectorySelection {
@@ -468,6 +505,30 @@ function normalizeVmPreference(value: unknown): VmPreference {
     backendKind,
     updatedAt: typeof record.updatedAt === 'string' && record.updatedAt.trim() ? record.updatedAt : null
   };
+}
+
+function defaultCyberGymSettings(registryDirectory: string): CyberGymBenchmarkSettings {
+  return {
+    sourceRootPath: join(registryDirectory, 'benchmarks', 'cybergym'),
+    selectedBenchmark: '',
+    cachePath: join(registryDirectory, 'benchmark-cache', 'cybergym'),
+    outputPath: join(registryDirectory, 'benchmark-results', 'cybergym')
+  };
+}
+
+function normalizeCyberGymSettings(value: unknown, fallback: CyberGymBenchmarkSettings): CyberGymBenchmarkSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  const record = value as Record<string, unknown>;
+  return {
+    sourceRootPath: stringSetting(record.sourceRootPath, fallback.sourceRootPath),
+    selectedBenchmark: stringSetting(record.selectedBenchmark, fallback.selectedBenchmark),
+    cachePath: stringSetting(record.cachePath, fallback.cachePath),
+    outputPath: stringSetting(record.outputPath, fallback.outputPath)
+  };
+}
+
+function stringSetting(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
 function isExecutorBackendKind(value: unknown): value is ExecutorBackendKind {

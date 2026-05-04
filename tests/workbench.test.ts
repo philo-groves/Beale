@@ -145,6 +145,100 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('persists developer mode and CyberGym benchmark settings', () => {
+    const registryDir = tempWorkspace();
+    const benchmarkTasksDirectory = join(registryDir, 'benchmarks');
+    const sourceRootPath = join(registryDir, 'cybergym-source');
+    const cachePath = join(registryDir, 'cybergym-cache');
+    const outputPath = join(registryDir, 'cybergym-results');
+    const service = new WorkspaceService(() => undefined, { benchmarkTasksDirectory, programRegistryDirectory: registryDir });
+
+    expect(service.getDeveloperSettings()).toMatchObject({
+      developerModeEnabled: false,
+      cyberGym: {
+        selectedBenchmark: ''
+      }
+    });
+    expect(service.getProfilingState().enabled).toBe(false);
+
+    expect(service.setDeveloperModeEnabled(true).developerModeEnabled).toBe(true);
+    expect(service.getProfilingState().enabled).toBe(true);
+    const updated = service.updateCyberGymSettings({
+      sourceRootPath,
+      selectedBenchmark: 'cybergym/l1/parser-off-by-one',
+      cachePath,
+      outputPath
+    });
+    expect(updated.cyberGym).toEqual({
+      sourceRootPath,
+      selectedBenchmark: 'cybergym/l1/parser-off-by-one',
+      cachePath,
+      outputPath
+    });
+    const fallbackScenarios = service.getCyberGymScenarios();
+    expect(fallbackScenarios.source).toBe('fallback_subset');
+    expect(fallbackScenarios.scenarios.map((scenario) => scenario.id)).toContain('arvo:10400');
+
+    mkdirSync(benchmarkTasksDirectory, { recursive: true });
+    writeFileSync(
+      join(benchmarkTasksDirectory, 'tasks_20260504.json'),
+      JSON.stringify([
+        {
+          task_id: 'demo:1',
+          project_name: 'Demo Project',
+          project_language: 'c',
+          source: 'oss-fuzz',
+          vulnerability_description: 'Heap overflow parser reproduction.',
+          task_difficulty: { level1: ['repo-vul.tar.gz', 'description.txt'] },
+          tags: ['parser']
+        }
+      ])
+    );
+    const localScenarios = service.getCyberGymScenarios();
+    expect(localScenarios).toMatchObject({
+      source: 'project_tasks_json',
+      lastRefreshedAt: '2026-05-04',
+      totalCount: 1,
+      scenarios: [
+        {
+          id: 'demo:1',
+          projectName: 'Demo Project',
+          source: 'oss-fuzz',
+          difficulty: 'level1',
+          tags: expect.arrayContaining(['c', 'parser']),
+          local: true
+        }
+      ]
+    });
+    expect(localScenarios.scenarios[0].searchText).toContain('Heap overflow parser reproduction.');
+
+    const prepared = service.prepareCyberGymStorage();
+    expect(prepared.affectedPaths).toEqual([cachePath, outputPath]);
+    expect(existsSync(cachePath)).toBe(true);
+    expect(existsSync(outputPath)).toBe(true);
+    writeFileSync(join(cachePath, 'stale-cache-entry'), 'stale');
+    expect(existsSync(join(cachePath, 'stale-cache-entry'))).toBe(true);
+    expect(service.clearCyberGymCache()).toMatchObject({ ok: true, action: 'clear_cache' });
+    expect(existsSync(cachePath)).toBe(true);
+    expect(existsSync(join(cachePath, 'stale-cache-entry'))).toBe(false);
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, { benchmarkTasksDirectory, programRegistryDirectory: registryDir });
+    expect(reopened.getDeveloperSettings()).toMatchObject({
+      developerModeEnabled: true,
+      cyberGym: {
+        sourceRootPath,
+        selectedBenchmark: 'cybergym/l1/parser-off-by-one',
+        cachePath,
+        outputPath
+      }
+    });
+    expect(reopened.getProfilingState().enabled).toBe(true);
+    expect(reopened.setDeveloperModeEnabled(false).developerModeEnabled).toBe(false);
+    expect(reopened.getProfilingState().enabled).toBe(false);
+    reopened.close();
+  });
+
   it('reports a cheap run detail version for active polling', () => {
     const service = openService();
     const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');

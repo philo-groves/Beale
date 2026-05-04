@@ -13,8 +13,10 @@
 - Added dev-only renderer DevTools shortcuts and launch opt-ins for debugging performance instrumentation.
 - Added a cheap run-detail version IPC path and main-process timing logs for active-session performance diagnosis.
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
-- Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > General.
+- Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > Developer through Developer Mode.
 - Added a profiling overview modal and Debug header button while profiling is enabled.
+- Added Developer Mode settings with automatic profiling enablement, CyberGym benchmarking path/cache controls, cache helpers, a CyberGym sidebar entry, and a searchable CyberGym scenario picker backed by Beale-local `benchmarks/tasks_YYYYMMDD.json` catalogs with Last Refreshed metadata.
+- Added an orange CyberGym picker warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
 - Added Edit menu actions for Copy and Paste Steering, including platform shortcut labels and paste insertion into the steering input.
 - Added View menu Zoom Out and Zoom In commands backed by Electron `webFrame` page zoom.
@@ -281,6 +283,7 @@
 
 ### Documentation
 
+- Updated experiment design guidance so CyberGym support is scoped to Developer Mode calibration and selected benchmark/subset execution.
 - Added a Fiddlesticks gap analysis for a post-alpha Rust harness migration.
 - Added a beta-readiness chapter for non-functional buttons, placeholder surfaces, and incomplete beta-facing controls.
 - Expanded the root README for human readers with current status, setup, safety boundaries, known incomplete surfaces, and planning links.

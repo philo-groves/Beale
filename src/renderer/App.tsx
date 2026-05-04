@@ -3,6 +3,11 @@ import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
+  CyberGymScenarioList,
+  CyberGymScenarioSummary,
+  CyberGymSettingsInput,
+  CyberGymStorageActionResult,
+  DeveloperSettings,
   NotificationRecord,
   OpenAiOAuthStartResult,
   ProgramOnboardingProgressUpdate,
@@ -74,6 +79,9 @@ export function App(): JSX.Element {
     loadProgramRegistry
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
+  const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
+  const [cyberGymScenarioList, setCyberGymScenarioList] = useState<CyberGymScenarioList | null>(null);
+  const [cyberGymScenarioPickerOpen, setCyberGymScenarioPickerOpen] = useState(false);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -108,7 +116,7 @@ export function App(): JSX.Element {
   const {
     profilingState,
     lastProfilingReport,
-    setProfilingEnabled,
+    refreshProfilingState,
     flushProfilingReport
   } = useProfilingRuntime(handleError, { observeReports: profilingOpen || settingsOpen });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
@@ -133,6 +141,13 @@ export function App(): JSX.Element {
   useEffect(() => {
     setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
   }, [selectedRunId]);
+
+  useEffect(() => {
+    window.beale
+      .getDeveloperSettings()
+      .then(setDeveloperSettings)
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
+  }, [handleError]);
 
   useEffect(() => {
     if (!selectedRunId) setProgramMainView('understanding');
@@ -295,6 +310,85 @@ export function App(): JSX.Element {
     }
   }, [applySnapshot, snapshot]);
 
+  const setDeveloperModeEnabled = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      setBusy(true);
+      setError(null);
+      try {
+        setDeveloperSettings(await window.beale.setDeveloperModeEnabled(enabled));
+        await refreshProfilingState();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshProfilingState]
+  );
+
+  const updateCyberGymSettings = useCallback(async (input: CyberGymSettingsInput): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setDeveloperSettings(await window.beale.updateCyberGymSettings(input));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const refreshCyberGymScenarios = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setCyberGymScenarioList(await window.beale.getCyberGymScenarios());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const openCyberGymScenarioPicker = useCallback((): void => {
+    setCyberGymScenarioPickerOpen(true);
+    void refreshCyberGymScenarios();
+  }, [refreshCyberGymScenarios]);
+
+  const selectCyberGymScenario = useCallback(
+    async (scenario: CyberGymScenarioSummary): Promise<void> => {
+      await updateCyberGymSettings({ selectedBenchmark: scenario.id });
+      setCyberGymScenarioPickerOpen(false);
+    },
+    [updateCyberGymSettings]
+  );
+
+  const prepareCyberGymStorage = useCallback(async (): Promise<CyberGymStorageActionResult> => {
+    setBusy(true);
+    setError(null);
+    try {
+      return await window.beale.prepareCyberGymStorage();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const clearCyberGymCache = useCallback(async (): Promise<CyberGymStorageActionResult> => {
+    setBusy(true);
+    setError(null);
+    try {
+      return await window.beale.clearCyberGymCache();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const startOpenAiOAuth = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -390,6 +484,10 @@ export function App(): JSX.Element {
     setSettingsOpen(true);
   }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openBenchmarkingSettings = useCallback(() => {
+    setSettingsSection('benchmarking');
+    setSettingsOpen(true);
+  }, []);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
     setProfilingOpen(true);
@@ -562,12 +660,15 @@ export function App(): JSX.Element {
       <ProgramSidebar
         busy={busy}
         collapsed={sidebarCollapsed}
+        developerModeEnabled={developerSettings?.developerModeEnabled ?? false}
         error={error}
         openProgramMenuId={openProgramMenuId}
         programRegistry={programRegistry}
         selectedRunId={selectedRunId}
         snapshot={snapshot}
         onAddProgram={addProgram}
+        onOpenBenchmarkingSettings={openBenchmarkingSettings}
+        onOpenCyberGymScenarioPicker={openCyberGymScenarioPicker}
         onOpenProgram={openRegisteredProgram}
         onOpenProgramInfo={setProgramInfo}
         onOpenResearchSession={openResearchSession}
@@ -650,6 +751,9 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
+        cyberGymScenarioList={cyberGymScenarioList}
+        cyberGymScenarioPickerOpen={cyberGymScenarioPickerOpen}
+        developerSettings={developerSettings}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
@@ -676,6 +780,7 @@ export function App(): JSX.Element {
         vmPreference={vmPreference}
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelProgramOnboarding={closeProgramOnboarding}
+        onChooseCyberGymScenario={selectCyberGymScenario}
         onChangeProgramDraft={setProgramDraft}
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
@@ -686,6 +791,8 @@ export function App(): JSX.Element {
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
+        onCloseCyberGymScenarioPicker={() => setCyberGymScenarioPickerOpen(false)}
+        onClearCyberGymCache={clearCyberGymCache}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneProgram}
@@ -695,13 +802,15 @@ export function App(): JSX.Element {
         }}
         onProgramTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
+        onPrepareCyberGymStorage={prepareCyberGymStorage}
         onFlushProfilingReport={flushProfilingReport}
         onRefreshProjectSemanticIndex={refreshProjectSemanticIndex}
         onSetProjectSemanticIndexEnabled={setProjectSemanticIndexEnabled}
-        onSetProfilingEnabled={setProfilingEnabled}
+        onSetDeveloperModeEnabled={setDeveloperModeEnabled}
         onSetupSandbox={setupSandbox}
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}
+        onUpdateCyberGymSettings={updateCyberGymSettings}
         onStartedNewResearch={(runId) => {
           clearRunDetail();
           setSelectedRunId(runId);

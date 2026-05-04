@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import { DatabaseZap, FolderPlus, MoreVertical, Play, Plus, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
@@ -10,12 +10,15 @@ const SIDEBAR_SESSION_LIMIT = 4;
 export const ProgramSidebar = memo(function ProgramSidebar({
   busy,
   collapsed,
+  developerModeEnabled,
   error,
   openProgramMenuId,
   programRegistry,
   selectedRunId,
   snapshot,
   onAddProgram,
+  onOpenBenchmarkingSettings,
+  onOpenCyberGymScenarioPicker,
   onOpenProgram,
   onOpenProgramInfo,
   onOpenResearchSession,
@@ -28,12 +31,15 @@ export const ProgramSidebar = memo(function ProgramSidebar({
 }: {
   busy: boolean;
   collapsed: boolean;
+  developerModeEnabled: boolean;
   error: string | null;
   openProgramMenuId: string | null;
   programRegistry: ProgramRegistryState | null;
   selectedRunId: string | null;
   snapshot: WorkspaceSnapshot | null;
   onAddProgram: () => void;
+  onOpenBenchmarkingSettings: () => void;
+  onOpenCyberGymScenarioPicker: () => void;
   onOpenProgram: (program: ProgramRegistryEntry) => void;
   onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
   onOpenResearchSession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
@@ -69,6 +75,19 @@ export const ProgramSidebar = memo(function ProgramSidebar({
             <FolderPlus size={15} />
           </button>
         </div>
+        {developerModeEnabled ? (
+          <div className="program-group developer-program-group">
+            <div className="program-item-row developer-program-row">
+              <button type="button" className="program-item developer-program-item" title="Configure CyberGym benchmarking" onClick={onOpenBenchmarkingSettings}>
+                <DatabaseZap size={15} />
+                <span>CyberGym</span>
+              </button>
+              <button type="button" className="program-menu-button cybergym-scenario-button" title="Choose CyberGym scenario" onClick={onOpenCyberGymScenarioPicker}>
+                <Plus size={14} />
+              </button>
+            </div>
+          </div>
+        ) : null}
         {(programRegistry?.programs ?? []).map((program) => {
           const active = snapshot?.workspace.workspacePath === program.workspacePath;
           const menuOpen = openProgramMenuId === program.id;

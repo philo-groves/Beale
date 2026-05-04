@@ -3,6 +3,10 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   BenchmarkRunInput,
+  CyberGymScenarioList,
+  CyberGymSettingsInput,
+  CyberGymStorageActionResult,
+  DeveloperSettings,
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneProgramLookupResult,
@@ -46,6 +50,24 @@ const api: BealeApi = {
   },
   getProgramRegistry() {
     return ipcRenderer.invoke(IPC_CHANNELS.getProgramRegistry);
+  },
+  getDeveloperSettings(): Promise<DeveloperSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getDeveloperSettings);
+  },
+  setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
+  },
+  updateCyberGymSettings(input: CyberGymSettingsInput): Promise<DeveloperSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.updateCyberGymSettings, input);
+  },
+  prepareCyberGymStorage(): Promise<CyberGymStorageActionResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.prepareCyberGymStorage);
+  },
+  clearCyberGymCache(): Promise<CyberGymStorageActionResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.clearCyberGymCache);
+  },
+  getCyberGymScenarios(): Promise<CyberGymScenarioList> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getCyberGymScenarios);
   },
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneProgram, identifier);
