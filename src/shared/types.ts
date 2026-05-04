@@ -373,6 +373,65 @@ export interface ProgramGraphVisualization {
   generatedAt: string;
 }
 
+export interface ProgramGraphProjectionNode extends ProgramGraphVisualizationNode {
+  clusterIds: string[];
+  qualityFlags: string[];
+  pathLabel: string;
+  repositoryLabel: string | null;
+  sourceGroupLabel: string | null;
+}
+
+export interface ProgramGraphProjectionEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string | null;
+  edgeKind: string;
+  targetEntityType: string;
+  targetEntityId: string | null;
+  targetLabel: string;
+  clusterIds: string[];
+  qualityFlags: string[];
+  indexedAt: string;
+}
+
+export interface ProgramGraphProjectionCluster {
+  id: string;
+  kind: 'repository' | 'source_group' | 'entity_family' | 'relationship_family' | 'repeated_label' | 'quality';
+  label: string;
+  nodeCount: number;
+  edgeCount: number;
+  qualityFlags: string[];
+  parentId: string | null;
+}
+
+export interface ProgramGraphProjectionDiagnostics {
+  nodeCount: number;
+  edgeCount: number;
+  resolvedEdgeCount: number;
+  unresolvedEdgeCount: number;
+  selfEdgeCount: number;
+  genericLabelNodeCount: number;
+  repeatedLabelNodeCount: number;
+  testOrDocNodeCount: number;
+  nodeFamilyCounts: Record<string, number>;
+  edgeFamilyCounts: Record<string, number>;
+  repositoryCounts: Record<string, number>;
+  sourceGroupCounts: Record<string, number>;
+  genericLabelCounts: Record<string, number>;
+  repeatedLabelCounts: Record<string, number>;
+  qualityFlagCounts: Record<string, number>;
+}
+
+export interface ProgramGraphProjection {
+  scopeVersionId: string;
+  status: string;
+  nodes: ProgramGraphProjectionNode[];
+  edges: ProgramGraphProjectionEdge[];
+  clusters: ProgramGraphProjectionCluster[];
+  diagnostics: ProgramGraphProjectionDiagnostics;
+  generatedAt: string;
+}
+
 export interface ProjectSemanticSummary {
   scopeVersionId: string;
   enabled: boolean;
@@ -1198,6 +1257,7 @@ export interface BealeApi {
   setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
   refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
+  getProgramGraphProjection(): Promise<ProgramGraphProjection>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

@@ -27,6 +27,7 @@ import type {
   OpenAiTransport,
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
+  ProgramGraphProjection,
   ProgramGraphVisualization,
   ProjectGraphSummary,
   ProjectSearchResult,
@@ -595,6 +596,48 @@ const PROJECT_SEMANTIC_ENTITY_CONTEXT_LINES = 3;
 const PROJECT_SEMANTIC_MAX_VECTOR_TERMS = 256;
 const PROJECT_SEMANTIC_SEARCH_CANDIDATE_LIMIT = 768;
 const PROJECT_SEMANTIC_SEARCH_PREFILTER_TERM_LIMIT = 18;
+const PROJECT_GRAPH_GENERIC_LABELS = new Set([
+  'api',
+  'app',
+  'async',
+  'auth',
+  'authorization',
+  'body',
+  'client',
+  'data',
+  'delete',
+  'error',
+  'exec',
+  'fetch',
+  'get',
+  'handler',
+  'headers',
+  'id',
+  'input',
+  'insert',
+  'list',
+  'method',
+  'middleware',
+  'object',
+  'params',
+  'parse',
+  'permission',
+  'permissions',
+  'policy',
+  'post',
+  'query',
+  'request',
+  'response',
+  'route',
+  'select',
+  'string',
+  'test',
+  'token',
+  'update',
+  'url',
+  'user',
+  'value'
+]);
 
 function projectSemanticEnabledMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_ENABLED_META_KEY}:${scopeVersionId}`;
@@ -611,6 +654,71 @@ function projectSemanticJobMetaKey(scopeVersionId: string): string {
 function projectSemanticDirtyMetaKey(scopeVersionId: string): string {
   return `${PROJECT_SEMANTIC_DIRTY_META_KEY}:${scopeVersionId}`;
 }
+
+function normalizeProjectGraphLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function projectGraphClusterId(kind: string, value: string): string {
+  const normalized = normalizeProjectGraphLabel(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return `${kind}:${normalized || 'unknown'}`.slice(0, 120);
+}
+
+function isProjectGraphGenericLabel(value: string): boolean {
+  const normalized = normalizeProjectGraphLabel(value);
+  if (!normalized || normalized.length <= 2 || /^\d+$/.test(normalized)) return true;
+  if (PROJECT_GRAPH_GENERIC_LABELS.has(normalized)) return true;
+  return /^[a-z]+$/.test(normalized) && normalized.length <= 4;
+}
+
+function projectGraphRepositoryLabel(sourcePath: string | null): string | null {
+  const segments = projectGraphPathSegments(sourcePath);
+  const repositorySegment = segments.find((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
+  if (!repositorySegment) return null;
+  const match = /^(github\.com|gitlab\.com|bitbucket\.org)_(.+)$/.exec(repositorySegment);
+  if (!match) return repositorySegment;
+  const repositoryParts = match[2].split('_').filter(Boolean);
+  if (repositoryParts.length >= 2) return `${repositoryParts[0]}/${repositoryParts[1]}`;
+  return `${match[1]}/${repositoryParts.join('/') || repositorySegment}`;
+}
+
+function projectGraphPathLabel(sourcePath: string | null): string {
+  const segments = projectGraphPathSegments(sourcePath);
+  const repositoryIndex = segments.findIndex((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
+  const relevantSegments = repositoryIndex >= 0 ? segments.slice(repositoryIndex + 1) : segments;
+  return relevantSegments.slice(-4).join('/');
+}
+
+function projectGraphSourceGroupLabel(sourcePath: string | null): string | null {
+  const segments = projectGraphPathSegments(sourcePath);
+  const repositoryIndex = segments.findIndex((segment) => /^(github\.com|gitlab\.com|bitbucket\.org)_/.test(segment));
+  const relevantSegments = repositoryIndex >= 0 ? segments.slice(repositoryIndex + 1) : segments;
+  if (relevantSegments.length === 0) return null;
+  if (['apps', 'packages', 'crates', 'src', 'lib', 'cmd', 'internal', 'pkg'].includes(relevantSegments[0]) && relevantSegments.length > 1) {
+    return `${relevantSegments[0]}/${relevantSegments[1]}`;
+  }
+  return relevantSegments[0];
+}
+
+function projectGraphPathSegments(sourcePath: string | null): string[] {
+  if (!sourcePath) return [];
+  return sourcePath.replace(/\\/g, '/').split('/').filter(Boolean);
+}
+
+function isProjectGraphTestOrDocPath(sourcePath: string | null): boolean {
+  const path = (sourcePath ?? '').replace(/\\/g, '/').toLowerCase();
+  return path.includes('/test/') || path.includes('/tests/') || path.includes('__tests__') || path.includes('/docs/') || path.endsWith('/readme.md') || path.includes('/.github/');
+}
+
+function topProjectGraphCounts(counts: Map<string, number>, limit: number): Record<string, number> {
+  return Object.fromEntries(
+    [...counts.entries()]
+      .filter(([, count]) => count > 0)
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, limit)
+  );
+}
+
 const PROJECT_INDEX_SKIPPED_DIRS = new Set(['.beale', '.git', 'node_modules', 'dist', 'out', 'coverage', '.cache', '.next', 'target', 'build']);
 const PROJECT_INDEX_MANIFEST_FILES = new Set([
   'package.json',
@@ -5773,6 +5881,272 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProgramGraphProjection(scopeVersionId = this.getActiveScope().id): ProgramGraphProjection {
+    const summary = this.getProjectGraphSummary(scopeVersionId);
+    const nodes = rows(
+      this.db
+        .prepare(
+          `SELECT
+             id,
+             scope_version_id,
+             node_kind,
+             entity_type,
+             entity_id,
+             label,
+             source_path,
+             indexed_at
+           FROM project_graph_nodes
+           WHERE scope_version_id = ?
+           ORDER BY
+             CASE entity_type
+               WHEN 'scope_version' THEN 0
+               WHEN 'scope_asset' THEN 1
+               WHEN 'run' THEN 2
+               WHEN 'hypothesis' THEN 3
+               WHEN 'finding' THEN 4
+               WHEN 'evidence' THEN 5
+               WHEN 'verifier_run' THEN 6
+               WHEN 'verifier_contract' THEN 7
+               WHEN 'artifact' THEN 8
+               WHEN 'structure_entity' THEN 9
+               WHEN 'inventory_item' THEN 10
+               WHEN 'trace_event' THEN 11
+               WHEN 'transcript' THEN 12
+               WHEN 'research_component' THEN 13
+               WHEN 'weakness' THEN 14
+               ELSE 30
+             END,
+             label ASC,
+             id ASC`
+        )
+        .all(scopeVersionId)
+    ).map((row) => this.mapProjectGraphProjectionNode(row));
+    const edges = rows(
+      this.db
+        .prepare(
+          `SELECT
+             id,
+             scope_version_id,
+             source_node_id,
+             edge_kind,
+             target_node_id,
+             target_entity_type,
+             target_entity_id,
+             target_label,
+             indexed_at
+           FROM project_graph_edges
+           WHERE scope_version_id = ?
+           ORDER BY
+             CASE edge_kind
+               WHEN 'routes_to' THEN 0
+               WHEN 'handles_with' THEN 1
+               WHEN 'uses_middleware' THEN 2
+               WHEN 'checks_permission' THEN 3
+               WHEN 'reaches_sink' THEN 4
+               WHEN 'parses_body' THEN 5
+               WHEN 'serializes_response' THEN 6
+               WHEN 'reads_model' THEN 7
+               WHEN 'writes_model' THEN 8
+               WHEN 'supports_hypothesis' THEN 9
+               WHEN 'verifies_finding' THEN 10
+               WHEN 'evidence_for' THEN 11
+               WHEN 'calls' THEN 12
+               WHEN 'imports_symbol' THEN 13
+               WHEN 'exports_symbol' THEN 14
+               WHEN 'references_permission' THEN 15
+               WHEN 'references_url' THEN 16
+               ELSE 30
+             END,
+             target_label ASC,
+             id ASC`
+        )
+        .all(scopeVersionId)
+    ).map((row) => this.mapProjectGraphProjectionEdge(row));
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+    const degreeCounts = new Map<string, number>();
+    const nodeFamilyCounts = new Map<string, number>();
+    const edgeFamilyCounts = new Map<string, number>();
+    const repositoryCounts = new Map<string, number>();
+    const sourceGroupCounts = new Map<string, number>();
+    const labelCounts = new Map<string, number>();
+    const genericLabelCounts = new Map<string, number>();
+    const qualityFlagCounts = new Map<string, number>();
+    const clusterMap = new Map<string, ProgramGraphProjection['clusters'][number]>();
+    const increment = (counts: Map<string, number>, key: string, amount = 1): void => {
+      counts.set(key, (counts.get(key) ?? 0) + amount);
+    };
+    const ensureCluster = (
+      id: string,
+      kind: ProgramGraphProjection['clusters'][number]['kind'],
+      label: string,
+      parentId: string | null = null,
+      qualityFlags: string[] = []
+    ): ProgramGraphProjection['clusters'][number] => {
+      const existing = clusterMap.get(id);
+      if (existing) return existing;
+      const cluster = { id, kind, label, nodeCount: 0, edgeCount: 0, qualityFlags, parentId };
+      clusterMap.set(id, cluster);
+      return cluster;
+    };
+    const bumpNodeCluster = (id: string, kind: ProgramGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
+      ensureCluster(id, kind, label, parentId, flags).nodeCount += 1;
+    };
+    const bumpEdgeCluster = (id: string, kind: ProgramGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
+      ensureCluster(id, kind, label, parentId, flags).edgeCount += 1;
+    };
+    const noteQuality = (flag: string): string => {
+      increment(qualityFlagCounts, flag);
+      return flag;
+    };
+
+    for (const node of nodes) {
+      increment(nodeFamilyCounts, node.entityType);
+      const normalizedLabel = normalizeProjectGraphLabel(node.label);
+      increment(labelCounts, normalizedLabel || 'unknown');
+      const repositoryLabel = projectGraphRepositoryLabel(node.sourcePath);
+      if (repositoryLabel) increment(repositoryCounts, repositoryLabel);
+      const sourceGroupLabel = projectGraphSourceGroupLabel(node.sourcePath);
+      if (sourceGroupLabel) increment(sourceGroupCounts, sourceGroupLabel);
+    }
+
+    let resolvedEdgeCount = 0;
+    let unresolvedEdgeCount = 0;
+    let selfEdgeCount = 0;
+    for (const edge of edges) {
+      increment(edgeFamilyCounts, edge.edgeKind);
+      const targetExists = Boolean(edge.targetNodeId && nodesById.has(edge.targetNodeId));
+      if (!targetExists) {
+        unresolvedEdgeCount += 1;
+        continue;
+      }
+      resolvedEdgeCount += 1;
+      increment(degreeCounts, edge.sourceNodeId);
+      if (edge.targetNodeId !== edge.sourceNodeId) {
+        increment(degreeCounts, edge.targetNodeId ?? '');
+      } else {
+        selfEdgeCount += 1;
+      }
+    }
+
+    const repeatedLabelCounts = new Map([...labelCounts.entries()].filter(([, count]) => count > 1));
+    const projectedNodes: ProgramGraphProjection['nodes'] = nodes.map((node) => {
+      const qualityFlags: string[] = [];
+      const normalizedLabel = normalizeProjectGraphLabel(node.label);
+      const repeatedLabelCount = labelCounts.get(normalizedLabel || 'unknown') ?? 0;
+      if (isProjectGraphGenericLabel(node.label)) {
+        qualityFlags.push(noteQuality('generic_label'));
+        increment(genericLabelCounts, normalizedLabel || 'unknown');
+      }
+      if (repeatedLabelCount > 1) qualityFlags.push(noteQuality('repeated_label'));
+      if (isProjectGraphTestOrDocPath(node.sourcePath)) qualityFlags.push(noteQuality('test_or_doc_path'));
+
+      const entityClusterId = projectGraphClusterId('entity_family', node.entityType);
+      const clusterIds = [entityClusterId];
+      bumpNodeCluster(entityClusterId, 'entity_family', node.entityType);
+
+      const repositoryLabel = projectGraphRepositoryLabel(node.sourcePath);
+      if (repositoryLabel) {
+        const repositoryClusterId = projectGraphClusterId('repository', repositoryLabel);
+        clusterIds.push(repositoryClusterId);
+        bumpNodeCluster(repositoryClusterId, 'repository', repositoryLabel);
+      }
+
+      const sourceGroupLabel = projectGraphSourceGroupLabel(node.sourcePath);
+      if (sourceGroupLabel) {
+        const sourceGroupClusterId = projectGraphClusterId('source_group', sourceGroupLabel);
+        clusterIds.push(sourceGroupClusterId);
+        bumpNodeCluster(sourceGroupClusterId, 'source_group', sourceGroupLabel);
+      }
+
+      if (repeatedLabelCount >= 3) {
+        const labelClusterId = projectGraphClusterId('repeated_label', normalizedLabel || 'unknown');
+        clusterIds.push(labelClusterId);
+        bumpNodeCluster(labelClusterId, 'repeated_label', node.label || 'Unknown', null, ['repeated_label']);
+      }
+
+      for (const flag of qualityFlags) {
+        const qualityClusterId = projectGraphClusterId('quality', flag);
+        clusterIds.push(qualityClusterId);
+        bumpNodeCluster(qualityClusterId, 'quality', flag, null, [flag]);
+      }
+
+      return {
+        id: node.id,
+        nodeKind: node.nodeKind,
+        entityType: node.entityType,
+        entityId: node.entityId,
+        label: node.label,
+        sourcePath: node.sourcePath,
+        degree: degreeCounts.get(node.id) ?? 0,
+        indexedAt: node.indexedAt,
+        clusterIds: [...new Set(clusterIds)],
+        qualityFlags: [...new Set(qualityFlags)],
+        pathLabel: projectGraphPathLabel(node.sourcePath),
+        repositoryLabel,
+        sourceGroupLabel
+      };
+    });
+
+    const projectedEdges: ProgramGraphProjection['edges'] = edges.map((edge) => {
+      const qualityFlags: string[] = [];
+      if (!edge.targetNodeId || !nodesById.has(edge.targetNodeId)) qualityFlags.push(noteQuality('unresolved_target'));
+      if (edge.targetNodeId && edge.targetNodeId === edge.sourceNodeId) qualityFlags.push(noteQuality('self_relation'));
+      if (isProjectGraphGenericLabel(edge.targetLabel)) qualityFlags.push(noteQuality('generic_target_label'));
+      const familyClusterId = projectGraphClusterId('relationship_family', edge.edgeKind);
+      const clusterIds = [familyClusterId];
+      bumpEdgeCluster(familyClusterId, 'relationship_family', edge.edgeKind);
+      const normalizedTargetLabel = normalizeProjectGraphLabel(edge.targetLabel);
+      if ((labelCounts.get(normalizedTargetLabel) ?? 0) >= 3) {
+        const repeatedClusterId = projectGraphClusterId('repeated_label', normalizedTargetLabel || 'unknown');
+        clusterIds.push(repeatedClusterId);
+        bumpEdgeCluster(repeatedClusterId, 'repeated_label', edge.targetLabel || 'Unknown', null, ['repeated_label']);
+      }
+      for (const flag of qualityFlags) {
+        const qualityClusterId = projectGraphClusterId('quality', flag);
+        clusterIds.push(qualityClusterId);
+        bumpEdgeCluster(qualityClusterId, 'quality', flag, null, [flag]);
+      }
+      return {
+        id: edge.id,
+        sourceNodeId: edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId,
+        edgeKind: edge.edgeKind,
+        targetEntityType: edge.targetEntityType,
+        targetEntityId: edge.targetEntityId,
+        targetLabel: edge.targetLabel,
+        clusterIds: [...new Set(clusterIds)],
+        qualityFlags: [...new Set(qualityFlags)],
+        indexedAt: edge.indexedAt
+      };
+    });
+
+    return {
+      scopeVersionId,
+      status: summary.status,
+      nodes: projectedNodes,
+      edges: projectedEdges,
+      clusters: [...clusterMap.values()].sort((left, right) => right.nodeCount + right.edgeCount - (left.nodeCount + left.edgeCount) || left.label.localeCompare(right.label)),
+      diagnostics: {
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        resolvedEdgeCount,
+        unresolvedEdgeCount,
+        selfEdgeCount,
+        genericLabelNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('generic_label')).length,
+        repeatedLabelNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('repeated_label')).length,
+        testOrDocNodeCount: projectedNodes.filter((node) => node.qualityFlags.includes('test_or_doc_path')).length,
+        nodeFamilyCounts: topProjectGraphCounts(nodeFamilyCounts, 100),
+        edgeFamilyCounts: topProjectGraphCounts(edgeFamilyCounts, 100),
+        repositoryCounts: topProjectGraphCounts(repositoryCounts, 100),
+        sourceGroupCounts: topProjectGraphCounts(sourceGroupCounts, 100),
+        genericLabelCounts: topProjectGraphCounts(genericLabelCounts, 24),
+        repeatedLabelCounts: topProjectGraphCounts(repeatedLabelCounts, 24),
+        qualityFlagCounts: topProjectGraphCounts(qualityFlagCounts, 24)
+      },
+      generatedAt: nowIso()
+    };
+  }
+
   public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
     const startedAt = Date.now();
     this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
@@ -9802,6 +10176,20 @@ export class WorkspaceDatabase {
     };
   }
 
+  private mapProjectGraphProjectionNode(row: SqlRow): ProjectGraphNodeRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      nodeKind: text(row, 'node_kind'),
+      entityType: text(row, 'entity_type'),
+      entityId: text(row, 'entity_id'),
+      label: text(row, 'label'),
+      sourcePath: nullableText(row, 'source_path'),
+      metadata: {},
+      indexedAt: text(row, 'indexed_at')
+    };
+  }
+
   private mapProjectGraphEdge(row: SqlRow): ProjectGraphEdgeRecord {
     return {
       id: text(row, 'id'),
@@ -9813,6 +10201,21 @@ export class WorkspaceDatabase {
       targetEntityId: nullableText(row, 'target_entity_id'),
       targetLabel: text(row, 'target_label'),
       metadata: parseJson(row.metadata_json),
+      indexedAt: text(row, 'indexed_at')
+    };
+  }
+
+  private mapProjectGraphProjectionEdge(row: SqlRow): ProjectGraphEdgeRecord {
+    return {
+      id: text(row, 'id'),
+      scopeVersionId: text(row, 'scope_version_id'),
+      sourceNodeId: text(row, 'source_node_id'),
+      edgeKind: text(row, 'edge_kind'),
+      targetNodeId: nullableText(row, 'target_node_id'),
+      targetEntityType: text(row, 'target_entity_type'),
+      targetEntityId: nullableText(row, 'target_entity_id'),
+      targetLabel: text(row, 'target_label'),
+      metadata: {},
       indexedAt: text(row, 'indexed_at')
     };
   }

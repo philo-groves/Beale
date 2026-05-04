@@ -426,10 +426,14 @@ describe('Beale workbench skeleton', () => {
 
     const snapshot = service.getSnapshot();
     const graphVisualization = service.getProgramGraphVisualization();
+    const graphProjection = service.getProgramGraphProjection();
     expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(true);
     expect(snapshot?.projectGraph.nodeFamilyCounts.inventory_item).toBeGreaterThan(0);
     expect(graphVisualization.nodes.length).toBeGreaterThan(0);
     expect(graphVisualization.sampledNodeCount).toBe(graphVisualization.nodes.length);
+    expect(graphProjection.nodes.length).toBe(snapshot?.projectGraph.nodeCount);
+    expect(graphProjection.diagnostics.nodeCount).toBe(graphProjection.nodes.length);
+    expect(graphProjection.clusters.some((cluster) => cluster.kind === 'source_group' || cluster.kind === 'entity_family')).toBe(true);
     service.close();
   });
 

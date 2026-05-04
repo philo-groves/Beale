@@ -12,6 +12,7 @@ import type {
   ProgramRegistryState,
   ProfilingReport,
   ProfilingState,
+  ProgramGraphProjection,
   ProgramGraphVisualization,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
@@ -105,6 +106,9 @@ const api: BealeApi = {
   },
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphVisualization);
+  },
+  getProgramGraphProjection(): Promise<ProgramGraphProjection> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphProjection);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

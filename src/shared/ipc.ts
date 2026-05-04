@@ -22,6 +22,7 @@ export const IPC_CHANNELS = {
   setProjectSemanticIndexEnabled: 'beale:set-project-semantic-index-enabled',
   refreshProjectSemanticIndex: 'beale:refresh-project-semantic-index',
   getProgramGraphVisualization: 'beale:get-program-graph-visualization',
+  getProgramGraphProjection: 'beale:get-program-graph-projection',
   generateResearchPrompt: 'beale:generate-research-prompt',
   cancelResearchPromptGeneration: 'beale:cancel-research-prompt-generation',
   researchPromptGenerationUpdated: 'beale:research-prompt-generation-updated',

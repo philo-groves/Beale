@@ -407,6 +407,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getProgramGraphVisualization, () =>
     timedMainIpc('getProgramGraphVisualization', {}, () => workspaceService.getProgramGraphVisualization())
   );
+  ipcMain.handle(IPC_CHANNELS.getProgramGraphProjection, () =>
+    timedMainIpc('getProgramGraphProjection', {}, () => workspaceService.getProgramGraphProjection())
+  );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>
       workspaceService.generateResearchPrompt(input, (update) => event.sender.send(IPC_CHANNELS.researchPromptGenerationUpdated, update))

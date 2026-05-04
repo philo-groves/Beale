@@ -58,6 +58,7 @@ import type {
   ProfilingMetricDetail,
   ProfilingReport,
   ProfilingState,
+  ProgramGraphProjection,
   ProgramGraphVisualization,
   ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
@@ -976,6 +977,11 @@ export class WorkspaceService {
   public getProgramGraphVisualization(): ProgramGraphVisualization {
     const db = this.requireDb();
     return db.getProgramGraphVisualization(db.getActiveScope().id);
+  }
+
+  public getProgramGraphProjection(): ProgramGraphProjection {
+    const db = this.requireDb();
+    return db.getProgramGraphProjection(db.getActiveScope().id);
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {

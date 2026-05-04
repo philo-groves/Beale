@@ -76,6 +76,8 @@
 - Added New Program repository onboarding progress tracking with per-repository Clone Later and Index Later actions.
 - Added a Program Understanding workspace with relationship graph, search memory, scope, repository, and session summaries.
 - Added workbench-header Program Understanding view toggles and a bounded relationship graph visualization backed by indexed graph nodes and edges.
+- Added a full relationship graph projection IPC endpoint with source-group clustering and label/edge quality diagnostics.
+- Added Program Relationship Graph search, source-group focus, and relationship-family visibility controls.
 
 ### Changed
 
@@ -165,6 +167,9 @@
 - Changed the relationship graph visualization sample and layout to reduce dense node clustering and improve label readability.
 - Moved Program Understanding titles and index statuses into the workbench header, removing the duplicate header inside the program content area.
 - Changed relationship graph visualization to exclude self-edge/filler-node samples, diversify repeated targets, and list readable source-to-target relationship paths.
+- Changed Program Relationship Graph to render the full indexed graph through a D3 force-layout worker and canvas instead of a bounded SVG sample.
+- Changed Program Relationship Graph loading so a deterministic clustered preview and visible SVG overlay render before D3 force-layout refinement completes.
+- Changed Program Relationship Graph's default view to a source-group cluster overview, reserving node-level labels for search or focused groups.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
