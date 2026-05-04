@@ -1977,15 +1977,16 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .spawn-center-stack {
+  --spawn-center-top-padding: clamp(28px, 6vh, 56px);
   width: min(var(--spawn-center-width, 640px), calc(100% - 44px));
   min-width: min(280px, calc(100% - 44px));
   position: absolute;
   z-index: 5;
   left: 50%;
-  top: 50%;
+  top: var(--spawn-center-top-padding);
   display: grid;
   justify-items: center;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   color: #f0f0f0;
   pointer-events: none;
 }
