@@ -118,6 +118,7 @@
 - Changed local semantic indexing to be enabled by default per program while preserving explicit per-program disables.
 - Changed New Program repository onboarding so cloned repositories are added without a synchronous main-process inventory refresh, and indexing refreshes inventory through the semantic indexing job.
 - Changed model-facing search to add bounded graph-proximity matches from metadata and semantic seed hits.
+- Changed Spawn view layout to reserve side lanes for evidence trails and pack trails with measured non-overlap spacing.
 - Changed model-facing search ranking so graph seed and proximity signals can promote or diversify final search results instead of only filling remaining result slots.
 - Changed model-facing search to add graph-backed variant matches for entities that share important relationship targets such as sinks, permission checks, middleware, hypotheses, and findings.
 - Changed relationship graph research-memory coverage to add component and CWE anchor nodes plus explicit duplicate, evidence, verifier outcome, and artifact provenance edges.
@@ -172,7 +173,7 @@
 - Changed Program Relationship Graph loading so a deterministic clustered preview and visible SVG overlay render before D3 force-layout refinement completes.
 - Changed Program Relationship Graph's default view to a source-group cluster overview, reserving node-level labels for search or focused groups.
 - Changed the session alternate view toggle from the placeholder graph view to Spawn.
-- Changed Spawn thoughts to render titled thought sections with inline code formatting and standalone evidence as evidence squircles.
+- Changed Spawn thoughts to render titled thought sections with inline code formatting, standalone evidence as evidence squircles, and an attached Python code preview with running/exit status.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
@@ -213,6 +214,9 @@
 
 ### Fixed
 
+- Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
+- Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
+- Fixed tall Spawn evidence trails by capping compact trail rows and opening hidden evidence/finding items in a full-trail modal.
 - Fixed Spawn trail title wrapping, row separators, and curved-corner layering so stacked evidence and finding rows do not bleed through to the workspace background.
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
 - Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.

@@ -1,7 +1,8 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { Bug, ClipboardCheck, FileOutput, Search, X } from 'lucide-react';
+import { Bug, ClipboardCheck, FileOutput, RefreshCw, Search, X } from 'lucide-react';
 import type { EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
+import { Modal } from '../../app/Modal';
 import {
   buildEvidenceTrails,
   traceEventForEvidence,
@@ -10,8 +11,9 @@ import {
   type EvidenceTrail
 } from '../../view-models/researchItems';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import { reasoningTraceThoughtsFromText } from '../../view-models/traceContent';
+import { pythonToolCallPreview, pythonTracePreview, reasoningTraceThoughtsFromText, type PythonToolCallPreview } from '../../view-models/traceContent';
 import { formatPriorityPill, formatSessionTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
+import { highlightPythonCode } from '../traces/traceMarkup';
 
 interface SpawnTrailLayout {
   trail: EvidenceTrail;
@@ -34,22 +36,60 @@ interface SpawnThoughtSegment {
   description: string;
 }
 
-type SpawnTrailSurface = 'evidence' | 'finding' | null;
+interface SpawnPythonPreview {
+  id: string;
+  codeEvent: TraceDisplayEvent;
+  resultEvent: TraceDisplayEvent | null;
+  preview: PythonToolCallPreview;
+}
 
-const SPAWN_SLOT_POSITIONS: Array<[number, number]> = [
-  [-31, -21],
-  [31, -21],
-  [-35, 17],
-  [35, 17],
-  [0, -34],
-  [0, 34],
-  [-46, -4],
-  [46, -4],
-  [-20, 36],
-  [20, 36],
-  [-20, -38],
-  [20, -38]
-];
+interface SpawnWorkspaceSize {
+  width: number;
+  height: number;
+}
+
+interface SpawnLayoutMetrics {
+  centerWidth: number;
+  workspaceWidth: number;
+  workspaceHeight: number;
+}
+
+interface SpawnTrailSize {
+  trail: EvidenceTrail;
+  width: number;
+  height: number;
+}
+
+interface SpawnLane {
+  side: 'left' | 'right';
+  left: number;
+  right: number;
+  occupied: SpawnRect[];
+}
+
+interface SpawnRect {
+  top: number;
+  bottom: number;
+}
+
+type SpawnTrailSurface = 'evidence' | 'finding' | 'overflow' | null;
+
+type SpawnTrailListItem =
+  | { kind: 'overflow'; hiddenCount: number }
+  | { kind: 'evidence'; evidence: EvidenceRecord }
+  | { kind: 'finding'; finding: FindingRecord };
+
+const SPAWN_FALLBACK_WORKSPACE: SpawnWorkspaceSize = { width: 1180, height: 720 };
+const SPAWN_CENTER_MAX_WIDTH = 640;
+const SPAWN_CENTER_MIN_WIDTH = 320;
+const SPAWN_CENTER_COMPACT_MIN_WIDTH = 280;
+const SPAWN_CENTER_LANE_GAP = 34;
+const SPAWN_EDGE_PADDING = 24;
+const SPAWN_SEARCH_CONTROL_CLEARANCE = 84;
+const SPAWN_TRAIL_GAP = 28;
+const SPAWN_TRAIL_MIN_WIDTH = 208;
+const SPAWN_MAX_TRAIL_LIST_ITEMS = 3;
+const SPAWN_TRAIL_VERTICAL_ANCHORS = [0, -0.24, 0.24, -0.38, 0.38, -0.12, 0.12, -0.5, 0.5];
 
 export const SpawnSessionView = memo(function SpawnSessionView({
   detail,
@@ -62,17 +102,53 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   selectedTraceEventId: string | null;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const [workspaceSize, setWorkspaceSize] = useState<SpawnWorkspaceSize>({ width: 0, height: 0 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedTrailId, setExpandedTrailId] = useState<string | null>(null);
   const trails = useMemo(() => (detail ? buildEvidenceTrails(detail.hypotheses, detail.findings, detail.evidence) : []), [detail]);
   const latestThought = useMemo(() => latestAgentThought(events), [events]);
+  const latestPython = useMemo(() => latestSpawnPythonPreview(events, detail), [detail, events]);
   const [visibleThought, setVisibleThought] = useState<SpawnThought>(latestThought);
   const [thoughtPhase, setThoughtPhase] = useState<'enter' | 'exit'>('enter');
   const normalizedSearch = normalizeSpawnSearch(searchQuery);
-  const displayedTrails = useMemo(() => spawnTrailLayouts(trails, normalizedSearch), [normalizedSearch, trails]);
+  const layoutMetrics = useMemo(() => spawnLayoutMetrics(trails, normalizedSearch, workspaceSize), [normalizedSearch, trails, workspaceSize]);
+  const displayedTrails = useMemo(() => spawnTrailLayouts(trails, normalizedSearch, layoutMetrics), [layoutMetrics, normalizedSearch, trails]);
   const hiddenCount = Math.max(0, trails.length - displayedTrails.length);
+  const expandedTrail = expandedTrailId ? trails.find((trail) => trail.id === expandedTrailId) ?? null : null;
   const artifactById = useMemo(() => new Map((detail?.artifacts ?? []).map((artifact) => [artifact.id, artifact])), [detail?.artifacts]);
   const verifierRunById = useMemo(() => new Map((detail?.verifierRuns ?? []).map((run) => [run.id, run])), [detail?.verifierRuns]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace || typeof window === 'undefined') return undefined;
+    let frame = 0;
+    const updateSize = (): void => {
+      frame = 0;
+      const rect = workspace.getBoundingClientRect();
+      const next = { width: Math.round(rect.width), height: Math.round(rect.height) };
+      setWorkspaceSize((current) => (current.width === next.width && current.height === next.height ? current : next));
+    };
+    const requestUpdate = (): void => {
+      if (frame !== 0) return;
+      frame = window.requestAnimationFrame(updateSize);
+    };
+    requestUpdate();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(requestUpdate);
+      observer.observe(workspace);
+      return () => {
+        observer.disconnect();
+        if (frame !== 0) window.cancelAnimationFrame(frame);
+      };
+    }
+    window.addEventListener('resize', requestUpdate);
+    return () => {
+      window.removeEventListener('resize', requestUpdate);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     if (latestThought.id === visibleThought.id && latestThought.sourceText === visibleThought.sourceText) return undefined;
@@ -85,7 +161,7 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   }, [latestThought, visibleThought.id, visibleThought.sourceText]);
 
   return (
-    <div className="spawn-session-workspace" aria-label="Spawn view">
+    <div className="spawn-session-workspace" ref={workspaceRef} aria-label="Spawn view">
       <div className="spawn-trail-field" aria-hidden={displayedTrails.length === 0}>
         {displayedTrails.map((layout) => (
           <SpawnTrail
@@ -95,27 +171,38 @@ export const SpawnSessionView = memo(function SpawnSessionView({
             layout={layout}
             selectedTraceEventId={selectedTraceEventId}
             verifierRunById={verifierRunById}
+            onOpenFullTrail={setExpandedTrailId}
             onSelectTraceEvent={onSelectTraceEvent}
           />
         ))}
       </div>
 
-      <section className="spawn-core" aria-label="Latest agent thought" style={{ '--spawn-core-min-height': `${Math.max(176, visibleThought.estimatedHeight)}px` } as CSSProperties}>
-        <SquircleBackdrop className="spawn-core-shape" />
-        <div className={`spawn-core-content ${thoughtPhase}`} key={visibleThought.id}>
-          <div className="spawn-thought-list">
-            {visibleThought.thoughts.map((thought, index) => {
-              const title = thought.title ?? 'Latest Thought';
-              return (
-                <section className="spawn-thought-item" key={`${title}-${index}`}>
-                  <strong className={`spawn-thought-title ${thought.title ? '' : 'fallback'}`}>{renderSpawnInlineText(title, `thought-title-${index}`)}</strong>
-                  {thought.description ? <p className="spawn-thought-description">{renderSpawnInlineText(thought.description, `thought-description-${index}`)}</p> : null}
-                </section>
-              );
-            })}
+      <div className="spawn-center-stack" style={{ '--spawn-center-width': `${layoutMetrics.centerWidth}px` } as CSSProperties}>
+        <section className="spawn-core" aria-label="Latest agent thought" style={{ '--spawn-core-min-height': `${Math.max(136, visibleThought.estimatedHeight)}px` } as CSSProperties}>
+          <SquircleBackdrop className="spawn-core-shape" />
+          <div className={`spawn-core-content ${thoughtPhase}`} key={visibleThought.id}>
+            <div className="spawn-thought-list">
+              {visibleThought.thoughts.map((thought, index) => {
+                const title = thought.title ?? 'Latest Thought';
+                return (
+                  <section className="spawn-thought-item" key={`${title}-${index}`}>
+                    <strong className={`spawn-thought-title ${thought.title ? '' : 'fallback'}`}>{renderSpawnInlineText(title, `thought-title-${index}`)}</strong>
+                    {thought.description ? <p className="spawn-thought-description">{renderSpawnInlineText(thought.description, `thought-description-${index}`)}</p> : null}
+                  </section>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+        {latestPython ? (
+          <SpawnPythonChain
+            key={latestPython.id}
+            python={latestPython}
+            selectedTraceEventId={selectedTraceEventId}
+            onSelectTraceEvent={onSelectTraceEvent}
+          />
+        ) : null}
+      </div>
 
       <div className={`spawn-search-control ${searchOpen ? 'open' : ''}`}>
         {searchOpen ? (
@@ -146,6 +233,19 @@ export const SpawnSessionView = memo(function SpawnSessionView({
         )}
         {searchOpen && hiddenCount > 0 && !normalizedSearch ? <span>{hiddenCount} hidden</span> : null}
       </div>
+      {expandedTrail ? (
+        <SpawnTrailDetailModal
+          artifactById={artifactById}
+          events={events}
+          trail={expandedTrail}
+          verifierRunById={verifierRunById}
+          onClose={() => setExpandedTrailId(null)}
+          onSelectTraceEvent={(event) => {
+            onSelectTraceEvent(event);
+            setExpandedTrailId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 });
@@ -156,6 +256,7 @@ function SpawnTrail({
   layout,
   selectedTraceEventId,
   verifierRunById,
+  onOpenFullTrail,
   onSelectTraceEvent
 }: {
   artifactById: Map<string, RunDetail['artifacts'][number]>;
@@ -163,12 +264,14 @@ function SpawnTrail({
   layout: SpawnTrailLayout;
   selectedTraceEventId: string | null;
   verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
+  onOpenFullTrail: (trailId: string) => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const evidenceCount = layout.trail.evidence.length;
   const findingCount = layout.trail.findings.length;
   const standaloneEvidence = !layout.trail.hypothesis && evidenceCount > 0 && findingCount === 0;
-  const firstExtensionSurface: SpawnTrailSurface = evidenceCount > 0 ? 'evidence' : findingCount > 0 ? 'finding' : null;
+  const listItems = compactSpawnTrailItems(layout.trail);
+  const firstExtensionSurface = spawnTrailItemSurface(listItems[0] ?? null);
 
   return (
     <article
@@ -207,26 +310,17 @@ function SpawnTrail({
           ))
         ) : (
           <div className={`spawn-trail-stack ${layout.trail.hypothesis ? '' : 'rootless'}`}>
-            {layout.trail.evidence.map((item, index) => (
-              <SpawnEvidenceNode
-                artifactKind={item.artifactId ? artifactById.get(item.artifactId)?.kind ?? null : null}
-                evidence={item}
-                event={traceEventForEvidence(events, item)}
-                key={item.id}
-                nextSurface={index < evidenceCount - 1 ? 'evidence' : findingCount > 0 ? 'finding' : null}
-                selectedTraceEventId={selectedTraceEventId}
-                verifierStatus={item.verifierRunId ? verifierRunById.get(item.verifierRunId)?.status ?? null : null}
-                onSelectTraceEvent={onSelectTraceEvent}
-              />
-            ))}
-            {layout.trail.findings.map((finding, index) => (
-              <SpawnFindingNode
+            {listItems.map((item, index) => (
+              <SpawnTrailListItemNode
+                artifactById={artifactById}
                 events={events}
-                finding={finding}
-                hypothesis={layout.trail.hypothesis}
-                key={finding.id}
-                nextSurface={index < findingCount - 1 ? 'finding' : null}
+                item={item}
+                key={spawnTrailListItemKey(item)}
+                nextSurface={spawnTrailItemSurface(listItems[index + 1] ?? null)}
                 selectedTraceEventId={selectedTraceEventId}
+                trail={layout.trail}
+                verifierRunById={verifierRunById}
+                onOpenFullTrail={onOpenFullTrail}
                 onSelectTraceEvent={onSelectTraceEvent}
               />
             ))}
@@ -234,6 +328,56 @@ function SpawnTrail({
         )}
       </div>
     </article>
+  );
+}
+
+function SpawnTrailListItemNode({
+  artifactById,
+  events,
+  item,
+  nextSurface,
+  selectedTraceEventId,
+  trail,
+  verifierRunById,
+  onOpenFullTrail,
+  onSelectTraceEvent
+}: {
+  artifactById: Map<string, RunDetail['artifacts'][number]>;
+  events: TraceDisplayEvent[];
+  item: SpawnTrailListItem;
+  nextSurface: SpawnTrailSurface;
+  selectedTraceEventId: string | null;
+  trail: EvidenceTrail;
+  verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
+  onOpenFullTrail: (trailId: string) => void;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  if (item.kind === 'overflow') {
+    return <SpawnTrailOverflowNode hiddenCount={item.hiddenCount} nextSurface={nextSurface} onOpen={() => onOpenFullTrail(trail.id)} />;
+  }
+  if (item.kind === 'evidence') {
+    const evidence = item.evidence;
+    return (
+      <SpawnEvidenceNode
+        artifactKind={evidence.artifactId ? artifactById.get(evidence.artifactId)?.kind ?? null : null}
+        evidence={evidence}
+        event={traceEventForEvidence(events, evidence)}
+        nextSurface={nextSurface}
+        selectedTraceEventId={selectedTraceEventId}
+        verifierStatus={evidence.verifierRunId ? verifierRunById.get(evidence.verifierRunId)?.status ?? null : null}
+        onSelectTraceEvent={onSelectTraceEvent}
+      />
+    );
+  }
+  return (
+    <SpawnFindingNode
+      events={events}
+      finding={item.finding}
+      hypothesis={trail.hypothesis}
+      nextSurface={nextSurface}
+      selectedTraceEventId={selectedTraceEventId}
+      onSelectTraceEvent={onSelectTraceEvent}
+    />
   );
 }
 
@@ -271,6 +415,19 @@ function SpawnHypothesisNode({
         <strong>{truncateText(hypothesis.title, 86)}</strong>
         <small>{formatPriorityPill(hypothesis.priorityScore)}</small>
       </div>
+    </button>
+  );
+}
+
+function SpawnTrailOverflowNode({ hiddenCount, nextSurface, onOpen }: { hiddenCount: number; nextSurface: SpawnTrailSurface; onOpen: () => void }): JSX.Element {
+  return (
+    <button type="button" className={`spawn-trail-extension spawn-trail-overflow ${spawnNextSurfaceClass(nextSurface)}`} onClick={onOpen}>
+      <span>
+        <Search size={12} />
+        More
+      </span>
+      <strong>{`Hiding ${hiddenCount} Artifact${hiddenCount === 1 ? '' : 's'}`}</strong>
+      <small>Open full trail</small>
     </button>
   );
 }
@@ -346,6 +503,88 @@ function SpawnEvidenceNode({
   );
 }
 
+function SpawnPythonChain({
+  python,
+  selectedTraceEventId,
+  onSelectTraceEvent
+}: {
+  python: SpawnPythonPreview;
+  selectedTraceEventId: string | null;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const resultEvent = python.resultEvent;
+  const exitCode = python.preview.exitCode ?? '?';
+  const statusClass = resultEvent ? (exitCode === '0' ? 'success' : 'review') : 'running';
+  return (
+    <div className="spawn-python-chain" aria-label="Latest Python execution">
+      <button
+        type="button"
+        className={`spawn-python-node spawn-python-code-node ${python.codeEvent.id === selectedTraceEventId ? 'selected' : ''}`}
+        onClick={() => onSelectTraceEvent(python.codeEvent)}
+      >
+        <SquircleBackdrop className="spawn-python-shape" />
+        <div className="spawn-python-content">
+          {python.preview.task ? <p className="spawn-python-task">{python.preview.task}</p> : null}
+          <SpawnPythonBlock
+            label="Code"
+            language="python"
+            lines={python.preview.scriptLines}
+            lineCount={python.preview.scriptLineCount}
+            truncated={python.preview.truncated}
+          />
+          {!resultEvent ? (
+            <div className="spawn-python-status running">
+              <RefreshCw size={11} />
+              <span>Running...</span>
+            </div>
+          ) : null}
+        </div>
+      </button>
+      {resultEvent ? (
+        <button
+          type="button"
+          className={`spawn-python-result-node ${statusClass} ${resultEvent.id === selectedTraceEventId ? 'selected' : ''}`}
+          onClick={() => onSelectTraceEvent(resultEvent)}
+        >
+          <SquircleBackdrop className="spawn-python-result-shape" />
+          <span>Exit {exitCode}</span>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SpawnPythonBlock({
+  label,
+  language,
+  lineCount,
+  lines,
+  meta,
+  truncated
+}: {
+  label: string;
+  language?: 'python';
+  lineCount: number;
+  lines: string[];
+  meta?: string;
+  truncated: boolean;
+}): JSX.Element | null {
+  if (lines.length === 0) return null;
+  const lineLabel = meta ?? `${lineCount} line${lineCount === 1 ? '' : 's'}`;
+  const text = lines.join('\n');
+  return (
+    <div className="spawn-python-block">
+      <div className="spawn-python-heading">
+        <span>{label}</span>
+        <span>{lineLabel}</span>
+      </div>
+      <pre className={truncated ? 'is-truncated' : undefined}>
+        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(text) : text}</code>
+      </pre>
+    </div>
+  );
+}
+
 function SpawnStandaloneEvidenceNode({
   artifactKind,
   evidence,
@@ -387,12 +626,176 @@ function SpawnStandaloneEvidenceNode({
   );
 }
 
+function SpawnTrailDetailModal({
+  artifactById,
+  events,
+  trail,
+  verifierRunById,
+  onClose,
+  onSelectTraceEvent
+}: {
+  artifactById: Map<string, RunDetail['artifacts'][number]>;
+  events: TraceDisplayEvent[];
+  trail: EvidenceTrail;
+  verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
+  onClose: () => void;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  const items = fullSpawnTrailItems(trail);
+  const hypothesisEvent = trail.hypothesis ? traceEventForHypothesis(events, trail.hypothesis) : null;
+  return (
+    <Modal title="Evidence Trail" wide className="spawn-trail-detail-modal" onClose={onClose} footer={<button type="button" onClick={onClose}>Close</button>}>
+      <div className="spawn-trail-modal">
+        {trail.hypothesis ? (
+          <button
+            type="button"
+            className="spawn-trail-modal-summary"
+            disabled={!hypothesisEvent}
+            onClick={() => hypothesisEvent && onSelectTraceEvent(hypothesisEvent)}
+          >
+            <span>Hypothesis</span>
+            <strong>{trail.hypothesis.title}</strong>
+            <small>{[traceLabel(trail.hypothesis.state), formatPriorityPill(trail.hypothesis.priorityScore)].filter(Boolean).join(' / ')}</small>
+          </button>
+        ) : null}
+        {items.length > 0 ? (
+          <div className="spawn-trail-modal-list">
+            {items.map((item) => (
+              <SpawnTrailModalItem
+                artifactById={artifactById}
+                events={events}
+                item={item}
+                key={spawnTrailListItemKey(item)}
+                trail={trail}
+                verifierRunById={verifierRunById}
+                onSelectTraceEvent={onSelectTraceEvent}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="spawn-trail-modal-empty">No evidence or findings are recorded for this trail yet.</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function SpawnTrailModalItem({
+  artifactById,
+  events,
+  item,
+  trail,
+  verifierRunById,
+  onSelectTraceEvent
+}: {
+  artifactById: Map<string, RunDetail['artifacts'][number]>;
+  events: TraceDisplayEvent[];
+  item: Exclude<SpawnTrailListItem, { kind: 'overflow' }>;
+  trail: EvidenceTrail;
+  verifierRunById: Map<string, RunDetail['verifierRuns'][number]>;
+  onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+}): JSX.Element {
+  if (item.kind === 'evidence') {
+    const evidence = item.evidence;
+    const event = traceEventForEvidence(events, evidence);
+    const artifactKind = evidence.artifactId ? artifactById.get(evidence.artifactId)?.kind ?? null : null;
+    const verifierStatus = evidence.verifierRunId ? verifierRunById.get(evidence.verifierRunId)?.status ?? null : null;
+    const date = new Date(evidence.createdAt);
+    const time = Number.isNaN(date.getTime()) ? '' : formatSessionTime(date);
+    return (
+      <button type="button" className="spawn-trail-modal-item evidence" disabled={!event} onClick={() => event && onSelectTraceEvent(event)}>
+        <span>Evidence</span>
+        <strong>{evidence.summary || traceLabel(evidence.kind)}</strong>
+        <small>{[traceLabel(evidence.kind), artifactKind ? traceLabel(artifactKind) : '', verifierStatus ? traceLabel(verifierStatus) : '', time].filter(Boolean).join(' / ')}</small>
+      </button>
+    );
+  }
+  const event = traceEventForFinding(events, item.finding, trail.hypothesis);
+  return (
+    <button type="button" className="spawn-trail-modal-item finding" disabled={!event} onClick={() => event && onSelectTraceEvent(event)}>
+      <span>Finding</span>
+      <strong>{item.finding.title}</strong>
+      <small>{traceLabel(item.finding.state)}</small>
+    </button>
+  );
+}
+
 function SquircleBackdrop({ className }: { className: string }): JSX.Element {
   return (
     <svg className={className} viewBox="0 0 560 320" preserveAspectRatio="none" aria-hidden="true">
       <path d={superellipsePath(560, 320, 4, 96)} />
     </svg>
   );
+}
+
+function latestSpawnPythonPreview(events: TraceDisplayEvent[], detail: RunDetail | null): SpawnPythonPreview | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (!event) continue;
+
+    const resultPreview = pythonTracePreview(event, detail);
+    if (resultPreview && (resultPreview.scriptLines.length > 0 || resultPreview.outputLines.length > 0)) {
+      const codeEvent = pythonCodeEventForResult(events, event) ?? event;
+      return {
+        id: `${codeEvent.id}:${event.id}`,
+        codeEvent,
+        resultEvent: event,
+        preview: resultPreview
+      };
+    }
+
+    const codePreview = pythonToolCallPreview(event);
+    if (codePreview && (codePreview.scriptLines.length > 0 || codePreview.task)) {
+      const resultEvent = pythonResultEventForCall(events, event, detail);
+      const preview = resultEvent ? pythonTracePreview(resultEvent, detail) ?? codePreview : codePreview;
+      return {
+        id: resultEvent ? `${event.id}:${resultEvent.id}` : event.id,
+        codeEvent: event,
+        resultEvent,
+        preview
+      };
+    }
+  }
+  return null;
+}
+
+function pythonCodeEventForResult(events: TraceDisplayEvent[], resultEvent: TraceDisplayEvent): TraceDisplayEvent | null {
+  if (!resultEvent.toolCallId) return null;
+  return (
+    [...events]
+      .reverse()
+      .find((event) => event.id !== resultEvent.id && event.toolCallId === resultEvent.toolCallId && Boolean(pythonToolCallPreview(event))) ?? null
+  );
+}
+
+function pythonResultEventForCall(events: TraceDisplayEvent[], callEvent: TraceDisplayEvent, detail: RunDetail | null): TraceDisplayEvent | null {
+  if (!callEvent.toolCallId) return null;
+  return events.find((event) => event.id !== callEvent.id && event.toolCallId === callEvent.toolCallId && Boolean(pythonTracePreview(event, detail))) ?? null;
+}
+
+function fullSpawnTrailItems(trail: EvidenceTrail): Array<Exclude<SpawnTrailListItem, { kind: 'overflow' }>> {
+  return [
+    ...trail.evidence.map((evidence): Exclude<SpawnTrailListItem, { kind: 'overflow' }> => ({ kind: 'evidence', evidence })),
+    ...trail.findings.map((finding): Exclude<SpawnTrailListItem, { kind: 'overflow' }> => ({ kind: 'finding', finding }))
+  ];
+}
+
+function compactSpawnTrailItems(trail: EvidenceTrail): SpawnTrailListItem[] {
+  const items = fullSpawnTrailItems(trail);
+  if (items.length <= SPAWN_MAX_TRAIL_LIST_ITEMS) return items;
+  const visibleItems = items.slice(0, SPAWN_MAX_TRAIL_LIST_ITEMS - 1);
+  return [{ kind: 'overflow', hiddenCount: items.length - visibleItems.length }, ...visibleItems];
+}
+
+function spawnTrailListItemKey(item: SpawnTrailListItem): string {
+  if (item.kind === 'overflow') return `overflow:${item.hiddenCount}`;
+  if (item.kind === 'evidence') return `evidence:${item.evidence.id}`;
+  return `finding:${item.finding.id}`;
+}
+
+function spawnTrailItemSurface(item: SpawnTrailListItem | null): SpawnTrailSurface {
+  if (!item) return null;
+  return item.kind;
 }
 
 function latestAgentThought(events: TraceDisplayEvent[]): SpawnThought {
@@ -420,20 +823,149 @@ function thoughtText(event: TraceDisplayEvent): string {
   return '';
 }
 
-function spawnTrailLayouts(trails: EvidenceTrail[], normalizedSearch: string): SpawnTrailLayout[] {
-  const filtered = normalizedSearch ? trails.filter((trail) => spawnTrailMatches(trail, normalizedSearch)) : trails.slice(0, SPAWN_SLOT_POSITIONS.length);
-  return filtered.slice(0, normalizedSearch ? 18 : SPAWN_SLOT_POSITIONS.length).map((trail, index) => {
-    const [x, y] = SPAWN_SLOT_POSITIONS[index % SPAWN_SLOT_POSITIONS.length];
-    const itemCount = Math.max(1, trail.evidence.length + trail.findings.length + (trail.hypothesis ? 1 : 0));
+function spawnLayoutMetrics(trails: EvidenceTrail[], normalizedSearch: string, workspaceSize: SpawnWorkspaceSize): SpawnLayoutMetrics {
+  const workspaceWidth = workspaceSize.width > 0 ? workspaceSize.width : SPAWN_FALLBACK_WORKSPACE.width;
+  const workspaceHeight = workspaceSize.height > 0 ? workspaceSize.height : SPAWN_FALLBACK_WORKSPACE.height;
+  const candidateTrails = normalizedSearch ? trails.filter((trail) => spawnTrailMatches(trail, normalizedSearch)) : trails;
+  const maxTrailWidth = candidateTrails.reduce((maxWidth, trail) => Math.max(maxWidth, estimateSpawnTrailSize(trail, normalizedSearch).width), 0);
+  const maxCenterWidth = Math.min(SPAWN_CENTER_MAX_WIDTH, Math.max(SPAWN_CENTER_COMPACT_MIN_WIDTH, workspaceWidth - SPAWN_EDGE_PADDING * 2));
+  if (candidateTrails.length === 0 || maxTrailWidth === 0) {
     return {
-      trail,
-      x: `${x}%`,
-      y: `${y}%`,
-      delayMs: Math.min(520, index * 70),
-      width: normalizedSearch ? 280 : itemCount > 3 ? 278 : 248,
-      estimateHeight: Math.max(156, 86 + itemCount * 54)
+      centerWidth: maxCenterWidth,
+      workspaceWidth,
+      workspaceHeight
     };
-  });
+  }
+  const reservedSideWidth = maxTrailWidth + SPAWN_CENTER_LANE_GAP + SPAWN_EDGE_PADDING;
+  const laneAwareCenterWidth = workspaceWidth - reservedSideWidth * 2;
+  return {
+    centerWidth: clampNumber(laneAwareCenterWidth, Math.min(SPAWN_CENTER_MIN_WIDTH, maxCenterWidth), maxCenterWidth),
+    workspaceWidth,
+    workspaceHeight
+  };
+}
+
+function spawnTrailLayouts(trails: EvidenceTrail[], normalizedSearch: string, metrics: SpawnLayoutMetrics): SpawnTrailLayout[] {
+  const filtered = normalizedSearch ? trails.filter((trail) => spawnTrailMatches(trail, normalizedSearch)) : trails;
+  const candidateLimit = normalizedSearch ? 30 : filtered.length;
+  const candidates = filtered.slice(0, candidateLimit).map((trail) => estimateSpawnTrailSize(trail, normalizedSearch));
+  const lanes = spawnTrailLanes(metrics);
+  if (lanes.length === 0) return [];
+  const layouts: SpawnTrailLayout[] = [];
+
+  for (const [index, candidate] of candidates.entries()) {
+    const placement = placeSpawnTrail(candidate, lanes, metrics, index);
+    if (!placement) continue;
+    layouts.push({
+      trail: candidate.trail,
+      x: `${placement.centerX - metrics.workspaceWidth / 2}px`,
+      y: `${placement.centerY - metrics.workspaceHeight / 2}px`,
+      delayMs: Math.min(520, layouts.length * 70),
+      width: placement.width,
+      estimateHeight: candidate.height
+    });
+  }
+
+  return layouts;
+}
+
+function estimateSpawnTrailSize(trail: EvidenceTrail, normalizedSearch: string): SpawnTrailSize {
+  const evidenceCount = trail.evidence.length;
+  const findingCount = trail.findings.length;
+  const compactListCount = compactSpawnTrailItems(trail).length;
+  const itemCount = Math.max(1, evidenceCount + findingCount + (trail.hypothesis ? 1 : 0));
+  const standaloneEvidence = !trail.hypothesis && evidenceCount > 0 && findingCount === 0;
+  const width = normalizedSearch ? 280 : itemCount > 3 ? 278 : 248;
+  const visibleStandaloneCount = Math.min(evidenceCount, SPAWN_MAX_TRAIL_LIST_ITEMS);
+  const height = standaloneEvidence
+    ? Math.max(156, visibleStandaloneCount * 110 + Math.max(0, visibleStandaloneCount - 1) * 12)
+    : Math.max(156, (trail.hypothesis ? 108 : 20) + compactListCount * 72 + 20);
+  return { trail, width, height };
+}
+
+function spawnTrailLanes(metrics: SpawnLayoutMetrics): SpawnLane[] {
+  const centerLeft = (metrics.workspaceWidth - metrics.centerWidth) / 2;
+  const centerRight = centerLeft + metrics.centerWidth;
+  const lanes: SpawnLane[] = [];
+  const leftLane = {
+    side: 'left' as const,
+    left: SPAWN_EDGE_PADDING,
+    right: centerLeft - SPAWN_CENTER_LANE_GAP,
+    occupied: []
+  };
+  const rightLane = {
+    side: 'right' as const,
+    left: centerRight + SPAWN_CENTER_LANE_GAP,
+    right: metrics.workspaceWidth - SPAWN_EDGE_PADDING,
+    occupied: []
+  };
+  if (leftLane.right - leftLane.left >= SPAWN_TRAIL_MIN_WIDTH) lanes.push(leftLane);
+  if (rightLane.right - rightLane.left >= SPAWN_TRAIL_MIN_WIDTH) lanes.push(rightLane);
+  return lanes;
+}
+
+function placeSpawnTrail(
+  candidate: SpawnTrailSize,
+  lanes: SpawnLane[],
+  metrics: SpawnLayoutMetrics,
+  index: number
+): { centerX: number; centerY: number; width: number } | null {
+  const preferredSide = index % 2 === 0 ? 'left' : 'right';
+  const anchor = SPAWN_TRAIL_VERTICAL_ANCHORS[index % SPAWN_TRAIL_VERTICAL_ANCHORS.length] ?? 0;
+  const preferredCenterY = metrics.workspaceHeight / 2 + metrics.workspaceHeight * anchor;
+  const preferredTop = preferredCenterY - candidate.height / 2;
+  const placements = lanes
+    .map((lane) => {
+      const laneWidth = lane.right - lane.left;
+      const width = Math.min(candidate.width, laneWidth);
+      if (width < SPAWN_TRAIL_MIN_WIDTH) return null;
+      const top = fitSpawnTrailTop(lane.occupied, candidate.height, preferredTop, metrics.workspaceHeight);
+      if (top === null) return null;
+      const left = lane.side === 'left' ? lane.right - width : lane.left;
+      const centerY = top + candidate.height / 2;
+      const sidePenalty = lane.side === preferredSide ? 0 : 18;
+      const loadPenalty = lane.occupied.length * 24;
+      return {
+        lane,
+        left,
+        top,
+        width,
+        centerY,
+        score: Math.abs(centerY - preferredCenterY) + sidePenalty + loadPenalty
+      };
+    })
+    .filter((placement): placement is NonNullable<typeof placement> => Boolean(placement))
+    .sort((first, second) => first.score - second.score);
+
+  const placement = placements[0];
+  if (!placement) return null;
+  placement.lane.occupied.push({ top: placement.top, bottom: placement.top + candidate.height });
+  placement.lane.occupied.sort((first, second) => first.top - second.top);
+  return {
+    centerX: placement.left + placement.width / 2,
+    centerY: placement.centerY,
+    width: placement.width
+  };
+}
+
+function fitSpawnTrailTop(occupied: SpawnRect[], height: number, preferredTop: number, workspaceHeight: number): number | null {
+  const minTop = SPAWN_EDGE_PADDING;
+  const maxTop = workspaceHeight - SPAWN_EDGE_PADDING - SPAWN_SEARCH_CONTROL_CLEARANCE - height;
+  if (maxTop < minTop) return null;
+  const candidates = new Set<number>([clampNumber(preferredTop, minTop, maxTop), minTop, maxTop]);
+  for (const rect of occupied) {
+    candidates.add(clampNumber(rect.bottom + SPAWN_TRAIL_GAP, minTop, maxTop));
+    candidates.add(clampNumber(rect.top - SPAWN_TRAIL_GAP - height, minTop, maxTop));
+  }
+  return (
+    [...candidates]
+      .sort((first, second) => Math.abs(first - preferredTop) - Math.abs(second - preferredTop))
+      .find((top) => occupied.every((rect) => top + height + SPAWN_TRAIL_GAP <= rect.top || top >= rect.bottom + SPAWN_TRAIL_GAP)) ?? null
+  );
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function spawnTrailMatches(trail: EvidenceTrail, normalizedSearch: string): boolean {
@@ -471,16 +1003,34 @@ function spawnThoughtSegmentsFromText(text: string): SpawnThoughtSegment[] {
 function normalizeSpawnThoughtTitle(title: string | null): string | null {
   if (!title) return null;
   const normalized = title.replace(/\s+/g, ' ').trim().replace(/[.!?]\s*$/, '');
-  return normalized || null;
+  return normalized ? capitalizeSpawnThoughtTitle(normalized) : null;
 }
 
 function normalizeSpawnThoughtDescription(description: string): string {
   return description.replace(/\s+/g, ' ').trim().replace(/^[.!?]\s+/, '');
 }
 
+function capitalizeSpawnThoughtTitle(value: string): string {
+  const pattern = /(`+)([^`\n]+?)\1/g;
+  let result = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(pattern)) {
+    const tokenIndex = match.index ?? 0;
+    if (tokenIndex > lastIndex) result += capitalizeSpawnTitleWords(value.slice(lastIndex, tokenIndex));
+    result += match[0];
+    lastIndex = tokenIndex + match[0].length;
+  }
+  if (lastIndex < value.length) result += capitalizeSpawnTitleWords(value.slice(lastIndex));
+  return result;
+}
+
+function capitalizeSpawnTitleWords(value: string): string {
+  return value.replace(/\b([A-Za-z]{3,})\b/g, (word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`);
+}
+
 function estimateSpawnThoughtHeight(thoughts: SpawnThoughtSegment[]): number {
   const textLength = thoughts.reduce((total, thought) => total + (thought.title?.length ?? 12) + thought.description.length, 0);
-  return Math.min(360, 132 + thoughts.length * 34 + Math.ceil(textLength / 104) * 18);
+  return Math.min(300, 76 + thoughts.length * 28 + Math.ceil(textLength / 118) * 16);
 }
 
 function renderSpawnInlineText(text: string, keyPrefix: string): ReactNode[] {
