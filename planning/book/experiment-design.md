@@ -323,7 +323,7 @@ The full CyberGym suite is large and costly. Beale should use a stable small sub
 
 Developer Mode should expose CyberGym selection and storage paths, but benchmark UX should remain framed as calibration support for authorized vulnerability research rather than a product goal.
 
-The scenario selector should load the newest Beale-local `benchmarks/tasks_YYYYMMDD.json` CyberGym catalog and fall back to a small documented subset so users can choose a single target before downloading or preparing large benchmark data.
+The CyberGym workspace should load the newest Beale-local `benchmarks/tasks_YYYYMMDD.json` catalog and fall back to a small documented subset so users can choose a single target before downloading or preparing large benchmark data. It should also show recent task-level benchmark history with persisted pass/fail outcomes, fail reasons, token counts, session time, turn counts, and time-to-finding.
 
 Policy:
 

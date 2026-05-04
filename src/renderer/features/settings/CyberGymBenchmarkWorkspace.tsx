@@ -1,9 +1,9 @@
 import { useMemo, useState, type JSX } from 'react';
 import { Search } from 'lucide-react';
-import type { CyberGymScenarioList, CyberGymScenarioSummary } from '@shared/types';
-import { Modal } from '../../app/Modal';
+import type { BenchmarkOverview, BenchmarkRunRecord, BenchmarkTaskResultRecord, CyberGymScenarioList, CyberGymScenarioSummary } from '@shared/types';
+import { formatSessionDateTime } from '../../lib/formatting';
 
-const CYBERGYM_RESULT_LIMIT = 80;
+const CYBERGYM_RESULT_LIMIT = 120;
 type CyberGymSortField = 'id' | 'projectName' | 'source' | 'description';
 type CyberGymSortDirection = 'asc' | 'desc';
 
@@ -21,18 +21,20 @@ const CYBERGYM_SCENARIO_WARNINGS: Array<{ projectName: string; message: string }
   }
 ];
 
-export function CyberGymScenarioPickerModal({
-  activeScenarioId,
+export function CyberGymBenchmarkWorkspace({
+  benchmark,
   busy,
   scenarioList,
-  onClose,
-  onSelect
+  selectedScenarioId,
+  onRefreshScenarios,
+  onSelectScenario
 }: {
-  activeScenarioId: string;
+  benchmark: BenchmarkOverview | null;
   busy: boolean;
   scenarioList: CyberGymScenarioList | null;
-  onClose: () => void;
-  onSelect: (scenario: CyberGymScenarioSummary) => void;
+  selectedScenarioId: string;
+  onRefreshScenarios: () => void;
+  onSelectScenario: (scenario: CyberGymScenarioSummary) => void;
 }): JSX.Element {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<{ field: CyberGymSortField; direction: CyberGymSortDirection }>({ field: 'id', direction: 'asc' });
@@ -40,6 +42,8 @@ export function CyberGymScenarioPickerModal({
   const filtered = useMemo(() => filterCyberGymScenarios(scenarios, query), [query, scenarios]);
   const sorted = useMemo(() => sortCyberGymScenarios(filtered, sort.field, sort.direction), [filtered, sort.direction, sort.field]);
   const visible = sorted.slice(0, CYBERGYM_RESULT_LIMIT);
+  const runById = useMemo(() => new Map((benchmark?.recentRuns ?? []).map((run) => [run.id, run])), [benchmark?.recentRuns]);
+  const historyResults = useMemo(() => filterCyberGymBenchmarkResults(benchmark?.recentResults ?? []), [benchmark?.recentResults]);
 
   const changeSort = (field: CyberGymSortField): void => {
     setSort((current) => ({
@@ -49,37 +53,42 @@ export function CyberGymScenarioPickerModal({
   };
 
   return (
-    <Modal
-      title="CyberGym Scenarios"
-      wide
-      onClose={onClose}
-      footer={
-        <button type="button" onClick={onClose}>
-          Done
-        </button>
-      }
-    >
-      <div className="cybergym-picker">
+    <div className="cybergym-workspace">
+      <section className="cybergym-history-panel" aria-label="Recent CyberGym benchmark runs">
+        <div className="cybergym-workspace-heading">
+          <div>
+            <h3>Benchmark Run History</h3>
+            <p>Persisted task-level benchmark outcomes and session metrics.</p>
+          </div>
+        </div>
+        <BenchmarkRunHistory results={historyResults} runById={runById} />
+      </section>
+
+      <section className="cybergym-scenarios-panel" aria-label="CyberGym scenarios">
+        <div className="cybergym-workspace-heading">
+          <div>
+            <h3>CyberGym Scenarios</h3>
+            <p>{scenarioSourceLabel(scenarioList)}</p>
+          </div>
+          <button type="button" disabled={busy} onClick={onRefreshScenarios}>
+            Refresh
+          </button>
+        </div>
+        <div className="cybergym-picker-summary">
+          <span>Last Refreshed: {lastRefreshedLabel(scenarioList)}</span>
+          <strong>
+            {filtered.length.toLocaleString()} of {scenarios.length.toLocaleString()} scenario{scenarios.length === 1 ? '' : 's'}
+          </strong>
+        </div>
         <label className="cybergym-search-field">
           <Search size={15} />
           <input
-            autoFocus
             type="search"
             value={query}
             placeholder="Search task id, project, source, tags, or description"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <div className="cybergym-picker-summary">
-          <span>{scenarioSourceLabel(scenarioList)}</span>
-          <strong>
-            {filtered.length.toLocaleString()} of {scenarios.length.toLocaleString()} scenario{scenarios.length === 1 ? '' : 's'}
-          </strong>
-        </div>
-        <div className="cybergym-picker-refresh">
-          <span>Last Refreshed</span>
-          <strong>{lastRefreshedLabel(scenarioList)}</strong>
-        </div>
         <div className="cybergym-scenario-table-wrap">
           {!scenarioList ? (
             <div className="cybergym-empty-state">Loading CyberGym scenarios...</div>
@@ -99,9 +108,9 @@ export function CyberGymScenarioPickerModal({
               </thead>
               <tbody>
                 {visible.map((scenario) => (
-                  <tr className={activeScenarioId === scenario.id ? 'selected' : ''} key={scenario.id}>
+                  <tr className={selectedScenarioId === scenario.id ? 'selected' : ''} key={scenario.id}>
                     <td className="col-task">
-                      <button type="button" disabled={busy} onClick={() => onSelect(scenario)}>
+                      <button type="button" disabled={busy} onClick={() => onSelectScenario(scenario)}>
                         {scenario.id}
                       </button>
                     </td>
@@ -125,9 +134,74 @@ export function CyberGymScenarioPickerModal({
             Showing first {visible.length.toLocaleString()} matches. Narrow the search to choose from the rest.
           </p>
         ) : null}
-      </div>
-    </Modal>
+      </section>
+    </div>
   );
+}
+
+function BenchmarkRunHistory({
+  results,
+  runById
+}: {
+  results: BenchmarkTaskResultRecord[];
+  runById: Map<string, BenchmarkRunRecord>;
+}): JSX.Element {
+  if (results.length === 0) {
+    return <div className="cybergym-empty-state">No CyberGym benchmark runs recorded yet.</div>;
+  }
+
+  return (
+    <div className="cybergym-history-list">
+      {results.map((result) => {
+        const run = runById.get(result.benchmarkRunId) ?? null;
+        return (
+          <article className={`cybergym-history-row status-${result.status}`} key={result.id}>
+            <div>
+              <strong>{result.taskId}</strong>
+              <span>{run ? `${run.identity.harnessName} / ${run.identity.model}` : result.suiteKind}</span>
+            </div>
+            <div className="cybergym-history-metrics">
+              <span>{result.status}</span>
+              <span>{formatSessionDateTime(result.createdAt)}</span>
+              <span>{formatNumber(metricNumber(result.metrics, 'sessionTokenCount'))} tokens</span>
+              <span>{formatNumber(metricNumber(result.metrics, 'turnCount'))} turns</span>
+              <span>{formatDuration(metricNumber(result.metrics, 'sessionDurationMs'))}</span>
+              <span>TTF {formatDuration(metricNumber(result.metrics, 'timeToFindingMs'))}</span>
+            </div>
+            {result.status !== 'pass' ? <p>{failReason(result)}</p> : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function failReason(result: BenchmarkTaskResultRecord): string {
+  const reportReason = recordString(result.graderReport, 'failReason');
+  if (reportReason) return reportReason;
+  const missingArtifacts = Array.isArray(result.graderReport.missingArtifacts) ? result.graderReport.missingArtifacts.map(String).filter(Boolean) : [];
+  if (missingArtifacts.length > 0) return `Missing required evidence: ${missingArtifacts.join(', ')}`;
+  return 'No persisted fail reason.';
+}
+
+function recordString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function metricNumber(metrics: Record<string, unknown>, key: string): number | null {
+  const value = metrics[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatNumber(value: number | null): string {
+  return value === null ? 'unknown' : value.toLocaleString();
+}
+
+function formatDuration(value: number | null): string {
+  if (value === null) return 'unknown';
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${Math.round((value / 1000) * 10) / 10} s`;
 }
 
 function sortIndicator(direction: CyberGymSortDirection): string {
@@ -161,26 +235,21 @@ function scenarioWarning(scenario: CyberGymScenarioSummary): string | null {
 }
 
 function filterCyberGymScenarios(scenarios: CyberGymScenarioSummary[], query: string): CyberGymScenarioSummary[] {
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter(Boolean);
+  const terms = query.toLowerCase().split(/\s+/).map((term) => term.trim()).filter(Boolean);
   if (terms.length === 0) return scenarios;
   return scenarios.filter((scenario) => {
-    const haystack = [
-      scenario.id,
-      scenario.title,
-      scenario.projectName,
-      scenario.source,
-      scenario.difficulty,
-      scenario.description,
-      scenario.searchText,
-      ...scenario.tags
-    ]
+    const haystack = [scenario.id, scenario.title, scenario.projectName, scenario.source, scenario.difficulty, scenario.description, scenario.searchText, ...scenario.tags]
       .join(' ')
       .toLowerCase();
     return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function filterCyberGymBenchmarkResults(results: BenchmarkTaskResultRecord[]): BenchmarkTaskResultRecord[] {
+  return results.filter((result) => {
+    const suiteKind = result.suiteKind.toLowerCase();
+    const taskId = result.taskId.toLowerCase();
+    return suiteKind.includes('cybergym') || taskId.includes('cybergym');
   });
 }
 

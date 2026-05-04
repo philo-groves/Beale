@@ -30,6 +30,7 @@ import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
+import { CyberGymBenchmarkWorkspace } from './features/settings/CyberGymBenchmarkWorkspace';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
@@ -81,7 +82,7 @@ export function App(): JSX.Element {
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
   const [cyberGymScenarioList, setCyberGymScenarioList] = useState<CyberGymScenarioList | null>(null);
-  const [cyberGymScenarioPickerOpen, setCyberGymScenarioPickerOpen] = useState(false);
+  const [cyberGymWorkspaceOpen, setCyberGymWorkspaceOpen] = useState(false);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -148,6 +149,12 @@ export function App(): JSX.Element {
       .then(setDeveloperSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
+
+  useEffect(() => {
+    if (developerSettings && !developerSettings.developerModeEnabled) {
+      setCyberGymWorkspaceOpen(false);
+    }
+  }, [developerSettings]);
 
   useEffect(() => {
     if (!selectedRunId) setProgramMainView('understanding');
@@ -350,15 +357,17 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const openCyberGymScenarioPicker = useCallback((): void => {
-    setCyberGymScenarioPickerOpen(true);
+  const openCyberGymWorkspace = useCallback((): void => {
+    clearRunDetail();
+    setInspectorOpen(false);
+    setSelectedRunId(null);
+    setCyberGymWorkspaceOpen(true);
     void refreshCyberGymScenarios();
-  }, [refreshCyberGymScenarios]);
+  }, [clearRunDetail, refreshCyberGymScenarios, setSelectedRunId]);
 
   const selectCyberGymScenario = useCallback(
     async (scenario: CyberGymScenarioSummary): Promise<void> => {
       await updateCyberGymSettings({ selectedBenchmark: scenario.id });
-      setCyberGymScenarioPickerOpen(false);
     },
     [updateCyberGymSettings]
   );
@@ -494,10 +503,14 @@ export function App(): JSX.Element {
   }, [flushProfilingReport]);
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
-  const startNewResearch = useCallback(() => setNewResearchOpen(true), []);
+  const startNewResearch = useCallback(() => {
+    setCyberGymWorkspaceOpen(false);
+    setNewResearchOpen(true);
+  }, []);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
+      setCyberGymWorkspaceOpen(false);
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
       const targetProgram = programRegistry?.programs.find((program) => program.id === result.programId || program.workspacePath === result.workspacePath) ?? null;
@@ -654,11 +667,15 @@ export function App(): JSX.Element {
         onOpenResearchPrompt={setResearchPromptDetail}
         onOpenProgramInfo={setProgramInfo}
         onOpenProfiling={openProfiling}
-        onAddProgram={addProgram}
+        onAddProgram={() => {
+          setCyberGymWorkspaceOpen(false);
+          addProgram();
+        }}
         onToggleSidebar={toggleSidebar}
       />
       <ProgramSidebar
         busy={busy}
+        cyberGymActive={cyberGymWorkspaceOpen}
         collapsed={sidebarCollapsed}
         developerModeEnabled={developerSettings?.developerModeEnabled ?? false}
         error={error}
@@ -666,12 +683,21 @@ export function App(): JSX.Element {
         programRegistry={programRegistry}
         selectedRunId={selectedRunId}
         snapshot={snapshot}
-        onAddProgram={addProgram}
+        onAddProgram={() => {
+          setCyberGymWorkspaceOpen(false);
+          addProgram();
+        }}
         onOpenBenchmarkingSettings={openBenchmarkingSettings}
-        onOpenCyberGymScenarioPicker={openCyberGymScenarioPicker}
-        onOpenProgram={openRegisteredProgram}
+        onOpenCyberGymWorkspace={openCyberGymWorkspace}
+        onOpenProgram={(program) => {
+          setCyberGymWorkspaceOpen(false);
+          openRegisteredProgram(program);
+        }}
         onOpenProgramInfo={setProgramInfo}
-        onOpenResearchSession={openResearchSession}
+        onOpenResearchSession={(program, session) => {
+          setCyberGymWorkspaceOpen(false);
+          openResearchSession(program, session);
+        }}
         onRemoveProgram={removeRegisteredProgram}
         onResizePointerDown={beginSidebarResize}
         onSetOpenProgramMenuId={setOpenProgramMenuId}
@@ -684,38 +710,49 @@ export function App(): JSX.Element {
         <SessionHeader
           detail={activeRunDetail}
           events={activeTraceEvents}
-          programGraphStatus={!selectedRunId && snapshot ? snapshot.projectGraph.status : null}
-          programSemanticStatus={!selectedRunId && snapshot ? snapshot.projectSemantic.status : null}
-          programView={!selectedRunId && snapshot ? programMainView : null}
+          programGraphStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectGraph.status : null}
+          programSemanticStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectSemantic.status : null}
+          programView={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? programMainView : null}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
           onProgramViewChange={setProgramMainView}
           onSessionViewChange={setSessionMainView}
         />
         <div className="workspace-page">
-          <MainSessionWorkspace
-            detail={activeRunDetail}
-            events={activeTraceEvents}
-            graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
-            programView={programMainView}
-            researchPanelCollapsed={inspectorOpen}
-            runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
-            scope={selectedRunId ? null : snapshot?.activeScope ?? null}
-            selectedRunId={selectedRunId}
-            selectedTraceEventId={selectedTraceEventId}
-            searchHighlightQuery={traceSearchHighlightQuery}
-            semantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
-            sessionView={sessionMainView}
-            visibleTraceCategories={visibleTraceCategories}
-            busy={busy}
-            traceFilterCount={visibleTraceCategories.length}
-            totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
-            onExpandResearchPanel={closeInspector}
-            onOpenTraceFilters={openTraceFilters}
-            onSelectTraceEvent={selectTraceEvent}
-            onSessionAction={handleSessionAction}
-            onSteerInstruction={handleSteerInstruction}
-          />
+          {cyberGymWorkspaceOpen ? (
+            <CyberGymBenchmarkWorkspace
+              benchmark={snapshot?.benchmark ?? null}
+              busy={busy}
+              scenarioList={cyberGymScenarioList}
+              selectedScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
+              onRefreshScenarios={() => void refreshCyberGymScenarios()}
+              onSelectScenario={(scenario) => void selectCyberGymScenario(scenario)}
+            />
+          ) : (
+            <MainSessionWorkspace
+              detail={activeRunDetail}
+              events={activeTraceEvents}
+              graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
+              programView={programMainView}
+              researchPanelCollapsed={inspectorOpen}
+              runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
+              scope={selectedRunId ? null : snapshot?.activeScope ?? null}
+              selectedRunId={selectedRunId}
+              selectedTraceEventId={selectedTraceEventId}
+              searchHighlightQuery={traceSearchHighlightQuery}
+              semantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
+              sessionView={sessionMainView}
+              visibleTraceCategories={visibleTraceCategories}
+              busy={busy}
+              traceFilterCount={visibleTraceCategories.length}
+              totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
+              onExpandResearchPanel={closeInspector}
+              onOpenTraceFilters={openTraceFilters}
+              onSelectTraceEvent={selectTraceEvent}
+              onSessionAction={handleSessionAction}
+              onSteerInstruction={handleSteerInstruction}
+            />
+          )}
         </div>
       </main>
       <aside className="inspector-sidebar" aria-label="Evidence" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
@@ -751,8 +788,6 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
-        cyberGymScenarioList={cyberGymScenarioList}
-        cyberGymScenarioPickerOpen={cyberGymScenarioPickerOpen}
         developerSettings={developerSettings}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
@@ -780,7 +815,6 @@ export function App(): JSX.Element {
         vmPreference={vmPreference}
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelProgramOnboarding={closeProgramOnboarding}
-        onChooseCyberGymScenario={selectCyberGymScenario}
         onChangeProgramDraft={setProgramDraft}
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
@@ -791,12 +825,12 @@ export function App(): JSX.Element {
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
-        onCloseCyberGymScenarioPicker={() => setCyberGymScenarioPickerOpen(false)}
         onClearCyberGymCache={clearCyberGymCache}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneProgram}
         onOpenSessionHistorySession={(program, session) => {
+          setCyberGymWorkspaceOpen(false);
           openResearchSession(program, session);
           setSessionHistoryProgramId(null);
         }}
@@ -813,6 +847,7 @@ export function App(): JSX.Element {
         onUpdateCyberGymSettings={updateCyberGymSettings}
         onStartedNewResearch={(runId) => {
           clearRunDetail();
+          setCyberGymWorkspaceOpen(false);
           setSelectedRunId(runId);
           setNewResearchOpen(false);
         }}

@@ -16,7 +16,9 @@
 - Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > Developer through Developer Mode.
 - Added a profiling overview modal and Debug header button while profiling is enabled.
 - Added Developer Mode settings with automatic profiling enablement, CyberGym benchmarking path/cache controls, cache helpers, a CyberGym sidebar entry, and a searchable CyberGym scenario picker backed by Beale-local `benchmarks/tasks_YYYYMMDD.json` catalogs with Last Refreshed metadata.
-- Added an orange CyberGym picker warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
+- Added a main-content CyberGym benchmark workspace with scenario selection beside persisted task-level run history.
+- Added persisted benchmark task metrics for pass/fail status, fail reason, token count, session time, turn count, and time-to-finding.
+- Added an orange CyberGym scenario warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
 - Added Edit menu actions for Copy and Paste Steering, including platform shortcut labels and paste insertion into the steering input.
 - Added View menu Zoom Out and Zoom In commands backed by Electron `webFrame` page zoom.

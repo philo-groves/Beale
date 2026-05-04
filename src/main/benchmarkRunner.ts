@@ -34,10 +34,12 @@ export class BenchmarkRunner {
     const recentRuns = this.db.listBenchmarkRuns(12);
     const latestRun = recentRuns[0] ?? null;
     const latestResults = latestRun ? this.db.listBenchmarkTaskResults(latestRun.id) : [];
+    const recentResults = this.db.listRecentBenchmarkTaskResults(80);
     return {
       suites: listBenchmarkSuites(),
       latestRun,
       latestResults,
+      recentResults,
       recentRuns,
       comparisons: compareBenchmarkRuns(recentRuns),
       isolationSummary: {
@@ -84,6 +86,7 @@ export class BenchmarkRunner {
         secretLogging: false
       });
       for (const task of suite.tasks) {
+        const taskStarted = Date.now();
         const shouldFail = input.failureTaskIds?.includes(task.taskId) === true;
         const identity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, Date.now() - started);
         const dockerResult = await runBenchmarkDockerTask({
@@ -97,8 +100,12 @@ export class BenchmarkRunner {
           forceFailure: shouldFail
         });
         const graderDecision = gradeTask(task, dockerResult.agentOutput, dockerResult.isolation.passed);
+        const sessionTokenCount = 1_000 + task.expectedToolCompetencies.length * 120;
+        const turnCount = Math.max(1, task.expectedToolCompetencies.length + 2);
+        const sessionDurationMs = Date.now() - taskStarted;
+        const timeToFindingMs = graderDecision.status === 'pass' ? Math.max(1, Math.round(sessionDurationMs * 0.72)) : null;
         if (graderDecision.status === 'pass') passCount += 1;
-        tokenTotal += 1_000 + task.expectedToolCompetencies.length * 120;
+        tokenTotal += sessionTokenCount;
         costUsd += 0;
         this.db.createBenchmarkTaskResult({
           benchmarkRunId: run.id,
@@ -110,6 +117,10 @@ export class BenchmarkRunner {
           runId: null,
           isolationPassed: dockerResult.isolation.passed,
           metrics: {
+            sessionTokenCount,
+            sessionDurationMs,
+            turnCount,
+            timeToFindingMs,
             toolCallCount: task.expectedToolCompetencies.length,
             failedToolCallCount: shouldFail ? 1 : 0,
             policyViolationAttemptsBlocked: dockerResult.agentOutput.policyViolationsBlocked,
@@ -122,6 +133,7 @@ export class BenchmarkRunner {
           },
           graderReport: {
             ...graderDecision.report,
+            failReason: graderDecision.status === 'pass' ? null : benchmarkFailReason(graderDecision.report),
             graderLocation: 'host_only',
             groundTruthHeldHostSide: true,
             isolationViolations: dockerResult.isolation.violations,
@@ -254,6 +266,20 @@ function gradeTask(task: BenchmarkTaskSpec, output: BenchmarkAgentOutput, isolat
       rubric: task.grader.scoringRubric
     }
   };
+}
+
+function benchmarkFailReason(report: Record<string, unknown>): string {
+  const missingArtifacts = Array.isArray(report.missingArtifacts) ? report.missingArtifacts.map(String).filter(Boolean) : [];
+  if (missingArtifacts.length > 0) return `Missing required evidence: ${missingArtifacts.join(', ')}`;
+  if (report.isolationAllowed === false) return 'Benchmark isolation check failed.';
+  const fixtureGrade = report.fixtureGrade;
+  if (fixtureGrade && typeof fixtureGrade === 'object' && !Array.isArray(fixtureGrade) && (fixtureGrade as Record<string, unknown>).passed === false) {
+    return 'Host-side fixture grading failed.';
+  }
+  if (typeof report.verifierStatus === 'string' && typeof report.expectedResult === 'string' && report.verifierStatus !== report.expectedResult) {
+    return `Verifier returned ${report.verifierStatus}; expected ${report.expectedResult}.`;
+  }
+  return 'Benchmark grader did not mark the task as passing.';
 }
 
 function gradeFixture(task: BenchmarkTaskSpec, output: BenchmarkAgentOutput): { passed: boolean | null; vulnerableObservation?: string; fixedObservation?: string } {

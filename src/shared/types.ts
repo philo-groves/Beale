@@ -1217,6 +1217,7 @@ export interface BenchmarkOverview {
   suites: BenchmarkSuiteSummary[];
   latestRun: BenchmarkRunRecord | null;
   latestResults: BenchmarkTaskResultRecord[];
+  recentResults: BenchmarkTaskResultRecord[];
   recentRuns: BenchmarkRunRecord[];
   comparisons: BenchmarkComparison[];
   isolationSummary: {

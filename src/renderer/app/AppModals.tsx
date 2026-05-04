@@ -1,7 +1,5 @@
 import type { JSX } from 'react';
 import type {
-  CyberGymScenarioList,
-  CyberGymScenarioSummary,
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
   DeveloperSettings,
@@ -30,7 +28,6 @@ import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingMo
 import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
 import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
-import { CyberGymScenarioPickerModal } from '../features/settings/CyberGymScenarioPickerModal';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
@@ -43,8 +40,6 @@ export function AppModals({
   activeRunDetail,
   activeProgramName,
   busy,
-  cyberGymScenarioList,
-  cyberGymScenarioPickerOpen,
   developerSettings,
   newResearchOpen,
   openAiOAuthResult,
@@ -72,7 +67,6 @@ export function AppModals({
   vmPreference,
   onCancelNewResearch,
   onCancelProgramOnboarding,
-  onChooseCyberGymScenario,
   onClearCyberGymCache,
   onChangeProgramDraft,
   onChangeSettingsSection,
@@ -84,7 +78,6 @@ export function AppModals({
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
-  onCloseCyberGymScenarioPicker,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
@@ -111,8 +104,6 @@ export function AppModals({
   activeRunDetail: RunDetail | null;
   activeProgramName: string;
   busy: boolean;
-  cyberGymScenarioList: CyberGymScenarioList | null;
-  cyberGymScenarioPickerOpen: boolean;
   developerSettings: DeveloperSettings | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -140,7 +131,6 @@ export function AppModals({
   vmPreference: VmPreference;
   onCancelNewResearch: () => void;
   onCancelProgramOnboarding: () => void;
-  onChooseCyberGymScenario: (scenario: CyberGymScenarioSummary) => void;
   onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
@@ -152,7 +142,6 @@ export function AppModals({
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
-  onCloseCyberGymScenarioPicker: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
@@ -223,15 +212,6 @@ export function AppModals({
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
           onUpdateCyberGymSettings={onUpdateCyberGymSettings}
-        />
-      ) : null}
-      {cyberGymScenarioPickerOpen ? (
-        <CyberGymScenarioPickerModal
-          activeScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
-          busy={busy}
-          scenarioList={cyberGymScenarioList}
-          onClose={onCloseCyberGymScenarioPicker}
-          onSelect={onChooseCyberGymScenario}
         />
       ) : null}
       {profilingOpen ? (

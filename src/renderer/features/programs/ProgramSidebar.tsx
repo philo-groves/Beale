@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { DatabaseZap, FolderPlus, MoreVertical, Play, Plus, RefreshCw, Search, Terminal } from 'lucide-react';
+import { DatabaseZap, FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
@@ -9,6 +9,7 @@ const SIDEBAR_SESSION_LIMIT = 4;
 
 export const ProgramSidebar = memo(function ProgramSidebar({
   busy,
+  cyberGymActive,
   collapsed,
   developerModeEnabled,
   error,
@@ -18,7 +19,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   snapshot,
   onAddProgram,
   onOpenBenchmarkingSettings,
-  onOpenCyberGymScenarioPicker,
+  onOpenCyberGymWorkspace,
   onOpenProgram,
   onOpenProgramInfo,
   onOpenResearchSession,
@@ -30,6 +31,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onStartNewResearch
 }: {
   busy: boolean;
+  cyberGymActive: boolean;
   collapsed: boolean;
   developerModeEnabled: boolean;
   error: string | null;
@@ -39,7 +41,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   snapshot: WorkspaceSnapshot | null;
   onAddProgram: () => void;
   onOpenBenchmarkingSettings: () => void;
-  onOpenCyberGymScenarioPicker: () => void;
+  onOpenCyberGymWorkspace: () => void;
   onOpenProgram: (program: ProgramRegistryEntry) => void;
   onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
   onOpenResearchSession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
@@ -77,13 +79,13 @@ export const ProgramSidebar = memo(function ProgramSidebar({
         </div>
         {developerModeEnabled ? (
           <div className="program-group developer-program-group">
-            <div className="program-item-row developer-program-row">
-              <button type="button" className="program-item developer-program-item" title="Configure CyberGym benchmarking" onClick={onOpenBenchmarkingSettings}>
+            <div className={`program-item-row developer-program-row ${cyberGymActive ? 'active' : ''}`}>
+              <button type="button" className="program-item developer-program-item" title="Open CyberGym scenarios" onClick={onOpenCyberGymWorkspace}>
                 <DatabaseZap size={15} />
                 <span>CyberGym</span>
               </button>
-              <button type="button" className="program-menu-button cybergym-scenario-button" title="Choose CyberGym scenario" onClick={onOpenCyberGymScenarioPicker}>
-                <Plus size={14} />
+              <button type="button" className="program-menu-button cybergym-scenario-button" title="CyberGym benchmarking settings" onClick={onOpenBenchmarkingSettings}>
+                <MoreVertical size={14} />
               </button>
             </div>
           </div>

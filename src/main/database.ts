@@ -5381,6 +5381,14 @@ export class WorkspaceDatabase {
     ).map((row) => this.mapBenchmarkTaskResult(row));
   }
 
+  public listRecentBenchmarkTaskResults(limit = 80): BenchmarkTaskResultRecord[] {
+    return rows(
+      this.db
+        .prepare('SELECT * FROM benchmark_task_results ORDER BY created_at DESC LIMIT ?')
+        .all(limit)
+    ).map((row) => this.mapBenchmarkTaskResult(row));
+  }
+
   public getRunDetail(runId: string): RunDetail {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
