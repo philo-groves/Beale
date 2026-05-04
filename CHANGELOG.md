@@ -78,6 +78,7 @@
 - Added workbench-header Program Understanding view toggles and a bounded relationship graph visualization backed by indexed graph nodes and edges.
 - Added a full relationship graph projection IPC endpoint with source-group clustering and label/edge quality diagnostics.
 - Added Program Relationship Graph search, source-group focus, and relationship-family visibility controls.
+- Added a session Spawn view with a centered thought squircle, floating evidence trails, and an expandable trail filter.
 
 ### Changed
 
@@ -170,6 +171,8 @@
 - Changed Program Relationship Graph to render the full indexed graph through a D3 force-layout worker and canvas instead of a bounded SVG sample.
 - Changed Program Relationship Graph loading so a deterministic clustered preview and visible SVG overlay render before D3 force-layout refinement completes.
 - Changed Program Relationship Graph's default view to a source-group cluster overview, reserving node-level labels for search or focused groups.
+- Changed the session alternate view toggle from the placeholder graph view to Spawn.
+- Changed Spawn thoughts to render titled thought sections with inline code formatting and standalone evidence as evidence squircles.
 - Fixed compact-width shell clipping so heat and pulse background layers cannot bleed past the rounded app window corners.
 - Disabled the native transparent-window shadow on non-macOS builds so compositor-owned shadows cannot show behind the rounded app corners.
 - Added a conservative Linux/WSLg native window shape mask so transparent frameless window corners are clipped without replacing the CSS shell's anti-aliased rounded edge.
@@ -210,6 +213,7 @@
 
 ### Fixed
 
+- Fixed Spawn trail title wrapping, row separators, and curved-corner layering so stacked evidence and finding rows do not bleed through to the workspace background.
 - Made markdown/prose trace line breaks explicit so bold thought titles render above their descriptions.
 - Applied thought-title line splitting to reasoning-summary events even when a trace row is otherwise categorized as agent output.
 - Shortened duplicate-blocked trace rows to `Duplicate Blocked` while rendering the proposed duplicate name as a prose detail line.

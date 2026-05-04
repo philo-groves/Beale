@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Square, X } from 'lucide-react';
+import { Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, Square, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
 import type { ProgramMainView } from '../programs/programViews';
@@ -208,7 +208,7 @@ function SessionViewToggle({
 }): JSX.Element {
   const options: Array<{ view: SessionMainView; label: string; icon: JSX.Element }> = [
     { view: 'list', label: 'Trace and evidence lists', icon: <List size={15} /> },
-    { view: 'graph', label: 'Graph view', icon: <Network size={15} /> }
+    { view: 'spawn', label: 'Spawn view', icon: <Sparkles size={15} /> }
   ];
 
   return (

@@ -1950,6 +1950,508 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   letter-spacing: 0;
 }
 
+.spawn-session-workspace {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  border-radius: 0 12px 12px 0;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.055), transparent 34%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    #101010;
+  background-size: auto, 42px 42px, 42px 42px, auto;
+}
+
+.spawn-trail-field {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.spawn-core {
+  --spawn-core-min-height: 176px;
+  width: min(68%, 640px);
+  min-height: var(--spawn-core-min-height);
+  max-height: min(52vh, 460px);
+  min-width: min(360px, calc(100% - 44px));
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  padding: 34px 52px;
+  transform: translate(-50%, -50%);
+  color: #f0f0f0;
+}
+
+.spawn-core-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 28px 54px rgba(0, 0, 0, 0.64));
+}
+
+.spawn-core-shape path {
+  fill: #020202;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1.4;
+}
+
+.spawn-core-content {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: stretch;
+  width: min(100%, 42rem);
+  text-align: left;
+}
+
+.spawn-core-content.enter {
+  animation: spawn-thought-in 360ms ease both;
+}
+
+.spawn-core-content.exit {
+  animation: spawn-thought-out 180ms ease both;
+}
+
+.spawn-thought-list {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.spawn-thought-item {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.spawn-thought-item + .spawn-thought-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  padding-top: 10px;
+}
+
+.spawn-thought-title {
+  min-width: 0;
+  color: #f0f0f0;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  font-weight: 820;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.spawn-thought-title.fallback {
+  color: #a6a6a6;
+  font-size: 0.68rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.spawn-thought-description {
+  min-width: 0;
+  margin: 0;
+  color: #bdbdbd;
+  font-size: 0.86rem;
+  line-height: 1.42;
+  font-weight: 620;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.spawn-thought-code {
+  display: inline;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: #111111;
+  color: #f0f0f0;
+  padding: 0 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  line-height: 1.2;
+  white-space: pre-wrap;
+}
+
+.spawn-trail {
+  --trail-x: 0%;
+  --trail-y: 0%;
+  --trail-delay: 0ms;
+  --trail-width: 260px;
+  --trail-min-height: 160px;
+  width: var(--trail-width);
+  min-height: var(--trail-min-height);
+  position: absolute;
+  left: calc(50% + var(--trail-x));
+  top: calc(50% + var(--trail-y));
+  z-index: 3;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  animation: spawn-trail-enter 560ms cubic-bezier(0.18, 0.8, 0.18, 1) both;
+  animation-delay: var(--trail-delay);
+}
+
+.spawn-trail-float {
+  min-width: 0;
+  display: grid;
+  justify-items: stretch;
+  filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.42));
+  animation: spawn-trail-float 5.8s ease-in-out infinite;
+  animation-delay: calc(var(--trail-delay) * -1);
+}
+
+.spawn-trail-hypothesis,
+.spawn-trail-extension {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.spawn-trail-hypothesis {
+  min-height: 88px;
+  --spawn-squircle-surface: #050505;
+  --spawn-next-surface: transparent;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  border: 0;
+  background: transparent;
+  padding: 18px 22px 17px;
+}
+
+.spawn-trail-extension:hover:not(:disabled)::after,
+.spawn-trail-extension.selected::after {
+  filter: brightness(1.08);
+}
+
+.spawn-trail-hypothesis:hover:not(:disabled) .spawn-trail-hypothesis-shape path,
+.spawn-trail-hypothesis.selected .spawn-trail-hypothesis-shape path {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+
+.spawn-trail-hypothesis:hover:not(:disabled),
+.spawn-trail-hypothesis.selected {
+  filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.04));
+}
+
+.spawn-trail-hypothesis:disabled,
+.spawn-trail-extension:disabled {
+  cursor: default;
+}
+
+.spawn-trail-hypothesis::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  right: 13px;
+  top: 52%;
+  bottom: -9px;
+  z-index: 0;
+  border-radius: 0 0 16px 16px;
+  background: var(--spawn-next-surface);
+  pointer-events: none;
+}
+
+.spawn-trail-hypothesis-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.spawn-trail-hypothesis-shape path {
+  fill: var(--spawn-squircle-surface);
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1.4;
+}
+
+.spawn-trail-hypothesis-content {
+  min-width: 0;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  align-self: center;
+  gap: 6px;
+}
+
+.spawn-trail-hypothesis-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.spawn-trail-hypothesis span,
+.spawn-trail-extension span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #b6b6b6;
+  font-size: 0.64rem;
+  line-height: 1;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.spawn-trail-hypothesis em {
+  color: #d8d8d8;
+  font-size: 0.64rem;
+  line-height: 1;
+  font-style: normal;
+  font-weight: 780;
+}
+
+.spawn-trail-hypothesis strong,
+.spawn-trail-extension strong {
+  min-width: 0;
+  max-width: 100%;
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #f1f1f1;
+  font-size: 0.78rem;
+  line-height: 1.23;
+  font-weight: 780;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.spawn-trail-hypothesis small,
+.spawn-trail-extension small {
+  min-width: 0;
+  color: #9f9f9f;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  font-weight: 760;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spawn-trail-stack {
+  min-width: 0;
+  display: grid;
+  justify-items: stretch;
+  padding: 0 13px;
+}
+
+.spawn-trail-stack.rootless {
+  padding-top: 10px;
+}
+
+.spawn-trail-extension {
+  min-height: 58px;
+  --spawn-row-surface: rgba(17, 17, 17, 0.96);
+  --spawn-next-surface: transparent;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 11px 13px 12px;
+}
+
+.spawn-trail-extension::before,
+.spawn-trail-extension::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.spawn-trail-extension::before {
+  z-index: 0;
+  background: var(--spawn-next-surface);
+}
+
+.spawn-trail-extension::after {
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--spawn-row-surface);
+}
+
+.spawn-trail-extension > * {
+  position: relative;
+  z-index: 2;
+}
+
+.spawn-trail-extension + .spawn-trail-extension {
+  margin-top: 0;
+}
+
+.spawn-trail-extension + .spawn-trail-extension::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.spawn-trail-extension:last-child {
+  border-radius: 0 0 16px 16px;
+}
+
+.spawn-trail-evidence {
+  --spawn-row-surface: rgba(19, 23, 22, 0.97);
+}
+
+.spawn-trail-finding {
+  --spawn-row-surface: rgba(26, 18, 18, 0.97);
+}
+
+.spawn-trail-standalone-evidence {
+  --spawn-squircle-surface: rgba(19, 23, 22, 0.97);
+}
+
+.spawn-next-evidence {
+  --spawn-next-surface: rgba(19, 23, 22, 0.97);
+}
+
+.spawn-next-finding {
+  --spawn-next-surface: rgba(26, 18, 18, 0.97);
+}
+
+.spawn-next-none {
+  --spawn-next-surface: transparent;
+}
+
+.spawn-search-control {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 8;
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.spawn-search-control > button {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #303030;
+  border-radius: 999px;
+  background: #0b0b0b;
+  color: #e0e0e0;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+}
+
+.spawn-search-control.open {
+  grid-template-columns: minmax(180px, 260px) 34px auto;
+  border: 1px solid #303030;
+  border-radius: 999px;
+  background: #0b0b0b;
+  padding: 5px 6px 5px 14px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.34);
+  animation: spawn-search-open 160ms ease both;
+}
+
+.spawn-search-control input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.spawn-search-control.open button {
+  width: 34px;
+  height: 34px;
+  box-shadow: none;
+}
+
+.spawn-search-control span {
+  padding-right: 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+@keyframes spawn-thought-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spawn-thought-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+}
+
+@keyframes spawn-trail-enter {
+  from {
+    opacity: 0;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.54, 0.34);
+  }
+  70% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    left: calc(50% + var(--trail-x));
+    top: calc(50% + var(--trail-y));
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes spawn-trail-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes spawn-search-open {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .program-understanding-workspace {
   width: 100%;
   height: 100%;

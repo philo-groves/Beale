@@ -1,6 +1,5 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { Network } from 'lucide-react';
 import type { ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
 import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
 import type { ProgramMainView } from '../programs/programViews';
@@ -8,6 +7,7 @@ import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { SpawnSessionView } from './SpawnSessionView';
 import type { SessionMainView } from './sessionViews';
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
@@ -57,8 +57,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
 }): JSX.Element | null {
   if (!selectedRunId) return <ProgramUnderstandingView graph={graph} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
 
-  if (sessionView === 'graph') {
-    return <SessionGraphWorkspace />;
+  if (sessionView === 'spawn') {
+    return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
   }
 
   return (
@@ -89,16 +89,3 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     </div>
   );
 });
-
-function SessionGraphWorkspace(): JSX.Element {
-  return (
-    <div className="program-graph-workspace" aria-label="Session graph view">
-      <div className="program-graph-placeholder">
-        <span className="program-graph-placeholder-icon" aria-hidden="true">
-          <Network size={22} />
-        </span>
-        <strong>Session Graph</strong>
-      </div>
-    </div>
-  );
-}
