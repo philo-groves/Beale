@@ -20,6 +20,8 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_COMPACT_INPUT_TOKENS;
+  delete process.env.BEALE_OPENAI_COMPACT_INPUT_MARGIN_TOKENS;
+  delete process.env.BEALE_OPENAI_COMPACT_INPUT_THRESHOLD_TOKENS;
   delete process.env.BEALE_OPENAI_COMPACT_MANUAL_TURNS;
   delete process.env.BEALE_OPENAI_COMPACT_RECENT_EVENTS;
   delete process.env.BEALE_OPENAI_COMPACT_SERIALIZED_BYTES;
@@ -658,6 +660,38 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
+  it('compacts and continues when a high-context response ends without final output', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
+    process.env.BEALE_OPENAI_COMPACT_INPUT_TOKENS = '1000';
+    process.env.BEALE_OPENAI_COMPACT_INPUT_MARGIN_TOKENS = '100';
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+      requests.push(body);
+      if (requests.length === 1) {
+        return new Response(sse(noOutputPressureEvents('resp_pressure', 950)), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return new Response(sse(finalResponseEvents('resp_after_pressure_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+
+    const { db } = openDb();
+    const auth = new OpenAiAuthService();
+    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
+    const engine = new OpenAiRunEngine(db, auth, adapter);
+    const handle = engine.startRun(openAiInput());
+    await handle.completion;
+
+    const detail = db.getRunDetail(handle.context.run.id);
+    expect(detail.run.status).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[1].input)).toContain('Compacted Beale Run Replay');
+    expect(detail.contextCompactions).toHaveLength(1);
+    expect(detail.contextCompactions[0].reason).toBe('input_token_pressure');
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI response ended without final output under context pressure; continuing with compacted replay.')).toBe(true);
+    expect(detail.modelSessions[0].metadata.latestCompactionReason).toBe('input_token_pressure');
+    db.close();
+  });
+
   it('steers an OpenAI run in place without creating a forked run', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
     const requests: Array<Record<string, unknown>> = [];
@@ -1028,6 +1062,44 @@ function finalResponseEvents(responseId = 'resp_2'): string {
           }
         ],
         usage: { total_tokens: 24 }
+      }
+    })
+  ].join('');
+}
+
+function noOutputPressureEvents(responseId = 'resp_pressure', inputTokens = 950): string {
+  return [
+    event('response.created', { type: 'response.created', response: { id: responseId } }),
+    event('response.reasoning_summary_text.done', {
+      type: 'response.reasoning_summary_text.done',
+      response_id: responseId,
+      item_id: 'rs_pressure',
+      summary_index: 0,
+      text: 'I need to compact before continuing.'
+    }),
+    event('response.output_item.done', {
+      type: 'response.output_item.done',
+      response_id: responseId,
+      item: {
+        type: 'reasoning',
+        id: 'rs_pressure',
+        status: 'completed',
+        summary: [{ type: 'summary_text', text: 'I need to compact before continuing.' }]
+      }
+    }),
+    event('response.completed', {
+      type: 'response.completed',
+      response: {
+        id: responseId,
+        output: [
+          {
+            type: 'reasoning',
+            id: 'rs_pressure',
+            status: 'completed',
+            summary: [{ type: 'summary_text', text: 'I need to compact before continuing.' }]
+          }
+        ],
+        usage: { input_tokens: inputTokens, total_tokens: inputTokens + 20 }
       }
     })
   ].join('');

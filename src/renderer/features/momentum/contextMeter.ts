@@ -9,10 +9,13 @@ export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
   const candidate = latestContextTokenCandidate(detail);
   const inputTokens = candidate?.tokens ?? null;
   const fraction = inputTokens === null ? 0 : Math.max(0, Math.min(1, inputTokens / tokenLimit));
+  const totalSessionTokens = totalSessionTokensForDetail(detail);
   return {
     fraction,
     inputTokens,
     tokenLimit,
+    totalSessionTokens,
+    totalSessionTokensLabel: formatCompactSessionTokenNumber(totalSessionTokens),
     label: inputTokens === null ? `0/${formatCompactContextNumber(tokenLimit)}` : `${formatCompactContextNumber(inputTokens)}/${formatCompactContextNumber(tokenLimit)}`,
     source: candidate?.source ?? 'no context measured'
   };
@@ -21,6 +24,10 @@ export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
 export function visibleContextMeterLabel(contextMeter: ContextMeter): string {
   const inputTokens = contextMeter.inputTokens ?? 0;
   return `${formatCompactContextKilobytes(inputTokens)}/${formatCompactContextKilobytes(contextMeter.tokenLimit)}`;
+}
+
+export function visibleSessionTokenUsageLabel(contextMeter: ContextMeter): string {
+  return contextMeter.totalSessionTokensLabel;
 }
 
 function contextTokenLimitForDetail(detail: RunDetail | null): number {
@@ -61,6 +68,24 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
   return candidates.sort((left, right) => right.timestamp - left.timestamp)[0] ?? null;
 }
 
+function totalSessionTokensForDetail(detail: RunDetail | null): number {
+  if (!detail) return 0;
+  return detail.traceEvents.reduce((total, event) => {
+    const usage = tracePayloadRecord(event.payload, 'usage');
+    return total + (usageTotalTokens(usage) ?? 0);
+  }, 0);
+}
+
+function usageTotalTokens(usage: Record<string, unknown> | null): number | null {
+  const totalTokens = numberRecordValue(usage, 'total_tokens') ?? numberRecordValue(usage, 'totalTokens');
+  if (totalTokens !== null) return totalTokens;
+
+  const inputTokens = numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens');
+  const outputTokens = numberRecordValue(usage, 'output_tokens') ?? numberRecordValue(usage, 'completion_tokens');
+  if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
+  return null;
+}
+
 function numberRecordValue(record: Record<string, unknown> | null, key: string): number | null {
   if (!record) return null;
   const value = record[key];
@@ -90,6 +115,18 @@ function formatCompactContextNumber(value: number): string {
 
 function formatCompactContextKilobytes(value: number): string {
   return `${trimCompactDecimal(Math.max(0, value) / 1_000)}k`;
+}
+
+function formatCompactSessionTokenNumber(value: number): string {
+  const rounded = Math.max(0, Math.round(value));
+  if (rounded >= 1_000_000_000) return `${trimSessionDecimal(rounded / 1_000_000_000)}b`;
+  if (rounded >= 1_000_000) return `${trimSessionDecimal(rounded / 1_000_000)}m`;
+  if (rounded >= 1_000) return `${Math.round(rounded / 1_000)}k`;
+  return `${rounded}`;
+}
+
+function trimSessionDecimal(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
 }
 
 function trimCompactDecimal(value: number): string {

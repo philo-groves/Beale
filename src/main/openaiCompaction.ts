@@ -5,6 +5,7 @@ export type OpenAiReplayMode = 'initial' | 'previous_response' | 'pending_input'
 
 export interface OpenAiCompactionPolicy {
   inputTokenLimit: number;
+  inputTokenPressureThreshold: number;
   manualReplayToolTurnLimit: number;
   serializedReplayByteLimit: number;
   recentModelVisibleEventLimit: number;
@@ -24,6 +25,7 @@ export interface OpenAiCompactionRanges {
 }
 
 export const DEFAULT_OPENAI_COMPACTION_INPUT_TOKEN_LIMIT = 272_000;
+const DEFAULT_OPENAI_COMPACTION_INPUT_TOKEN_MARGIN = 8_000;
 const DEFAULT_MANUAL_REPLAY_TOOL_TURN_LIMIT = 96;
 const DEFAULT_SERIALIZED_REPLAY_BYTE_LIMIT = 1_500_000;
 const DEFAULT_RECENT_MODEL_VISIBLE_EVENT_LIMIT = 40;
@@ -31,8 +33,12 @@ const REDACTION_POLICY_VERSION = 'beale-redaction-v1';
 
 export function openAiCompactionPolicyFromEnv(env: NodeJS.ProcessEnv = process.env): OpenAiCompactionPolicy {
   const inputTokenLimit = positiveInteger(env.BEALE_OPENAI_COMPACT_INPUT_TOKENS) ?? positiveInteger(env.BEALE_OPENAI_CONTEXT_BUDGET_TOKENS) ?? DEFAULT_OPENAI_COMPACTION_INPUT_TOKEN_LIMIT;
+  const configuredThreshold = positiveInteger(env.BEALE_OPENAI_COMPACT_INPUT_THRESHOLD_TOKENS);
+  const inputTokenMargin = positiveInteger(env.BEALE_OPENAI_COMPACT_INPUT_MARGIN_TOKENS) ?? DEFAULT_OPENAI_COMPACTION_INPUT_TOKEN_MARGIN;
+  const inputTokenPressureThreshold = Math.min(inputTokenLimit, configuredThreshold ?? Math.max(1, inputTokenLimit - inputTokenMargin));
   return {
     inputTokenLimit,
+    inputTokenPressureThreshold,
     manualReplayToolTurnLimit: positiveInteger(env.BEALE_OPENAI_COMPACT_MANUAL_TURNS) ?? DEFAULT_MANUAL_REPLAY_TOOL_TURN_LIMIT,
     serializedReplayByteLimit: positiveInteger(env.BEALE_OPENAI_COMPACT_SERIALIZED_BYTES) ?? DEFAULT_SERIALIZED_REPLAY_BYTE_LIMIT,
     recentModelVisibleEventLimit: positiveInteger(env.BEALE_OPENAI_COMPACT_RECENT_EVENTS) ?? DEFAULT_RECENT_MODEL_VISIBLE_EVENT_LIMIT,
@@ -58,6 +64,7 @@ export function evaluateOpenAiCompaction({
   const tokenPressure = {
     latestReportedInputTokens,
     inputTokenLimit: policy.inputTokenLimit,
+    inputTokenPressureThreshold: policy.inputTokenPressureThreshold,
     manualToolTurns,
     manualReplayToolTurnLimit: policy.manualReplayToolTurnLimit,
     serializedSizeBytes,
@@ -66,6 +73,9 @@ export function evaluateOpenAiCompaction({
 
   if (latestReportedInputTokens !== null && latestReportedInputTokens >= policy.inputTokenLimit) {
     return { reason: 'input_token_limit', tokenPressure, serializedSizeBytes };
+  }
+  if (latestReportedInputTokens !== null && latestReportedInputTokens >= policy.inputTokenPressureThreshold) {
+    return { reason: 'input_token_pressure', tokenPressure, serializedSizeBytes };
   }
   if (previousResponseIdUnsupported && replayMode === 'manual_response_replay' && manualToolTurns >= policy.manualReplayToolTurnLimit) {
     return { reason: 'manual_replay_turn_limit', tokenPressure, serializedSizeBytes };

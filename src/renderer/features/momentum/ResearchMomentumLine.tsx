@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
-import { contextMeterForDetail, visibleContextMeterLabel } from './contextMeter';
+import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from './contextMeter';
 import type { ResearchMomentum, ResearchMomentumState } from './types';
 
 const CONTEXT_COMPACTION_LICK_MS = 2200;
@@ -28,7 +28,8 @@ export const ResearchMomentumLine = memo(function ResearchMomentumLine({ detail,
   const label = researchMomentumLabel(momentum.state);
   const contextMeter = contextMeterForDetail(detail);
   const visibleContextLabel = visibleContextMeterLabel(contextMeter);
-  const title = `Momentum: ${label}\nContext: ${contextMeter.label}`;
+  const visibleSessionTokenLabel = visibleSessionTokenUsageLabel(contextMeter);
+  const title = `Momentum: ${label}\nContext: ${contextMeter.label}\nSession tokens: ${visibleSessionTokenLabel}`;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextFractionRef = useRef(contextMeter.fraction);
   const targetContextFractionRef = useRef(contextMeter.fraction);
@@ -136,6 +137,9 @@ export const ResearchMomentumLine = memo(function ResearchMomentumLine({ detail,
     <div className={`research-momentum-line momentum-${momentum.state}`} aria-label={title} title={title}>
       <canvas className="momentum-snake-canvas" ref={canvasRef} aria-hidden="true" />
       <span className="momentum-context-label">{visibleContextLabel}</span>
+      <span className="momentum-session-token-label" aria-label={`Total tokens used this session: ${visibleSessionTokenLabel}`}>
+        {visibleSessionTokenLabel}
+      </span>
     </div>
   );
 });

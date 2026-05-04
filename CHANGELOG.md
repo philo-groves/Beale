@@ -79,6 +79,8 @@
 - Added a full relationship graph projection IPC endpoint with source-group clustering and label/edge quality diagnostics.
 - Added Program Relationship Graph search, source-group focus, and relationship-family visibility controls.
 - Added a session Spawn view with a centered thought squircle, floating evidence trails, and an expandable trail filter.
+- Added a transient Spawn agent-output sheet that slides up on newly completed session output with markdown rendering and background blur.
+- Added cumulative session token usage beside the footer context meter.
 
 ### Changed
 
@@ -125,6 +127,7 @@
 - Changed Spawn Python result previews to show captured output in the attached status squircle and allow Spawn code blocks to use more available vertical space.
 - Changed Spawn secondary preview containers under the thought squircle to rounded rectangles while preserving nested result squircles.
 - Changed Spawn secondary rounded rectangles to use tighter side and bottom padding.
+- Changed Spawn hypothesis squircles to render without border outlines.
 - Changed trace and Spawn evidence trail colors so high-severity/status surfaces use red, Spawn standalone evidence stays black, Spawn evidence rows use grey, and Spawn finding rows follow finding status.
 - Changed dismissed Spawn hypothesis trails to use lighter translucent neutral surfaces instead of red dismissal backgrounds.
 - Changed model-facing search ranking so graph seed and proximity signals can promote or diversify final search results instead of only filling remaining result slots.
@@ -222,13 +225,15 @@
 
 ### Fixed
 
+- Fixed OpenAI run compaction so high-context responses compact before the hard window limit and reasoning-only no-output responses near the limit continue automatically after compacted replay.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
 - Fixed Spawn trail text clarity by removing the idle floating animation from trail cards.
 - Fixed Spawn Python status previews so running and exit states update in one attached status squircle without duplicate slides.
 - Fixed long Spawn code blocks crowding the bottom curves of their surrounding squircles.
-- Fixed Spawn codeblock alignment and Python output sizing so short output still fills the result squircle width.
+- Fixed Spawn rounded-rectangle preview content so global button centering no longer prevents summaries and codeblocks from stretching to the parent width.
+- Fixed Spawn codeblock alignment and Python output sizing so short output stretches to the result squircle sides.
 - Fixed Spawn Python output result layout so the exit marker floats below output while the result squircle rides farther under the code squircle.
 - Fixed Spawn Python output result width and added slide-in motion for the result squircle and output block.
 - Fixed tall Spawn evidence trails by capping compact trail rows, preserving the first evidence row, and opening hidden evidence/finding items in a full-trail modal.

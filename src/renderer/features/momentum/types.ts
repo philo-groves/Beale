@@ -11,6 +11,8 @@ export interface ContextMeter {
   fraction: number;
   inputTokens: number | null;
   tokenLimit: number;
+  totalSessionTokens: number;
+  totalSessionTokensLabel: string;
   label: string;
   source: string;
 }

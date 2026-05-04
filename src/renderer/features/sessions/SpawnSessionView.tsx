@@ -71,6 +71,13 @@ interface SpawnSearchPreview {
 type SpawnSecondaryPreview = SpawnPythonPreview | SpawnCodeBrowserPreview | SpawnSearchPreview;
 type SpawnSecondaryPhase = 'enter' | 'exit';
 
+interface SpawnAgentOutput {
+  id: string;
+  event: TraceDisplayEvent;
+  markdown: string;
+  createdAt: string;
+}
+
 interface SpawnWorkspaceSize {
   width: number;
   height: number;
@@ -146,12 +153,16 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   const trails = useMemo(() => (detail ? buildEvidenceTrails(detail.hypotheses, detail.findings, detail.evidence) : []), [detail]);
   const latestThought = useMemo(() => latestAgentThought(events), [events]);
   const latestSecondary = useMemo(() => latestSpawnSecondaryPreview(events, detail), [detail, events]);
+  const latestAgentOutput = useMemo(() => latestCompletedAgentOutput(events, detail), [detail, events]);
   const [visibleThought, setVisibleThought] = useState<SpawnThought>(latestThought);
   const [thoughtPhase, setThoughtPhase] = useState<'enter' | 'exit'>('enter');
   const [visibleSecondary, setVisibleSecondary] = useState<SpawnSecondaryPreview | null>(latestSecondary);
   const [secondaryPhase, setSecondaryPhase] = useState<SpawnSecondaryPhase>('enter');
+  const [visibleAgentOutput, setVisibleAgentOutput] = useState<SpawnAgentOutput | null>(null);
   const secondaryShownAtRef = useRef(Date.now());
   const pendingSecondaryRef = useRef<SpawnSecondaryPreview | null>(latestSecondary);
+  const seenAgentOutputIdRef = useRef<string | null>(latestAgentOutput?.id ?? null);
+  const baselineAgentOutputRunStatusRef = useRef<string | null>(detail?.run.status ?? null);
   const normalizedSearch = normalizeSpawnSearch(searchQuery);
   const layoutMetrics = useMemo(() => spawnLayoutMetrics(trails, normalizedSearch, workspaceSize), [normalizedSearch, trails, workspaceSize]);
   const displayedTrails = useMemo(() => spawnTrailLayouts(trails, normalizedSearch, layoutMetrics), [layoutMetrics, normalizedSearch, trails]);
@@ -202,6 +213,26 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   }, [latestThought, visibleThought.id, visibleThought.sourceText]);
 
   useEffect(() => {
+    baselineAgentOutputRunStatusRef.current = detail?.run.status ?? null;
+    seenAgentOutputIdRef.current = latestAgentOutput?.id ?? null;
+    setVisibleAgentOutput(null);
+  }, [detail?.run.id]);
+
+  useEffect(() => {
+    if (!latestAgentOutput) return;
+    if (seenAgentOutputIdRef.current === latestAgentOutput.id) {
+      setVisibleAgentOutput((current) => (current?.id === latestAgentOutput.id && current.markdown !== latestAgentOutput.markdown ? latestAgentOutput : current));
+      return;
+    }
+    if (!seenAgentOutputIdRef.current && detail?.run.status === 'completed' && baselineAgentOutputRunStatusRef.current === 'completed') {
+      seenAgentOutputIdRef.current = latestAgentOutput.id;
+      return;
+    }
+    seenAgentOutputIdRef.current = latestAgentOutput.id;
+    setVisibleAgentOutput(latestAgentOutput);
+  }, [latestAgentOutput]);
+
+  useEffect(() => {
     if (sameSpawnSecondaryPreview(latestSecondary, visibleSecondary)) {
       if (latestSecondary && latestSecondary !== visibleSecondary) {
         setVisibleSecondary(latestSecondary);
@@ -230,7 +261,7 @@ export const SpawnSessionView = memo(function SpawnSessionView({
   }, [latestSecondary, visibleSecondary]);
 
   return (
-    <div className="spawn-session-workspace" ref={workspaceRef} aria-label="Spawn view">
+    <div className={`spawn-session-workspace ${visibleAgentOutput ? 'output-open' : ''}`} ref={workspaceRef} aria-label="Spawn view">
       <div className="spawn-trail-field" aria-hidden={displayedTrails.length === 0}>
         {displayedTrails.map((layout) => (
           <SpawnTrail
@@ -312,6 +343,7 @@ export const SpawnSessionView = memo(function SpawnSessionView({
         )}
         {searchOpen && hiddenCount > 0 && !normalizedSearch ? <span>{hiddenCount} hidden</span> : null}
       </div>
+      {visibleAgentOutput ? <SpawnAgentOutputSheet output={visibleAgentOutput} onClose={() => setVisibleAgentOutput(null)} /> : null}
       {expandedTrail ? (
         <SpawnTrailDetailModal
           artifactById={artifactById}
@@ -684,6 +716,7 @@ function SpawnPythonChain({
         <div className="spawn-python-result-content">
           {hasOutput ? (
             <SpawnPythonBlock
+              className="spawn-python-output-block"
               label="Output"
               lines={python.preview.outputLines}
               lineCount={python.preview.outputLineCount}
@@ -758,6 +791,27 @@ function SpawnSearchChain({
   );
 }
 
+function SpawnAgentOutputSheet({ output, onClose }: { output: SpawnAgentOutput; onClose: () => void }): JSX.Element {
+  const createdAt = new Date(output.createdAt);
+  const time = Number.isNaN(createdAt.getTime()) ? '' : formatSessionTime(createdAt);
+  return (
+    <section className="spawn-agent-output-sheet" aria-label="Agent output" aria-live="polite">
+      <div className="spawn-agent-output-header">
+        <div>
+          <span>Agent Output</span>
+          {time ? <em>{time}</em> : null}
+        </div>
+        <button type="button" aria-label="Dismiss agent output" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      <div className="spawn-agent-output-body">
+        <div className="spawn-output-markdown">{renderSpawnMarkdown(output.markdown)}</div>
+      </div>
+    </section>
+  );
+}
+
 function SpawnSecondarySummary({ eyebrow, title, description, facts }: { eyebrow: string; title: string; description: string; facts: string[] }): JSX.Element {
   return (
     <div className="spawn-secondary-summary">
@@ -776,6 +830,7 @@ function SpawnSecondarySummary({ eyebrow, title, description, facts }: { eyebrow
 }
 
 function SpawnPythonBlock({
+  className = '',
   label,
   language,
   lineCount,
@@ -784,6 +839,7 @@ function SpawnPythonBlock({
   meta,
   truncated
 }: {
+  className?: string;
   label: string;
   language?: 'python';
   lineCount: number;
@@ -797,7 +853,7 @@ function SpawnPythonBlock({
   const rows = codeBlockLineRows(lines, lineNumberMode);
   const text = rows.codeLines.join('\n');
   return (
-    <div className="spawn-python-block">
+    <div className={`spawn-python-block ${className}`.trim()}>
       <div className="spawn-python-heading">
         <span>{label}</span>
         <span>{lineLabel}</span>
@@ -1032,6 +1088,33 @@ function spawnPythonPreviewId(codeEvent: TraceDisplayEvent, resultEvent: TraceDi
 function sameSpawnSecondaryPreview(left: SpawnSecondaryPreview | null, right: SpawnSecondaryPreview | null): boolean {
   if (!left || !right) return left === right;
   return left.kind === right.kind && left.id === right.id;
+}
+
+function latestCompletedAgentOutput(events: TraceDisplayEvent[], detail: RunDetail | null): SpawnAgentOutput | null {
+  if (detail?.run.status !== 'completed') return null;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (!event) continue;
+    const markdown = agentOutputMarkdownForEvent(event);
+    if (!markdown) continue;
+    return {
+      id: event.id,
+      event,
+      markdown,
+      createdAt: event.createdAt
+    };
+  }
+  return null;
+}
+
+function agentOutputMarkdownForEvent(event: TraceDisplayEvent): string {
+  const transcriptRole = typeof event.payload.transcriptRole === 'string' ? event.payload.transcriptRole : '';
+  const transcriptSource = typeof event.payload.transcriptSource === 'string' ? event.payload.transcriptSource : '';
+  const transcriptKind = typeof event.payload.transcriptKind === 'string' ? event.payload.transcriptKind : '';
+  if (transcriptRole !== 'assistant') return '';
+  if (transcriptSource === 'openai_reasoning_summary' || transcriptKind === 'reasoning_summary') return '';
+  const text = typeof event.payload.text === 'string' ? event.payload.text.trim() : '';
+  return text;
 }
 
 function pythonCodeEventForResult(events: TraceDisplayEvent[], resultEvent: TraceDisplayEvent): TraceDisplayEvent | null {
@@ -1355,6 +1438,298 @@ function renderSpawnInlineText(text: string, keyPrefix: string): ReactNode[] {
   }
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes.length > 0 ? nodes : [text];
+}
+
+function renderSpawnMarkdown(markdown: string): ReactNode[] {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const nodes: ReactNode[] = [];
+  let index = 0;
+  let blockIndex = 0;
+
+  const nextKey = (kind: string): string => {
+    const key = `spawn-md-${kind}-${blockIndex}`;
+    blockIndex += 1;
+    return key;
+  };
+
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^\s*```([A-Za-z0-9_-]+)?\s*$/);
+    if (fence) {
+      const language = fence[1] ?? '';
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index] ?? '')) {
+        codeLines.push(lines[index] ?? '');
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      nodes.push(
+        <pre className="spawn-output-code-block" key={nextKey('code')}>
+          {language ? <span>{language}</span> : null}
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    const table = markdownTableAt(lines, index);
+    if (table) {
+      nodes.push(renderSpawnMarkdownTable(table.header, table.rows, nextKey('table')));
+      index = table.nextIndex;
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const level = Math.min(6, heading[1]?.length ?? 2);
+      const Heading = `h${level}` as keyof JSX.IntrinsicElements;
+      nodes.push(<Heading key={nextKey('heading')}>{renderSpawnMarkdownInlineText(heading[2] ?? '', `heading-${index}`)}</Heading>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s{0,3}>\s?/.test(line)) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && /^\s{0,3}>\s?/.test(lines[index] ?? '')) {
+        quoteLines.push((lines[index] ?? '').replace(/^\s{0,3}>\s?/, ''));
+        index += 1;
+      }
+      nodes.push(<blockquote key={nextKey('quote')}>{renderSpawnMarkdown(quoteLines.join('\n'))}</blockquote>);
+      continue;
+    }
+
+    const unordered = line.match(/^\s{0,3}[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s{0,3}\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      const orderedList = Boolean(ordered);
+      const items: string[] = [];
+      while (index < lines.length) {
+        const candidate = lines[index] ?? '';
+        const match = orderedList ? candidate.match(/^\s{0,3}\d+[.)]\s+(.+)$/) : candidate.match(/^\s{0,3}[-*+]\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1] ?? '');
+        index += 1;
+      }
+      const List = orderedList ? 'ol' : 'ul';
+      nodes.push(
+        <List key={nextKey('list')}>
+          {items.map((item, itemIndex) => (
+            <li key={`item-${itemIndex}`}>{renderSpawnMarkdownInlineText(item, `list-${blockIndex}-${itemIndex}`)}</li>
+          ))}
+        </List>
+      );
+      continue;
+    }
+
+    if (/^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      nodes.push(<hr key={nextKey('rule')} />);
+      index += 1;
+      continue;
+    }
+
+    const paragraphLines = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index]?.trim() && !isSpawnMarkdownBlockStart(lines, index)) {
+      paragraphLines.push((lines[index] ?? '').trim());
+      index += 1;
+    }
+    nodes.push(<p key={nextKey('paragraph')}>{renderSpawnMarkdownInlineText(paragraphLines.join(' '), `paragraph-${blockIndex}`)}</p>);
+  }
+
+  return nodes.length > 0 ? nodes : [markdown];
+}
+
+function renderSpawnMarkdownInlineText(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let buffer = '';
+  let index = 0;
+  let tokenIndex = 0;
+
+  const flushBuffer = (): void => {
+    if (!buffer) return;
+    nodes.push(buffer);
+    buffer = '';
+  };
+
+  const pushWrapped = (kind: 'code' | 'link' | 'strong' | 'em' | 'strong-em', content: string, href = ''): void => {
+    flushBuffer();
+    const key = `${keyPrefix}-${tokenIndex}`;
+    tokenIndex += 1;
+    if (kind === 'code') {
+      nodes.push(
+        <code className="spawn-output-inline-code" key={key}>
+          {content}
+        </code>
+      );
+      return;
+    }
+    if (kind === 'link') {
+      const safeHref = safeSpawnMarkdownHref(href);
+      nodes.push(
+        safeHref ? (
+          <a href={safeHref} key={key} rel="noreferrer" target="_blank">
+            {renderSpawnMarkdownInlineText(content, `${key}-label`)}
+          </a>
+        ) : (
+          <span key={key}>{content}</span>
+        )
+      );
+      return;
+    }
+    if (kind === 'strong-em') {
+      nodes.push(
+        <strong key={key}>
+          <em>{renderSpawnMarkdownInlineText(content, `${key}-strong-em`)}</em>
+        </strong>
+      );
+      return;
+    }
+    if (kind === 'strong') {
+      nodes.push(<strong key={key}>{renderSpawnMarkdownInlineText(content, `${key}-strong`)}</strong>);
+      return;
+    }
+    nodes.push(<em key={key}>{renderSpawnMarkdownInlineText(content, `${key}-em`)}</em>);
+  };
+
+  while (index < text.length) {
+    if (text[index] === '`') {
+      const tickMatch = text.slice(index).match(/^`+/);
+      const ticks = tickMatch?.[0] ?? '`';
+      const end = text.indexOf(ticks, index + ticks.length);
+      if (end > index + ticks.length) {
+        pushWrapped('code', text.slice(index + ticks.length, end));
+        index = end + ticks.length;
+        continue;
+      }
+    }
+
+    if (text[index] === '[') {
+      const labelEnd = text.indexOf(']', index + 1);
+      const hrefStart = labelEnd >= 0 && text[labelEnd + 1] === '(' ? labelEnd + 2 : -1;
+      const hrefEnd = hrefStart >= 0 ? text.indexOf(')', hrefStart) : -1;
+      if (labelEnd > index + 1 && hrefStart >= 0 && hrefEnd > hrefStart) {
+        pushWrapped('link', text.slice(index + 1, labelEnd), text.slice(hrefStart, hrefEnd));
+        index = hrefEnd + 1;
+        continue;
+      }
+    }
+
+    if (text.startsWith('***', index)) {
+      const end = text.indexOf('***', index + 3);
+      const content = end > index + 3 ? text.slice(index + 3, end) : '';
+      if (content.trim()) {
+        pushWrapped('strong-em', content);
+        index = end + 3;
+        continue;
+      }
+    }
+
+    if (text.startsWith('**', index)) {
+      const end = text.indexOf('**', index + 2);
+      const content = end > index + 2 ? text.slice(index + 2, end) : '';
+      if (content.trim()) {
+        pushWrapped('strong', content);
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (text[index] === '*' && text[index + 1] !== '*' && text[index + 1] !== ' ') {
+      const end = text.indexOf('*', index + 1);
+      const content = end > index + 1 ? text.slice(index + 1, end) : '';
+      if (content.trim()) {
+        pushWrapped('em', content);
+        index = end + 1;
+        continue;
+      }
+    }
+
+    buffer += text[index];
+    index += 1;
+  }
+
+  flushBuffer();
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function renderSpawnMarkdownTable(header: string[], rows: string[][], key: string): JSX.Element {
+  return (
+    <div className="spawn-output-table-wrap" key={key}>
+      <table>
+        <thead>
+          <tr>
+            {header.map((cell, index) => (
+              <th key={`head-${index}`}>{renderSpawnMarkdownInlineText(cell, `${key}-head-${index}`)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`row-${rowIndex}`}>
+              {header.map((_, cellIndex) => (
+                <td key={`cell-${rowIndex}-${cellIndex}`}>{renderSpawnMarkdownInlineText(row[cellIndex] ?? '', `${key}-cell-${rowIndex}-${cellIndex}`)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function markdownTableAt(lines: string[], index: number): { header: string[]; rows: string[][]; nextIndex: number } | null {
+  const headerLine = lines[index] ?? '';
+  const dividerLine = lines[index + 1] ?? '';
+  if (!headerLine.includes('|') || !isSpawnMarkdownTableDivider(dividerLine)) return null;
+  const header = splitSpawnMarkdownTableCells(headerLine);
+  const divider = splitSpawnMarkdownTableCells(dividerLine);
+  if (header.length < 2 || divider.length !== header.length) return null;
+
+  const rows: string[][] = [];
+  let nextIndex = index + 2;
+  while (nextIndex < lines.length && (lines[nextIndex] ?? '').includes('|') && (lines[nextIndex] ?? '').trim()) {
+    rows.push(splitSpawnMarkdownTableCells(lines[nextIndex] ?? ''));
+    nextIndex += 1;
+  }
+  return { header, rows, nextIndex };
+}
+
+function splitSpawnMarkdownTableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isSpawnMarkdownTableDivider(line: string): boolean {
+  const cells = splitSpawnMarkdownTableCells(line);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isSpawnMarkdownBlockStart(lines: string[], index: number): boolean {
+  const line = lines[index] ?? '';
+  return (
+    /^\s*```/.test(line) ||
+    Boolean(markdownTableAt(lines, index)) ||
+    /^\s{0,3}#{1,6}\s+/.test(line) ||
+    /^\s{0,3}>\s?/.test(line) ||
+    /^\s{0,3}([-*+]|\d+[.)])\s+/.test(line) ||
+    /^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)
+  );
+}
+
+function safeSpawnMarkdownHref(value: string): string {
+  const href = value.trim();
+  if (/^(https?:|mailto:|#|\/|\.\.?\/)/i.test(href)) return href;
+  return '';
 }
 
 function spawnNextSurfaceClass(surface: SpawnTrailSurface): string {

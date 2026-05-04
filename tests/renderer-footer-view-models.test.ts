@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecutorStatus, RunDetail, TraceEventRecord, VmPreference } from '@shared/types';
-import { contextMeterForDetail, visibleContextMeterLabel } from '../src/renderer/features/momentum/contextMeter';
+import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
 import { hostEnvironmentLabel, vmTargetStatus } from '../src/renderer/view-models/environmentDisplay';
 
 describe('renderer footer view models', () => {
@@ -21,7 +21,26 @@ describe('renderer footer view models', () => {
 
     expect(meter.label).toBe('136k/272k');
     expect(visibleContextMeterLabel(meter)).toBe('136k/272k');
+    expect(visibleSessionTokenUsageLabel(meter)).toBe('136k');
     expect(meter.fraction).toBe(0.5);
+  });
+
+  it('formats cumulative session token usage with decimals starting at millions', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({ payload: { usage: { total_tokens: 50_000 } } }),
+          traceEvent({ payload: { usage: { total_tokens: 1_250_000 } } }),
+          traceEvent({ payload: { usage: { input_tokens: 1_800, output_tokens: 200 } } })
+        ]
+      })
+    );
+
+    expect(meter.totalSessionTokens).toBe(1_302_000);
+    expect(visibleSessionTokenUsageLabel(meter)).toBe('1.3m');
+    expect(sessionTokenLabelForTotal(50_000)).toBe('50k');
+    expect(sessionTokenLabelForTotal(10_500_000)).toBe('10.5m');
+    expect(sessionTokenLabelForTotal(1_100_000_000)).toBe('1.1b');
   });
 
   it('uses compaction token pressure as the current context source when newer', () => {
@@ -97,6 +116,10 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
     approvalId: null,
     ...input
   };
+}
+
+function sessionTokenLabelForTotal(totalTokens: number): string {
+  return visibleSessionTokenUsageLabel(contextMeterForDetail(runDetail({ traceEvents: [traceEvent({ payload: { usage: { total_tokens: totalTokens } } })] })));
 }
 
 function executorStatus(): ExecutorStatus {

@@ -642,6 +642,40 @@ export class OpenAiRunEngine {
           throw error;
         }
 
+        if (functionCalls.length === 0 && !latestCompletedModelOutput) {
+          const noOutputCompactionDecision = evaluateOpenAiCompaction({
+            replayMode,
+            previousResponseIdUnsupported,
+            manualConversationInput,
+            latestReportedInputTokens,
+            policy: compactionPolicy
+          });
+          if (noOutputCompactionDecision) {
+            this.db.appendTraceEvent({
+              runId: context.run.id,
+              attemptId: context.attempt.id,
+              type: 'model_message',
+              source: 'system',
+              summary: 'OpenAI response ended without final output under context pressure; continuing with compacted replay.',
+              payload: {
+                reason: noOutputCompactionDecision.reason,
+                replayMode,
+                latestReportedInputTokens,
+                tokenPressure: noOutputCompactionDecision.tokenPressure
+              },
+              vmContextId: context.vmContext.id
+            });
+            const compacted = this.compactReplayContext(context, noOutputCompactionDecision, replayMode, compactionPolicy.recentModelVisibleEventLimit);
+            responseInput = compacted.responseInput;
+            manualConversationInput = compacted.manualConversationInput;
+            previousResponseId = null;
+            replayMode = 'compacted_replay';
+            latestReportedInputTokens = null;
+            this.onChange();
+            continue;
+          }
+        }
+
         if (functionCalls.length === 0) {
           if (latestCompletedModelOutput) {
             this.db.createNotification({
@@ -790,6 +824,7 @@ export class OpenAiRunEngine {
         pendingInput: responseInput,
         manualConversationInput: responseInput,
         replayMode: 'compacted_replay',
+        latestReportedInputTokens: null,
         latestCompactionId: compaction.id,
         latestCompactionReason: decision.reason
       }
