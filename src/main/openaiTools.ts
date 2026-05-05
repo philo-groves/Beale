@@ -194,6 +194,8 @@ interface GuestToolResult {
   hostCwd?: string;
   hostTargetPath?: string | null;
   hostArtifactPath?: string | null;
+  requestedArtifactPath?: string | null;
+  artifactExportError?: string | null;
 }
 
 interface DebuggerSummary {
@@ -1675,6 +1677,8 @@ export class BealeToolRouter {
         structured: execution.result.structured,
         candidateArtifactCount: execution.result.candidateArtifacts.length,
         exportedArtifactId: execution.artifactId,
+        requestedArtifactPath: execution.requestedArtifactPath ?? null,
+        artifactExportError: execution.artifactExportError ?? null,
         importedHostPath: execution.importedHostPath,
         hostCwd: execution.hostCwd ?? null,
         hostTargetPath: execution.hostTargetPath ?? null,
@@ -1762,6 +1766,8 @@ export class BealeToolRouter {
         structured: execution.result.structured,
         debugger: debuggerSummary,
         exportedArtifactId: execution.artifactId,
+        requestedArtifactPath: execution.requestedArtifactPath ?? null,
+        artifactExportError: execution.artifactExportError ?? null,
         importedHostPath: execution.importedHostPath,
         hostCwd: execution.hostCwd ?? null,
         hostTargetPath: execution.hostTargetPath ?? null,
@@ -1846,6 +1852,8 @@ export class BealeToolRouter {
         structured: execution.result.structured,
         debugger: debuggerSummary,
         exportedArtifactId: execution.artifactId,
+        requestedArtifactPath: execution.requestedArtifactPath ?? null,
+        artifactExportError: execution.artifactExportError ?? null,
         importedHostPath: execution.importedHostPath,
         hostCwd: execution.hostCwd ?? null,
         hostTargetPath: execution.hostTargetPath ?? null,
@@ -2449,22 +2457,12 @@ export class BealeToolRouter {
         });
       }
       const result = this.executor.executeGuestOperation(context, request);
-      if (artifactPath && !status.supports.export) {
-        throw new Error('Executor backend does not support guest artifact export.');
-      }
-      const artifactId =
-        artifactPath
-          ? this.executor.exportArtifact(context, {
-              guestPath: artifactPath,
-              kind: request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output',
-              mimeType: 'application/octet-stream',
-              sensitivity: 'internal',
-              modelVisible: true
-            })
-          : null;
+      const artifactExport = this.exportGuestToolArtifact(context, request, artifactPath, status.supports.export);
       return {
         result,
-        artifactId,
+        artifactId: artifactExport.artifactId,
+        requestedArtifactPath: artifactPath,
+        artifactExportError: artifactExport.error,
         importedHostPath: importSpec?.hostPath ?? null,
         requestedNetworkProfile,
         networkProfile,
@@ -2473,7 +2471,7 @@ export class BealeToolRouter {
       };
     } finally {
       if (contextCreated) {
-        this.executor.destroyContext(context);
+        this.destroyToolSandboxContext(context);
       }
     }
   }
@@ -2521,22 +2519,12 @@ export class BealeToolRouter {
         });
       }
       const result = await this.executor.executeGuestOperationAsync(context, request, { onTraceEvent: this.options.onTraceEvent });
-      if (artifactPath && !status.supports.export) {
-        throw new Error('Executor backend does not support guest artifact export.');
-      }
-      const artifactId =
-        artifactPath
-          ? this.executor.exportArtifact(context, {
-              guestPath: artifactPath,
-              kind: request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output',
-              mimeType: 'application/octet-stream',
-              sensitivity: 'internal',
-              modelVisible: true
-            })
-          : null;
+      const artifactExport = this.exportGuestToolArtifact(context, request, artifactPath, status.supports.export);
       return {
         result,
-        artifactId,
+        artifactId: artifactExport.artifactId,
+        requestedArtifactPath: artifactPath,
+        artifactExportError: artifactExport.error,
         importedHostPath: importSpec?.hostPath ?? null,
         requestedNetworkProfile,
         networkProfile,
@@ -2545,8 +2533,58 @@ export class BealeToolRouter {
       };
     } finally {
       if (contextCreated) {
-        this.executor.destroyContext(context);
+        this.destroyToolSandboxContext(context);
       }
+    }
+  }
+
+  private exportGuestToolArtifact(
+    context: CreatedRunContext,
+    request: GuestExecuteRequest,
+    artifactPath: string | null,
+    supportsExport: boolean
+  ): { artifactId: string | null; error: string | null } {
+    if (!artifactPath) return { artifactId: null, error: null };
+    if (!this.executor) return { artifactId: null, error: 'Sandbox executor is not available to export the requested artifact.' };
+    if (!supportsExport) return { artifactId: null, error: 'Executor backend does not support guest artifact export.' };
+    try {
+      return {
+        artifactId: this.executor.exportArtifact(context, {
+          guestPath: artifactPath,
+          kind: request.operationKind === 'python' ? 'python_generated_output' : 'debugger_output',
+          mimeType: 'application/octet-stream',
+          sensitivity: 'internal',
+          modelVisible: true
+        }),
+        error: null
+      };
+    } catch (error) {
+      return { artifactId: null, error: errorMessage(error) };
+    }
+  }
+
+  private destroyToolSandboxContext(context: CreatedRunContext): void {
+    if (!this.executor) return;
+    try {
+      this.executor.destroyContext(context);
+    } catch (error) {
+      this.db.updateVmContext(context.vmContext.id, {
+        state: 'recovery_pending',
+        metadata: {
+          recoveryRequired: true,
+          destroyFailed: true,
+          destroyError: errorMessage(error)
+        }
+      });
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'vm_event',
+        source: 'executor',
+        summary: 'Sandbox cleanup failed after guest tool execution.',
+        payload: { error: errorMessage(error) },
+        vmContextId: context.vmContext.id
+      });
     }
   }
 

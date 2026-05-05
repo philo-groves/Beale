@@ -1804,6 +1804,48 @@ describe('structured research tools', () => {
     db.close();
   });
 
+  it('keeps async guest Python output when sandbox cleanup fails', async () => {
+    const { db, context, logPath } = openStructuredToolDb();
+    configureVmctlFixture(logPath, 'destroy');
+    const router = new BealeToolRouter(db, new ExecutorManager(db));
+
+    const python = await callToolAsync(router, context, 'python', {
+      task: 'cleanup failure should not hide stdout',
+      script: 'print("python-ok")',
+      artifact_path: ''
+    });
+
+    expect(python.status).toBe('success');
+    expect(python.payload.hostExecution).toBe(false);
+    expect(String(python.payload.stdoutSummary)).toContain('fixture guest stdout');
+    const detail = db.getRunDetail(context.run.id);
+    expect(detail.vmContexts[0]?.state).toBe('recovery_pending');
+    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox cleanup failed after guest tool execution.')).toBe(true);
+    expect(readVmctlEntries(logPath).map((entry) => entry.input.action)).toContain('destroy');
+    db.close();
+  });
+
+  it('keeps async guest Python output when requested artifact export fails', async () => {
+    const { db, context, logPath } = openStructuredToolDb();
+    configureVmctlFixture(logPath, 'export_artifact');
+    const router = new BealeToolRouter(db, new ExecutorManager(db));
+
+    const python = await callToolAsync(router, context, 'python', {
+      task: 'export failure should not hide stdout',
+      script: 'print("python-ok")',
+      artifact_path: '/tmp/beale-output.txt'
+    });
+
+    expect(python.status).toBe('success');
+    expect(python.artifact_id).toBeUndefined();
+    expect(String(python.payload.stdoutSummary)).toContain('fixture guest stdout');
+    expect(String(python.payload.artifactExportError)).toContain('fixture forced export_artifact failure');
+    expect(readVmctlEntries(logPath).map((entry) => entry.input.action)).toEqual(
+      expect.arrayContaining(['execute', 'export_artifact', 'destroy'])
+    );
+    db.close();
+  });
+
   it('blocks Python scripts from reading raw Beale artifact-store paths before sandbox launch', () => {
     const { db, context, logPath } = openStructuredToolDb();
     configureVmctlFixture(logPath);
@@ -2197,9 +2239,9 @@ function hackerOneWildcard(value: string, instruction: string): ScopeAssetInput 
   };
 }
 
-function configureVmctlFixture(logPath: string): void {
+function configureVmctlFixture(logPath: string, failActions = ''): void {
   process.env.BEALE_VMCTL_COMMAND = process.execPath;
-  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath]);
+  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions]);
 }
 
 function readVmctlEntries(logPath: string): Array<{ input: { action: string; payload: { operation?: { operationKind: string; networkPolicy?: { profile: string } } } } }> {

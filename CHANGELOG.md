@@ -22,6 +22,8 @@
 - Added CyberGym scenario runs that execute as sessions in a reserved CyberGym research program, stage selected-level task materials in disposable per-run directories, collect result JSON/JSONL artifacts, and delete staged task materials after collection.
 - Added CyberGym PoC database verification import for scenario benchmark pass/fail results.
 - Added host-side CyberGym PoC artifact submission before verification import, keeping submit credentials and Beale workspace state out of the guest.
+- Added CyberGym verification settings for submit server URL, PoC database path, and verify API key so scenario pass/fail grading can run from Settings.
+- Added lazy CyberGym task material downloads into the configured cache path before scenario sessions start, with cached materials reused across reruns and removed by Clear Cache.
 - Added persisted benchmark task metrics for pass/fail status, fail reason, token count, session time, turn count, and time-to-finding.
 - Added an orange CyberGym scenario warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
@@ -105,6 +107,7 @@
 - Changed CyberGym scenario run output to use per-scenario/per-run result directories with `result.json` and `events.jsonl`, while keeping only disposable task staging under the CyberGym cache path.
 - Changed the CyberGym research prompt to omit the benchmark-session title prefix so it does not act as an agent hint.
 - Changed CyberGym task staging to stay outside `.beale/` even when legacy cache settings point there, so sandbox import policy can mount selected task materials without exposing workspace metadata.
+- Changed the CyberGym research prompt to clarify that sandboxed tools should use `/workspace/target` for selected task materials.
 - Changed user-facing executor language from VM to Sandbox while keeping VM-specific backend names where they identify the underlying technology.
 - Changed sandbox settings into a dedicated Settings tab with a horizontal sandbox selector and per-sandbox detail panel.
 - Changed sandbox planning docs to make local disposable VMs preferred rather than mandatory, with Docker and host execution recorded as degraded explicit options.
@@ -252,6 +255,8 @@
 - Fixed CyberGym Run Scenario disabled states so the scenario panel displays the blocking reason.
 - Fixed CyberGym Run Scenario startup so it opens the new CyberGym program session instead of falling back to the program-understanding view or only showing the result path.
 - Fixed CyberGym benchmark token metrics to import OpenAI response usage from trace events instead of recording zero tokens.
+- Fixed guest Python/debugger tool execution so sandbox cleanup or artifact-export failures are recorded without replacing successful tool output.
+- Fixed Docker sandbox cleanup so stale non-empty context directories are moved out of the active path before deferred deletion, preventing one cleanup failure from blocking later CyberGym tools.
 - Fixed benchmark elapsed-time metrics to use a monotonic clock so session duration cannot go negative if the wall clock moves backward during a run.
 - Fixed Docker sandbox context cleanup to retry transient non-empty directory removal and block raw `.beale` artifact-store paths before launching sandbox Python.
 - Fixed OpenAI run compaction so high-context responses compact before the hard window limit and reasoning-only no-output responses near the limit continue automatically after compacted replay.

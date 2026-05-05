@@ -512,13 +512,20 @@ function defaultCyberGymSettings(registryDirectory: string): CyberGymBenchmarkSe
     sourceRootPath: join(registryDirectory, 'benchmarks', 'cybergym'),
     selectedBenchmark: '',
     cachePath: defaultCyberGymCachePath(),
-    outputPath: join(registryDirectory, 'benchmark-results', 'cybergym')
+    outputPath: join(registryDirectory, 'benchmark-results', 'cybergym'),
+    submitServerUrl: defaultCyberGymSubmitServerUrl(),
+    pocDbPath: '',
+    verifyApiKey: ''
   };
 }
 
 function defaultCyberGymCachePath(): string {
   const base = process.env.XDG_CACHE_HOME?.trim() ? resolve(process.env.XDG_CACHE_HOME) : join(homedir(), '.cache');
   return join(base, 'beale', 'benchmark-cache', 'cybergym');
+}
+
+function defaultCyberGymSubmitServerUrl(): string {
+  return process.env.BEALE_CYBERGYM_SERVER_URL?.trim() || process.env.CYBERGYM_SERVER_URL?.trim() || 'http://127.0.0.1:8666';
 }
 
 function normalizeCyberGymSettings(value: unknown, fallback: CyberGymBenchmarkSettings): CyberGymBenchmarkSettings {
@@ -528,12 +535,19 @@ function normalizeCyberGymSettings(value: unknown, fallback: CyberGymBenchmarkSe
     sourceRootPath: stringSetting(record.sourceRootPath, fallback.sourceRootPath),
     selectedBenchmark: stringSetting(record.selectedBenchmark, fallback.selectedBenchmark),
     cachePath: stringSetting(record.cachePath, fallback.cachePath),
-    outputPath: stringSetting(record.outputPath, fallback.outputPath)
+    outputPath: stringSetting(record.outputPath, fallback.outputPath),
+    submitServerUrl: stringSetting(record.submitServerUrl, fallback.submitServerUrl),
+    pocDbPath: optionalStringSetting(record.pocDbPath, fallback.pocDbPath),
+    verifyApiKey: optionalStringSetting(record.verifyApiKey, fallback.verifyApiKey)
   };
 }
 
 function stringSetting(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function optionalStringSetting(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value.trim() : fallback;
 }
 
 function isExecutorBackendKind(value: unknown): value is ExecutorBackendKind {

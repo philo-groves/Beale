@@ -254,13 +254,24 @@ function BenchmarkingSettingsView({
 
   useEffect(() => {
     setDraft(settings);
-  }, [settings.sourceRootPath, settings.selectedBenchmark, settings.cachePath, settings.outputPath]);
+  }, [
+    settings.sourceRootPath,
+    settings.selectedBenchmark,
+    settings.cachePath,
+    settings.outputPath,
+    settings.submitServerUrl,
+    settings.pocDbPath,
+    settings.verifyApiKey
+  ]);
 
   const dirty =
     draft.sourceRootPath !== settings.sourceRootPath ||
     draft.selectedBenchmark !== settings.selectedBenchmark ||
     draft.cachePath !== settings.cachePath ||
-    draft.outputPath !== settings.outputPath;
+    draft.outputPath !== settings.outputPath ||
+    draft.submitServerUrl !== settings.submitServerUrl ||
+    draft.pocDbPath !== settings.pocDbPath ||
+    draft.verifyApiKey !== settings.verifyApiKey;
 
   const save = async (): Promise<void> => {
     await onUpdateCyberGymSettings(draft);
@@ -319,6 +330,25 @@ function BenchmarkingSettingsView({
             placeholder="/path/to/cybergym-results"
             onChange={(outputPath) => setDraft((current) => ({ ...current, outputPath }))}
           />
+          <SettingsTextField
+            label="Submit Server"
+            value={draft.submitServerUrl}
+            placeholder="http://127.0.0.1:8666"
+            onChange={(submitServerUrl) => setDraft((current) => ({ ...current, submitServerUrl }))}
+          />
+          <SettingsTextField
+            label="PoC DB Path"
+            value={draft.pocDbPath}
+            placeholder="/path/to/server_poc/poc.db"
+            onChange={(pocDbPath) => setDraft((current) => ({ ...current, pocDbPath }))}
+          />
+          <SettingsTextField
+            label="Verify API Key"
+            value={draft.verifyApiKey}
+            placeholder="cybergym-..."
+            type="password"
+            onChange={(verifyApiKey) => setDraft((current) => ({ ...current, verifyApiKey }))}
+          />
         </div>
 
         <div className="provider-actions benchmarking-actions">
@@ -349,17 +379,19 @@ function SettingsTextField({
   label,
   value,
   placeholder,
+  type = 'text',
   onChange
 }: {
   label: string;
   value: string;
   placeholder: string;
+  type?: 'text' | 'password';
   onChange: (value: string) => void;
 }): JSX.Element {
   return (
     <label className="settings-field">
       <span>{label}</span>
-      <input type="text" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -369,7 +401,10 @@ function emptyCyberGymSettings(): CyberGymBenchmarkSettings {
     sourceRootPath: '',
     selectedBenchmark: '',
     cachePath: '',
-    outputPath: ''
+    outputPath: '',
+    submitServerUrl: '',
+    pocDbPath: '',
+    verifyApiKey: ''
   };
 }
 

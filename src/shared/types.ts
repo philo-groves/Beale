@@ -517,6 +517,9 @@ export interface CyberGymBenchmarkSettings {
   selectedBenchmark: string;
   cachePath: string;
   outputPath: string;
+  submitServerUrl: string;
+  pocDbPath: string;
+  verifyApiKey: string;
 }
 
 export interface DeveloperSettings {
@@ -529,6 +532,9 @@ export interface CyberGymSettingsInput {
   selectedBenchmark?: string;
   cachePath?: string;
   outputPath?: string;
+  submitServerUrl?: string;
+  pocDbPath?: string;
+  verifyApiKey?: string;
 }
 
 export interface CyberGymStorageActionResult {

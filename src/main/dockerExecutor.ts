@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { CreatedRunContext } from './database';
@@ -32,6 +32,7 @@ const MAX_STREAM_EVENTS = 80;
 const DEFAULT_STATS_INTERVAL_MS = 2_000;
 const DEFAULT_STATS_TIMEOUT_MS = 1_000;
 const MAX_RESOURCE_SAMPLES = 20;
+const SANDBOX_CLEANUP_RETRY_DELAYS_MS = [1_000, 5_000, 30_000];
 
 interface DockerContextState {
   vmContextId: string;
@@ -245,8 +246,8 @@ export class DockerExecutorProvider implements ExecutorProvider {
   }
 
   public destroy(context: CreatedRunContext): Record<string, unknown> {
-    removeSandboxPath(contextDir(this.stateRoot, context.vmContext.id));
-    return { destroyed: true };
+    const cleanup = removeSandboxPath(contextDir(this.stateRoot, context.vmContext.id));
+    return { destroyed: true, ...cleanup };
   }
 
   private readStatus(): ExecutorCapabilities {
@@ -635,8 +636,45 @@ function writeState(dir: string, state: DockerContextState): void {
   writeFileSync(join(dir, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
 }
 
-function removeSandboxPath(path: string): void {
-  rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+function removeSandboxPath(path: string): { cleanupDeferred: boolean; cleanupPath?: string; cleanupError?: string } {
+  if (!existsSync(path)) return { cleanupDeferred: false };
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    return { cleanupDeferred: false };
+  } catch (error) {
+    if (!existsSync(path)) return { cleanupDeferred: false };
+    const cleanupPath = `${path}.cleanup-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    try {
+      renameSync(path, cleanupPath);
+    } catch {
+      if (!existsSync(path)) return { cleanupDeferred: false };
+      throw error;
+    }
+    try {
+      rmSync(cleanupPath, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      return { cleanupDeferred: false };
+    } catch (cleanupError) {
+      scheduleDeferredSandboxCleanup(cleanupPath);
+      return { cleanupDeferred: true, cleanupPath, cleanupError: errorMessage(cleanupError) };
+    }
+  }
+}
+
+function scheduleDeferredSandboxCleanup(path: string): void {
+  for (const delay of SANDBOX_CLEANUP_RETRY_DELAYS_MS) {
+    const timer = setTimeout(() => {
+      try {
+        rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      } catch {
+        // A later retry or OS temp cleanup can collect the orphaned sandbox directory.
+      }
+    }, delay);
+    timer.unref?.();
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
 }
 
 function dockerImage(imageRef: string): string {

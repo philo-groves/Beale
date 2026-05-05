@@ -1,9 +1,11 @@
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FakeRunEngine } from './fakeRunEngine';
@@ -99,6 +101,7 @@ const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
 const CYBERGYM_SCENARIO_RUN_POLL_MS = 1000;
 const CYBERGYM_DEFAULT_SERVER_URL = 'http://127.0.0.1:8666';
 const CYBERGYM_DEFAULT_VERIFY_TIMEOUT_MS = 1_200_000;
+const CYBERGYM_HUGGING_FACE_BASE_URL = 'https://huggingface.co/datasets/sunblaze-ucb/cybergym/resolve/main';
 const CYBERGYM_PROGRAM_NAME = 'CyberGym';
 const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
 type DisclosureExportKind = 'evidence_bundle' | 'finding_bundle' | 'redacted_trace' | 'report_draft';
@@ -133,6 +136,7 @@ interface CyberGymScenarioRunTracking {
   outputDirectory: string;
   outputPath: string;
   eventLogPath: string;
+  settings: CyberGymBenchmarkSettings;
   timer: ReturnType<typeof setInterval> | null;
 }
 
@@ -334,6 +338,7 @@ export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
   benchmarkTasksDirectory?: string;
   programRegistryDirectory?: string;
+  cyberGymFetch?: typeof fetch;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
 }
@@ -523,20 +528,22 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
-  public startCyberGymScenarioRun(input: CyberGymScenarioRunInput): CyberGymScenarioRunStartResult {
+  public async startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult> {
     const settings = this.getProgramRegistry().getCyberGymSettings();
     const outputPath = safeCyberGymStoragePath(settings.outputPath, 'output');
     const cachePath = safeCyberGymStoragePath(settings.cachePath, 'cache');
+    const effectiveSettings: CyberGymBenchmarkSettings = { ...settings, cachePath, outputPath };
     const stagingPath = cyberGymScenarioStagingPath(cachePath);
     mkdirSync(outputPath, { recursive: true });
     mkdirSync(cachePath, { recursive: true });
     mkdirSync(stagingPath, { recursive: true });
+    await ensureCyberGymScenarioMaterials(effectiveSettings, cachePath, input.scenario, input.level, this.options.cyberGymFetch ?? fetch);
 
-    const runtime = this.ensureCyberGymProgramRuntime(settings);
+    const runtime = this.ensureCyberGymProgramRuntime(effectiveSettings);
     const rootPath = mkdtempSync(join(stagingPath, 'scenario-run-'));
     try {
-      const preparation = prepareCyberGymTaskDirectory(settings.sourceRootPath, rootPath, input.scenario, input.level);
-      this.ensureCyberGymProgramScope(runtime, settings, { scenario: input.scenario, level: input.level, taskDirectory: preparation.taskDirectory });
+      const preparation = prepareCyberGymTaskDirectory(effectiveSettings, rootPath, input.scenario, input.level);
+      this.ensureCyberGymProgramScope(runtime, effectiveSettings, { scenario: input.scenario, level: input.level, taskDirectory: preparation.taskDirectory });
 
       const runInput: StartRunInput = {
         ...input.settings,
@@ -557,6 +564,7 @@ export class WorkspaceService {
         outputDirectory: runOutputDirectory,
         outputPath: resultPath,
         eventLogPath,
+        settings: effectiveSettings,
         timer: null
       };
       this.cyberGymScenarioRuns.set(runId, scenarioRun);
@@ -2332,7 +2340,7 @@ export class WorkspaceService {
     try {
       if (runtime) {
         const detail = runtime.db.getRunDetail(runId);
-        const verification = await verifyCyberGymScenarioRun(input, preparation, tracked.outputPath, detail, runtime.workspacePath);
+        const verification = await verifyCyberGymScenarioRun(input, preparation, tracked.outputPath, detail, runtime.workspacePath, tracked.settings);
         const result = buildCyberGymScenarioRunResult(detail, input, preparation, tracked, verification);
         mkdirSync(tracked.outputDirectory, { recursive: true });
         writeFileSync(tracked.outputPath, `${JSON.stringify(result, null, 2)}\n`);
@@ -2359,6 +2367,7 @@ export class WorkspaceService {
     const metrics = cyberGymRunMetrics(detail);
     const resultStatus = cyberGymBenchmarkStatusFromVerification(detail.run.status, verification);
     const passCount = resultStatus === 'pass' ? 1 : 0;
+    const totalCount = 1;
     const failReason = cyberGymBenchmarkFailReason(detail.run.status, resultStatus, verification);
     const run = runtime.db.createBenchmarkRun({
       suiteKind: 'cybergym_compat',
@@ -2413,7 +2422,8 @@ export class WorkspaceService {
         ...cyberGymSingleRunIdentity(input, detail),
         wallTimeMs: numberMetric(metrics.sessionDurationMs),
         passCount,
-        totalCount: 1
+        totalCount,
+        passRate: passCount / totalCount
       }
     });
   }
@@ -3340,6 +3350,93 @@ function cyberGymLevelMaterialsFromRecord(value: unknown): Record<string, string
   );
 }
 
+async function ensureCyberGymScenarioMaterials(
+  settings: CyberGymBenchmarkSettings,
+  cachePath: string,
+  scenario: CyberGymScenarioSummary,
+  level: CyberGymLevel,
+  fetchImpl: typeof fetch
+): Promise<void> {
+  const materials = cyberGymLevelMaterials(scenario, level);
+  if (materials.length === 0) return;
+  const roots = cyberGymMaterialRoots(settings, cachePath);
+  const cacheRoot = cyberGymMaterialCacheRoot(cachePath);
+  mkdirSync(cacheRoot, { recursive: true });
+
+  for (const material of materials) {
+    const normalized = normalizeCyberGymMaterialPath(material);
+    if (!normalized) continue;
+    if (cyberGymMaterialExists(roots, scenario.id, normalized)) continue;
+    if (normalized.includes('*')) {
+      throw new Error(`CyberGym material is missing and cannot be lazy-loaded from a wildcard path: ${normalized}`);
+    }
+    const destination = join(cacheRoot, normalized);
+    if (!existsSync(destination)) {
+      await downloadCyberGymMaterial(normalized, destination, fetchImpl);
+    }
+    if (!cyberGymMaterialExists(roots, scenario.id, normalized)) {
+      throw new Error(`CyberGym material could not be staged after download: ${normalized}`);
+    }
+  }
+}
+
+function cyberGymMaterialRoots(settings: CyberGymBenchmarkSettings, cachePath: string = settings.cachePath): string[] {
+  return uniqueNonEmptyStrings([resolve(settings.sourceRootPath), cyberGymMaterialCacheRoot(cachePath)]);
+}
+
+function cyberGymMaterialCacheRoot(cachePath: string): string {
+  return join(resolve(cachePath), 'materials');
+}
+
+function normalizeCyberGymMaterialPath(material: string): string {
+  return material.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function cyberGymMaterialExists(roots: string[], taskId: string, material: string): boolean {
+  return roots.some((root) => cyberGymMaterialExistsInRoot(root, taskId, material));
+}
+
+function cyberGymMaterialExistsInRoot(root: string, taskId: string, material: string): boolean {
+  const normalizedMaterial = normalizeCyberGymMaterialPath(material);
+  const candidates = cyberGymMaterialCandidates(root, taskId, normalizedMaterial);
+  for (const candidate of candidates) {
+    if (normalizedMaterial.includes('*')) {
+      if (cyberGymGlobCandidateExists(candidate)) return true;
+    } else if (existsSync(candidate)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function cyberGymGlobCandidateExists(candidate: string): boolean {
+  const directory = parse(candidate).dir;
+  const [prefix = '', suffix = ''] = parse(candidate).base.split('*');
+  if (!existsSync(directory)) return false;
+  return readdirSync(directory).some((name) => name.startsWith(prefix) && name.endsWith(suffix));
+}
+
+async function downloadCyberGymMaterial(material: string, destination: string, fetchImpl: typeof fetch): Promise<void> {
+  const url = `${CYBERGYM_HUGGING_FACE_BASE_URL}/${material.split('/').map(encodeURIComponent).join('/')}`;
+  const response = await fetchImpl(url, { redirect: 'follow' });
+  if (!response.ok) {
+    throw new Error(`Failed to download CyberGym material ${material}: HTTP ${response.status} ${response.statusText}`);
+  }
+  mkdirSync(parse(destination).dir, { recursive: true });
+  const tempPath = `${destination}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
+  try {
+    if (response.body) {
+      await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(tempPath, { flags: 'wx' }));
+    } else {
+      writeFileSync(tempPath, Buffer.from(await response.arrayBuffer()), { flag: 'wx' });
+    }
+    renameSync(tempPath, destination);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
+}
+
 function cyberGymFallbackScenario(id: string): CyberGymScenarioSummary {
   const projectName = projectFromCyberGymId(id);
   return {
@@ -3356,15 +3453,16 @@ function cyberGymFallbackScenario(id: string): CyberGymScenarioSummary {
   };
 }
 
-function prepareCyberGymTaskDirectory(sourceRootPath: string, rootPath: string, scenario: CyberGymScenarioSummary, level: CyberGymLevel): CyberGymTaskPreparation {
+function prepareCyberGymTaskDirectory(settings: CyberGymBenchmarkSettings, rootPath: string, scenario: CyberGymScenarioSummary, level: CyberGymLevel): CyberGymTaskPreparation {
   const taskDirectory = join(rootPath, 'task');
   mkdirSync(taskDirectory, { recursive: true });
   const materials = cyberGymLevelMaterials(scenario, level);
   const copiedMaterials: string[] = [];
   const missingMaterials: string[] = [];
-  const sourceRoot = resolve(sourceRootPath);
+  const sourceRoot = resolve(settings.sourceRootPath);
+  const materialRoots = cyberGymMaterialRoots(settings);
   for (const material of materials) {
-    const copied = copyCyberGymMaterial(sourceRoot, scenario.id, material, taskDirectory);
+    const copied = copyCyberGymMaterial(materialRoots, scenario.id, material, taskDirectory);
     if (copied) {
       copiedMaterials.push(material);
     } else {
@@ -3374,7 +3472,7 @@ function prepareCyberGymTaskDirectory(sourceRootPath: string, rootPath: string, 
 
   const agentFacingTaskId = cyberGymMaskedTaskId(sourceRoot, scenario.id);
   const agentId = cyberGymAgentId();
-  const submitServer = cyberGymSubmitServer();
+  const submitServer = cyberGymSubmitServer(settings);
   writeFileSync(join(taskDirectory, 'README.md'), buildCyberGymTaskReadme(materials));
   writeFileSync(
     join(taskDirectory, 'cybergym-task.json'),
@@ -3406,11 +3504,13 @@ function prepareCyberGymTaskDirectory(sourceRootPath: string, rootPath: string, 
   };
 }
 
-function copyCyberGymMaterial(sourceRoot: string, taskId: string, material: string, taskDirectory: string): boolean {
-  const normalizedMaterial = material.replace(/\\/g, '/').replace(/^\/+/, '');
-  const candidates = cyberGymMaterialCandidates(sourceRoot, taskId, normalizedMaterial);
-  for (const candidate of candidates) {
-    if (copyCyberGymMaterialCandidate(candidate, normalizedMaterial, taskDirectory)) return true;
+function copyCyberGymMaterial(sourceRoots: string[], taskId: string, material: string, taskDirectory: string): boolean {
+  const normalizedMaterial = normalizeCyberGymMaterialPath(material);
+  for (const sourceRoot of sourceRoots) {
+    const candidates = cyberGymMaterialCandidates(sourceRoot, taskId, normalizedMaterial);
+    for (const candidate of candidates) {
+      if (copyCyberGymMaterialCandidate(candidate, normalizedMaterial, taskDirectory)) return true;
+    }
   }
   return false;
 }
@@ -3477,8 +3577,8 @@ function cyberGymMaskedTaskId(sourceRoot: string, taskId: string): string {
   }
 }
 
-function cyberGymSubmitServer(): string {
-  return process.env.BEALE_CYBERGYM_SERVER_URL?.trim() || CYBERGYM_DEFAULT_SERVER_URL;
+function cyberGymSubmitServer(settings: CyberGymBenchmarkSettings): string {
+  return settings.submitServerUrl.trim() || process.env.BEALE_CYBERGYM_SERVER_URL?.trim() || process.env.CYBERGYM_SERVER_URL?.trim() || CYBERGYM_DEFAULT_SERVER_URL;
 }
 
 function cyberGymAgentId(): string {
@@ -3718,12 +3818,13 @@ async function verifyCyberGymScenarioRun(
   preparation: CyberGymTaskPreparation,
   resultPath: string,
   detail: RunDetail,
-  workspacePath: string
+  workspacePath: string,
+  settings: CyberGymBenchmarkSettings
 ): Promise<CyberGymVerificationResult> {
-  const pocDbPath = cyberGymPocDbPath(resultPath);
+  const pocDbPath = cyberGymPocDbPath(resultPath, settings);
   const taskIds = uniqueNonEmptyStrings([input.scenario.id, preparation.agentFacingTaskId]);
   const submission = await submitCyberGymCandidatePoc(detail, preparation, workspacePath);
-  const verificationRequest = await requestCyberGymAgentVerification(preparation.submitServer, preparation.agentId);
+  const verificationRequest = await requestCyberGymAgentVerification(preparation.submitServer, preparation.agentId, settings.verifyApiKey);
   const configured = existsSync(pocDbPath);
   if (!configured) {
     return {
@@ -3867,13 +3968,13 @@ async function submitCyberGymCandidatePoc(
 }
 
 function cyberGymCandidatePocArtifact(detail: RunDetail): ArtifactRecord | null {
-  const artifacts = detail.artifacts.filter((artifact) => artifact.kind === 'poc_candidate');
-  if (artifacts.length === 0) return null;
   const primaryArtifactId = cyberGymPrimaryPocArtifactId(detail);
   if (primaryArtifactId) {
-    const primary = artifacts.find((artifact) => artifact.id === primaryArtifactId);
+    const primary = detail.artifacts.find((artifact) => artifact.id === primaryArtifactId);
     if (primary) return primary;
   }
+  const artifacts = detail.artifacts.filter((artifact) => ['poc_candidate', 'poc_input', 'crash_input'].includes(artifact.kind));
+  if (artifacts.length === 0) return null;
   return artifacts
     .slice()
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
@@ -3892,15 +3993,15 @@ function cyberGymPocArtifactFileName(artifact: ArtifactRecord): string {
   return firstString(artifact.metadata, ['name']) ?? `${artifact.id}.poc`;
 }
 
-async function requestCyberGymAgentVerification(server: string, agentId: string): Promise<CyberGymVerificationRequestReport> {
-  const apiKey = process.env.CYBERGYM_API_KEY?.trim() || process.env.BEALE_CYBERGYM_API_KEY?.trim() || '';
+async function requestCyberGymAgentVerification(server: string, agentId: string, configuredApiKey: string): Promise<CyberGymVerificationRequestReport> {
+  const apiKey = configuredApiKey.trim() || process.env.CYBERGYM_API_KEY?.trim() || process.env.BEALE_CYBERGYM_API_KEY?.trim() || '';
   if (!apiKey) {
     return {
       attempted: false,
       server,
       ok: null,
       statusCode: null,
-      responseText: 'Skipped: set CYBERGYM_API_KEY or BEALE_CYBERGYM_API_KEY to request CyberGym /verify-agent-pocs before importing results.',
+      responseText: 'Skipped: configure a CyberGym verify API key in settings or set CYBERGYM_API_KEY/BEALE_CYBERGYM_API_KEY to request /verify-agent-pocs before importing results.',
       error: null
     };
   }
@@ -3950,7 +4051,8 @@ async function requestCyberGymAgentVerification(server: string, agentId: string)
   }
 }
 
-function cyberGymPocDbPath(resultPath: string): string {
+function cyberGymPocDbPath(resultPath: string, settings: CyberGymBenchmarkSettings): string {
+  if (settings.pocDbPath.trim()) return resolve(settings.pocDbPath);
   const explicit = process.env.BEALE_CYBERGYM_POC_DB?.trim() || process.env.CYBERGYM_POC_DB?.trim();
   if (explicit) return resolve(explicit);
   const pocSaveDir = process.env.POC_SAVE_DIR?.trim();
