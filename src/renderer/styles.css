@@ -7711,6 +7711,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   text-align: center;
 }
 
+.cybergym-run-scenario-action {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
 .cybergym-run-scenario-button {
   width: 100%;
   min-height: 36px;
@@ -7723,6 +7729,77 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .cybergym-run-scenario-button:hover:not(:disabled) {
   border-color: #ffffff;
   background: #ffffff;
+}
+
+.cybergym-run-scenario-button:disabled {
+  border-color: #303030;
+  background: #161616;
+  color: #6d6d6d;
+}
+
+.cybergym-run-scenario-disabled-reason,
+.cybergym-run-scenario-started {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.cybergym-run-scenario-started {
+  color: var(--muted-strong);
+  overflow-wrap: anywhere;
+}
+
+.cybergym-run-modal-body {
+  gap: 12px;
+}
+
+.cybergym-run-scenario-summary {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #101010;
+  padding: 10px;
+}
+
+.cybergym-run-scenario-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cybergym-run-scenario-summary span,
+.cybergym-level-field span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cybergym-run-scenario-summary strong,
+.cybergym-run-scenario-summary p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cybergym-run-scenario-summary p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.cybergym-level-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.cybergym-level-field small {
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .cybergym-empty-state,

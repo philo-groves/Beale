@@ -54,21 +54,7 @@ export class ExecutorManager {
   ) {}
 
   public getStatus(): ExecutorStatus {
-    const activeProvider = this.activeProvider();
-    const status = activeProvider.getStatus();
-    const inactiveStatuses = this.inactiveProviders(status.provider).map((provider) => provider.getStatus());
-    return {
-      provider: status.provider,
-      configured: status.configured,
-      available: status.available,
-      label: status.label,
-      reason: status.reason,
-      targetExecution: status.targetExecution,
-      supportedNetworkProfiles: status.supportedNetworkProfiles,
-      metadata: status.metadata,
-      supports: status.supports,
-      backends: mergeBackendStatuses([status, ...inactiveStatuses])
-    };
+    return executorStatusForProviders(this.backendPreference, this.provider, this.dockerProvider);
   }
 
   public resolveNetworkProfile(requestedNetworkProfile: string): ExecutorNetworkProfile {
@@ -680,6 +666,39 @@ export function normalizeNetworkProfile(profile: string): 'offline' | 'scoped' |
   if (profile === 'offline') return 'offline';
   if (profile === 'elevated') return 'elevated';
   return 'scoped';
+}
+
+export function getExecutorStatusForPreference(backendPreference: () => ExecutorBackendKind | null = () => null): ExecutorStatus {
+  return executorStatusForProviders(backendPreference, new VmctlExecutorProvider(), new DockerExecutorProvider());
+}
+
+function executorStatusForProviders(
+  backendPreference: () => ExecutorBackendKind | null,
+  provider: ExecutorProvider,
+  dockerProvider: DockerExecutorProvider
+): ExecutorStatus {
+  const activeProvider = preferredBackendKind(backendPreference) === 'docker' ? dockerProvider : provider;
+  const status = activeProvider.getStatus();
+  const inactiveStatuses = (status.provider === 'docker' ? [provider] : [dockerProvider]).map((inactiveProvider) => inactiveProvider.getStatus());
+  return {
+    provider: status.provider,
+    configured: status.configured,
+    available: status.available,
+    label: status.label,
+    reason: status.reason,
+    targetExecution: status.targetExecution,
+    supportedNetworkProfiles: status.supportedNetworkProfiles,
+    metadata: status.metadata,
+    supports: status.supports,
+    backends: mergeBackendStatuses([status, ...inactiveStatuses])
+  };
+}
+
+function preferredBackendKind(backendPreference: () => ExecutorBackendKind | null): ExecutorBackendKind | null {
+  const preferred = backendPreference();
+  if (preferred) return preferred;
+  const env = (process.env.BEALE_SANDBOX_BACKEND ?? process.env.BEALE_VM_BACKEND ?? '').trim().toLowerCase();
+  return env === 'docker' ? 'docker' : null;
 }
 
 function isScopedLocalImportAsset(asset: ScopeAsset): boolean {

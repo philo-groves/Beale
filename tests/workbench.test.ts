@@ -239,6 +239,61 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('loads canonical CyberGym tasks and starts scenario runs in deleted ephemeral workspaces', async () => {
+    const registryDir = tempWorkspace();
+    const sourceRootPath = join(registryDir, 'cybergym-source');
+    const outputPath = join(registryDir, 'benchmark-results', 'cybergym');
+    mkdirSync(join(sourceRootPath, 'data', 'arvo', '1065'), { recursive: true });
+    writeFileSync(join(sourceRootPath, 'data', 'arvo', '1065', 'repo-vul.tar.gz'), 'vulnerable source archive');
+    writeFileSync(
+      join(sourceRootPath, 'tasks.json'),
+      JSON.stringify([
+        {
+          task_id: 'arvo:1065',
+          project_name: 'file',
+          source: 'arvo',
+          vulnerability_description: 'Regex handling leaves match data uninitialized.',
+          task_difficulty: {
+            level0: ['data/arvo/1065/repo-vul.tar.gz'],
+            level1: ['data/arvo/1065/repo-vul.tar.gz', 'data/arvo/1065/description.txt']
+          }
+        }
+      ])
+    );
+    const service = new WorkspaceService(() => undefined, { benchmarkTasksDirectory: join(registryDir, 'missing-benchmarks'), programRegistryDirectory: registryDir });
+    service.updateCyberGymSettings({
+      sourceRootPath,
+      cachePath: join(registryDir, 'benchmark-cache', 'cybergym'),
+      outputPath
+    });
+
+    const scenarios = service.getCyberGymScenarios();
+    expect(scenarios.source).toBe('project_tasks_json');
+    expect(scenarios.sourcePath).toBe(join(sourceRootPath, 'tasks.json'));
+    expect(scenarios.scenarios[0]).toMatchObject({
+      id: 'arvo:1065',
+      projectName: 'file',
+      levelMaterials: {
+        level0: ['data/arvo/1065/repo-vul.tar.gz']
+      }
+    });
+
+    const started = service.startCyberGymScenarioRun({
+      scenario: scenarios.scenarios[0],
+      level: 0,
+      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+    });
+    expect(started.copiedMaterials).toEqual(['data/arvo/1065/repo-vul.tar.gz']);
+    await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.workspacePath));
+    const result = JSON.parse(readFileSync(started.outputPath, 'utf8')) as Record<string, unknown>;
+    expect(result).toMatchObject({
+      kind: 'cybergym_ephemeral_run_result',
+      scenario: { id: 'arvo:1065', level: 'level0' },
+      task: { copiedMaterials: ['data/arvo/1065/repo-vul.tar.gz'] }
+    });
+    service.close();
+  });
+
   it('reports a cheap run detail version for active polling', () => {
     const service = openService();
     const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');

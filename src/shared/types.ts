@@ -544,6 +544,7 @@ export interface CyberGymScenarioSummary {
   projectName: string;
   source: string;
   difficulty: string;
+  levelMaterials: Record<string, string[]>;
   description: string;
   tags: string[];
   searchText: string;
@@ -557,6 +558,25 @@ export interface CyberGymScenarioList {
   lastRefreshedAt: string | null;
   totalCount: number;
   loadedAt: string;
+}
+
+export type CyberGymLevel = 0 | 1 | 2 | 3;
+
+export interface CyberGymScenarioRunInput {
+  scenario: CyberGymScenarioSummary;
+  level: CyberGymLevel;
+  settings: StartRunInput;
+}
+
+export interface CyberGymScenarioRunStartResult {
+  runId: string;
+  workspacePath: string;
+  taskDirectory: string;
+  outputPath: string;
+  level: string;
+  copiedMaterials: string[];
+  missingMaterials: string[];
+  cleanupScheduled: boolean;
 }
 
 export interface ProgramOnboardingDefaults {
@@ -1303,6 +1323,7 @@ export interface BealeApi {
   prepareCyberGymStorage(): Promise<CyberGymStorageActionResult>;
   clearCyberGymCache(): Promise<CyberGymStorageActionResult>;
   getCyberGymScenarios(): Promise<CyberGymScenarioList>;
+  startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult>;
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
   skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null>;
@@ -1313,6 +1334,7 @@ export interface BealeApi {
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
+  getExecutorStatus(): Promise<ExecutorStatus>;
   setVmPreference(input: VmPreferenceInput): Promise<ProgramRegistryState>;
   setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;

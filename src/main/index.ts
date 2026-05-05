@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BenchmarkRunInput,
+  CyberGymScenarioRunInput,
   CyberGymSettingsInput,
   ProfilingReport,
   ProgramRegistryState,
@@ -388,6 +389,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.prepareCyberGymStorage, () => workspaceService.prepareCyberGymStorage());
   ipcMain.handle(IPC_CHANNELS.clearCyberGymCache, () => workspaceService.clearCyberGymCache());
   ipcMain.handle(IPC_CHANNELS.getCyberGymScenarios, () => workspaceService.getCyberGymScenarios());
+  ipcMain.handle(IPC_CHANNELS.startCyberGymScenarioRun, (_event, input: CyberGymScenarioRunInput) => workspaceService.startCyberGymScenarioRun(input));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
   ipcMain.handle(IPC_CHANNELS.createProgram, (event, input: ProgramOnboardingInput) =>
     workspaceService.createProgram(input, (update) => event.sender.send(IPC_CHANNELS.programOnboardingUpdated, update))
@@ -401,6 +403,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
+  ipcMain.handle(IPC_CHANNELS.getExecutorStatus, () => workspaceService.getExecutorStatus());
   ipcMain.handle(IPC_CHANNELS.setVmPreference, (_event, input: VmPreferenceInput) => workspaceService.setVmPreference(input));
   ipcMain.handle(IPC_CHANNELS.setupSandbox, (_event, input: SandboxSetupInput) => workspaceService.setupSandbox(input));
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());

@@ -16,6 +16,9 @@ import {
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 
+type StartRunFieldUpdater = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]) => void;
+type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number) => void;
+
 export function StartRunForm({
   snapshot,
   vmPreference,
@@ -319,43 +322,59 @@ export function StartRunForm({
         </div>
         <details className="advanced-run-options">
           <summary>Session Settings</summary>
-          <div className="form-grid">
-            <label>
-              Minutes
-              <input
-                type="number"
-                min={1}
-                placeholder="Unlimited"
-                value={minuteLimitValue}
-                onChange={(event) => updateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
-              />
-            </label>
-            <label>
-              Max Research Branches
-              <input
-                type="number"
-                min={1}
-                value={1}
-                disabled
-                onChange={() => undefined}
-              />
-            </label>
-            <label>
-              Model
-              <input value={input.model} onChange={(event) => update('model', event.target.value)} />
-            </label>
-            <label>
-              Reasoning
-              <input value={input.reasoningEffort} onChange={(event) => update('reasoningEffort', event.target.value)} />
-            </label>
-          </div>
+          <SessionSettingsFields input={input} minuteLimitValue={minuteLimitValue} onUpdate={update} onUpdateBudget={updateBudget} />
         </details>
       </div>
     </Modal>
   );
 }
 
-function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
+export function SessionSettingsFields({
+  input,
+  minuteLimitValue,
+  onUpdate,
+  onUpdateBudget
+}: {
+  input: StartRunInput;
+  minuteLimitValue: string;
+  onUpdate: StartRunFieldUpdater;
+  onUpdateBudget: StartRunBudgetUpdater;
+}): JSX.Element {
+  return (
+    <div className="form-grid">
+      <label>
+        Minutes
+        <input
+          type="number"
+          min={1}
+          placeholder="Unlimited"
+          value={minuteLimitValue}
+          onChange={(event) => onUpdateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
+        />
+      </label>
+      <label>
+        Max Research Branches
+        <input
+          type="number"
+          min={1}
+          value={1}
+          disabled
+          onChange={() => undefined}
+        />
+      </label>
+      <label>
+        Model
+        <input value={input.model} onChange={(event) => onUpdate('model', event.target.value)} />
+      </label>
+      <label>
+        Reasoning
+        <input value={input.reasoningEffort} onChange={(event) => onUpdate('reasoningEffort', event.target.value)} />
+      </label>
+    </div>
+  );
+}
+
+export function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
   const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
   return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
 }

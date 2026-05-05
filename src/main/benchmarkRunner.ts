@@ -56,7 +56,7 @@ export class BenchmarkRunner {
   public async runSuite(input: BenchmarkRunInput): Promise<BenchmarkRunRecord> {
     const suite = getBenchmarkSuite(input.suiteKind);
     const taskIds = suite.tasks.map((task) => task.taskId);
-    const started = Date.now();
+    const started = performance.now();
     const initialIdentity = createHarnessIdentity(input, suite.suiteId, taskIds, 0, 0, 0);
     const run = this.db.createBenchmarkRun({
       suiteKind: suite.suiteKind,
@@ -86,9 +86,9 @@ export class BenchmarkRunner {
         secretLogging: false
       });
       for (const task of suite.tasks) {
-        const taskStarted = Date.now();
+        const taskStarted = performance.now();
         const shouldFail = input.failureTaskIds?.includes(task.taskId) === true;
-        const identity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, Date.now() - started);
+        const identity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, elapsedMs(started));
         const dockerResult = await runBenchmarkDockerTask({
           benchmarkRunId: run.id,
           task,
@@ -102,7 +102,7 @@ export class BenchmarkRunner {
         const graderDecision = gradeTask(task, dockerResult.agentOutput, dockerResult.isolation.passed);
         const sessionTokenCount = 1_000 + task.expectedToolCompetencies.length * 120;
         const turnCount = Math.max(1, task.expectedToolCompetencies.length + 2);
-        const sessionDurationMs = Date.now() - taskStarted;
+        const sessionDurationMs = elapsedMs(taskStarted);
         const timeToFindingMs = graderDecision.status === 'pass' ? Math.max(1, Math.round(sessionDurationMs * 0.72)) : null;
         if (graderDecision.status === 'pass') passCount += 1;
         tokenTotal += sessionTokenCount;
@@ -156,7 +156,7 @@ export class BenchmarkRunner {
         });
       }
     } catch (error) {
-      const failedIdentity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, Date.now() - started, {
+      const failedIdentity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, elapsedMs(started), {
         estimatedUsd: costUsd,
         label: '$0.00 benchmark harness'
       }, {
@@ -171,7 +171,7 @@ export class BenchmarkRunner {
       await proxy?.close().catch(() => undefined);
     }
 
-    const completedIdentity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, Date.now() - started, {
+    const completedIdentity = createHarnessIdentity(input, suite.suiteId, taskIds, passCount, suite.tasks.length, elapsedMs(started), {
       estimatedUsd: costUsd,
       label: '$0.00 benchmark harness'
     }, {
@@ -182,6 +182,10 @@ export class BenchmarkRunner {
     });
     return this.db.finishBenchmarkRun(run.id, { status: 'completed', identity: completedIdentity });
   }
+}
+
+function elapsedMs(started: number): number {
+  return Math.max(0, Math.round(performance.now() - started));
 }
 
 export function compareBenchmarkRuns(runs: BenchmarkRunRecord[]): BenchmarkComparison[] {

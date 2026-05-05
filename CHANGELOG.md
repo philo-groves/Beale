@@ -18,6 +18,8 @@
 - Added Developer Mode settings with automatic profiling enablement, CyberGym benchmarking path/cache controls, cache helpers, a CyberGym sidebar entry, and a searchable CyberGym scenario picker backed by Beale-local `benchmarks/tasks_YYYYMMDD.json` catalogs with Last Refreshed metadata.
 - Added a main-content CyberGym benchmark workspace with scenario selection beside persisted task-level run history.
 - Added CyberGym workspace header toggles for the default scenario/run list view and a benchmark analysis dashboard with pass-rate, result-mix, efficiency, and harness-comparison visualizations.
+- Added a CyberGym Run Scenario flow with level selection, shared session settings, and a generalized benchmark research prompt.
+- Added ephemeral CyberGym scenario runs that stage selected-level task materials, start from a fresh throwaway workspace, collect a result JSON, and delete the workspace after completion.
 - Added persisted benchmark task metrics for pass/fail status, fail reason, token count, session time, turn count, and time-to-finding.
 - Added an orange CyberGym scenario warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
@@ -95,7 +97,9 @@
 ### Changed
 
 - Changed the CyberGym scenario picker from a sortable table to a compact searchable scenario list.
-- Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a placeholder run action.
+- Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a run action.
+- Changed CyberGym scenario loading to read canonical `tasks.json` files from the configured CyberGym root when no Beale-local dated tasks catalog is present.
+- Changed the CyberGym workspace to present CyberGym as the current top-bar program and use workspace-independent sandbox status in Settings.
 - Changed user-facing executor language from VM to Sandbox while keeping VM-specific backend names where they identify the underlying technology.
 - Changed sandbox settings into a dedicated Settings tab with a horizontal sandbox selector and per-sandbox detail panel.
 - Changed sandbox planning docs to make local disposable VMs preferred rather than mandatory, with Docker and host execution recorded as degraded explicit options.
@@ -240,6 +244,8 @@
 
 ### Fixed
 
+- Fixed CyberGym Run Scenario disabled states so the scenario panel displays the blocking reason.
+- Fixed benchmark elapsed-time metrics to use a monotonic clock so session duration cannot go negative if the wall clock moves backward during a run.
 - Fixed Docker sandbox context cleanup to retry transient non-empty directory removal and block raw `.beale` artifact-store paths before launching sandbox Python.
 - Fixed OpenAI run compaction so high-context responses compact before the hard window limit and reasoning-only no-output responses near the limit continue automatically after compacted replay.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.

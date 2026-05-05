@@ -8,6 +8,7 @@ import type {
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
   DeveloperSettings,
+  ExecutorStatus,
   NotificationRecord,
   OpenAiOAuthStartResult,
   ProgramOnboardingProgressUpdate,
@@ -82,6 +83,7 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
+  const [standaloneExecutorStatus, setStandaloneExecutorStatus] = useState<ExecutorStatus | null>(null);
   const [cyberGymScenarioList, setCyberGymScenarioList] = useState<CyberGymScenarioList | null>(null);
   const [cyberGymWorkspaceOpen, setCyberGymWorkspaceOpen] = useState(false);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
@@ -151,6 +153,18 @@ export function App(): JSX.Element {
       .then(setDeveloperSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
+
+  const refreshExecutorStatus = useCallback(async (): Promise<void> => {
+    try {
+      setStandaloneExecutorStatus(await window.beale.getExecutorStatus());
+    } catch (caught) {
+      handleError(errorMessage(caught));
+    }
+  }, [handleError]);
+
+  useEffect(() => {
+    void refreshExecutorStatus();
+  }, [refreshExecutorStatus, snapshot?.executor]);
 
   useEffect(() => {
     if (developerSettings && !developerSettings.developerModeEnabled) {
@@ -265,9 +279,10 @@ export function App(): JSX.Element {
       await runProgramAction(async () => {
         setProgramRegistry(await window.beale.setVmPreference(input));
         await loadSnapshot();
+        await refreshExecutorStatus();
       });
     },
-    [loadSnapshot, runProgramAction]
+    [loadSnapshot, refreshExecutorStatus, runProgramAction]
   );
 
   const setupSandbox = useCallback(
@@ -277,6 +292,7 @@ export function App(): JSX.Element {
       try {
         const result = await window.beale.setupSandbox(input);
         await loadSnapshot();
+        await refreshExecutorStatus();
         if (!result.ok) {
           setError(result.detail);
         }
@@ -288,7 +304,7 @@ export function App(): JSX.Element {
         setBusy(false);
       }
     },
-    [loadSnapshot]
+    [loadSnapshot, refreshExecutorStatus]
   );
 
   const setProjectSemanticIndexEnabled = useCallback(
@@ -491,6 +507,9 @@ export function App(): JSX.Element {
     inspectorOpen
   });
   const vmPreference = vmPreferenceForState(programRegistry, snapshot);
+  const effectiveExecutor = snapshot?.executor ?? standaloneExecutorStatus;
+  const cyberGymProgramName = developerSettings?.cyberGym.selectedBenchmark ? `CyberGym: ${developerSettings.cyberGym.selectedBenchmark}` : 'CyberGym';
+  const currentProgramName = cyberGymWorkspaceOpen ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'No Program Selected';
   const configureVm = useCallback(() => {
     setSettingsSection('sandboxes');
     setSettingsOpen(true);
@@ -510,6 +529,15 @@ export function App(): JSX.Element {
     setCyberGymWorkspaceOpen(false);
     setNewResearchOpen(true);
   }, []);
+  const handleResearchStarted = useCallback(
+    (runId: string): void => {
+      clearRunDetail();
+      setCyberGymWorkspaceOpen(false);
+      setSelectedRunId(runId);
+      setNewResearchOpen(false);
+    },
+    [clearRunDetail, setSelectedRunId]
+  );
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
@@ -663,8 +691,8 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
-        programName={snapshot?.activeScope.programName ?? 'No Program Selected'}
-        activeProgram={activeProgramEntry}
+        programName={currentProgramName}
+        activeProgram={cyberGymWorkspaceOpen ? null : activeProgramEntry}
         activeRunDetail={activeRunDetail}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenResearchPrompt={setResearchPromptDetail}
@@ -728,11 +756,16 @@ export function App(): JSX.Element {
             <CyberGymBenchmarkWorkspace
               benchmark={snapshot?.benchmark ?? null}
               busy={busy}
+              executor={effectiveExecutor}
               scenarioList={cyberGymScenarioList}
               selectedScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
+              openAiStatus={snapshot?.openAi ?? openAiStatus}
+              snapshot={snapshot}
+              vmPreference={vmPreference}
               view={cyberGymMainView}
               onRefreshScenarios={() => void refreshCyberGymScenarios()}
               onSelectScenario={(scenario) => void selectCyberGymScenario(scenario)}
+              runAction={runAction}
             />
           ) : (
             <MainSessionWorkspace
@@ -770,7 +803,7 @@ export function App(): JSX.Element {
       </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
-        executor={snapshot?.executor ?? null}
+        executor={effectiveExecutor}
         vmPreference={vmPreference}
         activity={environmentActivity}
         detail={activeRunDetail}
@@ -792,9 +825,10 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
-        activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
+        activeProgramName={cyberGymWorkspaceOpen ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
         developerSettings={developerSettings}
+        executor={effectiveExecutor}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
@@ -851,12 +885,7 @@ export function App(): JSX.Element {
         onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onUpdateCyberGymSettings={updateCyberGymSettings}
-        onStartedNewResearch={(runId) => {
-          clearRunDetail();
-          setCyberGymWorkspaceOpen(false);
-          setSelectedRunId(runId);
-          setNewResearchOpen(false);
-        }}
+        onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));

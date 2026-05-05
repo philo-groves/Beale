@@ -3,10 +3,13 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   BenchmarkRunInput,
+  CyberGymScenarioRunInput,
+  CyberGymScenarioRunStartResult,
   CyberGymScenarioList,
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
   DeveloperSettings,
+  ExecutorStatus,
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneProgramLookupResult,
@@ -69,6 +72,9 @@ const api: BealeApi = {
   getCyberGymScenarios(): Promise<CyberGymScenarioList> {
     return ipcRenderer.invoke(IPC_CHANNELS.getCyberGymScenarios);
   },
+  startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startCyberGymScenarioRun, input);
+  },
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneProgram, identifier);
   },
@@ -100,6 +106,9 @@ const api: BealeApi = {
   },
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
+  },
+  getExecutorStatus(): Promise<ExecutorStatus> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getExecutorStatus);
   },
   setVmPreference(input: VmPreferenceInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.setVmPreference, input);

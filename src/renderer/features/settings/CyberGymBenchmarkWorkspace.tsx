@@ -1,14 +1,25 @@
-import { useMemo, useState, type JSX } from 'react';
-import { Search } from 'lucide-react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
+import { Play, Search, ShieldAlert } from 'lucide-react';
 import type {
   BenchmarkComparison,
   BenchmarkOverview,
   BenchmarkRunRecord,
   BenchmarkTaskResultRecord,
+  CyberGymLevel,
   CyberGymScenarioList,
-  CyberGymScenarioSummary
+  CyberGymScenarioRunStartResult,
+  CyberGymScenarioSummary,
+  ExecutorStatus,
+  OpenAiAccountStatus,
+  StartRunInput,
+  VmPreference,
+  WorkspaceSnapshot
 } from '@shared/types';
+import { buildCyberGymResearchPrompt, CYBERGYM_LEVELS } from '@shared/cybergymPrompt';
+import { Modal } from '../../app/Modal';
 import { formatSessionDateTime } from '../../lib/formatting';
+import { defaultRunInput, optionalPositiveInteger, UNBOUNDED_MINUTES } from '../../view-models/runSettings';
+import { preferredSandboxProfile, SessionSettingsFields } from '../sessions/StartRunForm';
 import type { CyberGymMainView } from './cyberGymViews';
 
 const CYBERGYM_RESULT_LIMIT = 120;
@@ -65,19 +76,29 @@ interface ScenarioMetricSeries {
 export function CyberGymBenchmarkWorkspace({
   benchmark,
   busy,
+  executor,
   scenarioList,
   selectedScenarioId,
+  openAiStatus,
+  snapshot,
+  vmPreference,
   view,
   onRefreshScenarios,
-  onSelectScenario
+  onSelectScenario,
+  runAction
 }: {
   benchmark: BenchmarkOverview | null;
   busy: boolean;
+  executor: ExecutorStatus | null;
   scenarioList: CyberGymScenarioList | null;
   selectedScenarioId: string;
+  openAiStatus: OpenAiAccountStatus | null;
+  snapshot: WorkspaceSnapshot | null;
+  vmPreference: VmPreference;
   view: CyberGymMainView;
   onRefreshScenarios: () => void;
   onSelectScenario: (scenario: CyberGymScenarioSummary) => void;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   if (view === 'analysis') {
     return <CyberGymBenchmarkAnalysis benchmark={benchmark} />;
@@ -87,10 +108,15 @@ export function CyberGymBenchmarkWorkspace({
     <CyberGymScenarioRunList
       benchmark={benchmark}
       busy={busy}
+      executor={executor}
       scenarioList={scenarioList}
       selectedScenarioId={selectedScenarioId}
+      openAiStatus={openAiStatus}
+      snapshot={snapshot}
+      vmPreference={vmPreference}
       onRefreshScenarios={onRefreshScenarios}
       onSelectScenario={onSelectScenario}
+      runAction={runAction}
     />
   );
 }
@@ -98,19 +124,31 @@ export function CyberGymBenchmarkWorkspace({
 function CyberGymScenarioRunList({
   benchmark,
   busy,
+  executor,
   scenarioList,
   selectedScenarioId,
+  openAiStatus,
+  snapshot,
+  vmPreference,
   onRefreshScenarios,
-  onSelectScenario
+  onSelectScenario,
+  runAction
 }: {
   benchmark: BenchmarkOverview | null;
   busy: boolean;
+  executor: ExecutorStatus | null;
   scenarioList: CyberGymScenarioList | null;
   selectedScenarioId: string;
+  openAiStatus: OpenAiAccountStatus | null;
+  snapshot: WorkspaceSnapshot | null;
+  vmPreference: VmPreference;
   onRefreshScenarios: () => void;
   onSelectScenario: (scenario: CyberGymScenarioSummary) => void;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   const [query, setQuery] = useState('');
+  const [scenarioToRun, setScenarioToRun] = useState<CyberGymScenarioSummary | null>(null);
+  const [runStartResult, setRunStartResult] = useState<CyberGymScenarioRunStartResult | null>(null);
   const scenarios = scenarioList?.scenarios ?? [];
   const filtered = useMemo(() => filterCyberGymScenarios(scenarios, query), [query, scenarios]);
   const visible = filtered.slice(0, CYBERGYM_RESULT_LIMIT);
@@ -180,25 +218,55 @@ function CyberGymScenarioRunList({
           </p>
         ) : null}
       </section>
-      <ScenarioRunMetricsPanel benchmark={benchmark} scenario={selectedScenario} selectedScenarioId={selectedScenarioId} />
+      <ScenarioRunMetricsPanel
+        benchmark={benchmark}
+        busy={busy}
+        runStartResult={runStartResult}
+        scenario={selectedScenario}
+        selectedScenarioId={selectedScenarioId}
+        onRunScenario={setScenarioToRun}
+      />
+      {scenarioToRun ? (
+        <CyberGymRunScenarioModal
+          busy={busy}
+          openAiStatus={openAiStatus}
+          scenario={scenarioToRun}
+          executor={executor}
+          snapshot={snapshot}
+          vmPreference={vmPreference}
+          onClose={() => setScenarioToRun(null)}
+          onStarted={(result) => {
+            setScenarioToRun(null);
+            setRunStartResult(result);
+          }}
+          runAction={runAction}
+        />
+      ) : null}
     </div>
   );
 }
 
 function ScenarioRunMetricsPanel({
   benchmark,
+  busy,
+  runStartResult,
   scenario,
-  selectedScenarioId
+  selectedScenarioId,
+  onRunScenario
 }: {
   benchmark: BenchmarkOverview | null;
+  busy: boolean;
+  runStartResult: CyberGymScenarioRunStartResult | null;
   scenario: CyberGymScenarioSummary | null;
   selectedScenarioId: string;
+  onRunScenario: (scenario: CyberGymScenarioSummary) => void;
 }): JSX.Element {
   const results = useMemo(() => scenarioTaskResults(benchmark, scenario?.id ?? selectedScenarioId), [benchmark, scenario?.id, selectedScenarioId]);
   const series = useMemo(() => scenarioMetricSeries(results), [results]);
   const latest = results[results.length - 1] ?? null;
   const title = scenario?.projectName ?? 'No Scenario Selected';
   const subtitle = scenario ? `${scenario.id} / ${scenario.source}` : selectedScenarioId || 'Select a scenario to inspect run metrics.';
+  const runDisabledReason = cyberGymRunDisabledReason({ busy, scenario });
 
   return (
     <aside className="cybergym-scenario-detail-panel" aria-label="Selected CyberGym scenario metrics">
@@ -226,11 +294,48 @@ function ScenarioRunMetricsPanel({
         )}
       </div>
 
-      <button type="button" className="cybergym-run-scenario-button">
-        Run Scenario
-      </button>
+      <div className="cybergym-run-scenario-action">
+        <button
+          type="button"
+          className="cybergym-run-scenario-button"
+          disabled={runDisabledReason !== null}
+          aria-describedby={runDisabledReason ? 'cybergym-run-scenario-disabled-reason' : undefined}
+          title={runDisabledReason ?? undefined}
+          onClick={() => {
+            if (scenario) onRunScenario(scenario);
+          }}
+        >
+          Run Scenario
+        </button>
+        {runDisabledReason ? (
+          <p className="cybergym-run-scenario-disabled-reason" id="cybergym-run-scenario-disabled-reason">
+            {runDisabledReason}
+          </p>
+        ) : null}
+        {runStartResult ? (
+          <p className="cybergym-run-scenario-started">
+            Started ephemeral run {shortRunId(runStartResult.runId)}. Results will be collected at {runStartResult.outputPath}.
+          </p>
+        ) : null}
+      </div>
     </aside>
   );
+}
+
+function cyberGymRunDisabledReason({
+  busy,
+  scenario
+}: {
+  busy: boolean;
+  scenario: CyberGymScenarioSummary | null;
+}): string | null {
+  if (busy) return 'Another workspace action is still running.';
+  if (!scenario) return 'Select a scenario from the list first.';
+  return null;
+}
+
+function shortRunId(runId: string): string {
+  return runId.length > 12 ? `${runId.slice(0, 12)}...` : runId;
 }
 
 function ScenarioMetricGraph({ series }: { series: ScenarioMetricSeries }): JSX.Element {
@@ -286,6 +391,132 @@ function ScenarioMetricGraph({ series }: { series: ScenarioMetricSeries }): JSX.
         <div className="cybergym-scenario-metric-empty">No collected values yet.</div>
       )}
     </article>
+  );
+}
+
+function CyberGymRunScenarioModal({
+  busy,
+  openAiStatus,
+  scenario,
+  executor,
+  snapshot,
+  vmPreference,
+  onClose,
+  onStarted,
+  runAction
+}: {
+  busy: boolean;
+  openAiStatus: OpenAiAccountStatus | null;
+  scenario: CyberGymScenarioSummary;
+  executor: ExecutorStatus | null;
+  snapshot: WorkspaceSnapshot | null;
+  vmPreference: VmPreference;
+  onClose: () => void;
+  onStarted: (result: CyberGymScenarioRunStartResult) => void;
+  runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
+}): JSX.Element {
+  const sandboxProfile = preferredSandboxProfile(executor, vmPreference);
+  const [level, setLevel] = useState<CyberGymLevel>(3);
+  const [input, setInput] = useState<StartRunInput>(() => ({
+    ...defaultRunInput,
+    mode: 'dynamic',
+    attemptStrategy: 'adaptive_portfolio',
+    networkProfile: 'offline',
+    sandboxProfile
+  }));
+  const [startingRun, setStartingRun] = useState(false);
+
+  useEffect(() => {
+    setInput((current) => ({ ...current, sandboxProfile }));
+  }, [sandboxProfile]);
+
+  const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
+    setInput((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
+    setInput((current) => ({ ...current, budget: { ...current.budget, [key]: value } }));
+  };
+
+  const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
+  const openAiBlocked = input.runEngine === 'openai_responses' && openAiStatus?.configured === false;
+
+  const start = (): void => {
+    if (startingRun || openAiBlocked) return;
+    setStartingRun(true);
+    void runAction(async () => {
+      const result = await window.beale.startCyberGymScenarioRun({
+        scenario,
+        level,
+        settings: {
+          ...input,
+          promptMarkdown: buildCyberGymResearchPrompt(scenario, level),
+          targetAssetId: scenario.id,
+          targetPath: `cybergym://${encodeURIComponent(scenario.id)}?level=${level}`
+        }
+      });
+      onStarted(result);
+      return null;
+    }).finally(() => setStartingRun(false));
+  };
+
+  return (
+    <Modal
+      title="Run CyberGym Scenario"
+      wide
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" disabled={busy || startingRun} onClick={onClose}>
+            Nevermind
+          </button>
+          <button className="primary-button" type="button" disabled={busy || startingRun || openAiBlocked} onClick={start}>
+            <Play size={16} />
+            Start
+          </button>
+        </>
+      }
+    >
+      <div className="start-run-modal-body cybergym-run-modal-body">
+        {openAiBlocked ? (
+          <div className="policy-line">
+            <ShieldAlert size={15} />
+            {openAiStatus?.userAction ?? openAiStatus?.statusDetail ?? 'OpenAI host credentials are not configured.'}
+          </div>
+        ) : null}
+        {input.sandboxProfile === 'host_research_only' ? (
+          <div className="policy-line host-sandbox-warning">
+            <ShieldAlert size={15} />
+            Commands and executables will run on this host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.
+          </div>
+        ) : null}
+        <section className="cybergym-run-scenario-summary" aria-label="CyberGym scenario">
+          <div>
+            <span>Scenario</span>
+            <strong>{scenario.projectName}</strong>
+            <p>
+              {scenario.id} / {scenario.source}
+            </p>
+          </div>
+          <p>{scenario.description || scenario.title}</p>
+        </section>
+        <label className="cybergym-level-field">
+          <span>Level</span>
+          <select value={level} onChange={(event) => setLevel(Number(event.target.value) as CyberGymLevel)}>
+            {CYBERGYM_LEVELS.map((option) => (
+              <option value={option} key={option}>
+                {option} {option === 0 ? '(hardest)' : option === 3 ? '(default, easiest)' : ''}
+              </option>
+            ))}
+          </select>
+          <small>Lower levels expose less CyberGym task information.</small>
+        </label>
+        <details className="advanced-run-options" open>
+          <summary>Session Settings</summary>
+          <SessionSettingsFields input={input} minuteLimitValue={minuteLimitValue} onUpdate={update} onUpdateBudget={updateBudget} />
+        </details>
+      </div>
+    </Modal>
   );
 }
 

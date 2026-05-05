@@ -3,6 +3,7 @@ import type {
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
   DeveloperSettings,
+  ExecutorStatus,
   FindingRecord,
   HypothesisRecord,
   NotificationRecord,
@@ -41,6 +42,7 @@ export function AppModals({
   activeProgramName,
   busy,
   developerSettings,
+  executor,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
@@ -105,6 +107,7 @@ export function AppModals({
   activeProgramName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
+  executor: ExecutorStatus | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -193,9 +196,9 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
-          executor={snapshot?.executor ?? null}
+          executor={executor}
           projectSemantic={snapshot?.projectSemantic ?? null}
-          programName={snapshot?.activeScope.programName ?? null}
+          programName={activeProgramName}
           vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
