@@ -72,6 +72,9 @@ const api: BealeApi = {
   getCyberGymScenarios(): Promise<CyberGymScenarioList> {
     return ipcRenderer.invoke(IPC_CHANNELS.getCyberGymScenarios);
   },
+  openCyberGymProgram(): Promise<WorkspaceSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openCyberGymProgram);
+  },
   startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.startCyberGymScenarioRun, input);
   },

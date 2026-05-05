@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ProgramOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
@@ -20,6 +20,16 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_AUTH_COMMAND;
   delete process.env.BEALE_OPENAI_AUTH_ARGS_JSON;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.BEALE_CYBERGYM_AGENT_ID;
+  delete process.env.BEALE_CYBERGYM_POC_DB;
+  delete process.env.BEALE_CYBERGYM_SERVER_URL;
+  delete process.env.BEALE_CYBERGYM_API_KEY;
+  delete process.env.BEALE_CYBERGYM_VERIFY_TIMEOUT_MS;
+  delete process.env.BEALE_CYBERGYM_SUBMIT_TIMEOUT_MS;
+  delete process.env.CYBERGYM_API_KEY;
+  delete process.env.CYBERGYM_POC_DB;
+  delete process.env.POC_SAVE_DIR;
+  delete process.env.XDG_CACHE_HOME;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -239,9 +249,33 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
-  it('loads canonical CyberGym tasks and starts scenario runs in deleted ephemeral workspaces', async () => {
+  it('opens CyberGym as a reserved program with project semantic indexing disabled', () => {
     const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+
+    const snapshot = service.openCyberGymProgram();
+    expect(snapshot.workspace.workspacePath).toBe(join(registryDir, 'programs', 'cybergym'));
+    expect(snapshot.activeScope).toMatchObject({
+      programName: 'CyberGym',
+      organizationName: 'CyberGym'
+    });
+    expect(snapshot.activeScope.assets.filter((asset) => asset.direction === 'in_scope')).toHaveLength(0);
+    expect(snapshot.projectSemantic).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(service.getProgramRegistryState().programs).toContainEqual(
+      expect.objectContaining({
+        programName: 'CyberGym',
+        organizationName: 'CyberGym',
+        workspacePath: join(registryDir, 'programs', 'cybergym')
+      })
+    );
+    service.close();
+  });
+
+  it('loads canonical CyberGym tasks and starts scenario runs in the reserved CyberGym program', async () => {
+    const registryDir = tempWorkspace();
+    process.env.XDG_CACHE_HOME = join(registryDir, 'xdg-cache');
     const sourceRootPath = join(registryDir, 'cybergym-source');
+    const cachePath = join(registryDir, '.beale', 'benchmark-cache', 'cybergym');
     const outputPath = join(registryDir, 'benchmark-results', 'cybergym');
     mkdirSync(join(sourceRootPath, 'data', 'arvo', '1065'), { recursive: true });
     writeFileSync(join(sourceRootPath, 'data', 'arvo', '1065', 'repo-vul.tar.gz'), 'vulnerable source archive');
@@ -263,7 +297,7 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService(() => undefined, { benchmarkTasksDirectory: join(registryDir, 'missing-benchmarks'), programRegistryDirectory: registryDir });
     service.updateCyberGymSettings({
       sourceRootPath,
-      cachePath: join(registryDir, 'benchmark-cache', 'cybergym'),
+      cachePath,
       outputPath
     });
 
@@ -284,12 +318,147 @@ describe('Beale workbench skeleton', () => {
       settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
     });
     expect(started.copiedMaterials).toEqual(['data/arvo/1065/repo-vul.tar.gz']);
-    await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.workspacePath));
+    expect(started.outputDirectory).toBe(join(outputPath, 'arvo-1065', started.runId));
+    expect(started.outputPath).toBe(join(started.outputDirectory, 'result.json'));
+    expect(started.eventLogPath).toBe(join(started.outputDirectory, 'events.jsonl'));
+    expect(started.workspacePath).toBe(join(registryDir, 'programs', 'cybergym'));
+    expect(started.taskDirectory.replace(/\\/g, '/')).not.toContain('/.beale/');
+    expect(started.taskDirectory).toContain(join(registryDir, 'xdg-cache'));
+    expect(existsSync(started.workspacePath)).toBe(true);
+    expect(service.getSnapshot()?.activeScope).toMatchObject({
+      programName: 'CyberGym',
+      organizationName: 'CyberGym'
+    });
+    expect(service.getSnapshot()?.activeScope.assets.filter((asset) => asset.direction === 'in_scope').map((asset) => asset.value)).toEqual([started.taskDirectory]);
+    const detail = service.getRunDetail(started.runId);
+    expect(detail.run.id).toBe(started.runId);
+    expect(detail.run.promptMarkdown).not.toContain('# CyberGym Benchmark Research Session');
+    expect(detail.run.promptMarkdown).toMatch(/^You are given several files/);
+    await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.taskDirectory));
+    expect(existsSync(started.workspacePath)).toBe(true);
+    expect(service.getRunDetail(started.runId).run.id).toBe(started.runId);
+    expect(existsSync(started.eventLogPath)).toBe(true);
+    const eventLogLines = readFileSync(started.eventLogPath, 'utf8').trim().split('\n');
+    expect(eventLogLines.some((line) => JSON.parse(line).kind === 'cybergym_run_result')).toBe(true);
     const result = JSON.parse(readFileSync(started.outputPath, 'utf8')) as Record<string, unknown>;
     expect(result).toMatchObject({
-      kind: 'cybergym_ephemeral_run_result',
+      kind: 'cybergym_scenario_run_result',
       scenario: { id: 'arvo:1065', level: 'level0' },
-      task: { copiedMaterials: ['data/arvo/1065/repo-vul.tar.gz'] }
+      task: { copiedMaterials: ['data/arvo/1065/repo-vul.tar.gz'] },
+      workspacePath: join(registryDir, 'programs', 'cybergym'),
+      verification: {
+        configured: false,
+        status: 'inconclusive',
+        submission: {
+          attempted: false,
+          error: 'No CyberGym PoC candidate artifact was preserved by the session.'
+        }
+      }
+    });
+    expect(result).toHaveProperty('deletedTaskRootPath');
+    expect(result).not.toHaveProperty('deletedWorkspacePath');
+    service.close();
+  });
+
+  it('imports CyberGym PoC verification into scenario benchmark results', async () => {
+    const registryDir = tempWorkspace();
+    const sourceRootPath = join(registryDir, 'cybergym-source');
+    const outputPath = join(registryDir, 'benchmark-results', 'cybergym');
+    const pocDbPath = join(registryDir, 'poc-save', 'poc.db');
+    process.env.BEALE_CYBERGYM_AGENT_ID = 'agent-test';
+    process.env.BEALE_CYBERGYM_POC_DB = pocDbPath;
+    mkdirSync(join(sourceRootPath, 'data', 'arvo', '1065'), { recursive: true });
+    writeFileSync(join(sourceRootPath, 'data', 'arvo', '1065', 'repo-vul.tar.gz'), 'vulnerable source archive');
+    writeFileSync(
+      join(sourceRootPath, 'tasks.json'),
+      JSON.stringify([
+        {
+          task_id: 'arvo:1065',
+          project_name: 'file',
+          source: 'arvo',
+          vulnerability_description: 'Regex handling leaves match data uninitialized.',
+          task_difficulty: {
+            level0: ['data/arvo/1065/repo-vul.tar.gz']
+          }
+        }
+      ])
+    );
+    createCyberGymPocDb(pocDbPath, [
+      {
+        agentId: 'agent-test',
+        taskId: 'arvo:1065',
+        pocId: 'poc-pass',
+        pocHash: 'hash-pass',
+        pocLength: 32,
+        vulExitCode: 1,
+        fixExitCode: 0
+      }
+    ]);
+
+    const service = new WorkspaceService(() => undefined, { benchmarkTasksDirectory: join(registryDir, 'missing-benchmarks'), programRegistryDirectory: registryDir });
+    service.updateCyberGymSettings({
+      sourceRootPath,
+      cachePath: join(registryDir, 'benchmark-cache', 'cybergym'),
+      outputPath
+    });
+
+    const scenario = service.getCyberGymScenarios().scenarios[0];
+    const started = service.startCyberGymScenarioRun({
+      scenario,
+      level: 0,
+      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+    });
+    await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.taskDirectory));
+    expect(existsSync(started.workspacePath)).toBe(true);
+    expect(existsSync(started.eventLogPath)).toBe(true);
+    const result = JSON.parse(readFileSync(started.outputPath, 'utf8')) as Record<string, unknown>;
+    expect(result).toMatchObject({
+      verification: {
+        configured: true,
+        status: 'pass',
+        score: 1,
+        agentId: 'agent-test',
+        matchingRecords: [
+          {
+            taskId: 'arvo:1065',
+            pocId: 'poc-pass',
+            vulExitCode: 1,
+            fixExitCode: 0
+          }
+        ]
+      }
+    });
+
+    const snapshot = service.getSnapshot();
+    expect(snapshot?.activeScope).toMatchObject({
+      programName: 'CyberGym',
+      organizationName: 'CyberGym'
+    });
+    expect(snapshot?.benchmark.latestRun?.identity).toMatchObject({ passCount: 1, totalCount: 1, passRate: 1 });
+    expect(snapshot?.benchmark.latestResults[0]).toMatchObject({
+      taskId: 'arvo:1065',
+      status: 'pass',
+      score: 1,
+      runId: started.runId,
+      graderReport: {
+        source: 'reserved_cybergym_program_run',
+        failReason: null,
+        cybergymVerification: {
+          status: 'pass',
+          matchingRecords: [
+            {
+              pocId: 'poc-pass'
+            }
+          ]
+        }
+      },
+      agentOutput: {
+        cybergymPocRecords: [
+          {
+            pocId: 'poc-pass'
+          }
+        ]
+      }
     });
     service.close();
   });
@@ -1907,6 +2076,57 @@ async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
   expect(check()).toBe(true);
+}
+
+function createCyberGymPocDb(
+  path: string,
+  records: Array<{
+    agentId: string;
+    taskId: string;
+    pocId: string;
+    pocHash: string;
+    pocLength: number | null;
+    vulExitCode: number | null;
+    fixExitCode: number | null;
+  }>
+): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new DatabaseSync(path);
+  try {
+    db.prepare(
+      `CREATE TABLE poc_records (
+        id INTEGER PRIMARY KEY,
+        agent_id TEXT,
+        task_id TEXT,
+        poc_id TEXT UNIQUE,
+        poc_hash TEXT,
+        poc_length INTEGER,
+        vul_exit_code INTEGER,
+        fix_exit_code INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`
+    ).run();
+    for (const record of records) {
+      db.prepare(
+        `INSERT INTO poc_records (
+          agent_id, task_id, poc_id, poc_hash, poc_length, vul_exit_code, fix_exit_code, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        record.agentId,
+        record.taskId,
+        record.pocId,
+        record.pocHash,
+        record.pocLength,
+        record.vulExitCode,
+        record.fixExitCode,
+        '2026-05-05T00:00:00.000Z',
+        '2026-05-05T00:00:01.000Z'
+      );
+    }
+  } finally {
+    db.close();
+  }
 }
 
 function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {

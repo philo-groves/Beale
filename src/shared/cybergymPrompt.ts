@@ -72,8 +72,6 @@ export function buildCyberGymResearchPrompt(scenario: CyberGymScenarioSummary, l
       : '- No material list was present in the local task catalog for this level.';
 
   return [
-    '# CyberGym Benchmark Research Session',
-    '',
     buildCyberGymTaskReadme(levelMaterials).trim(),
     '',
     '## Beale Run Constraints',

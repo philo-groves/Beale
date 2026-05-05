@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   CyberGymScenarioList,
+  CyberGymScenarioRunStartResult,
   CyberGymScenarioSummary,
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
@@ -62,6 +63,7 @@ import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/t
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 
 const SEMANTIC_INDEX_ALERT_DELAY_MS = 10_000;
+const CYBERGYM_PROGRAM_NAME = 'CyberGym';
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -376,13 +378,25 @@ export function App(): JSX.Element {
   }, []);
 
   const openCyberGymWorkspace = useCallback((): void => {
-    clearRunDetail();
-    setInspectorOpen(false);
-    setSelectedRunId(null);
-    setCyberGymMainView(DEFAULT_CYBERGYM_MAIN_VIEW);
-    setCyberGymWorkspaceOpen(true);
-    void refreshCyberGymScenarios();
-  }, [clearRunDetail, refreshCyberGymScenarios, setSelectedRunId]);
+    setBusy(true);
+    setError(null);
+    void (async () => {
+      try {
+        clearRunDetail();
+        setInspectorOpen(false);
+        setSelectedRunId(null);
+        setCyberGymMainView(DEFAULT_CYBERGYM_MAIN_VIEW);
+        applySnapshot(await window.beale.openCyberGymProgram());
+        setCyberGymWorkspaceOpen(true);
+        setCyberGymScenarioList(await window.beale.getCyberGymScenarios());
+        await loadProgramRegistry();
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [applySnapshot, clearRunDetail, loadProgramRegistry, setSelectedRunId]);
 
   const selectCyberGymScenario = useCallback(
     async (scenario: CyberGymScenarioSummary): Promise<void> => {
@@ -508,8 +522,11 @@ export function App(): JSX.Element {
   });
   const vmPreference = vmPreferenceForState(programRegistry, snapshot);
   const effectiveExecutor = snapshot?.executor ?? standaloneExecutorStatus;
-  const cyberGymProgramName = developerSettings?.cyberGym.selectedBenchmark ? `CyberGym: ${developerSettings.cyberGym.selectedBenchmark}` : 'CyberGym';
-  const currentProgramName = cyberGymWorkspaceOpen ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'No Program Selected';
+  const cyberGymProgramActive = snapshot?.activeScope.programName === CYBERGYM_PROGRAM_NAME && snapshot.activeScope.organizationName === CYBERGYM_PROGRAM_NAME;
+  const cyberGymActive = cyberGymWorkspaceOpen || cyberGymProgramActive;
+  const showCyberGymWorkspace = cyberGymProgramActive && !selectedRunId;
+  const cyberGymProgramName = CYBERGYM_PROGRAM_NAME;
+  const currentProgramName = cyberGymActive ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'No Program Selected';
   const configureVm = useCallback(() => {
     setSettingsSection('sandboxes');
     setSettingsOpen(true);
@@ -529,6 +546,14 @@ export function App(): JSX.Element {
     setCyberGymWorkspaceOpen(false);
     setNewResearchOpen(true);
   }, []);
+  const openCyberGymStartedRun = useCallback(
+    (result: CyberGymScenarioRunStartResult): void => {
+      clearRunDetail();
+      setCyberGymWorkspaceOpen(false);
+      setSelectedRunId(result.runId);
+    },
+    [clearRunDetail, setSelectedRunId]
+  );
   const handleResearchStarted = useCallback(
     (runId: string): void => {
       clearRunDetail();
@@ -565,6 +590,11 @@ export function App(): JSX.Element {
   );
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
   const closeInspector = useCallback(() => setInspectorOpen(false), []);
+
+  useEffect(() => {
+    if (!showCyberGymWorkspace || cyberGymScenarioList) return;
+    void refreshCyberGymScenarios();
+  }, [cyberGymScenarioList, refreshCyberGymScenarios, showCyberGymWorkspace]);
 
   useEffect(() => {
     if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
@@ -692,7 +722,7 @@ export function App(): JSX.Element {
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
         programName={currentProgramName}
-        activeProgram={cyberGymWorkspaceOpen ? null : activeProgramEntry}
+        activeProgram={cyberGymActive ? null : activeProgramEntry}
         activeRunDetail={activeRunDetail}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenResearchPrompt={setResearchPromptDetail}
@@ -706,7 +736,7 @@ export function App(): JSX.Element {
       />
       <ProgramSidebar
         busy={busy}
-        cyberGymActive={cyberGymWorkspaceOpen}
+        cyberGymActive={cyberGymActive}
         collapsed={sidebarCollapsed}
         developerModeEnabled={developerSettings?.developerModeEnabled ?? false}
         error={error}
@@ -740,11 +770,11 @@ export function App(): JSX.Element {
       <main className="workbench" data-session-heat={sessionHeat}>
         <SessionHeader
           detail={activeRunDetail}
-          cyberGymView={cyberGymWorkspaceOpen ? cyberGymMainView : null}
+          cyberGymView={showCyberGymWorkspace ? cyberGymMainView : null}
           events={activeTraceEvents}
-          programGraphStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectGraph.status : null}
-          programSemanticStatus={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? snapshot.projectSemantic.status : null}
-          programView={!selectedRunId && snapshot && !cyberGymWorkspaceOpen ? programMainView : null}
+          programGraphStatus={!selectedRunId && snapshot && !showCyberGymWorkspace ? snapshot.projectGraph.status : null}
+          programSemanticStatus={!selectedRunId && snapshot && !showCyberGymWorkspace ? snapshot.projectSemantic.status : null}
+          programView={!selectedRunId && snapshot && !showCyberGymWorkspace ? programMainView : null}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
           onCyberGymViewChange={setCyberGymMainView}
@@ -752,7 +782,7 @@ export function App(): JSX.Element {
           onSessionViewChange={setSessionMainView}
         />
         <div className="workspace-page">
-          {cyberGymWorkspaceOpen ? (
+          {showCyberGymWorkspace ? (
             <CyberGymBenchmarkWorkspace
               benchmark={snapshot?.benchmark ?? null}
               busy={busy}
@@ -764,6 +794,7 @@ export function App(): JSX.Element {
               vmPreference={vmPreference}
               view={cyberGymMainView}
               onRefreshScenarios={() => void refreshCyberGymScenarios()}
+              onOpenStartedRun={openCyberGymStartedRun}
               onSelectScenario={(scenario) => void selectCyberGymScenario(scenario)}
               runAction={runAction}
             />
@@ -825,7 +856,7 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
-        activeProgramName={cyberGymWorkspaceOpen ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'current program'}
+        activeProgramName={cyberGymActive ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
         developerSettings={developerSettings}
         executor={effectiveExecutor}

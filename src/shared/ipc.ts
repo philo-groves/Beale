@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   prepareCyberGymStorage: 'beale:prepare-cybergym-storage',
   clearCyberGymCache: 'beale:clear-cybergym-cache',
   getCyberGymScenarios: 'beale:get-cybergym-scenarios',
+  openCyberGymProgram: 'beale:open-cybergym-program',
   startCyberGymScenarioRun: 'beale:start-cybergym-scenario-run',
   lookupHackerOneProgram: 'beale:lookup-hackerone-program',
   createProgram: 'beale:create-program',

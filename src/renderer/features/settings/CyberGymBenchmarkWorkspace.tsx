@@ -15,7 +15,7 @@ import type {
   VmPreference,
   WorkspaceSnapshot
 } from '@shared/types';
-import { buildCyberGymResearchPrompt, CYBERGYM_LEVELS } from '@shared/cybergymPrompt';
+import { CYBERGYM_LEVELS } from '@shared/cybergymPrompt';
 import { Modal } from '../../app/Modal';
 import { formatSessionDateTime } from '../../lib/formatting';
 import { defaultRunInput, optionalPositiveInteger, UNBOUNDED_MINUTES } from '../../view-models/runSettings';
@@ -84,6 +84,7 @@ export function CyberGymBenchmarkWorkspace({
   vmPreference,
   view,
   onRefreshScenarios,
+  onOpenStartedRun,
   onSelectScenario,
   runAction
 }: {
@@ -97,6 +98,7 @@ export function CyberGymBenchmarkWorkspace({
   vmPreference: VmPreference;
   view: CyberGymMainView;
   onRefreshScenarios: () => void;
+  onOpenStartedRun: (result: CyberGymScenarioRunStartResult) => void;
   onSelectScenario: (scenario: CyberGymScenarioSummary) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
@@ -115,6 +117,7 @@ export function CyberGymBenchmarkWorkspace({
       snapshot={snapshot}
       vmPreference={vmPreference}
       onRefreshScenarios={onRefreshScenarios}
+      onOpenStartedRun={onOpenStartedRun}
       onSelectScenario={onSelectScenario}
       runAction={runAction}
     />
@@ -131,6 +134,7 @@ function CyberGymScenarioRunList({
   snapshot,
   vmPreference,
   onRefreshScenarios,
+  onOpenStartedRun,
   onSelectScenario,
   runAction
 }: {
@@ -143,12 +147,12 @@ function CyberGymScenarioRunList({
   snapshot: WorkspaceSnapshot | null;
   vmPreference: VmPreference;
   onRefreshScenarios: () => void;
+  onOpenStartedRun: (result: CyberGymScenarioRunStartResult) => void;
   onSelectScenario: (scenario: CyberGymScenarioSummary) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   const [query, setQuery] = useState('');
   const [scenarioToRun, setScenarioToRun] = useState<CyberGymScenarioSummary | null>(null);
-  const [runStartResult, setRunStartResult] = useState<CyberGymScenarioRunStartResult | null>(null);
   const scenarios = scenarioList?.scenarios ?? [];
   const filtered = useMemo(() => filterCyberGymScenarios(scenarios, query), [query, scenarios]);
   const visible = filtered.slice(0, CYBERGYM_RESULT_LIMIT);
@@ -221,7 +225,6 @@ function CyberGymScenarioRunList({
       <ScenarioRunMetricsPanel
         benchmark={benchmark}
         busy={busy}
-        runStartResult={runStartResult}
         scenario={selectedScenario}
         selectedScenarioId={selectedScenarioId}
         onRunScenario={setScenarioToRun}
@@ -237,7 +240,7 @@ function CyberGymScenarioRunList({
           onClose={() => setScenarioToRun(null)}
           onStarted={(result) => {
             setScenarioToRun(null);
-            setRunStartResult(result);
+            onOpenStartedRun(result);
           }}
           runAction={runAction}
         />
@@ -249,14 +252,12 @@ function CyberGymScenarioRunList({
 function ScenarioRunMetricsPanel({
   benchmark,
   busy,
-  runStartResult,
   scenario,
   selectedScenarioId,
   onRunScenario
 }: {
   benchmark: BenchmarkOverview | null;
   busy: boolean;
-  runStartResult: CyberGymScenarioRunStartResult | null;
   scenario: CyberGymScenarioSummary | null;
   selectedScenarioId: string;
   onRunScenario: (scenario: CyberGymScenarioSummary) => void;
@@ -312,11 +313,6 @@ function ScenarioRunMetricsPanel({
             {runDisabledReason}
           </p>
         ) : null}
-        {runStartResult ? (
-          <p className="cybergym-run-scenario-started">
-            Started ephemeral run {shortRunId(runStartResult.runId)}. Results will be collected at {runStartResult.outputPath}.
-          </p>
-        ) : null}
       </div>
     </aside>
   );
@@ -332,10 +328,6 @@ function cyberGymRunDisabledReason({
   if (busy) return 'Another workspace action is still running.';
   if (!scenario) return 'Select a scenario from the list first.';
   return null;
-}
-
-function shortRunId(runId: string): string {
-  return runId.length > 12 ? `${runId.slice(0, 12)}...` : runId;
 }
 
 function ScenarioMetricGraph({ series }: { series: ScenarioMetricSeries }): JSX.Element {
@@ -448,12 +440,7 @@ function CyberGymRunScenarioModal({
       const result = await window.beale.startCyberGymScenarioRun({
         scenario,
         level,
-        settings: {
-          ...input,
-          promptMarkdown: buildCyberGymResearchPrompt(scenario, level),
-          targetAssetId: scenario.id,
-          targetPath: `cybergym://${encodeURIComponent(scenario.id)}?level=${level}`
-        }
+        settings: input
       });
       onStarted(result);
       return null;

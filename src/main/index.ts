@@ -389,6 +389,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.prepareCyberGymStorage, () => workspaceService.prepareCyberGymStorage());
   ipcMain.handle(IPC_CHANNELS.clearCyberGymCache, () => workspaceService.clearCyberGymCache());
   ipcMain.handle(IPC_CHANNELS.getCyberGymScenarios, () => workspaceService.getCyberGymScenarios());
+  ipcMain.handle(IPC_CHANNELS.openCyberGymProgram, () => workspaceService.openCyberGymProgram());
   ipcMain.handle(IPC_CHANNELS.startCyberGymScenarioRun, (_event, input: CyberGymScenarioRunInput) => workspaceService.startCyberGymScenarioRun(input));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
   ipcMain.handle(IPC_CHANNELS.createProgram, (event, input: ProgramOnboardingInput) =>

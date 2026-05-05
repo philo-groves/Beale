@@ -572,7 +572,10 @@ export interface CyberGymScenarioRunStartResult {
   runId: string;
   workspacePath: string;
   taskDirectory: string;
+  outputDirectory: string;
   outputPath: string;
+  resultPath: string;
+  eventLogPath: string;
   level: string;
   copiedMaterials: string[];
   missingMaterials: string[];
@@ -1323,6 +1326,7 @@ export interface BealeApi {
   prepareCyberGymStorage(): Promise<CyberGymStorageActionResult>;
   clearCyberGymCache(): Promise<CyberGymStorageActionResult>;
   getCyberGymScenarios(): Promise<CyberGymScenarioList>;
+  openCyberGymProgram(): Promise<WorkspaceSnapshot>;
   startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult>;
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;

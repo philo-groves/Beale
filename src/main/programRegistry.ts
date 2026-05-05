@@ -511,9 +511,14 @@ function defaultCyberGymSettings(registryDirectory: string): CyberGymBenchmarkSe
   return {
     sourceRootPath: join(registryDirectory, 'benchmarks', 'cybergym'),
     selectedBenchmark: '',
-    cachePath: join(registryDirectory, 'benchmark-cache', 'cybergym'),
+    cachePath: defaultCyberGymCachePath(),
     outputPath: join(registryDirectory, 'benchmark-results', 'cybergym')
   };
+}
+
+function defaultCyberGymCachePath(): string {
+  const base = process.env.XDG_CACHE_HOME?.trim() ? resolve(process.env.XDG_CACHE_HOME) : join(homedir(), '.cache');
+  return join(base, 'beale', 'benchmark-cache', 'cybergym');
 }
 
 function normalizeCyberGymSettings(value: unknown, fallback: CyberGymBenchmarkSettings): CyberGymBenchmarkSettings {
