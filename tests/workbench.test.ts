@@ -277,6 +277,8 @@ describe('Beale workbench skeleton', () => {
         'const args = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "if (!capturePath) throw new Error('missing --capture');",
+        "if (!args.includes('--event-stream')) throw new Error('missing --event-stream');",
+        "if (args[args.indexOf('--executor') + 1] !== 'agent') throw new Error('missing agent executor');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
@@ -328,6 +330,8 @@ describe('Beale workbench skeleton', () => {
         "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { event: { id: 'evt_live_progress', sequence: 5, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
         "console.log('fixture honeycrisp stdout');"
       ].join('\n')
     );
@@ -391,6 +395,8 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(true);
     expect(detail.run.summary).toContain('checkpoint completed');

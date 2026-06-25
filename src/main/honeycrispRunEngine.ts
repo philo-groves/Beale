@@ -37,6 +37,8 @@ interface ActiveHoneycrispRun {
   child: ChildProcessWithoutNullStreams;
   context: CreatedRunContext;
   stopped: boolean;
+  liveHoneycrispEventIds: Set<string>;
+  liveThoughts: Map<string, HoneycrispLiveThoughtState>;
 }
 
 interface HoneycrispFlowCapture {
@@ -128,6 +130,19 @@ interface HoneycrispCaptureEvent {
   artifactRefs?: unknown;
 }
 
+interface HoneycrispLiveEvent {
+  schemaVersion?: number;
+  kind?: string;
+  timestamp?: string;
+  payload?: Record<string, unknown>;
+}
+
+interface HoneycrispLiveThoughtState {
+  text: string;
+  lastTranscriptAt: number;
+  snapshotCount: number;
+}
+
 interface HoneycrispContextUsageSummary {
   inputTokens: number;
   outputTokens: number | null;
@@ -152,6 +167,8 @@ const MAX_SUMMARY_CHARS = 220;
 const HONEYCRISP_REPORTED_USAGE_SOURCE = 'Honeycrisp reported model usage';
 const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimate';
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
+const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
+const LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS = 1200;
 
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
@@ -245,7 +262,13 @@ export class HoneycrispRunEngine {
       env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
       windowsHide: true
     });
-    const active: ActiveHoneycrispRun = { child, context, stopped: false };
+    const active: ActiveHoneycrispRun = {
+      child,
+      context,
+      stopped: false,
+      liveHoneycrispEventIds: new Set(),
+      liveThoughts: new Map()
+    };
     this.activeRuns.set(context.run.id, active);
 
     const stdout = new LineBuffer((line) => this.recordProcessLine(context, 'stdout', line));
@@ -262,7 +285,7 @@ export class HoneycrispRunEngine {
         stdout.flush();
         stderr.flush();
         this.activeRuns.delete(context.run.id);
-        this.finishClosedProcess(context, capturePath, code, signal, active.stopped);
+        this.finishClosedProcess(context, capturePath, code, signal, active);
         resolveCompletion();
       });
     }).finally(() => {
@@ -292,6 +315,11 @@ export class HoneycrispRunEngine {
   private recordProcessLine(context: CreatedRunContext, stream: 'stdout' | 'stderr', line: string): void {
     const text = line.trim();
     if (!text) return;
+    const liveEvent = stream === 'stdout' ? parseHoneycrispLiveEvent(text) : null;
+    if (liveEvent) {
+      this.recordLiveEvent(context, liveEvent);
+      return;
+    }
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -309,15 +337,169 @@ export class HoneycrispRunEngine {
     this.onChange();
   }
 
+  private recordLiveEvent(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const active = this.activeRuns.get(context.run.id);
+    if (event.kind === 'research.event') {
+      const honeycrispEvent = honeycrispCaptureEventFromLiveEvent(event);
+      if (!honeycrispEvent) return;
+      if (honeycrispEvent.id) active?.liveHoneycrispEventIds.add(honeycrispEvent.id);
+      this.appendHoneycrispTimelineEvent(context, honeycrispEvent);
+      this.recordLiveResearchThought(context, honeycrispEvent);
+      this.onChange();
+      return;
+    }
+
+    if (event.kind === 'model.thought') {
+      this.recordLiveThought(context, event, active);
+      return;
+    }
+
+    if (event.kind === 'tool.progress' || event.kind === 'agent.event') {
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: event.kind === 'tool.progress' ? 'vm_event' : 'model_message',
+        source: 'executor',
+        summary: honeycrispLiveEventSummary(event),
+        payload: {
+          honeycrispLiveKind: event.kind,
+          honeycrispTimestamp: event.timestamp ?? null,
+          ...(event.payload ?? {})
+        },
+        vmContextId: context.vmContext.id,
+        modelVisible: false
+      });
+      this.onChange();
+    }
+  }
+
+  private recordLiveResearchThought(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
+    const thought = researchThoughtText(event);
+    if (!thought) return;
+    const payload = recordValue(event.payload);
+    const itemId = event.id ?? `${event.kind ?? 'event'}:${event.timestamp ?? Date.now()}`;
+    const trace = this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: 'Honeycrisp progress thought.',
+      payload: {
+        text: thought,
+        transcriptRole: 'assistant',
+        transcriptSource: 'openai_reasoning_summary',
+        transcriptKind: 'reasoning_summary',
+        responseId: 'honeycrisp-progress',
+        itemId,
+        phase: 'progress',
+        live: true,
+        honeycrispEventId: event.id ?? null,
+        honeycrispKind: event.kind ?? null,
+        honeycrispTimestamp: event.timestamp ?? null,
+        toolName: stringPayload(payload ?? {}, 'toolName') ?? null
+      },
+      vmContextId: context.vmContext.id
+    });
+    this.db.createTranscriptMessage({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      traceEventId: trace.id,
+      role: 'assistant',
+      contentMarkdown: thought,
+      source: 'openai_reasoning_summary',
+      metadata: {
+        responseId: 'honeycrisp-progress',
+        itemId,
+        phase: 'progress',
+        live: true,
+        honeycrispEventId: event.id ?? null,
+        honeycrispKind: event.kind ?? null,
+        honeycrispTimestamp: event.timestamp ?? null,
+        toolName: stringPayload(payload ?? {}, 'toolName') ?? null,
+        fallback: true
+      }
+    });
+  }
+
+  private recordLiveThought(context: CreatedRunContext, event: HoneycrispLiveEvent, active: ActiveHoneycrispRun | undefined): void {
+    const payload = event.payload ?? {};
+    const text = stringPayload(payload, 'text');
+    const delta = stringPayload(payload, 'delta');
+    const responseId = stringPayload(payload, 'responseId') ?? 'live-response';
+    const itemId = stringPayload(payload, 'itemId') ?? `thought:${responseId}`;
+    const key = `${responseId}\u0000${itemId}`;
+    const state =
+      active?.liveThoughts.get(key) ?? {
+        text: '',
+        lastTranscriptAt: 0,
+        snapshotCount: 0
+      };
+    state.text = text ?? (delta ? `${state.text}${delta}` : state.text);
+    const thought = state.text.trim();
+    if (!thought) return;
+
+    const now = Date.now();
+    const phase = stringPayload(payload, 'phase') ?? 'delta';
+    const shouldSnapshot =
+      phase === 'completed' ||
+      state.snapshotCount === 0 ||
+      now - state.lastTranscriptAt >= LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS;
+    active?.liveThoughts.set(key, state);
+    if (!shouldSnapshot) return;
+
+    state.snapshotCount += 1;
+    state.lastTranscriptAt = now;
+    const trace = this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: phase === 'completed' ? 'Honeycrisp completed thought.' : 'Honeycrisp thought.',
+      payload: {
+        text: thought,
+        transcriptRole: 'assistant',
+        transcriptSource: 'openai_reasoning_summary',
+        transcriptKind: 'reasoning_summary',
+        responseId,
+        itemId,
+        phase,
+        live: true,
+        snapshot: state.snapshotCount,
+        provider: stringPayload(payload, 'provider') ?? null,
+        model: stringPayload(payload, 'model') ?? null,
+        redacted: payload.redacted === true
+      },
+      vmContextId: context.vmContext.id
+    });
+    this.db.createTranscriptMessage({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      traceEventId: trace.id,
+      role: 'assistant',
+      contentMarkdown: thought,
+      source: 'openai_reasoning_summary',
+      metadata: {
+        responseId,
+        itemId,
+        phase,
+        live: true,
+        snapshot: state.snapshotCount,
+        provider: stringPayload(payload, 'provider') ?? null,
+        model: stringPayload(payload, 'model') ?? null
+      }
+    });
+    this.onChange();
+  }
+
   private finishClosedProcess(
     context: CreatedRunContext,
     capturePath: string,
     code: number | null,
     signal: NodeJS.Signals | null,
-    stopped: boolean
+    active: ActiveHoneycrispRun
   ): void {
     const processPayload = { code, signal, capturePath };
-    if (stopped) {
+    if (active.stopped) {
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
@@ -342,7 +524,7 @@ export class HoneycrispRunEngine {
     try {
       const captureText = readTextFile(capturePath);
       const capture = parseHoneycrispCapture(captureText);
-      const contextUsage = this.importCapture(context, capture, capturePath, captureText);
+      const contextUsage = this.importCapture(context, capture, capturePath, captureText, active.liveHoneycrispEventIds);
       const summary = honeycrispCompletionSummary(capture);
       this.db.updateAttemptState(context.attempt.id, 'completed', summary);
       this.db.updateRunStatus(context.run.id, 'completed', summary);
@@ -372,7 +554,8 @@ export class HoneycrispRunEngine {
     context: CreatedRunContext,
     capture: HoneycrispFlowCapture,
     capturePath: string,
-    captureText: string
+    captureText: string,
+    liveHoneycrispEventIds: ReadonlySet<string> = new Set()
   ): HoneycrispContextUsageSummary | null {
     const contextUsage = summarizeHoneycrispContextUsage(capture, captureText);
     const captureArtifact = this.db.createArtifact({
@@ -433,23 +616,8 @@ export class HoneycrispRunEngine {
     });
 
     for (const event of capture.eventTimeline ?? []) {
-      const mapped = mapHoneycrispEvent(event.kind);
-      this.db.appendTraceEvent({
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        type: mapped.type,
-        source: mapped.source,
-        summary: honeycrispEventSummary(event),
-        payload: {
-          honeycrispEventId: event.id ?? null,
-          honeycrispKind: event.kind ?? 'unknown',
-          honeycrispSequence: event.sequence ?? null,
-          honeycrispTimestamp: event.timestamp ?? null,
-          payload: event.payload ?? null,
-          artifactRefs: event.artifactRefs ?? null
-        },
-        vmContextId: context.vmContext.id
-      });
+      if (event.id && liveHoneycrispEventIds.has(event.id)) continue;
+      this.appendHoneycrispTimelineEvent(context, event);
     }
 
     for (const [kind, items] of Object.entries(capture.loop?.researchTrace ?? {})) {
@@ -513,6 +681,26 @@ export class HoneycrispRunEngine {
     return contextUsage;
   }
 
+  private appendHoneycrispTimelineEvent(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
+    const mapped = mapHoneycrispEvent(event.kind);
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: mapped.type,
+      source: mapped.source,
+      summary: honeycrispEventSummary(event),
+      payload: {
+        honeycrispEventId: event.id ?? null,
+        honeycrispKind: event.kind ?? 'unknown',
+        honeycrispSequence: event.sequence ?? null,
+        honeycrispTimestamp: event.timestamp ?? null,
+        payload: event.payload ?? null,
+        artifactRefs: event.artifactRefs ?? null
+      },
+      vmContextId: context.vmContext.id
+    });
+  }
+
   private failRun(context: CreatedRunContext, summary: string, payload: Record<string, unknown>): void {
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -555,6 +743,96 @@ class LineBuffer {
   }
 }
 
+function parseHoneycrispLiveEvent(line: string): HoneycrispLiveEvent | null {
+  if (!line.startsWith(HONEYCRISP_EVENT_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(line.slice(HONEYCRISP_EVENT_PREFIX.length)) as unknown;
+    if (!isRecord(parsed)) return null;
+    return {
+      schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : undefined,
+      kind: typeof parsed.kind === 'string' ? parsed.kind : undefined,
+      timestamp: typeof parsed.timestamp === 'string' ? parsed.timestamp : undefined,
+      payload: isRecord(parsed.payload) ? parsed.payload : undefined
+    };
+  } catch {
+    return null;
+  }
+}
+
+function honeycrispCaptureEventFromLiveEvent(event: HoneycrispLiveEvent): HoneycrispCaptureEvent | null {
+  const payload = event.payload ?? {};
+  const rawEvent = recordValue(payload.event);
+  if (!rawEvent) return null;
+  return {
+    id: stringPayload(rawEvent, 'id') ?? undefined,
+    sequence: numberPayload(rawEvent, 'sequence') ?? undefined,
+    kind: stringPayload(rawEvent, 'kind') ?? undefined,
+    timestamp: stringPayload(rawEvent, 'timestamp') ?? undefined,
+    summary: stringPayload(rawEvent, 'summary') ?? undefined,
+    payload: rawEvent.payload ?? null,
+    artifactRefs: rawEvent.artifactRefs ?? null
+  };
+}
+
+function honeycrispLiveEventSummary(event: HoneycrispLiveEvent): string {
+  const payload = event.payload ?? {};
+  if (event.kind === 'tool.progress') {
+    const eventType = stringPayload(payload, 'eventType') ?? 'tool_execution';
+    const toolName = stringPayload(payload, 'toolName') ?? 'tool';
+    return `Honeycrisp ${eventType}: ${toolName}`;
+  }
+  if (event.kind === 'agent.event') {
+    const eventType = stringPayload(payload, 'type') ?? 'agent_event';
+    return `Honeycrisp ${eventType}`;
+  }
+  return `Honeycrisp live event: ${event.kind ?? 'unknown'}`;
+}
+
+function researchThoughtText(event: HoneycrispCaptureEvent): string {
+  const payload = recordValue(event.payload);
+  const summary = stringPayload(payload ?? {}, 'summary') ?? (typeof event.summary === 'string' ? event.summary.trim() : '');
+  switch (event.kind) {
+    case 'memory.decision': {
+      const actionClass = stringPayload(payload ?? {}, 'actionClass');
+      const subGoal = recordValue(payload?.subGoal);
+      const objective = stringPayload(subGoal ?? {}, 'objective');
+      const conciseObjective = objective ? truncateSummary(objective) : '';
+      if (conciseObjective && actionClass) return `**Plan** Selected ${actionClass} work on: ${conciseObjective}`;
+      if (conciseObjective) return `**Plan** Selected work on: ${conciseObjective}`;
+      if (actionClass) return `**Plan** Selected ${actionClass} work.`;
+      return '';
+    }
+    case 'loop.planned': {
+      const permitted = stringArrayPayload(payload?.permittedToolClasses);
+      if (permitted.length > 0) return `**Plan** Tool classes available this loop: ${permitted.join(', ')}.`;
+      return '';
+    }
+    case 'tool.requested':
+      return summary ? `**Tool** ${summary}` : '';
+    case 'tool.observed':
+      return summary ? `**Observation** ${summary}` : '';
+    case 'error.observed':
+      return summary ? `**Issue** ${summary}` : '';
+    default:
+      return '';
+  }
+}
+
+function stringPayload(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function stringArrayPayload(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => (typeof item === 'string' && item.trim() ? [item.trim()] : []));
+}
+
+function numberPayload(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function honeycrispRunArgs(input: StartRunInput, workspacePath: string, capturePath: string, workspaceContextPath: string): string[] {
   const args = [
     '--workspace-root',
@@ -565,6 +843,9 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     workspaceContextPath,
     '--goal-loops',
     String(goalLoopsForInput(input)),
+    '--executor',
+    'agent',
+    '--event-stream',
     '-p',
     input.promptMarkdown
   ];
@@ -753,6 +1034,20 @@ function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: s
       });
     }
   }
+  const workspaceRoot = localDirectoryRoot(workspacePath);
+  if (workspaceRoot) {
+    if (!materializedSourcePaths.includes(workspaceRoot)) {
+      materializedSourcePaths.push(workspaceRoot);
+    }
+    if (!knownRepositories.some((repository) => repository.rootPath === workspaceRoot)) {
+      knownRepositories.push({
+        rootPath: workspaceRoot,
+        label: 'Workspace root',
+        role: 'workspace',
+        source: 'beale'
+      });
+    }
+  }
   return {
     schemaVersion: 1,
     workspaceRoot: workspacePath,
@@ -769,6 +1064,13 @@ function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: s
 function localRootForAsset(asset: ScopeAsset): string | null {
   const value = asset.value.trim();
   if (!isAbsolute(value) || /^[a-z][a-z0-9+.-]*:\/\//i.test(value) || !existsSync(value)) {
+    return null;
+  }
+  return localDirectoryRoot(value);
+}
+
+function localDirectoryRoot(value: string): string | null {
+  if (!isAbsolute(value) || !existsSync(value)) {
     return null;
   }
   try {
@@ -1082,6 +1384,10 @@ function tokenTotalFromParts(inputTokens: number | null, outputTokens: number | 
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(recordValue(value));
 }
 
 function arrayRecordValues(value: unknown): Record<string, unknown>[] {
