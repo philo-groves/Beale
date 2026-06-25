@@ -407,6 +407,9 @@ function registerIpc(): void {
       if (error) throw new Error(error);
     })
   );
+  ipcMain.handle(IPC_CHANNELS.getHoneycrispToolingSummary, () =>
+    timedMainIpc('getHoneycrispToolingSummary', {}, () => workspaceService.getHoneycrispToolingSummary())
+  );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>
       workspaceService.generateResearchPrompt(input, (update) => event.sender.send(IPC_CHANNELS.researchPromptGenerationUpdated, update))

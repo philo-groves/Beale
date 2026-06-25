@@ -76,6 +76,7 @@ export function App(): JSX.Element {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [toolingModal, setToolingModal] = useState<'skills' | 'mcpServers' | null>(null);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
@@ -453,7 +454,9 @@ export function App(): JSX.Element {
         onResizePointerDown={beginSidebarResize}
         onSetOpenProgramMenuId={setOpenProgramMenuId}
         onShowMoreSessions={setSessionHistoryProgramId}
+        onShowMcpServers={() => setToolingModal('mcpServers')}
         onSearch={openSearch}
+        onShowSkills={() => setToolingModal('skills')}
         onStartNewResearch={startNewResearch}
       />
 
@@ -545,6 +548,7 @@ export function App(): JSX.Element {
         snapshot={snapshot}
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
+        toolingModal={toolingModal}
         visibleTraceCategories={visibleTraceCategories}
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelProgramOnboarding={closeProgramOnboarding}
@@ -558,6 +562,7 @@ export function App(): JSX.Element {
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
+        onCloseTooling={() => setToolingModal(null)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneProgram}

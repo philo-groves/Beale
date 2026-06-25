@@ -27,7 +27,9 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROVIDER;
   delete process.env.BEALE_HONEYCRISP_ROOT;
+  delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
+  delete process.env.BEALE_TOOLING_ARGS_PATH;
   delete process.env.POC_SAVE_DIR;
   delete process.env.XDG_CACHE_HOME;
   for (const dir of createdDirs.splice(0)) {
@@ -461,6 +463,89 @@ describe('Beale workbench skeleton', () => {
     expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
+    service.close();
+  });
+
+  it('loads Skills and MCP Servers from Honeycrisp tools list', () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-tools.mjs');
+    const argsPath = join(workspace, 'tooling-args.json');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args[0] !== 'tools' || args[1] !== 'list') throw new Error(`unexpected command ${args.join(' ')}`);",
+        "if (!args.includes('--workspace-root')) throw new Error('missing workspace root');",
+        "if (!args.includes('--json')) throw new Error('missing json flag');",
+        "writeFileSync(process.env.BEALE_TOOLING_ARGS_PATH, JSON.stringify(args));",
+        'console.log("$ fake honeycrisp tools list");',
+        'console.log(JSON.stringify({',
+        '  tools: [{ name: "repository.search", transportName: "repository_search", actionClasses: ["search"], sideEffects: ["read"], requiredPermissions: ["filesystem:read"], metadata: { family: "repository-search" } }],',
+        '  toolFamilies: { enabled: ["repository-search"], requested: ["repository-search"], disabled: [] },',
+        '  skills: {',
+        '    loaded: [{ id: "parser-vuln", version: "0.1", description: "Parser research", domainTags: ["parser"], source: { kind: "local", uri: "/skills/parser" } }],',
+        '    selectedIds: ["parser-vuln"]',
+        '  },',
+        '  mcp: {',
+        '    status: "configured",',
+        '    configPath: "/tmp/mcp.json",',
+        '    configuredServers: ["local"],',
+        '    allowedServers: ["local"],',
+        '    timeoutMs: 30000,',
+        '    discoveredCapabilities: [{ name: "mcp.local.search", transportName: "mcp_local_search", actionClasses: ["search"], sideEffects: ["read"], requiredPermissions: ["mcp:local:tool:search"], metadata: { serverName: "local" } }],',
+        '    deniedCapabilities: [{ serverName: "other", name: "blocked" }],',
+        '    resourceTemplates: [{ serverName: "local", uriTemplate: "mcp://local/{id}" }]',
+        '  }',
+        '}));'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+    process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON = JSON.stringify([
+      '--skill-dir',
+      '/skills',
+      '--skill',
+      'parser-vuln',
+      '--mcp-config',
+      '/tmp/mcp.json',
+      '--allow-mcp-server',
+      'local'
+    ]);
+    process.env.BEALE_TOOLING_ARGS_PATH = argsPath;
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+
+    const summary = service.getHoneycrispToolingSummary();
+    const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[];
+
+    expect(args).toContain('tools');
+    expect(args).toContain('list');
+    expect(args).toContain('--workspace-root');
+    expect(args[args.indexOf('--workspace-root') + 1]).toBe(workspace);
+    expect(args).toContain('--skill-dir');
+    expect(args).toContain('--mcp-config');
+    expect(summary.skills.loaded[0]).toMatchObject({
+      id: 'parser-vuln',
+      version: '0.1',
+      selected: true,
+      domainTags: ['parser']
+    });
+    expect(summary.mcp).toMatchObject({
+      status: 'configured',
+      allowedServers: ['local'],
+      configuredServers: ['local']
+    });
+    expect(summary.mcp.discoveredCapabilities[0]).toMatchObject({
+      name: 'mcp.local.search',
+      transportName: 'mcp_local_search',
+      actionClasses: ['search']
+    });
+    expect(summary.mcp.deniedCapabilities).toHaveLength(1);
+    expect(summary.mcp.resourceTemplates).toHaveLength(1);
     service.close();
   });
 

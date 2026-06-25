@@ -555,6 +555,65 @@ export interface HoneycrispMemorySummary {
   lastError: string | null;
 }
 
+export interface HoneycrispToolingToolSummary {
+  name: string;
+  transportName: string | null;
+  actionClasses: string[];
+  sideEffects: string[];
+  requiredPermissions: string[];
+  metadata: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingSkillSummary {
+  id: string;
+  version: string | null;
+  description: string;
+  domainTags: string[];
+  source: Record<string, unknown> | null;
+  selected: boolean;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingMcpCapabilitySummary {
+  name: string;
+  transportName: string | null;
+  actionClasses: string[];
+  sideEffects: string[];
+  requiredPermissions: string[];
+  metadata: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingMcpSummary {
+  status: string;
+  configPath: string | null;
+  configuredServers: string[];
+  allowedServers: string[];
+  timeoutMs: number | null;
+  discoveredCapabilities: HoneycrispToolingMcpCapabilitySummary[];
+  deniedCapabilities: Record<string, unknown>[];
+  resourceTemplates: Record<string, unknown>[];
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingSummary {
+  source: 'honeycrisp_cli';
+  workspaceRoot: string;
+  tools: HoneycrispToolingToolSummary[];
+  toolFamilies: {
+    enabled: string[];
+    requested: string[];
+    disabled: string[];
+  };
+  skills: {
+    loaded: HoneycrispToolingSkillSummary[];
+    selectedIds: string[];
+  };
+  mcp: HoneycrispToolingMcpSummary;
+  raw: Record<string, unknown>;
+}
+
 export interface LegacyResearchMemoryCounts {
   hypotheses: number;
   evidence: number;
@@ -1300,6 +1359,7 @@ export interface BealeApi {
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
+  getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

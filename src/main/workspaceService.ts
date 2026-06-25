@@ -10,7 +10,7 @@ import { FixtureRunEngine } from './fixtureRunEngine';
 import { WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import { HoneycrispRunEngine, invokeHoneycrispMemoryCommand } from './honeycrispRunEngine';
+import { HoneycrispRunEngine, invokeHoneycrispMemoryCommand, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
 import { ProgramRegistry } from './programRegistry';
@@ -30,6 +30,9 @@ import type {
   GeneratedResearchPrompt,
   HackerOneProgramLookupResult,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispToolingMcpCapabilitySummary,
+  HoneycrispToolingSummary,
+  HoneycrispToolingToolSummary,
   HypothesisRecord,
   LegacyResearchMemoryCompatibility,
   LegacyResearchMemoryCounts,
@@ -373,6 +376,14 @@ export class WorkspaceService {
       throw new Error(`Honeycrisp memory directory does not exist: ${directory.path}`);
     }
     return directory.path;
+  }
+
+  public getHoneycrispToolingSummary(): HoneycrispToolingSummary {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) {
+      throw new Error('No Beale workspace is open');
+    }
+    return normalizeHoneycrispToolingSummary(invokeHoneycrispToolsList(runtime.workspacePath), runtime.workspacePath);
   }
 
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {
@@ -2686,6 +2697,79 @@ function compactTimestamp(iso: string): string {
 
 function numberFromUnknown(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeHoneycrispToolingSummary(raw: Record<string, unknown>, workspaceRoot: string): HoneycrispToolingSummary {
+  const rawToolFamilies = isRecord(raw.toolFamilies) ? raw.toolFamilies : {};
+  const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const selectedIds = stringArray(rawSkills.selectedIds);
+  const selected = new Set(selectedIds);
+  const rawMcp = isRecord(raw.mcp) ? raw.mcp : {};
+  return {
+    source: 'honeycrisp_cli',
+    workspaceRoot,
+    tools: recordArray(raw.tools).map(normalizeHoneycrispToolingTool),
+    toolFamilies: {
+      enabled: stringArray(rawToolFamilies.enabled),
+      requested: stringArray(rawToolFamilies.requested),
+      disabled: stringArray(rawToolFamilies.disabled)
+    },
+    skills: {
+      loaded: recordArray(rawSkills.loaded).map((skill) => ({
+        id: stringValue(skill.id, 'unknown'),
+        version: stringValue(skill.version, '') || null,
+        description: stringValue(skill.description, ''),
+        domainTags: stringArray(skill.domainTags),
+        source: isRecord(skill.source) ? skill.source : null,
+        selected: selected.has(stringValue(skill.id, '')),
+        raw: skill
+      })),
+      selectedIds
+    },
+    mcp: {
+      status: stringValue(rawMcp.status, 'unknown'),
+      configPath: stringValue(rawMcp.configPath, '') || null,
+      configuredServers: stringArray(rawMcp.configuredServers),
+      allowedServers: stringArray(rawMcp.allowedServers),
+      timeoutMs: nullableNumber(rawMcp.timeoutMs),
+      discoveredCapabilities: recordArray(rawMcp.discoveredCapabilities).map(normalizeHoneycrispToolingCapability),
+      deniedCapabilities: recordArray(rawMcp.deniedCapabilities),
+      resourceTemplates: recordArray(rawMcp.resourceTemplates),
+      raw: rawMcp
+    },
+    raw
+  };
+}
+
+function normalizeHoneycrispToolingTool(tool: Record<string, unknown>): HoneycrispToolingToolSummary {
+  return {
+    name: stringValue(tool.name, 'unknown'),
+    transportName: stringValue(tool.transportName, '') || null,
+    actionClasses: stringArray(tool.actionClasses),
+    sideEffects: stringArray(tool.sideEffects),
+    requiredPermissions: stringArray(tool.requiredPermissions),
+    metadata: isRecord(tool.metadata) ? tool.metadata : {},
+    raw: tool
+  };
+}
+
+function normalizeHoneycrispToolingCapability(capability: Record<string, unknown>): HoneycrispToolingMcpCapabilitySummary {
+  return {
+    ...normalizeHoneycrispToolingTool(capability),
+    metadata: isRecord(capability.metadata) ? capability.metadata : {}
+  };
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()) : [];
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function createPatchValidationContract(

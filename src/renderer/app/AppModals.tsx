@@ -24,6 +24,7 @@ import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal'
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
+import { HoneycrispToolingModal, type HoneycrispToolingModalKind } from '../features/tools/HoneycrispToolingModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
@@ -57,6 +58,7 @@ export function AppModals({
   snapshot,
   traceDetailOpen,
   traceFilterOpen,
+  toolingModal,
   visibleTraceCategories,
   onCancelNewResearch,
   onCancelProgramOnboarding,
@@ -70,6 +72,7 @@ export function AppModals({
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
+  onCloseTooling,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
@@ -113,6 +116,7 @@ export function AppModals({
   snapshot: WorkspaceSnapshot | null;
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
+  toolingModal: HoneycrispToolingModalKind | null;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
   onCancelProgramOnboarding: () => void;
@@ -126,6 +130,7 @@ export function AppModals({
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
+  onCloseTooling: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
@@ -205,6 +210,7 @@ export function AppModals({
           onOpenResult={onOpenSearchResult}
         />
       ) : null}
+      {toolingModal ? <HoneycrispToolingModal kind={toolingModal} onClose={onCloseTooling} /> : null}
       {activeNotification ? (
         <NotificationDetailModal
           notification={activeNotification}

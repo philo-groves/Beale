@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import { FolderPlus, ListChecks, MoreVertical, Play, RefreshCw, Search, Server, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
@@ -23,7 +23,9 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onResizePointerDown,
   onSetOpenProgramMenuId,
   onShowMoreSessions,
+  onShowMcpServers,
   onSearch,
+  onShowSkills,
   onStartNewResearch
 }: {
   busy: boolean;
@@ -41,7 +43,9 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenProgramMenuId: (programId: string | null) => void;
   onShowMoreSessions: (programId: string) => void;
+  onShowMcpServers: () => void;
   onSearch: () => void;
+  onShowSkills: () => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.programs', () => ({
@@ -61,6 +65,14 @@ export const ProgramSidebar = memo(function ProgramSidebar({
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
           <Search size={15} />
           <span>Search</span>
+        </button>
+        <button type="button" className="sidebar-utility-button" title="Skills" disabled={!snapshot} onClick={onShowSkills}>
+          <ListChecks size={15} />
+          <span>Skills</span>
+        </button>
+        <button type="button" className="sidebar-utility-button" title="MCP Servers" disabled={!snapshot} onClick={onShowMcpServers}>
+          <Server size={15} />
+          <span>MCP Servers</span>
         </button>
       </div>
       <div className="sidebar-section program-list">

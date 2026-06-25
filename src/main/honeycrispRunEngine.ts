@@ -586,6 +586,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     args.push('--effort', input.reasoningEffort.trim());
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
+  args.push(...additionalHoneycrispRuntimeArgs());
   return args;
 }
 
@@ -639,13 +640,32 @@ export function invokeHoneycrispMemoryCommand(workspacePath: string, args: strin
     const detail = String(result.stderr || result.stdout || 'Honeycrisp memory command failed.').trim();
     throw new Error(`Honeycrisp memory steering failed: ${detail}`);
   }
-  try {
-    const parsed = JSON.parse(result.stdout) as unknown;
-    if (isJsonRecord(parsed)) return parsed;
-  } catch {
-    // Fall through to the structured error below.
+  return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp memory steering');
+}
+
+export function invokeHoneycrispToolsList(workspacePath: string): Record<string, unknown> {
+  const invocation = resolveHoneycrispInvocation();
+  const fullArgs = [
+    ...invocation.prefixArgs,
+    'tools',
+    'list',
+    '--workspace-root',
+    workspacePath,
+    ...additionalHoneycrispRuntimeArgs(),
+    '--json'
+  ];
+  const result = spawnSync(invocation.command, fullArgs, {
+    cwd: invocation.cwd,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+    timeout: 30_000,
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || 'Honeycrisp tools list failed.').trim();
+    throw new Error(`Honeycrisp tooling discovery failed: ${detail}`);
   }
-  throw new Error(`Honeycrisp memory steering returned non-JSON output: ${result.stdout.slice(0, 500)}`);
+  return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp tooling discovery');
 }
 
 function resolveHoneycrispNodeCommand(): string {
@@ -772,6 +792,10 @@ function parseEnvArgs(name: string): string[] {
     throw new Error(`${name} must be a JSON string array.`);
   }
   return parsed;
+}
+
+function additionalHoneycrispRuntimeArgs(): string[] {
+  return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {
@@ -1131,6 +1155,26 @@ function readTextFile(path: string): string {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseHoneycrispJsonCommandOutput(stdout: string, label: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    if (isJsonRecord(parsed)) return parsed;
+  } catch {
+    // Some package runners print a command banner before the CLI JSON.
+  }
+  const start = stdout.indexOf('{');
+  const end = stdout.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(stdout.slice(start, end + 1)) as unknown;
+      if (isJsonRecord(parsed)) return parsed;
+    } catch {
+      // Fall through to the structured error below.
+    }
+  }
+  throw new Error(`${label} returned non-JSON output: ${stdout.slice(0, 500)}`);
 }
 
 function truncateSummary(value: string): string {

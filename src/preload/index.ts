@@ -102,6 +102,9 @@ const api: BealeApi = {
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']) {
     return ipcRenderer.invoke(IPC_CHANNELS.openHoneycrispMemoryDirectory, name);
   },
+  getHoneycrispToolingSummary() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispToolingSummary);
+  },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);
   },

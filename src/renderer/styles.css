@@ -7202,6 +7202,216 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0 2px;
 }
 
+.honeycrisp-tooling {
+  min-width: 0;
+  min-height: 420px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.honeycrisp-tooling-loading,
+.honeycrisp-tooling-error {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: #151515;
+  color: var(--muted-strong);
+  padding: 10px;
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.honeycrisp-tooling-loading svg {
+  animation: beale-spin 900ms linear infinite;
+}
+
+.honeycrisp-tooling-error {
+  color: #f0b6a6;
+}
+
+.honeycrisp-tooling-summary-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.honeycrisp-tooling-metric,
+.honeycrisp-tooling-section {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #121212;
+}
+
+.honeycrisp-tooling-metric {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.honeycrisp-tooling-metric span,
+.honeycrisp-tooling-section h3,
+.honeycrisp-tooling-key-values span,
+.honeycrisp-tooling-family-grid span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-metric strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-section {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.honeycrisp-tooling-list {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.honeycrisp-tooling-card {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  border-radius: 8px;
+  background: #181818;
+  padding: 10px;
+}
+
+.honeycrisp-tooling-card-heading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.honeycrisp-tooling-card-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.honeycrisp-tooling-card-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-card-heading span,
+.honeycrisp-tooling-card-meta > span,
+.honeycrisp-tooling-empty {
+  min-width: 0;
+  color: var(--muted-strong);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.honeycrisp-tooling-selected,
+.honeycrisp-tooling-status-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #b9e1c5;
+  font-size: 0.7rem;
+  font-weight: 820;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-card-meta {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.honeycrisp-tooling-pills {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.honeycrisp-tooling-pills span {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #303030;
+  border-radius: 999px;
+  background: #101010;
+  color: #cfcfcf;
+  padding: 3px 7px;
+  font-size: 0.67rem;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-key-values,
+.honeycrisp-tooling-family-grid {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.honeycrisp-tooling-key-values div,
+.honeycrisp-tooling-family-grid div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.honeycrisp-tooling-key-values strong,
+.honeycrisp-tooling-family-grid small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+}
+
+.honeycrisp-tooling-json {
+  min-width: 0;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #0b0b0b;
+  color: #cfcfcf;
+  padding: 10px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
 .main-trace-title .main-search-highlight,
 .main-trace-context .main-search-highlight {
   font: inherit;
