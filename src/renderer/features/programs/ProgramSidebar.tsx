@@ -1,26 +1,21 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { DatabaseZap, FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { ProgramRegistryEntry, ProgramRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForProgram, shortRelativeAge } from '../../view-models/programDisplay';
 
 const SIDEBAR_SESSION_LIMIT = 4;
-const CYBERGYM_PROGRAM_NAME = 'CyberGym';
 
 export const ProgramSidebar = memo(function ProgramSidebar({
   busy,
-  cyberGymActive,
   collapsed,
-  developerModeEnabled,
   error,
   openProgramMenuId,
   programRegistry,
   selectedRunId,
   snapshot,
   onAddProgram,
-  onOpenBenchmarkingSettings,
-  onOpenCyberGymWorkspace,
   onOpenProgram,
   onOpenProgramInfo,
   onOpenResearchSession,
@@ -32,17 +27,13 @@ export const ProgramSidebar = memo(function ProgramSidebar({
   onStartNewResearch
 }: {
   busy: boolean;
-  cyberGymActive: boolean;
   collapsed: boolean;
-  developerModeEnabled: boolean;
   error: string | null;
   openProgramMenuId: string | null;
   programRegistry: ProgramRegistryState | null;
   selectedRunId: string | null;
   snapshot: WorkspaceSnapshot | null;
   onAddProgram: () => void;
-  onOpenBenchmarkingSettings: () => void;
-  onOpenCyberGymWorkspace: () => void;
   onOpenProgram: (program: ProgramRegistryEntry) => void;
   onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
   onOpenResearchSession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
@@ -59,10 +50,6 @@ export const ProgramSidebar = memo(function ProgramSidebar({
     sessions: programRegistry?.researchSessions.length ?? 0
   }));
   const programs = programRegistry?.programs ?? [];
-  const cyberGymProgram = programs.find(isCyberGymProgram) ?? null;
-  const regularPrograms = programs.filter((program) => !isCyberGymProgram(program));
-  const cyberGymSessions = cyberGymProgram && programRegistry ? researchSessionsForProgram(programRegistry, cyberGymProgram) : [];
-  const visibleCyberGymSessions = cyberGymSessions.slice(0, SIDEBAR_SESSION_LIMIT);
 
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
@@ -83,47 +70,7 @@ export const ProgramSidebar = memo(function ProgramSidebar({
             <FolderPlus size={15} />
           </button>
         </div>
-        {developerModeEnabled ? (
-          <div className="program-group developer-program-group">
-            <div className={`program-item-row developer-program-row ${cyberGymActive ? 'active' : ''}`}>
-              <button type="button" className="program-item developer-program-item" title="Open CyberGym scenarios" onClick={onOpenCyberGymWorkspace}>
-                <DatabaseZap size={15} />
-                <span>CyberGym</span>
-              </button>
-              <button type="button" className="program-menu-button cybergym-scenario-button" title="CyberGym benchmarking settings" onClick={onOpenBenchmarkingSettings}>
-                <MoreVertical size={14} />
-              </button>
-            </div>
-            {cyberGymProgram ? (
-              <div className="program-session-list">
-                {visibleCyberGymSessions.length > 0 ? (
-                  visibleCyberGymSessions.map((session) => (
-                    <div className="program-session-row" key={session.id}>
-                      <SessionActiveIndicator status={session.status} />
-                      <button
-                        type="button"
-                        className={`program-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
-                        title={promptSessionTitle(session)}
-                        onClick={() => onOpenResearchSession(cyberGymProgram, session)}
-                      >
-                        <span className="program-session-title">{promptSessionTitle(session)}</span>
-                        <span className="program-session-age">{shortRelativeAge(session.updatedAt)}</span>
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <span className="program-session-empty">No Session Yet...</span>
-                )}
-                {cyberGymSessions.length > SIDEBAR_SESSION_LIMIT ? (
-                  <button type="button" className="program-session-more" onClick={() => onShowMoreSessions(cyberGymProgram.id)}>
-                    More Sessions...
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {regularPrograms.map((program) => {
+        {programs.map((program) => {
           const active = snapshot?.workspace.workspacePath === program.workspacePath;
           const menuOpen = openProgramMenuId === program.id;
           const sessions = programRegistry ? researchSessionsForProgram(programRegistry, program) : [];
@@ -206,10 +153,6 @@ export const ProgramSidebar = memo(function ProgramSidebar({
     </aside>
   );
 });
-
-function isCyberGymProgram(program: ProgramRegistryEntry): boolean {
-  return program.programName === CYBERGYM_PROGRAM_NAME && program.organizationName === CYBERGYM_PROGRAM_NAME;
-}
 
 function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element {
   return (

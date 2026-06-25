@@ -41,6 +41,7 @@ This book is the working planning document for the Beale rewrite.
 - [Electron GUI](electron-gui.md)
 - [Session Heat](session-heat.md)
 - [Research Momentum](research-momentum.md)
+- [Honeycrisp Host Integration](honeycrisp-host-integration.md)
 - [Beta Refactor Plan](beta-refactor.md)
 - [Beta Optimization Plan](beta-optimization.md)
 - [Beta Readiness and Incomplete Surfaces](beta-readiness.md)

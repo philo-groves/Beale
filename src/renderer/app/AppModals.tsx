@@ -1,7 +1,5 @@
 import type { JSX } from 'react';
 import type {
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
   ExecutorStatus,
   FindingRecord,
@@ -69,7 +67,6 @@ export function AppModals({
   vmPreference,
   onCancelNewResearch,
   onCancelProgramOnboarding,
-  onClearCyberGymCache,
   onChangeProgramDraft,
   onChangeSettingsSection,
   onChangeVisibleTraceCategories,
@@ -84,7 +81,6 @@ export function AppModals({
   onCloseTraceFilters,
   onLookupHackerOne,
   onOpenSessionHistorySession,
-  onPrepareCyberGymStorage,
   onProgramTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
@@ -99,7 +95,6 @@ export function AppModals({
   onSubmitProgramOnboarding,
   onSkipProgramOnboardingRepository,
   onOpenSearchResult,
-  onUpdateCyberGymSettings,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
@@ -134,7 +129,6 @@ export function AppModals({
   vmPreference: VmPreference;
   onCancelNewResearch: () => void;
   onCancelProgramOnboarding: () => void;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
@@ -149,7 +143,6 @@ export function AppModals({
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
   onOpenSessionHistorySession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
   onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
@@ -164,7 +157,6 @@ export function AppModals({
   onSubmitProgramOnboarding: () => void;
   onSkipProgramOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
@@ -204,9 +196,7 @@ export function AppModals({
           openAiStatus={openAiStatus}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
-          onClearCyberGymCache={onClearCyberGymCache}
           onClose={onCloseSettings}
-          onPrepareCyberGymStorage={onPrepareCyberGymStorage}
           onSetVmPreference={onSetVmPreference}
           onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
@@ -214,7 +204,6 @@ export function AppModals({
           onSetupSandbox={onSetupSandbox}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
-          onUpdateCyberGymSettings={onUpdateCyberGymSettings}
         />
       ) : null}
       {profilingOpen ? (

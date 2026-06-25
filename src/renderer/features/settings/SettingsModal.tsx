@@ -1,9 +1,6 @@
-import { useEffect, useState, type JSX } from 'react';
-import { Bug, DatabaseZap, FolderPlus, KeyRound, RefreshCw, Save, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
+import { useState, type JSX } from 'react';
+import { Bug, DatabaseZap, KeyRound, RefreshCw, Server, ShieldAlert, Terminal } from 'lucide-react';
 import type {
-  CyberGymBenchmarkSettings,
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
   ExecutorBackendKind,
   ExecutorBackendStatus,
@@ -21,7 +18,7 @@ import { StatusPill } from '../../app/StatusPill';
 import { formatSessionDateTime, stateClass } from '../../lib/formatting';
 import { findBackendByKind } from '../../view-models/environmentDisplay';
 
-export type SettingsSection = 'general' | 'sandboxes' | 'providers' | 'benchmarking' | 'developer';
+export type SettingsSection = 'general' | 'sandboxes' | 'providers' | 'developer';
 
 export function SettingsModal({
   section,
@@ -34,17 +31,14 @@ export function SettingsModal({
   openAiOAuthResult,
   busy,
   onChangeSection,
-  onClearCyberGymCache,
   onClose,
-  onPrepareCyberGymStorage,
   onSetVmPreference,
   onRefreshProjectSemanticIndex,
   onSetDeveloperModeEnabled,
   onSetProjectSemanticIndexEnabled,
   onSetupSandbox,
   onRefreshOpenAi,
-  onStartOpenAiOAuth,
-  onUpdateCyberGymSettings
+  onStartOpenAiOAuth
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
@@ -56,9 +50,7 @@ export function SettingsModal({
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onClose: () => void;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
@@ -66,13 +58,10 @@ export function SettingsModal({
   onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
 }): JSX.Element {
   const developerModeEnabled = developerSettings?.developerModeEnabled ?? false;
-  const sections: SettingsSection[] = developerModeEnabled
-    ? ['general', 'sandboxes', 'providers', 'benchmarking', 'developer']
-    : ['general', 'sandboxes', 'providers', 'developer'];
-  const activeSection = section === 'benchmarking' && !developerModeEnabled ? 'developer' : section;
+  const sections: SettingsSection[] = ['general', 'sandboxes', 'providers', 'developer'];
+  const activeSection = sections.includes(section) ? section : 'general';
 
   return (
     <Modal
@@ -106,14 +95,6 @@ export function SettingsModal({
             <SandboxSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetupSandbox={onSetupSandbox} onSetVmPreference={onSetVmPreference} />
           ) : activeSection === 'providers' ? (
             <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
-          ) : activeSection === 'benchmarking' ? (
-            <BenchmarkingSettingsView
-              busy={busy}
-              developerSettings={developerSettings}
-              onClearCyberGymCache={onClearCyberGymCache}
-              onPrepareCyberGymStorage={onPrepareCyberGymStorage}
-              onUpdateCyberGymSettings={onUpdateCyberGymSettings}
-            />
           ) : (
             <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
           )}
@@ -218,7 +199,7 @@ function DeveloperSettingsView({
           </div>
           <div>
             <h4>Developer Mode</h4>
-            <p>Enables Beale diagnostics and benchmark configuration. Debug profiling starts automatically while this mode is on.</p>
+            <p>Enables Beale diagnostics. Debug profiling starts automatically while this mode is on.</p>
           </div>
           <label className="settings-switch">
             <input
@@ -233,179 +214,6 @@ function DeveloperSettingsView({
       </section>
     </div>
   );
-}
-
-function BenchmarkingSettingsView({
-  developerSettings,
-  busy,
-  onClearCyberGymCache,
-  onPrepareCyberGymStorage,
-  onUpdateCyberGymSettings
-}: {
-  developerSettings: DeveloperSettings | null;
-  busy: boolean;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
-}): JSX.Element {
-  const settings = developerSettings?.cyberGym ?? emptyCyberGymSettings();
-  const [draft, setDraft] = useState<CyberGymBenchmarkSettings>(settings);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(settings);
-  }, [
-    settings.sourceRootPath,
-    settings.selectedBenchmark,
-    settings.cachePath,
-    settings.outputPath,
-    settings.submitServerUrl,
-    settings.pocDbPath,
-    settings.verifyApiKey
-  ]);
-
-  const dirty =
-    draft.sourceRootPath !== settings.sourceRootPath ||
-    draft.selectedBenchmark !== settings.selectedBenchmark ||
-    draft.cachePath !== settings.cachePath ||
-    draft.outputPath !== settings.outputPath ||
-    draft.submitServerUrl !== settings.submitServerUrl ||
-    draft.pocDbPath !== settings.pocDbPath ||
-    draft.verifyApiKey !== settings.verifyApiKey;
-
-  const save = async (): Promise<void> => {
-    await onUpdateCyberGymSettings(draft);
-    setActionMessage('CyberGym settings saved.');
-  };
-
-  const prepareStorage = async (): Promise<void> => {
-    const result = await onPrepareCyberGymStorage();
-    setActionMessage(result.detail);
-  };
-
-  const clearCache = async (): Promise<void> => {
-    const result = await onClearCyberGymCache();
-    setActionMessage(result.detail);
-  };
-
-  return (
-    <div className="settings-page benchmarking-settings-page">
-      <div className="settings-page-header">
-        <h3>Benchmarking</h3>
-      </div>
-      <section className="provider-card benchmarking-settings-card">
-        <div className="provider-heading">
-          <div className="status-icon">
-            <DatabaseZap size={18} />
-          </div>
-          <div>
-            <h4>CyberGym</h4>
-            <p>CyberGym can be very large. Beale stores paths now and will use the selected benchmark for runner execution.</p>
-          </div>
-          <StatusPill status="developer" />
-        </div>
-
-        <div className="settings-field-grid">
-          <SettingsTextField
-            label="CyberGym Root"
-            value={draft.sourceRootPath}
-            placeholder="/path/to/cybergym"
-            onChange={(sourceRootPath) => setDraft((current) => ({ ...current, sourceRootPath }))}
-          />
-          <SettingsTextField
-            label="Selected Benchmark"
-            value={draft.selectedBenchmark}
-            placeholder="task id or relative path"
-            onChange={(selectedBenchmark) => setDraft((current) => ({ ...current, selectedBenchmark }))}
-          />
-          <SettingsTextField
-            label="Cache Path"
-            value={draft.cachePath}
-            placeholder="/path/to/cybergym-cache"
-            onChange={(cachePath) => setDraft((current) => ({ ...current, cachePath }))}
-          />
-          <SettingsTextField
-            label="Results Path"
-            value={draft.outputPath}
-            placeholder="/path/to/cybergym-results"
-            onChange={(outputPath) => setDraft((current) => ({ ...current, outputPath }))}
-          />
-          <SettingsTextField
-            label="Submit Server"
-            value={draft.submitServerUrl}
-            placeholder="http://127.0.0.1:8666"
-            onChange={(submitServerUrl) => setDraft((current) => ({ ...current, submitServerUrl }))}
-          />
-          <SettingsTextField
-            label="PoC DB Path"
-            value={draft.pocDbPath}
-            placeholder="/path/to/server_poc/poc.db"
-            onChange={(pocDbPath) => setDraft((current) => ({ ...current, pocDbPath }))}
-          />
-          <SettingsTextField
-            label="Verify API Key"
-            value={draft.verifyApiKey}
-            placeholder="cybergym-..."
-            type="password"
-            onChange={(verifyApiKey) => setDraft((current) => ({ ...current, verifyApiKey }))}
-          />
-        </div>
-
-        <div className="provider-actions benchmarking-actions">
-          <button className="primary-button" type="button" disabled={busy || !dirty} onClick={() => void save()}>
-            <Save size={15} />
-            Save
-          </button>
-          <button type="button" disabled={busy} onClick={() => void prepareStorage()}>
-            <FolderPlus size={15} />
-            Create Folders
-          </button>
-          <button type="button" disabled={busy} onClick={() => void clearCache()}>
-            <Trash2 size={15} />
-            Clear Cache
-          </button>
-        </div>
-        {actionMessage ? (
-          <p className="settings-action-message" role="status">
-            {actionMessage}
-          </p>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function SettingsTextField({
-  label,
-  value,
-  placeholder,
-  type = 'text',
-  onChange
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  type?: 'text' | 'password';
-  onChange: (value: string) => void;
-}): JSX.Element {
-  return (
-    <label className="settings-field">
-      <span>{label}</span>
-      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
-}
-
-function emptyCyberGymSettings(): CyberGymBenchmarkSettings {
-  return {
-    sourceRootPath: '',
-    selectedBenchmark: '',
-    cachePath: '',
-    outputPath: '',
-    submitServerUrl: '',
-    pocDbPath: '',
-    verifyApiKey: ''
-  };
 }
 
 function SandboxSettingsView({
@@ -877,8 +685,6 @@ function settingsSectionLabel(section: SettingsSection): string {
       return 'Sandboxes';
     case 'providers':
       return 'Providers';
-    case 'benchmarking':
-      return 'Benchmarking';
     case 'developer':
       return 'Developer';
   }
