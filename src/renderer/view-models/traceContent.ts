@@ -599,6 +599,10 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
   if (summary === 'OpenAI context window pressure triggered compacted retry.') return 'Compact context for retry';
   if (summary === 'OpenAI Responses run failed.') return 'Fail Responses run';
+  if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return 'Honeycrisp Tool Requested';
+  if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return 'Honeycrisp Tool Observed';
+  if (/^Honeycrisp context\.compiled(?::|$)/i.test(summary)) return 'Honeycrisp Context Compiled';
+  if (/^Honeycrisp goal\.(created|updated|completed)(?::|$)/i.test(summary)) return 'Honeycrisp Goal';
   if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
   if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
   if (summary === 'Run started from markdown prompt.') return 'Start run from prompt';

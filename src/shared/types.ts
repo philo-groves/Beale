@@ -40,9 +40,9 @@ export type TraceEventType =
   | 'finding_event'
   | 'network_event';
 
-export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
+export type FixtureScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
 
-export type RunEngineKind = 'fake' | 'openai_responses' | 'honeycrisp';
+export type RunEngineKind = 'honeycrisp' | 'fixture';
 
 export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'codex_oauth_file' | 'api_key_env' | 'not_configured';
 
@@ -60,11 +60,11 @@ export interface OpenAiOnboardingStep {
   command: string | null;
 }
 
-export type ExecutorProviderKind = 'host' | 'fake' | 'vmctl' | 'docker';
+export type ExecutorProviderKind = 'host';
 
 export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
 
-export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'docker' | 'custom_vmctl';
+export type ExecutorBackendKind = never;
 
 export interface VmPreference {
   enabled: boolean;
@@ -150,7 +150,7 @@ export interface WorkspaceSummary {
   databasePath: string;
   artifactRoot: string;
   openedAt: string;
-  fakeExecutorLabel: string;
+  executionPostureLabel: string;
   lastWorkspaceBackup: WorkspaceExportResult | null;
   hostEnvironment: HostEnvironment;
 }
@@ -778,7 +778,7 @@ export interface StartRunInput {
     maxAttempts: number;
     maxCostUsd: number;
   };
-  fakeScenario: FakeScenario;
+  fixtureScenario?: FixtureScenario;
 }
 
 export interface GeneratedResearchPrompt {

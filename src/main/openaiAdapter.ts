@@ -2,7 +2,6 @@ import type { OpenAiTransport, ProfilingMetricDetail } from '@shared/types';
 import { arch, platform, release } from 'node:os';
 import { setImmediate as yieldImmediate } from 'node:timers/promises';
 import { OpenAiAuthService, type OpenAiCredential, resolveOpenAiTransport } from './openaiAuth';
-import type { OpenAiToolDefinition } from './openaiTools';
 import NodeWebSocket from 'ws';
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -15,6 +14,13 @@ export interface ResponseInputMessage {
   type: 'message';
   role: 'user' | 'developer' | 'system';
   content: Array<{ type: 'input_text'; text: string }>;
+}
+
+export interface OpenAiToolDefinition {
+  type: 'function';
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
 }
 
 export interface FunctionCallOutputItem {

@@ -90,6 +90,7 @@
 
 - Removed Beale-managed VM/Docker sandbox setup, executor runtime, vmctl tooling, and Settings > Sandboxes. Beale now treats Honeycrisp execution as host-process execution; users should launch Beale/Honeycrisp inside their own VM or container when OS isolation is required.
 - Removed the Beale benchmark/CyberGym prototype runner, harness scripts, IPC, settings, scenario UI, and tests. Domain-specific harnesses now belong in Honeycrisp skills, MCP servers, or external project tooling.
+- Removed Beale's parallel fake/OpenAI research-agent runtime and structured-tool router. New research sessions now route through Honeycrisp, with a guarded fixture engine retained only for deterministic tests.
 
 ### Changed
 

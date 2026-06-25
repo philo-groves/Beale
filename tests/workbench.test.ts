@@ -238,9 +238,9 @@ describe('Beale workbench skeleton', () => {
       workspacePath: workspace,
       runId: latestRun?.id,
       title: latestRun?.title,
-      promptMarkdown: '# Test run\nExercise the fake workbench path.',
+      promptMarkdown: '# Test run\nExercise the fixture workbench path.',
       status: latestRun?.status,
-      runEngine: 'fake'
+      runEngine: 'fixture'
     });
     service.close();
 
@@ -506,7 +506,7 @@ describe('Beale workbench skeleton', () => {
     const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
     const runId = snapshot.runs[0]?.run.id ?? '';
 
-    const response = service.searchSessionTranscripts({ query: 'fake workbench', limit: 5 });
+    const response = service.searchSessionTranscripts({ query: 'fixture workbench', limit: 5 });
     expect(response.totalTranscriptMatches).toBe(1);
     expect(response.programCount).toBe(1);
     expect(response.programs[0]).toMatchObject({
@@ -518,7 +518,7 @@ describe('Beale workbench skeleton', () => {
       role: 'user',
       source: 'run_prompt'
     });
-    expect(response.results[0].contentPreview).toContain('fake workbench');
+    expect(response.results[0].contentPreview).toContain('fixture workbench');
     expect(service.searchSessionTranscripts({ query: 'not-present-in-session-transcripts' })).toEqual({
       results: [],
       totalTranscriptMatches: 0,
@@ -668,101 +668,6 @@ describe('Beale workbench skeleton', () => {
     expect(detail.run.status).toBe('active');
     expect(detail.traceEvents.length).toBeGreaterThan(initialTraceCount);
     expect(detail.traceEvents.some((event) => event.summary === 'Workspace recovery paused interrupted run after app restart.')).toBe(false);
-    service.close();
-  });
-
-  it('refreshes foreground project indexes after OpenAI source materialization', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-source-indexing';
-    const gitFixture = join(process.cwd(), 'tests/fixtures/git-fixture.mjs');
-    chmodSync(gitFixture, 0o700);
-    process.env.BEALE_GIT_COMMAND = gitFixture;
-    const workspace = tempWorkspace();
-    let requestCount = 0;
-    const service = new WorkspaceService(() => undefined, {
-      programRegistryDirectory: tempWorkspace(),
-      openAiFetch: async () => {
-        requestCount += 1;
-        const body =
-          requestCount === 1
-            ? [
-                event('response.created', { type: 'response.created', response: { id: 'resp_source_1' } }),
-                event('response.output_item.done', {
-                  type: 'response.output_item.done',
-                  response_id: 'resp_source_1',
-                  item: {
-                    type: 'function_call',
-                    id: 'fc_source_1',
-                    call_id: 'call_source_1',
-                    name: 'source',
-                    arguments: '{"repository":"Zuul","ref":"v1.2.3"}',
-                    status: 'completed'
-                  }
-                }),
-                event('response.completed', { type: 'response.completed', response: { id: 'resp_source_1', output: [], usage: { total_tokens: 10 } } })
-              ].join('')
-            : [
-                event('response.created', { type: 'response.created', response: { id: 'resp_source_2' } }),
-                event('response.output_item.done', {
-                  type: 'response.output_item.done',
-                  response_id: 'resp_source_2',
-                  item: {
-                    type: 'message',
-                    id: 'msg_source_done',
-                    status: 'completed',
-                    role: 'assistant',
-                    content: [{ type: 'output_text', text: 'Source materialized.', annotations: [] }]
-                  }
-                }),
-                event('response.completed', {
-                  type: 'response.completed',
-                  response: {
-                    id: 'resp_source_2',
-                    output: [
-                      {
-                        type: 'message',
-                        id: 'msg_source_done',
-                        status: 'completed',
-                        role: 'assistant',
-                        content: [{ type: 'output_text', text: 'Source materialized.', annotations: [] }]
-                      }
-                    ],
-                    usage: { total_tokens: 8 }
-                  }
-                })
-              ].join('');
-        return new Response(sse(body), { status: 200, headers: { 'content-type': 'text/event-stream' } });
-      }
-    });
-
-    service.createProgram({
-      workspacePath: workspace,
-      programName: 'Source Index Program',
-      organizationName: 'Example Org',
-      descriptionMarkdown: 'Source materialization should refresh foreground indexes.',
-      rulesMarkdown: 'Offline source review.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [
-        {
-          direction: 'in_scope',
-          kind: 'other',
-          value: 'Open Source - Zuul',
-          sensitivity: 'public',
-          attributes: { instruction: '## https://github.com/Netflix/zuul\nPrimary target.' }
-        }
-      ]
-    });
-    service.startRun({
-      ...runInput('source_logic_bug'),
-      runEngine: 'openai_responses',
-      promptMarkdown: '# Source indexing\nMaterialize the scoped Zuul repository.'
-    });
-    await waitForCondition(() => service.getSnapshot()?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul')) ?? false);
-
-    const snapshot = service.getSnapshot();
-    expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(true);
-    expect(snapshot?.projectGraph).toMatchObject({ status: 'disabled', nodeCount: 0, edgeCount: 0 });
-    expect(snapshot?.projectSemantic).toMatchObject({ enabled: false, status: 'disabled' });
     service.close();
   });
 
@@ -1535,7 +1440,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('records a deterministic fake run graph that replays from persisted state', () => {
+  it('records a deterministic fixture run graph that replays from persisted state', () => {
     const service = openService();
     service.saveProgramScope({
       programName: 'Parser Program',
@@ -1565,9 +1470,9 @@ describe('Beale workbench skeleton', () => {
     expect(detail.attempts.length).toBeGreaterThan(1);
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('parser_memory_safety');
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('authorization_review');
-    expect(detail.vmContexts[0].backend).toBe('fake_vm');
+    expect(detail.vmContexts[0].backend).toBe('fixture');
     expect(snapshot.runs[0].attemptCount).toBeGreaterThan(1);
-    expect(snapshot.runs[0].engine).toBe('fake');
+    expect(snapshot.runs[0].engine).toBe('fixture');
 
     const workspacePath = snapshot.workspace.workspacePath;
     service.close();
@@ -1803,7 +1708,7 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'single_path',
       networkProfile: 'offline',
       sandboxProfile: 'host',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
     });
     const contract = db.createVerifierContract({
       runId: context.run.id,
@@ -1858,7 +1763,7 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'single_path',
       networkProfile: 'offline',
       sandboxProfile: 'host',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
     });
     const hypothesis = db.createHypothesis({
       runId: context.run.id,
@@ -2080,10 +1985,10 @@ async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise
   expect(check()).toBe(true);
 }
 
-function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
+function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunInput {
   return {
-    runEngine: 'fake',
-    promptMarkdown: '# Test run\nExercise the fake workbench path.',
+    runEngine: 'fixture',
+    promptMarkdown: '# Test run\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'adaptive_portfolio',
     model: 'gpt-5.5',
@@ -2095,7 +2000,7 @@ function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
       maxAttempts: 2,
       maxCostUsd: 0
     },
-    fakeScenario
+    fixtureScenario
   };
 }
 

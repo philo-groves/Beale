@@ -1,20 +1,20 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import { defaultHypothesisFactors, priorityFactorLabels, scorePriority, verifiedFindingFactors } from './discoveryScoring';
-import type { FakeScenario, StartRunInput } from '@shared/types';
+import type { FixtureScenario, StartRunInput } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 
 type ScenarioStep = (context: CreatedRunContext) => void;
 
 interface ScheduledRun {
   context: CreatedRunContext;
-  scenario: FakeScenario;
+  scenario: FixtureScenario;
   nextIndex: number;
   timer: NodeJS.Timeout | null;
 }
 
 const STEP_DELAY_MS = 850;
 
-export class FakeRunEngine {
+export class FixtureRunEngine {
   private readonly scheduledRuns = new Map<string, ScheduledRun>();
 
   public constructor(
@@ -24,6 +24,7 @@ export class FakeRunEngine {
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): CreatedRunContext {
     const scope = this.db.getActiveScope();
+    const scenario = input.fixtureScenario ?? 'adaptive_portfolio';
     const context = attachDatabase(this.db.createRun({
       scopeVersionId: scope.id,
       title: generateSessionTitle(input.promptMarkdown),
@@ -36,7 +37,12 @@ export class FakeRunEngine {
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
-      budget: { ...input.budget, fakeScenario: input.fakeScenario, runEngine: 'fake' }
+      budget: { ...input.budget, fixtureScenario: scenario, runEngine: 'fixture' },
+      vmBackend: 'fixture',
+      vmImageId: 'fixture-beale-toolchain',
+      vmSnapshotId: 'fixture-clean-snapshot',
+      vmState: 'working',
+      vmMetadata: { executor: 'fixture', targetExecution: false }
     }), this.db);
 
     this.db.appendTraceEvent({
@@ -56,9 +62,9 @@ export class FakeRunEngine {
       attemptId: context.attempt.id,
       type: 'vm_event',
       source: 'executor',
-      summary: 'Fake executor allocated a simulated execution context.',
+      summary: 'Fixture executor allocated a simulated execution context.',
       payload: {
-        executor: 'fake',
+        executor: 'fixture',
         targetExecution: false,
         boundary: 'No target code, build scripts, PoCs, tests, fuzzing, or debugger sessions executed.'
       },
@@ -78,10 +84,10 @@ export class FakeRunEngine {
     });
 
     if (mode === 'complete') {
-      this.emitRemaining(context, input.fakeScenario);
+      this.emitRemaining(context, scenario);
       this.onChange();
     } else {
-      this.schedule(context, input.fakeScenario);
+      this.schedule(context, scenario);
     }
 
     return context;
@@ -116,13 +122,13 @@ export class FakeRunEngine {
     this.scheduledRuns.clear();
   }
 
-  public emitRemaining(context: CreatedRunContext, scenario: FakeScenario): void {
+  public emitRemaining(context: CreatedRunContext, scenario: FixtureScenario): void {
     for (const step of getSteps(scenario)) {
       step(context);
     }
   }
 
-  private schedule(context: CreatedRunContext, scenario: FakeScenario): void {
+  private schedule(context: CreatedRunContext, scenario: FixtureScenario): void {
     const scheduled: ScheduledRun = {
       context,
       scenario,
@@ -159,7 +165,7 @@ export class FakeRunEngine {
   }
 }
 
-function getSteps(scenario: FakeScenario): ScenarioStep[] {
+function getSteps(scenario: FixtureScenario): ScenarioStep[] {
   switch (scenario) {
     case 'source_logic_bug':
       return sourceLogicBugSteps();
@@ -202,9 +208,12 @@ function recordAdaptivePortfolioBranches(context: CreatedRunContext): void {
       status: 'completed',
       shortState: branch.state,
       strategyRole: branch.role,
+      vmBackend: 'fixture',
+      vmImageId: 'fixture-beale-toolchain',
+      vmSnapshotId: 'fixture-clean-snapshot',
       vmState: 'destroyed',
       vmMetadata: {
-        executor: 'simulated',
+        executor: 'fixture',
         targetExecution: false,
         adaptivePortfolioBranch: true
       }
@@ -237,7 +246,7 @@ function recordTool(
     runId: context.run.id,
     attemptId: context.attempt.id,
     toolName,
-    toolVersion: 'fake-v1',
+    toolVersion: 'fixture-v1',
     input,
     status: 'completed',
     resultSummary,
@@ -286,7 +295,7 @@ function recordArtifact(
     sensitivity: 'internal',
     modelVisible: true,
     source,
-    metadata: { name, fake: true, ...metadata },
+    metadata: { name, fixture: true, ...metadata },
     content
   });
   const event = db.appendTraceEvent({
@@ -357,8 +366,8 @@ function recordVerifier(
     mode: 'reproduction',
     status: 'approved',
     targetStates: { vmContextId: context.vmContext.id },
-    setupStepsMarkdown: 'Use simulated target state from the fake executor.',
-    triggerStepsMarkdown: 'Replay the deterministic fake trigger.',
+    setupStepsMarkdown: 'Use simulated target state from the fixture executor.',
+    triggerStepsMarkdown: 'Replay the deterministic fixture trigger.',
     expectedObservations: result,
     invariants: { noHostExecution: true },
     artifactsToCollect: { trace: true, artifacts: true },
@@ -412,8 +421,8 @@ function finishRun(context: CreatedRunContext, status: 'completed' | 'blocked', 
       attemptId: context.attempt.id,
       type: 'vm_event',
       source: 'executor',
-      summary: 'Fake execution context closed after simulated run completion.',
-      payload: { executor: 'fake', targetExecution: false },
+      summary: 'Fixture execution context closed after simulated run completion.',
+      payload: { executor: 'fixture', targetExecution: false },
       vmContextId: context.vmContext.id
     });
   }
@@ -446,7 +455,7 @@ function sourceLogicBugSteps(): ScenarioStep[] {
         'Tool-backed source observations suggest importProject commits scoped project data before enforcing ownership.'
       );
       recordVerifier(context, hypothesisId, 'inconclusive', 'Verifier placeholder returned inconclusive for the import ownership hypothesis.', {
-        reason: 'Fake executor has no real target execution in this slice.'
+        reason: 'Fixture executor has no real target execution in this slice.'
       });
     },
     (context) => {
@@ -467,7 +476,7 @@ function memoryCorruptionSteps(): ScenarioStep[] {
     (context) => {
       recordTool(context, 'code_browser', { path: 'src/parser/chunk_decoder.c', symbol: 'decode_chunk' }, 'Code browser found simulated unchecked length arithmetic.', {
         component: 'chunk decoder',
-        observation: 'Length field is multiplied before a bounds check in the fake fixture.'
+        observation: 'Length field is multiplied before a bounds check in the fixture.'
       });
       recordTool(context, 'debugger', { command: 'run crash-input-003.bin' }, 'Debugger reported a simulated crash at decode_chunk+0x44.', {
         signal: 'SIGSEGV',
@@ -494,13 +503,13 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         hypothesisId,
         state: 'needs_evidence',
         title: 'Chunk length crash needs reproduction evidence',
-        summaryMarkdown: 'The fake debugger produced a crash and crash-input artifact, but no real reproduction has run.',
+        summaryMarkdown: 'The fixture debugger produced a crash and crash-input artifact, but no real reproduction has run.',
         affectedAssets: { component: 'chunk decoder' },
-        affectedVersions: { fixture: 'fake' },
+        affectedVersions: { fixture: 'fixture' },
         impactMarkdown: 'Potential denial of service or memory safety issue pending real execution.',
         priorityScore: scorePriority(defaultHypothesisFactors('memory_corruption'))
       });
-      contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash input from fake debugger.', hypothesisId);
+      contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash input from fixture debugger.', hypothesisId);
     },
     (context) => {
       finishRun(context, 'completed', 'Simulated memory corruption run finished with a needs-evidence finding.', 'Finding remains needs_evidence after simulated crash artifact collection.');
@@ -578,7 +587,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
     },
     (context) => {
       recordTool(context, 'code_browser', { path: 'src/export/exportTenant.ts', symbol: 'exportTenant' }, 'Code browser found a simulated tenant ID trust boundary issue.', {
-        observation: 'The fake fixture accepts tenantId from request parameters before checking caller membership.'
+        observation: 'The fixture accepts tenantId from request parameters before checking caller membership.'
       });
       const hypothesisId = recordHypothesis(
         context,
@@ -607,8 +616,8 @@ function verifiedFindingSteps(): ScenarioStep[] {
         title: 'Tenant export authorization bypass',
         summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass, but a real verifier is required before verification.',
         affectedAssets: { component: 'tenant export' },
-        affectedVersions: { fixture: 'fake' },
-        impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fake fixture.',
+        affectedVersions: { fixture: 'fixture' },
+        impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fixture.',
         priorityScore: scorePriority(verifiedFindingFactors('authorization'))
       });
       contextDb(context).appendTraceEvent({
@@ -702,5 +711,5 @@ function attachDatabase(context: CreatedRunContext, db: WorkspaceDatabase): Crea
 }
 
 function contextDatabaseError(): never {
-  throw new Error('Fake run context is missing a database reference');
+  throw new Error('Fixture run context is missing a database reference');
 }

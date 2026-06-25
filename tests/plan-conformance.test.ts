@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
-import { bealeToolDefinitions } from '../src/main/openaiTools';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import type { ScopeAssetKind, StartRunInput } from '../src/shared/types';
 
@@ -81,21 +80,12 @@ describe('plan conformance', () => {
     expect(hits).toEqual([]);
   });
 
-  it('keeps the first model-facing tool surface to one setup tool plus the planned structured research tools', () => {
-    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual([
-      'source',
-      'search',
-      'code_browser',
-      'resource_lookup',
-      'program_lookup',
-      'python',
-      'debugger',
-      'artifact',
-      'evidence',
-      'hypothesis',
-      'finding',
-      'verifier'
-    ]);
+  it('keeps removed Beale agent runtime layers out of the main source tree', () => {
+    const files = filesUnder('src/main').map(normalizePath);
+    expect(files).not.toContain('src/main/openaiRunEngine.ts');
+    expect(files).not.toContain('src/main/openaiContext.ts');
+    expect(files).not.toContain('src/main/openaiTools.ts');
+    expect(files).not.toContain('src/main/fakeRunEngine.ts');
   });
 
   it('keeps the OpenAI adapter aligned with the planned defaults and host-only credential state', () => {
@@ -111,7 +101,7 @@ describe('plan conformance', () => {
         model: status.defaultModel,
         instructions: 'Plan conformance smoke request.',
         input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Return ok.' }] }],
-        tools: bealeToolDefinitions(),
+        tools: [],
         reasoning: { effort: status.defaultReasoningEffort },
         text: { verbosity: 'low' },
         metadata: { beale_plan_check: 'true' }
@@ -125,7 +115,7 @@ describe('plan conformance', () => {
     });
   });
 
-  it('creates workspace-local SQLite state and fake VM contexts without mounting host authority', () => {
+  it('creates workspace-local SQLite state and host execution records without exposing secrets', () => {
     const dir = tempDir('beale-plan-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
@@ -142,18 +132,18 @@ describe('plan conformance', () => {
       attemptStrategy: 'adaptive_portfolio',
       networkProfile: 'offline',
       sandboxProfile: 'host',
-      budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+      budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
     });
 
     expect(db.getDatabasePath()).toBe(join(dir, '.beale', 'beale.sqlite'));
     expect(db.getArtifactRoot()).toBe(artifactRoot);
-    expect(context.vmContext.backend).toBe('fake_vm');
-    expect(context.vmContext.metadata.targetExecution).toBe(false);
+    expect(context.vmContext.backend).toBe('host');
+    expect(context.vmContext.metadata).toMatchObject({ executor: 'host', targetExecution: true, executionPosture: 'host_process' });
     expect(JSON.stringify(context.vmContext.metadata)).not.toMatch(/beale\.sqlite|OPENAI|api[_-]?key|access[_-]?token|credential/i);
     db.close();
   });
 
-  it('keeps fake run evidence provenance distinct from model claims', () => {
+  it('keeps fixture run evidence provenance distinct from model claims', () => {
     const service = new WorkspaceService();
     service.createWorkspace(tempDir('beale-plan-workspace-'));
     service.saveProgramScope({
@@ -166,7 +156,7 @@ describe('plan conformance', () => {
       assets: [asset('in_scope', 'path', '/targets/plan-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
     });
 
-    const snapshot = startRunForTest(service, { ...runInput(), fakeScenario: 'verified_finding' });
+    const snapshot = startRunForTest(service, { ...runInput(), fixtureScenario: 'verified_finding' });
     const detail = service.getRunDetail(snapshot.runs[0].run.id);
     const modelMessages = detail.traceEvents.filter((event) => event.source === 'model' && event.type === 'model_message');
     const observations = detail.traceEvents.filter((event) => ['tool', 'verifier'].includes(event.source) && ['tool_result', 'artifact_created', 'verifier_result'].includes(event.type));
@@ -253,8 +243,8 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 
 function runInput(): StartRunInput {
   return {
-    runEngine: 'fake',
-    promptMarkdown: '# Plan conformance\nExercise the fake workbench path.',
+    runEngine: 'fixture',
+    promptMarkdown: '# Plan conformance\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'adaptive_portfolio',
     model: 'gpt-5.5',
@@ -266,6 +256,6 @@ function runInput(): StartRunInput {
       maxAttempts: 2,
       maxCostUsd: 0
     },
-    fakeScenario: 'adaptive_portfolio'
+    fixtureScenario: 'adaptive_portfolio'
   };
 }

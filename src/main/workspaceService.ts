@@ -4,11 +4,10 @@ import { performance } from 'node:perf_hooks';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
-import { FakeRunEngine } from './fakeRunEngine';
+import { FixtureRunEngine } from './fixtureRunEngine';
 import { WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import { OpenAiRunEngine } from './openaiRunEngine';
 import { HoneycrispRunEngine } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
@@ -22,7 +21,7 @@ import type {
   AgentContextState,
   DeveloperSettings,
   ExecutorStatus,
-  FakeScenario,
+  FixtureScenario,
   FindingRecord,
   GeneratedResearchPrompt,
   HackerOneProgramLookupResult,
@@ -68,7 +67,7 @@ import type {
   WorkspaceSummary
 } from '@shared/types';
 
-const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake execution context. No target code execution.';
+const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
@@ -266,15 +265,13 @@ interface WorkspaceRuntime {
   openedAt: string;
   lastRecovery: WorkspaceRecoveryReport | null;
   db: WorkspaceDatabase;
-  engine: FakeRunEngine;
-  openAiEngine: OpenAiRunEngine;
+  fixtureEngine: FixtureRunEngine | null;
   honeycrispEngine: HoneycrispRunEngine;
 }
 
 export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
-  private engine: FakeRunEngine | null = null;
-  private openAiEngine: OpenAiRunEngine | null = null;
+  private fixtureEngine: FixtureRunEngine | null = null;
   private honeycrispEngine: HoneycrispRunEngine | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
   private readonly profiling = new ProfilingService();
@@ -855,12 +852,11 @@ export class WorkspaceService {
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
     if (input.runEngine === 'honeycrisp') {
       this.requireHoneycrispEngine().startRun(input);
-    } else if (input.runEngine === 'openai_responses') {
-      this.requireOpenAiEngine().startRun(input);
+    } else if (input.runEngine === 'fixture') {
+      requireFixtureRunEngineEnabled();
+      this.requireFixtureEngine().startRun(input, mode);
     } else {
-      requireFakeRunEngineEnabled();
-      const engine = this.requireEngine();
-      engine.startRun(input, mode);
+      throw new Error(`Unsupported research run engine: ${String(input.runEngine)}`);
     }
     this.emitChangeNow();
     return this.requireSnapshot();
@@ -964,16 +960,16 @@ export class WorkspaceService {
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {
     const db = this.requireDb();
-    const engine = this.requireEngine();
     const run = db.getRun(action.runId);
     if (!run) {
       throw new Error(`Run not found: ${action.runId}`);
     }
     const attempt = db.getFirstAttempt(action.runId);
+    const runEngine = stringFromRecord(run.budget, 'runEngine');
 
     switch (action.type) {
       case 'pause': {
-        if (run.budget.runEngine === 'honeycrisp') {
+        if (runEngine === 'honeycrisp') {
           this.honeycrispEngine?.stop(action.runId);
           if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
           db.updateRunStatus(action.runId, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
@@ -987,8 +983,9 @@ export class WorkspaceService {
           });
           break;
         }
-        engine.pause(action.runId);
-        this.openAiEngine?.pause(action.runId);
+        if (runEngine === 'fixture') {
+          this.fixtureEngine?.pause(action.runId);
+        }
         if (attempt) db.updateAttemptState(attempt.id, 'paused', 'Paused by user steering.');
         db.updateRunStatus(action.runId, 'paused', 'Paused by user steering.');
         db.appendTraceEvent({
@@ -1012,9 +1009,9 @@ export class WorkspaceService {
           summary: 'Run resumed by user.',
           payload: { note: action.note ?? '' }
         });
-        if (run.budget.runEngine === 'openai_responses') {
-          this.requireOpenAiEngine().resumeRun(action.runId);
-        } else if (run.budget.runEngine === 'honeycrisp') {
+        if (runEngine === 'fixture') {
+          this.fixtureEngine?.resume(action.runId);
+        } else if (runEngine === 'honeycrisp') {
           db.appendTraceEvent({
             runId: action.runId,
             attemptId: attempt?.id ?? null,
@@ -1023,14 +1020,11 @@ export class WorkspaceService {
             summary: 'Honeycrisp runs cannot be resumed after pause in this adapter slice.',
             payload: { runEngine: 'honeycrisp' }
           });
-        } else {
-          engine.resume(action.runId);
         }
         break;
       }
       case 'stop': {
-        engine.stop(action.runId);
-        this.openAiEngine?.stop(action.runId);
+        this.fixtureEngine?.stop(action.runId);
         this.honeycrispEngine?.stop(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Stopped by user steering.');
         db.updateRunStatus(action.runId, 'stopped', 'Stopped by user steering.');
@@ -1057,12 +1051,10 @@ export class WorkspaceService {
           summary: 'User steering added to current run.',
           payload: { instruction: redactForModelText(instruction) }
         });
-        if (run.budget.runEngine === 'openai_responses') {
-          this.requireOpenAiEngine().steerRun(action.runId, instruction);
-        } else if (run.status === 'paused') {
+        if (runEngine === 'fixture' && run.status === 'paused') {
           if (attempt) db.updateAttemptState(attempt.id, 'active', 'User steering added to current run.');
           db.updateRunStatus(action.runId, 'active', 'User steering added to current run.');
-          engine.resume(action.runId);
+          this.fixtureEngine?.resume(action.runId);
         }
         break;
       }
@@ -1075,7 +1067,7 @@ export class WorkspaceService {
           summary: 'Run fork requested with additional instruction.',
           payload: { instruction: action.instruction }
         });
-        const scenario = fakeScenarioFromBudget(run.budget);
+        const scenario = fixtureScenarioFromBudget(run.budget);
         const forkInput: StartRunInput = {
           promptMarkdown: `${run.promptMarkdown}\n\n## Fork instruction\n${action.instruction}`,
           mode: run.mode,
@@ -1091,21 +1083,14 @@ export class WorkspaceService {
             maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
             maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
           },
-          runEngine:
-            run.budget.runEngine === 'honeycrisp'
-              ? 'honeycrisp'
-              : run.budget.runEngine === 'openai_responses'
-                ? 'openai_responses'
-                : 'fake',
-          fakeScenario: scenario
+          runEngine: runEngine === 'fixture' ? 'fixture' : 'honeycrisp',
+          fixtureScenario: scenario
         };
         if (forkInput.runEngine === 'honeycrisp') {
           this.requireHoneycrispEngine().startRun(forkInput);
-        } else if (forkInput.runEngine === 'openai_responses') {
-          this.requireOpenAiEngine().startRun(forkInput);
         } else {
-          requireFakeRunEngineEnabled();
-          engine.startRun(forkInput, 'scheduled');
+          requireFixtureRunEngineEnabled();
+          this.requireFixtureEngine().startRun(forkInput, 'scheduled');
         }
         break;
       }
@@ -1658,17 +1643,7 @@ export class WorkspaceService {
       openedAt,
       lastRecovery: db.recoverInterruptedState('workspace_open'),
       db,
-      engine: new FakeRunEngine(db, () => this.emitRuntimeChange(workspacePath)),
-      openAiEngine: new OpenAiRunEngine(
-        db,
-        this.openAiAuth,
-        new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch, undefined, undefined, undefined, (name, durationMs, detail) =>
-          this.recordProfilingMainTiming(name, durationMs, detail)
-        ),
-        () => this.emitRuntimeChange(workspacePath),
-        (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail),
-        () => this.emitRuntimeChange(workspacePath)
-      ),
+      fixtureEngine: null,
       honeycrispEngine: new HoneycrispRunEngine(db, workspacePath, () => this.emitRuntimeChange(workspacePath))
     };
   }
@@ -1678,8 +1653,6 @@ export class WorkspaceService {
       !this.workspacePath ||
       !this.openedAt ||
       !this.db ||
-      !this.engine ||
-      !this.openAiEngine ||
       !this.honeycrispEngine
     ) {
       return null;
@@ -1689,8 +1662,7 @@ export class WorkspaceService {
       openedAt: this.openedAt,
       lastRecovery: this.lastRecovery,
       db: this.db,
-      engine: this.engine,
-      openAiEngine: this.openAiEngine,
+      fixtureEngine: this.fixtureEngine,
       honeycrispEngine: this.honeycrispEngine
     };
   }
@@ -1707,8 +1679,7 @@ export class WorkspaceService {
     this.openedAt = runtime.openedAt;
     this.lastRecovery = runtime.lastRecovery;
     this.db = runtime.db;
-    this.engine = runtime.engine;
-    this.openAiEngine = runtime.openAiEngine;
+    this.fixtureEngine = runtime.fixtureEngine;
     this.honeycrispEngine = runtime.honeycrispEngine;
   }
 
@@ -1718,8 +1689,7 @@ export class WorkspaceService {
     this.openedAt = null;
     this.lastRecovery = null;
     this.db = null;
-    this.engine = null;
-    this.openAiEngine = null;
+    this.fixtureEngine = null;
     this.honeycrispEngine = null;
     return runtime;
   }
@@ -1748,8 +1718,7 @@ export class WorkspaceService {
   }
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
-    runtime.engine.dispose();
-    runtime.openAiEngine.dispose();
+    runtime.fixtureEngine?.dispose();
     runtime.honeycrispEngine.dispose();
     runtime.db.close();
   }
@@ -1811,18 +1780,13 @@ export class WorkspaceService {
     return this.db;
   }
 
-  private requireEngine(): FakeRunEngine {
-    if (!this.engine) {
-      throw new Error('No fake run engine is available');
+  private requireFixtureEngine(): FixtureRunEngine {
+    if (!this.fixtureEngine) {
+      const workspacePath = this.workspacePath;
+      if (!workspacePath) throw new Error('No Beale workspace is open');
+      this.fixtureEngine = new FixtureRunEngine(this.requireDb(), () => this.emitRuntimeChange(workspacePath));
     }
-    return this.engine;
-  }
-
-  private requireOpenAiEngine(): OpenAiRunEngine {
-    if (!this.openAiEngine) {
-      throw new Error('No OpenAI run engine is available');
-    }
-    return this.openAiEngine;
+    return this.fixtureEngine;
   }
 
   private requireHoneycrispEngine(): HoneycrispRunEngine {
@@ -1867,7 +1831,7 @@ export class WorkspaceService {
       databasePath: runtime.db.getDatabasePath(),
       artifactRoot: runtime.db.getArtifactRoot(),
       openedAt: runtime.openedAt,
-      fakeExecutorLabel: FAKE_EXECUTOR_LABEL,
+      executionPostureLabel: EXECUTION_POSTURE_LABEL,
       lastWorkspaceBackup: runtime.db.getLastWorkspaceBackup(),
       hostEnvironment: getHostEnvironment()
     };
@@ -3295,8 +3259,13 @@ function numberFromBudget(budget: Record<string, unknown>, key: string, fallback
   return typeof value === 'number' ? value : fallback;
 }
 
-function fakeScenarioFromBudget(budget: Record<string, unknown>): FakeScenario {
-  const value = budget.fakeScenario;
+function stringFromRecord(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScenario {
+  const value = budget.fixtureScenario;
   if (
     value === 'adaptive_portfolio' ||
     value === 'source_logic_bug' ||
@@ -3309,11 +3278,11 @@ function fakeScenarioFromBudget(budget: Record<string, unknown>): FakeScenario {
   return 'adaptive_portfolio';
 }
 
-function requireFakeRunEngineEnabled(): void {
-  if (isFakeRunEngineEnabled()) return;
-  throw new Error('The deterministic fake run engine is disabled in product mode. Set BEALE_ENABLE_FAKE_ENGINE=1 for development fixtures.');
+function requireFixtureRunEngineEnabled(): void {
+  if (isFixtureRunEngineEnabled()) return;
+  throw new Error('The deterministic fixture run engine is disabled in product mode. Set BEALE_ENABLE_FIXTURE_ENGINE=1 for development fixtures.');
 }
 
-function isFakeRunEngineEnabled(): boolean {
-  return process.env.BEALE_ENABLE_FAKE_ENGINE === '1' || process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST_WORKER_ID);
+function isFixtureRunEngineEnabled(): boolean {
+  return process.env.BEALE_ENABLE_FIXTURE_ENGINE === '1' || process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST_WORKER_ID);
 }

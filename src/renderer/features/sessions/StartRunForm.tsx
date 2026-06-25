@@ -53,9 +53,8 @@ export function StartRunForm({
     });
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
-  const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
-  const canStart = hasPromptDraft && !openAiBlocked;
+  const canStart = hasPromptDraft;
 
   const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
@@ -94,12 +93,6 @@ export function StartRunForm({
       }
     >
       <div className="start-run-modal-body">
-        {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
-          <div className="policy-line">
-            <ShieldAlert size={15} />
-            {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
-          </div>
-        ) : null}
         <div className="policy-line host-sandbox-warning">
           <ShieldAlert size={15} />
           Honeycrisp runs with this user's host privileges. Launch Beale and Honeycrisp inside your own VM or container when you want OS isolation.

@@ -16,8 +16,7 @@ export const defaultRunInput: StartRunInput = {
     maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: 1,
     maxCostUsd: 0
-  },
-  fakeScenario: 'adaptive_portfolio'
+  }
 };
 
 export function budgetNumber(value: unknown, fallback: number): number {

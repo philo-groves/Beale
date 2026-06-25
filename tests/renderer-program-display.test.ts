@@ -77,7 +77,7 @@ function session(input: Partial<ResearchSessionSummary>): ResearchSessionSummary
     runId: 'run_test',
     title: '',
     status: 'completed',
-    runEngine: 'openai_responses',
+    runEngine: 'honeycrisp',
     mode: 'dynamic',
     promptMarkdown: '',
     summary: '',

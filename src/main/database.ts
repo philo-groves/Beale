@@ -3736,15 +3736,15 @@ export class WorkspaceDatabase {
         )
         .run(
           vmContextId,
-          input.vmBackend ?? 'fake_vm',
-          input.vmImageId ?? 'fake-beale-toolchain',
-          input.vmSnapshotId ?? 'clean-snapshot-simulated',
-          input.vmState ?? 'working',
+          input.vmBackend ?? 'host',
+          input.vmImageId ?? 'host-machine',
+          input.vmSnapshotId ?? 'none',
+          input.vmState ?? 'host_active',
           input.networkProfile,
           input.scopeVersionId,
           createdAt,
           null,
-          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
+          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
         );
 
       this.db
@@ -3770,7 +3770,7 @@ export class WorkspaceDatabase {
           target.targetAssetId,
           target.targetPath,
           toJson(input.budget),
-          'Starting simulated research run.',
+          'Starting host-process research run.',
           createdAt,
           createdAt,
           null
@@ -3788,12 +3788,12 @@ export class WorkspaceDatabase {
           runId,
           null,
           'active',
-          'Initializing simulated research plan.',
+          'Initializing host-process research plan.',
           randomUUID(),
           'initial_portfolio',
           vmContextId,
-          toJson({ simulatedUsd: 0, label: 'simulated $0.00' }),
-          toJson({ promptTokens: 0, completionTokens: 0, simulated: true }),
+          toJson({ label: '$0.00' }),
+          toJson({ promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
           null
         );
@@ -3929,15 +3929,15 @@ export class WorkspaceDatabase {
         )
         .run(
           vmContextId,
-          input.vmBackend ?? 'fake_vm',
-          input.vmImageId ?? 'fake-beale-toolchain',
-          input.vmSnapshotId ?? 'clean-snapshot-simulated',
+          input.vmBackend ?? 'host',
+          input.vmImageId ?? 'host-machine',
+          input.vmSnapshotId ?? 'none',
           vmState,
           run.networkProfile,
           run.scopeVersionId,
           createdAt,
           vmState === 'destroyed' ? createdAt : null,
-          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
+          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
         );
       this.db
         .prepare(
@@ -3955,8 +3955,8 @@ export class WorkspaceDatabase {
           randomUUID(),
           input.strategyRole,
           vmContextId,
-          toJson(input.cost ?? { simulatedUsd: 0, label: 'simulated $0.00' }),
-          toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, simulated: true }),
+          toJson(input.cost ?? { label: '$0.00' }),
+          toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
           input.status === 'completed' || input.status === 'failed' || input.status === 'stopped' ? createdAt : null
         );
@@ -5201,7 +5201,7 @@ export class WorkspaceDatabase {
         verifierState: verifier ? text(verifier, 'status') : null,
         policyBlocker: policy ? text(policy, 'reason') : null,
         artifactCount: artifactCounts.get(run.id) ?? 0,
-        costLabel: 'simulated $0.00'
+        costLabel: '$0.00'
       };
     });
   }
@@ -10412,7 +10412,7 @@ export class WorkspaceDatabase {
 
   private runEngineFromBudget(budget: Record<string, unknown>): RunEngineKind {
     if (budget.runEngine === 'honeycrisp') return 'honeycrisp';
-    return budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake';
+    return 'fixture';
   }
 }
 
