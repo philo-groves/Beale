@@ -7,6 +7,7 @@ import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { ContextSessionView } from './ContextSessionView';
 import { SpawnSessionView } from './SpawnSessionView';
 import type { SessionMainView } from './sessionViews';
 
@@ -79,6 +80,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
 
   if (sessionView === 'spawn') {
     return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+  }
+
+  if (sessionView === 'context') {
+    return <ContextSessionView selectedRunId={selectedRunId} />;
   }
 
   return (

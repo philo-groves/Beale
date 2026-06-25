@@ -7,7 +7,7 @@ import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../
 describe('renderer session header view models', () => {
   it('uses spawn as the default session view before the trace log', () => {
     expect(DEFAULT_SESSION_MAIN_VIEW).toBe('spawn');
-    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['spawn', 'list']);
+    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['spawn', 'context', 'list']);
   });
 
   it('formats status and session configuration pills', () => {

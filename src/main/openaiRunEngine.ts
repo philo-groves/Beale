@@ -13,18 +13,7 @@ import {
   type ResponseInputItem
 } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import {
-  contextCompactionRanges,
-  evaluateOpenAiCompaction,
-  inputTokensFromOpenAiEvent,
-  isContextWindowError,
-  openAiCompactionPolicyFromEnv,
-  representedCompactionState,
-  serializedInputBytes,
-  type OpenAiCompactionDecision,
-  type OpenAiReplayMode
-} from './openaiCompaction';
-import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
+import { buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
 import { isHostResearchSandbox } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
@@ -44,8 +33,8 @@ const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const OUTPUT_DELTA_TRACE_INTERVAL_MS = 1000;
 const DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT = 2;
 const DEFAULT_OPENAI_TRANSPORT_RETRY_DELAY_MS = 250;
-const DEFAULT_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT = 8;
-const MAX_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT = 32;
+
+type OpenAiReplayMode = 'initial' | 'previous_response' | 'pending_input' | 'manual_response_replay';
 
 interface RunLoopState {
   responseInput: ResponseInputItem[];
@@ -267,10 +256,7 @@ export class OpenAiRunEngine {
       attemptId: attempt.id,
       type: 'model_message',
       source: 'system',
-      summary:
-        resumeState.replayMode === 'compacted_replay'
-          ? 'OpenAI run resumed from compacted Beale replay context.'
-          : 'OpenAI run resumed from persisted Responses state.',
+      summary: 'OpenAI run resumed from persisted Responses state.',
       payload: {
         replayMode: resumeState.replayMode,
         previousResponseId: resumeState.previousResponseId,
@@ -365,36 +351,15 @@ export class OpenAiRunEngine {
     let previousResponseId: string | null = state?.previousResponseId ?? null;
     let previousResponseIdUnsupported = state?.previousResponseIdUnsupported ?? this.adapter.usesManualConversationState();
     let replayMode = state?.replayMode ?? 'initial';
-    let replayedAfterMissingPrevious = replayMode === 'compacted_replay';
-    let contextWindowRetryAttempts = 0;
-    let pendingContextWindowRecoveryTrace = false;
+    let replayedAfterMissingPrevious = replayMode === 'manual_response_replay';
     let latestReportedInputTokens: number | null = null;
     let latestCompletedModelOutput: { text: string; traceEventId: string } | null = null;
     let transportRetryAttempts = 0;
     const maxToolTurns = openAiToolTurnLimit();
-    const compactionPolicy = openAiCompactionPolicyFromEnv();
     const transportRetryLimit = openAiTransportRetryLimit();
-    const contextWindowRetryLimit = openAiContextWindowRetryLimit();
 
     try {
       for (let turn = 0; turn < maxToolTurns; turn += 1) {
-        const compactionDecision = evaluateOpenAiCompaction({
-          replayMode,
-          previousResponseIdUnsupported,
-          manualConversationInput,
-          latestReportedInputTokens,
-          policy: compactionPolicy
-        });
-        if (compactionDecision) {
-          const compacted = this.compactReplayContext(context, compactionDecision, replayMode, compactionPolicy.recentModelVisibleEventLimit);
-          responseInput = compacted.responseInput;
-          manualConversationInput = compacted.manualConversationInput;
-          previousResponseId = null;
-          replayMode = 'compacted_replay';
-          latestReportedInputTokens = null;
-          this.onChange();
-        }
-
         const requestPreviousResponseId = previousResponseIdUnsupported ? null : previousResponseId;
         this.db.updateModelSessionByRun(context.run.id, {
           status: 'active',
@@ -476,22 +441,6 @@ export class OpenAiRunEngine {
             }
           }
           transportRetryAttempts = 0;
-          if (pendingContextWindowRecoveryTrace) {
-            pendingContextWindowRecoveryTrace = false;
-            this.db.appendTraceEvent({
-              runId: context.run.id,
-              attemptId: context.attempt.id,
-              type: 'model_message',
-              source: 'system',
-              summary: 'OpenAI compacted retry recovered from context window pressure.',
-              payload: {
-                replayMode: 'compacted_replay',
-                recovered: true
-              },
-              vmContextId: context.vmContext.id
-            });
-            this.onChange();
-          }
         } catch (error) {
           if (isRetryableOpenAiTransportError(error) && streamRetrySafe && !controller.signal.aborted && transportRetryAttempts < transportRetryLimit) {
             transportRetryAttempts += 1;
@@ -522,37 +471,28 @@ export class OpenAiRunEngine {
               attemptId: context.attempt.id,
               type: 'model_message',
               source: 'system',
-              summary: 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.',
+              summary: 'OpenAI previous response state was unavailable; retrying with manual replay.',
               payload: {
                 previousResponseId,
-                replayMode: 'compacted_replay',
+                replayMode: 'manual_response_replay',
                 store: body.store
               },
               vmContextId: context.vmContext.id
             });
-            const compacted = this.compactReplayContext(
-              context,
-              {
-                reason: 'previous_response_not_found',
-                tokenPressure: { previousResponseId, store: body.store },
-                serializedSizeBytes: serializedInputBytes(manualConversationInput)
-              },
-              replayMode,
-              compactionPolicy.recentModelVisibleEventLimit
-            );
-            responseInput = compacted.responseInput;
+            responseInput = manualConversationInput;
             previousResponseId = null;
-            replayMode = 'compacted_replay';
+            previousResponseIdUnsupported = true;
+            replayMode = 'manual_response_replay';
             replayedAfterMissingPrevious = true;
-            manualConversationInput = compacted.manualConversationInput;
             latestReportedInputTokens = null;
             this.db.updateModelSessionByRun(context.run.id, {
               previousResponseId: null,
               metadata: {
                 pendingInput: responseInput,
                 manualConversationInput,
+                previousResponseIdUnsupported,
                 replayMode,
-                previousResponseRecovery: 'compacted_replay'
+                previousResponseRecovery: 'manual_response_replay'
               }
             });
             continue;
@@ -564,29 +504,18 @@ export class OpenAiRunEngine {
               attemptId: context.attempt.id,
               type: 'model_message',
               source: 'system',
-              summary: 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.',
+              summary: 'OpenAI backend rejected previous_response_id; retrying with manual replay.',
               payload: {
                 previousResponseId,
-                replayMode: 'compacted_replay',
+                replayMode: 'manual_response_replay',
                 store: body.store
               },
               vmContextId: context.vmContext.id
             });
             previousResponseIdUnsupported = true;
             previousResponseId = null;
-            const compacted = this.compactReplayContext(
-              context,
-              {
-                reason: 'previous_response_id_unsupported',
-                tokenPressure: { previousResponseId: rejectedPreviousResponseId, store: body.store },
-                serializedSizeBytes: serializedInputBytes(manualConversationInput)
-              },
-              replayMode,
-              compactionPolicy.recentModelVisibleEventLimit
-            );
-            responseInput = compacted.responseInput;
-            manualConversationInput = compacted.manualConversationInput;
-            replayMode = 'compacted_replay';
+            responseInput = manualConversationInput;
+            replayMode = 'manual_response_replay';
             latestReportedInputTokens = null;
             this.db.updateModelSessionByRun(context.run.id, {
               previousResponseId: null,
@@ -595,85 +524,13 @@ export class OpenAiRunEngine {
                 manualConversationInput,
                 previousResponseIdUnsupported,
                 replayMode,
-                previousResponseRecovery: 'compacted_replay'
+                rejectedPreviousResponseId,
+                previousResponseRecovery: 'manual_response_replay'
               }
             });
             continue;
           }
-          if (isContextWindowError(error) && contextWindowRetryAttempts < contextWindowRetryLimit) {
-            contextWindowRetryAttempts += 1;
-            const recentEventLimit = recentEventLimitForContextWindowRetry(compactionPolicy.recentModelVisibleEventLimit, contextWindowRetryAttempts);
-            this.db.appendTraceEvent({
-              runId: context.run.id,
-              attemptId: context.attempt.id,
-              type: 'model_message',
-              source: 'system',
-              summary: 'OpenAI context window pressure triggered compacted retry.',
-              payload: {
-                error: errorMessage(error),
-                replayMode,
-                retryAttempted: true,
-                retryAttempt: contextWindowRetryAttempts,
-                retryLimit: contextWindowRetryLimit,
-                recentModelVisibleEventLimit: recentEventLimit
-              },
-              vmContextId: context.vmContext.id
-            });
-            const compacted = this.compactReplayContext(
-              context,
-              {
-                reason: 'context_window_error',
-                tokenPressure: { error: errorMessage(error), latestReportedInputTokens },
-                serializedSizeBytes: serializedInputBytes(manualConversationInput)
-              },
-              replayMode,
-              recentEventLimit,
-              true
-            );
-            responseInput = compacted.responseInput;
-            manualConversationInput = compacted.manualConversationInput;
-            previousResponseId = null;
-            replayMode = 'compacted_replay';
-            latestReportedInputTokens = null;
-            pendingContextWindowRecoveryTrace = true;
-            this.onChange();
-            continue;
-          }
           throw error;
-        }
-
-        if (functionCalls.length === 0 && !latestCompletedModelOutput) {
-          const noOutputCompactionDecision = evaluateOpenAiCompaction({
-            replayMode,
-            previousResponseIdUnsupported,
-            manualConversationInput,
-            latestReportedInputTokens,
-            policy: compactionPolicy
-          });
-          if (noOutputCompactionDecision) {
-            this.db.appendTraceEvent({
-              runId: context.run.id,
-              attemptId: context.attempt.id,
-              type: 'model_message',
-              source: 'system',
-              summary: 'OpenAI response ended without final output under context pressure; continuing with compacted replay.',
-              payload: {
-                reason: noOutputCompactionDecision.reason,
-                replayMode,
-                latestReportedInputTokens,
-                tokenPressure: noOutputCompactionDecision.tokenPressure
-              },
-              vmContextId: context.vmContext.id
-            });
-            const compacted = this.compactReplayContext(context, noOutputCompactionDecision, replayMode, compactionPolicy.recentModelVisibleEventLimit);
-            responseInput = compacted.responseInput;
-            manualConversationInput = compacted.manualConversationInput;
-            previousResponseId = null;
-            replayMode = 'compacted_replay';
-            latestReportedInputTokens = null;
-            this.onChange();
-            continue;
-          }
         }
 
         if (functionCalls.length === 0) {
@@ -760,76 +617,6 @@ export class OpenAiRunEngine {
         }
       });
     }
-  }
-
-  private compactReplayContext(
-    context: CreatedRunContext,
-    decision: OpenAiCompactionDecision,
-    previousReplayMode: OpenAiReplayMode,
-    recentEventLimit: number,
-    followedApiFailure = false
-  ): { responseInput: ResponseInputItem[]; manualConversationInput: ResponseInputItem[] } {
-    const detail = this.db.getRunDetail(context.run.id);
-    const previousCompaction = detail.contextCompactions.at(-1) ?? null;
-    const responseInput = buildCompactedReplayOpenAiInput(detail, {
-      reason: decision.reason,
-      previousCompaction,
-      recentEventLimit
-    });
-    const ranges = contextCompactionRanges(detail, recentEventLimit);
-    const compaction = this.db.createContextCompaction({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      previousCompactionId: previousCompaction?.id ?? null,
-      reason: decision.reason,
-      previousReplayMode,
-      newReplayMode: 'compacted_replay',
-      traceRangeSummarized: ranges.summarized,
-      traceRangeKept: ranges.kept,
-      traceHighWaterMark: ranges.highWaterMark,
-      tokenPressure: decision.tokenPressure,
-      serializedSizeBytes: decision.serializedSizeBytes,
-      redactionPolicyVersion: openAiCompactionPolicyFromEnv().redactionPolicyVersion,
-      summarySource: 'deterministic_beale_state',
-      representedState: representedCompactionState(detail),
-      compactedInput: { input: responseInput }
-    });
-    const traceEvent = this.db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'model_message',
-      source: 'system',
-      summary: 'Context compacted for long-running session.',
-      payload: {
-        compactionId: compaction.id,
-        previousCompactionId: compaction.previousCompactionId,
-        reason: decision.reason,
-        previousReplayMode,
-        newReplayMode: 'compacted_replay',
-        traceRangeSummarized: ranges.summarized,
-        traceRangeKept: ranges.kept,
-        traceHighWaterMark: ranges.highWaterMark,
-        tokenPressure: decision.tokenPressure,
-        serializedSizeBytes: decision.serializedSizeBytes,
-        summarySource: 'deterministic_beale_state',
-        redactionPolicyVersion: compaction.redactionPolicyVersion,
-        followedApiFailure
-      },
-      vmContextId: context.vmContext.id
-    });
-    this.db.setContextCompactionTrace(compaction.id, traceEvent.id);
-    this.db.updateModelSessionByRun(context.run.id, {
-      previousResponseId: null,
-      metadata: {
-        pendingInput: responseInput,
-        manualConversationInput: responseInput,
-        replayMode: 'compacted_replay',
-        latestReportedInputTokens: null,
-        latestCompactionId: compaction.id,
-        latestCompactionReason: decision.reason
-      }
-    });
-    return { responseInput, manualConversationInput: responseInput };
   }
 
   private handleStreamEvent(context: CreatedRunContext, event: OpenAiStreamEvent, functionCalls: OpenAiFunctionCall[], streamTraceState: StreamTraceState): TraceEventRecord[] {
@@ -1151,16 +938,13 @@ function buildResumeState(session: ModelSessionRecord | undefined, detail: RunDe
       replayMode: 'previous_response'
     };
   }
-  const responseInput = buildCompactedReplayOpenAiInput(detail, {
-    reason: 'resume_without_provider_state',
-    previousCompaction: detail.contextCompactions.at(-1) ?? null
-  });
+  const responseInput = [...(manualConversationInput ?? buildInitialOpenAiInput(startInputFromRun(detail.run))), ...buildResumeOpenAiInput(detail)];
   return {
     responseInput,
     previousResponseId: null,
     manualConversationInput: responseInput,
-    previousResponseIdUnsupported,
-    replayMode: 'compacted_replay'
+    previousResponseIdUnsupported: true,
+    replayMode: 'manual_response_replay'
   };
 }
 
@@ -1439,6 +1223,12 @@ function summarizeEvent(event: OpenAiStreamEvent): Record<string, unknown> {
   };
 }
 
+function inputTokensFromOpenAiEvent(event: OpenAiStreamEvent): number | null {
+  const response = recordValue(event.response);
+  const usage = recordValue(response?.usage);
+  return numberValue(usage?.input_tokens) ?? numberValue(usage?.prompt_tokens);
+}
+
 function stringPayloadValue(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   return typeof value === 'string' ? value : '';
@@ -1482,19 +1272,6 @@ function openAiTransportRetryLimit(): number {
   return DEFAULT_OPENAI_TRANSPORT_RETRY_LIMIT;
 }
 
-function openAiContextWindowRetryLimit(): number {
-  const configured = Number(process.env.BEALE_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT);
-  if (Number.isInteger(configured) && configured >= 0) {
-    return Math.min(configured, MAX_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT);
-  }
-  return DEFAULT_OPENAI_CONTEXT_WINDOW_RETRY_LIMIT;
-}
-
-function recentEventLimitForContextWindowRetry(baseLimit: number, attempt: number): number {
-  const divisor = 2 ** Math.max(0, attempt - 1);
-  return Math.max(5, Math.floor(Math.max(1, baseLimit) / divisor));
-}
-
 function openAiTransportRetryDelayMs(attempt: number): number {
   const configured = Number(process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS);
   const base = Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_OPENAI_TRANSPORT_RETRY_DELAY_MS;
@@ -1503,4 +1280,12 @@ function openAiTransportRetryDelayMs(attempt: number): number {
 
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

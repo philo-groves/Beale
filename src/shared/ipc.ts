@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
   runBenchmarkSuite: 'beale:run-benchmark-suite',
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
+  getAgentContext: 'beale:get-agent-context',
   getRunDetailVersion: 'beale:get-run-detail-version',
   getRunDetailUpdate: 'beale:get-run-detail-update',
   searchSessionTranscripts: 'beale:search-session-transcripts',

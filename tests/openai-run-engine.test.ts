@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
-import { buildCompactedReplayOpenAiInput, buildInitialOpenAiInput, buildOpenAiInstructions } from '../src/main/openaiContext';
+import { buildInitialOpenAiInput, buildOpenAiInstructions } from '../src/main/openaiContext';
 import { OpenAiResponsesAdapter, parseSseEvent, parseSseStream, type FetchLike, type WebSocketConstructorLike, type WebSocketLike } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { OpenAiRunEngine } from '../src/main/openaiRunEngine';
@@ -19,13 +19,6 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_AUTH_COMMAND_TIMEOUT_MS;
   delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
   delete process.env.BEALE_OPENAI_ENABLE_CODEX_AUTH_FILE;
-  delete process.env.BEALE_OPENAI_COMPACT_INPUT_TOKENS;
-  delete process.env.BEALE_OPENAI_COMPACT_INPUT_MARGIN_TOKENS;
-  delete process.env.BEALE_OPENAI_COMPACT_INPUT_THRESHOLD_TOKENS;
-  delete process.env.BEALE_OPENAI_COMPACT_MANUAL_TURNS;
-  delete process.env.BEALE_OPENAI_COMPACT_RECENT_EVENTS;
-  delete process.env.BEALE_OPENAI_COMPACT_SERIALIZED_BYTES;
-  delete process.env.BEALE_OPENAI_CONTEXT_BUDGET_TOKENS;
   delete process.env.BEALE_OPENAI_MAX_TOOL_TURNS;
   delete process.env.BEALE_OPENAI_TRANSPORT_RETRY_DELAY_MS;
   delete process.env.BEALE_OPENAI_TRANSPORT_RETRY_LIMIT;
@@ -170,7 +163,7 @@ describe('OpenAI Responses run engine', () => {
     expect(JSON.stringify(failed)).not.toContain('oauth-failure-secret');
   });
 
-  it('redacts secrets from model input and compacted replay context', () => {
+  it('redacts secrets from initial model input', () => {
     const input = {
       ...openAiInput(),
       promptMarkdown: '# Secret prompt\napi_key=sk-1234567890abcdef password=hunter2 Bearer abcdefghijklmnopqrstuvwxyz'
@@ -181,107 +174,6 @@ describe('OpenAI Responses run engine', () => {
     expect(initialText).toContain('password=...redacted');
     expect(initialText).toContain('Bearer ...redacted');
     expect(initialText).not.toContain('hunter2');
-
-    const { db } = openDb();
-    const context = db.createRun({
-      scopeVersionId: db.getActiveScope().id,
-      title: 'Replay test',
-      promptMarkdown: input.promptMarkdown,
-      mode: input.mode,
-      model: input.model,
-      reasoningEffort: input.reasoningEffort,
-      attemptStrategy: input.attemptStrategy,
-      networkProfile: input.networkProfile,
-      sandboxProfile: input.sandboxProfile,
-      budget: { ...input.budget, runEngine: 'openai_responses' }
-    });
-    db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'tool_result',
-      source: 'tool',
-      summary: 'Tool returned token=supersecret',
-      payload: { access_token: 'secret-token-value', nested: { password: 'secret-password' } }
-    });
-    const replay = buildCompactedReplayOpenAiInput(db.getRunDetail(context.run.id));
-    const replayText = replay[0].content[0].text;
-    expect(replayText).toContain('token=...redacted');
-    expect(replayText).toContain('"access_token":"...redacted"');
-    expect(replayText).not.toContain('secret-password');
-    db.close();
-  });
-
-  it('keeps durable resources and recent intent in compacted replay even with a tiny recent trace window', () => {
-    const { db } = openDb();
-    const context = db.createRun({
-      scopeVersionId: db.getActiveScope().id,
-      title: 'Compaction continuity',
-      promptMarkdown: '# Continuity test\nAudit the scoped MCP server.',
-      mode: 'open_discovery',
-      model: 'gpt-5.5',
-      reasoningEffort: 'xhigh',
-      attemptStrategy: 'single_path',
-      networkProfile: 'offline',
-      sandboxProfile: 'local_disposable_vm',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
-    });
-    const artifact = db.createArtifact({
-      kind: 'python_generated_output',
-      mimeType: 'application/json',
-      sensitivity: 'public',
-      modelVisible: true,
-      source: 'host_tool_output',
-      metadata: {
-        name: 'architecture-tool-inventory',
-        sourcePath: '/tmp/beale-architecture-token=supersecret.json'
-      },
-      content: '{"summary":"tool inventory completed"}'
-    });
-    const artifactTrace = db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'artifact_created',
-      source: 'tool',
-      summary: 'Python preserved architecture inventory artifact.',
-      payload: { artifactId: artifact.id },
-      artifactId: artifact.id
-    });
-    db.createEvidence({
-      runId: context.run.id,
-      kind: 'artifact',
-      summary: 'Architecture inventory completed and should not be rediscovered.',
-      observationTraceEventId: artifactTrace.id,
-      artifactId: artifact.id
-    });
-    db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'model_message',
-      source: 'model',
-      summary: 'OpenAI completed thought.',
-      payload: { text: 'Architecture inventory completed; next inspect branch scoping and API platform authorization.' }
-    });
-    db.appendTraceEvent({
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      type: 'tool_result',
-      source: 'tool',
-      summary: 'Recent filler event should be the only kept trace event.',
-      payload: { ok: true }
-    });
-
-    const replay = buildCompactedReplayOpenAiInput(db.getRunDetail(context.run.id), { recentEventLimit: 1 });
-    const replayText = replay[0].content[0].text;
-    expect(replayText).toContain('## Durable Resources');
-    expect(replayText).toContain(artifact.id);
-    expect(replayText).toContain('architecture-tool-inventory');
-    expect(replayText).toContain('Use listed artifact ids');
-    expect(replayText).toContain('## Recent Reasoning / Intent');
-    expect(replayText).toContain('branch scoping and API platform authorization');
-    expect(replayText).toContain('## Evidence');
-    expect(replayText).toContain('Architecture inventory completed');
-    expect(replayText).not.toContain('supersecret');
-    db.close();
   });
 
   it('gives autonomy-forward dynamic mode transition guidance to the model', () => {
@@ -608,90 +500,6 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
-  it('proactively compacts long manual response replay before it hits the context window', async () => {
-    process.env.BEALE_OPENAI_COMPACT_MANUAL_TURNS = '1';
-    const authDir = mkdtempSync(join(tmpdir(), 'beale-codex-compaction-'));
-    createdDirs.push(authDir);
-    const authPath = join(authDir, 'auth.json');
-    writeFileSync(
-      authPath,
-      JSON.stringify({
-        auth_mode: 'chatgpt',
-        tokens: {
-          access_token: fakeCodexAccessToken('codex-account-123')
-        }
-      })
-    );
-
-    const requests: Array<Record<string, unknown>> = [];
-    const fetchImpl: FetchLike = async (_url, init) => {
-      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-      requests.push(body);
-      if (requests.length <= 2) {
-        return new Response(sse(toolCallEvents(`resp_compact_${requests.length}`, `call_compact_${requests.length}`)), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' }
-        });
-      }
-      return new Response(sse(finalResponseEvents('resp_compact_final')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-    };
-
-    const { db } = openDb();
-    const auth = new OpenAiAuthService({ codexAuthPath: authPath });
-    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1', null, 'https://chatgpt.test/backend-api');
-    const engine = new OpenAiRunEngine(db, auth, adapter);
-    const handle = engine.startRun(openAiInput());
-    await handle.completion;
-
-    const detail = db.getRunDetail(handle.context.run.id);
-    expect(detail.run.status).toBe('completed');
-    expect(detail.contextCompactions).toHaveLength(2);
-    expect(detail.contextCompactions[0].reason).toBe('manual_replay_turn_limit');
-    expect(detail.contextCompactions[0].previousCompactionId).toBeNull();
-    expect(detail.contextCompactions[1].reason).toBe('manual_replay_turn_limit');
-    expect(detail.contextCompactions[1].previousCompactionId).toBe(detail.contextCompactions[0].id);
-    expect(detail.traceEvents.some((event) => event.summary === 'Context compacted for long-running session.' && event.payload.reason === 'manual_replay_turn_limit')).toBe(true);
-
-    const compactedRequest = requests[1];
-    expect(JSON.stringify(compactedRequest.input)).toContain('Compacted Beale Run Replay');
-    const session = db.getRunDetail(handle.context.run.id).modelSessions[0];
-    const manualConversationInput = session.metadata.manualConversationInput as Array<Record<string, unknown>>;
-    expect(manualConversationInput.filter((item) => item.type === 'function_call').length).toBeLessThanOrEqual(1);
-    db.close();
-  });
-
-  it('compacts and continues when a high-context response ends without final output', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
-    process.env.BEALE_OPENAI_COMPACT_INPUT_TOKENS = '1000';
-    process.env.BEALE_OPENAI_COMPACT_INPUT_MARGIN_TOKENS = '100';
-    const requests: Array<Record<string, unknown>> = [];
-    const fetchImpl: FetchLike = async (_url, init) => {
-      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-      requests.push(body);
-      if (requests.length === 1) {
-        return new Response(sse(noOutputPressureEvents('resp_pressure', 950)), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-      }
-      return new Response(sse(finalResponseEvents('resp_after_pressure_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-    };
-
-    const { db } = openDb();
-    const auth = new OpenAiAuthService();
-    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
-    const engine = new OpenAiRunEngine(db, auth, adapter);
-    const handle = engine.startRun(openAiInput());
-    await handle.completion;
-
-    const detail = db.getRunDetail(handle.context.run.id);
-    expect(detail.run.status).toBe('completed');
-    expect(requests).toHaveLength(2);
-    expect(JSON.stringify(requests[1].input)).toContain('Compacted Beale Run Replay');
-    expect(detail.contextCompactions).toHaveLength(1);
-    expect(detail.contextCompactions[0].reason).toBe('input_token_pressure');
-    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI response ended without final output under context pressure; continuing with compacted replay.')).toBe(true);
-    expect(detail.modelSessions[0].metadata.latestCompactionReason).toBe('input_token_pressure');
-    db.close();
-  });
-
   it('steers an OpenAI run in place without creating a forked run', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
     const requests: Array<Record<string, unknown>> = [];
@@ -723,16 +531,13 @@ describe('OpenAI Responses run engine', () => {
     db.close();
   });
 
-  it('compacts and retries once after a context-window error', async () => {
+  it('surfaces context-window errors without compacting in Beale', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
     const requests: Array<Record<string, unknown>> = [];
     const fetchImpl: FetchLike = async (_url, init) => {
       const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
       requests.push(body);
-      if (requests.length === 1) {
-        return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model.' } }), { status: 400 });
-      }
-      return new Response(sse(finalResponseEvents('resp_after_context_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model.' } }), { status: 400 });
     };
 
     const { db } = openDb();
@@ -743,57 +548,14 @@ describe('OpenAI Responses run engine', () => {
     await handle.completion;
 
     const detail = db.getRunDetail(handle.context.run.id);
-    expect(detail.run.status).toBe('completed');
-    expect(requests).toHaveLength(2);
-    expect(JSON.stringify(requests[1].input)).toContain('Compacted Beale Run Replay');
-    expect(detail.contextCompactions).toHaveLength(1);
-    expect(detail.contextCompactions[0].reason).toBe('context_window_error');
-    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI compacted retry recovered from context window pressure.')).toBe(true);
+    expect(detail.run.status).toBe('failed');
+    expect(requests).toHaveLength(1);
+    expect(detail.contextCompactions).toHaveLength(0);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI Responses run failed.')).toBe(true);
     db.close();
   });
 
-  it('keeps compacting automatically after repeated context-window errors in one run loop', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
-    const requests: Array<Record<string, unknown>> = [];
-    const fetchImpl: FetchLike = async (_url, init) => {
-      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-      requests.push(body);
-      if (requests.length === 1) {
-        return new Response(sse(toolCallEvents('resp_before_pressure', 'call_before_pressure')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-      }
-      if (requests.length === 2 || requests.length === 4) {
-        return new Response(JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model. Please adjust your input and try again.' } }), {
-          status: 400
-        });
-      }
-      if (requests.length === 3) {
-        return new Response(sse(toolCallEvents('resp_after_first_compaction', 'call_after_first_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-      }
-      return new Response(sse(finalResponseEvents('resp_after_second_compaction')), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-    };
-
-    const { db } = openDb();
-    const auth = new OpenAiAuthService();
-    const adapter = new OpenAiResponsesAdapter(auth, fetchImpl, 'https://api.openai.test/v1');
-    const engine = new OpenAiRunEngine(db, auth, adapter);
-    const handle = engine.startRun(openAiInput());
-    await handle.completion;
-
-    const detail = db.getRunDetail(handle.context.run.id);
-    expect(detail.run.status).toBe('completed');
-    expect(requests).toHaveLength(5);
-    expect(detail.contextCompactions).toHaveLength(2);
-    expect(detail.contextCompactions.map((compaction) => compaction.reason)).toEqual(['context_window_error', 'context_window_error']);
-    const retryTraces = detail.traceEvents.filter((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.');
-    expect(retryTraces).toHaveLength(2);
-    expect(retryTraces.map((event) => event.payload.retryAttempt)).toEqual([1, 2]);
-    expect(retryTraces.map((event) => event.payload.recentModelVisibleEventLimit)).toEqual([40, 20]);
-    expect(detail.traceEvents.filter((event) => event.summary === 'OpenAI compacted retry recovered from context window pressure.')).toHaveLength(2);
-    db.close();
-  });
-
-  it('replays compacted context when previous_response_id cannot be recovered', async () => {
+  it('replays manual conversation state when previous_response_id cannot be recovered', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-test';
     const requests: unknown[] = [];
     const fetchImpl: FetchLike = async (_url, init) => {
@@ -817,10 +579,12 @@ describe('OpenAI Responses run engine', () => {
 
     const detail = db.getRunDetail(handle.context.run.id);
     expect(detail.run.status).toBe('completed');
-    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI previous response state was unavailable; retrying with compacted Beale replay context.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'OpenAI previous response state was unavailable; retrying with manual replay.')).toBe(true);
     expect((requests[1] as Record<string, unknown>).previous_response_id).toBe('resp_1');
     expect(requests[2] as Record<string, unknown>).not.toHaveProperty('previous_response_id');
-    expect(JSON.stringify((requests[2] as Record<string, unknown>).input)).toContain('Compacted Beale Run Replay');
+    expect(JSON.stringify((requests[2] as Record<string, unknown>).input)).toContain('function_call_output');
+    expect(detail.modelSessions[0].metadata.previousResponseRecovery).toBe('manual_response_replay');
+    expect(detail.contextCompactions).toHaveLength(0);
     db.close();
   });
 
@@ -1062,44 +826,6 @@ function finalResponseEvents(responseId = 'resp_2'): string {
           }
         ],
         usage: { total_tokens: 24 }
-      }
-    })
-  ].join('');
-}
-
-function noOutputPressureEvents(responseId = 'resp_pressure', inputTokens = 950): string {
-  return [
-    event('response.created', { type: 'response.created', response: { id: responseId } }),
-    event('response.reasoning_summary_text.done', {
-      type: 'response.reasoning_summary_text.done',
-      response_id: responseId,
-      item_id: 'rs_pressure',
-      summary_index: 0,
-      text: 'I need to compact before continuing.'
-    }),
-    event('response.output_item.done', {
-      type: 'response.output_item.done',
-      response_id: responseId,
-      item: {
-        type: 'reasoning',
-        id: 'rs_pressure',
-        status: 'completed',
-        summary: [{ type: 'summary_text', text: 'I need to compact before continuing.' }]
-      }
-    }),
-    event('response.completed', {
-      type: 'response.completed',
-      response: {
-        id: responseId,
-        output: [
-          {
-            type: 'reasoning',
-            id: 'rs_pressure',
-            status: 'completed',
-            summary: [{ type: 'summary_text', text: 'I need to compact before continuing.' }]
-          }
-        ],
-        usage: { input_tokens: inputTokens, total_tokens: inputTokens + 20 }
       }
     })
   ].join('');

@@ -1,12 +1,6 @@
-import type { ContextCompactionRecord, ProgramScopeVersion, RunDetail, ScopeAsset, StartRunInput, TraceEventRecord } from '@shared/types';
+import type { ProgramScopeVersion, RunDetail, ScopeAsset, StartRunInput } from '@shared/types';
 import type { ResponseInputMessage } from './openaiAdapter';
-import { redactForModelText, redactJsonForModel } from './redaction';
-
-const COMPACTED_REPLAY_ARTIFACT_LIMIT = 16;
-const COMPACTED_REPLAY_EVIDENCE_LIMIT = 16;
-const COMPACTED_REPLAY_REASONING_LIMIT = 8;
-const COMPACTED_REPLAY_REASONING_MAX_CHARS = 420;
-const COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS = 180;
+import { redactForModelText } from './redaction';
 
 export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: StartRunInput): string {
   const inScope = scope.assets
@@ -100,71 +94,6 @@ export function buildResumeOpenAiInput(detail: RunDetail): ResponseInputMessage[
   );
 }
 
-export function buildCompactedReplayOpenAiInput(detail: RunDetail, options: { reason?: string; previousCompaction?: ContextCompactionRecord | null; recentEventLimit?: number } = {}): ResponseInputMessage[] {
-  const visibleEvents = detail.traceEvents.filter((event) => event.modelVisible);
-  const recentEvents = visibleEvents.slice(-(options.recentEventLimit ?? 60)).map(formatTraceEventForReplay);
-  const activeHypotheses = detail.hypotheses
-    .filter((hypothesis) => !['dismissed', 'out_of_scope'].includes(hypothesis.state))
-    .slice(0, 20)
-    .map((hypothesis) => `- ${hypothesis.title} [${hypothesis.state}; confidence=${hypothesis.evidenceConfidence}; cwe=${primaryCweLabel(hypothesis.cweMappings)}]`);
-  const findings = detail.findings
-    .filter((finding) => !['dismissed', 'out_of_scope'].includes(finding.state))
-    .slice(0, 20)
-    .map((finding) => `- ${finding.title} [${finding.state}; cwe=${primaryCweLabel(finding.cweMappings)}]`);
-  const verifierRuns = detail.verifierRuns
-    .slice(-20)
-    .map((run) => `- ${run.id}: ${run.status}; blocked=${run.blockedIssue}; diagnostics=${run.diagnosticsClean}`);
-  const durableResources = compactedReplayArtifactLines(detail);
-  const evidence = detail.evidence
-    .slice(-COMPACTED_REPLAY_EVIDENCE_LIMIT)
-    .map(
-      (record) =>
-        `- ${record.id}: ${compactReplayValue(record.kind, 48)}; summary=${compactReplayValue(record.summary, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}; artifact=${record.artifactId ?? 'none'}; verifier=${record.verifierRunId ?? 'none'}`
-    );
-  const recentReasoning = compactedReplayRecentReasoningLines(detail.traceEvents);
-  const previousCompaction = options.previousCompaction;
-
-  return messageInput(
-    [
-      '# Compacted Beale Run Replay',
-      'Previous Responses state was unavailable or intentionally reset. Continue from this compacted, redacted Beale state.',
-      'Preserve completed actions, active assumptions, tool outcomes, unresolved blockers, and the next concrete goal.',
-      'Only model-visible trace events are included below.',
-      `Compaction reason: ${options.reason ? redactForModelText(options.reason) : 'unspecified'}`,
-      previousCompaction
-        ? `Previous compaction checkpoint: ${previousCompaction.id}; trace high-water mark ${previousCompaction.traceHighWaterMark}; created ${previousCompaction.createdAt}.`
-        : 'Previous compaction checkpoint: none.',
-      '',
-      '## Original Prompt',
-      redactForModelText(detail.run.promptMarkdown),
-      '',
-      '## Recent Model-Visible Trace',
-      recentEvents.join('\n') || 'No model-visible trace events were recorded.',
-      '',
-      '## Durable Resources',
-      durableResources.join('\n') || 'No durable model-visible artifacts recorded.',
-      '',
-      '## Recent Reasoning / Intent',
-      recentReasoning.join('\n') || 'No recent model reasoning summaries were recorded.',
-      '',
-      '## Active Hypotheses',
-      activeHypotheses.join('\n') || 'No active hypotheses recorded.',
-      '',
-      '## Evidence',
-      evidence.join('\n') || 'No evidence records recorded.',
-      '',
-      '## Findings',
-      findings.join('\n') || 'No findings recorded.',
-      '',
-      '## Verifier Runs',
-      verifierRuns.join('\n') || 'No verifier runs recorded.',
-      '',
-      '## Next Goal',
-      'Continue from the listed resources, recent reasoning, and original objective. Prefer concrete next actions over asking for user help when a Beale tool can safely proceed. Use listed artifact ids with code_browser or resource_lookup instead of rediscovering completed work, then record hypotheses, evidence, findings, or verifier state when observations support them.'
-    ].join('\n')
-  );
-}
-
 function messageInput(text: string): ResponseInputMessage[] {
   return [
     {
@@ -198,46 +127,4 @@ function repositoryUrlFromAsset(asset: ScopeAsset): string | null {
 
 function stringAttribute(value: unknown): string {
   return typeof value === 'string' ? value : '';
-}
-
-function primaryCweLabel(mappings: Array<{ cweId: string; mappingRole: string; confidence: string }>): string {
-  const primary = mappings.find((mapping) => mapping.mappingRole === 'primary') ?? mappings[0];
-  return primary ? `${primary.cweId}/${primary.confidence}` : 'needs_classification';
-}
-
-function compactedReplayArtifactLines(detail: RunDetail): string[] {
-  return detail.artifacts
-    .filter((artifact) => artifact.modelVisible)
-    .slice(-COMPACTED_REPLAY_ARTIFACT_LIMIT)
-    .map((artifact) => {
-      const name = stringAttribute(artifact.metadata.name);
-      const sourcePath = stringAttribute(artifact.metadata.sourcePath);
-      const parts = [
-        `kind=${compactReplayValue(artifact.kind, 64)}`,
-        `size=${artifact.sizeBytes} bytes`,
-        name ? `name=${compactReplayValue(name, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}` : null,
-        sourcePath ? `sourcePath=${compactReplayValue(sourcePath, COMPACTED_REPLAY_RESOURCE_VALUE_MAX_CHARS)}` : null,
-        `created=${artifact.createdAt}`
-      ].filter((part): part is string => Boolean(part));
-      return `- ${artifact.id}: ${parts.join('; ')}. Inspect with code_browser path="${artifact.id}" when its content is needed.`;
-    });
-}
-
-function compactedReplayRecentReasoningLines(events: TraceEventRecord[]): string[] {
-  return events
-    .filter((event) => event.source === 'model' && event.type === 'model_message' && typeof event.payload.text === 'string')
-    .slice(-COMPACTED_REPLAY_REASONING_LIMIT)
-    .map((event) => `- #${event.sequence}: ${compactReplayValue(String(event.payload.text), COMPACTED_REPLAY_REASONING_MAX_CHARS)}`);
-}
-
-function compactReplayValue(value: string, maxLength: number): string {
-  const compacted = redactForModelText(value).replace(/\s+/g, ' ').trim();
-  if (compacted.length <= maxLength) return compacted;
-  return `${compacted.slice(0, Math.max(0, maxLength - 3))}...`;
-}
-
-function formatTraceEventForReplay(event: TraceEventRecord): string {
-  const payload = JSON.stringify(redactJsonForModel(event.payload));
-  const compactPayload = payload.length > 500 ? `${payload.slice(0, 497)}...` : payload;
-  return `- #${event.sequence} ${event.source}/${event.type}: ${redactForModelText(event.summary)} ${compactPayload}`;
 }

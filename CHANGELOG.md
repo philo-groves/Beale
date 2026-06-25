@@ -123,6 +123,7 @@
 - Changed thought trace rows to render title and description as explicit block elements instead of relying on markdown newlines.
 - Changed Python run trace previews to show five code lines with a fade, code/output headers, exit code, and captured output or an explicit no-output note.
 - Changed hypothesis/finding prepare trace marker icons to neutral white and recorded hypothesis/finding milestone markers to green.
+- Changed OpenAI Responses runs to stop creating Beale compacted replay checkpoints; context-window pressure now surfaces as a provider failure and context pruning is delegated to Honeycrisp.
 - Changed verifier/evidence lifecycle rows to non-standard by default and added structured verifier/evidence trace previews that emphasize outcomes over raw ids, with verifier execution rows using a stable title.
 - Changed duplicate-blocked trace bodies to show the blocked message first and compact attributes underneath.
 - Changed research prompt generation and refinement to use medium reasoning effort while preserving the selected session effort for actual run execution.
@@ -266,7 +267,6 @@
 - Fixed Docker sandbox cleanup so stale non-empty context directories are moved out of the active path before deferred deletion, preventing one cleanup failure from blocking later CyberGym tools.
 - Fixed benchmark elapsed-time metrics to use a monotonic clock so session duration cannot go negative if the wall clock moves backward during a run.
 - Fixed Docker sandbox context cleanup to retry transient non-empty directory removal and block raw `.beale` artifact-store paths before launching sandbox Python.
-- Fixed OpenAI run compaction so high-context responses compact before the hard window limit and reasoning-only no-output responses near the limit continue automatically after compacted replay.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
@@ -289,9 +289,7 @@
 - Made `window.bealeDevPerformance.report()` return a structured report object instead of only logging grouped console tables.
 - Moved the sidebar render probe into the sidebar component so profiling reports real sidebar renders instead of app-shell renders.
 - Retried retryable OpenAI transport failures after `response.created` when no model output or tool call content has been committed for that turn.
-- Retried repeated OpenAI context-window failures with additional compacted replay passes instead of requiring a manual Continue between compactions.
 - Reduced model-run search stalls by prefiltering semantic candidates before JS reranking, adding graph/semantic search indexes, and recording structured tool calls as running until the final result is linked.
-- Fixed compacted OpenAI replay context so it carries durable artifact ids, evidence summaries, and recent reasoning intent instead of leaving the agent to rediscover session history from scratch.
 - Reduced trace-list flicker during manual scrolling by sliding the rendered event window in anchored chunks instead of recalculating it from estimated row heights on every scroll event.
 - Reduced active trace-list churn by memoizing stable trace rows and cached syntax/prose markup.
 - Reduced sidebar toggle churn by memoizing the main session workspace, trace view, research lists, and evidence sidebar so unchanged session surfaces do not repaint during sidebar-only state changes.

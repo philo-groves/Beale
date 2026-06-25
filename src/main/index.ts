@@ -447,6 +447,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
     timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))
   );
+  ipcMain.handle(IPC_CHANNELS.getAgentContext, (_event, runId: string) =>
+    timedMainIpc('getAgentContext', { run: shortMetricId(runId) }, () => workspaceService.getAgentContext(runId))
+  );
   ipcMain.handle(IPC_CHANNELS.getRunDetailVersion, (_event, runId: string) =>
     timedMainIpc('getRunDetailVersion', { run: shortMetricId(runId) }, () => workspaceService.getRunDetailVersion(runId))
   );

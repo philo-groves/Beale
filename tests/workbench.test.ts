@@ -133,6 +133,81 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('reads the latest compiled Honeycrisp context from the SQLite event log', () => {
+    const dir = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(dir);
+    const snapshot = service.startRun(runInput('adaptive_portfolio'), 'complete');
+    const runId = snapshot.runs[0]?.run.id ?? '';
+    const memoryPath = join(dir, '.honeycrisp', 'memory', 'memory.sqlite');
+    mkdirSync(dirname(memoryPath), { recursive: true });
+    const memory = new DatabaseSync(memoryPath);
+    memory.exec(`
+      CREATE TABLE memory_events (
+        sequence INTEGER PRIMARY KEY,
+        event_id TEXT NOT NULL UNIQUE,
+        timestamp TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        goal_id TEXT,
+        loop_id TEXT,
+        sub_goal_id TEXT,
+        payload_json TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+        schema_version INTEGER NOT NULL
+      )
+    `);
+    const payload = {
+      activeSubGoalId: 'subgoal_latest',
+      openQuestions: ['Where does parser input cross a trust boundary?'],
+      selectedSkills: [{ id: 'maxtac-sast-surface-triage', name: 'Surface triage' }],
+      toolPermissions: { allowedSideEffects: ['read'] },
+      candidateToolActions: [{ toolName: 'repository.search', reason: 'Map parser entrypoints' }],
+      skippedToolActions: [],
+      storage: { databasePath: memoryPath }
+    };
+    memory
+      .prepare(
+        `INSERT INTO memory_events (
+          sequence, event_id, timestamp, kind, goal_id, loop_id, sub_goal_id,
+          payload_json, payload_hash, artifact_refs_json, schema_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        7,
+        'evt_context_fixture',
+        '2026-06-25T12:00:00.000Z',
+        'context.compiled',
+        'goal_fixture',
+        'loop_fixture',
+        'subgoal_latest',
+        JSON.stringify(payload),
+        'hash_fixture',
+        '[]',
+        1
+      );
+    memory.close();
+
+    const context = service.getAgentContext(runId);
+
+    expect(context).toMatchObject({
+      runId,
+      source: 'honeycrisp_sqlite',
+      status: 'ready',
+      databasePath: memoryPath,
+      event: {
+        sequence: 7,
+        eventId: 'evt_context_fixture',
+        goalId: 'goal_fixture',
+        subGoalId: 'subgoal_latest',
+        payloadHash: 'hash_fixture',
+        schemaVersion: 1
+      }
+    });
+    expect(context.event?.payload).toMatchObject(payload);
+    service.close();
+  });
+
   it('onboards programs into the global registry and mirrors run summaries', () => {
     const workspace = tempWorkspace();
     const registryDir = tempWorkspace();
