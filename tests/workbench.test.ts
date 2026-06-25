@@ -28,6 +28,17 @@ afterEach(() => {
   delete process.env.BEALE_CYBERGYM_API_KEY;
   delete process.env.BEALE_CYBERGYM_VERIFY_TIMEOUT_MS;
   delete process.env.BEALE_CYBERGYM_SUBMIT_TIMEOUT_MS;
+  delete process.env.BEALE_HONEYCRISP_ARGS_JSON;
+  delete process.env.BEALE_HONEYCRISP_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_CONFIG;
+  delete process.env.BEALE_HONEYCRISP_CWD;
+  delete process.env.BEALE_HONEYCRISP_GOAL_LOOPS;
+  delete process.env.BEALE_HONEYCRISP_MOCK;
+  delete process.env.BEALE_HONEYCRISP_NODE_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROVIDER;
+  delete process.env.BEALE_HONEYCRISP_ROOT;
+  delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
   delete process.env.CYBERGYM_API_KEY;
   delete process.env.CYBERGYM_POC_DB;
   delete process.env.CYBERGYM_SERVER_URL;
@@ -129,6 +140,140 @@ describe('Beale workbench skeleton', () => {
     expect(persisted.researchSessions[0].runId).toBe(latestRun?.id);
     expect(reopened.openProgram(persisted.programs[0].id).activeScope.programName).toBe('Acme Bug Bounty');
     reopened.close();
+  });
+
+  it('executes research prompts through the Honeycrisp host process adapter', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const args = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "if (!capturePath) throw new Error('missing --capture');",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        'const now = new Date().toISOString();',
+        'const capture = {',
+        '  schemaVersion: 1,',
+        '  capturedAt: now,',
+        "  goal: { id: 'goal_fixture', objective: 'Fixture Honeycrisp research', scopeConstraints: [], evidenceRequirements: [], riskFlags: [] },",
+        "  decision: { actionClass: 'synthesize', subGoalId: 'subgoal_fixture', subGoalObjective: 'Run fixture', rationale: 'Test adapter' },",
+        "  goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1, safetyMaxLoops: 3, blockedThreshold: 3, consecutiveBlockedCount: 0 },",
+        '  loop: {',
+        "    planId: 'loop_fixture',",
+        "    resultId: 'loopresult_fixture',",
+        "    status: 'complete',",
+        "    executorName: 'fixture-honeycrisp',",
+        "    executionMode: 'deterministic',",
+        "    outputText: 'Fixture Honeycrisp answer.',",
+        "    followUpRecommendation: 'respond',",
+        "    followUpRationale: 'Fixture complete.',",
+        '    researchTrace: {',
+        "      observations: [{ text: 'Fixture observation.', confidence: 1 }],",
+        "      inferences: [{ text: 'Fixture inference.', confidence: 0.8 }],",
+        "      hypotheses: [{ text: 'Fixture hypothesis.', confidence: 0.4 }],",
+        '      assumptions: [],',
+        '      rejectedPaths: [],',
+        '      uncertainty: [],',
+        '      nextQuestions: [],',
+        '      evidenceLinks: [],',
+        "      goalAssessment: { status: 'complete', rationale: 'Fixture goal satisfied.' }",
+        '    }',
+        '  },',
+        "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1, usedMemoryDrivenController: true, usedFirstRunFallback: false },",
+        "  storageManifest: { path: '/tmp/fixture-manifest.json', artifactCount: 0, artifacts: [] },",
+        '  eventTimeline: [',
+        "    { id: 'evt_goal', sequence: 1, timestamp: now, kind: 'goal.created', summary: 'Fixture goal created.', payload: { objective: 'fixture' } },",
+        "    { id: 'evt_tool_call', sequence: 2, timestamp: now, kind: 'tool.requested', summary: 'Fixture tool requested.', payload: { toolName: 'repository.search' } },",
+        "    { id: 'evt_tool_result', sequence: 3, timestamp: now, kind: 'tool.observed', summary: 'Fixture tool observed.', payload: { summary: 'search result' } },",
+        "    { id: 'evt_claim', sequence: 4, timestamp: now, kind: 'model.claim', summary: 'Fixture model claim.', payload: { text: 'claim' } }",
+        '  ],',
+        "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
+        '};',
+        "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
+        "console.log('fixture honeycrisp stdout');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const service = new WorkspaceService();
+    const snapshot = service.createWorkspace(workspace);
+    const runSnapshot = service.startRun({
+      ...runInput('adaptive_portfolio'),
+      runEngine: 'honeycrisp',
+      promptMarkdown: '# Honeycrisp fixture\nRun through the host adapter.',
+      model: 'fixture-model',
+      reasoningEffort: 'minimal'
+    });
+    const runId = runSnapshot.runs[0]?.run.id;
+    expect(runId).toBeTruthy();
+    expect(runSnapshot.runs[0]?.engine).toBe('honeycrisp');
+    expect(snapshot.workspace.workspacePath).toBe(workspace);
+
+    await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'completed', 5000);
+
+    const detail = service.getRunDetail(runId ?? '');
+    expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
+    expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
+    expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
+    expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
+    expect(detail.run.summary).toContain('goal status complete');
+    service.close();
+  });
+
+  it('runs the default Honeycrisp CLI through a plain Node runtime', async () => {
+    const workspace = tempWorkspace();
+    const honeycrispRoot = tempWorkspace();
+    const cliPath = join(honeycrispRoot, 'packages', 'cli', 'dist', 'cli.js');
+    mkdirSync(dirname(cliPath), { recursive: true });
+    writeFileSync(
+      cliPath,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const args = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "writeFileSync(capturePath, JSON.stringify({",
+        '  capturedAt: new Date().toISOString(),',
+        "  goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1 },",
+        "  loop: { status: 'complete', executorName: 'node-cli-fixture', executionMode: 'mock', outputText: 'Node CLI fixture done.' },",
+        '  eventTimeline: []',
+        "}, null, 2) + '\\n');",
+        "console.log('node cli fixture stdout');"
+      ].join('\n')
+    );
+    process.env.BEALE_HONEYCRISP_ROOT = honeycrispRoot;
+    process.env.BEALE_HONEYCRISP_NODE_COMMAND = process.execPath;
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const runSnapshot = service.startRun({
+      ...runInput('adaptive_portfolio'),
+      runEngine: 'honeycrisp',
+      promptMarkdown: '# Honeycrisp node fixture\nRun through the default CLI path.'
+    });
+    const runId = runSnapshot.runs[0]?.run.id ?? '';
+
+    await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'completed', 5000);
+
+    const detail = service.getRunDetail(runId);
+    const launchEvent = detail.traceEvents.find((event) => event.summary === 'Honeycrisp host process launched.');
+    expect(launchEvent?.payload).toMatchObject({
+      command: process.execPath,
+      configuredBy: 'env_root'
+    });
+    expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
+    service.close();
   });
 
   it('persists the global VM enablement preference', () => {

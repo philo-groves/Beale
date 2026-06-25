@@ -42,11 +42,11 @@ export type TraceEventType =
 
 export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
 
-export type RunEngineKind = 'fake' | 'openai_responses' | 'executor_alpha';
+export type RunEngineKind = 'fake' | 'openai_responses' | 'executor_alpha' | 'honeycrisp';
 
 export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'codex_oauth_file' | 'api_key_env' | 'not_configured';
 
-export type OpenAiTransport = 'websocket' | 'sse_http';
+export type OpenAiTransport = 'websocket' | 'sse_http' | 'host_process';
 
 export type OpenAiAuthReadiness = 'oauth_ready' | 'development_fallback' | 'oauth_command_failed' | 'not_configured';
 

@@ -4,12 +4,12 @@ export const UNBOUNDED_MINUTES = 999_999;
 export const UNBOUNDED_ATTEMPTS = 999_999;
 
 export const defaultRunInput: StartRunInput = {
-  runEngine: 'openai_responses',
+  runEngine: 'honeycrisp',
   promptMarkdown: '',
   mode: 'dynamic',
   attemptStrategy: 'adaptive_portfolio',
-  model: 'gpt-5.5',
-  reasoningEffort: 'xhigh',
+  model: 'gpt-5.3-codex-spark',
+  reasoningEffort: 'minimal',
   networkProfile: 'elevated',
   sandboxProfile: 'host_research_only',
   budget: {

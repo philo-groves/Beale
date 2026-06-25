@@ -21,6 +21,7 @@ The sandbox is a tool the harness controls. The sandbox is not where the harness
 | Tool policy and approvals | yes | no |
 | Trace/audit log authority | yes | no direct write |
 | Target source or binary | scoped copy/reference | yes |
+| Honeycrisp agent process | yes | no |
 | Build/test/debug/fuzz execution | default | sandbox sessions |
 | Temporary execution state | default | sandbox sessions |
 | Verifier promotion decision | yes | no |
@@ -72,6 +73,8 @@ Typical host-default execution flow:
 9. Beale stores selected artifacts in the host artifact store.
 
 Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle between steps 2 and 9.
+
+Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, writes its own durable `.honeycrisp/` memory under the active workspace root, and returns Beale-imported trace/capture data through host-controlled files and process streams. It must not receive `.beale/beale.sqlite`, OpenAI host credentials, or arbitrary unscoped filesystem roots as guest-like authority.
 
 ## Prohibited Defaults
 

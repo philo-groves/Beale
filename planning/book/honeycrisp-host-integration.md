@@ -43,6 +43,10 @@ The Beale-to-Honeycrisp boundary should prefer a small structured protocol that 
 - Expose host configuration and readiness errors before starting a run.
 - Preserve artifact paths and durable memory ids without assuming Beale owns Honeycrisp storage internals.
 
+The first branch slice uses the existing Honeycrisp CLI as that protocol boundary. Beale starts a host process, passes the run prompt plus scoped local roots, streams stdout/stderr into Beale trace events, and imports the final Honeycrisp flow capture as a Beale artifact and assistant transcript. This keeps the boundary testable while leaving room for a future JSONL live-event protocol.
+
+When launching the CLI from Electron, Beale must resolve a plain Node runtime instead of using Electron's own executable as `process.execPath`. Packaged or nonstandard deployments can override this with `BEALE_HONEYCRISP_NODE_COMMAND`.
+
 ## MCP and Built-In Views
 
 Some Beale UX features may become Honeycrisp-facing tools instead of renderer-only concepts.
@@ -55,7 +59,10 @@ Session heat is a good candidate for a built-in MCP-style capability: the host c
 - [x] Remove the visible benchmark sidebar and settings focus.
 - [x] Remove the obsolete renderer benchmark workspace files and styles.
 - [x] Remove prompt generation from the new research modal.
-- [ ] Define the host protocol shape for run lifecycle and event streaming.
-- [ ] Map Honeycrisp event records into Beale trace, evidence, and notification views.
+- [x] Define the first host-process protocol shape for run lifecycle and capture import.
+- [x] Map Honeycrisp event records into Beale trace rows, final transcript output, notifications, and capture artifacts.
 - [ ] Decide which benchmark services stay as private test infrastructure.
-- [ ] Prototype a Honeycrisp process adapter behind Beale's existing run engine boundary.
+- [x] Prototype a Honeycrisp process adapter behind Beale's existing run engine boundary.
+- [x] Launch the default Honeycrisp CLI through a plain Node runtime from Electron.
+- [ ] Replace capture-after-exit import with live JSONL event streaming when Honeycrisp exposes it.
+- [ ] Promote high-confidence Honeycrisp hypotheses/evidence into Beale hypothesis and evidence tables instead of trace-only rows.

@@ -65,7 +65,7 @@ describe('plan conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth, sandbox, VM controller, benchmark, and source setup boundaries', () => {
+  it('keeps host subprocess use limited to auth, sandbox, VM controller, benchmark, source setup, and Honeycrisp host-agent boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
       (hit) =>
@@ -75,7 +75,8 @@ describe('plan conformance', () => {
           'src/main/vmctlExecutor.ts',
           'src/main/dockerExecutor.ts',
           'src/main/benchmarkDockerRunner.ts',
-          'src/main/sourceMaterializer.ts'
+          'src/main/sourceMaterializer.ts',
+          'src/main/honeycrispRunEngine.ts'
         ].includes(normalizePath(hit.path))
     );
 

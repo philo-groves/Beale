@@ -13,6 +13,7 @@ import { WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
+import { HoneycrispRunEngine } from './honeycrispRunEngine';
 import { ExecutorManager, getExecutorStatusForPreference } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { DockerExecutorProvider } from './dockerExecutor';
@@ -350,6 +351,7 @@ interface WorkspaceRuntime {
   db: WorkspaceDatabase;
   engine: FakeRunEngine;
   openAiEngine: OpenAiRunEngine;
+  honeycrispEngine: HoneycrispRunEngine;
   executorManager: ExecutorManager;
   executorRunEngine: ExecutorRunEngine;
   benchmarkRunner: BenchmarkRunner;
@@ -359,6 +361,7 @@ export class WorkspaceService {
   private db: WorkspaceDatabase | null = null;
   private engine: FakeRunEngine | null = null;
   private openAiEngine: OpenAiRunEngine | null = null;
+  private honeycrispEngine: HoneycrispRunEngine | null = null;
   private executorManager: ExecutorManager | null = null;
   private executorRunEngine: ExecutorRunEngine | null = null;
   private benchmarkRunner: BenchmarkRunner | null = null;
@@ -1231,7 +1234,9 @@ export class WorkspaceService {
   }
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
-    if (input.runEngine === 'openai_responses') {
+    if (input.runEngine === 'honeycrisp') {
+      this.requireHoneycrispEngine().startRun(input);
+    } else if (input.runEngine === 'openai_responses') {
       this.requireOpenAiEngine().startRun(input);
     } else if (input.runEngine === 'executor_alpha') {
       this.requireExecutorRunEngine().startRun(input);
@@ -1354,6 +1359,20 @@ export class WorkspaceService {
 
     switch (action.type) {
       case 'pause': {
+        if (run.budget.runEngine === 'honeycrisp') {
+          this.honeycrispEngine?.stop(action.runId);
+          if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
+          db.updateRunStatus(action.runId, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'user_note',
+            source: 'user',
+            summary: 'Honeycrisp run stopped because process pause is not supported.',
+            payload: { note: action.note ?? '' }
+          });
+          break;
+        }
         engine.pause(action.runId);
         this.openAiEngine?.pause(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'paused', 'Paused by user steering.');
@@ -1381,6 +1400,15 @@ export class WorkspaceService {
         });
         if (run.budget.runEngine === 'openai_responses') {
           this.requireOpenAiEngine().resumeRun(action.runId);
+        } else if (run.budget.runEngine === 'honeycrisp') {
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'approval_event',
+            source: 'system',
+            summary: 'Honeycrisp runs cannot be resumed after pause in this adapter slice.',
+            payload: { runEngine: 'honeycrisp' }
+          });
         } else {
           engine.resume(action.runId);
         }
@@ -1389,6 +1417,7 @@ export class WorkspaceService {
       case 'stop': {
         engine.stop(action.runId);
         this.openAiEngine?.stop(action.runId);
+        this.honeycrispEngine?.stop(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Stopped by user steering.');
         db.updateRunStatus(action.runId, 'stopped', 'Stopped by user steering.');
         db.appendTraceEvent({
@@ -1448,10 +1477,19 @@ export class WorkspaceService {
             maxAttempts: numberFromBudget(run.budget, 'maxAttempts', UNBOUNDED_RUN_ATTEMPTS),
             maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
           },
-          runEngine: run.budget.runEngine === 'openai_responses' ? 'openai_responses' : run.budget.runEngine === 'executor_alpha' ? 'executor_alpha' : 'fake',
+          runEngine:
+            run.budget.runEngine === 'honeycrisp'
+              ? 'honeycrisp'
+              : run.budget.runEngine === 'openai_responses'
+                ? 'openai_responses'
+                : run.budget.runEngine === 'executor_alpha'
+                  ? 'executor_alpha'
+                  : 'fake',
           fakeScenario: scenario
         };
-        if (forkInput.runEngine === 'openai_responses') {
+        if (forkInput.runEngine === 'honeycrisp') {
+          this.requireHoneycrispEngine().startRun(forkInput);
+        } else if (forkInput.runEngine === 'openai_responses') {
           this.requireOpenAiEngine().startRun(forkInput);
         } else if (forkInput.runEngine === 'executor_alpha') {
           this.requireExecutorRunEngine().startRun(forkInput);
@@ -2061,6 +2099,7 @@ export class WorkspaceService {
           this.emitRuntimeChange(workspacePath);
         }
       ),
+      honeycrispEngine: new HoneycrispRunEngine(db, workspacePath, () => this.emitRuntimeChange(workspacePath)),
       executorManager,
       executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),
       benchmarkRunner: new BenchmarkRunner(db, workspacePath, this.options.benchmarkDockerCommand)
@@ -2074,6 +2113,7 @@ export class WorkspaceService {
       !this.db ||
       !this.engine ||
       !this.openAiEngine ||
+      !this.honeycrispEngine ||
       !this.executorManager ||
       !this.executorRunEngine ||
       !this.benchmarkRunner
@@ -2087,6 +2127,7 @@ export class WorkspaceService {
       db: this.db,
       engine: this.engine,
       openAiEngine: this.openAiEngine,
+      honeycrispEngine: this.honeycrispEngine,
       executorManager: this.executorManager,
       executorRunEngine: this.executorRunEngine,
       benchmarkRunner: this.benchmarkRunner
@@ -2144,6 +2185,7 @@ export class WorkspaceService {
     this.db = runtime.db;
     this.engine = runtime.engine;
     this.openAiEngine = runtime.openAiEngine;
+    this.honeycrispEngine = runtime.honeycrispEngine;
     this.executorManager = runtime.executorManager;
     this.executorRunEngine = runtime.executorRunEngine;
     this.benchmarkRunner = runtime.benchmarkRunner;
@@ -2159,6 +2201,7 @@ export class WorkspaceService {
     this.db = null;
     this.engine = null;
     this.openAiEngine = null;
+    this.honeycrispEngine = null;
     this.executorManager = null;
     this.executorRunEngine = null;
     this.benchmarkRunner = null;
@@ -2192,6 +2235,7 @@ export class WorkspaceService {
     this.semanticIndexExecutor.cancelWorkspace(runtime.workspacePath);
     runtime.engine.dispose();
     runtime.openAiEngine.dispose();
+    runtime.honeycrispEngine.dispose();
     runtime.db.close();
   }
 
@@ -2278,6 +2322,13 @@ export class WorkspaceService {
     return this.openAiEngine;
   }
 
+  private requireHoneycrispEngine(): HoneycrispRunEngine {
+    if (!this.honeycrispEngine) {
+      throw new Error('No Honeycrisp run engine is available');
+    }
+    return this.honeycrispEngine;
+  }
+
   private requireExecutorManager(): ExecutorManager {
     if (!this.executorManager) {
       throw new Error('No sandbox executor manager is available');
@@ -2300,6 +2351,10 @@ export class WorkspaceService {
   }
 
   private startRunInRuntime(runtime: WorkspaceRuntime, input: StartRunInput): { runId: string; completion: Promise<void> } {
+    if (input.runEngine === 'honeycrisp') {
+      const handle = runtime.honeycrispEngine.startRun(input);
+      return { runId: handle.context.run.id, completion: handle.completion };
+    }
     if (input.runEngine === 'openai_responses') {
       const handle = runtime.openAiEngine.startRun(input);
       return { runId: handle.context.run.id, completion: handle.completion };

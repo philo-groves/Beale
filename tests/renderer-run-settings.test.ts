@@ -13,7 +13,7 @@ describe('renderer run settings view model', () => {
   it('keeps new research sessions unlimited by minutes but one branch by default', () => {
     expect(defaultRunInput.budget.maxMinutes).toBe(UNBOUNDED_MINUTES);
     expect(defaultRunInput.budget.maxAttempts).toBe(1);
-    expect(defaultRunInput.runEngine).toBe('openai_responses');
+    expect(defaultRunInput.runEngine).toBe('honeycrisp');
   });
 
   it('parses optional positive integers and preserves unbounded budget extension', () => {

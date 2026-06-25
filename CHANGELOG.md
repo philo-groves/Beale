@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a Honeycrisp host-process run engine that starts research prompts from the Beale UI, launches the Honeycrisp CLI through a plain Node runtime, streams Honeycrisp stdout/stderr into trace events, imports the final Honeycrisp capture as a Beale artifact, and records final assistant output in the transcript and notification flow.
 - Added Docker as an explicit lower-assurance sandbox backend with offline/elevated execution support and host-controlled import/export paths.
 - Added a Settings > Sandboxes action that prepares the configured Docker sandbox image and refreshes sandbox availability.
 - Added host-observed Docker sandbox execution telemetry with container lifecycle, stdout/stderr chunks, resource samples, and Docker labels tied to run/tool context ids.
@@ -100,6 +101,7 @@
 
 ### Changed
 
+- Changed New Research defaults on the Honeycrisp harness branch to use the Honeycrisp run engine with the Codex Spark model preference.
 - Changed the CyberGym scenario picker from a sortable table to a compact searchable scenario list.
 - Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a run action.
 - Changed CyberGym scenario loading to read canonical `tasks.json` files from the configured CyberGym root when no Beale-local dated tasks catalog is present.
