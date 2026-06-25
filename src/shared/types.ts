@@ -1386,6 +1386,7 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
   refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
+  refreshProjectGraph(): Promise<WorkspaceSnapshot>;
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
   getProgramGraphProjection(): Promise<ProgramGraphProjection>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;

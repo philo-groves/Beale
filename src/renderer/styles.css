@@ -3611,6 +3611,35 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: nowrap;
 }
 
+.program-understanding-section-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+.program-understanding-icon-button {
+  width: 31px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  background: #171717;
+  color: var(--muted-strong);
+  padding: 0;
+}
+
+.program-understanding-icon-button:hover:not(:disabled) {
+  border-color: #3f3f3f;
+  background: #202020;
+  color: var(--text);
+}
+
+.program-understanding-icon-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .program-understanding-metric-grid {
   min-width: 0;
   display: grid;

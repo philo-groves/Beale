@@ -143,6 +143,9 @@ const api: BealeApi = {
   refreshProjectSemanticIndex() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectSemanticIndex);
   },
+  refreshProjectGraph() {
+    return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectGraph);
+  },
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphVisualization);
   },

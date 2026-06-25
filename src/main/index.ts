@@ -417,6 +417,7 @@ function registerIpc(): void {
     timedMainIpc('setProjectSemanticIndexEnabled', { enabled }, () => workspaceService.setProjectSemanticIndexEnabled(enabled))
   );
   ipcMain.handle(IPC_CHANNELS.refreshProjectSemanticIndex, () => timedMainIpc('refreshProjectSemanticIndex', {}, () => workspaceService.refreshProjectSemanticIndex()));
+  ipcMain.handle(IPC_CHANNELS.refreshProjectGraph, () => timedMainIpc('refreshProjectGraph', {}, () => workspaceService.refreshProjectGraph()));
   ipcMain.handle(IPC_CHANNELS.getProgramGraphVisualization, () =>
     timedMainIpc('getProgramGraphVisualization', {}, () => workspaceService.getProgramGraphVisualization())
   );

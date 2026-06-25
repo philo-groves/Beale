@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react';
-import { Boxes, Database, GitBranch, Network, Route, SearchCheck } from 'lucide-react';
+import { Boxes, Database, GitBranch, Network, RefreshCw, Route, SearchCheck } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemorySummary,
@@ -13,15 +13,19 @@ import { ProgramGraphExplorer } from './ProgramGraphExplorer';
 import type { ProgramMainView } from './programViews';
 
 export function ProgramUnderstandingView({
+  busy,
   graph,
   honeycrispMemory,
+  onRefreshProjectGraph,
   programView,
   runCount,
   scope,
   semantic
 }: {
+  busy: boolean;
   graph: ProjectGraphSummary | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
+  onRefreshProjectGraph: () => void;
   programView: ProgramMainView;
   runCount: number;
   scope: ProgramScopeVersion | null;
@@ -113,7 +117,23 @@ export function ProgramUnderstandingView({
               </section>
 
               <section className="program-understanding-section" aria-label="Context graph">
-                <SectionHeader icon={<GitBranch size={16} />} title="Context Graph" status={graphStatus} />
+                <SectionHeader
+                  icon={<GitBranch size={16} />}
+                  title="Context Graph"
+                  status={graphStatus}
+                  action={
+                    <button
+                      type="button"
+                      className="program-understanding-icon-button"
+                      title="Refresh context graph"
+                      aria-label="Refresh context graph"
+                      disabled={busy}
+                      onClick={onRefreshProjectGraph}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  }
+                />
                 <div className="program-understanding-metric-grid compact">
                   <MetricCell label="Nodes" value={formatCount(graph?.nodeCount ?? 0)} />
                   <MetricCell label="Edges" value={formatCount(graph?.edgeCount ?? 0)} />
@@ -149,7 +169,7 @@ function SummaryTile({ detail, icon, label, value }: { detail: string; icon: Rea
   );
 }
 
-function SectionHeader({ icon, status, title }: { icon: ReactNode; status?: string; title: string }): JSX.Element {
+function SectionHeader({ action, icon, status, title }: { action?: ReactNode; icon: ReactNode; status?: string; title: string }): JSX.Element {
   return (
     <div className="program-understanding-section-header">
       <span className="program-understanding-section-icon" aria-hidden="true">
@@ -157,6 +177,7 @@ function SectionHeader({ icon, status, title }: { icon: ReactNode; status?: stri
       </span>
       <h3>{title}</h3>
       {status ? <StatusPill value={status} /> : null}
+      {action ? <span className="program-understanding-section-action">{action}</span> : null}
     </div>
   );
 }

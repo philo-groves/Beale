@@ -83,6 +83,7 @@ import type {
   ProfilingState,
   ProgramGraphProjection,
   ProgramGraphVisualization,
+  ProjectGraphSummary,
   ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -652,6 +653,14 @@ export class WorkspaceService {
     }
     db.queueProjectSemanticIndex(activeScope.id, 'manual_rebuild');
     this.semanticIndexExecutor.schedule(activeScope.id, 'manual_rebuild', this.workspacePath);
+    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
+    return this.requireSnapshot();
+  }
+
+  public refreshProjectGraph(): WorkspaceSnapshot {
+    const db = this.requireDb();
+    const activeScope = db.getActiveScope();
+    db.refreshProjectGraph(activeScope.id, nowIso(), 'manual_refresh');
     this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
     return this.requireSnapshot();
   }
@@ -2502,7 +2511,7 @@ export class WorkspaceService {
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
       honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => getHoneycrispMemorySummary(runtime.workspacePath)),
-      projectGraph: this.profileMainTiming('snapshot.projectGraph', detail, () => runtime.db.getProjectGraphSummary(activeScope.id)),
+      projectGraph: this.profileMainTiming('snapshot.projectGraph', detail, () => this.getProjectGraphSummaryForSnapshot(runtime, activeScope.id)),
       projectSemantic: this.profileMainTiming('snapshot.projectSemantic', detail, () => runtime.db.getProjectSemanticSummary(activeScope.id)),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
@@ -2510,6 +2519,11 @@ export class WorkspaceService {
       notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications()),
       benchmark: this.profileMainTiming('snapshot.benchmark', detail, () => runtime.benchmarkRunner.getOverview())
     };
+  }
+
+  private getProjectGraphSummaryForSnapshot(runtime: WorkspaceRuntime, scopeVersionId: string): ProjectGraphSummary {
+    const summary = runtime.db.getProjectGraphSummary(scopeVersionId);
+    return summary.status === 'stale' ? runtime.db.refreshProjectGraph(scopeVersionId, nowIso(), 'snapshot_stale') : summary;
   }
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {

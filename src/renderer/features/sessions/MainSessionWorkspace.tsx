@@ -30,6 +30,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount,
   onExpandResearchPanel,
   onOpenTraceFilters,
+  onRefreshProjectGraph,
   onSelectTraceEvent,
   onSessionAction,
   onSteerInstruction
@@ -53,11 +54,25 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount: number;
   onExpandResearchPanel: () => void;
   onOpenTraceFilters: () => void;
+  onRefreshProjectGraph: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
-  if (!selectedRunId) return <ProgramUnderstandingView graph={graph} honeycrispMemory={honeycrispMemory} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
+  if (!selectedRunId) {
+    return (
+      <ProgramUnderstandingView
+        busy={busy}
+        graph={graph}
+        honeycrispMemory={honeycrispMemory}
+        programView={programView}
+        runCount={runCount}
+        scope={scope}
+        semantic={semantic}
+        onRefreshProjectGraph={onRefreshProjectGraph}
+      />
+    );
+  }
 
   if (sessionView === 'spawn') {
     return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;

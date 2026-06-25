@@ -82,6 +82,44 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('refreshes stale context graphs for workspace snapshots', () => {
+    const dir = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(dir);
+    const runSnapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = runSnapshot.runs[0]?.run.id;
+    expect(runId).toBeTruthy();
+    service.close();
+
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), join(dir, '.beale', 'artifacts'));
+    db.createHypothesis({
+      runId: String(runId),
+      state: 'needs_evidence',
+      title: 'Snapshot graph refresh hypothesis',
+      descriptionMarkdown: 'The program overview should refresh stale graph state before rendering.',
+      component: 'overview graph',
+      bugClass: 'state_sync',
+      priorityScore: 0.4,
+      attackerReachability: 'local',
+      impact: 'low',
+      evidenceConfidence: 'model',
+      exploitPracticality: 'needs validation',
+      scopeConfidence: 'in_scope'
+    });
+    const staleGraph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
+    expect(staleGraph.status).toBe('stale');
+    expect(staleGraph.staleReasons.some((reason) => reason.startsWith('missing_node_family:hypothesis:'))).toBe(true);
+    db.close();
+
+    const reopened = new WorkspaceService();
+    const refreshed = reopened.openWorkspace(dir);
+    expect(refreshed.projectGraph.status).toBe('ready');
+    expect(refreshed.projectGraph.nodeFamilyCounts.hypothesis).toBeGreaterThanOrEqual(1);
+    expect(refreshed.projectGraph.rebuildReason).toBe('snapshot_stale');
+    expect(reopened.refreshProjectGraph().projectGraph.status).toBe('ready');
+    reopened.close();
+  });
+
   it('onboards programs into the global registry and mirrors run summaries', () => {
     const workspace = tempWorkspace();
     const registryDir = tempWorkspace();

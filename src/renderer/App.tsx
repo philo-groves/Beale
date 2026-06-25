@@ -303,6 +303,10 @@ export function App(): JSX.Element {
     await runAction(() => window.beale.refreshProjectSemanticIndex());
   }, [runAction]);
 
+  const refreshProjectGraph = useCallback(async () => {
+    await runAction(() => window.beale.refreshProjectGraph());
+  }, [runAction]);
+
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -674,6 +678,7 @@ export function App(): JSX.Element {
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onExpandResearchPanel={closeInspector}
             onOpenTraceFilters={openTraceFilters}
+            onRefreshProjectGraph={refreshProjectGraph}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
