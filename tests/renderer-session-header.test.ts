@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
+import { DEFAULT_SESSION_MAIN_VIEW, SESSION_MAIN_VIEW_ORDER } from '../src/renderer/features/sessions/sessionViews';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
+  it('uses spawn as the default session view before the trace log', () => {
+    expect(DEFAULT_SESSION_MAIN_VIEW).toBe('spawn');
+    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['spawn', 'list']);
+  });
+
   it('formats status and session configuration pills', () => {
     const detail = runDetail();
 

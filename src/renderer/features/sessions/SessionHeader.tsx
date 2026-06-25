@@ -6,7 +6,7 @@ import { stateClass, traceLabel } from '../../lib/formatting';
 import type { ProgramMainView } from '../programs/programViews';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
-import type { SessionMainView } from './sessionViews';
+import { SESSION_MAIN_VIEW_ORDER, type SessionMainView } from './sessionViews';
 
 export function SessionHeader({
   detail,
@@ -211,10 +211,11 @@ function SessionViewToggle({
   sessionView: SessionMainView;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
-  const options: Array<{ view: SessionMainView; label: string; icon: JSX.Element }> = [
-    { view: 'list', label: 'Trace and evidence lists', icon: <List size={15} /> },
-    { view: 'spawn', label: 'Spawn view', icon: <Sparkles size={15} /> }
-  ];
+  const optionByView: Record<SessionMainView, { label: string; icon: JSX.Element }> = {
+    spawn: { label: 'Spawn view', icon: <Sparkles size={15} /> },
+    list: { label: 'Trace log', icon: <List size={15} /> }
+  };
+  const options = SESSION_MAIN_VIEW_ORDER.map((view) => ({ view, ...optionByView[view] }));
 
   return (
     <div className="session-view-toggle" role="group" aria-label="Session view">
