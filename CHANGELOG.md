@@ -101,6 +101,7 @@
 
 ### Changed
 
+- Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.
 - Changed New Research defaults on the Honeycrisp harness branch to use the Honeycrisp run engine with the Codex Spark model preference.
 - Changed the CyberGym scenario picker from a sortable table to a compact searchable scenario list.
 - Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a run action.

@@ -468,6 +468,36 @@ export interface ProjectSemanticSummary {
   progressTotal: number | null;
 }
 
+export type HoneycrispMemoryStatus = 'missing' | 'empty' | 'ready' | 'error';
+
+export interface HoneycrispMemoryDirectorySummary {
+  name: 'events' | 'episodes' | 'claims' | 'procedures' | 'hypotheses' | 'prospective' | 'artifacts' | 'scratch';
+  path: string;
+  purpose: string;
+  exists: boolean;
+  entryCount: number;
+}
+
+export interface HoneycrispMemorySummary {
+  status: HoneycrispMemoryStatus;
+  databasePath: string;
+  storageRoot: string;
+  artifactDirectoryPath: string;
+  databaseSizeBytes: number;
+  eventCount: number;
+  recordCount: number;
+  claimGraphEdgeCount: number;
+  artifactRefCount: number;
+  storageArtifactCount: number;
+  latestEventAt: string | null;
+  latestRecordUpdatedAt: string | null;
+  eventKindCounts: Record<string, number>;
+  recordKindCounts: Record<string, number>;
+  recordStatusCounts: Record<string, number>;
+  directories: HoneycrispMemoryDirectorySummary[];
+  lastError: string | null;
+}
+
 export interface ProjectSemanticSearchResult {
   chunkId: string;
   scopeVersionId: string;
@@ -1265,6 +1295,7 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: ProgramScopeVersion;
+  honeycrispMemory: HoneycrispMemorySummary;
   projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;
   recovery: WorkspaceRecoveryReport;

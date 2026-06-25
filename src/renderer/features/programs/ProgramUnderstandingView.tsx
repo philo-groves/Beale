@@ -1,6 +1,8 @@
 import type { JSX, ReactNode } from 'react';
-import { Boxes, Database, GitBranch, Network, Route, SearchCheck, ShieldCheck } from 'lucide-react';
+import { Boxes, Database, GitBranch, Network, Route, SearchCheck } from 'lucide-react';
 import type {
+  HoneycrispMemoryDirectorySummary,
+  HoneycrispMemorySummary,
   ProgramScopeVersion,
   ProjectGraphSummary,
   ProjectSemanticSummary,
@@ -12,12 +14,14 @@ import type { ProgramMainView } from './programViews';
 
 export function ProgramUnderstandingView({
   graph,
+  honeycrispMemory,
   programView,
   runCount,
   scope,
   semantic
 }: {
   graph: ProjectGraphSummary | null;
+  honeycrispMemory: HoneycrispMemorySummary | null;
   programView: ProgramMainView;
   runCount: number;
   scope: ProgramScopeVersion | null;
@@ -31,40 +35,49 @@ export function ProgramUnderstandingView({
   const semanticChunkDetail = semantic ? `${formatCount(semantic.embeddedChunkCount)} / ${formatCount(semantic.chunkCount)} chunks` : '0 / 0 chunks';
   const semanticSourceDetail = semantic ? `${formatCount(semantic.indexedSourceDocumentCount)} / ${formatCount(semantic.sourceDocumentCount)} sources` : '0 / 0 sources';
   return (
-    <div className="program-understanding-workspace" aria-label="Program Understanding">
+    <div className="program-understanding-workspace" aria-label="Honeycrisp Memory">
       <div className="program-understanding-scroll">
         {programView === 'graph' ? (
           <ProgramGraphExplorer graph={graph} scope={scope} />
         ) : (
           <>
             <div className="program-understanding-summary-grid" aria-label="Program summary">
-              <SummaryTile icon={<GitBranch size={17} />} label="Relationship Graph" value={formatCount(graph?.nodeCount ?? 0)} detail={`${formatCount(graph?.edgeCount ?? 0)} edges`} />
-              <SummaryTile icon={<SearchCheck size={17} />} label="Search Memory" value={semanticChunkDetail} detail={semanticSourceDetail} />
-              <SummaryTile icon={<ShieldCheck size={17} />} label="Scope" value={`${formatCount(inScopeAssets.length)} in scope`} detail={`${formatCount(outOfScopeAssets.length)} excluded`} />
-              <SummaryTile icon={<Network size={17} />} label="Sessions" value={formatCount(runCount)} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active program'} />
+              <SummaryTile icon={<Database size={17} />} label="Durable Memory" value={`${formatCount(honeycrispMemory?.recordCount ?? 0)} records`} detail={`${formatCount(honeycrispMemory?.eventCount ?? 0)} accepted events`} />
+              <SummaryTile icon={<GitBranch size={17} />} label="Context Graph" value={formatCount(graph?.nodeCount ?? 0)} detail={`${formatCount(graph?.edgeCount ?? 0)} edges`} />
+              <SummaryTile icon={<SearchCheck size={17} />} label="Retrieval Index" value={semanticChunkDetail} detail={semanticSourceDetail} />
+              <SummaryTile icon={<Network size={17} />} label="Program Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active program'} />
             </div>
 
             <div className="program-understanding-layout">
-              <section className="program-understanding-section program-understanding-section-wide" aria-label="Relationship graph">
-                <SectionHeader icon={<GitBranch size={16} />} title="Relationship Graph" status={graphStatus} />
+              <section className="program-understanding-section program-understanding-section-wide" aria-label="Honeycrisp memory">
+                <SectionHeader icon={<Database size={16} />} title="Honeycrisp Memory" status={honeycrispMemory?.status ?? 'missing'} />
                 <div className="program-understanding-metric-grid">
-                  <MetricCell label="Nodes" value={formatCount(graph?.nodeCount ?? 0)} />
-                  <MetricCell label="Edges" value={formatCount(graph?.edgeCount ?? 0)} />
-                  <MetricCell label="Structural Edges" value={formatCount(graph?.structuralEdgeCount ?? 0)} />
-                  <MetricCell label="Unresolved" value={formatCount(graph?.unresolvedEdgeCount ?? 0)} />
-                  <MetricCell label="Expected Nodes" value={formatCount(graph?.expectedNodeCount ?? 0)} />
-                  <MetricCell label="Builds" value={formatCount(graph?.buildCount ?? 0)} />
+                  <MetricCell label="Accepted Events" value={formatCount(honeycrispMemory?.eventCount ?? 0)} />
+                  <MetricCell label="Memory Records" value={formatCount(honeycrispMemory?.recordCount ?? 0)} />
+                  <MetricCell label="Claim Edges" value={formatCount(honeycrispMemory?.claimGraphEdgeCount ?? 0)} />
+                  <MetricCell label="Artifact Refs" value={formatCount(honeycrispMemory?.artifactRefCount ?? 0)} />
+                  <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
+                  <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
                 </div>
+                <KeyValueRows
+                  rows={[
+                    ['Database', honeycrispMemory?.databasePath ?? 'Not initialized'],
+                    ['Storage Root', honeycrispMemory?.storageRoot ?? 'Not initialized'],
+                    ['Latest Event', formatNullableDate(honeycrispMemory?.latestEventAt)],
+                    ['Latest Record', formatNullableDate(honeycrispMemory?.latestRecordUpdatedAt)]
+                  ]}
+                />
+                {honeycrispMemory?.lastError ? <p className="program-understanding-warning">{honeycrispMemory.lastError}</p> : null}
                 <div className="program-understanding-list-grid">
-                  <CountList title="Node Families" counts={graph?.nodeFamilyCounts} />
-                  <CountList title="Edge Families" counts={graph?.edgeFamilyCounts} />
-                  <CountList title="Extraction Families" counts={graph?.extractionFamilyCounts} />
+                  <CountList title="Event Kinds" counts={honeycrispMemory?.eventKindCounts} />
+                  <CountList title="Record Kinds" counts={honeycrispMemory?.recordKindCounts} />
+                  <CountList title="Record Statuses" counts={honeycrispMemory?.recordStatusCounts} />
                 </div>
-                <GraphFreshness graph={graph} />
+                <StorageDirectoryList directories={honeycrispMemory?.directories ?? []} />
               </section>
 
-              <section className="program-understanding-section" aria-label="Search memory">
-                <SectionHeader icon={<Database size={16} />} title="Search Memory" status={semanticStatus} />
+              <section className="program-understanding-section" aria-label="Retrieval index">
+                <SectionHeader icon={<SearchCheck size={16} />} title="Retrieval Index" status={semanticStatus} />
                 <div className="program-understanding-metric-grid compact">
                   <MetricCell label="Chunks" value={`${formatCount(semantic?.embeddedChunkCount ?? 0)} / ${formatCount(semantic?.chunkCount ?? 0)}`} />
                   <MetricCell label="Sources" value={`${formatCount(semantic?.indexedSourceDocumentCount ?? 0)} / ${formatCount(semantic?.sourceDocumentCount ?? 0)}`} />
@@ -83,18 +96,35 @@ export function ProgramUnderstandingView({
                 {semantic?.lastError ? <p className="program-understanding-warning">{semantic.lastError}</p> : null}
               </section>
 
-              <section className="program-understanding-section" aria-label="Program scope">
-                <SectionHeader icon={<Boxes size={16} />} title="Program Scope" />
+              <section className="program-understanding-section" aria-label="Program tracking">
+                <SectionHeader icon={<Boxes size={16} />} title="Program Tracking" />
                 <KeyValueRows
                   rows={[
+                    ['Program', scope?.programName ?? 'None'],
                     ['Organization', scope?.organizationName ?? 'None'],
                     ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                     ['Scope Version', scope ? `v${scope.version}` : 'None'],
-                    ['Active From', formatNullableDate(scope?.activeFrom)]
+                    ['Active From', formatNullableDate(scope?.activeFrom)],
+                    ['Sessions', formatCount(runCount)]
                   ]}
                 />
                 <CountList title="Asset Types" counts={assetKindCounts(inScopeAssets)} />
                 <RepositoryList assets={repositoryAssets} total={inScopeAssets.filter((asset) => asset.kind === 'repo').length} />
+              </section>
+
+              <section className="program-understanding-section" aria-label="Context graph">
+                <SectionHeader icon={<GitBranch size={16} />} title="Context Graph" status={graphStatus} />
+                <div className="program-understanding-metric-grid compact">
+                  <MetricCell label="Nodes" value={formatCount(graph?.nodeCount ?? 0)} />
+                  <MetricCell label="Edges" value={formatCount(graph?.edgeCount ?? 0)} />
+                  <MetricCell label="Unresolved" value={formatCount(graph?.unresolvedEdgeCount ?? 0)} />
+                  <MetricCell label="Builds" value={formatCount(graph?.buildCount ?? 0)} />
+                </div>
+                <div className="program-understanding-list-grid">
+                  <CountList title="Node Families" counts={graph?.nodeFamilyCounts} />
+                  <CountList title="Edge Families" counts={graph?.edgeFamilyCounts} />
+                </div>
+                <GraphFreshness graph={graph} />
               </section>
             </div>
           </>
@@ -211,6 +241,26 @@ function RepositoryList({ assets, total }: { assets: ScopeAsset[]; total: number
         <p>No in-scope repositories recorded.</p>
       )}
       {total > assets.length ? <small>{formatCount(total - assets.length)} more hidden</small> : null}
+    </div>
+  );
+}
+
+function StorageDirectoryList({ directories }: { directories: HoneycrispMemoryDirectorySummary[] }): JSX.Element {
+  return (
+    <div className="program-understanding-repositories">
+      <h4>Storage Directories</h4>
+      {directories.length > 0 ? (
+        <ul>
+          {directories.map((directory) => (
+            <li key={directory.name}>
+              <span title={`${directory.path}\n${directory.purpose}`}>{traceLabel(directory.name)}</span>
+              <small>{directory.exists ? `${formatCount(directory.entryCount)} entries` : 'missing'}</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No Honeycrisp storage layout recorded.</p>
+      )}
     </div>
   );
 }

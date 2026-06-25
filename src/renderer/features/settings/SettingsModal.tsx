@@ -128,7 +128,7 @@ function GeneralSettingsView({
             <DatabaseZap size={18} />
           </div>
           <div>
-            <h4>Program Understanding</h4>
+            <h4>Retrieval Index</h4>
             <p>{semanticHeading(projectSemantic, programName)}</p>
           </div>
           <StatusPill status={projectSemantic?.status ?? 'disabled'} />
@@ -155,7 +155,7 @@ function GeneralSettingsView({
 
         <p className="provider-detail">{semanticDetail(projectSemantic)}</p>
 
-        <div className="semantic-namespace-list" aria-label="Semantic index namespaces">
+        <div className="semantic-namespace-list" aria-label="Retrieval index namespaces">
           {semanticNamespaceRows(projectSemantic).map(([namespace, count]) => (
             <div key={namespace}>
               <span>{namespaceLabel(namespace)}</span>
@@ -376,19 +376,19 @@ function SandboxSettingsView({
 
 function semanticHeading(summary: ProjectSemanticSummary | null, programName: string | null): string {
   const name = programName?.trim() || 'the active program';
-  if (!summary) return 'Open a program to manage program understanding indexes.';
-  if (!summary.enabled) return `Semantic search is off for ${name}.`;
-  if (summary.status === 'queued') return `Semantic indexing is queued for ${name}.`;
-  if (summary.status === 'indexing') return `Semantic indexing is running for ${name}.`;
-  if (summary.status === 'error') return `Semantic indexing failed for ${name}.`;
-  if (summary.status === 'canceled') return `Semantic indexing was canceled for ${name}.`;
-  if (summary.status === 'stale') return `Semantic search for ${name} needs rebuild.`;
-  if (summary.chunkCount === 0) return `Semantic search is on for ${name}, but no chunks are indexed yet.`;
-  return `Semantic search is on for ${name}.`;
+  if (!summary) return 'Open a program to manage local retrieval indexes.';
+  if (!summary.enabled) return `Indexed retrieval is off for ${name}.`;
+  if (summary.status === 'queued') return `Retrieval indexing is queued for ${name}.`;
+  if (summary.status === 'indexing') return `Retrieval indexing is running for ${name}.`;
+  if (summary.status === 'error') return `Retrieval indexing failed for ${name}.`;
+  if (summary.status === 'canceled') return `Retrieval indexing was canceled for ${name}.`;
+  if (summary.status === 'stale') return `Indexed retrieval for ${name} needs rebuild.`;
+  if (summary.chunkCount === 0) return `Indexed retrieval is on for ${name}, but no chunks are indexed yet.`;
+  return `Indexed retrieval is on for ${name}.`;
 }
 
 function semanticDetail(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return 'Semantic indexing is scoped to a single program and stored locally under .beale/.';
+  if (!summary) return 'Retrieval indexing is scoped to a single program and stored locally under .beale/.';
   const progress =
     typeof summary.progressProcessed === 'number' && typeof summary.progressTotal === 'number'
       ? ` ${summary.progressProcessed.toLocaleString()}/${summary.progressTotal.toLocaleString()} source documents processed.`
@@ -396,7 +396,7 @@ function semanticDetail(summary: ProjectSemanticSummary | null): string {
   if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.${progress}`;
   if (summary.status === 'indexing')
     return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.${progress}`;
-  if (summary.status === 'error') return `Last error: ${summary.lastError || 'Semantic indexing failed. Search remains available without fresh semantic results.'}`;
+  if (summary.status === 'error') return `Last error: ${summary.lastError || 'Retrieval indexing failed. Search remains available without fresh indexed results.'}`;
   if (summary.status === 'canceled') return `Canceled ${summary.finishedAt ? formatSessionDateTime(summary.finishedAt) : 'recently'}.`;
   const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';
   const model = `${summary.provider} / ${summary.model}`;

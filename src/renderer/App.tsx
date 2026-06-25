@@ -644,6 +644,7 @@ export function App(): JSX.Element {
         <SessionHeader
           detail={activeRunDetail}
           events={activeTraceEvents}
+          honeycrispMemoryStatus={!selectedRunId && snapshot ? snapshot.honeycrispMemory.status : null}
           programGraphStatus={!selectedRunId && snapshot ? snapshot.projectGraph.status : null}
           programSemanticStatus={!selectedRunId && snapshot ? snapshot.projectSemantic.status : null}
           programView={!selectedRunId && snapshot ? programMainView : null}
@@ -657,6 +658,7 @@ export function App(): JSX.Element {
             detail={activeRunDetail}
             events={activeTraceEvents}
             graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
+            honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
             programView={programMainView}
             researchPanelCollapsed={inspectorOpen}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}

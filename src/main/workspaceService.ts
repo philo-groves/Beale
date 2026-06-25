@@ -14,6 +14,7 @@ import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type F
 import { OpenAiAuthService } from './openaiAuth';
 import { OpenAiRunEngine } from './openaiRunEngine';
 import { HoneycrispRunEngine } from './honeycrispRunEngine';
+import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { ExecutorManager, getExecutorStatusForPreference } from './executorManager';
 import { ExecutorRunEngine } from './executorRunEngine';
 import { DockerExecutorProvider } from './dockerExecutor';
@@ -2500,6 +2501,7 @@ export class WorkspaceService {
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => runtime.executorManager.getStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
+      honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => getHoneycrispMemorySummary(runtime.workspacePath)),
       projectGraph: this.profileMainTiming('snapshot.projectGraph', detail, () => runtime.db.getProjectGraphSummary(activeScope.id)),
       projectSemantic: this.profileMainTiming('snapshot.projectSemantic', detail, () => runtime.db.getProjectSemanticSummary(activeScope.id)),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),

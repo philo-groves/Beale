@@ -76,6 +76,8 @@ Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle 
 
 Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, writes its own durable `.honeycrisp/` memory under the active workspace root, and returns Beale-imported trace/capture data through host-controlled files and process streams. It must not receive `.beale/beale.sqlite`, OpenAI host credentials, or arbitrary unscoped filesystem roots as guest-like authority.
 
+Beale may render a read-only Honeycrisp memory summary by counting `.honeycrisp/memory/memory.sqlite` events, records, claim edges, artifact references, and storage-directory entries. Beale should not mutate Honeycrisp memory tables or treat Beale's retrieval and graph indexes as the durable memory source.
+
 ## Prohibited Defaults
 
 Beale should not:

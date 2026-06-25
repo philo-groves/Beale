@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
 import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
 import type { ProgramMainView } from '../programs/programViews';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
@@ -14,6 +14,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
   graph,
+  honeycrispMemory,
   programView,
   researchPanelCollapsed,
   runCount,
@@ -36,6 +37,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   graph: ProjectGraphSummary | null;
+  honeycrispMemory: HoneycrispMemorySummary | null;
   programView: ProgramMainView;
   researchPanelCollapsed: boolean;
   runCount: number;
@@ -55,7 +57,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
-  if (!selectedRunId) return <ProgramUnderstandingView graph={graph} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
+  if (!selectedRunId) return <ProgramUnderstandingView graph={graph} honeycrispMemory={honeycrispMemory} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
 
   if (sessionView === 'spawn') {
     return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;

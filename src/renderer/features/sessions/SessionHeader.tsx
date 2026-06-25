@@ -11,6 +11,7 @@ import type { SessionMainView } from './sessionViews';
 export function SessionHeader({
   detail,
   events,
+  honeycrispMemoryStatus,
   programGraphStatus,
   programSemanticStatus,
   programView,
@@ -21,6 +22,7 @@ export function SessionHeader({
 }: {
   detail: RunDetail | null;
   events: TraceEventRecord[];
+  honeycrispMemoryStatus: string | null;
   programGraphStatus: string | null;
   programSemanticStatus: string | null;
   programView: ProgramMainView | null;
@@ -51,7 +53,7 @@ export function SessionHeader({
             <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
           </>
         ) : programView ? (
-          <ProgramHeaderStatusPills graphStatus={programGraphStatus} semanticStatus={programSemanticStatus} />
+          <ProgramHeaderStatusPills graphStatus={programGraphStatus} memoryStatus={honeycrispMemoryStatus} semanticStatus={programSemanticStatus} />
         ) : null}
       </div>
     </div>
@@ -59,20 +61,23 @@ export function SessionHeader({
 }
 
 function programViewTitle(programView: ProgramMainView): string {
-  return programView === 'graph' ? 'Relationship Graph' : 'Program Understanding';
+  return programView === 'graph' ? 'Context Graph' : 'Honeycrisp Memory';
 }
 
 function ProgramHeaderStatusPills({
   graphStatus,
+  memoryStatus,
   semanticStatus
 }: {
   graphStatus: string | null;
+  memoryStatus: string | null;
   semanticStatus: string | null;
 }): JSX.Element {
   return (
-    <div className="program-header-status-strip" aria-label="Index status">
+    <div className="program-header-status-strip" aria-label="Program memory status">
+      <ProgramHeaderStatusPill label="Memory" value={memoryStatus ?? 'missing'} />
+      <ProgramHeaderStatusPill label="Retrieval" value={semanticStatus ?? 'empty'} />
       <ProgramHeaderStatusPill label="Graph" value={graphStatus ?? 'empty'} />
-      <ProgramHeaderStatusPill label="Search Memory" value={semanticStatus ?? 'empty'} />
     </div>
   );
 }
@@ -93,8 +98,8 @@ function ProgramViewToggle({
   onProgramViewChange: (view: ProgramMainView) => void;
 }): JSX.Element {
   const options: Array<{ view: ProgramMainView; label: string; icon: JSX.Element }> = [
-    { view: 'understanding', label: 'Program Understanding', icon: <GitBranch size={15} /> },
-    { view: 'graph', label: 'Relationship graph visualization', icon: <Network size={15} /> }
+    { view: 'understanding', label: 'Honeycrisp Memory', icon: <GitBranch size={15} /> },
+    { view: 'graph', label: 'Context graph visualization', icon: <Network size={15} /> }
   ];
 
   return (
