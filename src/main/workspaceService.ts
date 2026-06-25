@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FixtureRunEngine } from './fixtureRunEngine';
@@ -19,7 +21,9 @@ import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
   AttemptRecord,
   AgentContextState,
+  ArtifactRecord,
   DeveloperSettings,
+  EvidenceRecord,
   ExecutorStatus,
   FixtureScenario,
   FindingRecord,
@@ -27,6 +31,9 @@ import type {
   HackerOneProgramLookupResult,
   HoneycrispMemoryDirectorySummary,
   HypothesisRecord,
+  LegacyResearchMemoryCompatibility,
+  LegacyResearchMemoryCounts,
+  LegacyResearchMemoryMigrationResult,
   PriorityFactorInput,
   ProgramDirectorySelection,
   ProgramOnboardingInput,
@@ -49,6 +56,7 @@ import type {
   StartRunInput,
   SteeringAction,
   VerifierContractRecord,
+  VerifierRunRecord,
   VmContextRecord,
   VmPreference,
   WorkspaceExportResult,
@@ -867,6 +875,38 @@ export class WorkspaceService {
     this.requireDb().recordWorkspaceBackup(result);
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  public migrateLegacyResearchMemoryToHoneycrisp(runId?: string): LegacyResearchMemoryMigrationResult {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) {
+      throw new Error('No Beale workspace is open');
+    }
+    const details = runId
+      ? [runtime.db.getRunDetail(runId)]
+      : runtime.db.listRunRows().map((row) => runtime.db.getRunDetail(row.run.id));
+    const legacy = legacyResearchMemoryCounts(details);
+    const events = createLegacyResearchMemoryImportEvents(details, runtime.workspacePath);
+    const exportDir = join(runtime.workspacePath, '.beale', 'exports');
+    mkdirSync(exportDir, { recursive: true });
+    const timestamp = compactTimestamp(new Date().toISOString());
+    const importPath = join(exportDir, `legacy-honeycrisp-memory-${timestamp}.jsonl`);
+    writeFileSync(importPath, `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf8');
+    const importResult = invokeHoneycrispMemoryCommand(runtime.workspacePath, ['import-events', importPath]);
+    const result: LegacyResearchMemoryMigrationResult = {
+      workspacePath: runtime.workspacePath,
+      importPath,
+      runIds: details.map((detail) => detail.run.id),
+      eventCount: events.length,
+      appendedEvents: numberFromUnknown(importResult.appendedEvents),
+      skippedExistingEvents: numberFromUnknown(importResult.skippedExistingEvents),
+      recordsWritten: numberFromUnknown(importResult.recordsWritten),
+      proofObjectsUpdated: numberFromUnknown(importResult.proofObjectsUpdated),
+      legacy,
+      honeycrispMemory: getHoneycrispMemorySummary(runtime.workspacePath)
+    };
+    this.emitChange();
+    return result;
   }
 
   public getRunDetail(runId: string): RunDetail {
@@ -2232,10 +2272,420 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
 }
 
 function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T, workspacePath: string): T {
+  const honeycrispMemory = getHoneycrispMemorySummary(workspacePath);
   return {
     ...detail,
-    honeycrispMemory: getHoneycrispMemorySummary(workspacePath)
+    honeycrispMemory,
+    legacyResearchMemory: legacyResearchMemoryCompatibility(detail, honeycrispMemory)
   };
+}
+
+type HoneycrispImportEventKind =
+  | 'model.hypothesis'
+  | 'tool.observed'
+  | 'finding.updated'
+  | 'proof.requested'
+  | 'proof.observed'
+  | 'artifact.updated';
+
+interface HoneycrispImportArtifactRef {
+  id: string;
+  kind: string;
+  uri?: string;
+  summary?: string;
+  contentHash?: string;
+}
+
+interface HoneycrispImportEvent {
+  id: string;
+  kind: HoneycrispImportEventKind;
+  timestamp: string;
+  goalId?: string;
+  payload: Record<string, unknown>;
+  artifactRefs?: HoneycrispImportArtifactRef[];
+}
+
+function legacyResearchMemoryCompatibility(
+  detail: RunDetail | RunDetailUpdate,
+  honeycrispMemory: ReturnType<typeof getHoneycrispMemorySummary>
+): LegacyResearchMemoryCompatibility {
+  const legacy = legacyResearchMemoryCounts([detail]);
+  const honeycrisp = {
+    evidence: honeycrispMemory.records.evidence.length,
+    hypotheses: honeycrispMemory.records.hypotheses.length,
+    findings: honeycrispMemory.records.findings.length,
+    proofObligations: honeycrispMemory.proof.obligationCount,
+    proofAttempts: honeycrispMemory.proof.attemptCount
+  };
+  const legacyTotal = legacy.hypotheses + legacy.evidence + legacy.findings + legacy.verifierContracts + legacy.verifierRuns;
+  const honeycrispTotal = honeycrisp.evidence + honeycrisp.hypotheses + honeycrisp.findings + honeycrisp.proofObligations + honeycrisp.proofAttempts;
+  const status =
+    legacyTotal === 0 && honeycrispTotal === 0
+      ? 'none'
+      : legacyTotal > 0 && honeycrispTotal === 0
+        ? 'legacy_only'
+        : legacyTotal === 0
+          ? 'honeycrisp_only'
+          : 'mixed';
+
+  return {
+    status,
+    migrationNeeded: legacyTotal > 0 && honeycrispTotal === 0,
+    legacy,
+    honeycrisp,
+    guidance:
+      legacyTotal > 0 && honeycrispTotal === 0
+        ? 'This run has Beale legacy research records but no Honeycrisp memory records yet.'
+        : 'Honeycrisp memory is the source of truth for general research state; Beale legacy records remain available for compatibility.'
+  };
+}
+
+function legacyResearchMemoryCounts(details: readonly (RunDetail | RunDetailUpdate)[]): LegacyResearchMemoryCounts {
+  return details.reduce(
+    (counts, detail) => ({
+      hypotheses: counts.hypotheses + detail.hypotheses.length,
+      evidence: counts.evidence + detail.evidence.length,
+      findings: counts.findings + detail.findings.length,
+      verifierContracts: counts.verifierContracts + detail.verifierContracts.length,
+      verifierRuns: counts.verifierRuns + detail.verifierRuns.length
+    }),
+    {
+      hypotheses: 0,
+      evidence: 0,
+      findings: 0,
+      verifierContracts: 0,
+      verifierRuns: 0
+    }
+  );
+}
+
+function createLegacyResearchMemoryImportEvents(details: readonly RunDetail[], workspacePath: string): HoneycrispImportEvent[] {
+  const events: HoneycrispImportEvent[] = [];
+  const hypothesisRecordIds = new Map<string, string>();
+  const evidenceRecordIds = new Map<string, string>();
+  const findingRecordIds = new Map<string, string>();
+
+  for (const detail of details) {
+    for (const hypothesis of detail.hypotheses) {
+      const eventId = legacyEventId('hypothesis', hypothesis.id);
+      hypothesisRecordIds.set(hypothesis.id, honeycrispRecordId('hypothesis', eventId));
+      events.push({
+        id: eventId,
+        kind: 'model.hypothesis',
+        timestamp: hypothesis.createdAt,
+        goalId: legacyGoalId(detail.run.id),
+        payload: {
+          hypothesis: hypothesis.title,
+          summary: hypothesis.descriptionMarkdown || hypothesis.title,
+          confidence: confidenceFromPriority(hypothesis.priorityScore),
+          entities: compactStrings([hypothesis.component, hypothesis.bugClass]),
+          domainLabels: ['security', 'beale_legacy'],
+          domainMetadata: {
+            source: 'beale_legacy',
+            bealeRunId: detail.run.id,
+            bealeHypothesisId: hypothesis.id,
+            bealeState: hypothesis.state,
+            component: hypothesis.component,
+            bugClass: hypothesis.bugClass,
+            attackerReachability: hypothesis.attackerReachability,
+            impact: hypothesis.impact,
+            evidenceConfidence: hypothesis.evidenceConfidence,
+            exploitPracticality: hypothesis.exploitPracticality,
+            scopeConfidence: hypothesis.scopeConfidence,
+            cweMappings: hypothesis.cweMappings
+          }
+        }
+      });
+    }
+
+    for (const evidence of detail.evidence) {
+      const artifact = evidence.artifactId ? detail.artifacts.find((item) => item.id === evidence.artifactId) ?? null : null;
+      const artifactRef = artifact ? honeycrispArtifactRefFromBealeArtifact(workspacePath, artifact) : null;
+      const eventId = legacyEventId('evidence', evidence.id);
+      evidenceRecordIds.set(evidence.id, honeycrispRecordId('evidence', eventId));
+      events.push({
+        id: eventId,
+        kind: 'tool.observed',
+        timestamp: evidence.createdAt,
+        goalId: legacyGoalId(detail.run.id),
+        payload: {
+          summary: evidence.summary,
+          result: {
+            source: 'beale_legacy_evidence',
+            kind: evidence.kind,
+            bealeEvidenceId: evidence.id,
+            observationTraceEventId: evidence.observationTraceEventId,
+            artifactId: evidence.artifactId,
+            verifierRunId: evidence.verifierRunId,
+            canonical: evidence.canonical
+          },
+          confidence: evidence.canonical ? 0.9 : 0.55,
+          domainLabels: ['security', 'beale_legacy'],
+          domainMetadata: {
+            source: 'beale_legacy',
+            bealeRunId: detail.run.id,
+            bealeEvidenceId: evidence.id,
+            bealeHypothesisId: evidence.hypothesisId,
+            bealeFindingId: evidence.findingId
+          }
+        },
+        ...(artifactRef ? { artifactRefs: [artifactRef] } : {})
+      });
+    }
+
+    for (const finding of detail.findings) {
+      const eventId = legacyEventId('finding', finding.id);
+      findingRecordIds.set(finding.id, honeycrispRecordId('finding', eventId));
+      const linkedHypothesisRecordIds = finding.hypothesisId ? compactStrings([hypothesisRecordIds.get(finding.hypothesisId)]) : [];
+      const linkedEvidenceRefIds = detail.evidence
+        .filter((evidence) => evidence.findingId === finding.id || evidence.hypothesisId === finding.hypothesisId)
+        .map((evidence) => evidenceRecordIds.get(evidence.id))
+        .filter((id): id is string => typeof id === 'string');
+      events.push({
+        id: eventId,
+        kind: 'finding.updated',
+        timestamp: finding.updatedAt,
+        goalId: legacyGoalId(detail.run.id),
+        payload: {
+          finding: finding.title,
+          summary: finding.summaryMarkdown || finding.impactMarkdown || finding.title,
+          findingStatus: honeycrispFindingStatusFromBealeState(finding.state),
+          confidence: confidenceFromPriority(finding.priorityScore),
+          linkedHypothesisRecordIds,
+          derivedFromRecordIds: linkedHypothesisRecordIds,
+          evidenceRefIds: linkedEvidenceRefIds,
+          domainLabels: ['security', 'beale_legacy'],
+          domainMetadata: {
+            source: 'beale_legacy',
+            bealeRunId: detail.run.id,
+            bealeFindingId: finding.id,
+            bealeHypothesisId: finding.hypothesisId,
+            bealeState: finding.state,
+            affectedAssets: finding.affectedAssets,
+            affectedVersions: finding.affectedVersions,
+            reportability: finding.reportability,
+            impactAssessment: finding.impactAssessment,
+            impactMarkdown: finding.impactMarkdown,
+            verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
+            cweMappings: finding.cweMappings
+          }
+        }
+      });
+    }
+
+    for (const contract of detail.verifierContracts) {
+      const subjectRecordId =
+        (contract.findingId ? findingRecordIds.get(contract.findingId) : null) ??
+        (contract.hypothesisId ? hypothesisRecordIds.get(contract.hypothesisId) : null);
+      const obligationId = legacyProofObligationId(contract.id);
+      events.push({
+        id: legacyEventId('verifier_contract', contract.id),
+        kind: 'proof.requested',
+        timestamp: contract.createdAt,
+        goalId: legacyGoalId(detail.run.id),
+        payload: {
+          obligationId,
+          subject: {
+            kind: subjectRecordId ? 'memory_record' : 'external',
+            id: subjectRecordId ?? contract.id,
+            summary: `${contract.mode} verifier contract`
+          },
+          question: contract.triggerStepsMarkdown || `${contract.mode} verifier requested.`,
+          status: honeycrispProofObligationStatusFromBealeContract(contract.status),
+          acceptableMethods: [
+            {
+              kind: honeycrispProofMethodKindFromBealeMode(contract.mode),
+              name: contract.mode || 'Beale verifier'
+            }
+          ],
+          requiredResult: 'pass',
+          findingRecordIds: compactStrings([contract.findingId ? findingRecordIds.get(contract.findingId) : null]),
+          hypothesisRecordIds: compactStrings([contract.hypothesisId ? hypothesisRecordIds.get(contract.hypothesisId) : null]),
+          domainMetadata: {
+            source: 'beale_legacy',
+            bealeRunId: detail.run.id,
+            bealeVerifierContractId: contract.id,
+            mode: contract.mode,
+            targetStates: contract.targetStates,
+            setupStepsMarkdown: contract.setupStepsMarkdown,
+            expectedObservations: contract.expectedObservations,
+            invariants: contract.invariants,
+            artifactsToCollect: contract.artifactsToCollect,
+            passCriteria: contract.passCriteria
+          }
+        }
+      });
+    }
+
+    for (const verifierRun of detail.verifierRuns) {
+      const contract = detail.verifierContracts.find((item) => item.id === verifierRun.contractId) ?? null;
+      const evidenceRefIds = detail.evidence
+        .filter((evidence) => evidence.verifierRunId === verifierRun.id)
+        .map((evidence) => evidenceRecordIds.get(evidence.id))
+        .filter((id): id is string => typeof id === 'string');
+      events.push({
+        id: legacyEventId('verifier_run', verifierRun.id),
+        kind: 'proof.observed',
+        timestamp: verifierRun.endedAt ?? verifierRun.startedAt,
+        goalId: legacyGoalId(detail.run.id),
+        payload: {
+          attemptId: legacyProofAttemptId(verifierRun.id),
+          obligationId: legacyProofObligationId(verifierRun.contractId),
+          status: honeycrispProofAttemptStatusFromBealeRun(verifierRun.status),
+          result: honeycrispProofResultFromBealeRun(verifierRun.status),
+          method: {
+            kind: honeycrispProofMethodKindFromBealeMode(contract?.mode ?? ''),
+            name: contract?.mode ?? 'Beale verifier'
+          },
+          summary: verifierRunSummary(verifierRun),
+          verifier: 'beale_legacy_verifier',
+          evidenceRefIds,
+          domainMetadata: {
+            source: 'beale_legacy',
+            bealeRunId: detail.run.id,
+            bealeVerifierRunId: verifierRun.id,
+            bealeVerifierContractId: verifierRun.contractId,
+            vmContextId: verifierRun.vmContextId,
+            blockedIssue: verifierRun.blockedIssue,
+            behaviorPreserved: verifierRun.behaviorPreserved,
+            diagnosticsClean: verifierRun.diagnosticsClean,
+            regressionTests: verifierRun.regressionTests,
+            result: verifierRun.result
+          }
+        }
+      });
+    }
+  }
+
+  return events.sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.id.localeCompare(right.id));
+}
+
+function legacyGoalId(runId: string): string {
+  return `beale_${runId}`;
+}
+
+function legacyEventId(kind: string, legacyId: string): string {
+  return `evt_${deterministicUuid(['beale-legacy-memory-v1', kind, legacyId])}`;
+}
+
+function deterministicUuid(parts: readonly string[]): string {
+  const hash = createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32);
+  const byte6 = ((Number.parseInt(hash.slice(12, 14), 16) & 0x0f) | 0x50).toString(16).padStart(2, '0');
+  const byte8 = ((Number.parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0');
+  const uuidHex = `${hash.slice(0, 12)}${byte6}${hash.slice(14, 16)}${byte8}${hash.slice(18)}`;
+  return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20)}`;
+}
+
+function honeycrispRecordId(kind: 'hypothesis' | 'evidence' | 'finding', eventId: string): string {
+  const hash = createHash('sha256')
+    .update(kind)
+    .update('\0')
+    .update(eventId)
+    .update('\0')
+    .update(kind)
+    .digest('hex')
+    .slice(0, 24);
+  return `mem_${kind}_${hash}`;
+}
+
+function legacyProofObligationId(contractId: string): string {
+  return `proof_obl_${createHash('sha256').update(`beale:${contractId}`).digest('hex').slice(0, 24)}`;
+}
+
+function legacyProofAttemptId(verifierRunId: string): string {
+  return `proof_attempt_${createHash('sha256').update(`beale:${verifierRunId}`).digest('hex').slice(0, 24)}`;
+}
+
+function honeycrispArtifactRefFromBealeArtifact(workspacePath: string, artifact: ArtifactRecord): HoneycrispImportArtifactRef {
+  const absolutePath = resolve(workspacePath, artifact.relativePath);
+  return {
+    id: artifact.id,
+    kind: artifact.kind,
+    uri: pathToFileURL(absolutePath).href,
+    summary: `${artifact.kind} artifact migrated from Beale legacy storage.`,
+    contentHash: `sha256:${artifact.sha256}`
+  };
+}
+
+function honeycrispFindingStatusFromBealeState(state: string): string {
+  switch (state) {
+    case 'verified':
+    case 'disclosure_ready':
+      return 'verified';
+    case 'needs_evidence':
+      return 'needs_evidence';
+    case 'false_positive':
+    case 'dismissed':
+      return 'rejected';
+    case 'out_of_scope':
+      return 'out_of_scope';
+    case 'duplicate':
+      return 'superseded';
+    default:
+      return 'supported';
+  }
+}
+
+function honeycrispProofObligationStatusFromBealeContract(status: string): string {
+  switch (status) {
+    case 'rejected':
+      return 'blocked';
+    case 'completed':
+    case 'pass':
+      return 'satisfied';
+    default:
+      return 'open';
+  }
+}
+
+function honeycrispProofAttemptStatusFromBealeRun(status: string): string {
+  if (status === 'queued' || status === 'running') return 'running';
+  if (status === 'error') return 'blocked';
+  return 'completed';
+}
+
+function honeycrispProofResultFromBealeRun(status: string): string {
+  if (status === 'pass') return 'pass';
+  if (status === 'fail') return 'fail';
+  if (status === 'error') return 'blocked';
+  return 'inconclusive';
+}
+
+function honeycrispProofMethodKindFromBealeMode(mode: string): string {
+  if (mode === 'patch_validation') return 'artifact_validation';
+  if (mode === 'reproduction' || mode === 'empirical_reproduction') return 'empirical_reproduction';
+  if (mode.includes('static')) return 'static_analysis';
+  if (mode.includes('dynamic')) return 'dynamic_execution';
+  return 'human_review';
+}
+
+function verifierRunSummary(verifierRun: VerifierRunRecord): string {
+  return [
+    `Beale verifier run ${verifierRun.status}.`,
+    verifierRun.blockedIssue ? `Blocked: ${verifierRun.blockedIssue}` : '',
+    verifierRun.behaviorPreserved ? `Behavior preserved: ${verifierRun.behaviorPreserved}` : '',
+    verifierRun.diagnosticsClean ? `Diagnostics: ${verifierRun.diagnosticsClean}` : '',
+    verifierRun.regressionTests ? `Regression tests: ${verifierRun.regressionTests}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function confidenceFromPriority(priorityScore: number): number {
+  const normalized = Math.max(0, Math.min(100, priorityScore)) / 100;
+  return Math.round(normalized * 100) / 100;
+}
+
+function compactStrings(values: readonly (string | null | undefined)[]): string[] {
+  return values.map((value) => value?.trim()).filter((value): value is string => Boolean(value));
+}
+
+function compactTimestamp(iso: string): string {
+  return iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').toLowerCase();
+}
+
+function numberFromUnknown(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function createPatchValidationContract(

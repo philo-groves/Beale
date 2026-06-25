@@ -122,6 +122,9 @@ const api: BealeApi = {
   exportWorkspaceBackup(note?: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
   },
+  migrateLegacyResearchMemoryToHoneycrisp(runId?: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.migrateLegacyResearchMemoryToHoneycrisp, runId);
+  },
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
   },

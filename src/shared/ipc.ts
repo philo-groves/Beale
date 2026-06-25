@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   saveProgramScope: 'beale:save-program-scope',
   startRun: 'beale:start-run',
   exportWorkspaceBackup: 'beale:export-workspace-backup',
+  migrateLegacyResearchMemoryToHoneycrisp: 'beale:migrate-legacy-research-memory-to-honeycrisp',
   getRunDetail: 'beale:get-run-detail',
   getAgentContext: 'beale:get-agent-context',
   getRunDetailVersion: 'beale:get-run-detail-version',

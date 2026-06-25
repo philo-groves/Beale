@@ -10994,53 +10994,6 @@ CREATE TABLE IF NOT EXISTS exports (
   reviewed_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS benchmark_runs (
-  id TEXT PRIMARY KEY,
-  suite_kind TEXT NOT NULL,
-  suite_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  model TEXT NOT NULL,
-  reasoning_effort TEXT NOT NULL,
-  harness_name TEXT NOT NULL,
-  harness_version TEXT NOT NULL,
-  prompt_version TEXT NOT NULL,
-  toolset_version TEXT NOT NULL,
-  verifier_version TEXT NOT NULL,
-  sandbox_backend TEXT NOT NULL,
-  sandbox_image_version TEXT NOT NULL,
-  network_profile TEXT NOT NULL,
-  attempt_strategy TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL,
-  task_subset_id TEXT NOT NULL,
-  task_ids_json TEXT NOT NULL,
-  benchmark_version TEXT NOT NULL,
-  cost_json TEXT NOT NULL,
-  tokens_json TEXT NOT NULL,
-  wall_time_ms INTEGER NOT NULL,
-  pass_count INTEGER NOT NULL,
-  total_count INTEGER NOT NULL,
-  metadata_json TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  ended_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS benchmark_task_results (
-  id TEXT PRIMARY KEY,
-  benchmark_run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE,
-  task_id TEXT NOT NULL,
-  suite_kind TEXT NOT NULL,
-  mode TEXT NOT NULL,
-  status TEXT NOT NULL,
-  score REAL NOT NULL,
-  run_id TEXT REFERENCES runs(id),
-  isolation_passed INTEGER NOT NULL CHECK (isolation_passed IN (0, 1)),
-  metrics_json TEXT NOT NULL,
-  grader_report_json TEXT NOT NULL,
-  agent_output_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(entity_type, entity_id UNINDEXED, text);
 
 CREATE INDEX IF NOT EXISTS idx_scope_assets_kind_value ON scope_assets(kind, value);
@@ -11053,6 +11006,4 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);
 CREATE INDEX IF NOT EXISTS idx_hypotheses_run_state ON hypotheses(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_findings_run_state ON findings(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
-CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_model ON benchmark_runs(suite_kind, model, reasoning_effort, task_subset_id);
-CREATE INDEX IF NOT EXISTS idx_benchmark_task_results_run ON benchmark_task_results(benchmark_run_id);
 `;

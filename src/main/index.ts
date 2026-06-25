@@ -418,6 +418,11 @@ function registerIpc(): void {
     timedMainIpc('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () => workspaceService.startRun(input))
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
+  ipcMain.handle(IPC_CHANNELS.migrateLegacyResearchMemoryToHoneycrisp, (_event, runId?: string) =>
+    timedMainIpc('migrateLegacyResearchMemoryToHoneycrisp', { run: runId ? shortMetricId(runId) : 'all' }, () =>
+      workspaceService.migrateLegacyResearchMemoryToHoneycrisp(runId)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
     timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))
   );

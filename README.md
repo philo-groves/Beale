@@ -24,7 +24,7 @@ Beale is a specialized research environment designed to help security researcher
 
 It combines:
 - A structured, auditable workbench for mapping architecture, trust boundaries, and attack surfaces
-- Model-assisted (currently OpenAI) reasoning and discovery loops
+- Honeycrisp-driven reasoning and discovery loops
 - Strong emphasis on evidence, verification, provenance, and responsible disclosure
 - Honeycrisp-backed execution, memory, trace, context, and artifact visibility
 
@@ -44,7 +44,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - **Workspaces**: Local folders containing your target programs with `.beale/` metadata
 - **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
 - **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
-- **Tools**: Structured, typed tools for code search, execution, debugging, artifact handling, verifiers, etc.
+- **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
 - **Harness**: Trusted Electron main process manages credentials, policy, persistence, and coordination
 
 ---
@@ -54,7 +54,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
 - **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
-- **Model Integration**: Tool-calling loop with strict verification requirements
+- **Agent Integration**: Honeycrisp launches as the research engine; Beale imports captures and displays trace, memory, context, proof, storage, and artifacts
 
 ---
 
@@ -63,7 +63,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Electron + Vite + TypeScript foundation
 - Multi-program local workspace registry
 - SQLite-backed research session persistence under `.beale/`
-- OpenAI-backed research session execution
+- Honeycrisp-backed research session execution
 - Trace UI with model, tool, system, hypothesis, finding, evidence, and compaction events
 - Session transcripts persisted separately from trace metadata
 - Hypothesis and finding side panels
@@ -72,6 +72,12 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Opt-in local profiling that writes structured JSONL reports
 - Planning documents and architecture notes in the `planning/` directory
 - No public releases yet
+
+### Honeycrisp Boundary
+
+Honeycrisp is the source of truth for general agent state: goals, subgoals, memory events, hypotheses, evidence, findings, proof obligations, proof attempts, storage refs, context usage, and tool traces. Beale keeps the researcher interface, program/project setup, prompt planning, visualization, heatmap presentation, and vulnerability-specific disclosure/export/report workflows.
+
+Older Beale workspaces may still contain legacy `hypotheses`, `evidence`, `findings`, and verifier tables. Beale keeps those readable for compatibility and provides a one-time migration path that exports legacy general research records as Honeycrisp memory events, then asks Honeycrisp to validate/import them. Security-specific metadata such as CWE mappings and reportability stays attached as domain metadata or Beale overlay state rather than becoming Honeycrisp core schema.
 
 See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on direction and recent changes.
 

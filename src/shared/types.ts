@@ -555,6 +555,41 @@ export interface HoneycrispMemorySummary {
   lastError: string | null;
 }
 
+export interface LegacyResearchMemoryCounts {
+  hypotheses: number;
+  evidence: number;
+  findings: number;
+  verifierContracts: number;
+  verifierRuns: number;
+}
+
+export interface LegacyResearchMemoryCompatibility {
+  status: 'none' | 'legacy_only' | 'honeycrisp_only' | 'mixed';
+  migrationNeeded: boolean;
+  legacy: LegacyResearchMemoryCounts;
+  honeycrisp: {
+    evidence: number;
+    hypotheses: number;
+    findings: number;
+    proofObligations: number;
+    proofAttempts: number;
+  };
+  guidance: string;
+}
+
+export interface LegacyResearchMemoryMigrationResult {
+  workspacePath: string;
+  importPath: string;
+  runIds: string[];
+  eventCount: number;
+  appendedEvents: number;
+  skippedExistingEvents: number;
+  recordsWritten: number;
+  proofObjectsUpdated: number;
+  legacy: LegacyResearchMemoryCounts;
+  honeycrispMemory: HoneycrispMemorySummary;
+}
+
 export type AgentContextStatus = 'missing' | 'empty' | 'ready' | 'error';
 
 export interface AgentContextEventRecord {
@@ -1143,6 +1178,7 @@ export interface RunDetail {
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
   honeycrispMemory?: HoneycrispMemorySummary;
+  legacyResearchMemory?: LegacyResearchMemoryCompatibility;
 }
 
 export interface RunDetailVersion {
@@ -1175,6 +1211,7 @@ export interface RunDetailUpdate {
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
   honeycrispMemory?: HoneycrispMemorySummary;
+  legacyResearchMemory?: LegacyResearchMemoryCompatibility;
 }
 
 export interface WorkspaceSnapshot {
@@ -1269,6 +1306,7 @@ export interface BealeApi {
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
+  migrateLegacyResearchMemoryToHoneycrisp(runId?: string): Promise<LegacyResearchMemoryMigrationResult>;
   getRunDetail(runId: string): Promise<RunDetail>;
   getAgentContext(runId: string): Promise<AgentContextState>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;

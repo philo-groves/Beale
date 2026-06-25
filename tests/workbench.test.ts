@@ -53,6 +53,12 @@ describe('Beale workbench skeleton', () => {
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
+    const schema = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
+    const benchmarkTables = schema
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('benchmark_runs', 'benchmark_task_results') ORDER BY name")
+      .all();
+    schema.close();
+    expect(benchmarkTables).toHaveLength(0);
 
     const workspaceId = snapshot.workspace.workspaceId;
     service.close();
@@ -1601,6 +1607,137 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.filter((event) => event.summary.startsWith('Honeycrisp memory steering forwarded:'))).toHaveLength(5);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp memory steering forwarded: request_reproduction.')).toBe(true);
     expect(JSON.stringify(detail.traceEvents.at(-1)?.payload)).not.toContain('forwardsecret12345');
+    service.close();
+  });
+
+  it('exports Beale legacy research memory as Honeycrisp import events', () => {
+    const dir = tempWorkspace();
+    const logPath = join(dir, 'honeycrisp-import-calls.jsonl');
+    const fakeHoneycrisp = join(dir, 'fake-honeycrisp-import.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        "import { appendFileSync, readFileSync } from 'node:fs';",
+        `const logPath = ${JSON.stringify(logPath)};`,
+        "const args = process.argv.slice(2);",
+        "appendFileSync(logPath, JSON.stringify(args) + '\\n');",
+        "const memoryIndex = args.indexOf('memory');",
+        "const command = args[memoryIndex + 1] || 'unknown';",
+        "const importPath = args[memoryIndex + 2];",
+        "const eventCount = command === 'import-events' ? readFileSync(importPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
+        "console.log(JSON.stringify({ action: command, importPath, loadedEvents: eventCount, appendedEvents: eventCount, skippedExistingEvents: 0, recordsWritten: Math.max(0, eventCount - 2), proofObjectsUpdated: 2, agentState: { memory: {}, proof: {}, storage: {} } }));"
+      ].join('\n'),
+      'utf8'
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const artifactRoot = join(dir, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Legacy migration run',
+      promptMarkdown: '# Legacy migration run',
+      mode: 'open_discovery',
+      model: 'fixture',
+      reasoningEffort: 'medium',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'host',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
+    });
+    const hypothesis = db.createHypothesis({
+      runId: context.run.id,
+      state: 'needs_evidence',
+      title: 'Legacy parser hypothesis',
+      descriptionMarkdown: 'Legacy hypothesis body.',
+      component: 'parser',
+      bugClass: 'logic',
+      priorityScore: 61,
+      attackerReachability: 'local',
+      impact: 'medium',
+      evidenceConfidence: 'model',
+      exploitPracticality: 'unknown',
+      scopeConfidence: 'in_scope'
+    });
+    const finding = db.createFinding({
+      runId: context.run.id,
+      hypothesisId: hypothesis.id,
+      state: 'needs_evidence',
+      title: 'Legacy parser finding',
+      summaryMarkdown: 'Legacy finding summary.',
+      impactMarkdown: 'Legacy impact.',
+      priorityScore: 72
+    });
+    db.createEvidence({
+      runId: context.run.id,
+      hypothesisId: hypothesis.id,
+      findingId: finding.id,
+      kind: 'observation',
+      summary: 'Legacy parser evidence.'
+    });
+    const contract = db.createVerifierContract({
+      runId: context.run.id,
+      hypothesisId: hypothesis.id,
+      findingId: finding.id,
+      mode: 'reproduction',
+      status: 'approved',
+      setupStepsMarkdown: 'Prepare legacy fixture.',
+      triggerStepsMarkdown: 'Run legacy verifier.',
+      expectedObservations: { pass: true },
+      invariants: {},
+      artifactsToCollect: {},
+      passCriteria: { reproduced: true }
+    });
+    db.createVerifierRun({
+      contractId: contract.id,
+      runId: context.run.id,
+      status: 'pass',
+      blockedIssue: '',
+      behaviorPreserved: 'yes',
+      diagnosticsClean: 'yes',
+      regressionTests: 'not run',
+      result: { realExecution: true },
+      endedAt: '2026-06-25T12:00:00.000Z'
+    });
+    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared legacy migration fixture.');
+    db.updateRunStatus(context.run.id, 'completed', 'Prepared legacy migration fixture.');
+    db.close();
+
+    const service = new WorkspaceService();
+    service.openWorkspace(dir);
+    const runId = context.run.id;
+    const before = service.getRunDetail(runId);
+    expect(before.legacyResearchMemory?.status).toBe('legacy_only');
+    expect(before.legacyResearchMemory?.migrationNeeded).toBe(true);
+    expect(before.evidence.length).toBeGreaterThan(0);
+
+    const migrated = service.migrateLegacyResearchMemoryToHoneycrisp(runId);
+    const calls = readFileSync(logPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    const importedEvents = readFileSync(migrated.importPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { kind: string; id: string; payload: Record<string, unknown> });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(expect.arrayContaining(['memory', 'import-events', migrated.importPath]));
+    expect(migrated.runIds).toEqual([runId]);
+    expect(migrated.eventCount).toBe(importedEvents.length);
+    expect(migrated.appendedEvents).toBe(importedEvents.length);
+    expect(migrated.legacy.hypotheses).toBeGreaterThan(0);
+    expect(importedEvents.some((event) => event.kind === 'model.hypothesis')).toBe(true);
+    expect(importedEvents.some((event) => event.kind === 'tool.observed')).toBe(true);
+    expect(importedEvents.some((event) => event.kind === 'finding.updated')).toBe(true);
+    expect(importedEvents.some((event) => event.kind === 'proof.requested')).toBe(true);
+    expect(importedEvents.every((event) => /^evt_[0-9a-f-]{36}$/i.test(event.id))).toBe(true);
+    const findingEvent = importedEvents.find((event) => event.kind === 'finding.updated');
+    expect(findingEvent?.payload.domainMetadata).toMatchObject({ source: 'beale_legacy', bealeRunId: runId });
     service.close();
   });
 
