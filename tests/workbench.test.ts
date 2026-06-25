@@ -120,6 +120,19 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('resolves existing Honeycrisp memory directories for host file manager actions', () => {
+    const dir = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(dir);
+    const eventsPath = join(dir, '.honeycrisp', 'memory', 'events');
+    mkdirSync(eventsPath, { recursive: true });
+
+    expect(service.resolveHoneycrispMemoryDirectoryPath('events')).toBe(eventsPath);
+    expect(() => service.resolveHoneycrispMemoryDirectoryPath('claims')).toThrow(/does not exist/);
+    expect(() => service.resolveHoneycrispMemoryDirectoryPath('unknown' as never)).toThrow(/Unknown Honeycrisp memory directory/);
+    service.close();
+  });
+
   it('onboards programs into the global registry and mirrors run summaries', () => {
     const workspace = tempWorkspace();
     const registryDir = tempWorkspace();

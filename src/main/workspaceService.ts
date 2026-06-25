@@ -46,6 +46,7 @@ import type {
   FindingRecord,
   GeneratedResearchPrompt,
   HackerOneProgramLookupResult,
+  HoneycrispMemoryDirectorySummary,
   HypothesisRecord,
   PriorityFactorInput,
   ProgramDirectorySelection,
@@ -663,6 +664,21 @@ export class WorkspaceService {
     db.refreshProjectGraph(activeScope.id, nowIso(), 'manual_refresh');
     this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
     return this.requireSnapshot();
+  }
+
+  public resolveHoneycrispMemoryDirectoryPath(name: HoneycrispMemoryDirectorySummary['name']): string {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) {
+      throw new Error('No Beale workspace is open');
+    }
+    const directory = getHoneycrispMemorySummary(runtime.workspacePath).directories.find((candidate) => candidate.name === name);
+    if (!directory) {
+      throw new Error(`Unknown Honeycrisp memory directory: ${String(name)}`);
+    }
+    if (!directory.exists || !statSync(directory.path).isDirectory()) {
+      throw new Error(`Honeycrisp memory directory does not exist: ${directory.path}`);
+    }
+    return directory.path;
   }
 
   public inspectProgramDirectory(path: string): ProgramDirectorySelection {

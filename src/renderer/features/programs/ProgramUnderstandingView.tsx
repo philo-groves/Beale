@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react';
-import { Boxes, Database, GitBranch, Network, RefreshCw, Route, SearchCheck } from 'lucide-react';
+import { Boxes, Database, FolderOpen, GitBranch, Network, RefreshCw, Route, SearchCheck } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemorySummary,
@@ -16,6 +16,7 @@ export function ProgramUnderstandingView({
   busy,
   graph,
   honeycrispMemory,
+  onOpenHoneycrispMemoryDirectory,
   onRefreshProjectGraph,
   programView,
   runCount,
@@ -25,6 +26,7 @@ export function ProgramUnderstandingView({
   busy: boolean;
   graph: ProjectGraphSummary | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
+  onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
   onRefreshProjectGraph: () => void;
   programView: ProgramMainView;
   runCount: number;
@@ -77,7 +79,7 @@ export function ProgramUnderstandingView({
                   <CountList title="Record Kinds" counts={honeycrispMemory?.recordKindCounts} />
                   <CountList title="Record Statuses" counts={honeycrispMemory?.recordStatusCounts} />
                 </div>
-                <StorageDirectoryList directories={honeycrispMemory?.directories ?? []} />
+                <StorageDirectoryList busy={busy} directories={honeycrispMemory?.directories ?? []} onOpenDirectory={onOpenHoneycrispMemoryDirectory} />
               </section>
 
               <section className="program-understanding-section" aria-label="Retrieval index">
@@ -266,9 +268,17 @@ function RepositoryList({ assets, total }: { assets: ScopeAsset[]; total: number
   );
 }
 
-function StorageDirectoryList({ directories }: { directories: HoneycrispMemoryDirectorySummary[] }): JSX.Element {
+function StorageDirectoryList({
+  busy,
+  directories,
+  onOpenDirectory
+}: {
+  busy: boolean;
+  directories: HoneycrispMemoryDirectorySummary[];
+  onOpenDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
+}): JSX.Element {
   return (
-    <div className="program-understanding-repositories">
+    <div className="program-understanding-repositories program-understanding-storage-directories">
       <h4>Storage Directories</h4>
       {directories.length > 0 ? (
         <ul>
@@ -276,6 +286,16 @@ function StorageDirectoryList({ directories }: { directories: HoneycrispMemoryDi
             <li key={directory.name}>
               <span title={`${directory.path}\n${directory.purpose}`}>{traceLabel(directory.name)}</span>
               <small>{directory.exists ? `${formatCount(directory.entryCount)} entries` : 'missing'}</small>
+              <button
+                type="button"
+                className="program-understanding-row-icon-button"
+                title={directory.exists ? `Open ${traceLabel(directory.name)} directory` : `${traceLabel(directory.name)} directory is missing`}
+                aria-label={directory.exists ? `Open ${traceLabel(directory.name)} directory` : `${traceLabel(directory.name)} directory is missing`}
+                disabled={busy || !directory.exists}
+                onClick={() => onOpenDirectory(directory.name)}
+              >
+                <FolderOpen size={13} />
+              </button>
             </li>
           ))}
         </ul>

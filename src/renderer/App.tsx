@@ -5,6 +5,7 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   DeveloperSettings,
   ExecutorStatus,
+  HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
   ProgramOnboardingProgressUpdate,
@@ -306,6 +307,13 @@ export function App(): JSX.Element {
   const refreshProjectGraph = useCallback(async () => {
     await runAction(() => window.beale.refreshProjectGraph());
   }, [runAction]);
+
+  const openHoneycrispMemoryDirectory = useCallback(
+    async (name: HoneycrispMemoryDirectorySummary['name']) => {
+      await runAction(() => window.beale.openHoneycrispMemoryDirectory(name));
+    },
+    [runAction]
+  );
 
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
@@ -678,6 +686,7 @@ export function App(): JSX.Element {
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onExpandResearchPanel={closeInspector}
             onOpenTraceFilters={openTraceFilters}
+            onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onRefreshProjectGraph={refreshProjectGraph}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}

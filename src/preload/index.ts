@@ -13,6 +13,7 @@ import type {
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneProgramLookupResult,
+  HoneycrispMemoryDirectorySummary,
   ProgramOnboardingInput,
   ProgramOnboardingProgressUpdate,
   ProgramOnboardingSkipInput,
@@ -145,6 +146,9 @@ const api: BealeApi = {
   },
   refreshProjectGraph() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectGraph);
+  },
+  openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openHoneycrispMemoryDirectory, name);
   },
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphVisualization);

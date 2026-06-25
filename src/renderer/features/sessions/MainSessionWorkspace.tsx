@@ -30,6 +30,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount,
   onExpandResearchPanel,
   onOpenTraceFilters,
+  onOpenHoneycrispMemoryDirectory,
   onRefreshProjectGraph,
   onSelectTraceEvent,
   onSessionAction,
@@ -54,6 +55,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount: number;
   onExpandResearchPanel: () => void;
   onOpenTraceFilters: () => void;
+  onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
   onRefreshProjectGraph: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
@@ -69,6 +71,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         runCount={runCount}
         scope={scope}
         semantic={semantic}
+        onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
         onRefreshProjectGraph={onRefreshProjectGraph}
       />
     );

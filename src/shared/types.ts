@@ -1387,6 +1387,7 @@ export interface BealeApi {
   setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
   refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
   refreshProjectGraph(): Promise<WorkspaceSnapshot>;
+  openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
   getProgramGraphProjection(): Promise<ProgramGraphProjection>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;

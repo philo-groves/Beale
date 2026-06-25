@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell } from 'electron';
 import type { IpcMainInvokeEvent, Rectangle } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import type {
   BenchmarkRunInput,
   CyberGymScenarioRunInput,
   CyberGymSettingsInput,
+  HoneycrispMemoryDirectorySummary,
   ProfilingReport,
   ProgramRegistryState,
   ProgramOnboardingInput,
@@ -418,6 +419,13 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.refreshProjectSemanticIndex, () => timedMainIpc('refreshProjectSemanticIndex', {}, () => workspaceService.refreshProjectSemanticIndex()));
   ipcMain.handle(IPC_CHANNELS.refreshProjectGraph, () => timedMainIpc('refreshProjectGraph', {}, () => workspaceService.refreshProjectGraph()));
+  ipcMain.handle(IPC_CHANNELS.openHoneycrispMemoryDirectory, (_event, name: HoneycrispMemoryDirectorySummary['name']) =>
+    timedMainIpcAsync('openHoneycrispMemoryDirectory', { directory: String(name) }, async () => {
+      const path = workspaceService.resolveHoneycrispMemoryDirectoryPath(name);
+      const error = await shell.openPath(path);
+      if (error) throw new Error(error);
+    })
+  );
   ipcMain.handle(IPC_CHANNELS.getProgramGraphVisualization, () =>
     timedMainIpc('getProgramGraphVisualization', {}, () => workspaceService.getProgramGraphVisualization())
   );
