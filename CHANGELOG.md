@@ -7,11 +7,6 @@
 - Added automatic context graph refresh for stale program overview snapshots and a manual refresh control in the Honeycrisp Memory view.
 - Added per-row file explorer controls for Honeycrisp memory storage directories.
 - Added a Honeycrisp host-process run engine that starts research prompts from the Beale UI, launches the Honeycrisp CLI through a plain Node runtime, streams Honeycrisp stdout/stderr into trace events, imports the final Honeycrisp capture as a Beale artifact, and records final assistant output in the transcript and notification flow.
-- Added Docker as an explicit lower-assurance sandbox backend with offline/elevated execution support and host-controlled import/export paths.
-- Added a Settings > Sandboxes action that prepares the configured Docker sandbox image and refreshes sandbox availability.
-- Added host-observed Docker sandbox execution telemetry with container lifecycle, stdout/stderr chunks, resource samples, and Docker labels tied to run/tool context ids.
-- Added a local Docker sandbox toolchain image definition and made Docker setup build `beale-sandbox-toolchain:local` by default.
-- Added an orange Docker sandbox warning in Settings that explains Docker is less secure than a virtual machine.
 - Added opt-in developer performance instrumentation for renderer render counts, trace derivation timing, syntax/markdown timing, IPC payload sizing, and input latency probes.
 - Added dev-only renderer DevTools shortcuts and launch opt-ins for debugging performance instrumentation.
 - Added a cheap run-detail version IPC path and main-process timing logs for active-session performance diagnosis.
@@ -102,6 +97,10 @@
 - Added a transient Spawn agent-output sheet that slides up on newly completed session output with markdown rendering and background blur.
 - Added cumulative session token usage beside the footer context meter.
 
+### Removed
+
+- Removed Beale-managed VM/Docker sandbox setup, executor runtime, vmctl tooling, and Settings > Sandboxes. Beale now treats Honeycrisp execution as host-process execution; users should launch Beale/Honeycrisp inside their own VM or container when OS isolation is required.
+
 ### Changed
 
 - Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.
@@ -112,11 +111,7 @@
 - Changed CyberGym to open as a reserved research program workspace with semantic project indexing disabled for benchmark work.
 - Changed CyberGym scenario run output to use per-scenario/per-run result directories with `result.json` and `events.jsonl`, while keeping only disposable task staging under the CyberGym cache path.
 - Changed the CyberGym research prompt to omit the benchmark-session title prefix so it does not act as an agent hint.
-- Changed CyberGym task staging to stay outside `.beale/` even when legacy cache settings point there, so sandbox import policy can mount selected task materials without exposing workspace metadata.
-- Changed the CyberGym research prompt to clarify that sandboxed tools should use `/workspace/target` for selected task materials.
-- Changed user-facing executor language from VM to Sandbox while keeping VM-specific backend names where they identify the underlying technology.
-- Changed sandbox settings into a dedicated Settings tab with a horizontal sandbox selector and per-sandbox detail panel.
-- Changed sandbox planning docs to make local disposable VMs preferred rather than mandatory, with Docker and host execution recorded as degraded explicit options.
+- Changed CyberGym task staging to stay outside `.beale/` even when legacy cache settings point there, so selected task materials do not expose workspace metadata.
 - Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.
 - Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
 - Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.
@@ -135,13 +130,12 @@
 - Changed OpenAI stream consumption to yield back to the Electron main loop between event batches, reducing active-session IPC stalls.
 - Changed OpenAI host Python tool execution to use a non-blocking child process path and report per-tool execution timings.
 - Changed run-row snapshot construction to use grouped SQLite aggregate queries instead of per-run lookups.
-- Changed vmctl capability status checks to use a short cache instead of spawning the controller on every snapshot render.
 - Changed OpenAI provider status checks to use a short cache with explicit invalidation on provider refresh.
 - Changed active runtime trace updates so they no longer broadcast full workspace snapshots or global program registry payloads on every trace append.
 - Changed launch/session selection so Beale only auto-opens active or queued sessions, avoiding heavy completed trace loads during startup.
 - Changed the sidebar and modal label from New Research Session to New Research.
 - Changed the steering control row to show concise uppercase session statuses.
-- Changed Python trace rows so model-side calls read as preparation/queueing and the executed host/guest result row owns the Python script preview.
+- Changed Python trace rows so model-side calls read as preparation/queueing and the executed host result row owns the Python script preview.
 - Changed code-browser trace rows so model-side queue/argument lifecycle rows are non-standard by default and the executed source-read result owns a compact path, line metadata, and bounded excerpt preview.
 - Changed verifier and artifact guidance so models are directed to use returned Beale artifact ids instead of raw temporary artifact paths.
 - Changed search trace rows so the model-side request lifecycle row is non-standard by default, argument rows read as `Prepare Search`, and result rows use shorter `Examined ...` labels.
@@ -244,7 +238,7 @@
 - Extracted the new research session modal and shared run-setting helpers from `App.tsx`.
 - Extracted the hypotheses/findings side panel, CWE pill, shared side scroll region, research item provenance helpers, and session heat helpers from `App.tsx`.
 - Extracted the evidence sidebar from `App.tsx` and made it consume already-built active trace events.
-- Extracted research momentum and host/guest activity derivation from `App.tsx` into renderer view-model modules.
+- Extracted research momentum and host activity derivation from `App.tsx` into renderer view-model modules.
 - Extracted run detail selection, incremental update merge, cursor, and instrumentation summary helpers from `App.tsx`.
 - Extracted inset scrollbar activation and resizable sidebar state from `App.tsx` into renderer hooks.
 - Extracted the main session workspace grid from `App.tsx` into the session feature module.
@@ -263,10 +257,7 @@
 - Fixed CyberGym Run Scenario disabled states so the scenario panel displays the blocking reason.
 - Fixed CyberGym Run Scenario startup so it opens the new CyberGym program session instead of falling back to the program-understanding view or only showing the result path.
 - Fixed CyberGym benchmark token metrics to import OpenAI response usage from trace events instead of recording zero tokens.
-- Fixed guest Python/debugger tool execution so sandbox cleanup or artifact-export failures are recorded without replacing successful tool output.
-- Fixed Docker sandbox cleanup so stale non-empty context directories are moved out of the active path before deferred deletion, preventing one cleanup failure from blocking later CyberGym tools.
 - Fixed benchmark elapsed-time metrics to use a monotonic clock so session duration cannot go negative if the wall clock moves backward during a run.
-- Fixed Docker sandbox context cleanup to retry transient non-empty directory removal and block raw `.beale` artifact-store paths before launching sandbox Python.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.

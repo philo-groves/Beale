@@ -1,45 +1,38 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { Bell, Monitor, PanelRightClose, PanelRightOpen, Server, Settings } from 'lucide-react';
-import type { ExecutorStatus, HostEnvironment, RunDetail, VmPreference } from '@shared/types';
+import { Bell, Monitor, PanelRightClose, PanelRightOpen, Settings } from 'lucide-react';
+import type { HostEnvironment, RunDetail } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { ResearchMomentumLine } from '../features/momentum/ResearchMomentumLine';
 import type { ResearchMomentum } from '../features/momentum/types';
-import { hostEnvironmentLabel, vmTargetStatus, type EnvironmentActivity } from '../view-models/environmentDisplay';
+import { hostEnvironmentLabel, type EnvironmentActivity } from '../view-models/environmentDisplay';
 
 export const StatusBar = memo(function StatusBar({
   hostEnvironment,
-  executor,
-  vmPreference,
   activity,
   detail,
   momentum,
   notificationCount,
   inspectorOpen,
-  onConfigureVm,
   onOpenSettings,
   onToggleInspector
 }: {
   hostEnvironment: HostEnvironment | null;
-  executor: ExecutorStatus | null;
-  vmPreference: VmPreference;
   activity: EnvironmentActivity;
   detail: RunDetail | null;
   momentum: ResearchMomentum;
   notificationCount: number;
   inspectorOpen: boolean;
-  onConfigureVm: () => void;
   onOpenSettings: () => void;
   onToggleInspector: () => void;
 }): JSX.Element {
   useDevRenderProbe('footer.statusBar', () => ({
     host: hostEnvironment?.platform ?? 'unknown',
-    vm: vmPreference.backendKind ?? 'none',
+    execution: 'host',
     momentum: momentum.state,
     notifications: notificationCount
   }));
   const osLabel = hostEnvironmentLabel(hostEnvironment);
-  const vmTarget = vmTargetStatus(executor, vmPreference);
   const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
 
   return (
@@ -48,15 +41,6 @@ export const StatusBar = memo(function StatusBar({
         <div className={`environment-pill ${activity.host ? 'is-active' : ''}`} title={`Host operating system: ${osLabel}`}>
           <Monitor size={14} />
           <span>{osLabel}</span>
-        </div>
-        <div className={`environment-pill environment-vm-pill ${vmTarget.configured ? 'is-configured' : 'is-unconfigured'}`} title={vmTarget.title}>
-          <Server size={14} />
-          <span>{vmTarget.label}</span>
-          {vmTarget.showConfigure ? (
-            <button type="button" className="environment-configure" onClick={onConfigureVm}>
-              Configure
-            </button>
-          ) : null}
         </div>
       </div>
       <ResearchMomentumLine detail={detail} momentum={momentum} />

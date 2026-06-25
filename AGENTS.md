@@ -31,8 +31,8 @@ Do not use legacy branding in new docs or code. Use `Beale`.
   - Workspace metadata directory: `.beale/`
   - Workspace database: `.beale/beale.sqlite`
   - First release focus: authorized open-ended vulnerability discovery
-  - Preferred sandbox boundary: local disposable VM; host and Docker sandboxes are supported degraded options when explicitly selected
-  - Benchmark isolation: Dockerized agent harness with host-side grader and host-side model/auth proxy
+  - Execution posture: Beale and Honeycrisp run with the current user's host privileges; users should launch them inside their own VM/container when OS isolation is required
+  - Benchmark isolation: Dockerized benchmark harness with host-side grader and host-side model/auth proxy
 - If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
 
 ## CHANGELOG.md Management
@@ -50,10 +50,10 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 Preserve these invariants in docs and implementation:
 
 - Beale is the trusted host harness.
-- Target code, build scripts, generated PoCs, tests, fuzzing, debugging, and closed-source executables should prefer disposable guest VMs; host and Docker sandboxes are allowed only when explicitly selected and visibly recorded.
+- Target code, build scripts, generated PoCs, tests, fuzzing, debugging, and closed-source executables run with the user's chosen host privileges. Beale must not pretend to provide isolation it does not manage.
 - OpenAI OAuth credentials stay on the host.
-- The workspace database is never mounted into the guest.
-- Guest exports are candidate artifacts until accepted by the host.
+- The workspace database and credential material must not be exposed through model-visible tool results.
+- Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
 - Findings require tool, artifact, or verifier-backed evidence.
 - User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.
 - Live-target testing is allowed only when the recorded program scope and active network profile permit it.
@@ -80,7 +80,7 @@ Preserve these invariants in docs and implementation:
 - Prefer typed boundaries between renderer, host service, model adapter, persistence, and executor layers.
 - Use structured parsers/APIs instead of ad hoc string parsing when practical.
 - Keep host-safe setup as narrow workspace/import operations, not general host shell execution.
-- Keep target execution tools inside the selected sandbox boundary; prefer VM-backed execution for risky target code.
+- Keep target execution posture explicit. Recommend an externally launched VM/container for risky target code, but do not add Beale-managed permission gates or sandbox locks.
 
 ## Commands
 

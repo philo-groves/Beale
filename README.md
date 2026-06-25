@@ -26,7 +26,7 @@ It combines:
 - A structured, auditable workbench for mapping architecture, trust boundaries, and attack surfaces
 - Model-assisted (currently OpenAI) reasoning and discovery loops
 - Strong emphasis on evidence, verification, provenance, and responsible disclosure
-- Sandboxed execution of tools, fuzzing, debugging, and target binaries
+- Honeycrisp-backed execution, memory, trace, context, and artifact visibility
 
 The guiding philosophy is **human-steered, verifiable research** rather than fully autonomous scanning or benchmark chasing.
 
@@ -34,7 +34,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - **Authorization first** — everything stays within scoped, permitted programs/targets
 - **Evidence over claims** — model reasoning must be backed by observable tool results and artifacts
 - **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
-- **Isolation** — execution happens in controlled environments, with VM-backed sandboxes preferred for high-risk target execution
+- **Operator-controlled isolation** — Beale/Honeycrisp run with the user's host privileges; launch them inside your own VM or container when isolation is required
 - **Human in the loop** — steering, review, hypothesis validation, and patch checking remain researcher-driven
 
 ---
@@ -53,7 +53,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
-- **Execution Sandbox**: Targets and tools can run on the host with warnings today; Firecracker is the most exercised VM path, and Docker is available as a lower-assurance sandbox option
+- **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
 - **Model Integration**: Tool-calling loop with strict verification requirements
 
 ---
@@ -69,7 +69,6 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Hypothesis and finding side panels
 - Steering for active sessions
 - OpenAI provider onboarding/status UI
-- Firecracker setup tooling and live test path on WSL/Linux
 - Opt-in local profiling that writes structured JSONL reports
 - Planning documents and architecture notes in the `planning/` directory
 - No public releases yet
@@ -83,7 +82,6 @@ See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on 
 - Export, disclosure draft, and redacted trace review are incomplete.
 - Full pause/resume/stop/fork/restart run controls are incomplete.
 - Full verifier contract, artifact review, and evidence bundle controls are incomplete.
-- Hyper-V and Tart sandbox backends are not implemented yet.
 - Settings coverage is still narrow.
 
 See `planning/book/beta-readiness.md` for the current beta-readiness checklist.
@@ -125,36 +123,13 @@ npm run typecheck
 npm test
 ```
 
-Live OpenAI and Firecracker tests are opt-in because they require local credentials or host setup.
+Live OpenAI tests are opt-in because they require local credentials.
 
 ---
 
-## Sandbox Notes
+## Execution Notes
 
-The Linux/WSL Firecracker path is the most exercised VM-backed sandbox today.
-
-```bash
-npm run firecracker:init
-npm run firecracker:doctor
-```
-
-Privileged helper installation is intentionally explicit and may require `sudo`:
-
-```bash
-npm run firecracker:install-privileged-helper
-```
-
-Host execution is currently supported for product practicality, but VM-backed execution remains the safer direction for target code, generated PoCs, fuzzing, debugging, and closed-source executables.
-
-Docker can be selected as a sandbox backend for convenience, but it is less secure than a virtual machine and should not be treated as equivalent isolation for high-risk target execution.
-
-Beale's default Docker backend uses a local toolchain image:
-
-```bash
-npm run sandbox:docker:build
-```
-
-The image definition lives in `docker/sandbox-toolchain/` and is tagged as `beale-sandbox-toolchain:local`. Set `BEALE_DOCKER_IMAGE` to use a different local or remote image.
+Beale does not create a managed execution sandbox. Honeycrisp runs with the current user's host privileges and persists durable artifacts through its storage/memory layout. If a research target needs OS isolation, launch Beale and Honeycrisp inside the VM, container, or lab environment you want to use.
 
 ---
 
@@ -162,7 +137,7 @@ The image definition lives in `docker/sandbox-toolchain/` and is tagged as `beal
 
 Live model runs require OpenAI credentials with Responses API access.
 
-OpenAI credentials should stay on the host. They should not be mounted into sandboxes.
+OpenAI credentials stay in the host process and are not exposed to the renderer.
 
 ---
 

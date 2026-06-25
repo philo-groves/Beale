@@ -4,17 +4,13 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   DeveloperSettings,
-  ExecutorStatus,
   HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
   ProgramOnboardingProgressUpdate,
   RunDetail,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchResult,
   SteeringAction,
-  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
@@ -45,7 +41,6 @@ import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
-  vmPreferenceForState,
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
@@ -74,7 +69,6 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
-  const [standaloneExecutorStatus, setStandaloneExecutorStatus] = useState<ExecutorStatus | null>(null);
   const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
   const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -137,18 +131,6 @@ export function App(): JSX.Element {
       .then(setDeveloperSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
-
-  const refreshExecutorStatus = useCallback(async (): Promise<void> => {
-    try {
-      setStandaloneExecutorStatus(await window.beale.getExecutorStatus());
-    } catch (caught) {
-      handleError(errorMessage(caught));
-    }
-  }, [handleError]);
-
-  useEffect(() => {
-    void refreshExecutorStatus();
-  }, [refreshExecutorStatus, snapshot?.executor]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -246,39 +228,6 @@ export function App(): JSX.Element {
       }
     },
     [loadProgramRegistry]
-  );
-
-  const updateVmPreference = useCallback(
-    async (input: VmPreferenceInput) => {
-      await runProgramAction(async () => {
-        setProgramRegistry(await window.beale.setVmPreference(input));
-        await loadSnapshot();
-        await refreshExecutorStatus();
-      });
-    },
-    [loadSnapshot, refreshExecutorStatus, runProgramAction]
-  );
-
-  const setupSandbox = useCallback(
-    async (input: SandboxSetupInput): Promise<SandboxSetupResult> => {
-      setBusy(true);
-      setError(null);
-      try {
-        const result = await window.beale.setupSandbox(input);
-        await loadSnapshot();
-        await refreshExecutorStatus();
-        if (!result.ok) {
-          setError(result.detail);
-        }
-        return result;
-      } catch (caught) {
-        setError(errorMessage(caught));
-        throw caught;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [loadSnapshot, refreshExecutorStatus]
   );
 
   const openHoneycrispMemoryDirectory = useCallback(
@@ -410,13 +359,7 @@ export function App(): JSX.Element {
     sidebarCollapsed,
     inspectorOpen
   });
-  const vmPreference = vmPreferenceForState(programRegistry, snapshot);
-  const effectiveExecutor = snapshot?.executor ?? standaloneExecutorStatus;
   const currentProgramName = snapshot?.activeScope.programName ?? 'No Program Selected';
-  const configureVm = useCallback(() => {
-    setSettingsSection('sandboxes');
-    setSettingsOpen(true);
-  }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
@@ -558,14 +501,11 @@ export function App(): JSX.Element {
       </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
-        executor={effectiveExecutor}
-        vmPreference={vmPreference}
         activity={environmentActivity}
         detail={activeRunDetail}
         momentum={researchMomentum}
         notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
         inspectorOpen={inspectorOpen}
-        onConfigureVm={configureVm}
         onOpenSettings={openSettings}
         onToggleInspector={toggleInspector}
       />
@@ -583,7 +523,6 @@ export function App(): JSX.Element {
         activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
         busy={busy}
         developerSettings={developerSettings}
-        executor={effectiveExecutor}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
@@ -607,7 +546,6 @@ export function App(): JSX.Element {
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
         visibleTraceCategories={visibleTraceCategories}
-        vmPreference={vmPreference}
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelProgramOnboarding={closeProgramOnboarding}
         onChangeProgramDraft={setProgramDraft}
@@ -631,8 +569,6 @@ export function App(): JSX.Element {
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
-        onSetupSandbox={setupSandbox}
-        onSetVmPreference={updateVmPreference}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}

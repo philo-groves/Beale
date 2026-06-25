@@ -10661,7 +10661,6 @@ export class WorkspaceDatabase {
 
   private runEngineFromBudget(budget: Record<string, unknown>): RunEngineKind {
     if (budget.runEngine === 'honeycrisp') return 'honeycrisp';
-    if (budget.runEngine === 'executor_alpha') return 'executor_alpha';
     return budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake';
   }
 }

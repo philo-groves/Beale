@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ExecutorStatus, RunDetail, TraceEventRecord, VmPreference } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
-import { hostEnvironmentLabel, vmTargetStatus } from '../src/renderer/view-models/environmentDisplay';
+import { hostEnvironmentLabel } from '../src/renderer/view-models/environmentDisplay';
 
 describe('renderer footer view models', () => {
   it('formats context usage against the default 272k limit', () => {
@@ -96,19 +96,8 @@ describe('renderer footer view models', () => {
     expect(meter.source).toBe('compaction pressure');
   });
 
-  it('formats host and sandbox footer labels from host-owned capability state', () => {
+  it('formats host footer labels from host-owned state', () => {
     expect(hostEnvironmentLabel({ platform: 'linux', osLabel: '', isWsl: true, remoteName: 'Ubuntu' })).toBe('WSL: Ubuntu');
-
-    const vmPreference: VmPreference = {
-      enabled: true,
-      backendKind: 'firecracker',
-      updatedAt: '2026-04-29T00:00:00.000Z'
-    };
-    const target = vmTargetStatus(executorStatus(), vmPreference);
-
-    expect(target.configured).toBe(true);
-    expect(target.showConfigure).toBe(false);
-    expect(target.label).toBe('Firecracker');
   });
 });
 
@@ -143,36 +132,4 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
 
 function sessionTokenLabelForTotal(totalTokens: number): string {
   return visibleSessionTokenUsageLabel(contextMeterForDetail(runDetail({ traceEvents: [traceEvent({ payload: { usage: { total_tokens: totalTokens } } })] })));
-}
-
-function executorStatus(): ExecutorStatus {
-  return {
-    provider: 'vmctl',
-    configured: true,
-    available: true,
-    label: 'Firecracker',
-    reason: null,
-    targetExecution: true,
-    supportedNetworkProfiles: ['offline', 'scoped', 'elevated'],
-    supports: {
-      snapshots: true,
-      clone: true,
-      import: true,
-      export: true,
-      shell: true,
-      python: true,
-      debugger: true
-    },
-    backends: [
-      {
-        kind: 'firecracker',
-        label: 'Firecracker',
-        platform: 'linux',
-        configured: true,
-        available: true,
-        recommended: true,
-        reason: null
-      }
-    ]
-  };
 }

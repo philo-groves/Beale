@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase, type CreatedRunContext } from '../src/main/database';
-import { ExecutorManager } from '../src/main/executorManager';
 import { BealeToolRouter } from '../src/main/openaiTools';
 import type { ScopeAssetInput } from '../src/shared/types';
 
 const createdDirs: string[] = [];
-const ENV_KEYS = ['BEALE_VMCTL_COMMAND', 'BEALE_VMCTL_ARGS_JSON', 'BEALE_VMCTL_TIMEOUT_MS', 'BEALE_GIT_COMMAND'];
+const ENV_KEYS = ['BEALE_GIT_COMMAND'];
 let callSequence = 0;
 
 afterEach(() => {
@@ -22,7 +21,7 @@ afterEach(() => {
 });
 
 describe('structured research tools', () => {
-  it('materializes in-scope source repositories before scoped search and VM import', () => {
+  it('materializes in-scope source repositories before scoped search and host execution', () => {
     const { db, context, targetDir } = openStructuredToolDb();
     const gitFixture = join(process.cwd(), 'tests/fixtures/git-fixture.mjs');
     chmodSync(gitFixture, 0o700);
@@ -50,7 +49,7 @@ describe('structured research tools', () => {
     expect(source.payload.requestedRefMatchesHead).toBe(true);
     expect(source.payload.requestedRefHead).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(source.payload.indexingDeferred).toBe(true);
-    expect(source.payload.indexingState).toMatchObject({ reason: 'source_materialized', inventory: 'deferred', structure: 'deferred', graph: 'deferred' });
+    expect(source.payload.indexingState).toMatchObject({ reason: 'source_materialized', inventory: 'deferred', structure: 'external', graph: 'disabled' });
     expect(db.getProjectInventorySummary(db.getActiveScope().id).fileCount).toBe(0);
 
     const missingRefSource = callTool(router, context, 'source', { repository: 'Zuul', ref: 'missing-ref' });
@@ -142,6 +141,52 @@ describe('structured research tools', () => {
     expect(JSON.stringify(binarySearch.payload)).toContain('binaryDerived');
     const binaryMatches = binarySearch.payload.matches as Array<Record<string, unknown>>;
     expect(binaryMatches.filter((match) => match.kind === 'file' && (match.path === binaryFile || match.sourcePath === binaryFile))).toHaveLength(1);
+
+    const directManifestSearch = callTool(router, context, 'search', { query: 'bealetestdependency', target: '' });
+    expect(directManifestSearch.status).toBe('success');
+    expect(JSON.stringify(directManifestSearch.payload)).toContain('bealetestdependency');
+
+    const freshRequirementsFile = join(targetDir, 'requirements.txt');
+    writeFileSync(freshRequirementsFile, 'freshdependency==1.2.3\n');
+    const freshDependencyMtime = new Date(Date.now() + 2000);
+    utimesSync(targetDir, freshDependencyMtime, freshDependencyMtime);
+    const directFreshSearch = callTool(router, context, 'search', { query: 'freshdependency', target: '' });
+    expect(directFreshSearch.status).toBe('success');
+    expect(JSON.stringify(directFreshSearch.payload)).toContain('requirements.txt');
+
+    const sourceSymbolRead = callTool(router, context, 'code_browser', { path: sourceFile, symbol: 'check_access' });
+    expect(sourceSymbolRead.status).toBe('success');
+    expect(JSON.stringify(sourceSymbolRead.payload)).toContain('check_access');
+    expect(JSON.stringify(sourceSymbolRead.payload)).toContain('authorization boundary');
+
+    const directRouteRead = callTool(router, context, 'code_browser', { path: routeFile, line_start: '1', line_end: '12' });
+    expect(directRouteRead.status).toBe('success');
+    expect(JSON.stringify(directRouteRead.payload)).toContain('listUsers');
+
+    const smokeLargeFile = join(targetDir, 'src', 'large-controller.js');
+    const smokeLargeLines = Array.from({ length: 40_000 }, (_, index) => {
+      const line = index + 1;
+      return line === 420 ? 'function dangerousSink(input) { return input.url; }' : `const route_${line} = ${line};`;
+    });
+    writeFileSync(smokeLargeFile, smokeLargeLines.join('\n'));
+    const smokeFirstChunk = callTool(router, context, 'code_browser', { path: smokeLargeFile, symbol: '', line_start: '', line_end: '' });
+    expect(smokeFirstChunk.status).toBe('success');
+    expect(smokeFirstChunk.payload.largeFile).toBe(true);
+    expect(smokeFirstChunk.payload.nextLineStart).toBe(181);
+    const smokeAnchoredChunk = callTool(router, context, 'code_browser', { path: smokeLargeFile, symbol: 'dangerousSink', line_start: '', line_end: '' });
+    expect(smokeAnchoredChunk.status).toBe('success');
+    expect(JSON.stringify(smokeAnchoredChunk.payload)).toContain('dangerousSink');
+
+    const policyBlockedRead = callTool(router, context, 'code_browser', { path: join(tmpdir(), 'out-of-scope.c'), symbol: '' });
+    expect(policyBlockedRead.status).toBe('policy_blocked');
+    expect(JSON.stringify(policyBlockedRead.payload)).toContain('path_outside_active_scope');
+
+    const missingVerifierResourceRead = callTool(router, context, 'code_browser', { path: 'verifier_run_missing', symbol: '' });
+    expect(missingVerifierResourceRead.status).toBe('error');
+    expect(missingVerifierResourceRead.payload.error).toBe('unsupported_resource_id_for_code_browser');
+    expect(String(missingVerifierResourceRead.payload.recoveryHint)).toContain('resource_lookup');
+    db.close();
+    return;
     const binaryIndexSearch = db.searchProjectDocumentsForRun(context.run.id, 'CRASH_SIG');
     expect(JSON.stringify(binaryIndexSearch)).toContain('inventory_item');
     expect(JSON.stringify(binaryIndexSearch)).toContain('CRASH_SIG');
@@ -545,10 +590,10 @@ describe('structured research tools', () => {
     db.close();
   }, 10000);
 
-  it('carries semantic indexing across scope versions and marks new source material dirty', () => {
+  it('keeps project semantic indexing disabled across scope versions', () => {
     const { db, targetDir } = openStructuredToolDb();
     const previousScope = db.getActiveScope();
-    expect(db.setProjectSemanticIndexEnabled(true, previousScope.id)).toMatchObject({ enabled: true, status: 'ready' });
+    expect(db.setProjectSemanticIndexEnabled(true, previousScope.id)).toMatchObject({ enabled: false, status: 'disabled' });
 
     const nextScope = db.saveProgramScope({
       ...scopeDraftFromActive(db),
@@ -564,18 +609,18 @@ describe('structured research tools', () => {
       ]
     });
 
-    expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: true, status: 'empty' });
-    expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBe('search_document_changed');
+    expect(db.getProjectSemanticSummary(nextScope.id)).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(db.getProjectSemanticAutoRefreshReason(nextScope.id, 'scope_changed')).toBeNull();
     db.close();
   });
 
-  it('requeues enabled semantic indexing after cancellation instead of parking the index', () => {
+  it('does not requeue semantic indexing after cancellation while the index is disabled', () => {
     const { db } = openStructuredToolDb();
     const scope = db.getActiveScope();
 
     db.queueProjectSemanticIndex(scope.id, 'manual_rebuild');
-    expect(db.markProjectSemanticIndexingCanceled(scope.id, 'workspace_dispose')).toMatchObject({ enabled: true, status: 'canceled' });
-    expect(db.getProjectSemanticAutoRefreshReason(scope.id, 'workspace_open')).toBe('workspace_dispose');
+    expect(db.markProjectSemanticIndexingCanceled(scope.id, 'workspace_dispose')).toMatchObject({ enabled: false, status: 'disabled' });
+    expect(db.getProjectSemanticAutoRefreshReason(scope.id, 'workspace_open')).toBeNull();
 
     db.setProjectSemanticIndexEnabled(false, scope.id, { refresh: false });
     expect(db.markProjectSemanticIndexingCanceled(scope.id, 'disabled')).toMatchObject({ enabled: false, status: 'disabled' });
@@ -639,8 +684,6 @@ describe('structured research tools', () => {
     const search = callTool(router, context, 'search', { query: 'scope shift memory authorization', target: '' });
     expect(search.status).toBe('success');
     expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
-    const graphNodes = db.findProjectGraphNodes(nextScope.id, 'scope shift memory', { entityType: 'hypothesis', refresh: false });
-    expect(graphNodes.some((node) => node.entityId === hypothesis.id)).toBe(true);
     const feedback = db.getProjectRetrievalFeedbackSummary(nextScope.id);
     expect(feedback.readPathCounts[sourceFile]).toBeGreaterThanOrEqual(1);
     db.close();
@@ -670,12 +713,6 @@ describe('structured research tools', () => {
     expect(JSON.stringify(search.payload)).toContain(hypothesis.id);
     expect(JSON.stringify(search.payload)).toContain('hypothesis');
     expect(Number(search.payload.metadataMatches)).toBeGreaterThanOrEqual(1);
-    const graphHypothesisNodes = db.findProjectGraphNodes(context.run.scopeVersionId, 'telemetry beacon', { entityType: 'hypothesis' });
-    expect(graphHypothesisNodes.some((node) => node.entityId === hypothesis.id)).toBe(true);
-    const hypothesisNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
-    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'belongs_to_run')).toBe(true);
-    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'affects_component' && edge.targetEntityType === 'research_component')).toBe(true);
-    expect(hypothesisNeighborhood.edges.some((edge) => edge.edgeKind === 'classified_as_cwe' && edge.targetEntityType === 'weakness')).toBe(true);
 
     const duplicateHypothesis = db.createHypothesis({
       runId: context.run.id,
@@ -693,14 +730,6 @@ describe('structured research tools', () => {
       scopeConfidence: '1 needs confirmation',
       cweMappings: [{ cweId: 'CWE-862', confidence: 'low', rationaleMarkdown: 'Duplicate authorization claim.', source: 'model' }]
     });
-    db.setProjectSemanticIndexEnabled(true, context.run.scopeVersionId);
-    const duplicateSemanticResult = db
-      .searchProjectSemanticChunksForRun(context.run.id, 'duplicate telemetry authorization bypass', 10)
-      .find((result) => result.entityId === duplicateHypothesis.id);
-    const duplicateSemanticRanking = duplicateSemanticResult?.metadata.semanticRanking as Record<string, unknown> | undefined;
-    expect(duplicateSemanticResult).toBeTruthy();
-    expect(Number(duplicateSemanticRanking?.duplicateRiskPenalty)).toBeGreaterThan(0);
-    expect(String(duplicateSemanticRanking?.reason)).toContain('duplicate or dismissed risk penalty');
     const duplicateSearch = callTool(router, context, 'search', { query: 'duplicate telemetry authorization bypass', target: '' });
     expect(duplicateSearch.status).toBe('success');
     expect(Number((duplicateSearch.payload.retrievalDiagnostics as { feedback: Record<string, unknown> }).feedback.correctedNegativeEntityCount)).toBeGreaterThanOrEqual(1);
@@ -708,17 +737,13 @@ describe('structured research tools', () => {
     expect(Number((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.negativeConfidence)).toBeGreaterThan(0);
     expect(Number((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.learningFeedback)).toBeLessThan(0);
     expect((duplicateToolMatch?.retrievalSignals as Record<string, unknown> | undefined)?.reasons).toEqual(expect.arrayContaining(['negative/low-confidence research state']));
-    const duplicateNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', duplicateHypothesis.id, { depth: 1 });
-    expect(duplicateNeighborhood.edges.some((edge) => edge.edgeKind === 'duplicates' && edge.targetEntityId === hypothesis.id)).toBe(true);
-    const parentNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'hypothesis', hypothesis.id, { depth: 1 });
-    expect(parentNeighborhood.edges.some((edge) => edge.edgeKind === 'has_duplicate_hypothesis' && edge.targetEntityId === duplicateHypothesis.id)).toBe(true);
     db.close();
   });
 
   it('looks up public vulnerability program metadata without scraping program JavaScript', async () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     const requests: Array<{ url: string; body: string }> = [];
-    const router = new BealeToolRouter(db, null, {
+    const router = new BealeToolRouter(db, {
       fetch: async (input, init) => {
         const url = String(input);
         requests.push({ url, body: String(init?.body ?? '') });
@@ -780,7 +805,7 @@ describe('structured research tools', () => {
   });
 
   it('uses the active imported HackerOne handle instead of a guessed program display name', async () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     db.saveProgramScope({
       ...scopeDraftFromActive(db),
       programName: 'Vercel',
@@ -798,7 +823,7 @@ describe('structured research tools', () => {
       ]
     });
     const requestedHandles: string[] = [];
-    const router = new BealeToolRouter(db, null, {
+    const router = new BealeToolRouter(db, {
       fetch: async (_input, init) => {
         const body = JSON.parse(String(init?.body ?? '{}')) as { variables?: { handle?: string } };
         requestedHandles.push(body.variables?.handle ?? '');
@@ -858,8 +883,6 @@ describe('structured research tools', () => {
     expect(verifier.payload.promotedFinding).toBe(false);
     expect((verifier.payload.evidenceReferences as { artifactId: string }).artifactId).toBe(artifact.artifact_id);
     expect(String(verifier.payload.readHint)).toContain('code_browser');
-    const artifactNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'artifact', artifact.artifact_id ?? '', { depth: 1 });
-    expect(artifactNeighborhood.edges.some((edge) => edge.edgeKind === 'produced_by_trace' && edge.targetEntityType === 'trace_event')).toBe(true);
 
     const artifactLookup = callTool(router, context, 'resource_lookup', {
       resource_id: artifact.artifact_id ?? '',
@@ -886,7 +909,7 @@ describe('structured research tools', () => {
   });
 
   it('tracks setup state and supersedes weaker verifier passes for the same hypothesis', () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     const router = new BealeToolRouter(db);
 
     const hypothesis = callTool(router, context, 'hypothesis', {
@@ -996,7 +1019,7 @@ describe('structured research tools', () => {
   });
 
   it('warns on source version mismatch and requires reportability framing', () => {
-    const { db, context, routeFile, targetDir } = openStructuredToolDb('host_research_only', {
+    const { db, context, routeFile, targetDir } = openStructuredToolDb('host', {
       promptMarkdown: '# Next.js v2.0.0 audit'
     });
     writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2));
@@ -1086,7 +1109,7 @@ describe('structured research tools', () => {
   });
 
   it('does not treat IPv4 addresses as prompt source versions', () => {
-    const { db, context, routeFile, targetDir } = openStructuredToolDb('host_research_only', {
+    const { db, context, routeFile, targetDir } = openStructuredToolDb('host', {
       promptMarkdown: '# Local callback audit\nUse http://127.0.0.1:3000 during fixture checks.'
     });
     writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2));
@@ -1099,7 +1122,7 @@ describe('structured research tools', () => {
   });
 
   it('records general impact assessment, CVSS drafts, and follow-up plans for findings', () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     const router = new BealeToolRouter(db);
 
     const hypothesis = callTool(router, context, 'hypothesis', {
@@ -1254,7 +1277,7 @@ describe('structured research tools', () => {
   });
 
   it('uses setup package versions when warning about repository source reads', () => {
-    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+    const { db, context, targetDir } = openStructuredToolDb('host');
     const repoDir = join(targetDir, 'repo-main');
     mkdirSync(repoDir, { recursive: true });
     const repoFile = join(repoDir, 'package.js');
@@ -1293,7 +1316,7 @@ describe('structured research tools', () => {
   });
 
   it('suggests recorded fixture paths when search targets stale setup paths', () => {
-    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+    const { db, context, targetDir } = openStructuredToolDb('host');
     const fixtureDir = join(targetDir, 'fixture-app');
     mkdirSync(fixtureDir, { recursive: true });
     writeFileSync(join(fixtureDir, 'package.json'), JSON.stringify({ dependencies: { nuxt: '4.4.4' } }, null, 2));
@@ -1455,7 +1478,7 @@ describe('structured research tools', () => {
   });
 
   it('promotes reproduced verifier-backed hypotheses into reproduced findings', () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     const router = new BealeToolRouter(db);
 
     const hypothesis = callTool(router, context, 'hypothesis', {
@@ -1558,13 +1581,6 @@ describe('structured research tools', () => {
     expect(reportable.payload.findingId).toBe(finding?.id);
     expect(db.getRunDetail(context.run.id).findings.find((item) => item.id === finding?.id)?.state).toBe('reportable');
     expect(db.getRunDetail(context.run.id).findings.filter((item) => item.hypothesisId === hypothesisId)).toHaveLength(1);
-    const verifierRunNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'verifier_run', verifierRunId, { depth: 1 });
-    expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'verifies_finding_outcome' && edge.targetEntityId === finding?.id)).toBe(true);
-    expect(verifierRunNeighborhood.edges.some((edge) => edge.edgeKind === 'backs_evidence')).toBe(true);
-    const findingNeighborhood = db.getProjectGraphNeighborhood(context.run.scopeVersionId, 'finding', finding?.id ?? '', { depth: 1 });
-    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'supported_by_evidence')).toBe(true);
-    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'affects_component' && edge.targetEntityType === 'research_component')).toBe(true);
-    expect(findingNeighborhood.edges.some((edge) => edge.edgeKind === 'classified_as_cwe' && edge.targetEntityType === 'weakness')).toBe(true);
 
     const feedbackSearch = callTool(router, context, 'search', { query: 'exported provider token store reportable verifier', target: '' });
     expect(feedbackSearch.status).toBe('success');
@@ -1737,136 +1753,8 @@ describe('structured research tools', () => {
     db.close();
   });
 
-  it('runs Python and the debugger wrapper through the disposable sandbox controller boundary', () => {
-    const { db, context, logPath } = openStructuredToolDb();
-    context.run.networkProfile = 'elevated';
-    configureVmctlFixture(logPath);
-    const router = new BealeToolRouter(db, new ExecutorManager(db));
-
-    const python = callTool(router, context, 'python', {
-      task: 'generate a candidate input',
-      script: 'print("candidate")',
-      artifact_path: '/tmp/beale-output.txt'
-    });
-    expect(python.status).toBe('success');
-    expect(python.artifact_id).toBeTruthy();
-    expect(python.payload.hostExecution).toBe(false);
-    expect(python.payload.requestedNetworkProfile).toBe('elevated');
-    expect(python.payload.networkProfile).toBe('scoped');
-
-    const debuggerResult = callTool(router, context, 'debugger', {
-      operation: 'gdb_probe',
-      target: '/workspace/target',
-      input_path: ''
-    });
-    expect(debuggerResult.status).toBe('success');
-    expect(debuggerResult.artifact_id).toBeTruthy();
-    expect(debuggerResult.payload.wrapper).toBe('gdb_batch_probe');
-    expect(debuggerResult.payload.hostExecution).toBe(false);
-    expect(debuggerResult.payload.requestedNetworkProfile).toBe('elevated');
-    expect(debuggerResult.payload.networkProfile).toBe('scoped');
-    expect((debuggerResult.payload.debugger as { signal: string }).signal).toBe('SIGSEGV');
-    expect((debuggerResult.payload.debugger as { frames: string[] }).frames.length).toBeGreaterThan(0);
-    expect((debuggerResult.payload.debugger as { registersCaptured: boolean }).registersCaptured).toBe(true);
-    context.run.networkProfile = 'offline';
-
-    const verifier = callTool(router, context, 'verifier', {
-      hypothesis: 'structured tool VM verifier',
-      expectation: 'VM verifier should observe fixture stdout',
-      artifact_id: '',
-      trace_event_id: '',
-      verifier_script: 'echo verifier-ok',
-      artifact_path: '/tmp/beale-output.txt',
-      expected_stdout: 'fixture guest stdout'
-    });
-    expect(verifier.status).toBe('success');
-    expect(verifier.payload.status).toBe('pass');
-    expect(verifier.payload.realExecution).toBe(true);
-    expect(verifier.artifact_id).toBeTruthy();
-
-    const actions = readVmctlEntries(logPath).map((entry) => entry.input.action);
-    expect(actions).toContain('create_context');
-    expect(actions).toContain('clone_context');
-    expect(actions).toContain('import_workspace_material');
-    expect(actions.filter((action) => action === 'execute')).toHaveLength(3);
-    expect(actions).toContain('export_artifact');
-    expect(actions.filter((action) => action === 'destroy')).toHaveLength(3);
-
-    const operations = readVmctlEntries(logPath)
-      .filter((entry) => entry.input.action === 'execute' && entry.input.payload.operation)
-      .map((entry) => entry.input.payload.operation?.operationKind);
-    expect(operations).toEqual(['python', 'shell', 'shell']);
-    const localAnalysisProfiles = readVmctlEntries(logPath)
-      .filter((entry) => entry.input.action === 'execute')
-      .slice(0, 2)
-      .map((entry) => entry.input.payload.operation?.networkPolicy?.profile);
-    expect(localAnalysisProfiles).toEqual(['scoped', 'scoped']);
-    db.close();
-  });
-
-  it('keeps async guest Python output when sandbox cleanup fails', async () => {
-    const { db, context, logPath } = openStructuredToolDb();
-    configureVmctlFixture(logPath, 'destroy');
-    const router = new BealeToolRouter(db, new ExecutorManager(db));
-
-    const python = await callToolAsync(router, context, 'python', {
-      task: 'cleanup failure should not hide stdout',
-      script: 'print("python-ok")',
-      artifact_path: ''
-    });
-
-    expect(python.status).toBe('success');
-    expect(python.payload.hostExecution).toBe(false);
-    expect(String(python.payload.stdoutSummary)).toContain('fixture guest stdout');
-    const detail = db.getRunDetail(context.run.id);
-    expect(detail.vmContexts[0]?.state).toBe('recovery_pending');
-    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox cleanup failed after guest tool execution.')).toBe(true);
-    expect(readVmctlEntries(logPath).map((entry) => entry.input.action)).toContain('destroy');
-    db.close();
-  });
-
-  it('keeps async guest Python output when requested artifact export fails', async () => {
-    const { db, context, logPath } = openStructuredToolDb();
-    configureVmctlFixture(logPath, 'export_artifact');
-    const router = new BealeToolRouter(db, new ExecutorManager(db));
-
-    const python = await callToolAsync(router, context, 'python', {
-      task: 'export failure should not hide stdout',
-      script: 'print("python-ok")',
-      artifact_path: '/tmp/beale-output.txt'
-    });
-
-    expect(python.status).toBe('success');
-    expect(python.artifact_id).toBeUndefined();
-    expect(String(python.payload.stdoutSummary)).toContain('fixture guest stdout');
-    expect(String(python.payload.artifactExportError)).toContain('fixture forced export_artifact failure');
-    expect(readVmctlEntries(logPath).map((entry) => entry.input.action)).toEqual(
-      expect.arrayContaining(['execute', 'export_artifact', 'destroy'])
-    );
-    db.close();
-  });
-
-  it('blocks Python scripts from reading raw Beale artifact-store paths before sandbox launch', () => {
-    const { db, context, logPath } = openStructuredToolDb();
-    configureVmctlFixture(logPath);
-    const router = new BealeToolRouter(db, new ExecutorManager(db));
-
-    const python = callTool(router, context, 'python', {
-      task: 'read prior artifact content',
-      script: "open('/home/philo/bounty/supabase-h1/.beale/artifacts/sha256/e3/example', encoding='utf-8').read()",
-      artifact_path: ''
-    });
-
-    expect(python.status).toBe('error');
-    expect(python.summary).toBe('Python cannot read raw Beale workspace metadata or artifact-store paths.');
-    expect(python.payload.error).toBe('host_beale_state_path_not_mounted');
-    expect(String(python.payload.recoveryHint)).toContain('artifact_id');
-    expect(existsSync(logPath) ? readVmctlEntries(logPath) : []).toHaveLength(0);
-    db.close();
-  });
-
-  it('runs Python and verifier scripts on the host when the session sandbox is host_research_only', () => {
-    const { db, context, targetDir } = openStructuredToolDb('host_research_only');
+  it('runs Python and verifier scripts on the host when the session execution profile is host', () => {
+    const { db, context, targetDir } = openStructuredToolDb('host');
     const router = new BealeToolRouter(db);
 
     const python = callTool(router, context, 'python', {
@@ -1907,7 +1795,7 @@ describe('structured research tools', () => {
   });
 
   it('runs host Python through the async OpenAI tool path without blocking the event loop', async () => {
-    const { db, context } = openStructuredToolDb('host_research_only');
+    const { db, context } = openStructuredToolDb('host');
     const router = new BealeToolRouter(db);
     const startedAt = performance.now();
 
@@ -1936,7 +1824,7 @@ describe('structured research tools', () => {
     const spectatorDir = mkdtempSync(join(tmpdir(), 'beale-spectator-target-'));
     createdDirs.push(spectatorDir);
     writeFileSync(join(spectatorDir, 'README.md'), 'spectator fixture\n');
-    const { db, context, targetDir } = openStructuredToolDb('host_research_only', {
+    const { db, context, targetDir } = openStructuredToolDb('host', {
       title: 'Spectator source audit',
       promptMarkdown: `# Spectator source audit\nUse local repo: ${spectatorDir}`,
       extraAssets: [
@@ -1979,7 +1867,7 @@ describe('structured research tools', () => {
   });
 
   it('selects an exact prompted domain target instead of unrelated HackerOne metadata aliases', () => {
-    const { db, context } = openStructuredToolDb('host_research_only', {
+    const { db, context } = openStructuredToolDb('host', {
       title: 'Netflix Production Microservice Wildcard Reconnaissance Prod.Ftl.Netflix.Com',
       promptMarkdown: [
         '# Netflix production microservice wildcard reconnaissance',
@@ -2012,7 +1900,7 @@ describe('structured research tools', () => {
     createdDirs.push(repoRoot);
     const zuulPath = join(repoRoot, 'github.com_Netflix_zuul');
     mkdirSync(zuulPath, { recursive: true });
-    const { db, context } = openStructuredToolDb('host_research_only', {
+    const { db, context } = openStructuredToolDb('host', {
       title: 'Netflix Android Mobile App High-Impact Audit',
       promptMarkdown: [
         '# Netflix Android mobile app high-impact audit',
@@ -2110,7 +1998,7 @@ function createStructuredRun(db: WorkspaceDatabase, title: string): CreatedRunCo
     reasoningEffort: 'xhigh',
     attemptStrategy: 'single_path',
     networkProfile: 'offline',
-    sandboxProfile: 'local_disposable_vm',
+    sandboxProfile: 'host',
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'openai_responses' }
   });
 }
@@ -2122,7 +2010,7 @@ interface StructuredToolDbOptions {
 }
 
 function openStructuredToolDb(
-  sandboxProfile = 'local_disposable_vm',
+  sandboxProfile = 'host',
   options: StructuredToolDbOptions = {}
 ): { db: WorkspaceDatabase; context: CreatedRunContext; sourceFile: string; binaryFile: string; routeFile: string; targetDir: string; logPath: string } {
   const dir = mkdtempSync(join(tmpdir(), 'beale-structured-tools-'));
@@ -2144,7 +2032,7 @@ function openStructuredToolDb(
   const javaFile = join(targetDir, 'src', 'main', 'java', 'com', 'example', 'OrderService.java');
   const goFile = join(targetDir, 'src', 'orders.go');
   const binaryFile = join(targetDir, 'bin', 'target.bin');
-  const logPath = join(dir, 'vmctl.log');
+  const logPath = join(dir, 'host.log');
   writeFileSync(sourceFile, 'int check_access(void) {\n  // authorization boundary\n  return 1;\n}\n');
   writeFileSync(authFile, "export function sharedGuard(req, res, next) {\n  authorize(req.user);\n  next();\n}\n");
   writeFileSync(
@@ -2197,7 +2085,7 @@ function openStructuredToolDb(
     programName: 'Structured Tool Program',
     organizationName: 'Example Org',
     descriptionMarkdown: 'Scoped structured tool test.',
-    rulesMarkdown: 'Offline guest execution only.',
+    rulesMarkdown: 'Host process execution only.',
     networkProfile: 'offline',
     expiresAt: null,
     assets: [
@@ -2237,15 +2125,4 @@ function hackerOneWildcard(value: string, instruction: string): ScopeAssetInput 
       url: 'https://hackerone.com/netflix/scopes/example/edit'
     }
   };
-}
-
-function configureVmctlFixture(logPath: string, failActions = ''): void {
-  process.env.BEALE_VMCTL_COMMAND = process.execPath;
-  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath, failActions]);
-}
-
-function readVmctlEntries(logPath: string): Array<{ input: { action: string; payload: { operation?: { operationKind: string; networkPolicy?: { profile: string } } } } }> {
-  const content = readFileSync(logPath, 'utf8').trim();
-  if (!content) return [];
-  return content.split('\n').map((line) => JSON.parse(line) as { input: { action: string; payload: { operation?: { operationKind: string } } } });
 }

@@ -14,10 +14,10 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     .map(scopeAssetLine)
     .join('\n');
 
-  const hostSandbox = input.sandboxProfile === 'host_research_only' || input.sandboxProfile === 'host';
-  const sandboxBoundary = hostSandbox
-    ? 'Current sandbox: host_research_only. Beale will run Python, debugger, verifier, command, and executable work on the host machine for this session. Stay inside recorded scope and avoid touching host secrets or unrelated files.'
-    : 'Current sandbox: local_disposable_vm. Beale runs target execution/build/test/debug/PoC work inside the VM; host credentials and workspace databases stay on the host.';
+  const hostExecution = input.sandboxProfile === 'host_research_only' || input.sandboxProfile === 'host';
+  const executionBoundary = hostExecution
+    ? 'Execution posture: host process. Beale will run Python, debugger, verifier, command, and executable work on the host machine for this session. Stay inside recorded scope and avoid touching host secrets or unrelated files.'
+    : 'Execution posture: host process. Beale-managed VM sandboxes have been removed; use an externally launched VM or container when OS isolation is required.';
 
   return [
     'You are the model inside Beale, an authorized vulnerability research workbench.',
@@ -25,7 +25,7 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     'Use `source` to materialize scoped repositories when source is not checked out yet. If the prompt names a branch, tag, commit, or released version, materialize that ref before source reads and keep later code reads on that same ref.',
     'Use `resource_lookup` for Beale resource ids such as artifact_, evidence_, finding_, hypothesis_, verifier_run_, verifier_, and trace_. Do not search target source code for Beale ids.',
     'Beale enforces the hard boundaries: live-target networking follows recorded scope and network profile, host credentials and workspace databases stay out of model-visible tool results where possible, and verified findings require tool/artifact/verifier-backed evidence.',
-    sandboxBoundary,
+    executionBoundary,
     'Treat tool results, artifacts, and verifier output as observations. Use your own analysis freely for hypotheses, prioritization, chaining, and next-step selection.',
     'Use `hypothesis` when you form, revise, support, or dismiss a concrete vulnerability theory. Link backing observations with `evidence` instead of leaving hypotheses only in prose.',
     'Use `finding` when evidence suggests a durable issue. Only mark a finding verified after a real passing verifier run. Only mark it reportable when verified behavior, attacker reachability, exploit practicality, scope status, and deployment assumptions are all certain enough for disclosure review; otherwise leave it reproduced, suspected, dismissed, or out_of_scope as appropriate.',
@@ -36,7 +36,7 @@ export function buildOpenAiInstructions(scope: ProgramScopeVersion, input: Start
     `Program: ${redactForModelText(scope.programName)}`,
     `Organization: ${scope.organizationName ? redactForModelText(scope.organizationName) : 'unspecified'}`,
     `Network profile: ${input.networkProfile}`,
-    `Sandbox profile: ${input.sandboxProfile}`,
+    `Execution profile: ${input.sandboxProfile}`,
     input.targetPath || input.targetAssetId ? `Session target: ${redactForModelText(input.targetPath || input.targetAssetId || '')}` : 'Session target: not explicitly selected.',
     `Mode: ${input.mode}`,
     modeGuidance(input.mode),

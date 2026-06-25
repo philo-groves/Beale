@@ -699,7 +699,7 @@ function openAiInput(): StartRunInput {
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     networkProfile: 'offline',
-    sandboxProfile: 'local_disposable_vm',
+    sandboxProfile: 'host',
     budget: {
       maxMinutes: 30,
       maxAttempts: 2,

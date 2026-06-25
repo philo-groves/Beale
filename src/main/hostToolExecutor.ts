@@ -4,12 +4,12 @@ import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
+import type { ToolExecutionRequest, ToolExecutionResult } from './executionTypes';
 import { localRunTargetPath } from './runTarget';
 import type { ScopeAsset } from '@shared/types';
 
 interface HostExecutionOutcome {
-  result: GuestExecuteResult;
+  result: ToolExecutionResult;
   artifactId: string | null;
   artifactPath: string | null;
   cwd: string;
@@ -27,14 +27,14 @@ interface HostProcessResult {
 const MAX_HOST_OUTPUT_CHARS = 16_000;
 const MAX_HOST_ARTIFACT_BYTES = 512 * 1024;
 
-export function isHostResearchSandbox(profile: string): boolean {
+export function isHostExecutionProfile(profile: string): boolean {
   return profile === 'host_research_only' || profile === 'host';
 }
 
 export function executeHostOperation(
   db: WorkspaceDatabase,
   context: CreatedRunContext,
-  request: GuestExecuteRequest,
+  request: ToolExecutionRequest,
   artifactPath: string | null,
   artifactKind: string
 ): HostExecutionOutcome {
@@ -55,7 +55,7 @@ export function executeHostOperation(
 export async function executeHostOperationAsync(
   db: WorkspaceDatabase,
   context: CreatedRunContext,
-  request: GuestExecuteRequest,
+  request: ToolExecutionRequest,
   artifactPath: string | null,
   artifactKind: string
 ): Promise<HostExecutionOutcome> {
@@ -74,7 +74,7 @@ export async function executeHostOperationAsync(
 function hostExecutionOutcomeFromResult(
   db: WorkspaceDatabase,
   context: CreatedRunContext,
-  request: GuestExecuteRequest,
+  request: ToolExecutionRequest,
   artifactPath: string | null,
   artifactKind: string,
   cwd: string,
@@ -117,7 +117,7 @@ function hostExecutionOutcomeFromResult(
       candidateArtifacts: artifact
         ? [
             {
-              guestPath: resolvedArtifactPath ?? '',
+              path: resolvedArtifactPath ?? '',
               kind: artifact.kind,
               mimeType: artifact.mimeType,
               sensitivity: artifact.sensitivity,
@@ -195,7 +195,7 @@ function spawnHostProcess(
   });
 }
 
-export function mapSandboxPathToHost(db: WorkspaceDatabase, value: string, context?: CreatedRunContext): string {
+export function mapExecutionPathToHost(db: WorkspaceDatabase, value: string, context?: CreatedRunContext): string {
   const hostTarget = firstScopedLocalTarget(db, context);
   const cwd = hostTarget ? cwdForTarget(hostTarget) : workspaceRoot(db);
   const trimmed = value.trim();
@@ -285,8 +285,8 @@ function isCollectableHostArtifact(db: WorkspaceDatabase, path: string, hostTarg
   const resolved = resolve(path);
   if (pathContainsSegment(resolved, '.beale')) return false;
   if (isWithinPath(resolved, workspaceRoot(db))) return true;
-  const tempRoot = resolve(tmpdir());
-  return isWithinPath(resolved, tempRoot) && isCollectableTempArtifactName(basename(resolved), hostTarget);
+  const tempRoots = new Set([resolve(tmpdir()), resolve('/tmp')]);
+  return [...tempRoots].some((tempRoot) => isWithinPath(resolved, tempRoot)) && isCollectableTempArtifactName(basename(resolved), hostTarget);
 }
 
 function hostToolEnv(input: Record<string, string>, hostTarget: string | null): NodeJS.ProcessEnv {

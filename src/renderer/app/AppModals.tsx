@@ -1,7 +1,6 @@
 import type { JSX } from 'react';
 import type {
   DeveloperSettings,
-  ExecutorStatus,
   FindingRecord,
   HypothesisRecord,
   NotificationRecord,
@@ -13,11 +12,7 @@ import type {
   ProgramRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchResult,
-  VmPreference,
-  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
@@ -40,7 +35,6 @@ export function AppModals({
   activeProgramName,
   busy,
   developerSettings,
-  executor,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
@@ -64,7 +58,6 @@ export function AppModals({
   traceDetailOpen,
   traceFilterOpen,
   visibleTraceCategories,
-  vmPreference,
   onCancelNewResearch,
   onCancelProgramOnboarding,
   onChangeProgramDraft,
@@ -85,8 +78,6 @@ export function AppModals({
   onRefreshOpenAi,
   onFlushProfilingReport,
   onSetDeveloperModeEnabled,
-  onSetupSandbox,
-  onSetVmPreference,
   onStartOpenAiOAuth,
   onStartedNewResearch,
   onSteerNotification,
@@ -100,7 +91,6 @@ export function AppModals({
   activeProgramName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
-  executor: ExecutorStatus | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -124,7 +114,6 @@ export function AppModals({
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
-  vmPreference: VmPreference;
   onCancelNewResearch: () => void;
   onCancelProgramOnboarding: () => void;
   onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
@@ -145,8 +134,6 @@ export function AppModals({
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
-  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
@@ -173,7 +160,6 @@ export function AppModals({
       {newResearchOpen && snapshot ? (
         <StartRunForm
           snapshot={snapshot}
-          vmPreference={vmPreference}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}
@@ -184,17 +170,13 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
-          executor={executor}
           programName={activeProgramName}
-          vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
-          onSetVmPreference={onSetVmPreference}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
-          onSetupSandbox={onSetupSandbox}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
         />

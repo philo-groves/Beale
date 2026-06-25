@@ -1,11 +1,8 @@
-import { existsSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import { ExecutorManager, normalizeNetworkProfile } from './executorManager';
-import type { GuestExecuteRequest, GuestExecuteResult } from './executorTypes';
-import { executeHostOperation, isHostResearchSandbox } from './hostToolExecutor';
+import type { ToolExecutionRequest, ToolExecutionResult } from './executionTypes';
+import { executeHostOperation } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
-import type { ScopeAsset, VerifierContractRecord, VerifierRunRecord } from '@shared/types';
+import type { ExecutorNetworkProfile, VerifierContractRecord, VerifierRunRecord } from '@shared/types';
 
 interface VerifierExecutionSpec {
   operationKind: 'shell' | 'python';
@@ -23,11 +20,8 @@ export interface VerifierExecutionOutcome {
   artifactId: string | null;
 }
 
-const LOCAL_IMPORT_ASSET_KINDS: ReadonlySet<ScopeAsset['kind']> = new Set(['path', 'repo', 'binary', 'documentation', 'other']);
-
 export function runVerifierContract(
   db: WorkspaceDatabase,
-  executor: ExecutorManager | null,
   runId: string,
   contract: VerifierContractRecord,
   attemptId: string | null,
@@ -47,151 +41,7 @@ export function runVerifierContract(
   }
 
   const context = verifierContext(db, runId, attemptId, vmContextId);
-  if (isHostResearchSandbox(context.run.sandboxProfile)) {
-    return runHostVerifierContract(db, runId, contract, context, spec, note);
-  }
-
-  if (!executor) {
-    return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed before VM start.', {
-      issues: ['Sandbox executor is not available'],
-      note: redactForModelText(note)
-    });
-  }
-
-  const status = executor.getStatus();
-  if (!status.available) {
-    return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed before VM start.', {
-      issues: [status.reason ?? 'Sandbox executor is not available'],
-      note: redactForModelText(note)
-    });
-  }
-
-  const imageRef = context.vmContext.imageId || 'beale-default-toolchain';
-  const snapshotRef = context.vmContext.snapshotId || 'clean';
-  let contextCreated = false;
-  let exportedArtifactId: string | null = null;
-
-  try {
-    executor.createContext(context, imageRef, snapshotRef);
-    contextCreated = true;
-    executor.cloneContext(context, snapshotRef);
-
-    const importSpec = firstScopedImport(db);
-    if (importSpec) {
-      executor.importWorkspaceMaterial(context, {
-        hostPath: importSpec.hostPath,
-        guestPath: '/workspace/target',
-        mode: 'read_only'
-      });
-    }
-
-    const result = executor.executeGuestOperation(context, verifierRequest(context, spec));
-    if (spec.artifactPath) {
-      if (!status.supports.export) {
-        throw new Error('Executor backend does not support guest artifact export.');
-      }
-      exportedArtifactId = executor.exportArtifact(context, {
-        guestPath: spec.artifactPath,
-        kind: 'verifier_output',
-        mimeType: 'application/octet-stream',
-        sensitivity: 'internal',
-        modelVisible: true
-      });
-    }
-
-    const verdict = verifierVerdict(result, spec);
-    const verifierRun = db.createVerifierRun({
-      contractId: contract.id,
-      runId,
-      attemptId: context.attempt.id,
-      vmContextId: context.vmContext.id,
-      status: verdict.status,
-      blockedIssue: verifierBlockedIssue(verdict.status),
-      behaviorPreserved: contract.mode === 'patch_validation' ? (verdict.status === 'pass' ? 'yes' : 'inconclusive') : 'not_applicable',
-      diagnosticsClean: verdict.status === 'pass' ? 'yes' : verdict.status === 'fail' ? 'fail' : 'inconclusive',
-      regressionTests: contract.mode === 'patch_validation' && verdict.status === 'pass' ? 'pass' : 'not_run',
-      result: {
-        realExecution: true,
-        vmExecution: true,
-        observationBacked: true,
-        executorProvider: status.provider,
-        execution: {
-          substrate: 'disposable_guest_vm',
-          operationKind: spec.operationKind,
-          expectedExitCode: spec.expectedExitCode,
-          expectedStdoutIncludes: spec.expectedStdoutIncludes,
-          expectedStderrIncludes: spec.expectedStderrIncludes
-        },
-        exitCode: result.exitCode,
-        status: result.status,
-        stdoutSummary: result.stdoutSummary,
-        stderrSummary: result.stderrSummary,
-        checks: verdict.checks,
-        artifactId: exportedArtifactId,
-        importedHostPath: importSpec?.hostPath ?? null,
-        note: redactForModelText(note)
-      }
-    });
-
-    if (exportedArtifactId) {
-      db.createEvidenceFromArtifact(runId, exportedArtifactId, 'Verifier output artifact from VM execution.', contract.hypothesisId, contract.findingId);
-    }
-    if (verdict.status === 'pass' && contract.findingId) {
-      db.verifyFindingWithVerifierRun(contract.findingId, verifierRun.id);
-    }
-
-    const event = db.appendTraceEvent({
-      runId,
-      attemptId: context.attempt.id,
-      type: 'verifier_result',
-      source: 'verifier',
-      summary: `Verifier contract executed in disposable sandbox with ${verdict.status}.`,
-      payload: {
-        verifierRunId: verifierRun.id,
-        contractId: contract.id,
-        status: verdict.status,
-        realExecution: true,
-        vmExecution: true,
-        observationBacked: true,
-        artifactId: exportedArtifactId,
-        checks: verdict.checks
-      },
-      artifactId: exportedArtifactId,
-      vmContextId: context.vmContext.id
-    });
-    return { verifierRun, traceEventId: event.id, artifactId: exportedArtifactId };
-  } catch (error) {
-    return recordVerifierFailure(db, runId, contract, attemptId, vmContextId, 'Verifier execution failed in disposable sandbox.', {
-      issues: [errorMessage(error)],
-      note: redactForModelText(note),
-      realExecution: false,
-      vmExecution: true
-    });
-  } finally {
-    if (contextCreated) {
-      try {
-        executor.destroyContext(context);
-      } catch (destroyError) {
-        db.updateVmContext(context.vmContext.id, {
-          state: 'recovery_pending',
-          metadata: {
-            recoveryRequired: true,
-            destroyFailed: true,
-            destroyError: errorMessage(destroyError)
-          }
-        });
-        db.appendTraceEvent({
-          runId,
-          attemptId: context.attempt.id,
-          type: 'vm_event',
-          source: 'executor',
-          summary: 'Verifier failed to destroy guest after execution.',
-          payload: { error: errorMessage(destroyError) },
-          vmContextId: context.vmContext.id
-        });
-      }
-    }
-  }
+  return runHostVerifierContract(db, runId, contract, context, spec, note);
 }
 
 export function isRealVerifierPass(run: VerifierRunRecord | null | undefined): boolean {
@@ -344,11 +194,11 @@ function verifierContext(db: WorkspaceDatabase, runId: string, attemptId: string
   const attempt = attemptId ? detail.attempts.find((item) => item.id === attemptId) : db.getFirstAttempt(runId);
   if (!attempt) throw new Error(`Run has no attempt for verifier execution: ${runId}`);
   const vmContext = detail.vmContexts.find((item) => item.id === (vmContextId ?? attempt.vmContextId)) ?? detail.vmContexts[0];
-  if (!vmContext) throw new Error(`Run has no sandbox context for verifier execution: ${runId}`);
+  if (!vmContext) throw new Error(`Run has no execution context for verifier execution: ${runId}`);
   return { run, attempt, vmContext };
 }
 
-function verifierRequest(context: CreatedRunContext, spec: VerifierExecutionSpec): GuestExecuteRequest {
+function verifierRequest(context: CreatedRunContext, spec: VerifierExecutionSpec): ToolExecutionRequest {
   return {
     operationKind: spec.operationKind,
     command: spec.command,
@@ -358,6 +208,11 @@ function verifierRequest(context: CreatedRunContext, spec: VerifierExecutionSpec
     networkProfile: normalizeNetworkProfile(context.run.networkProfile),
     expectedOutput: spec.artifactPath ? 'artifact' : 'summary'
   };
+}
+
+function normalizeNetworkProfile(value: string): ExecutorNetworkProfile {
+  if (value === 'offline' || value === 'scoped' || value === 'elevated') return value;
+  return 'offline';
 }
 
 function verifierExecutionSpec(contract: VerifierContractRecord): VerifierExecutionSpec | null {
@@ -402,7 +257,7 @@ function scriptRequestsBash(script: string): boolean {
   return /^#!.*\bbash\b/.test(firstLine) || /\bpipefail\b/.test(script);
 }
 
-function verifierVerdict(result: GuestExecuteResult, spec: VerifierExecutionSpec): { status: 'pass' | 'fail'; checks: Record<string, unknown> } {
+function verifierVerdict(result: ToolExecutionResult, spec: VerifierExecutionSpec): { status: 'pass' | 'fail'; checks: Record<string, unknown> } {
   const exitCodeMatches = result.exitCode === spec.expectedExitCode;
   const stdoutMatches = spec.expectedStdoutIncludes ? result.stdoutSummary.includes(spec.expectedStdoutIncludes) : true;
   const stderrMatches = spec.expectedStderrIncludes ? result.stderrSummary.includes(spec.expectedStderrIncludes) : true;
@@ -424,15 +279,6 @@ function verifierBlockedIssue(status: 'pass' | 'fail'): string {
   return status === 'pass' ? 'confirmed' : 'not_observed';
 }
 
-function firstScopedImport(db: WorkspaceDatabase): { hostPath: string } | null {
-  const asset = db.getActiveScope().assets.find((candidate) => isScopedLocalAsset(candidate) && existsSync(candidate.value));
-  return asset ? { hostPath: resolve(asset.value) } : null;
-}
-
-function isScopedLocalAsset(asset: ScopeAsset): boolean {
-  return asset.direction === 'in_scope' && LOCAL_IMPORT_ASSET_KINDS.has(asset.kind) && isAbsolute(asset.value) && existsSync(asset.value) && !looksLikeUrl(asset.value);
-}
-
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -448,10 +294,6 @@ function nonEmptyString(value: unknown): string | null {
 
 function integerValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) ? value : fallback;
-}
-
-function looksLikeUrl(value: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
 function errorMessage(error: unknown): string {

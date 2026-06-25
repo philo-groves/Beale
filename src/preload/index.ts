@@ -9,7 +9,6 @@ import type {
   CyberGymSettingsInput,
   CyberGymStorageActionResult,
   DeveloperSettings,
-  ExecutorStatus,
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneProgramLookupResult,
@@ -23,13 +22,10 @@ import type {
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   StartRunInput,
   SteeringAction,
-  VmPreferenceInput,
   WindowChromeState,
   WorkspacePickerMode,
   WorkspaceSnapshot,
@@ -108,15 +104,6 @@ const api: BealeApi = {
   },
   getHostEnvironment(): Promise<HostEnvironment> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHostEnvironment);
-  },
-  getExecutorStatus(): Promise<ExecutorStatus> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getExecutorStatus);
-  },
-  setVmPreference(input: VmPreferenceInput) {
-    return ipcRenderer.invoke(IPC_CHANNELS.setVmPreference, input);
-  },
-  setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.setupSandbox, input);
   },
   getOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.getOpenAiStatus);

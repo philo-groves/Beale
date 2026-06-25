@@ -12,11 +12,9 @@ import type {
   ProgramRegistryEntry,
   ProgramRegistryState,
   ResearchSessionSummary,
-  ExecutorBackendKind,
   RunEngineKind,
   RunStatus,
   VmPreference,
-  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 
@@ -58,24 +56,7 @@ export class ProgramRegistry {
   }
 
   public getVmPreference(): VmPreference {
-    const raw = this.getMeta('vm_preference');
-    if (!raw) return DEFAULT_VM_PREFERENCE;
-    try {
-      return normalizeVmPreference(JSON.parse(raw));
-    } catch {
-      return DEFAULT_VM_PREFERENCE;
-    }
-  }
-
-  public setVmPreference(input: VmPreferenceInput): VmPreference {
-    const backendKind = isExecutorBackendKind(input.backendKind) ? input.backendKind : null;
-    const next: VmPreference = {
-      enabled: input.enabled && Boolean(backendKind),
-      backendKind: input.enabled ? backendKind : null,
-      updatedAt: nowIso()
-    };
-    this.setMeta('vm_preference', JSON.stringify(next));
-    return next;
+    return DEFAULT_VM_PREFERENCE;
   }
 
   public getProfilingEnabled(): boolean {
@@ -496,17 +477,6 @@ function numberValue(row: SqlRow, key: string): number {
   return typeof value === 'number' ? value : Number(value ?? 0);
 }
 
-function normalizeVmPreference(value: unknown): VmPreference {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_VM_PREFERENCE;
-  const record = value as Record<string, unknown>;
-  const backendKind = isExecutorBackendKind(record.backendKind) ? record.backendKind : null;
-  return {
-    enabled: record.enabled === true && Boolean(backendKind),
-    backendKind,
-    updatedAt: typeof record.updatedAt === 'string' && record.updatedAt.trim() ? record.updatedAt : null
-  };
-}
-
 function defaultCyberGymSettings(registryDirectory: string): CyberGymBenchmarkSettings {
   return {
     sourceRootPath: join(registryDirectory, 'benchmarks', 'cybergym'),
@@ -548,10 +518,6 @@ function stringSetting(value: unknown, fallback: string): string {
 
 function optionalStringSetting(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value.trim() : fallback;
-}
-
-function isExecutorBackendKind(value: unknown): value is ExecutorBackendKind {
-  return value === 'firecracker' || value === 'hyperv' || value === 'tart' || value === 'docker' || value === 'custom_vmctl';
 }
 
 function sessionUpdatedAt(row: WorkspaceSnapshot['runs'][number]): string {

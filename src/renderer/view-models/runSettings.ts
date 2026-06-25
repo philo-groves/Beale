@@ -11,7 +11,7 @@ export const defaultRunInput: StartRunInput = {
   model: 'gpt-5.3-codex-spark',
   reasoningEffort: 'minimal',
   networkProfile: 'elevated',
-  sandboxProfile: 'host_research_only',
+  sandboxProfile: 'host',
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: 1,

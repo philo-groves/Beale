@@ -16,11 +16,9 @@ import type {
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   RunDetailUpdateCursor,
-  SandboxSetupInput,
   SessionTranscriptSearchInput,
   StartRunInput,
   SteeringAction,
-  VmPreferenceInput,
   WorkspaceSnapshot,
   WorkspacePickerMode
 } from '@shared/types';
@@ -405,9 +403,6 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
   ipcMain.handle(IPC_CHANNELS.getHostEnvironment, () => getHostEnvironment());
-  ipcMain.handle(IPC_CHANNELS.getExecutorStatus, () => workspaceService.getExecutorStatus());
-  ipcMain.handle(IPC_CHANNELS.setVmPreference, (_event, input: VmPreferenceInput) => workspaceService.setVmPreference(input));
-  ipcMain.handle(IPC_CHANNELS.setupSandbox, (_event, input: SandboxSetupInput) => workspaceService.setupSandbox(input));
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());

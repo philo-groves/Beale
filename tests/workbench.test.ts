@@ -14,9 +14,6 @@ const createdDirs: string[] = [];
 
 afterEach(() => {
   delete process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT;
-  delete process.env.BEALE_VMCTL_COMMAND;
-  delete process.env.BEALE_VMCTL_ARGS_JSON;
-  delete process.env.BEALE_VMCTL_TIMEOUT_MS;
   delete process.env.BEALE_GIT_COMMAND;
   delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
   delete process.env.BEALE_OPENAI_AUTH_COMMAND;
@@ -472,33 +469,6 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('persists the global VM enablement preference', () => {
-    const workspace = tempWorkspace();
-    const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
-
-    const snapshot = service.createWorkspace(workspace);
-    expect(snapshot.vmPreference).toMatchObject({ enabled: false, backendKind: null });
-    expect(service.getProgramRegistryState().vmPreference).toMatchObject({ enabled: false, backendKind: null });
-
-    const enabled = service.setVmPreference({ enabled: true, backendKind: 'firecracker' });
-    expect(enabled.vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
-    expect(service.getSnapshot()?.vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
-    service.close();
-
-    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
-    expect(reopened.getProgramRegistryState().vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
-    expect(reopened.openWorkspace(workspace).vmPreference).toMatchObject({ enabled: true, backendKind: 'firecracker' });
-
-    const docker = reopened.setVmPreference({ enabled: true, backendKind: 'docker' });
-    expect(docker.vmPreference).toMatchObject({ enabled: true, backendKind: 'docker' });
-    expect(reopened.getProgramRegistryState().vmPreference).toMatchObject({ enabled: true, backendKind: 'docker' });
-
-    const disabled = reopened.setVmPreference({ enabled: false, backendKind: null });
-    expect(disabled.vmPreference).toMatchObject({ enabled: false, backendKind: null });
-    reopened.close();
-  });
-
   it('persists developer mode and CyberGym benchmark settings', () => {
     const registryDir = tempWorkspace();
     const benchmarkTasksDirectory = join(registryDir, 'benchmarks');
@@ -671,7 +641,7 @@ describe('Beale workbench skeleton', () => {
     const started = await service.startCyberGymScenarioRun({
       scenario: scenarios.scenarios[0],
       level: 0,
-      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+      settings: { ...runInput('source_logic_bug'), runEngine: 'fake' }
     });
     expect(started.copiedMaterials).toEqual(['data/arvo/1065/repo-vul.tar.gz']);
     expect(started.outputDirectory).toBe(join(outputPath, 'arvo-1065', started.runId));
@@ -758,7 +728,7 @@ describe('Beale workbench skeleton', () => {
     const started = await service.startCyberGymScenarioRun({
       scenario,
       level: 1,
-      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+      settings: { ...runInput('source_logic_bug'), runEngine: 'fake' }
     });
     expect(started.copiedMaterials).toEqual(['data/arvo/2001/repo-vul.tar.gz', 'data/arvo/2001/description.txt']);
     expect(requestedUrls).toEqual([
@@ -773,7 +743,7 @@ describe('Beale workbench skeleton', () => {
     const secondStarted = await service.startCyberGymScenarioRun({
       scenario,
       level: 1,
-      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+      settings: { ...runInput('source_logic_bug'), runEngine: 'fake' }
     });
     expect(secondStarted.copiedMaterials).toEqual(started.copiedMaterials);
     expect(requestedUrls).toHaveLength(2);
@@ -830,7 +800,7 @@ describe('Beale workbench skeleton', () => {
     const started = await service.startCyberGymScenarioRun({
       scenario,
       level: 0,
-      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+      settings: { ...runInput('source_logic_bug'), runEngine: 'fake' }
     });
     await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.taskDirectory));
     expect(existsSync(started.workspacePath)).toBe(true);
@@ -917,7 +887,7 @@ describe('Beale workbench skeleton', () => {
     const started = await service.startCyberGymScenarioRun({
       scenario,
       level: 0,
-      settings: { ...runInput('source_logic_bug'), runEngine: 'executor_alpha' }
+      settings: { ...runInput('source_logic_bug'), runEngine: 'fake' }
     });
     await waitForCondition(() => existsSync(started.outputPath) && !existsSync(started.taskDirectory));
     const result = JSON.parse(readFileSync(started.outputPath, 'utf8')) as Record<string, unknown>;
@@ -1680,7 +1650,7 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('requestedSession');
         expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
         expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
-        expect(serialized).toContain('\\"sandboxProfile\\": \\"host_research_only\\"');
+        expect(serialized).toContain('\\"sandboxProfile\\": \\"host\\"');
         return new Response(
           sse(
             event('response.output_text.done', {
@@ -1713,7 +1683,7 @@ describe('Beale workbench skeleton', () => {
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       networkProfile: 'scoped',
-      sandboxProfile: 'host_research_only',
+      sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
     });
@@ -1752,7 +1722,7 @@ describe('Beale workbench skeleton', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'medium',
       networkProfile: 'scoped',
-      sandboxProfile: 'host_research_only',
+      sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
     });
@@ -1793,7 +1763,7 @@ describe('Beale workbench skeleton', () => {
         model: 'gpt-5.5',
         reasoningEffort: 'medium',
         networkProfile: 'scoped',
-        sandboxProfile: 'host_research_only',
+        sandboxProfile: 'host',
         targetAssetId: null,
         targetPath: null
       })
@@ -1825,7 +1795,7 @@ describe('Beale workbench skeleton', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'medium',
       networkProfile: 'scoped',
-      sandboxProfile: 'host_research_only',
+      sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
     });
@@ -1870,7 +1840,7 @@ describe('Beale workbench skeleton', () => {
         model: 'gpt-5.5',
         reasoningEffort: 'medium',
         networkProfile: 'scoped',
-        sandboxProfile: 'host_research_only',
+        sandboxProfile: 'host',
         targetAssetId: null,
         targetPath: null
       },
@@ -2253,7 +2223,7 @@ describe('Beale workbench skeleton', () => {
       runId,
       verifierContractId: contract?.id ?? '',
       patch: {
-        triggerStepsMarkdown: 'Run the edited verifier trigger inside the selected sandbox.',
+        triggerStepsMarkdown: 'Run the edited verifier trigger through host execution.',
         expectedObservations: { stdout: 'edited verifier output' }
       }
     });
@@ -2263,8 +2233,8 @@ describe('Beale workbench skeleton', () => {
     service.steerRun({ type: 'export_finding_bundle', runId, findingId: finding?.id, note: 'token=findingsecret12345' });
     service.steerRun({ type: 'export_redacted_trace', runId, findingId: finding?.id, note: 'api_key=tracesecret12345' });
     service.steerRun({ type: 'generate_report_draft', runId, findingId: finding?.id, note: 'password=reportsecret12345' });
-    service.steerRun({ type: 'preserve_vm', runId, reason: 'Preserve VM for review.' });
-    service.steerRun({ type: 'destroy_vm', runId, reason: 'Destroy VM after review.' });
+    service.steerRun({ type: 'preserve_vm', runId, reason: 'Preserve host execution record for review.' });
+    service.steerRun({ type: 'destroy_vm', runId, reason: 'Close host execution record after review.' });
 
     detail = service.getRunDetail(runId);
     const updatedContract = detail.verifierContracts.find((item) => item.id === contract?.id);
@@ -2280,15 +2250,15 @@ describe('Beale workbench skeleton', () => {
     expect(updatedFinding?.state).toBe('needs_evidence');
     expect(exportKinds).toEqual(expect.arrayContaining(['finding_bundle', 'redacted_trace', 'report_draft']));
     expect(detail.traceEvents.some((event) => event.summary === 'Run budget updated by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Run restarted from sandbox snapshot by user.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Host process execution record refreshed by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract approved by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked disclosure ready by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding marked as needing more evidence by user.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Finding bundle export created.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Redacted trace export created.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Report draft export created.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context preserved by explicit request.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Sandbox context destroyed.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Host execution record preserved by explicit request.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Host execution record closed.')).toBe(true);
 
     for (const exportRecord of detail.exports.filter((item) => ['finding_bundle', 'redacted_trace', 'report_draft'].includes(item.kind))) {
       const exportPath = join(snapshot.workspace.workspacePath, exportRecord.relativePath);
@@ -2346,7 +2316,7 @@ describe('Beale workbench skeleton', () => {
       reasoningEffort: 'xhigh',
       attemptStrategy: 'single_path',
       networkProfile: 'offline',
-      sandboxProfile: 'local_disposable_vm',
+      sandboxProfile: 'host',
       budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
     });
     const contract = db.createVerifierContract({
@@ -2374,11 +2344,10 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('executes verifier contracts in the VM before allowing verified findings', () => {
+  it('executes verifier contracts on the host before allowing verified findings', () => {
     const dir = tempWorkspace();
     const artifactRoot = join(dir, '.beale', 'artifacts');
     const targetDir = join(dir, 'target');
-    const logPath = join(dir, 'vmctl.log');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
     mkdirSync(targetDir, { recursive: true });
     writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
@@ -2388,7 +2357,7 @@ describe('Beale workbench skeleton', () => {
       programName: 'Verifier Program',
       organizationName: 'Example Org',
       descriptionMarkdown: 'Scoped verifier target.',
-      rulesMarkdown: 'Offline VM verifier only.',
+      rulesMarkdown: 'Host verifier only.',
       networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'path', targetDir)]
@@ -2402,7 +2371,7 @@ describe('Beale workbench skeleton', () => {
       reasoningEffort: 'xhigh',
       attemptStrategy: 'single_path',
       networkProfile: 'offline',
-      sandboxProfile: 'local_disposable_vm',
+      sandboxProfile: 'host',
       budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
     });
     const hypothesis = db.createHypothesis({
@@ -2462,17 +2431,17 @@ describe('Beale workbench skeleton', () => {
       hypothesisId: hypothesis.id,
       mode: 'reproduction',
       status: 'approved',
-      setupStepsMarkdown: 'Import scoped target into the selected sandbox.',
-      triggerStepsMarkdown: 'Run the verifier script inside the selected sandbox.',
-      expectedObservations: { stdout: 'fixture guest stdout' },
+      setupStepsMarkdown: 'Prepare scoped target for host verifier execution.',
+      triggerStepsMarkdown: 'Run the verifier script on the host.',
+      expectedObservations: { stdout: 'verifier-ok' },
       invariants: { hostDatabaseMounted: false, openAiCredentialsMounted: false },
       artifactsToCollect: { verifierOutput: '/tmp/beale-output.txt' },
       passCriteria: {
         verifier: {
           operationKind: 'shell',
-          script: 'echo verifier-ok',
+          script: 'echo verifier-ok | tee /tmp/beale-output.txt',
           expectedExitCode: 0,
-          expectedStdoutIncludes: 'fixture guest stdout',
+          expectedStdoutIncludes: 'verifier-ok',
           artifactPath: '/tmp/beale-output.txt',
           timeoutMs: 30_000
         }
@@ -2482,7 +2451,6 @@ describe('Beale workbench skeleton', () => {
     db.updateRunStatus(context.run.id, 'completed', 'Prepared executable verifier contract.');
     db.close();
 
-    configureVmctlFixture(logPath);
     const service = new WorkspaceService();
     service.openWorkspace(dir);
     service.steerRun({ type: 'rerun_verifier', runId: context.run.id, verifierContractId: contract.id, note: 'run real verifier' });
@@ -2490,16 +2458,16 @@ describe('Beale workbench skeleton', () => {
     const realVerifierRun = detail.verifierRuns.at(-1);
     expect(realVerifierRun?.status).toBe('pass');
     expect(realVerifierRun?.result.realExecution).toBe(true);
-    expect(realVerifierRun?.result.vmExecution).toBe(true);
+    expect(realVerifierRun?.result.vmExecution).toBe(false);
+    expect(realVerifierRun?.result.hostExecution).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed in disposable sandbox with pass.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed on host with pass.')).toBe(true);
 
     service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: hypothesis.id });
     detail = service.getRunDetail(context.run.id);
     const finding = detail.findings.at(-1);
     expect(finding?.state).toBe('verified');
     expect(finding?.verifiedByVerifierRunId).toBe(realVerifierRun?.id);
-    expect(readVmctlActions(logPath)).toEqual(expect.arrayContaining(['create_context', 'clone_context', 'import_workspace_material', 'execute', 'export_artifact', 'destroy']));
     service.close();
   });
 
@@ -2761,7 +2729,7 @@ function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     networkProfile: 'offline',
-    sandboxProfile: 'local_disposable_vm',
+    sandboxProfile: 'host',
     budget: {
       maxMinutes: 30,
       maxAttempts: 2,
@@ -2769,17 +2737,6 @@ function runInput(fakeScenario: StartRunInput['fakeScenario']): StartRunInput {
     },
     fakeScenario
   };
-}
-
-function configureVmctlFixture(logPath: string): void {
-  process.env.BEALE_VMCTL_COMMAND = process.execPath;
-  process.env.BEALE_VMCTL_ARGS_JSON = JSON.stringify([join(process.cwd(), 'tests/fixtures/vmctl-fixture.mjs'), logPath]);
-}
-
-function readVmctlActions(logPath: string): string[] {
-  const content = readFileSync(logPath, 'utf8').trim();
-  if (!content) return [];
-  return content.split('\n').map((line) => (JSON.parse(line) as { input: { action: string } }).input.action);
 }
 
 function sequence(length: number): number[] {

@@ -1,4 +1,4 @@
-import type { ExecutorBackendKind, ExecutorBackendStatus, ExecutorStatus, HostEnvironment, RunDetail, VmPreference } from '@shared/types';
+import type { HostEnvironment, RunDetail } from '@shared/types';
 import { traceCategoryForEvent } from '../traceClassification';
 
 export interface EnvironmentActivity {
@@ -16,40 +16,6 @@ export function hostEnvironmentLabel(hostEnvironment: HostEnvironment | null): s
   return 'Host OS';
 }
 
-export function vmTargetStatus(executor: ExecutorStatus | null, vmPreference: VmPreference): { configured: boolean; showConfigure: boolean; label: string; title: string } {
-  if (!vmPreference.enabled || !vmPreference.backendKind) {
-    return {
-      configured: false,
-      showConfigure: true,
-      label: 'None',
-      title: 'No sandbox is enabled. Configure a sandbox to run target commands outside the default host path.'
-    };
-  }
-
-  const backend = findBackendByKind(executor, vmPreference.backendKind);
-  if (backend) {
-    const available = backend.available && executor?.available === true;
-    return {
-      configured: available,
-      showConfigure: !available,
-      label: backend.label,
-      title: available ? `${backend.label} is enabled` : executor?.reason ?? backend.reason ?? `${backend.label} is enabled but unavailable`
-    };
-  }
-
-  return {
-    configured: false,
-    showConfigure: true,
-    label: 'Unavailable',
-    title: 'The enabled sandbox backend is no longer reported by this host.'
-  };
-}
-
-export function findBackendByKind(executor: ExecutorStatus | null, backendKind: ExecutorBackendKind | null): ExecutorBackendStatus | null {
-  if (!backendKind) return null;
-  return executor?.backends.find((candidate) => candidate.kind === backendKind) ?? null;
-}
-
 export function environmentActivityForDetail(detail: RunDetail | null): EnvironmentActivity {
   if (!detail || detail.run.status !== 'active') return { host: false, guest: false };
   const latest = detail.traceEvents.at(-1);
@@ -57,7 +23,7 @@ export function environmentActivityForDetail(detail: RunDetail | null): Environm
   const category = traceCategoryForEvent(latest);
 
   if (latest.source === 'executor' || latest.type === 'vm_event' || category === 'vm_execution' || category === 'tools' || category === 'verifier' || category === 'code_navigation') {
-    return { host: false, guest: true };
+    return { host: true, guest: false };
   }
 
   if (latest.source === 'model' || latest.source === 'policy' || latest.source === 'system' || latest.source === 'user') {

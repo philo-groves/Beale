@@ -16,9 +16,6 @@ import { OpenAiRunEngine } from './openaiRunEngine';
 import { HoneycrispRunEngine } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
-import { ExecutorManager, getExecutorStatusForPreference } from './executorManager';
-import { ExecutorRunEngine } from './executorRunEngine';
-import { DockerExecutorProvider } from './dockerExecutor';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
@@ -64,8 +61,6 @@ import type {
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -75,7 +70,6 @@ import type {
   VerifierContractRecord,
   VmContextRecord,
   VmPreference,
-  VmPreferenceInput,
   WorkspaceExportResult,
   HostEnvironment,
   OpenAiAccountStatus,
@@ -92,7 +86,7 @@ import type {
   WorkspaceSummary
 } from '@shared/types';
 
-const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake sandbox executor. No target code execution.';
+const FAKE_EXECUTOR_LABEL = 'Simulated engine and fake execution context. No target code execution.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const RESEARCH_PROMPT_GENERATION_REASONING_EFFORT = 'medium';
@@ -338,6 +332,32 @@ export function getHostEnvironment(): HostEnvironment {
   };
 }
 
+function hostExecutionStatus(): ExecutorStatus {
+  return {
+    provider: 'host',
+    configured: true,
+    available: true,
+    label: 'Host process',
+    reason: 'Beale-managed VM and Docker sandboxes were removed. Launch Beale and Honeycrisp inside an external VM or container when isolation is required.',
+    targetExecution: true,
+    supportedNetworkProfiles: ['offline', 'scoped', 'elevated'],
+    metadata: {
+      executionPosture: 'host_process',
+      isolationManagedBy: 'operator'
+    },
+    supports: {
+      snapshots: false,
+      clone: false,
+      import: false,
+      export: false,
+      shell: true,
+      python: true,
+      debugger: true
+    },
+    backends: []
+  };
+}
+
 export interface WorkspaceServiceOptions {
   benchmarkDockerCommand?: string;
   benchmarkTasksDirectory?: string;
@@ -355,8 +375,6 @@ interface WorkspaceRuntime {
   engine: FakeRunEngine;
   openAiEngine: OpenAiRunEngine;
   honeycrispEngine: HoneycrispRunEngine;
-  executorManager: ExecutorManager;
-  executorRunEngine: ExecutorRunEngine;
   benchmarkRunner: BenchmarkRunner;
 }
 
@@ -365,8 +383,6 @@ export class WorkspaceService {
   private engine: FakeRunEngine | null = null;
   private openAiEngine: OpenAiRunEngine | null = null;
   private honeycrispEngine: HoneycrispRunEngine | null = null;
-  private executorManager: ExecutorManager | null = null;
-  private executorRunEngine: ExecutorRunEngine | null = null;
   private benchmarkRunner: BenchmarkRunner | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
   private readonly profiling = new ProfilingService();
@@ -416,13 +432,6 @@ export class WorkspaceService {
 
   public getCachedProgramRegistryState(): ProgramRegistryState {
     return this.getProgramRegistry().getState();
-  }
-
-  public setVmPreference(input: VmPreferenceInput): ProgramRegistryState {
-    const registry = this.getProgramRegistry();
-    registry.setVmPreference(input);
-    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
-    return registry.getState();
   }
 
   public getDeveloperSettings(): DeveloperSettings {
@@ -593,18 +602,6 @@ export class WorkspaceService {
       rmSync(rootPath, { recursive: true, force: true });
       throw error;
     }
-  }
-
-  public async setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult> {
-    const runtime = this.getForegroundRuntime();
-    if (!runtime && input.backendKind !== 'docker') {
-      throw new Error(`Automated setup is not available for sandbox backend: ${input.backendKind}`);
-    }
-    const result = runtime
-      ? await runtime.executorManager.setupSandboxBackend(input.backendKind)
-      : await new DockerExecutorProvider().setup();
-    this.emitChange({ syncProgramRegistry: Boolean(runtime), programRegistryChanged: false });
-    return result;
   }
 
   public getProfilingState(): ProfilingState {
@@ -1001,11 +998,6 @@ export class WorkspaceService {
     return this.openAiAuth.getStatus();
   }
 
-  public getExecutorStatus(): ExecutorStatus {
-    const runtime = this.getForegroundRuntime();
-    return runtime?.executorManager.getStatus() ?? getExecutorStatusForPreference(() => this.getVmPreferenceForSnapshot().backendKind);
-  }
-
   public async startOpenAiOAuth(): Promise<OpenAiOAuthStartResult> {
     const result = await this.openAiAuth.startOAuthLogin();
     this.emitChange();
@@ -1131,8 +1123,6 @@ export class WorkspaceService {
       this.requireHoneycrispEngine().startRun(input);
     } else if (input.runEngine === 'openai_responses') {
       this.requireOpenAiEngine().startRun(input);
-    } else if (input.runEngine === 'executor_alpha') {
-      this.requireExecutorRunEngine().startRun(input);
     } else {
       requireFakeRunEngineEnabled();
       const engine = this.requireEngine();
@@ -1378,17 +1368,13 @@ export class WorkspaceService {
               ? 'honeycrisp'
               : run.budget.runEngine === 'openai_responses'
                 ? 'openai_responses'
-                : run.budget.runEngine === 'executor_alpha'
-                  ? 'executor_alpha'
-                  : 'fake',
+                : 'fake',
           fakeScenario: scenario
         };
         if (forkInput.runEngine === 'honeycrisp') {
           this.requireHoneycrispEngine().startRun(forkInput);
         } else if (forkInput.runEngine === 'openai_responses') {
           this.requireOpenAiEngine().startRun(forkInput);
-        } else if (forkInput.runEngine === 'executor_alpha') {
-          this.requireExecutorRunEngine().startRun(forkInput);
         } else {
           requireFakeRunEngineEnabled();
           engine.startRun(forkInput, 'scheduled');
@@ -1400,34 +1386,21 @@ export class WorkspaceService {
         const vmContext = selectVmContext(detail, attempt, undefined);
         const snapshotRef = action.snapshotRef?.trim() || vmContext.snapshotId || 'clean';
         const previousState = vmContext.state;
-        if (shouldUseRealVmProvider(vmContext)) {
-          const executor = this.requireExecutorManager();
-          if (executor.getStatus().available && attempt) {
-            executor.revertContext({ run, attempt, vmContext }, snapshotRef);
-          } else {
-            db.updateVmContext(vmContext.id, {
-              snapshotId: snapshotRef,
-              state: 'clean',
-              metadata: { restartedFromSnapshot: snapshotRef, previousState, providerUnavailable: true }
-            });
-          }
-        } else {
-          db.updateVmContext(vmContext.id, {
-            snapshotId: snapshotRef,
-            state: 'clean',
-            metadata: { restartedFromSnapshot: snapshotRef, previousState, simulatedRestart: true }
-          });
-        }
+        db.updateVmContext(vmContext.id, {
+          snapshotId: snapshotRef,
+          state: 'host_active',
+          metadata: { restartedFromSnapshot: snapshotRef, previousState, providerRemoved: true, executionPosture: 'host_process' }
+        });
         if (attempt && (run.status === 'paused' || run.status === 'blocked')) {
-          db.updateAttemptState(attempt.id, 'active', `Restarted from sandbox snapshot ${snapshotRef}.`);
-          db.updateRunStatus(action.runId, 'active', `Restarted from sandbox snapshot ${snapshotRef}.`);
+          db.updateAttemptState(attempt.id, 'active', `Host process execution record refreshed from ${snapshotRef}.`);
+          db.updateRunStatus(action.runId, 'active', `Host process execution record refreshed from ${snapshotRef}.`);
         }
         db.appendTraceEvent({
           runId: action.runId,
           attemptId: attempt?.id ?? null,
           type: 'vm_event',
           source: 'user',
-          summary: 'Run restarted from sandbox snapshot by user.',
+          summary: 'Host process execution record refreshed by user.',
           payload: {
             vmContextId: vmContext.id,
             snapshotRef,
@@ -1459,7 +1432,7 @@ export class WorkspaceService {
       }
       case 'rerun_verifier': {
         const contract = requireVerifierContract(db.getRunDetail(action.runId), action.verifierContractId);
-        runVerifierContract(db, this.requireExecutorManager(), action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
+        runVerifierContract(db, action.runId, contract, attempt?.id ?? null, attempt?.vmContextId ?? null, action.note ?? '');
         break;
       }
       case 'edit_verifier_contract': {
@@ -1745,59 +1718,53 @@ export class WorkspaceService {
       case 'preserve_vm': {
         const detail = db.getRunDetail(action.runId);
         const vmContext = selectVmContext(detail, attempt, action.vmContextId);
-        const reason = redactForModelText(action.reason ?? 'User requested VM preservation for review.');
-        if (vmContext.state !== 'destroyed' && shouldUseRealVmProvider(vmContext) && this.requireExecutorManager().getStatus().available && attempt) {
-          this.requireExecutorManager().preserveContext({ run, attempt, vmContext }, reason);
-        } else {
-          db.updateVmContext(vmContext.id, {
-            state: vmContext.state === 'destroyed' ? 'destroyed' : 'preserved',
-            metadata: {
-              preserveReason: reason,
-              preservedByUser: vmContext.state !== 'destroyed',
-              previousState: vmContext.state,
-              providerSkipped: !shouldUseRealVmProvider(vmContext)
-            }
-          });
-          db.appendTraceEvent({
-            runId: action.runId,
-            attemptId: attempt?.id ?? null,
-            type: 'vm_event',
-            source: 'user',
-            summary: vmContext.state === 'destroyed' ? 'Sandbox preserve request recorded for already-destroyed context.' : 'Sandbox context preserved by explicit request.',
-            payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
-            vmContextId: vmContext.id,
-            modelVisible: false
-          });
-        }
+        const reason = redactForModelText(action.reason ?? 'User requested host process execution record preservation.');
+        db.updateVmContext(vmContext.id, {
+          state: vmContext.state === 'destroyed' ? 'destroyed' : 'preserved',
+          metadata: {
+            preserveReason: reason,
+            preservedByUser: vmContext.state !== 'destroyed',
+            previousState: vmContext.state,
+            providerRemoved: true,
+            executionPosture: 'host_process'
+          }
+        });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'vm_event',
+          source: 'user',
+          summary: vmContext.state === 'destroyed' ? 'Host execution preserve request recorded for already-ended context.' : 'Host execution record preserved by explicit request.',
+          payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
+          vmContextId: vmContext.id,
+          modelVisible: false
+        });
         break;
       }
       case 'destroy_vm': {
         const detail = db.getRunDetail(action.runId);
         const vmContext = selectVmContext(detail, attempt, action.vmContextId);
-        const reason = redactForModelText(action.reason ?? 'User requested VM destruction.');
-        if (vmContext.state !== 'destroyed' && shouldUseRealVmProvider(vmContext) && this.requireExecutorManager().getStatus().available && attempt) {
-          this.requireExecutorManager().destroyContext({ run, attempt, vmContext });
-        } else {
-          db.updateVmContext(vmContext.id, {
-            state: 'destroyed',
-            metadata: {
-              destroyReason: reason,
-              destroyedByUser: true,
-              previousState: vmContext.state,
-              providerSkipped: !shouldUseRealVmProvider(vmContext)
-            }
-          });
-          db.appendTraceEvent({
-            runId: action.runId,
-            attemptId: attempt?.id ?? null,
-            type: 'vm_event',
-            source: 'user',
-            summary: 'Sandbox context destroyed.',
-            payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
-            vmContextId: vmContext.id,
-            modelVisible: false
-          });
-        }
+        const reason = redactForModelText(action.reason ?? 'User requested host process execution record closure.');
+        db.updateVmContext(vmContext.id, {
+          state: 'destroyed',
+          metadata: {
+            destroyReason: reason,
+            destroyedByUser: true,
+            previousState: vmContext.state,
+            providerRemoved: true,
+            executionPosture: 'host_process'
+          }
+        });
+        db.appendTraceEvent({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          type: 'vm_event',
+          source: 'user',
+          summary: 'Host execution record closed.',
+          payload: { vmContextId: vmContext.id, reason, previousState: vmContext.state },
+          vmContextId: vmContext.id,
+          modelVisible: false
+        });
         break;
       }
       case 'review_policy_request': {
@@ -1962,7 +1929,6 @@ export class WorkspaceService {
     const db = new WorkspaceDatabase(join(bealeDir, 'beale.sqlite'), artifactRoot);
     db.initialize();
     const openedAt = new Date().toISOString();
-    const executorManager = new ExecutorManager(db, undefined, () => this.getVmPreferenceForSnapshot().backendKind);
     return {
       workspacePath,
       openedAt,
@@ -1975,14 +1941,11 @@ export class WorkspaceService {
         new OpenAiResponsesAdapter(this.openAiAuth, this.options.openAiFetch, undefined, undefined, undefined, (name, durationMs, detail) =>
           this.recordProfilingMainTiming(name, durationMs, detail)
         ),
-        executorManager,
         () => this.emitRuntimeChange(workspacePath),
         (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail),
         () => this.emitRuntimeChange(workspacePath)
       ),
       honeycrispEngine: new HoneycrispRunEngine(db, workspacePath, () => this.emitRuntimeChange(workspacePath)),
-      executorManager,
-      executorRunEngine: new ExecutorRunEngine(db, executorManager, () => this.emitRuntimeChange(workspacePath)),
       benchmarkRunner: new BenchmarkRunner(db, workspacePath, this.options.benchmarkDockerCommand)
     };
   }
@@ -1995,8 +1958,6 @@ export class WorkspaceService {
       !this.engine ||
       !this.openAiEngine ||
       !this.honeycrispEngine ||
-      !this.executorManager ||
-      !this.executorRunEngine ||
       !this.benchmarkRunner
     ) {
       return null;
@@ -2009,8 +1970,6 @@ export class WorkspaceService {
       engine: this.engine,
       openAiEngine: this.openAiEngine,
       honeycrispEngine: this.honeycrispEngine,
-      executorManager: this.executorManager,
-      executorRunEngine: this.executorRunEngine,
       benchmarkRunner: this.benchmarkRunner
     };
   }
@@ -2066,8 +2025,6 @@ export class WorkspaceService {
     this.engine = runtime.engine;
     this.openAiEngine = runtime.openAiEngine;
     this.honeycrispEngine = runtime.honeycrispEngine;
-    this.executorManager = runtime.executorManager;
-    this.executorRunEngine = runtime.executorRunEngine;
     this.benchmarkRunner = runtime.benchmarkRunner;
   }
 
@@ -2080,8 +2037,6 @@ export class WorkspaceService {
     this.engine = null;
     this.openAiEngine = null;
     this.honeycrispEngine = null;
-    this.executorManager = null;
-    this.executorRunEngine = null;
     this.benchmarkRunner = null;
     return runtime;
   }
@@ -2147,9 +2102,7 @@ export class WorkspaceService {
   }
 
   private getVmPreferenceForSnapshot(): VmPreference {
-    if (this.programRegistry) return this.programRegistry.getVmPreference();
-    if (process.env.NODE_ENV === 'test' && !this.options.programRegistryDirectory) return DEFAULT_VM_PREFERENCE;
-    return this.getProgramRegistry().getVmPreference();
+    return DEFAULT_VM_PREFERENCE;
   }
 
   private syncProgramRegistry(): void {
@@ -2196,20 +2149,6 @@ export class WorkspaceService {
     return this.honeycrispEngine;
   }
 
-  private requireExecutorManager(): ExecutorManager {
-    if (!this.executorManager) {
-      throw new Error('No sandbox executor manager is available');
-    }
-    return this.executorManager;
-  }
-
-  private requireExecutorRunEngine(): ExecutorRunEngine {
-    if (!this.executorRunEngine) {
-      throw new Error('No sandbox executor run engine is available');
-    }
-    return this.executorRunEngine;
-  }
-
   private requireBenchmarkRunner(): BenchmarkRunner {
     if (!this.benchmarkRunner) {
       throw new Error('No benchmark runner is available');
@@ -2225,10 +2164,6 @@ export class WorkspaceService {
     if (input.runEngine === 'openai_responses') {
       const handle = runtime.openAiEngine.startRun(input);
       return { runId: handle.context.run.id, completion: handle.completion };
-    }
-    if (input.runEngine === 'executor_alpha') {
-      const context = runtime.executorRunEngine.startRun(input);
-      return { runId: context.run.id, completion: Promise.resolve() };
     }
     requireFakeRunEngineEnabled();
     const context = runtime.engine.startRun(input, 'scheduled');
@@ -2364,7 +2299,7 @@ export class WorkspaceService {
     return {
       workspace: this.profileMainTiming('snapshot.workspaceSummary', detail, () => this.getWorkspaceSummary(runtime)),
       openAi: this.profileMainTiming('snapshot.openAiStatus', detail, () => this.openAiAuth.getStatus()),
-      executor: this.profileMainTiming('snapshot.executorStatus', detail, () => runtime.executorManager.getStatus()),
+      executor: this.profileMainTiming('snapshot.executorStatus', detail, () => hostExecutionStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
       honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => getHoneycrispMemorySummary(runtime.workspacePath)),
@@ -2528,7 +2463,7 @@ export class WorkspaceService {
         redactionApplied: false,
         userReviewRequired: true,
         databasePath: '.beale/beale.sqlite',
-        excludedTransientPaths: ['.beale/firecracker/state', '.beale/firecracker/run', '.beale/exports/*-workspace-backup-*.tar.gz']
+        excludedTransientPaths: ['.beale/exports/*-workspace-backup-*.tar.gz']
       };
       writeFileSync(join(stageRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
       writeTarGzArchive(stageRoot, tempArchivePath);
@@ -2573,7 +2508,7 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
     targetStates: {
       baseline: { vmContextId, label: 'current scoped target state' }
     },
-    setupStepsMarkdown: 'Prepare the scoped target inside the selected sandbox. Do not mount host credentials or .beale/beale.sqlite.',
+    setupStepsMarkdown: 'Prepare the scoped target for host-process verifier execution. Do not expose host credentials or .beale/beale.sqlite.',
     triggerStepsMarkdown: note || `Develop and run the smallest trigger that can confirm or falsify: ${hypothesis.title}.`,
     expectedObservations: {
       hypothesisId: hypothesis.id,
@@ -2624,7 +2559,7 @@ function createPatchValidationContract(
       baseline: { vmContextId, expected: 'vulnerable behavior reproduces' },
       candidate_patch: { vmContextId: null, expected: 'vulnerable behavior is blocked' }
     },
-    setupStepsMarkdown: 'Prepare baseline and candidate patch states in disposable sandbox contexts.',
+    setupStepsMarkdown: 'Prepare baseline and candidate patch states for host-process verifier execution.',
     triggerStepsMarkdown: note || 'Replay the reproduced PoC or regression check against baseline and candidate patch states.',
     expectedObservations: {
       baseline: 'issue reproduces',
@@ -2677,12 +2612,8 @@ function selectVmContext(detail: RunDetail, attempt: AttemptRecord | null, vmCon
   const selectedId = vmContextId ?? attempt?.vmContextId ?? null;
   const selected = selectedId ? detail.vmContexts.find((item) => item.id === selectedId) : null;
   const vmContext = selected ?? detail.vmContexts[0] ?? null;
-  if (!vmContext) throw new Error(`No sandbox context found for run: ${detail.run.id}`);
+  if (!vmContext) throw new Error(`No execution context found for run: ${detail.run.id}`);
   return vmContext;
-}
-
-function shouldUseRealVmProvider(vmContext: VmContextRecord): boolean {
-  return vmContext.backend === 'vmctl' || vmContext.backend === 'docker' || vmContext.metadata.executor === 'vmctl' || vmContext.metadata.executor === 'docker' || vmContext.metadata.targetExecution === true;
 }
 
 function redactObject(value: Record<string, unknown>): Record<string, unknown> {
@@ -3097,8 +3028,6 @@ function shouldIncludeInWorkspaceBackup(workspacePath: string, source: string): 
   if (!existsSync(source)) return false;
   const rel = relative(workspacePath, source).replace(/\\/g, '/');
   if (!rel) return true;
-  if (rel === '.beale/firecracker/state' || rel.startsWith('.beale/firecracker/state/')) return false;
-  if (rel === '.beale/firecracker/run' || rel.startsWith('.beale/firecracker/run/')) return false;
   if (/^\.beale\/exports\/.+-workspace-backup-\d{8}t\d{6}z\.tar\.gz(?:\.tmp)?$/i.test(rel)) return false;
   return true;
 }

@@ -53,7 +53,7 @@ describe('renderer research momentum view model', () => {
     expect(momentum.reason).toBe('Repeated source availability blockers detected.');
   });
 
-  it('uses host/guest activity from the latest trace event', () => {
+  it('uses host activity from the latest trace event', () => {
     expect(environmentActivityForDetail(null)).toEqual({ host: false, guest: false });
     expect(
       environmentActivityForDetail(
@@ -62,12 +62,12 @@ describe('renderer research momentum view model', () => {
             traceEvent({
               source: 'executor',
               type: 'tool_result',
-              summary: 'Guest python operation finished with success.'
+              summary: 'Host python operation finished with success.'
             })
           ]
         })
       )
-    ).toEqual({ host: false, guest: true });
+    ).toEqual({ host: true, guest: false });
   });
 });
 

@@ -56,7 +56,7 @@ export class FakeRunEngine {
       attemptId: context.attempt.id,
       type: 'vm_event',
       source: 'executor',
-      summary: 'Fake executor allocated a simulated disposable sandbox context.',
+      summary: 'Fake executor allocated a simulated execution context.',
       payload: {
         executor: 'fake',
         targetExecution: false,
@@ -412,7 +412,7 @@ function finishRun(context: CreatedRunContext, status: 'completed' | 'blocked', 
       attemptId: context.attempt.id,
       type: 'vm_event',
       source: 'executor',
-      summary: 'Fake sandbox context destroyed after simulated run completion.',
+      summary: 'Fake execution context closed after simulated run completion.',
       payload: { executor: 'fake', targetExecution: false },
       vmContextId: context.vmContext.id
     });
@@ -497,7 +497,7 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         summaryMarkdown: 'The fake debugger produced a crash and crash-input artifact, but no real reproduction has run.',
         affectedAssets: { component: 'chunk decoder' },
         affectedVersions: { fixture: 'fake' },
-        impactMarkdown: 'Potential denial of service or memory safety issue pending real VM execution.',
+        impactMarkdown: 'Potential denial of service or memory safety issue pending real execution.',
         priorityScore: scorePriority(defaultHypothesisFactors('memory_corruption'))
       });
       contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash input from fake debugger.', hypothesisId);
@@ -605,7 +605,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
         hypothesisId,
         state: 'needs_evidence',
         title: 'Tenant export authorization bypass',
-        summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass, but a real sandbox verifier is required before verification.',
+        summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass, but a real verifier is required before verification.',
         affectedAssets: { component: 'tenant export' },
         affectedVersions: { fixture: 'fake' },
         impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fake fixture.',
@@ -616,7 +616,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
         attemptId: context.attempt.id,
         type: 'finding_event',
         source: 'system',
-        summary: 'Simulated finding recorded; real sandbox verifier required for verified state.',
+        summary: 'Simulated finding recorded; real verifier required for verified state.',
         payload: {
           state: 'needs_evidence',
           verifierRunId,

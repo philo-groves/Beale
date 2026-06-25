@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { Play, ShieldAlert } from 'lucide-react';
-import type { ExecutorStatus, StartRunInput, VmPreference, WorkspaceSnapshot } from '@shared/types';
+import type { StartRunInput, WorkspaceSnapshot } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { networkProfileLabel } from '../../lib/formatting';
-import { findBackendByKind } from '../../view-models/environmentDisplay';
 import {
   defaultRunInput,
   optionalPositiveInteger,
@@ -18,32 +17,29 @@ type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number)
 
 export function StartRunForm({
   snapshot,
-  vmPreference,
   busy,
   runAction,
   onCancel,
   onStarted
 }: {
   snapshot: WorkspaceSnapshot;
-  vmPreference: VmPreference;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
-  const sandboxProfile = preferredSandboxProfile(snapshot.executor, vmPreference);
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
     networkProfile: 'elevated',
-    sandboxProfile
+    sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
 
   useEffect(() => {
     setInput((current) => {
-      return { ...current, networkProfile: 'elevated', sandboxProfile };
+      return { ...current, networkProfile: 'elevated', sandboxProfile: 'host' };
     });
-  }, [sandboxProfile, snapshot.activeScope.id]);
+  }, [snapshot.activeScope.id]);
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => {
@@ -104,12 +100,10 @@ export function StartRunForm({
             {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
           </div>
         ) : null}
-        {input.sandboxProfile === 'host_research_only' ? (
-          <div className="policy-line host-sandbox-warning">
-            <ShieldAlert size={15} />
-            Commands and executables will run on this host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.
-          </div>
-        ) : null}
+        <div className="policy-line host-sandbox-warning">
+          <ShieldAlert size={15} />
+          Honeycrisp runs with this user's host privileges. Launch Beale and Honeycrisp inside your own VM or container when you want OS isolation.
+        </div>
         <textarea
           className="prompt-box"
           rows={6}
@@ -199,9 +193,4 @@ export function SessionSettingsFields({
       </label>
     </div>
   );
-}
-
-export function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
-  const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
-  return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
 }

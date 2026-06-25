@@ -15,9 +15,8 @@ import {
 import { OpenAiAuthService } from './openaiAuth';
 import { buildInitialOpenAiInput, buildOpenAiInstructions, buildResumeOpenAiInput } from './openaiContext';
 import { bealeToolDefinitions, BealeToolRouter, type OpenAiFunctionCall } from './openaiTools';
-import { isHostResearchSandbox } from './hostToolExecutor';
+import { isHostExecutionProfile } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
-import type { ExecutorManager } from './executorManager';
 import type { FakeScenario, ModelSessionRecord, OpenAiTransport, ProfilingMetricDetail, RunDetail, RunRecord, StartRunInput, TraceEventRecord } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 
@@ -59,7 +58,6 @@ export class OpenAiRunEngine {
     private readonly db: WorkspaceDatabase,
     private readonly auth: OpenAiAuthService,
     private readonly adapter: OpenAiResponsesAdapter,
-    private readonly executor: ExecutorManager | null = null,
     private readonly onChange: () => void = () => undefined,
     private readonly profilingRecorder: OpenAiProfilingRecorder | null = null,
     private readonly onSourceMaterialized: (scopeVersionId: string, reason: string) => void = () => undefined
@@ -80,17 +78,17 @@ export class OpenAiRunEngine {
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
       budget: { ...input.budget, runEngine: 'openai_responses' },
-      vmBackend: isHostResearchSandbox(input.sandboxProfile) ? 'host' : undefined,
-      vmImageId: isHostResearchSandbox(input.sandboxProfile) ? 'host-machine' : undefined,
-      vmSnapshotId: isHostResearchSandbox(input.sandboxProfile) ? 'none' : undefined,
-      vmState: isHostResearchSandbox(input.sandboxProfile) ? 'host_active' : undefined,
-      vmMetadata: isHostResearchSandbox(input.sandboxProfile)
+      vmBackend: isHostExecutionProfile(input.sandboxProfile) ? 'host' : undefined,
+      vmImageId: isHostExecutionProfile(input.sandboxProfile) ? 'host-machine' : undefined,
+      vmSnapshotId: isHostExecutionProfile(input.sandboxProfile) ? 'none' : undefined,
+      vmState: isHostExecutionProfile(input.sandboxProfile) ? 'host_active' : undefined,
+      vmMetadata: isHostExecutionProfile(input.sandboxProfile)
         ? {
             executor: 'host',
             targetExecution: true,
             hostExecutionDefault: true,
             vmRecommended: true,
-            warning: 'Commands and executables run on the host machine for this session.'
+            warning: 'Commands and executables run with the current host process privileges for this session.'
           }
         : undefined
     });
@@ -122,20 +120,20 @@ export class OpenAiRunEngine {
         attemptStrategy: input.attemptStrategy,
         runEngine: 'openai_responses',
         sandboxProfile: input.sandboxProfile,
-        hostExecutionDefault: isHostResearchSandbox(input.sandboxProfile)
+        hostExecutionDefault: isHostExecutionProfile(input.sandboxProfile)
       }
     });
-    if (isHostResearchSandbox(input.sandboxProfile)) {
+    if (isHostExecutionProfile(input.sandboxProfile)) {
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
         type: 'approval_event',
         source: 'policy',
-        summary: 'Session started with host execution sandbox warning.',
+        summary: 'Session started with host process execution notice.',
         payload: {
           sandboxProfile: input.sandboxProfile,
           hostExecutionDefault: true,
-          warning: 'Commands and executables run on the host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.'
+          warning: 'Commands and executables run with the current host process privileges. Launch Beale and Honeycrisp inside an external VM or container when isolation is required.'
         },
         vmContextId: context.vmContext.id
       });
@@ -202,7 +200,7 @@ export class OpenAiRunEngine {
     }
     const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
     if (!vmContext) {
-      throw new Error(`OpenAI run has no sandbox context to resume: ${runId}`);
+      throw new Error(`OpenAI run has no execution context to resume: ${runId}`);
     }
 
     const context: CreatedRunContext = { run: detail.run, attempt, vmContext };
@@ -290,7 +288,7 @@ export class OpenAiRunEngine {
     }
     const vmContext = detail.vmContexts.find((context) => context.id === attempt.vmContextId) ?? detail.vmContexts[0];
     if (!vmContext) {
-      throw new Error(`OpenAI run has no sandbox context to steer: ${runId}`);
+      throw new Error(`OpenAI run has no execution context to steer: ${runId}`);
     }
 
     const state = buildSteeredRunState(detail.modelSessions.at(-1), detail, instruction);
@@ -345,7 +343,7 @@ export class OpenAiRunEngine {
   }
 
   private async runLoop(context: CreatedRunContext, input: StartRunInput, controller: AbortController, state?: RunLoopState): Promise<void> {
-    const router = new BealeToolRouter(this.db, this.executor, { onSourceMaterialized: this.onSourceMaterialized, onTraceEvent: this.onChange });
+    const router = new BealeToolRouter(this.db, { onSourceMaterialized: this.onSourceMaterialized, onTraceEvent: this.onChange });
     let responseInput: ResponseInputItem[] = state?.responseInput ?? buildInitialOpenAiInput(input);
     let manualConversationInput: ResponseInputItem[] = state?.manualConversationInput ?? buildInitialOpenAiInput(input);
     let previousResponseId: string | null = state?.previousResponseId ?? null;

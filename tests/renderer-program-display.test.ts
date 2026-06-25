@@ -84,7 +84,7 @@ function session(input: Partial<ResearchSessionSummary>): ResearchSessionSummary
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     networkProfile: 'scoped',
-    sandboxProfile: 'host_research_only',
+    sandboxProfile: 'host',
     createdAt: '2026-04-30T00:00:00.000Z',
     startedAt: '2026-04-30T00:00:00.000Z',
     endedAt: '2026-04-30T01:00:00.000Z',

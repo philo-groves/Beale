@@ -1,20 +1,12 @@
 import type {
   HostEnvironment,
-  ProgramRegistryState,
   RunDetail,
   RunStatus,
-  VmPreference,
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { ResearchMomentumState } from '../features/momentum/types';
 import type { SessionHeat } from './sessionHeat';
-
-export const DEFAULT_VM_PREFERENCE: VmPreference = {
-  enabled: false,
-  backendKind: null,
-  updatedAt: null
-};
 
 export function selectedRunStatus(snapshot: WorkspaceSnapshot | null, selectedRunId: string | null): RunStatus | null {
   if (!snapshot || !selectedRunId) return null;
@@ -47,10 +39,6 @@ export function appShellClassName(input: {
   ]
     .filter(Boolean)
     .join(' ');
-}
-
-export function vmPreferenceForState(programRegistry: ProgramRegistryState | null, snapshot: WorkspaceSnapshot | null): VmPreference {
-  return programRegistry?.vmPreference ?? snapshot?.vmPreference ?? DEFAULT_VM_PREFERENCE;
 }
 
 export function windowControlPlatformForState(
