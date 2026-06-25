@@ -287,7 +287,7 @@ describe('Beale workbench skeleton', () => {
         '  capturedAt: now,',
         "  goal: { id: 'goal_fixture', objective: 'Fixture Honeycrisp research', scopeConstraints: [], evidenceRequirements: [], riskFlags: [] },",
         "  decision: { actionClass: 'synthesize', subGoalId: 'subgoal_fixture', subGoalObjective: 'Run fixture', rationale: 'Test adapter' },",
-        "  goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1, safetyMaxLoops: 3, blockedThreshold: 3, consecutiveBlockedCount: 0 },",
+        "  goalRun: { status: 'active', terminalReason: 'loop_limit', loopsUsed: 1, maxLoops: 1, safetyMaxLoops: 3, blockedThreshold: 3, consecutiveBlockedCount: 0, statusReason: 'The configured goal loop budget was reached before terminal proof.' },",
         '  loop: {',
         "    planId: 'loop_fixture',",
         "    resultId: 'loopresult_fixture',",
@@ -360,9 +360,27 @@ describe('Beale workbench skeleton', () => {
       latestReportedInputTokens: 12345,
       latestReportedTotalTokens: 13023,
       latestContextUsageSource: 'Honeycrisp reported model usage',
-      latestContextUsageEstimated: false
+      latestContextUsageEstimated: false,
+      honeycrispGoalId: 'goal_fixture',
+      honeycrispGoalStatus: 'active',
+      honeycrispGoalTerminalReason: 'loop_limit',
+      honeycrispSubGoalId: 'subgoal_fixture',
+      honeycrispSubGoalObjective: 'Run fixture',
+      honeycrispBealeSessionBoundary: 'beale_subgoal_checkpoint'
     });
     expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.')?.payload).toMatchObject({
+      goal: {
+        id: 'goal_fixture',
+        objective: 'Fixture Honeycrisp research'
+      },
+      decision: {
+        subGoalId: 'subgoal_fixture',
+        subGoalObjective: 'Run fixture'
+      },
+      goalRun: {
+        status: 'active',
+        terminalReason: 'loop_limit'
+      },
       usage: {
         input_tokens: 12345,
         output_tokens: 678,
@@ -371,12 +389,14 @@ describe('Beale workbench skeleton', () => {
         estimated: false
       }
     });
+    expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp selected subgoal: Run fixture'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
-    expect(detail.run.summary).toContain('goal status complete');
+    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(true);
+    expect(detail.run.summary).toContain('checkpoint completed');
     service.close();
   });
 

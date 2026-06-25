@@ -50,8 +50,16 @@ export function ContextSessionView({ selectedRunId }: { selectedRunId: string })
   const openQuestions = useMemo(() => readStringArray(payload.openQuestions), [payload]);
   const candidateToolActions = useMemo(() => readRecordArray(payload.candidateToolActions), [payload]);
   const skippedToolActions = useMemo(() => readRecordArray(payload.skippedToolActions), [payload]);
+  const activeGoal = useMemo(() => readRecord(payload.activeGoal), [payload]);
+  const activeSubGoal = useMemo(() => readRecord(payload.activeSubGoal), [payload]);
   const toolPermissions = useMemo(() => readRecord(payload.toolPermissions), [payload]);
   const storage = useMemo(() => readRecord(payload.storage), [payload]);
+  const activeGoalLabel = firstString(activeGoal ?? {}, ['objective', 'id']) ?? latestEvent?.goalId ?? 'None';
+  const activeSubGoalLabel =
+    firstString(activeSubGoal ?? {}, ['objective', 'id']) ??
+    stringValue(payload.activeSubGoalId) ??
+    latestEvent?.subGoalId ??
+    'None';
 
   return (
     <div className="context-session-workspace" aria-label="Context view">
@@ -91,13 +99,23 @@ export function ContextSessionView({ selectedRunId }: { selectedRunId: string })
               rows={[
                 ['Run', selectedRunId],
                 ['Event', latestEvent?.eventId ?? 'None'],
-                ['Goal', latestEvent?.goalId ?? 'None'],
-                ['Subgoal', stringValue(payload.activeSubGoalId) ?? latestEvent?.subGoalId ?? 'None'],
+                ['Goal', activeGoalLabel],
+                ['Subgoal', activeSubGoalLabel],
                 ['Read', state?.readAt ? formatSessionDateTime(state.readAt) : 'Pending'],
                 ['Payload Hash', latestEvent?.payloadHash ?? 'None']
               ]}
             />
             <QuestionList questions={openQuestions} />
+          </section>
+
+          <section className="context-session-section" aria-label="Active goal">
+            <SectionHeader icon={<Braces size={16} />} title="Active Goal" />
+            <ObjectPreview value={activeGoal} emptyLabel="No active goal summary" />
+          </section>
+
+          <section className="context-session-section" aria-label="Active subgoal">
+            <SectionHeader icon={<Braces size={16} />} title="Active Subgoal" />
+            <ObjectPreview value={activeSubGoal} emptyLabel="No active subgoal summary" />
           </section>
 
           <section className="context-session-section" aria-label="Selected skills">

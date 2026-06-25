@@ -26,13 +26,27 @@ interface ActiveHoneycrispRun {
 interface HoneycrispFlowCapture {
   capturedAt?: string;
   goal?: {
+    id?: string;
     objective?: string;
+    scopeConstraints?: unknown;
+    evidenceRequirements?: unknown;
+    riskFlags?: unknown;
+  };
+  decision?: {
+    actionClass?: string;
+    subGoalId?: string;
+    subGoalObjective?: string;
+    rationale?: string;
   };
   goalRun?: {
     status?: string;
     terminalReason?: string;
+    statusReason?: string;
     loopsUsed?: number;
     maxLoops?: number | null;
+    safetyMaxLoops?: number;
+    blockedThreshold?: number;
+    consecutiveBlockedCount?: number;
   };
   loop?: {
     status?: string;
@@ -317,8 +331,10 @@ export class HoneycrispRunEngine {
         metadata: {
           capturePath,
           goalStatus: capture.goalRun?.status ?? null,
+          goalTerminalReason: capture.goalRun?.terminalReason ?? null,
           loopStatus: capture.loop?.status ?? null,
           memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
+          ...honeycrispGoalMetadata(capture),
           ...honeycrispContextUsageMetadata(contextUsage)
         }
       });
@@ -350,6 +366,7 @@ export class HoneycrispRunEngine {
         capturedAt: capture.capturedAt ?? null,
         memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
         storageManifestPath: capture.storageManifest?.path ?? null,
+        ...honeycrispGoalMetadata(capture),
         ...honeycrispContextUsageMetadata(contextUsage)
       },
       content: captureText
@@ -363,6 +380,9 @@ export class HoneycrispRunEngine {
       summary: 'Honeycrisp flow capture preserved as a Beale artifact.',
       payload: {
         sourcePath: capturePath,
+        goal: honeycrispGoalPayload(capture),
+        decision: honeycrispDecisionPayload(capture),
+        goalRun: honeycrispGoalRunPayload(capture),
         memoryIntegration: capture.memoryIntegration ?? null,
         storageManifest: capture.storageManifest ?? null,
         ...(contextUsage
@@ -374,6 +394,22 @@ export class HoneycrispRunEngine {
       },
       artifactId: captureArtifact.id,
       vmContextId: context.vmContext.id
+    });
+
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary: honeycrispGoalTraceSummary(capture),
+      payload: {
+        goal: honeycrispGoalPayload(capture),
+        decision: honeycrispDecisionPayload(capture),
+        goalRun: honeycrispGoalRunPayload(capture),
+        bealeSessionBoundary: honeycrispSessionBoundary(capture)
+      },
+      vmContextId: context.vmContext.id,
+      modelVisible: false
     });
 
     for (const event of capture.eventTimeline ?? []) {
@@ -847,6 +883,64 @@ function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | n
   };
 }
 
+function honeycrispGoalMetadata(capture: HoneycrispFlowCapture): Record<string, unknown> {
+  return {
+    honeycrispGoalId: capture.goal?.id ?? null,
+    honeycrispGoalObjective: capture.goal?.objective ?? null,
+    honeycrispGoalStatus: capture.goalRun?.status ?? null,
+    honeycrispGoalTerminalReason: capture.goalRun?.terminalReason ?? null,
+    honeycrispGoalStatusReason: capture.goalRun?.statusReason ?? null,
+    honeycrispGoalLoopsUsed: capture.goalRun?.loopsUsed ?? null,
+    honeycrispGoalMaxLoops: capture.goalRun?.maxLoops ?? null,
+    honeycrispSubGoalId: capture.decision?.subGoalId ?? null,
+    honeycrispSubGoalObjective: capture.decision?.subGoalObjective ?? null,
+    honeycrispSubGoalActionClass: capture.decision?.actionClass ?? null,
+    honeycrispSubGoalRationale: capture.decision?.rationale ?? null,
+    honeycrispBealeSessionBoundary: honeycrispSessionBoundary(capture)
+  };
+}
+
+function honeycrispGoalPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
+  return {
+    id: capture.goal?.id ?? null,
+    objective: capture.goal?.objective ?? null,
+    scopeConstraints: capture.goal?.scopeConstraints ?? null,
+    evidenceRequirements: capture.goal?.evidenceRequirements ?? null,
+    riskFlags: capture.goal?.riskFlags ?? null
+  };
+}
+
+function honeycrispDecisionPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
+  return {
+    actionClass: capture.decision?.actionClass ?? null,
+    subGoalId: capture.decision?.subGoalId ?? null,
+    subGoalObjective: capture.decision?.subGoalObjective ?? null,
+    rationale: capture.decision?.rationale ?? null
+  };
+}
+
+function honeycrispGoalRunPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
+  return {
+    status: capture.goalRun?.status ?? null,
+    terminalReason: capture.goalRun?.terminalReason ?? null,
+    statusReason: capture.goalRun?.statusReason ?? null,
+    loopsUsed: capture.goalRun?.loopsUsed ?? null,
+    maxLoops: capture.goalRun?.maxLoops ?? null,
+    safetyMaxLoops: capture.goalRun?.safetyMaxLoops ?? null,
+    blockedThreshold: capture.goalRun?.blockedThreshold ?? null,
+    consecutiveBlockedCount: capture.goalRun?.consecutiveBlockedCount ?? null
+  };
+}
+
+function honeycrispSessionBoundary(capture: HoneycrispFlowCapture): string {
+  const status = capture.goalRun?.status ?? '';
+  const terminalReason = capture.goalRun?.terminalReason ?? '';
+  if (status === 'active' && terminalReason === 'loop_limit') return 'beale_subgoal_checkpoint';
+  if (status === 'active' && terminalReason === 'ready_to_respond') return 'beale_response_checkpoint';
+  if (status === 'active') return 'active_goal_checkpoint';
+  return 'terminal_goal';
+}
+
 function estimatedHoneycrispContextV2Tokens(capture: HoneycrispFlowCapture): number | null {
   const total = (capture.contextV2?.sections ?? []).reduce((sum, section) => sum + (positiveNumber(section.estimatedTokens) ?? 0), 0);
   return total > 0 ? Math.ceil(total) : null;
@@ -891,18 +985,54 @@ function positiveNumber(value: unknown): number | null {
 
 function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
   const goalStatus = capture.goalRun?.status ?? 'unknown';
-  const terminal = capture.goalRun?.terminalReason ? ` (${capture.goalRun.terminalReason})` : '';
+  const terminalReason = capture.goalRun?.terminalReason ?? '';
+  const terminal = terminalReason ? ` (${terminalReason})` : '';
+  if (goalStatus === 'active' && terminalReason === 'loop_limit') {
+    const subGoal = capture.decision?.subGoalObjective ? ` after subgoal "${truncateSummary(capture.decision.subGoalObjective)}"` : '';
+    return `Honeycrisp checkpoint completed${subGoal}; root goal remains active.`;
+  }
+  if (goalStatus === 'active' && terminalReason === 'ready_to_respond') {
+    return 'Honeycrisp response checkpoint completed; root goal remains active.';
+  }
   return `Honeycrisp process finished with goal status ${goalStatus}${terminal}.`;
 }
 
 function renderHoneycrispAssistantMessage(capture: HoneycrispFlowCapture): string {
+  const checkpoint = honeycrispAssistantCheckpoint(capture);
   const parts = [
     capture.loop?.outputText?.trim() ?? '',
     capture.loop?.researchTrace?.goalAssessment?.rationale
       ? `\n\nGoal assessment: ${capture.loop.researchTrace.goalAssessment.rationale}`
-      : ''
+      : '',
+    checkpoint ? `\n\n${checkpoint}` : ''
   ].filter(Boolean);
   return parts.join('');
+}
+
+function honeycrispAssistantCheckpoint(capture: HoneycrispFlowCapture): string {
+  if (capture.goalRun?.status !== 'active') return '';
+  const subGoal = capture.decision?.subGoalObjective?.trim();
+  if (capture.goalRun.terminalReason === 'loop_limit') {
+    return subGoal
+      ? `Checkpoint: Beale session completed the selected Honeycrisp subgoal while the root goal remains active.\n\nSubgoal: ${subGoal}`
+      : 'Checkpoint: Beale session completed a Honeycrisp subgoal while the root goal remains active.';
+  }
+  if (capture.goalRun.terminalReason === 'ready_to_respond') {
+    return 'Checkpoint: Honeycrisp is ready to respond while the root goal remains active.';
+  }
+  return '';
+}
+
+function honeycrispGoalTraceSummary(capture: HoneycrispFlowCapture): string {
+  const subGoal = capture.decision?.subGoalObjective?.trim();
+  if (subGoal) {
+    return `Honeycrisp selected subgoal: ${truncateSummary(subGoal)}`;
+  }
+  const goal = capture.goal?.objective?.trim();
+  if (goal) {
+    return `Honeycrisp goal checkpoint: ${truncateSummary(goal)}`;
+  }
+  return 'Honeycrisp goal checkpoint imported.';
 }
 
 function isHoneycrispTraceItem(value: unknown): value is HoneycrispTraceItem {
