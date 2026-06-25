@@ -1229,17 +1229,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--green);
 }
 
-.cybergym-scenario-button {
-  opacity: 1;
-  color: var(--green);
-}
-
-.cybergym-scenario-button:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--green-soft);
-  color: var(--green);
-}
-
 .program-item span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8156,7 +8145,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .start-panel,
 .openai-panel,
 .hardening-panel,
-.benchmark-panel,
 .tracker-panel,
 .detail-panel,
 .inspector-panel,
@@ -8232,7 +8220,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .start-grid,
 .asset-grid,
 .openai-grid,
-.benchmark-grid,
 .hardening-grid,
 .inspector-metrics {
   display: grid;
@@ -8250,7 +8237,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .inspector-metrics div,
 .openai-grid div,
-.benchmark-grid div,
 .hardening-grid div {
   min-width: 0;
   border: 1px solid var(--line);
@@ -8261,7 +8247,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .inspector-metrics span,
 .openai-grid span,
-.benchmark-grid span,
 .hardening-grid span,
 .allowed-destinations span,
 .stat span {
@@ -8274,7 +8259,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .inspector-metrics strong,
 .openai-grid strong,
-.benchmark-grid strong,
 .hardening-grid strong {
   display: block;
   margin-top: 2px;
@@ -8386,7 +8370,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .onboarding-list,
 .review-list,
 .backend-list,
-.benchmark-results,
 .run-list {
   display: grid;
   gap: 7px;
@@ -8441,23 +8424,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   margin-top: 6px;
 }
 
-.benchmark-controls {
-  display: grid;
-  gap: 8px;
-}
-
-.benchmark-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.benchmark-buttons button {
-  flex: 1 1 130px;
-}
-
-.backend-row,
-.benchmark-result {
+.backend-row {
   min-height: 28px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -8471,7 +8438,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .backend-row span,
 .backend-row strong,
-.benchmark-result span,
 .allowed-destinations strong {
   overflow-wrap: anywhere;
 }
@@ -8482,21 +8448,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .backend-row.available strong {
   color: var(--green);
-}
-
-.benchmark-result.state-pass {
-  border-color: rgba(88, 213, 126, 0.45);
-  background: var(--green-soft);
-}
-
-.benchmark-result.state-fail {
-  border-color: rgba(255, 111, 120, 0.45);
-  background: var(--red-soft);
-}
-
-.benchmark-result.state-inconclusive {
-  border-color: rgba(241, 185, 75, 0.45);
-  background: var(--amber-soft);
 }
 
 .run-row {
@@ -9336,19 +9287,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   .program-understanding-list-grid,
   .context-session-summary-grid,
   .context-session-layout,
-  .cybergym-workspace,
   .main-session-grid,
   .openai-grid,
-  .benchmark-grid,
   .hardening-grid,
   .inspector-metrics {
     grid-template-columns: 1fr;
-  }
-
-  .cybergym-scenario-detail-panel {
-    min-height: 420px;
-    border-left: 0;
-    border-top: 1px solid var(--line);
   }
 
   .program-onboarding-layout {
@@ -9365,16 +9308,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
   .program-header-status-strip {
     justify-content: flex-start;
-  }
-
-  .cybergym-analysis-view,
-  .cybergym-comparison-row,
-  .cybergym-efficiency-row {
-    grid-template-columns: 1fr;
-  }
-
-  .cybergym-analysis-bar-row {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .program-understanding-key-values div {

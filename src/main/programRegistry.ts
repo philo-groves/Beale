@@ -4,8 +4,6 @@ import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type {
-  CyberGymBenchmarkSettings,
-  CyberGymSettingsInput,
   DeveloperSettings,
   ProgramDirectorySelection,
   ProgramOnboardingDefaults,
@@ -30,13 +28,11 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
 
 export class ProgramRegistry {
   private readonly db: DatabaseSync;
-  private readonly defaultCyberGymSettings: CyberGymBenchmarkSettings;
   public readonly registryPath: string;
 
   public constructor(registryDirectory = join(homedir(), '.beale')) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'registry.sqlite');
-    this.defaultCyberGymSettings = defaultCyberGymSettings(registryDirectory);
     this.db = new DatabaseSync(this.registryPath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initialize();
@@ -69,8 +65,7 @@ export class ProgramRegistry {
 
   public getDeveloperSettings(): DeveloperSettings {
     return {
-      developerModeEnabled: this.getDeveloperModeEnabled(),
-      cyberGym: this.getCyberGymSettings()
+      developerModeEnabled: this.getDeveloperModeEnabled()
     };
   }
 
@@ -80,22 +75,6 @@ export class ProgramRegistry {
 
   public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
     this.setMeta('developer_mode_enabled', enabled ? '1' : '0');
-    return this.getDeveloperSettings();
-  }
-
-  public getCyberGymSettings(): CyberGymBenchmarkSettings {
-    const raw = this.getMeta('cybergym_settings');
-    if (!raw) return this.defaultCyberGymSettings;
-    try {
-      return normalizeCyberGymSettings(JSON.parse(raw), this.defaultCyberGymSettings);
-    } catch {
-      return this.defaultCyberGymSettings;
-    }
-  }
-
-  public updateCyberGymSettings(input: CyberGymSettingsInput): DeveloperSettings {
-    const next = normalizeCyberGymSettings({ ...this.getCyberGymSettings(), ...input }, this.defaultCyberGymSettings);
-    this.setMeta('cybergym_settings', JSON.stringify(next));
     return this.getDeveloperSettings();
   }
 
@@ -477,48 +456,6 @@ function numberValue(row: SqlRow, key: string): number {
   return typeof value === 'number' ? value : Number(value ?? 0);
 }
 
-function defaultCyberGymSettings(registryDirectory: string): CyberGymBenchmarkSettings {
-  return {
-    sourceRootPath: join(registryDirectory, 'benchmarks', 'cybergym'),
-    selectedBenchmark: '',
-    cachePath: defaultCyberGymCachePath(),
-    outputPath: join(registryDirectory, 'benchmark-results', 'cybergym'),
-    submitServerUrl: defaultCyberGymSubmitServerUrl(),
-    pocDbPath: '',
-    verifyApiKey: ''
-  };
-}
-
-function defaultCyberGymCachePath(): string {
-  const base = process.env.XDG_CACHE_HOME?.trim() ? resolve(process.env.XDG_CACHE_HOME) : join(homedir(), '.cache');
-  return join(base, 'beale', 'benchmark-cache', 'cybergym');
-}
-
-function defaultCyberGymSubmitServerUrl(): string {
-  return process.env.BEALE_CYBERGYM_SERVER_URL?.trim() || process.env.CYBERGYM_SERVER_URL?.trim() || 'http://127.0.0.1:8666';
-}
-
-function normalizeCyberGymSettings(value: unknown, fallback: CyberGymBenchmarkSettings): CyberGymBenchmarkSettings {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
-  const record = value as Record<string, unknown>;
-  return {
-    sourceRootPath: stringSetting(record.sourceRootPath, fallback.sourceRootPath),
-    selectedBenchmark: stringSetting(record.selectedBenchmark, fallback.selectedBenchmark),
-    cachePath: stringSetting(record.cachePath, fallback.cachePath),
-    outputPath: stringSetting(record.outputPath, fallback.outputPath),
-    submitServerUrl: stringSetting(record.submitServerUrl, fallback.submitServerUrl),
-    pocDbPath: optionalStringSetting(record.pocDbPath, fallback.pocDbPath),
-    verifyApiKey: optionalStringSetting(record.verifyApiKey, fallback.verifyApiKey)
-  };
-}
-
-function stringSetting(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
-}
-
-function optionalStringSetting(value: unknown, fallback: string): string {
-  return typeof value === 'string' ? value.trim() : fallback;
-}
 
 function sessionUpdatedAt(row: WorkspaceSnapshot['runs'][number]): string {
   return row.run.endedAt ?? row.run.startedAt ?? row.run.createdAt;

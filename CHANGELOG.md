@@ -13,17 +13,6 @@
 - Added an incremental run-detail update IPC path that transfers only new trace/transcript rows plus small current collections when a run is already loaded.
 - Added opt-in production-capable profiling that writes renderer reports, main IPC timings, and OpenAI stream timings to local JSONL files from Settings > Developer through Developer Mode.
 - Added a profiling overview modal and Debug header button while profiling is enabled.
-- Added Developer Mode settings with automatic profiling enablement, CyberGym benchmarking path/cache controls, cache helpers, a CyberGym sidebar entry, and a searchable CyberGym scenario picker backed by Beale-local `benchmarks/tasks_YYYYMMDD.json` catalogs with Last Refreshed metadata.
-- Added a main-content CyberGym benchmark workspace with scenario selection beside persisted task-level run history.
-- Added CyberGym workspace header toggles for the default scenario/run list view and a benchmark analysis dashboard with pass-rate, result-mix, efficiency, and harness-comparison visualizations.
-- Added a CyberGym Run Scenario flow with level selection, shared session settings, and a generalized benchmark research prompt.
-- Added CyberGym scenario runs that execute as sessions in a reserved CyberGym research program, stage selected-level task materials in disposable per-run directories, collect result JSON/JSONL artifacts, and delete staged task materials after collection.
-- Added CyberGym PoC database verification import for scenario benchmark pass/fail results.
-- Added host-side CyberGym PoC artifact submission before verification import, keeping submit credentials and Beale workspace state out of the guest.
-- Added CyberGym verification settings for submit server URL, PoC database path, and verify API key so scenario pass/fail grading can run from Settings.
-- Added lazy CyberGym task material downloads into the configured cache path before scenario sessions start, with cached materials reused across reruns and removed by Clear Cache.
-- Added persisted benchmark task metrics for pass/fail status, fail reason, token count, session time, turn count, and time-to-finding.
-- Added an orange CyberGym scenario warning for ffmpeg scenarios where cyber abuse violation reports have been observed during benchmarking.
 - Added chunked `code_browser` reads for large textual files, including explicit `line_start` / `line_end` tool arguments and next-line continuation metadata.
 - Added Edit menu actions for Copy and Paste Steering, including platform shortcut labels and paste insertion into the steering input.
 - Added View menu Zoom Out and Zoom In commands backed by Electron `webFrame` page zoom.
@@ -31,7 +20,7 @@
 - Added Window menu commands for Minimize, Maximize, and Close as a redundant path for window controls.
 - Added File menu New Research Program command that opens the same program onboarding flow as the sidebar action.
 - Added main-process profiling timings for `getProgramRegistry`, `getSnapshot`, and `openProgram`, plus renderer payload sizing for program-registry updates.
-- Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, notifications, and benchmark overview.
+- Added internal main-process snapshot profiling timings for workspace summary, OpenAI status, executor status, run rows, and notifications.
 - Added active trace-stream profiling for snapshot broadcasts, incremental run-detail merge/apply latency, snapshot event apply latency, and trace reveal queue batches.
 - Added a sampled pointer-move next-frame latency probe to measure hover responsiveness during active trace streams.
 - Added sidebar collapse/expand profiling for toggle request latency, React state commit, next-frame latency, and transition-end timing.
@@ -100,18 +89,12 @@
 ### Removed
 
 - Removed Beale-managed VM/Docker sandbox setup, executor runtime, vmctl tooling, and Settings > Sandboxes. Beale now treats Honeycrisp execution as host-process execution; users should launch Beale/Honeycrisp inside their own VM or container when OS isolation is required.
+- Removed the Beale benchmark/CyberGym prototype runner, harness scripts, IPC, settings, scenario UI, and tests. Domain-specific harnesses now belong in Honeycrisp skills, MCP servers, or external project tooling.
 
 ### Changed
 
 - Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.
 - Changed New Research defaults on the Honeycrisp harness branch to use the Honeycrisp run engine with the Codex Spark model preference.
-- Changed the CyberGym scenario picker from a sortable table to a compact searchable scenario list.
-- Changed the CyberGym scenario workspace to replace the in-page benchmark history column with selected-scenario metric charts and a run action.
-- Changed CyberGym scenario loading to read canonical `tasks.json` files from the configured CyberGym root when no Beale-local dated tasks catalog is present.
-- Changed CyberGym to open as a reserved research program workspace with semantic project indexing disabled for benchmark work.
-- Changed CyberGym scenario run output to use per-scenario/per-run result directories with `result.json` and `events.jsonl`, while keeping only disposable task staging under the CyberGym cache path.
-- Changed the CyberGym research prompt to omit the benchmark-session title prefix so it does not act as an agent hint.
-- Changed CyberGym task staging to stay outside `.beale/` even when legacy cache settings point there, so selected task materials do not expose workspace metadata.
 - Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.
 - Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
 - Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.
@@ -249,15 +232,11 @@
 - Extracted app modal rendering from `App.tsx` into an app-level modal layer component.
 - Extracted workspace bootstrap, live snapshot subscriptions, and selected-run preservation from `App.tsx` into a renderer hook.
 - Extracted program action handlers and HackerOne onboarding lookup application from `App.tsx`.
-- Removed unreachable legacy run tracker, detail, inspector, hardening, and benchmark panel code from `App.tsx`.
+- Removed unreachable legacy run tracker, detail, inspector, and hardening code from `App.tsx`.
 
 ### Fixed
 
 - Fixed Honeycrisp session context tracking so the footer imports reported model usage when available and falls back to an explicitly marked serialized-capture estimate instead of showing zero.
-- Fixed CyberGym Run Scenario disabled states so the scenario panel displays the blocking reason.
-- Fixed CyberGym Run Scenario startup so it opens the new CyberGym program session instead of falling back to the program-understanding view or only showing the result path.
-- Fixed CyberGym benchmark token metrics to import OpenAI response usage from trace events instead of recording zero tokens.
-- Fixed benchmark elapsed-time metrics to use a monotonic clock so session duration cannot go negative if the wall clock moves backward during a run.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.
 - Fixed Spawn hypothesis trail rendering so card shadows no longer blur hypothesis text.
@@ -302,7 +281,6 @@
 
 ### Documentation
 
-- Updated experiment design guidance so CyberGym support is scoped to Developer Mode calibration and selected benchmark/subset execution.
 - Added a Fiddlesticks gap analysis for a post-alpha Rust harness migration.
 - Added a beta-readiness chapter for non-functional buttons, placeholder surfaces, and incomplete beta-facing controls.
 - Expanded the root README for human readers with current status, setup, safety boundaries, known incomplete surfaces, and planning links.

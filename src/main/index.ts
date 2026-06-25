@@ -5,9 +5,6 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
-  BenchmarkRunInput,
-  CyberGymScenarioRunInput,
-  CyberGymSettingsInput,
   HoneycrispMemoryDirectorySummary,
   ProfilingReport,
   ProgramRegistryState,
@@ -384,12 +381,6 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => timedMainIpc('getProgramRegistry', {}, () => workspaceService.getProgramRegistryState()));
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
-  ipcMain.handle(IPC_CHANNELS.updateCyberGymSettings, (_event, input: CyberGymSettingsInput) => workspaceService.updateCyberGymSettings(input));
-  ipcMain.handle(IPC_CHANNELS.prepareCyberGymStorage, () => workspaceService.prepareCyberGymStorage());
-  ipcMain.handle(IPC_CHANNELS.clearCyberGymCache, () => workspaceService.clearCyberGymCache());
-  ipcMain.handle(IPC_CHANNELS.getCyberGymScenarios, () => workspaceService.getCyberGymScenarios());
-  ipcMain.handle(IPC_CHANNELS.openCyberGymProgram, () => workspaceService.openCyberGymProgram());
-  ipcMain.handle(IPC_CHANNELS.startCyberGymScenarioRun, (_event, input: CyberGymScenarioRunInput) => workspaceService.startCyberGymScenarioRun(input));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
   ipcMain.handle(IPC_CHANNELS.createProgram, (event, input: ProgramOnboardingInput) =>
     workspaceService.createProgram(input, (update) => event.sender.send(IPC_CHANNELS.programOnboardingUpdated, update))
@@ -426,7 +417,6 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) =>
     timedMainIpc('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () => workspaceService.startRun(input))
   );
-  ipcMain.handle(IPC_CHANNELS.runBenchmarkSuite, (_event, input: BenchmarkRunInput) => workspaceService.runBenchmarkSuite(input));
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
     timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))

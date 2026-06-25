@@ -32,7 +32,6 @@ Do not use legacy branding in new docs or code. Use `Beale`.
   - Workspace database: `.beale/beale.sqlite`
   - First release focus: authorized open-ended vulnerability discovery
   - Execution posture: Beale and Honeycrisp run with the current user's host privileges; users should launch them inside their own VM/container when OS isolation is required
-  - Benchmark isolation: Dockerized benchmark harness with host-side grader and host-side model/auth proxy
 - If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
 
 ## CHANGELOG.md Management

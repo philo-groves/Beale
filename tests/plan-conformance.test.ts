@@ -65,14 +65,13 @@ describe('plan conformance', () => {
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth, host tools, benchmark, source setup, and Honeycrisp host-agent boundaries', () => {
+  it('keeps host subprocess use limited to auth, host tools, source setup, and Honeycrisp host-agent boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
       (hit) =>
         ![
           'src/main/openaiAuth.ts',
           'src/main/hostToolExecutor.ts',
-          'src/main/benchmarkDockerRunner.ts',
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
           'src/main/honeycrispMemorySummary.ts'

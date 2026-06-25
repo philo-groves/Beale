@@ -624,80 +624,8 @@ export interface ProgramRegistryState {
   researchSessions: ResearchSessionSummary[];
 }
 
-export interface CyberGymBenchmarkSettings {
-  sourceRootPath: string;
-  selectedBenchmark: string;
-  cachePath: string;
-  outputPath: string;
-  submitServerUrl: string;
-  pocDbPath: string;
-  verifyApiKey: string;
-}
-
 export interface DeveloperSettings {
   developerModeEnabled: boolean;
-  cyberGym: CyberGymBenchmarkSettings;
-}
-
-export interface CyberGymSettingsInput {
-  sourceRootPath?: string;
-  selectedBenchmark?: string;
-  cachePath?: string;
-  outputPath?: string;
-  submitServerUrl?: string;
-  pocDbPath?: string;
-  verifyApiKey?: string;
-}
-
-export interface CyberGymStorageActionResult {
-  ok: boolean;
-  action: 'prepare_storage' | 'clear_cache';
-  detail: string;
-  affectedPaths: string[];
-}
-
-export interface CyberGymScenarioSummary {
-  id: string;
-  title: string;
-  projectName: string;
-  source: string;
-  difficulty: string;
-  levelMaterials: Record<string, string[]>;
-  description: string;
-  tags: string[];
-  searchText: string;
-  local: boolean;
-}
-
-export interface CyberGymScenarioList {
-  scenarios: CyberGymScenarioSummary[];
-  source: 'project_tasks_json' | 'fallback_subset';
-  sourcePath: string | null;
-  lastRefreshedAt: string | null;
-  totalCount: number;
-  loadedAt: string;
-}
-
-export type CyberGymLevel = 0 | 1 | 2 | 3;
-
-export interface CyberGymScenarioRunInput {
-  scenario: CyberGymScenarioSummary;
-  level: CyberGymLevel;
-  settings: StartRunInput;
-}
-
-export interface CyberGymScenarioRunStartResult {
-  runId: string;
-  workspacePath: string;
-  taskDirectory: string;
-  outputDirectory: string;
-  outputPath: string;
-  resultPath: string;
-  eventLogPath: string;
-  level: string;
-  copiedMaterials: string[];
-  missingMaterials: string[];
-  cleanupScheduled: boolean;
 }
 
 export interface ProgramOnboardingDefaults {
@@ -779,7 +707,6 @@ export interface WorkspaceRecoveryReport {
   interruptedToolCalls: number;
   interruptedVerifierRuns: number;
   interruptedVmContexts: number;
-  interruptedBenchmarkRuns: number;
   notes: string[];
 }
 
@@ -1250,129 +1177,6 @@ export interface RunDetailUpdate {
   honeycrispMemory?: HoneycrispMemorySummary;
 }
 
-export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';
-
-export type BenchmarkTaskMode = 'discovery' | 'reproduction' | 'patch_validation' | 'variant_analysis' | 'benchmark' | 'safety';
-
-export type BenchmarkResultStatus = 'pass' | 'fail' | 'inconclusive';
-
-export interface BenchmarkSuiteSummary {
-  suiteKind: BenchmarkSuiteKind;
-  suiteId: string;
-  title: string;
-  taskCount: number;
-  benchmarkVersion: string;
-}
-
-export interface BenchmarkRunInput {
-  suiteKind: BenchmarkSuiteKind;
-  model?: string;
-  reasoningEffort?: string;
-  harnessName?: string;
-  harnessVersion?: string;
-  promptVersion?: string;
-  toolsetVersion?: string;
-  verifierVersion?: string;
-  sandboxBackend?: string;
-  sandboxImageVersion?: string;
-  attemptStrategy?: string;
-  attemptCount?: number;
-  failureTaskIds?: string[];
-  dockerImage?: string;
-}
-
-export interface BenchmarkHarnessIdentity {
-  model: string;
-  reasoningEffort: string;
-  harnessName: string;
-  harnessVersion: string;
-  promptVersion: string;
-  toolsetVersion: string;
-  verifierVersion: string;
-  sandboxBackend: string;
-  sandboxImageVersion: string;
-  networkProfile: string;
-  attemptStrategy: string;
-  attemptCount: number;
-  taskSubsetId: string;
-  taskIds: string[];
-  benchmarkVersion: string;
-  date: string;
-  cost: Record<string, unknown>;
-  tokens: Record<string, unknown>;
-  wallTimeMs: number;
-  passCount: number;
-  totalCount: number;
-  passRate: number;
-  smallSampleWarning: string | null;
-}
-
-export interface BenchmarkRunRecord {
-  id: string;
-  suiteKind: BenchmarkSuiteKind;
-  suiteId: string;
-  status: 'running' | 'completed' | 'failed';
-  identity: BenchmarkHarnessIdentity;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-  startedAt: string;
-  endedAt: string | null;
-}
-
-export interface BenchmarkTaskResultRecord {
-  id: string;
-  benchmarkRunId: string;
-  taskId: string;
-  suiteKind: BenchmarkSuiteKind;
-  mode: BenchmarkTaskMode;
-  status: BenchmarkResultStatus;
-  score: number;
-  runId: string | null;
-  isolationPassed: boolean;
-  metrics: Record<string, unknown>;
-  graderReport: Record<string, unknown>;
-  agentOutput: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface BenchmarkComparison {
-  baselineRunId: string;
-  candidateRunId: string;
-  suiteKind: BenchmarkSuiteKind;
-  taskSubsetId: string;
-  model: string;
-  reasoningEffort: string;
-  baselineHarness: string;
-  candidateHarness: string;
-  baselinePassRate: number;
-  candidatePassRate: number;
-  passRateDelta: number;
-  baselinePassCount: number;
-  candidatePassCount: number;
-  totalCount: number;
-  wallTimeDeltaMs: number;
-  costDeltaUsd: number;
-  compatible: boolean;
-  warning: string | null;
-}
-
-export interface BenchmarkOverview {
-  suites: BenchmarkSuiteSummary[];
-  latestRun: BenchmarkRunRecord | null;
-  latestResults: BenchmarkTaskResultRecord[];
-  recentResults: BenchmarkTaskResultRecord[];
-  recentRuns: BenchmarkRunRecord[];
-  comparisons: BenchmarkComparison[];
-  isolationSummary: {
-    dockerizedAgentHarness: boolean;
-    hostSideModelProxy: boolean;
-    hostSideGrader: boolean;
-    graderFilesMounted: boolean;
-    groundTruthMounted: boolean;
-    normalVmArchitectureChanged: boolean;
-  };
-}
-
 export interface WorkspaceSnapshot {
   workspace: WorkspaceSummary;
   openAi: OpenAiAccountStatus;
@@ -1386,7 +1190,6 @@ export interface WorkspaceSnapshot {
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
   notifications: NotificationRecord[];
-  benchmark: BenchmarkOverview;
 }
 
 export type WorkspacePickerMode = 'open' | 'create';
@@ -1443,12 +1246,6 @@ export interface BealeApi {
   getProgramRegistry(): Promise<ProgramRegistryState>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
-  updateCyberGymSettings(input: CyberGymSettingsInput): Promise<DeveloperSettings>;
-  prepareCyberGymStorage(): Promise<CyberGymStorageActionResult>;
-  clearCyberGymCache(): Promise<CyberGymStorageActionResult>;
-  getCyberGymScenarios(): Promise<CyberGymScenarioList>;
-  openCyberGymProgram(): Promise<WorkspaceSnapshot>;
-  startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult>;
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
   createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
   skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null>;
@@ -1471,7 +1268,6 @@ export interface BealeApi {
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
   saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
-  runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   getAgentContext(runId: string): Promise<AgentContextState>;

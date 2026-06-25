@@ -2,12 +2,6 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
-  BenchmarkRunInput,
-  CyberGymScenarioRunInput,
-  CyberGymScenarioRunStartResult,
-  CyberGymScenarioList,
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
   GeneratedResearchPrompt,
   HostEnvironment,
@@ -54,24 +48,6 @@ const api: BealeApi = {
   },
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
-  },
-  updateCyberGymSettings(input: CyberGymSettingsInput): Promise<DeveloperSettings> {
-    return ipcRenderer.invoke(IPC_CHANNELS.updateCyberGymSettings, input);
-  },
-  prepareCyberGymStorage(): Promise<CyberGymStorageActionResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.prepareCyberGymStorage);
-  },
-  clearCyberGymCache(): Promise<CyberGymStorageActionResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.clearCyberGymCache);
-  },
-  getCyberGymScenarios(): Promise<CyberGymScenarioList> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getCyberGymScenarios);
-  },
-  openCyberGymProgram(): Promise<WorkspaceSnapshot> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openCyberGymProgram);
-  },
-  startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.startCyberGymScenarioRun, input);
   },
   lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneProgram, identifier);
@@ -142,9 +118,6 @@ const api: BealeApi = {
   },
   startRun(input: StartRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.startRun, input);
-  },
-  runBenchmarkSuite(input: BenchmarkRunInput) {
-    return ipcRenderer.invoke(IPC_CHANNELS.runBenchmarkSuite, input);
   },
   exportWorkspaceBackup(note?: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
