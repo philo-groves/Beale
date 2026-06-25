@@ -8,7 +8,7 @@ import { FixtureRunEngine } from './fixtureRunEngine';
 import { WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import { HoneycrispRunEngine } from './honeycrispRunEngine';
+import { HoneycrispRunEngine, invokeHoneycrispMemoryCommand } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
 import { ProgramRegistry } from './programRegistry';
@@ -1188,6 +1188,18 @@ export class WorkspaceService {
         break;
       }
       case 'promote_artifact': {
+        if (runEngine === 'honeycrisp') {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'mark-artifact',
+            action.artifactId,
+            '--mark',
+            'important',
+            '--artifact-kind',
+            'beale_artifact',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         const evidenceId = db.createEvidenceFromArtifact(action.runId, action.artifactId, 'User promoted artifact to evidence.');
         db.appendTraceEvent({
           runId: action.runId,
@@ -1201,6 +1213,16 @@ export class WorkspaceService {
         break;
       }
       case 'promote_hypothesis': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.hypothesisId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'promote-hypothesis',
+            action.hypothesisId,
+            '--finding-status',
+            'supported',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         const detail = db.getRunDetail(action.runId);
         const hypothesis = requireHypothesis(detail, action.hypothesisId);
         const passingVerifier = latestVerifierForHypothesis(detail, hypothesis.id, 'pass');
@@ -1244,6 +1266,16 @@ export class WorkspaceService {
         break;
       }
       case 'merge_hypotheses': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.sourceHypothesisId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'supersede-record',
+            action.sourceHypothesisId,
+            '--superseded-by',
+            action.targetHypothesisId,
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         const detail = db.getRunDetail(action.runId);
         requireHypothesis(detail, action.sourceHypothesisId);
         requireHypothesis(detail, action.targetHypothesisId);
@@ -1292,6 +1324,22 @@ export class WorkspaceService {
         break;
       }
       case 'request_reproduction': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.hypothesisId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'request-proof',
+            'memory_record',
+            action.hypothesisId,
+            '--question',
+            action.note?.trim()
+              ? redactForModelText(action.note.trim())
+              : `Reproduce or falsify hypothesis ${action.hypothesisId}.`,
+            '--method-kind',
+            'empirical_reproduction',
+            '--required-result',
+            'pass'
+          ]);
+          break;
+        }
         const detail = db.getRunDetail(action.runId);
         const hypothesis = requireHypothesis(detail, action.hypothesisId);
         const contract = createReproductionContract(db, action.runId, hypothesis, attempt?.vmContextId ?? null, action.note ?? '');
@@ -1313,6 +1361,28 @@ export class WorkspaceService {
         break;
       }
       case 'request_patch_validation': {
+        if (runEngine === 'honeycrisp') {
+          const subjectId = action.findingId ?? action.hypothesisId;
+          if (subjectId && isHoneycrispMemoryRecordId(subjectId)) {
+            this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+              'request-proof',
+              'memory_record',
+              subjectId,
+              '--question',
+              action.note?.trim()
+                ? redactForModelText(action.note.trim())
+                : `Validate patch or mitigation behavior for ${subjectId}.`,
+              '--method-kind',
+              'artifact_validation',
+              '--required-result',
+              'pass'
+            ]);
+            break;
+          }
+          if (!subjectId) {
+            throw new Error('Honeycrisp patch validation proof requires a hypothesisId or findingId.');
+          }
+        }
         const detail = db.getRunDetail(action.runId);
         const hypothesis = action.hypothesisId ? requireHypothesis(detail, action.hypothesisId) : null;
         const finding = action.findingId ? requireFinding(detail, action.findingId) : null;
@@ -1336,6 +1406,16 @@ export class WorkspaceService {
         break;
       }
       case 'mark_finding_false_positive': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.findingId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'reject-record',
+            action.findingId,
+            '--finding-status',
+            'rejected',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         requireFinding(db.getRunDetail(action.runId), action.findingId);
         db.updateFindingState(action.findingId, 'false_positive');
         db.appendTraceEvent({
@@ -1349,6 +1429,16 @@ export class WorkspaceService {
         break;
       }
       case 'mark_finding_out_of_scope': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.findingId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'reject-record',
+            action.findingId,
+            '--finding-status',
+            'out_of_scope',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         requireFinding(db.getRunDetail(action.runId), action.findingId);
         db.updateFindingState(action.findingId, 'out_of_scope');
         db.appendTraceEvent({
@@ -1377,6 +1467,18 @@ export class WorkspaceService {
         break;
       }
       case 'mark_needs_more_evidence': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.findingId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'review-record',
+            action.findingId,
+            '--status',
+            'candidate',
+            '--finding-status',
+            'needs_evidence',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         requireFinding(db.getRunDetail(action.runId), action.findingId);
         db.updateFindingState(action.findingId, 'needs_evidence');
         db.appendTraceEvent({
@@ -1510,6 +1612,18 @@ export class WorkspaceService {
         break;
       }
       case 'mark_artifact_sensitive': {
+        if (runEngine === 'honeycrisp') {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'mark-artifact',
+            action.artifactId,
+            '--mark',
+            'sensitive',
+            '--artifact-kind',
+            'beale_artifact',
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         db.markArtifactSensitive(action.artifactId);
         db.appendTraceEvent({
           runId: action.runId,
@@ -1524,6 +1638,14 @@ export class WorkspaceService {
         break;
       }
       case 'dismiss_hypothesis': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.hypothesisId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'reject-record',
+            action.hypothesisId,
+            ...(action.note ? ['--summary', redactForModelText(action.note)] : [])
+          ]);
+          break;
+        }
         db.updateHypothesisState(action.hypothesisId, 'dismissed');
         db.appendTraceEvent({
           runId: action.runId,
@@ -1536,6 +1658,17 @@ export class WorkspaceService {
         break;
       }
       case 'mark_hypothesis_out_of_scope': {
+        if (runEngine === 'honeycrisp' && isHoneycrispMemoryRecordId(action.hypothesisId)) {
+          this.forwardHoneycrispMemorySteering(action.runId, action.type, attempt?.id ?? null, [
+            'reject-record',
+            action.hypothesisId,
+            '--summary',
+            action.note?.trim()
+              ? redactForModelText(action.note.trim())
+              : 'Hypothesis marked out of scope by user.'
+          ]);
+          break;
+        }
         db.updateHypothesisState(action.hypothesisId, 'out_of_scope');
         db.appendTraceEvent({
           runId: action.runId,
@@ -1555,6 +1688,34 @@ export class WorkspaceService {
 
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  private forwardHoneycrispMemorySteering(runId: string, actionType: SteeringAction['type'], attemptId: string | null, args: string[]): Record<string, unknown> {
+    const workspacePath = this.workspacePath;
+    if (!workspacePath) {
+      throw new Error('No Beale workspace is open');
+    }
+    const result = invokeHoneycrispMemoryCommand(workspacePath, args);
+    this.requireDb().appendTraceEvent({
+      runId,
+      attemptId,
+      type: 'user_note',
+      source: 'user',
+      summary: `Honeycrisp memory steering forwarded: ${actionType}.`,
+      payload: {
+        actionType,
+        honeycrispAction: stringFromUnknown(result.action),
+        honeycrispEvent: isRecord(result.event)
+          ? {
+              id: stringFromUnknown(result.event.id),
+              kind: stringFromUnknown(result.event.kind)
+            }
+          : null,
+        args: redactHoneycrispMemoryArgs(args)
+      },
+      modelVisible: false
+    });
+    return result;
   }
 
   public openNotification(notificationId: string): WorkspaceSnapshot {
@@ -1997,6 +2158,32 @@ export class WorkspaceService {
 
 export function startRunForTest(service: WorkspaceService, input: StartRunInput): WorkspaceSnapshot {
   return service.startRun(input, 'complete');
+}
+
+function redactHoneycrispMemoryArgs(args: string[]): string[] {
+  const sensitiveValueFlags = new Set([
+    '--summary',
+    '--question',
+    '--artifact-uri'
+  ]);
+  const redacted: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    redacted.push(arg);
+    if (sensitiveValueFlags.has(arg) && index + 1 < args.length) {
+      redacted.push('[redacted]');
+      index += 1;
+    }
+  }
+  return redacted;
+}
+
+function stringFromUnknown(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function isHoneycrispMemoryRecordId(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith('mem_');
 }
 
 function priorityFactorsFromInput(input: PriorityFactorInput): PriorityFactors {

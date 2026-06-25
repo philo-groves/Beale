@@ -1532,6 +1532,78 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('forwards general Honeycrisp steering actions to the Honeycrisp memory CLI', () => {
+    const dir = tempWorkspace();
+    const logPath = join(dir, 'honeycrisp-steering-calls.jsonl');
+    const fakeHoneycrisp = join(dir, 'fake-honeycrisp-memory.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        "import { appendFileSync } from 'node:fs';",
+        `const logPath = ${JSON.stringify(logPath)};`,
+        "const args = process.argv.slice(2);",
+        "appendFileSync(logPath, JSON.stringify(args) + '\\n');",
+        "const memoryIndex = args.indexOf('memory');",
+        "const command = args[memoryIndex + 1] || 'unknown';",
+        "const eventKind = command === 'request-proof' ? 'proof.requested' : command === 'mark-artifact' ? 'artifact.updated' : command === 'promote-hypothesis' ? 'finding.updated' : command === 'supersede-record' ? 'memory.decision' : 'finding.reviewed';",
+        "const subjectId = args[memoryIndex + 3] || 'mem_fixture';",
+        "const output = { action: command, event: { id: 'evt_fixture_' + command.replaceAll('-', '_'), kind: eventKind }, records: [], record: { id: subjectId, kind: 'finding', status: 'confirmed', summary: 'fixture record' }, agentState: { memory: {}, proof: {}, storage: {} } };",
+        "if (command === 'request-proof') output.obligation = { id: 'proof_obl_fixture', status: 'open', question: 'fixture proof' };",
+        "console.log(JSON.stringify(output));"
+      ].join('\n'),
+      'utf8'
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const artifactRoot = join(dir, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    db.initialize();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Honeycrisp steering run',
+      promptMarkdown: '# Honeycrisp steering run',
+      mode: 'open_discovery',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'host',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
+    });
+    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared Honeycrisp steering fixture.');
+    db.updateRunStatus(context.run.id, 'completed', 'Prepared Honeycrisp steering fixture.');
+    db.close();
+
+    const service = new WorkspaceService();
+    service.openWorkspace(dir);
+    service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: 'mem_hypothesis_fixture' });
+    service.steerRun({ type: 'merge_hypotheses', runId: context.run.id, sourceHypothesisId: 'mem_hypothesis_old', targetHypothesisId: 'mem_hypothesis_fixture' });
+    service.steerRun({ type: 'request_reproduction', runId: context.run.id, hypothesisId: 'mem_hypothesis_fixture', note: 'secret=forwardsecret12345' });
+    service.steerRun({ type: 'mark_needs_more_evidence', runId: context.run.id, findingId: 'mem_finding_fixture' });
+    service.steerRun({ type: 'mark_artifact_sensitive', runId: context.run.id, artifactId: 'artifact_fixture' });
+
+    const calls = readFileSync(logPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    expect(calls).toHaveLength(5);
+    expect(calls[0]).toEqual(expect.arrayContaining(['memory', 'promote-hypothesis', 'mem_hypothesis_fixture']));
+    expect(calls[1]).toEqual(expect.arrayContaining(['memory', 'supersede-record', 'mem_hypothesis_old', '--superseded-by', 'mem_hypothesis_fixture']));
+    expect(calls[2]).toEqual(expect.arrayContaining(['memory', 'request-proof', 'memory_record', 'mem_hypothesis_fixture', '--method-kind', 'empirical_reproduction']));
+    expect(calls[2]).not.toContain('forwardsecret12345');
+    expect(calls[3]).toEqual(expect.arrayContaining(['memory', 'review-record', 'mem_finding_fixture', '--finding-status', 'needs_evidence']));
+    expect(calls[4]).toEqual(expect.arrayContaining(['memory', 'mark-artifact', 'artifact_fixture', '--mark', 'sensitive']));
+
+    const detail = service.getRunDetail(context.run.id);
+    expect(detail.traceEvents.filter((event) => event.summary.startsWith('Honeycrisp memory steering forwarded:'))).toHaveLength(5);
+    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp memory steering forwarded: request_reproduction.')).toBe(true);
+    expect(JSON.stringify(detail.traceEvents.at(-1)?.payload)).not.toContain('forwardsecret12345');
+    service.close();
+  });
+
   it('supports discovery steering, verifier contracts, priority scoring, finding states, and evidence export', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_logic_bug'));

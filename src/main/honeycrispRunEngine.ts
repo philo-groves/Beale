@@ -618,6 +618,36 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   };
 }
 
+export function invokeHoneycrispMemoryCommand(workspacePath: string, args: string[]): Record<string, unknown> {
+  const invocation = resolveHoneycrispInvocation();
+  const fullArgs = [
+    ...invocation.prefixArgs,
+    'memory',
+    ...args,
+    '--workspace-root',
+    workspacePath,
+    '--json'
+  ];
+  const result = spawnSync(invocation.command, fullArgs, {
+    cwd: invocation.cwd,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+    timeout: 10_000,
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || 'Honeycrisp memory command failed.').trim();
+    throw new Error(`Honeycrisp memory steering failed: ${detail}`);
+  }
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    if (isJsonRecord(parsed)) return parsed;
+  } catch {
+    // Fall through to the structured error below.
+  }
+  throw new Error(`Honeycrisp memory steering returned non-JSON output: ${result.stdout.slice(0, 500)}`);
+}
+
 function resolveHoneycrispNodeCommand(): string {
   const candidates = [
     process.env.BEALE_HONEYCRISP_NODE_COMMAND?.trim(),
@@ -1097,6 +1127,10 @@ function readTextFile(path: string): string {
     throw new Error(`Honeycrisp capture was not written: ${path}`);
   }
   return readFileSync(path, 'utf8');
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function truncateSummary(value: string): string {
