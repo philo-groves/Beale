@@ -79,7 +79,7 @@ Honeycrisp is the source of truth for general agent state: goals, subgoals, memo
 
 Older Beale workspaces may still contain legacy `hypotheses`, `evidence`, `findings`, and verifier tables. Beale keeps those readable for compatibility and provides a one-time migration path that exports legacy general research records as Honeycrisp memory events, then asks Honeycrisp to validate/import them. Security-specific metadata such as CWE mappings and reportability stays attached as domain metadata or Beale overlay state rather than becoming Honeycrisp core schema.
 
-The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Beale can forward Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON`, for example `["--skill-dir","/path/to/skills","--skill","parser-vuln","--mcp-config","/path/to/mcp.json","--allow-mcp-server","local"]`.
+The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
 
 See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on direction and recent changes.
 

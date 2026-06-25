@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { JSX, ReactNode } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Server, Wrench } from 'lucide-react';
+import type { FormEvent, JSX, ReactNode } from 'react';
+import { AlertCircle, CheckCircle2, Loader2, Plus, Save, Server, Trash2, Wrench, XCircle } from 'lucide-react';
 import type {
+  HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
   HoneycrispToolingSkillSummary,
   HoneycrispToolingSummary,
@@ -12,6 +13,8 @@ import { errorMessage } from '../../lib/errors';
 
 export type HoneycrispToolingModalKind = 'skills' | 'mcpServers';
 
+type ToolingUpdateHandler = (update: HoneycrispToolingConfigUpdate) => Promise<boolean>;
+
 export function HoneycrispToolingModal({
   kind,
   onClose
@@ -21,6 +24,7 @@ export function HoneycrispToolingModal({
 }): JSX.Element {
   const [summary, setSummary] = useState<HoneycrispToolingSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = (): void => {
@@ -33,11 +37,27 @@ export function HoneycrispToolingModal({
       .finally(() => setLoading(false));
   };
 
+  const applyUpdate: ToolingUpdateHandler = async (update) => {
+    setBusyAction(update.type);
+    setError(null);
+    try {
+      const next = await window.beale.updateHoneycrispToolingConfig(update);
+      setSummary(next);
+      return true;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      return false;
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   useEffect(() => {
     refresh();
   }, []);
 
   const title = kind === 'skills' ? 'Skills' : 'MCP Servers';
+  const busy = loading || Boolean(busyAction);
 
   return (
     <Modal
@@ -47,7 +67,7 @@ export function HoneycrispToolingModal({
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="modal-footer-leading" disabled={loading} onClick={refresh}>
+          <button type="button" className="modal-footer-leading" disabled={busy} onClick={refresh}>
             Refresh
           </button>
           <button type="button" onClick={onClose}>Done</button>
@@ -61,69 +81,274 @@ export function HoneycrispToolingModal({
             <span>Loading Honeycrisp tooling...</span>
           </div>
         ) : null}
+        {busyAction ? (
+          <div className="honeycrisp-tooling-loading">
+            <Loader2 size={16} />
+            <span>Updating Honeycrisp tooling...</span>
+          </div>
+        ) : null}
         {error ? (
           <div className="honeycrisp-tooling-error">
             <AlertCircle size={16} />
             <span>{error}</span>
           </div>
         ) : null}
-        {!loading && !error && summary ? (
-          kind === 'skills' ? <SkillsView summary={summary} /> : <McpServersView summary={summary} />
+        {!loading && summary ? (
+          kind === 'skills' ? (
+            <SkillsView summary={summary} disabled={busy} onUpdate={applyUpdate} />
+          ) : (
+            <McpServersView summary={summary} disabled={busy} onUpdate={applyUpdate} />
+          )
         ) : null}
       </div>
     </Modal>
   );
 }
 
-function SkillsView({ summary }: { summary: HoneycrispToolingSummary }): JSX.Element {
-  const selected = new Set(summary.skills.selectedIds);
+function SkillsView({
+  summary,
+  disabled,
+  onUpdate
+}: {
+  summary: HoneycrispToolingSummary;
+  disabled: boolean;
+  onUpdate: ToolingUpdateHandler;
+}): JSX.Element {
+  const [skillDirDraft, setSkillDirDraft] = useState('');
+  const [skillIdDraft, setSkillIdDraft] = useState('');
+  const activeSelected = new Set(summary.skills.selectedIds);
+  const configuredSelected = new Set(summary.config.preference.selectedSkillIds);
+
+  const addSkillDir = (event: FormEvent): void => {
+    event.preventDefault();
+    const path = skillDirDraft.trim();
+    if (!path) return;
+    void onUpdate({ type: 'add_skill_dir', path }).then((ok) => {
+      if (ok) setSkillDirDraft('');
+    });
+  };
+
+  const addSkill = (event: FormEvent): void => {
+    event.preventDefault();
+    const id = skillIdDraft.trim();
+    if (!id) return;
+    void onUpdate({ type: 'select_skill', id }).then((ok) => {
+      if (ok) setSkillIdDraft('');
+    });
+  };
+
   return (
     <>
       <div className="honeycrisp-tooling-summary-grid">
         <Metric label="Loaded" value={summary.skills.loaded.length} />
-        <Metric label="Selected" value={summary.skills.selectedIds.length} />
-        <Metric label="Tools" value={summary.tools.length} />
-        <Metric label="Source" value="Honeycrisp CLI" />
+        <Metric label="Active" value={summary.skills.selectedIds.length} />
+        <Metric label="Configured Dirs" value={summary.config.preference.skillDirs.length} />
+        <Metric label="Config" value={summary.config.exists ? 'Saved' : 'Default'} />
       </div>
+      <section className="honeycrisp-tooling-section">
+        <h3>Configuration</h3>
+        <div className="honeycrisp-tooling-key-values">
+          <KeyValue label="Path" value={summary.config.configPath} />
+        </div>
+        <form className="honeycrisp-tooling-control-row" onSubmit={addSkillDir}>
+          <label>
+            <span>Skill directory</span>
+            <input
+              value={skillDirDraft}
+              placeholder="/path/to/skills"
+              disabled={disabled}
+              onChange={(event) => setSkillDirDraft(event.currentTarget.value)}
+            />
+          </label>
+          <button type="submit" className="honeycrisp-tooling-icon-button" title="Add skill directory" disabled={disabled || !skillDirDraft.trim()}>
+            <Plus size={15} />
+          </button>
+        </form>
+        <ConfiguredValueList
+          values={summary.config.preference.skillDirs}
+          emptyLabel="No configured skill directories."
+          removeTitle="Remove skill directory"
+          disabled={disabled}
+          onRemove={(path) => onUpdate({ type: 'remove_skill_dir', path })}
+        />
+        <form className="honeycrisp-tooling-control-row" onSubmit={addSkill}>
+          <label>
+            <span>Skill id</span>
+            <input
+              value={skillIdDraft}
+              placeholder="skill-id"
+              disabled={disabled}
+              onChange={(event) => setSkillIdDraft(event.currentTarget.value)}
+            />
+          </label>
+          <button type="submit" className="honeycrisp-tooling-icon-button" title="Select skill" disabled={disabled || !skillIdDraft.trim()}>
+            <Plus size={15} />
+          </button>
+        </form>
+        <ConfiguredValueList
+          values={summary.config.preference.selectedSkillIds}
+          emptyLabel="No configured selected skills."
+          removeTitle="Deselect skill"
+          disabled={disabled}
+          onRemove={(id) => onUpdate({ type: 'deselect_skill', id })}
+        />
+      </section>
       <section className="honeycrisp-tooling-section">
         <h3>Loaded Skills</h3>
         {summary.skills.loaded.length > 0 ? (
           <div className="honeycrisp-tooling-list">
             {summary.skills.loaded.map((skill) => (
-              <SkillCard key={skill.id} skill={skill} selected={selected.has(skill.id)} />
+              <SkillCard
+                key={skill.id}
+                skill={skill}
+                selected={activeSelected.has(skill.id)}
+                configured={configuredSelected.has(skill.id)}
+                disabled={disabled}
+                onSelect={(id) => onUpdate({ type: 'select_skill', id })}
+                onDeselect={(id) => onUpdate({ type: 'deselect_skill', id })}
+              />
             ))}
           </div>
         ) : (
           <p className="honeycrisp-tooling-empty">No Honeycrisp skills loaded.</p>
         )}
       </section>
-      {summary.skills.selectedIds.length > 0 ? (
-        <section className="honeycrisp-tooling-section">
-          <h3>Selected IDs</h3>
-          <PillList values={summary.skills.selectedIds} />
-        </section>
-      ) : null}
       <ToolFamilies summary={summary} />
     </>
   );
 }
 
-function McpServersView({ summary }: { summary: HoneycrispToolingSummary }): JSX.Element {
+function McpServersView({
+  summary,
+  disabled,
+  onUpdate
+}: {
+  summary: HoneycrispToolingSummary;
+  disabled: boolean;
+  onUpdate: ToolingUpdateHandler;
+}): JSX.Element {
   const mcp = summary.mcp;
+  const [mcpConfigPathDraft, setMcpConfigPathDraft] = useState(summary.config.preference.mcpConfigPath ?? '');
+  const [allowedServerDraft, setAllowedServerDraft] = useState('');
+  const [timeoutDraft, setTimeoutDraft] = useState(summary.config.preference.mcpTimeoutMs ? String(summary.config.preference.mcpTimeoutMs) : '');
+
+  useEffect(() => {
+    setMcpConfigPathDraft(summary.config.preference.mcpConfigPath ?? '');
+    setTimeoutDraft(summary.config.preference.mcpTimeoutMs ? String(summary.config.preference.mcpTimeoutMs) : '');
+  }, [summary.config.preference.mcpConfigPath, summary.config.preference.mcpTimeoutMs]);
+
+  const saveMcpConfigPath = (event: FormEvent): void => {
+    event.preventDefault();
+    const path = mcpConfigPathDraft.trim();
+    if (!path) return;
+    void onUpdate({ type: 'set_mcp_config_path', path });
+  };
+
+  const addAllowedServer = (event: FormEvent): void => {
+    event.preventDefault();
+    const name = allowedServerDraft.trim();
+    if (!name) return;
+    void onUpdate({ type: 'allow_mcp_server', name }).then((ok) => {
+      if (ok) setAllowedServerDraft('');
+    });
+  };
+
+  const saveTimeout = (event: FormEvent): void => {
+    event.preventDefault();
+    const timeoutMs = Number.parseInt(timeoutDraft.trim(), 10);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
+    void onUpdate({ type: 'set_mcp_timeout_ms', timeoutMs });
+  };
+
   return (
     <>
       <div className="honeycrisp-tooling-summary-grid">
         <Metric label="Status" value={statusLabel(mcp.status)} />
         <Metric label="Allowed" value={mcp.allowedServers.length} />
         <Metric label="Capabilities" value={mcp.discoveredCapabilities.length} />
-        <Metric label="Denied" value={mcp.deniedCapabilities.length} />
+        <Metric label="Config" value={summary.config.exists ? 'Saved' : 'Default'} />
       </div>
+      <section className="honeycrisp-tooling-section">
+        <h3>Configuration</h3>
+        <div className="honeycrisp-tooling-key-values">
+          <KeyValue label="Path" value={summary.config.configPath} />
+        </div>
+        <form className="honeycrisp-tooling-control-row" onSubmit={saveMcpConfigPath}>
+          <label>
+            <span>MCP config</span>
+            <input
+              value={mcpConfigPathDraft}
+              placeholder="/path/to/mcp.json"
+              disabled={disabled}
+              onChange={(event) => setMcpConfigPathDraft(event.currentTarget.value)}
+            />
+          </label>
+          <button type="submit" className="honeycrisp-tooling-icon-button" title="Save MCP config path" disabled={disabled || !mcpConfigPathDraft.trim()}>
+            <Save size={15} />
+          </button>
+          <button
+            type="button"
+            className="honeycrisp-tooling-icon-button"
+            title="Clear MCP config path"
+            disabled={disabled || !summary.config.preference.mcpConfigPath}
+            onClick={() => void onUpdate({ type: 'clear_mcp_config_path' })}
+          >
+            <XCircle size={15} />
+          </button>
+        </form>
+        <form className="honeycrisp-tooling-control-row" onSubmit={addAllowedServer}>
+          <label>
+            <span>Allowed server</span>
+            <input
+              value={allowedServerDraft}
+              placeholder="server-name"
+              disabled={disabled}
+              onChange={(event) => setAllowedServerDraft(event.currentTarget.value)}
+            />
+          </label>
+          <button type="submit" className="honeycrisp-tooling-icon-button" title="Allow MCP server" disabled={disabled || !allowedServerDraft.trim()}>
+            <Plus size={15} />
+          </button>
+        </form>
+        <ConfiguredValueList
+          values={summary.config.preference.allowedMcpServers}
+          emptyLabel="No configured MCP allowlist."
+          removeTitle="Remove allowed MCP server"
+          disabled={disabled}
+          onRemove={(name) => onUpdate({ type: 'disallow_mcp_server', name })}
+        />
+        <form className="honeycrisp-tooling-control-row" onSubmit={saveTimeout}>
+          <label>
+            <span>MCP timeout ms</span>
+            <input
+              type="number"
+              min={1}
+              value={timeoutDraft}
+              placeholder="30000"
+              disabled={disabled}
+              onChange={(event) => setTimeoutDraft(event.currentTarget.value)}
+            />
+          </label>
+          <button type="submit" className="honeycrisp-tooling-icon-button" title="Save MCP timeout" disabled={disabled || !timeoutDraft.trim()}>
+            <Save size={15} />
+          </button>
+          <button
+            type="button"
+            className="honeycrisp-tooling-icon-button"
+            title="Clear MCP timeout"
+            disabled={disabled || summary.config.preference.mcpTimeoutMs === null}
+            onClick={() => void onUpdate({ type: 'clear_mcp_timeout_ms' })}
+          >
+            <XCircle size={15} />
+          </button>
+        </form>
+      </section>
       <section className="honeycrisp-tooling-section">
         <h3>Servers</h3>
         <div className="honeycrisp-tooling-key-values">
-          <KeyValue label="Config" value={mcp.configPath ?? 'None'} />
+          <KeyValue label="Active Config" value={mcp.configPath ?? 'None'} />
           <KeyValue label="Configured" value={mcp.configuredServers.length > 0 ? mcp.configuredServers.join(', ') : 'None'} />
-          <KeyValue label="Allowed" value={mcp.allowedServers.length > 0 ? mcp.allowedServers.join(', ') : 'None'} />
+          <KeyValue label="Active Allowed" value={mcp.allowedServers.length > 0 ? mcp.allowedServers.join(', ') : 'None'} />
           <KeyValue label="Timeout" value={mcp.timeoutMs === null ? 'Default' : `${mcp.timeoutMs} ms`} />
         </div>
       </section>
@@ -156,7 +381,21 @@ function McpServersView({ summary }: { summary: HoneycrispToolingSummary }): JSX
   );
 }
 
-function SkillCard({ skill, selected }: { skill: HoneycrispToolingSkillSummary; selected: boolean }): JSX.Element {
+function SkillCard({
+  skill,
+  selected,
+  configured,
+  disabled,
+  onSelect,
+  onDeselect
+}: {
+  skill: HoneycrispToolingSkillSummary;
+  selected: boolean;
+  configured: boolean;
+  disabled: boolean;
+  onSelect: (id: string) => Promise<boolean>;
+  onDeselect: (id: string) => Promise<boolean>;
+}): JSX.Element {
   const source = sourceLabel(skill.source);
   return (
     <article className="honeycrisp-tooling-card">
@@ -165,12 +404,23 @@ function SkillCard({ skill, selected }: { skill: HoneycrispToolingSkillSummary; 
           <strong>{skill.version ? `${skill.id}@${skill.version}` : skill.id}</strong>
           {skill.description ? <span>{skill.description}</span> : null}
         </div>
-        {selected ? (
-          <span className="honeycrisp-tooling-selected">
-            <CheckCircle2 size={13} />
-            Selected
-          </span>
-        ) : null}
+        <div className="honeycrisp-tooling-card-actions">
+          {selected ? (
+            <span className="honeycrisp-tooling-selected">
+              <CheckCircle2 size={13} />
+              Active
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="honeycrisp-tooling-icon-button"
+            title={configured ? 'Deselect skill' : 'Select skill'}
+            disabled={disabled}
+            onClick={() => void (configured ? onDeselect(skill.id) : onSelect(skill.id))}
+          >
+            {configured ? <Trash2 size={14} /> : <Plus size={14} />}
+          </button>
+        </div>
       </div>
       <div className="honeycrisp-tooling-card-meta">
         {source ? <span>{source}</span> : null}
@@ -221,6 +471,36 @@ function ToolFamilies({ summary }: { summary: HoneycrispToolingSummary }): JSX.E
         ))}
       </div>
     </section>
+  );
+}
+
+function ConfiguredValueList({
+  values,
+  emptyLabel,
+  removeTitle,
+  disabled,
+  onRemove
+}: {
+  values: string[];
+  emptyLabel: string;
+  removeTitle: string;
+  disabled: boolean;
+  onRemove: (value: string) => Promise<boolean>;
+}): JSX.Element {
+  if (values.length === 0) {
+    return <p className="honeycrisp-tooling-empty">{emptyLabel}</p>;
+  }
+  return (
+    <div className="honeycrisp-tooling-config-list">
+      {values.map((value) => (
+        <div key={value} className="honeycrisp-tooling-config-row">
+          <span>{value}</span>
+          <button type="button" className="honeycrisp-tooling-icon-button" title={removeTitle} disabled={disabled} onClick={() => void onRemove(value)}>
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

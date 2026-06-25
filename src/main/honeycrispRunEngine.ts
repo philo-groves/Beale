@@ -668,6 +668,31 @@ export function invokeHoneycrispToolsList(workspacePath: string): Record<string,
   return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp tooling discovery');
 }
 
+export function invokeHoneycrispToolsConfig(workspacePath: string, args: readonly string[]): Record<string, unknown> {
+  const invocation = resolveHoneycrispInvocation();
+  const fullArgs = [
+    ...invocation.prefixArgs,
+    'tools',
+    'config',
+    ...args,
+    '--workspace-root',
+    workspacePath,
+    '--json'
+  ];
+  const result = spawnSync(invocation.command, fullArgs, {
+    cwd: invocation.cwd,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+    timeout: 15_000,
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || 'Honeycrisp tools config failed.').trim();
+    throw new Error(`Honeycrisp tooling configuration failed: ${detail}`);
+  }
+  return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp tooling configuration');
+}
+
 function resolveHoneycrispNodeCommand(): string {
   const candidates = [
     process.env.BEALE_HONEYCRISP_NODE_COMMAND?.trim(),

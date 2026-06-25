@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   HoneycrispMemoryDirectorySummary,
+  HoneycrispToolingConfigUpdate,
   ProfilingReport,
   ProgramRegistryState,
   ProgramOnboardingInput,
@@ -409,6 +410,9 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getHoneycrispToolingSummary, () =>
     timedMainIpc('getHoneycrispToolingSummary', {}, () => workspaceService.getHoneycrispToolingSummary())
+  );
+  ipcMain.handle(IPC_CHANNELS.updateHoneycrispToolingConfig, (_event, update: HoneycrispToolingConfigUpdate) =>
+    timedMainIpc('updateHoneycrispToolingConfig', { type: update.type }, () => workspaceService.updateHoneycrispToolingConfig(update))
   );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>

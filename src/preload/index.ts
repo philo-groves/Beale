@@ -7,6 +7,7 @@ import type {
   HostEnvironment,
   HackerOneProgramLookupResult,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispToolingConfigUpdate,
   ProgramOnboardingInput,
   ProgramOnboardingProgressUpdate,
   ProgramOnboardingSkipInput,
@@ -104,6 +105,9 @@ const api: BealeApi = {
   },
   getHoneycrispToolingSummary() {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispToolingSummary);
+  },
+  updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate) {
+    return ipcRenderer.invoke(IPC_CHANNELS.updateHoneycrispToolingConfig, update);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

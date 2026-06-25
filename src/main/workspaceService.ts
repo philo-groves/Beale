@@ -10,7 +10,7 @@ import { FixtureRunEngine } from './fixtureRunEngine';
 import { WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
-import { HoneycrispRunEngine, invokeHoneycrispMemoryCommand, invokeHoneycrispToolsList } from './honeycrispRunEngine';
+import { HoneycrispRunEngine, invokeHoneycrispMemoryCommand, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
 import { ProgramRegistry } from './programRegistry';
@@ -30,6 +30,8 @@ import type {
   GeneratedResearchPrompt,
   HackerOneProgramLookupResult,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispToolingConfigSummary,
+  HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
   HoneycrispToolingSummary,
   HoneycrispToolingToolSummary,
@@ -383,6 +385,15 @@ export class WorkspaceService {
     if (!runtime) {
       throw new Error('No Beale workspace is open');
     }
+    return normalizeHoneycrispToolingSummary(invokeHoneycrispToolsList(runtime.workspacePath), runtime.workspacePath);
+  }
+
+  public updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): HoneycrispToolingSummary {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) {
+      throw new Error('No Beale workspace is open');
+    }
+    invokeHoneycrispToolsConfig(runtime.workspacePath, honeycrispToolingConfigUpdateArgs(update));
     return normalizeHoneycrispToolingSummary(invokeHoneycrispToolsList(runtime.workspacePath), runtime.workspacePath);
   }
 
@@ -2699,8 +2710,47 @@ function numberFromUnknown(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function honeycrispToolingConfigUpdateArgs(update: HoneycrispToolingConfigUpdate): string[] {
+  switch (update.type) {
+    case 'add_skill_dir':
+      return ['add', 'skill-dir', requiredToolingConfigValue(update.path, 'Skill directory')];
+    case 'remove_skill_dir':
+      return ['remove', 'skill-dir', requiredToolingConfigValue(update.path, 'Skill directory')];
+    case 'select_skill':
+      return ['add', 'skill', requiredToolingConfigValue(update.id, 'Skill id')];
+    case 'deselect_skill':
+      return ['remove', 'skill', requiredToolingConfigValue(update.id, 'Skill id')];
+    case 'set_mcp_config_path':
+      return ['set', 'mcp-config', requiredToolingConfigValue(update.path, 'MCP config path')];
+    case 'clear_mcp_config_path':
+      return ['clear', 'mcp-config'];
+    case 'allow_mcp_server':
+      return ['add', 'allow-mcp-server', requiredToolingConfigValue(update.name, 'MCP server name')];
+    case 'disallow_mcp_server':
+      return ['remove', 'allow-mcp-server', requiredToolingConfigValue(update.name, 'MCP server name')];
+    case 'set_mcp_timeout_ms':
+      if (!Number.isInteger(update.timeoutMs) || update.timeoutMs <= 0) {
+        throw new Error('MCP timeout must be a positive integer.');
+      }
+      return ['set', 'mcp-timeout-ms', String(update.timeoutMs)];
+    case 'clear_mcp_timeout_ms':
+      return ['clear', 'mcp-timeout-ms'];
+    default:
+      throw new Error(`Unknown Honeycrisp tooling config update: ${(update as { type?: string }).type ?? 'unknown'}`);
+  }
+}
+
+function requiredToolingConfigValue(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${label} is required.`);
+  }
+  return trimmed;
+}
+
 function normalizeHoneycrispToolingSummary(raw: Record<string, unknown>, workspaceRoot: string): HoneycrispToolingSummary {
   const rawToolFamilies = isRecord(raw.toolFamilies) ? raw.toolFamilies : {};
+  const rawConfig = isRecord(raw.toolConfig) ? raw.toolConfig : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const selectedIds = stringArray(rawSkills.selectedIds);
   const selected = new Set(selectedIds);
@@ -2708,6 +2758,7 @@ function normalizeHoneycrispToolingSummary(raw: Record<string, unknown>, workspa
   return {
     source: 'honeycrisp_cli',
     workspaceRoot,
+    config: normalizeHoneycrispToolingConfig(rawConfig, workspaceRoot),
     tools: recordArray(raw.tools).map(normalizeHoneycrispToolingTool),
     toolFamilies: {
       enabled: stringArray(rawToolFamilies.enabled),
@@ -2736,6 +2787,25 @@ function normalizeHoneycrispToolingSummary(raw: Record<string, unknown>, workspa
       deniedCapabilities: recordArray(rawMcp.deniedCapabilities),
       resourceTemplates: recordArray(rawMcp.resourceTemplates),
       raw: rawMcp
+    },
+    raw
+  };
+}
+
+function normalizeHoneycrispToolingConfig(raw: Record<string, unknown>, workspaceRoot: string): HoneycrispToolingConfigSummary {
+  const preference = isRecord(raw.preference) ? raw.preference : {};
+  return {
+    configPath: stringValue(raw.configPath, `${workspaceRoot}/.honeycrisp/tools.json`),
+    exists: Boolean(raw.exists),
+    loaded: Boolean(raw.loaded),
+    defaultDisabled: Boolean(raw.defaultDisabled),
+    preference: {
+      skillDirs: stringArray(preference.skillDirs),
+      selectedSkillIds: stringArray(preference.selectedSkillIds),
+      mcpConfigPath: stringValue(preference.mcpConfigPath, '') || null,
+      allowedMcpServers: stringArray(preference.allowedMcpServers),
+      mcpTimeoutMs: nullableNumber(preference.mcpTimeoutMs),
+      raw: preference
     },
     raw
   };

@@ -597,9 +597,26 @@ export interface HoneycrispToolingMcpSummary {
   raw: Record<string, unknown>;
 }
 
+export interface HoneycrispToolingConfigSummary {
+  configPath: string;
+  exists: boolean;
+  loaded: boolean;
+  defaultDisabled: boolean;
+  preference: {
+    skillDirs: string[];
+    selectedSkillIds: string[];
+    mcpConfigPath: string | null;
+    allowedMcpServers: string[];
+    mcpTimeoutMs: number | null;
+    raw: Record<string, unknown>;
+  };
+  raw: Record<string, unknown>;
+}
+
 export interface HoneycrispToolingSummary {
   source: 'honeycrisp_cli';
   workspaceRoot: string;
+  config: HoneycrispToolingConfigSummary;
   tools: HoneycrispToolingToolSummary[];
   toolFamilies: {
     enabled: string[];
@@ -613,6 +630,18 @@ export interface HoneycrispToolingSummary {
   mcp: HoneycrispToolingMcpSummary;
   raw: Record<string, unknown>;
 }
+
+export type HoneycrispToolingConfigUpdate =
+  | { type: 'add_skill_dir'; path: string }
+  | { type: 'remove_skill_dir'; path: string }
+  | { type: 'select_skill'; id: string }
+  | { type: 'deselect_skill'; id: string }
+  | { type: 'set_mcp_config_path'; path: string }
+  | { type: 'clear_mcp_config_path' }
+  | { type: 'allow_mcp_server'; name: string }
+  | { type: 'disallow_mcp_server'; name: string }
+  | { type: 'set_mcp_timeout_ms'; timeoutMs: number }
+  | { type: 'clear_mcp_timeout_ms' };
 
 export interface LegacyResearchMemoryCounts {
   hypotheses: number;
@@ -1360,6 +1389,7 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
+  updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

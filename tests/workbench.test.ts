@@ -482,6 +482,13 @@ describe('Beale workbench skeleton', () => {
         "writeFileSync(process.env.BEALE_TOOLING_ARGS_PATH, JSON.stringify(args));",
         'console.log("$ fake honeycrisp tools list");',
         'console.log(JSON.stringify({',
+        '  toolConfig: {',
+        '    configPath: "/workspace/.honeycrisp/tools.json",',
+        '    exists: true,',
+        '    loaded: true,',
+        '    defaultDisabled: false,',
+        '    preference: { skillDirs: ["/skills"], selectedSkillIds: ["parser-vuln"], mcpConfigPath: "/tmp/mcp.json", allowedMcpServers: ["local"], mcpTimeoutMs: 30000 }',
+        '  },',
         '  tools: [{ name: "repository.search", transportName: "repository_search", actionClasses: ["search"], sideEffects: ["read"], requiredPermissions: ["filesystem:read"], metadata: { family: "repository-search" } }],',
         '  toolFamilies: { enabled: ["repository-search"], requested: ["repository-search"], disabled: [] },',
         '  skills: {',
@@ -539,6 +546,17 @@ describe('Beale workbench skeleton', () => {
       allowedServers: ['local'],
       configuredServers: ['local']
     });
+    expect(summary.config).toMatchObject({
+      configPath: '/workspace/.honeycrisp/tools.json',
+      exists: true,
+      preference: {
+        skillDirs: ['/skills'],
+        selectedSkillIds: ['parser-vuln'],
+        mcpConfigPath: '/tmp/mcp.json',
+        allowedMcpServers: ['local'],
+        mcpTimeoutMs: 30000
+      }
+    });
     expect(summary.mcp.discoveredCapabilities[0]).toMatchObject({
       name: 'mcp.local.search',
       transportName: 'mcp_local_search',
@@ -546,6 +564,54 @@ describe('Beale workbench skeleton', () => {
     });
     expect(summary.mcp.deniedCapabilities).toHaveLength(1);
     expect(summary.mcp.resourceTemplates).toHaveLength(1);
+    service.close();
+  });
+
+  it('updates Honeycrisp Skills and MCP configuration through Honeycrisp CLI', () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-tools-config.mjs');
+    const callsPath = join(workspace, 'tooling-config-calls.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        'appendFileSync(process.env.BEALE_TOOLING_ARGS_PATH, `${JSON.stringify(args)}\\n`);',
+        "if (args[0] === 'tools' && args[1] === 'config') {",
+        '  console.log(JSON.stringify({ configPath: "/workspace/.honeycrisp/tools.json", exists: true, preference: { skillDirs: ["/skills/new"] } }));',
+        '  process.exit(0);',
+        '}',
+        "if (args[0] === 'tools' && args[1] === 'list') {",
+        '  console.log(JSON.stringify({',
+        '    toolConfig: { configPath: "/workspace/.honeycrisp/tools.json", exists: true, loaded: true, defaultDisabled: false, preference: { skillDirs: ["/skills/new"], selectedSkillIds: [], allowedMcpServers: [] } },',
+        '    tools: [],',
+        '    toolFamilies: { enabled: [], requested: [], disabled: [] },',
+        '    skills: { loaded: [], selectedIds: [] },',
+        '    mcp: { status: "not_configured", allowedServers: [], discoveredCapabilities: [] }',
+        '  }));',
+        '  process.exit(0);',
+        '}',
+        'throw new Error(`unexpected command ${args.join(" ")}`);'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+    process.env.BEALE_TOOLING_ARGS_PATH = callsPath;
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+
+    const summary = service.updateHoneycrispToolingConfig({ type: 'add_skill_dir', path: '/skills/new' });
+    const calls = readFileSync(callsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+
+    expect(calls[0]).toEqual(['tools', 'config', 'add', 'skill-dir', '/skills/new', '--workspace-root', workspace, '--json']);
+    expect(calls[1]).toEqual(['tools', 'list', '--workspace-root', workspace, '--json']);
+    expect(summary.config.preference.skillDirs).toEqual(['/skills/new']);
     service.close();
   });
 

@@ -7314,6 +7314,14 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 4px;
 }
 
+.honeycrisp-tooling-card-actions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: end;
+  gap: 7px;
+}
+
 .honeycrisp-tooling-card-heading strong {
   min-width: 0;
   overflow: hidden;
@@ -7350,6 +7358,100 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   display: grid;
   gap: 7px;
+}
+
+.honeycrisp-tooling-control-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.honeycrisp-tooling-control-row label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.honeycrisp-tooling-control-row label span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.honeycrisp-tooling-control-row input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  background: #0d0d0d;
+  color: var(--text);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.honeycrisp-tooling-control-row input:focus {
+  border-color: #5f7f9e;
+  outline: none;
+}
+
+.honeycrisp-tooling-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  background: #181818;
+  color: var(--text);
+  padding: 0;
+}
+
+.honeycrisp-tooling-icon-button:hover:not(:disabled) {
+  border-color: #4a6075;
+  background: #20252a;
+}
+
+.honeycrisp-tooling-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.honeycrisp-tooling-config-list {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.honeycrisp-tooling-config-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  background: #181818;
+  padding: 6px 7px 6px 9px;
+}
+
+.honeycrisp-tooling-config-row > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.76rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
 }
 
 .honeycrisp-tooling-pills {
