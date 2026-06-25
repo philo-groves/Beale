@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { ProgramScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
@@ -15,6 +15,22 @@ interface HoneycrispInvocation {
   prefixArgs: string[];
   cwd: string;
   configuredBy: 'env_command' | 'env_root' | 'sibling_root';
+}
+
+interface HoneycrispWorkspaceContextFile {
+  schemaVersion: 1;
+  workspaceRoot: string;
+  knownRepositories: HoneycrispWorkspaceRepositoryContext[];
+  materializedSourcePaths: string[];
+  projectNotes: string[];
+}
+
+interface HoneycrispWorkspaceRepositoryContext {
+  rootPath: string;
+  label?: string;
+  role: 'known_repository' | 'materialized_source' | 'workspace';
+  source: 'beale';
+  repositoryUrl?: string;
 }
 
 interface ActiveHoneycrispRun {
@@ -199,10 +215,13 @@ export class HoneycrispRunEngine {
     });
 
     const invocation = resolveHoneycrispInvocation();
-    const capturePath = join(this.workspacePath, '.beale', 'honeycrisp-runs', `${context.run.id}.capture.json`);
+    const runDirectory = join(this.workspacePath, '.beale', 'honeycrisp-runs');
+    const capturePath = join(runDirectory, `${context.run.id}.capture.json`);
+    const workspaceContextPath = join(runDirectory, `${context.run.id}.workspace-context.json`);
+    writeHoneycrispWorkspaceContext(scope, this.workspacePath, workspaceContextPath);
     const args = [
       ...invocation.prefixArgs,
-      ...honeycrispRunArgs(input, scope, this.workspacePath, capturePath)
+      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath)
     ];
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -215,7 +234,8 @@ export class HoneycrispRunEngine {
         args: redactHoneycrispArgs(args),
         cwd: invocation.cwd,
         configuredBy: invocation.configuredBy,
-        capturePath
+        capturePath,
+        workspaceContextPath
       },
       vmContextId: context.vmContext.id
     });
@@ -535,13 +555,14 @@ class LineBuffer {
   }
 }
 
-function honeycrispRunArgs(input: StartRunInput, scope: ProgramScopeVersion, workspacePath: string, capturePath: string): string[] {
-  const roots = localResearchRoots(scope);
+function honeycrispRunArgs(input: StartRunInput, workspacePath: string, capturePath: string, workspaceContextPath: string): string[] {
   const args = [
     '--workspace-root',
     workspacePath,
     '--capture',
     capturePath,
+    '--workspace-context',
+    workspaceContextPath,
     '--goal-loops',
     String(goalLoopsForInput(input)),
     '-p',
@@ -564,15 +585,7 @@ function honeycrispRunArgs(input: StartRunInput, scope: ProgramScopeVersion, wor
   if (input.reasoningEffort.trim()) {
     args.push('--effort', input.reasoningEffort.trim());
   }
-  if (roots.repoRoot) {
-    args.push('--repo-root', roots.repoRoot);
-  }
-  for (const root of roots.fileReadRoots) {
-    args.push('--file-read-root', root);
-  }
-  if (roots.repoRoot || roots.fileReadRoots.length > 0) {
-    args.push('--tool-max-bytes', String(toolMaxBytes()));
-  }
+  args.push('--tool-max-bytes', String(toolMaxBytes()));
   return args;
 }
 
@@ -637,21 +650,45 @@ function isPlainNodeExecutable(path: string): boolean {
   return name === 'node' || name === 'node.exe';
 }
 
-function localResearchRoots(scope: ProgramScopeVersion): { repoRoot: string | null; fileReadRoots: string[] } {
-  const fileReadRoots: string[] = [];
-  let repoRoot: string | null = null;
+function writeHoneycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: string, contextPath: string): HoneycrispWorkspaceContextFile {
+  const context = honeycrispWorkspaceContext(scope, workspacePath);
+  mkdirSync(dirname(contextPath), { recursive: true });
+  writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
+  return context;
+}
+
+function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: string): HoneycrispWorkspaceContextFile {
+  const materializedSourcePaths: string[] = [];
+  const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
   for (const asset of scope.assets) {
     if (asset.direction !== 'in_scope') continue;
     const root = localRootForAsset(asset);
     if (!root) continue;
-    if (!fileReadRoots.includes(root)) {
-      fileReadRoots.push(root);
+    if (!materializedSourcePaths.includes(root)) {
+      materializedSourcePaths.push(root);
     }
-    if (!repoRoot && (asset.kind === 'repo' || asset.kind === 'path')) {
-      repoRoot = root;
+    if ((asset.kind === 'repo' || asset.kind === 'path') && !knownRepositories.some((repository) => repository.rootPath === root)) {
+      const repositoryUrl = stringAttribute(asset.attributes?.repositoryUrl);
+      knownRepositories.push({
+        rootPath: root,
+        label: honeycrispAssetLabel(asset),
+        role: 'known_repository',
+        source: 'beale',
+        ...(repositoryUrl ? { repositoryUrl } : {})
+      });
     }
   }
-  return { repoRoot, fileReadRoots };
+  return {
+    schemaVersion: 1,
+    workspaceRoot: workspacePath,
+    knownRepositories,
+    materializedSourcePaths,
+    projectNotes: [
+      `Program: ${scope.programName}`,
+      `Organization: ${scope.organizationName}`,
+      `Network profile: ${scope.networkProfile}`
+    ].filter((note) => !note.endsWith(': '))
+  };
 }
 
 function localRootForAsset(asset: ScopeAsset): string | null {
@@ -664,6 +701,14 @@ function localRootForAsset(asset: ScopeAsset): string | null {
   } catch {
     return null;
   }
+}
+
+function honeycrispAssetLabel(asset: ScopeAsset): string {
+  return stringAttribute(asset.attributes?.displayName) || stringAttribute(asset.attributes?.name) || asset.value;
+}
+
+function stringAttribute(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function goalLoopsForInput(input: StartRunInput): number {

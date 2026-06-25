@@ -293,7 +293,7 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
     const symbol = stringRecordValue(args, 'symbol');
     return {
       title: path ? compactTracePath(path) : 'Code browser request',
-      description: symbol ? `Symbol ${symbol}` : 'Scoped source read prepared.',
+      description: symbol ? `Symbol ${symbol}` : 'Source read prepared.',
       facts: [rangePart(args), policyPart(event.payload)].filter((part): part is string => Boolean(part)),
       excerptLines: [],
       excerptLineCount: 0,

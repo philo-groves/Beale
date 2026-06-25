@@ -409,10 +409,15 @@ describe('Beale workbench skeleton', () => {
       cliPath,
       [
         '#!/usr/bin/env node',
-        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
         "import { dirname } from 'node:path';",
         'const args = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const contextPath = args[args.indexOf('--workspace-context') + 1];",
+        "if (!contextPath) throw new Error('Missing --workspace-context');",
+        "if (args.includes('--repo-root') || args.includes('--file-read-root')) throw new Error('Old repository guard args must not be passed');",
+        "const workspaceContext = JSON.parse(readFileSync(contextPath, 'utf8'));",
+        "if (!workspaceContext.materializedSourcePaths?.some((path) => String(path).endsWith('/sources/zsh'))) throw new Error('Nested source path missing from workspace context');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
         '  capturedAt: new Date().toISOString(),',
@@ -427,7 +432,19 @@ describe('Beale workbench skeleton', () => {
     process.env.BEALE_HONEYCRISP_NODE_COMMAND = process.execPath;
 
     const service = new WorkspaceService();
+    const nestedSourceRoot = join(workspace, 'sources', 'zsh');
+    mkdirSync(nestedSourceRoot, { recursive: true });
+    writeFileSync(join(nestedSourceRoot, 'parse.c'), 'parse_context_save();\n');
     service.createWorkspace(workspace);
+    service.saveProgramScope({
+      programName: 'ZSH Fixture',
+      organizationName: 'Apple Security Bounty',
+      descriptionMarkdown: 'Local nested source fixture for Honeycrisp integration.',
+      rulesMarkdown: 'Use local context provided by the operator.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'path', nestedSourceRoot)]
+    });
     const runSnapshot = service.startRun({
       ...runInput('adaptive_portfolio'),
       runEngine: 'honeycrisp',
@@ -443,6 +460,13 @@ describe('Beale workbench skeleton', () => {
       command: process.execPath,
       configuredBy: 'env_root'
     });
+    expect(JSON.stringify(launchEvent?.payload)).toContain('--workspace-context');
+    expect(JSON.stringify(launchEvent?.payload)).not.toContain('--repo-root');
+    expect(JSON.stringify(launchEvent?.payload)).not.toContain('--file-read-root');
+    const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
+    const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as { materializedSourcePaths?: string[]; knownRepositories?: Array<{ rootPath: string }> };
+    expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
+    expect(workspaceContext.knownRepositories?.some((repository) => repository.rootPath === nestedSourceRoot)).toBe(true);
     expect(detail.modelSessions[0]?.metadata.latestContextUsageSource).toBe('Honeycrisp serialized capture estimate');
     expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
