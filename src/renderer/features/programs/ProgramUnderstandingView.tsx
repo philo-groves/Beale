@@ -2,7 +2,10 @@ import type { JSX, ReactNode } from 'react';
 import { Boxes, Database, FolderOpen, GitBranch, Network, RefreshCw, Route, SearchCheck } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
+  HoneycrispMemoryRecordSummary,
   HoneycrispMemorySummary,
+  HoneycrispProofAttemptSummary,
+  HoneycrispProofObligationSummary,
   ProgramScopeVersion,
   ProjectGraphSummary,
   ProjectSemanticSummary,
@@ -49,8 +52,8 @@ export function ProgramUnderstandingView({
           <>
             <div className="program-understanding-summary-grid" aria-label="Program summary">
               <SummaryTile icon={<Database size={17} />} label="Durable Memory" value={`${formatCount(honeycrispMemory?.recordCount ?? 0)} records`} detail={`${formatCount(honeycrispMemory?.eventCount ?? 0)} accepted events`} />
-              <SummaryTile icon={<GitBranch size={17} />} label="Context Graph" value={formatCount(graph?.nodeCount ?? 0)} detail={`${formatCount(graph?.edgeCount ?? 0)} edges`} />
-              <SummaryTile icon={<SearchCheck size={17} />} label="Retrieval Index" value={semanticChunkDetail} detail={semanticSourceDetail} />
+              <SummaryTile icon={<GitBranch size={17} />} label="Findings" value={formatCount(honeycrispMemory?.records.findings.length ?? 0)} detail={`${formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} proof attempts`} />
+              <SummaryTile icon={<SearchCheck size={17} />} label="Legacy Retrieval" value={semanticChunkDetail} detail={semanticSourceDetail} />
               <SummaryTile icon={<Network size={17} />} label="Program Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active program'} />
             </div>
 
@@ -64,9 +67,12 @@ export function ProgramUnderstandingView({
                   <MetricCell label="Artifact Refs" value={formatCount(honeycrispMemory?.artifactRefCount ?? 0)} />
                   <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
                   <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
+                  <MetricCell label="Findings" value={formatCount(honeycrispMemory?.records.findings.length ?? 0)} />
+                  <MetricCell label="Proof Attempts" value={formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} />
                 </div>
                 <KeyValueRows
                   rows={[
+                    ['Source', traceLabel(honeycrispMemory?.source ?? 'none')],
                     ['Database', honeycrispMemory?.databasePath ?? 'Not initialized'],
                     ['Storage Root', honeycrispMemory?.storageRoot ?? 'Not initialized'],
                     ['Latest Event', formatNullableDate(honeycrispMemory?.latestEventAt)],
@@ -79,11 +85,19 @@ export function ProgramUnderstandingView({
                   <CountList title="Record Kinds" counts={honeycrispMemory?.recordKindCounts} />
                   <CountList title="Record Statuses" counts={honeycrispMemory?.recordStatusCounts} />
                 </div>
+                <div className="program-understanding-list-grid">
+                  <MemoryRecordList title="Evidence" records={honeycrispMemory?.records.evidence ?? []} />
+                  <MemoryRecordList title="Hypotheses" records={honeycrispMemory?.records.hypotheses ?? []} />
+                  <MemoryRecordList title="Findings" records={honeycrispMemory?.records.findings ?? []} />
+                  <MemoryRecordList title="Procedures" records={honeycrispMemory?.records.procedures ?? []} />
+                  <MemoryRecordList title="Prospective Checks" records={honeycrispMemory?.records.prospectiveChecks ?? []} />
+                  <ProofStateList obligations={honeycrispMemory?.proof.obligations ?? []} attempts={honeycrispMemory?.proof.attempts ?? []} />
+                </div>
                 <StorageDirectoryList busy={busy} directories={honeycrispMemory?.directories ?? []} onOpenDirectory={onOpenHoneycrispMemoryDirectory} />
               </section>
 
               <section className="program-understanding-section" aria-label="Retrieval index">
-                <SectionHeader icon={<SearchCheck size={16} />} title="Retrieval Index" status={semanticStatus} />
+                <SectionHeader icon={<SearchCheck size={16} />} title="Legacy Retrieval Index" status={semanticStatus} />
                 <div className="program-understanding-metric-grid compact">
                   <MetricCell label="Chunks" value={`${formatCount(semantic?.embeddedChunkCount ?? 0)} / ${formatCount(semantic?.chunkCount ?? 0)}`} />
                   <MetricCell label="Sources" value={`${formatCount(semantic?.indexedSourceDocumentCount ?? 0)} / ${formatCount(semantic?.sourceDocumentCount ?? 0)}`} />
@@ -111,7 +125,9 @@ export function ProgramUnderstandingView({
                     ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                     ['Scope Version', scope ? `v${scope.version}` : 'None'],
                     ['Active From', formatNullableDate(scope?.activeFrom)],
-                    ['Sessions', formatCount(runCount)]
+                    ['Sessions', formatCount(runCount)],
+                    ['Honeycrisp Findings', formatCount(honeycrispMemory?.records.findings.length ?? 0)],
+                    ['Proof Attempts', formatCount(honeycrispMemory?.proof.attemptCount ?? 0)]
                   ]}
                 />
                 <CountList title="Asset Types" counts={assetKindCounts(inScopeAssets)} />
@@ -121,7 +137,7 @@ export function ProgramUnderstandingView({
               <section className="program-understanding-section" aria-label="Context graph">
                 <SectionHeader
                   icon={<GitBranch size={16} />}
-                  title="Context Graph"
+                  title="Legacy Context Graph"
                   status={graphStatus}
                   action={
                     <button
@@ -209,6 +225,64 @@ function CountList({ counts, title }: { counts: Record<string, number> | null | 
         </ul>
       ) : (
         <p>No records yet.</p>
+      )}
+    </div>
+  );
+}
+
+function MemoryRecordList({ records, title }: { records: HoneycrispMemoryRecordSummary[]; title: string }): JSX.Element {
+  return (
+    <div className="program-understanding-count-list">
+      <h4>{title}</h4>
+      {records.length > 0 ? (
+        <ul>
+          {records.slice(0, 5).map((record) => (
+            <li key={record.id}>
+              <span title={record.detail}>{truncateText(record.title || record.summary || record.id, 64)}</span>
+              <strong title={record.status}>{traceLabel(record.status)}</strong>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No records yet.</p>
+      )}
+    </div>
+  );
+}
+
+function ProofStateList({
+  attempts,
+  obligations
+}: {
+  attempts: HoneycrispProofAttemptSummary[];
+  obligations: HoneycrispProofObligationSummary[];
+}): JSX.Element {
+  const rows = [
+    ...attempts.slice(0, 3).map((attempt) => ({
+      id: attempt.id,
+      label: attempt.summary || attempt.methodName || attempt.id,
+      status: attempt.result ?? attempt.status
+    })),
+    ...obligations.slice(0, Math.max(0, 5 - attempts.length)).map((obligation) => ({
+      id: obligation.id,
+      label: obligation.question || obligation.id,
+      status: obligation.status
+    }))
+  ];
+  return (
+    <div className="program-understanding-count-list">
+      <h4>Proof State</h4>
+      {rows.length > 0 ? (
+        <ul>
+          {rows.map((row) => (
+            <li key={row.id}>
+              <span title={row.label}>{truncateText(row.label, 64)}</span>
+              <strong title={row.status}>{traceLabel(row.status)}</strong>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No proof state yet.</p>
       )}
     </div>
   );

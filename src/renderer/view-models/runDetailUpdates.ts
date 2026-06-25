@@ -64,7 +64,8 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     modelSessions: update.modelSessions,
     contextCompactions: update.contextCompactions,
     policyEvents: update.policyEvents,
-    exports: update.exports
+    exports: update.exports,
+    honeycrispMemory: update.honeycrispMemory ?? current.honeycrispMemory
   };
 }
 

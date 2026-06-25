@@ -83,7 +83,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   }
 
   if (sessionView === 'context') {
-    return <ContextSessionView selectedRunId={selectedRunId} />;
+    return <ContextSessionView honeycrispMemory={detail?.honeycrispMemory ?? null} selectedRunId={selectedRunId} />;
   }
 
   return (

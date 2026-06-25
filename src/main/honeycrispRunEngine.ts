@@ -10,7 +10,7 @@ export interface HoneycrispRunHandle {
   completion: Promise<void>;
 }
 
-interface HoneycrispInvocation {
+export interface HoneycrispInvocation {
   command: string;
   prefixArgs: string[];
   cwd: string;
@@ -589,7 +589,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
   return args;
 }
 
-function resolveHoneycrispInvocation(): HoneycrispInvocation {
+export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   const command = process.env.BEALE_HONEYCRISP_COMMAND?.trim();
   if (command) {
     return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
-import { sessionHeatForDetail, sessionHeatForFinding, sessionHeatForHypothesis } from '../src/renderer/view-models/sessionHeat';
+import type { FindingRecord, HoneycrispMemorySummary, HypothesisRecord, RunDetail } from '@shared/types';
+import { sessionHeatForDetail, sessionHeatForFinding, sessionHeatForHoneycrispMemory, sessionHeatForHypothesis } from '../src/renderer/view-models/sessionHeat';
 
 describe('renderer session heat view models', () => {
   it('returns none for missing or ignored research records', () => {
@@ -36,13 +36,31 @@ describe('renderer session heat view models', () => {
 
     expect(sessionHeatForHypothesis(hypothesis)).toBe('low');
   });
+
+  it('computes general research intensity from Honeycrisp memory state', () => {
+    const memory = honeycrispMemory({
+      findingStatus: 'supported',
+      proofResult: 'pass'
+    });
+
+    expect(sessionHeatForHoneycrispMemory(memory)).toBe('high');
+    expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory }))).toBe('high');
+  });
+
+  it('lets Beale vulnerability-specific rows boost Honeycrisp general heat', () => {
+    const memory = honeycrispMemory({ findingStatus: 'supported', proofResult: null });
+    const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
+
+    expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory, findings: [finding] }))).toBe('critical');
+  });
 });
 
-function runDetail(input: { findings?: FindingRecord[]; hypotheses?: HypothesisRecord[] } = {}): RunDetail {
+function runDetail(input: { findings?: FindingRecord[]; honeycrispMemory?: HoneycrispMemorySummary; hypotheses?: HypothesisRecord[] } = {}): RunDetail {
   return {
     findings: input.findings ?? [],
     hypotheses: input.hypotheses ?? [],
-    evidence: []
+    evidence: [],
+    honeycrispMemory: input.honeycrispMemory
   } as unknown as RunDetail;
 }
 
@@ -70,4 +88,84 @@ function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisReco
     evidenceConfidence: 'hypothesis only',
     ...input
   } as unknown as HypothesisRecord;
+}
+
+function honeycrispMemory(input: { findingStatus: string; proofResult: string | null }): HoneycrispMemorySummary {
+  return {
+    status: 'ready',
+    source: 'honeycrisp_sqlite',
+    records: {
+      evidence: [
+        {
+          id: 'mem_evidence',
+          kind: 'evidence',
+          status: 'confirmed',
+          title: 'Evidence',
+          summary: 'Evidence',
+          detail: 'Evidence',
+          confidence: 1,
+          goalId: null,
+          subGoalId: null,
+          sourceEventIds: [],
+          tags: [],
+          updatedAt: null,
+          domainLabels: [],
+          domainMetadata: {},
+          raw: {}
+        }
+      ],
+      episodes: [],
+      semanticClaims: [],
+      hypotheses: [],
+      findings: [
+        {
+          id: 'mem_finding',
+          kind: 'finding',
+          status: input.findingStatus,
+          title: 'General finding',
+          summary: 'General finding',
+          detail: 'General finding',
+          confidence: 0.9,
+          goalId: null,
+          subGoalId: null,
+          sourceEventIds: [],
+          tags: [],
+          updatedAt: null,
+          domainLabels: [],
+          domainMetadata: {},
+          raw: {}
+        }
+      ],
+      beliefs: [],
+      procedures: [],
+      prospectiveChecks: [],
+      working: []
+    },
+    proof: {
+      obligationCount: 1,
+      attemptCount: input.proofResult ? 1 : 0,
+      obligationStatusCounts: { open: 1 },
+      attemptStatusCounts: input.proofResult ? { completed: 1 } : {},
+      resultCounts: input.proofResult ? { [input.proofResult]: 1 } : {},
+      obligations: [],
+      attempts: input.proofResult
+        ? [
+            {
+              id: 'proof_attempt',
+              obligationId: 'proof_obl',
+              status: 'completed',
+              result: input.proofResult,
+              methodKind: 'empirical_reproduction',
+              methodName: 'Fixture',
+              summary: 'Proof passed',
+              verifier: null,
+              evidenceRefIds: [],
+              sourceEventIds: [],
+              updatedAt: null,
+              raw: {}
+            }
+          ]
+        : []
+    }
+  } as unknown as HoneycrispMemorySummary;
 }

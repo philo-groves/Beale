@@ -478,8 +478,80 @@ export interface HoneycrispMemoryDirectorySummary {
   entryCount: number;
 }
 
+export type HoneycrispMemorySource = 'none' | 'honeycrisp_cli' | 'honeycrisp_sqlite';
+
+export interface HoneycrispMemoryRecordSummary {
+  id: string;
+  kind: string;
+  status: string;
+  summary: string;
+  confidence: number | null;
+  goalId: string | null;
+  subGoalId: string | null;
+  sourceEventIds: string[];
+  tags: string[];
+  updatedAt: string | null;
+  title: string;
+  detail: string;
+  domainLabels: string[];
+  domainMetadata: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispMemoryRecordGroups {
+  evidence: HoneycrispMemoryRecordSummary[];
+  episodes: HoneycrispMemoryRecordSummary[];
+  semanticClaims: HoneycrispMemoryRecordSummary[];
+  hypotheses: HoneycrispMemoryRecordSummary[];
+  findings: HoneycrispMemoryRecordSummary[];
+  beliefs: HoneycrispMemoryRecordSummary[];
+  procedures: HoneycrispMemoryRecordSummary[];
+  prospectiveChecks: HoneycrispMemoryRecordSummary[];
+  working: HoneycrispMemoryRecordSummary[];
+}
+
+export interface HoneycrispProofObligationSummary {
+  id: string;
+  status: string;
+  subjectKind: string;
+  subjectId: string;
+  question: string;
+  requiredResult: string | null;
+  findingRecordIds: string[];
+  hypothesisRecordIds: string[];
+  evidenceRefIds: string[];
+  updatedAt: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispProofAttemptSummary {
+  id: string;
+  obligationId: string;
+  status: string;
+  result: string | null;
+  methodKind: string;
+  methodName: string;
+  summary: string;
+  verifier: string | null;
+  evidenceRefIds: string[];
+  sourceEventIds: string[];
+  updatedAt: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispProofSummary {
+  obligationCount: number;
+  attemptCount: number;
+  obligationStatusCounts: Record<string, number>;
+  attemptStatusCounts: Record<string, number>;
+  resultCounts: Record<string, number>;
+  obligations: HoneycrispProofObligationSummary[];
+  attempts: HoneycrispProofAttemptSummary[];
+}
+
 export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
+  source: HoneycrispMemorySource;
   databasePath: string;
   storageRoot: string;
   artifactDirectoryPath: string;
@@ -494,6 +566,8 @@ export interface HoneycrispMemorySummary {
   eventKindCounts: Record<string, number>;
   recordKindCounts: Record<string, number>;
   recordStatusCounts: Record<string, number>;
+  records: HoneycrispMemoryRecordGroups;
+  proof: HoneycrispProofSummary;
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
 }
@@ -1158,6 +1232,7 @@ export interface RunDetail {
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
+  honeycrispMemory?: HoneycrispMemorySummary;
 }
 
 export interface RunDetailVersion {
@@ -1189,6 +1264,7 @@ export interface RunDetailUpdate {
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
+  honeycrispMemory?: HoneycrispMemorySummary;
 }
 
 export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';

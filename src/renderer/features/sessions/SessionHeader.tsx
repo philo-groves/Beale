@@ -76,8 +76,8 @@ function ProgramHeaderStatusPills({
   return (
     <div className="program-header-status-strip" aria-label="Program memory status">
       <ProgramHeaderStatusPill label="Memory" value={memoryStatus ?? 'missing'} />
-      <ProgramHeaderStatusPill label="Retrieval" value={semanticStatus ?? 'empty'} />
-      <ProgramHeaderStatusPill label="Graph" value={graphStatus ?? 'empty'} />
+      <ProgramHeaderStatusPill label="Legacy Retrieval" value={semanticStatus ?? 'empty'} />
+      <ProgramHeaderStatusPill label="Legacy Graph" value={graphStatus ?? 'empty'} />
     </div>
   );
 }
@@ -99,7 +99,7 @@ function ProgramViewToggle({
 }): JSX.Element {
   const options: Array<{ view: ProgramMainView; label: string; icon: JSX.Element }> = [
     { view: 'understanding', label: 'Honeycrisp Memory', icon: <GitBranch size={15} /> },
-    { view: 'graph', label: 'Context graph visualization', icon: <Network size={15} /> }
+    { view: 'graph', label: 'Legacy context graph visualization', icon: <Network size={15} /> }
   ];
 
   return (

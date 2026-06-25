@@ -1,4 +1,4 @@
-import type { EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
+import type { EvidenceRecord, FindingRecord, HoneycrispMemorySummary, HypothesisRecord, RunDetail } from '@shared/types';
 import { clampPriorityScoreForDisplay, stateClass } from '../lib/formatting';
 
 export type SessionHeat = 'none' | 'low' | 'medium' | 'high' | 'critical';
@@ -9,6 +9,7 @@ const SESSION_HEAT_IGNORED_STATES = new Set(['dismissed', 'duplicate', 'false_po
 export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
   if (!detail) return 'none';
 
+  let heat: SessionHeat = sessionHeatForHoneycrispMemory(detail.honeycrispMemory ?? null);
   const hypothesesById = new Map(detail.hypotheses.map((hypothesis) => [hypothesis.id, hypothesis]));
   const evidenceByHypothesisId = new Map<string, EvidenceRecord[]>();
   for (const evidence of detail.evidence) {
@@ -17,8 +18,6 @@ export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
     existing.push(evidence);
     evidenceByHypothesisId.set(evidence.hypothesisId, existing);
   }
-  let heat: SessionHeat = 'none';
-
   for (const finding of detail.findings) {
     if (isIgnoredHeatState(finding.state)) continue;
     const hypothesis = finding.hypothesisId ? (hypothesesById.get(finding.hypothesisId) ?? null) : null;
@@ -31,6 +30,34 @@ export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
   }
 
   return heat;
+}
+
+export function sessionHeatForHoneycrispMemory(memory: HoneycrispMemorySummary | null | undefined): SessionHeat {
+  if (!memory || memory.status === 'missing' || memory.status === 'error') return 'none';
+  let score = 0;
+  if (memory.records.evidence.length > 0) score = Math.max(score, 1);
+  if (memory.records.hypotheses.length > 0 || memory.records.semanticClaims.length > 0) score = Math.max(score, 1);
+  if (memory.records.procedures.length > 0 || memory.records.prospectiveChecks.length > 0) score = Math.max(score, 1);
+
+  for (const finding of memory.records.findings) {
+    const status = stateClass(finding.status);
+    if (isIgnoredHeatState(status) || status === 'rejected' || status === 'tombstoned' || status === 'superseded') continue;
+    if (status === 'verified') score = Math.max(score, 3);
+    else if (status === 'supported') score = Math.max(score, 2);
+    else score = Math.max(score, 1);
+  }
+
+  for (const attempt of memory.proof.attempts) {
+    const result = stateClass(attempt.result ?? attempt.status);
+    if (result === 'pass') score = Math.max(score, 3);
+    else if (result === 'fail' || result === 'inconclusive' || result === 'blocked') score = Math.max(score, 2);
+    else score = Math.max(score, 1);
+  }
+
+  if (score >= 3) return 'high';
+  if (score === 2) return 'medium';
+  if (score === 1) return 'low';
+  return 'none';
 }
 
 export function sessionHeatForFinding(finding: FindingRecord, hypothesis: HypothesisRecord | null): SessionHeat {

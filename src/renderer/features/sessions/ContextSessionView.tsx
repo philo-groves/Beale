@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import { Braces, CircleHelp, Database, FolderTree, ListChecks, RefreshCw, Wrench } from 'lucide-react';
-import type { AgentContextState } from '@shared/types';
+import type { AgentContextState, HoneycrispMemorySummary } from '@shared/types';
 import { formatSessionDateTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 
 const CONTEXT_REFRESH_INTERVAL_MS = 1000;
 
-export function ContextSessionView({ selectedRunId }: { selectedRunId: string }): JSX.Element {
+export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeycrispMemory: HoneycrispMemorySummary | null; selectedRunId: string }): JSX.Element {
   const [state, setState] = useState<AgentContextState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,6 +60,8 @@ export function ContextSessionView({ selectedRunId }: { selectedRunId: string })
     stringValue(payload.activeSubGoalId) ??
     latestEvent?.subGoalId ??
     'None';
+  const findingRecords = honeycrispMemory?.records.findings ?? [];
+  const proofAttempts = honeycrispMemory?.proof.attempts ?? [];
 
   return (
     <div className="context-session-workspace" aria-label="Context view">
@@ -88,6 +90,18 @@ export function ContextSessionView({ selectedRunId }: { selectedRunId: string })
             label="Tool Actions"
             value={`${formatCount(candidateToolActions.length)} planned`}
             detail={`${formatCount(skippedToolActions.length)} skipped`}
+          />
+          <SummaryTile
+            icon={<Database size={17} />}
+            label="Findings"
+            value={formatCount(findingRecords.length)}
+            detail={findingRecords[0]?.title ? truncateText(findingRecords[0].title, 84) : 'None'}
+          />
+          <SummaryTile
+            icon={<ListChecks size={17} />}
+            label="Proof"
+            value={`${formatCount(honeycrispMemory?.proof.obligationCount ?? 0)} obligations`}
+            detail={`${formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} attempts`}
           />
         </div>
 
@@ -121,6 +135,36 @@ export function ContextSessionView({ selectedRunId }: { selectedRunId: string })
           <section className="context-session-section" aria-label="Selected skills">
             <SectionHeader icon={<ListChecks size={16} />} title="Selected Skills" />
             <RecordList records={selectedSkills} emptyLabel="No selected skills" primaryKeys={['name', 'id']} secondaryKeys={['purpose', 'summary', 'description']} />
+          </section>
+
+          <section className="context-session-section" aria-label="Honeycrisp findings">
+            <SectionHeader icon={<Database size={16} />} title="Honeycrisp Findings" status={honeycrispMemory?.source ?? 'none'} />
+            <RecordList
+              records={findingRecords.map((record) => ({
+                id: record.id,
+                title: record.title,
+                detail: record.detail,
+                status: record.status
+              }))}
+              emptyLabel="No Honeycrisp findings"
+              primaryKeys={['title', 'id']}
+              secondaryKeys={['detail', 'status']}
+            />
+          </section>
+
+          <section className="context-session-section" aria-label="Honeycrisp proof state">
+            <SectionHeader icon={<ListChecks size={16} />} title="Proof State" />
+            <RecordList
+              records={proofAttempts.map((attempt) => ({
+                id: attempt.id,
+                result: attempt.result ?? attempt.status,
+                summary: attempt.summary,
+                method: attempt.methodName || attempt.methodKind
+              }))}
+              emptyLabel="No proof attempts"
+              primaryKeys={['summary', 'id']}
+              secondaryKeys={['result', 'method']}
+            />
           </section>
 
           <section className="context-session-section" aria-label="Tool permissions">

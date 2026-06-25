@@ -1291,7 +1291,9 @@ export class WorkspaceService {
   }
 
   public getRunDetail(runId: string): RunDetail {
-    return this.requireDb().getRunDetail(runId);
+    const runtime = this.getForegroundRuntime();
+    const detail = this.requireDb().getRunDetail(runId);
+    return runtime ? attachHoneycrispMemory(detail, runtime.workspacePath) : detail;
   }
 
   public getAgentContext(runId: string): AgentContextState {
@@ -1308,7 +1310,9 @@ export class WorkspaceService {
   }
 
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
-    return this.requireDb().getRunDetailUpdate(runId, cursor);
+    const runtime = this.getForegroundRuntime();
+    const update = this.requireDb().getRunDetailUpdate(runId, cursor);
+    return runtime ? attachHoneycrispMemory(update, runtime.workspacePath) : update;
   }
 
   public getProgramGraphVisualization(): ProgramGraphVisualization {
@@ -2772,6 +2776,13 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
       artifactBacked: true
     }
   });
+}
+
+function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T, workspacePath: string): T {
+  return {
+    ...detail,
+    honeycrispMemory: getHoneycrispMemorySummary(workspacePath)
+  };
 }
 
 function createPatchValidationContract(
