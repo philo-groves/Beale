@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed Honeycrisp session context tracking so the footer imports reported model usage when available and falls back to an explicitly marked serialized-capture estimate instead of showing zero.
 - Fixed CyberGym Run Scenario disabled states so the scenario panel displays the blocking reason.
 - Fixed CyberGym Run Scenario startup so it opens the new CyberGym program session instead of falling back to the program-understanding view or only showing the result path.
 - Fixed CyberGym benchmark token metrics to import OpenAI response usage from trace events instead of recording zero tokens.

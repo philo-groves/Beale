@@ -232,6 +232,17 @@ describe('Beale workbench skeleton', () => {
         '      nextQuestions: [],',
         '      evidenceLinks: [],',
         "      goalAssessment: { status: 'complete', rationale: 'Fixture goal satisfied.' }",
+        '    },',
+        '    raw: {',
+        "      provider: 'fixture-provider',",
+        "      model: 'fixture-model',",
+        "      api: 'fixture-api',",
+        "      stopReason: 'complete',",
+        "      responseId: 'fixture-response',",
+        '      usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 },',
+        '      modelCalls: [{ usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 } }],',
+        '      toolCallCount: 0,',
+        '      plannedToolCallCount: 0',
         '    }',
         '  },',
         "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1, usedMemoryDrivenController: true, usedFirstRunFallback: false },",
@@ -270,6 +281,21 @@ describe('Beale workbench skeleton', () => {
 
     const detail = service.getRunDetail(runId ?? '');
     expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
+    expect(detail.modelSessions[0]?.metadata).toMatchObject({
+      latestReportedInputTokens: 12345,
+      latestReportedTotalTokens: 13023,
+      latestContextUsageSource: 'Honeycrisp reported model usage',
+      latestContextUsageEstimated: false
+    });
+    expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.')?.payload).toMatchObject({
+      usage: {
+        input_tokens: 12345,
+        output_tokens: 678,
+        total_tokens: 13023,
+        source: 'Honeycrisp reported model usage',
+        estimated: false
+      }
+    });
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
@@ -322,6 +348,8 @@ describe('Beale workbench skeleton', () => {
       command: process.execPath,
       configuredBy: 'env_root'
     });
+    expect(detail.modelSessions[0]?.metadata.latestContextUsageSource).toBe('Honeycrisp serialized capture estimate');
+    expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
     service.close();

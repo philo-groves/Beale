@@ -54,6 +54,13 @@ interface HoneycrispFlowCapture {
         rationale?: string;
       };
     };
+    raw?: unknown;
+  };
+  contextV2?: {
+    sections?: Array<{
+      estimatedTokens?: number | string;
+      tokenBudget?: number | string;
+    }>;
   };
   memoryIntegration?: {
     databasePath?: string;
@@ -68,6 +75,9 @@ interface HoneycrispFlowCapture {
     artifactCount?: number;
     artifacts?: unknown[];
   };
+  usage?: unknown;
+  modelUsage?: unknown;
+  tokenUsage?: unknown;
   eventTimeline?: HoneycrispCaptureEvent[];
   runtimeConfig?: Record<string, unknown>;
 }
@@ -88,10 +98,30 @@ interface HoneycrispCaptureEvent {
   artifactRefs?: unknown;
 }
 
+interface HoneycrispContextUsageSummary {
+  inputTokens: number;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  source: string;
+  estimated: boolean;
+  reportedCallCount: number;
+  estimatedSerializedTokens: number | null;
+  contextV2EstimatedTokens: number | null;
+}
+
+interface NormalizedTokenUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
 const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const DEFAULT_HONEYCRISP_TOOL_MAX_BYTES = 200_000;
 const MAX_LIVE_OUTPUT_CHARS = 4_000;
 const MAX_SUMMARY_CHARS = 220;
+const HONEYCRISP_REPORTED_USAGE_SOURCE = 'Honeycrisp reported model usage';
+const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimate';
+const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
 
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
@@ -278,7 +308,7 @@ export class HoneycrispRunEngine {
     try {
       const captureText = readTextFile(capturePath);
       const capture = parseHoneycrispCapture(captureText);
-      this.importCapture(context, capture, capturePath, captureText);
+      const contextUsage = this.importCapture(context, capture, capturePath, captureText);
       const summary = honeycrispCompletionSummary(capture);
       this.db.updateAttemptState(context.attempt.id, 'completed', summary);
       this.db.updateRunStatus(context.run.id, 'completed', summary);
@@ -288,7 +318,8 @@ export class HoneycrispRunEngine {
           capturePath,
           goalStatus: capture.goalRun?.status ?? null,
           loopStatus: capture.loop?.status ?? null,
-          memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null
+          memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
+          ...honeycrispContextUsageMetadata(contextUsage)
         }
       });
     } catch (error) {
@@ -301,7 +332,13 @@ export class HoneycrispRunEngine {
     this.onChange();
   }
 
-  private importCapture(context: CreatedRunContext, capture: HoneycrispFlowCapture, capturePath: string, captureText: string): void {
+  private importCapture(
+    context: CreatedRunContext,
+    capture: HoneycrispFlowCapture,
+    capturePath: string,
+    captureText: string
+  ): HoneycrispContextUsageSummary | null {
+    const contextUsage = summarizeHoneycrispContextUsage(capture, captureText);
     const captureArtifact = this.db.createArtifact({
       kind: 'honeycrisp_flow_capture',
       mimeType: 'application/json',
@@ -312,10 +349,12 @@ export class HoneycrispRunEngine {
         sourcePath: capturePath,
         capturedAt: capture.capturedAt ?? null,
         memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
-        storageManifestPath: capture.storageManifest?.path ?? null
+        storageManifestPath: capture.storageManifest?.path ?? null,
+        ...honeycrispContextUsageMetadata(contextUsage)
       },
       content: captureText
     });
+    this.db.updateModelSessionByRun(context.run.id, { metadata: honeycrispContextUsageMetadata(contextUsage) });
     const artifactTrace = this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -325,7 +364,13 @@ export class HoneycrispRunEngine {
       payload: {
         sourcePath: capturePath,
         memoryIntegration: capture.memoryIntegration ?? null,
-        storageManifest: capture.storageManifest ?? null
+        storageManifest: capture.storageManifest ?? null,
+        ...(contextUsage
+          ? {
+              usage: honeycrispTraceUsage(contextUsage),
+              contextUsage: honeycrispContextUsageMetadata(contextUsage)
+            }
+          : {})
       },
       artifactId: captureArtifact.id,
       vmContextId: context.vmContext.id
@@ -409,6 +454,7 @@ export class HoneycrispRunEngine {
         bodyMarkdown: assistantText
       });
     }
+    return contextUsage;
   }
 
   private failRun(context: CreatedRunContext, summary: string, payload: Record<string, unknown>): void {
@@ -655,6 +701,192 @@ function honeycrispEventSummary(event: HoneycrispCaptureEvent): string {
   const prefix = event.kind ? `Honeycrisp ${event.kind}` : 'Honeycrisp event';
   const summary = typeof event.summary === 'string' && event.summary.trim() ? event.summary.trim() : '';
   return summary ? `${prefix}: ${truncateSummary(summary)}` : prefix;
+}
+
+function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, captureText: string): HoneycrispContextUsageSummary | null {
+  const reported = summarizeReportedHoneycrispUsage(capture);
+  const estimatedSerializedTokens = estimateSerializedTokens(captureText);
+  const contextV2EstimatedTokens = estimatedHoneycrispContextV2Tokens(capture);
+
+  if (reported && reported.usage.inputTokens !== null) {
+    return {
+      inputTokens: reported.usage.inputTokens,
+      outputTokens: reported.usage.outputTokens,
+      totalTokens: reported.usage.totalTokens ?? tokenTotalFromParts(reported.usage.inputTokens, reported.usage.outputTokens),
+      source: HONEYCRISP_REPORTED_USAGE_SOURCE,
+      estimated: false,
+      reportedCallCount: reported.callCount,
+      estimatedSerializedTokens,
+      contextV2EstimatedTokens
+    };
+  }
+
+  if (reported && reported.usage.totalTokens !== null && estimatedSerializedTokens !== null) {
+    return {
+      inputTokens: estimatedSerializedTokens,
+      outputTokens: reported.usage.outputTokens,
+      totalTokens: reported.usage.totalTokens,
+      source: HONEYCRISP_MIXED_USAGE_SOURCE,
+      estimated: true,
+      reportedCallCount: reported.callCount,
+      estimatedSerializedTokens,
+      contextV2EstimatedTokens
+    };
+  }
+
+  if (estimatedSerializedTokens !== null) {
+    return {
+      inputTokens: estimatedSerializedTokens,
+      outputTokens: null,
+      totalTokens: null,
+      source: HONEYCRISP_ESTIMATED_USAGE_SOURCE,
+      estimated: true,
+      reportedCallCount: 0,
+      estimatedSerializedTokens,
+      contextV2EstimatedTokens
+    };
+  }
+
+  return null;
+}
+
+function summarizeReportedHoneycrispUsage(
+  capture: HoneycrispFlowCapture
+): { usage: NormalizedTokenUsage; callCount: number } | null {
+  const usageRecords = collectHoneycrispUsageRecords(capture);
+  if (usageRecords.length === 0) return null;
+
+  let latestInputTokens: number | null = null;
+  let outputTokenTotal = 0;
+  let sawOutputTokens = false;
+  let totalTokenTotal = 0;
+  let sawTotalTokens = false;
+
+  for (const record of usageRecords) {
+    const usage = normalizeTokenUsage(record);
+    if (!usage) continue;
+    if (usage.inputTokens !== null) latestInputTokens = usage.inputTokens;
+    if (usage.outputTokens !== null) {
+      outputTokenTotal += usage.outputTokens;
+      sawOutputTokens = true;
+    }
+    const totalTokens = usage.totalTokens ?? tokenTotalFromParts(usage.inputTokens, usage.outputTokens);
+    if (totalTokens !== null) {
+      totalTokenTotal += totalTokens;
+      sawTotalTokens = true;
+    }
+  }
+
+  if (latestInputTokens === null && !sawOutputTokens && !sawTotalTokens) return null;
+  return {
+    usage: {
+      inputTokens: latestInputTokens,
+      outputTokens: sawOutputTokens ? outputTokenTotal : null,
+      totalTokens: sawTotalTokens ? totalTokenTotal : null
+    },
+    callCount: usageRecords.length
+  };
+}
+
+function collectHoneycrispUsageRecords(capture: HoneycrispFlowCapture): Record<string, unknown>[] {
+  const raw = recordValue(capture.loop?.raw);
+  const modelCallUsages = arrayRecordValues(raw?.modelCalls).flatMap((call) => {
+    const usage = recordValue(call.usage);
+    return usage ? [usage] : [];
+  });
+  if (modelCallUsages.length > 0) return modelCallUsages;
+
+  const rawUsage = recordValue(raw?.usage);
+  if (rawUsage) return [rawUsage];
+
+  return [capture.usage, capture.modelUsage, capture.tokenUsage].flatMap((value) => {
+    const usage = recordValue(value);
+    return usage ? [usage] : [];
+  });
+}
+
+function normalizeTokenUsage(record: Record<string, unknown>): NormalizedTokenUsage | null {
+  const inputTokens =
+    positiveNumberRecordValue(record, 'input_tokens') ??
+    positiveNumberRecordValue(record, 'prompt_tokens') ??
+    positiveNumberRecordValue(record, 'inputTokens') ??
+    positiveNumberRecordValue(record, 'promptTokens');
+  const outputTokens =
+    positiveNumberRecordValue(record, 'output_tokens') ??
+    positiveNumberRecordValue(record, 'completion_tokens') ??
+    positiveNumberRecordValue(record, 'outputTokens') ??
+    positiveNumberRecordValue(record, 'completionTokens');
+  const totalTokens = positiveNumberRecordValue(record, 'total_tokens') ?? positiveNumberRecordValue(record, 'totalTokens');
+  if (inputTokens === null && outputTokens === null && totalTokens === null) return null;
+  return { inputTokens, outputTokens, totalTokens };
+}
+
+function honeycrispTraceUsage(usage: HoneycrispContextUsageSummary): Record<string, unknown> {
+  return {
+    input_tokens: usage.inputTokens,
+    ...(usage.outputTokens !== null ? { output_tokens: usage.outputTokens } : {}),
+    ...(usage.totalTokens !== null ? { total_tokens: usage.totalTokens } : {}),
+    source: usage.source,
+    estimated: usage.estimated,
+    reportedCallCount: usage.reportedCallCount,
+    estimatedSerializedTokens: usage.estimatedSerializedTokens,
+    contextV2EstimatedTokens: usage.contextV2EstimatedTokens
+  };
+}
+
+function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | null): Record<string, unknown> {
+  if (!usage) return {};
+  return {
+    latestReportedInputTokens: usage.inputTokens,
+    latestReportedTotalTokens: usage.totalTokens,
+    latestContextUsageSource: usage.source,
+    latestContextUsageEstimated: usage.estimated,
+    latestContextUsageReportedCallCount: usage.reportedCallCount,
+    latestEstimatedSerializedTokens: usage.estimatedSerializedTokens,
+    latestContextV2EstimatedTokens: usage.contextV2EstimatedTokens
+  };
+}
+
+function estimatedHoneycrispContextV2Tokens(capture: HoneycrispFlowCapture): number | null {
+  const total = (capture.contextV2?.sections ?? []).reduce((sum, section) => sum + (positiveNumber(section.estimatedTokens) ?? 0), 0);
+  return total > 0 ? Math.ceil(total) : null;
+}
+
+function estimateSerializedTokens(value: string): number | null {
+  const byteLength = Buffer.byteLength(value, 'utf8');
+  return byteLength > 0 ? Math.ceil(byteLength / 4) : null;
+}
+
+function tokenTotalFromParts(inputTokens: number | null, outputTokens: number | null): number | null {
+  if (inputTokens === null && outputTokens === null) return null;
+  return (inputTokens ?? 0) + (outputTokens ?? 0);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function arrayRecordValues(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const records: Record<string, unknown>[] = [];
+  for (const item of value) {
+    const record = recordValue(item);
+    if (record) records.push(record);
+  }
+  return records;
+}
+
+function positiveNumberRecordValue(record: Record<string, unknown>, key: string): number | null {
+  return positiveNumber(record[key]);
+}
+
+function positiveNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+  return null;
 }
 
 function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {

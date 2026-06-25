@@ -43,6 +43,29 @@ describe('renderer footer view models', () => {
     expect(sessionTokenLabelForTotal(1_100_000_000)).toBe('1.1b');
   });
 
+  it('accepts host-agent camelCase usage and source labels', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              usage: {
+                inputTokens: 9_269,
+                source: 'Honeycrisp serialized capture estimate',
+                estimated: true
+              }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.label).toBe('9.3k/272k');
+    expect(visibleContextMeterLabel(meter)).toBe('9.3k/272k');
+    expect(visibleSessionTokenUsageLabel(meter)).toBe('0');
+    expect(meter.source).toBe('Honeycrisp serialized capture estimate');
+  });
+
   it('uses compaction token pressure as the current context source when newer', () => {
     const meter = contextMeterForDetail(
       runDetail({

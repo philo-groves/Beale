@@ -50,12 +50,16 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
 
   for (const event of detail.traceEvents) {
     const usage = tracePayloadRecord(event.payload, 'usage');
-    pushCandidate(numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens'), event.createdAt, 'reported input tokens');
+    pushCandidate(inputTokensFromUsage(usage), event.createdAt, usageContextSource(usage));
     pushCandidate(numberRecordValue(event.payload, 'serializedSizeBytes') ? Math.ceil((numberRecordValue(event.payload, 'serializedSizeBytes') ?? 0) / 4) : null, event.createdAt, 'serialized replay estimate');
   }
 
   for (const session of detail.modelSessions) {
-    pushCandidate(numberRecordValue(session.metadata, 'latestReportedInputTokens'), session.updatedAt, 'reported input tokens');
+    pushCandidate(
+      numberRecordValue(session.metadata, 'latestReportedInputTokens'),
+      session.updatedAt,
+      stringRecordValue(session.metadata, 'latestContextUsageSource') ?? 'reported input tokens'
+    );
     pushCandidate(estimatedTokensFromSerializedValue(session.metadata.manualConversationInput), session.updatedAt, 'manual replay estimate');
     pushCandidate(estimatedTokensFromSerializedValue(session.metadata.pendingInput), session.updatedAt, 'pending input estimate');
   }
@@ -79,11 +83,29 @@ function totalSessionTokensForDetail(detail: RunDetail | null): number {
 function usageTotalTokens(usage: Record<string, unknown> | null): number | null {
   const totalTokens = numberRecordValue(usage, 'total_tokens') ?? numberRecordValue(usage, 'totalTokens');
   if (totalTokens !== null) return totalTokens;
+  if (booleanRecordValue(usage, 'estimated')) return null;
 
-  const inputTokens = numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens');
-  const outputTokens = numberRecordValue(usage, 'output_tokens') ?? numberRecordValue(usage, 'completion_tokens');
+  const inputTokens = inputTokensFromUsage(usage);
+  const outputTokens =
+    numberRecordValue(usage, 'output_tokens') ??
+    numberRecordValue(usage, 'completion_tokens') ??
+    numberRecordValue(usage, 'outputTokens') ??
+    numberRecordValue(usage, 'completionTokens');
   if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
   return null;
+}
+
+function inputTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  return (
+    numberRecordValue(usage, 'input_tokens') ??
+    numberRecordValue(usage, 'prompt_tokens') ??
+    numberRecordValue(usage, 'inputTokens') ??
+    numberRecordValue(usage, 'promptTokens')
+  );
+}
+
+function usageContextSource(usage: Record<string, unknown> | null): string {
+  return stringRecordValue(usage, 'source') ?? (booleanRecordValue(usage, 'estimated') ? 'estimated input tokens' : 'reported input tokens');
 }
 
 function numberRecordValue(record: Record<string, unknown> | null, key: string): number | null {
@@ -95,6 +117,17 @@ function numberRecordValue(record: Record<string, unknown> | null, key: string):
     return Number.isFinite(numeric) ? numeric : null;
   }
   return null;
+}
+
+function stringRecordValue(record: Record<string, unknown> | null, key: string): string | null {
+  if (!record) return null;
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function booleanRecordValue(record: Record<string, unknown> | null, key: string): boolean {
+  if (!record) return false;
+  return record[key] === true;
 }
 
 function estimatedTokensFromSerializedValue(value: unknown): number | null {
