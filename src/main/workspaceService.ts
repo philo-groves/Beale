@@ -22,7 +22,6 @@ import { DockerExecutorProvider } from './dockerExecutor';
 import { BenchmarkRunner } from './benchmarkRunner';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
-import { ProjectSemanticIndexExecutor } from './projectSemanticIndexExecutor';
 import { buildCyberGymResearchPrompt, buildCyberGymTaskReadme, cyberGymLevelKey, cyberGymLevelMaterials } from '../shared/cybergymPrompt';
 import { extractSourceRepositoryUrls, materializeGitRepositoryAsync, normalizeSourceRepositoryUrl, sourceRepositoryCandidates } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
@@ -84,9 +83,8 @@ import type {
   ProfilingMetricDetail,
   ProfilingReport,
   ProfilingState,
-  ProgramGraphProjection,
-  ProgramGraphVisualization,
   ProjectGraphSummary,
+  ProjectSemanticSummary,
   ResearchPromptGenerationUpdate,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
@@ -383,18 +381,11 @@ export class WorkspaceService {
   private readonly onboardingRepositoryJobs = new Map<string, ProgramOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
   private readonly cyberGymScenarioRuns = new Map<string, CyberGymScenarioRunTracking>();
-  private readonly semanticIndexExecutor: ProjectSemanticIndexExecutor;
 
   public constructor(
     private readonly onChange: (change: WorkspaceChange) => void = () => undefined,
     private readonly options: WorkspaceServiceOptions = {}
-  ) {
-    this.semanticIndexExecutor = new ProjectSemanticIndexExecutor({
-      getRuntime: (workspacePath) => this.runtimeForWorkspacePath(workspacePath),
-      emitChange: (workspacePath) => this.emitRuntimeChange(workspacePath),
-      recordTiming: (name, durationMs, detail = {}) => this.recordProfilingMainTiming(name, durationMs, detail)
-    });
-  }
+  ) {}
 
   public openWorkspace(path: string): WorkspaceSnapshot {
     return this.open(path, false);
@@ -633,41 +624,6 @@ export class WorkspaceService {
     return this.profiling.recordMainTiming(name, durationMs, detail);
   }
 
-  public setProjectSemanticIndexEnabled(enabled: boolean): WorkspaceSnapshot {
-    const db = this.requireDb();
-    const activeScope = db.getActiveScope();
-    db.setProjectSemanticIndexEnabled(enabled, activeScope.id, { refresh: false });
-    if (enabled) {
-      db.queueProjectSemanticIndex(activeScope.id, 'enabled');
-      this.semanticIndexExecutor.schedule(activeScope.id, 'enabled', this.workspacePath);
-    } else {
-      this.semanticIndexExecutor.cancel(activeScope.id, this.workspacePath, 'disabled');
-      db.markProjectSemanticIndexingCanceled(activeScope.id, 'disabled');
-    }
-    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
-    return this.requireSnapshot();
-  }
-
-  public refreshProjectSemanticIndex(): WorkspaceSnapshot {
-    const db = this.requireDb();
-    const activeScope = db.getActiveScope();
-    if (!db.getProjectSemanticIndexEnabled(activeScope.id)) {
-      throw new Error('Semantic indexing is disabled for the active program.');
-    }
-    db.queueProjectSemanticIndex(activeScope.id, 'manual_rebuild');
-    this.semanticIndexExecutor.schedule(activeScope.id, 'manual_rebuild', this.workspacePath);
-    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
-    return this.requireSnapshot();
-  }
-
-  public refreshProjectGraph(): WorkspaceSnapshot {
-    const db = this.requireDb();
-    const activeScope = db.getActiveScope();
-    db.refreshProjectGraph(activeScope.id, nowIso(), 'manual_refresh');
-    this.emitChange({ syncProgramRegistry: false, programRegistryChanged: false });
-    return this.requireSnapshot();
-  }
-
   public resolveHoneycrispMemoryDirectoryPath(name: HoneycrispMemoryDirectorySummary['name']): string {
     const runtime = this.getForegroundRuntime();
     if (!runtime) {
@@ -817,15 +773,12 @@ export class WorkspaceService {
       }
     } else {
       job.indexSkipped = true;
-      if (job.scopeVersionId) {
-        this.semanticIndexExecutor.cancel(job.scopeVersionId, job.workspacePath, 'index_later');
-      }
       for (const [key, row] of job.repositories) {
         if (row.stage === 'index_queued' || row.stage === 'indexing') {
           job.repositories.set(key, {
             ...row,
             stage: 'index_skipped',
-            message: 'Indexing skipped. Rebuild the program index later from Settings.',
+            message: 'Repository indexing is handled by Honeycrisp skills or MCP.',
             updatedAt: nowIso()
           });
         }
@@ -988,98 +941,12 @@ export class WorkspaceService {
     job.scopeVersionId = nextScope.id;
     for (const [key, row] of job.repositories) {
       if (row.stage === 'index_queued') {
-        job.repositories.set(key, { ...row, stage: 'indexing', message: 'Indexing repository content.', updatedAt: nowIso() });
-      }
-    }
-    this.emitOnboardingRepositoryProgress(job);
-    if (job.indexSkipped) {
-      for (const [key, row] of job.repositories) {
-        if (row.stage === 'indexing' || row.stage === 'index_queued') {
-          job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing skipped. Rebuild the index later from Settings.', updatedAt: nowIso() });
-        }
-      }
-      job.phase = 'complete';
-      this.emitOnboardingRepositoryProgress(job);
-      return;
-    }
-    latestRuntime.db.queueProjectSemanticIndex(nextScope.id, 'onboarding_repository_index');
-    this.semanticIndexExecutor.schedule(nextScope.id, 'onboarding_repository_index', latestRuntime.workspacePath, 0, { refreshInventory: true });
-    this.emitRuntimeChange(job.workspacePath);
-    await this.waitForOnboardingRepositoryIndex(job, nextScope.id);
-  }
-
-  private async waitForOnboardingRepositoryIndex(job: ProgramOnboardingRepositoryJob, scopeVersionId: string): Promise<void> {
-    while (!job.indexSkipped) {
-      await sleep(500);
-      const runtime = this.runtimeForWorkspacePath(job.workspacePath);
-      if (!runtime) return;
-      const summary = runtime.db.getProjectSemanticSummary(scopeVersionId);
-      if (summary.status === 'queued' || summary.status === 'indexing') {
-        for (const [key, row] of job.repositories) {
-          if (row.stage === 'indexing' || row.stage === 'index_queued') {
-            job.repositories.set(key, {
-              ...row,
-              stage: 'indexing',
-              message:
-                summary.progressTotal != null && summary.progressProcessed != null
-                  ? `Indexing repository content (${summary.progressProcessed}/${summary.progressTotal}).`
-                  : 'Indexing repository content.',
-              updatedAt: nowIso()
-            });
-          }
-        }
-        this.emitOnboardingRepositoryProgress(job);
-        continue;
-      }
-      if (summary.status === 'ready' || (summary.status === 'empty' && summary.sourceDocumentCount === 0)) {
-        for (const [key, row] of job.repositories) {
-          if (row.stage === 'indexing' || row.stage === 'index_queued') {
-            job.repositories.set(key, { ...row, stage: 'indexed', message: 'Repository indexed.', updatedAt: nowIso() });
-          }
-        }
-        job.phase = 'complete';
-        this.emitOnboardingRepositoryProgress(job);
-        return;
-      }
-      if (summary.status === 'stale') {
-        for (const [key, row] of job.repositories) {
-          if (row.stage === 'indexing' || row.stage === 'index_queued') {
-            job.repositories.set(key, {
-              ...row,
-              stage: 'indexing',
-              message: 'Index needs another pass after repository inventory changed.',
-              updatedAt: nowIso()
-            });
-          }
-        }
-        runtime.db.queueProjectSemanticIndex(scopeVersionId, 'onboarding_repository_index_stale');
-        this.semanticIndexExecutor.schedule(scopeVersionId, 'onboarding_repository_index_stale', runtime.workspacePath);
-        this.emitOnboardingRepositoryProgress(job);
-        continue;
-      }
-      if (summary.status === 'canceled') {
-        for (const [key, row] of job.repositories) {
-          if (row.stage === 'indexing' || row.stage === 'index_queued') {
-            job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing skipped. Rebuild the index later from Settings.', updatedAt: nowIso() });
-          }
-        }
-        job.phase = 'complete';
-        this.emitOnboardingRepositoryProgress(job);
-        return;
-      }
-      if (summary.status === 'error') {
-        for (const [key, row] of job.repositories) {
-          if (row.stage === 'indexing' || row.stage === 'index_queued') {
-            job.repositories.set(key, { ...row, stage: 'index_skipped', message: 'Indexing failed. Rebuild the index later from Settings.', error: summary.lastError, updatedAt: nowIso() });
-          }
-        }
-        job.phase = 'complete';
-        this.emitOnboardingRepositoryProgress(job);
-        return;
+        job.repositories.set(key, { ...row, stage: 'indexed', message: 'Repository available to Honeycrisp.', updatedAt: nowIso() });
       }
     }
     job.phase = 'complete';
     this.emitOnboardingRepositoryProgress(job);
+    this.emitRuntimeChange(job.workspacePath);
   }
 
   private onboardingRepositoryProgress(job: ProgramOnboardingRepositoryJob): ProgramOnboardingProgressUpdate {
@@ -1255,8 +1122,6 @@ export class WorkspaceService {
   public saveProgramScope(scope: ProgramScopeDraft): WorkspaceSnapshot {
     const db = this.requireDb();
     db.saveProgramScope(scope);
-    const runtime = this.getForegroundRuntime();
-    if (runtime) this.scheduleProjectSemanticIndexIfNeeded(runtime, 'scope_changed');
     this.emitChange();
     return this.requireSnapshot();
   }
@@ -1313,16 +1178,6 @@ export class WorkspaceService {
     const runtime = this.getForegroundRuntime();
     const update = this.requireDb().getRunDetailUpdate(runId, cursor);
     return runtime ? attachHoneycrispMemory(update, runtime.workspacePath) : update;
-  }
-
-  public getProgramGraphVisualization(): ProgramGraphVisualization {
-    const db = this.requireDb();
-    return db.getProgramGraphVisualization(db.getActiveScope().id);
-  }
-
-  public getProgramGraphProjection(): ProgramGraphProjection {
-    const db = this.requireDb();
-    return db.getProgramGraphProjection(db.getActiveScope().id);
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {
@@ -2036,7 +1891,6 @@ export class WorkspaceService {
 
   public close(): void {
     this.clearPendingChange();
-    this.semanticIndexExecutor.dispose();
     for (const job of this.onboardingRepositoryJobs.values()) {
       job.activeClone?.abortController.abort();
     }
@@ -2124,21 +1978,7 @@ export class WorkspaceService {
         executorManager,
         () => this.emitRuntimeChange(workspacePath),
         (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail),
-        (scopeVersionId, reason) => {
-          this.semanticIndexExecutor.schedule(scopeVersionId, reason, workspacePath, 250);
-          const inventoryTimer = setTimeout(() => {
-            const runtime = this.runtimeForWorkspacePath(workspacePath);
-            if (!runtime) return;
-            try {
-              runtime.db.refreshProjectInventory(scopeVersionId);
-              this.emitRuntimeChange(workspacePath);
-            } catch {
-              // Search diagnostics still report stale/deferred indexing if refresh fails.
-            }
-          }, 500);
-          inventoryTimer.unref?.();
-          this.emitRuntimeChange(workspacePath);
-        }
+        () => this.emitRuntimeChange(workspacePath)
       ),
       honeycrispEngine: new HoneycrispRunEngine(db, workspacePath, () => this.emitRuntimeChange(workspacePath)),
       executorManager,
@@ -2206,7 +2046,6 @@ export class WorkspaceService {
     settings: CyberGymBenchmarkSettings,
     activeTask: { scenario: CyberGymScenarioSummary; level: CyberGymLevel; taskDirectory: string } | null
   ): ProgramScopeVersion {
-    this.semanticIndexExecutor.cancelWorkspace(runtime.workspacePath);
     const activeScope = runtime.db.getActiveScope();
     const needsBaseScope = activeScope.programName !== CYBERGYM_PROGRAM_NAME || activeScope.organizationName !== CYBERGYM_PROGRAM_NAME;
     if (!activeTask && !needsBaseScope) {
@@ -2230,8 +2069,6 @@ export class WorkspaceService {
     this.executorManager = runtime.executorManager;
     this.executorRunEngine = runtime.executorRunEngine;
     this.benchmarkRunner = runtime.benchmarkRunner;
-    this.semanticIndexExecutor.resume(runtime);
-    this.scheduleProjectSemanticIndexIfNeeded(runtime, 'workspace_open');
   }
 
   private detachForegroundRuntime(): WorkspaceRuntime | null {
@@ -2273,25 +2110,15 @@ export class WorkspaceService {
   }
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
-    this.semanticIndexExecutor.cancelWorkspace(runtime.workspacePath);
     runtime.engine.dispose();
     runtime.openAiEngine.dispose();
     runtime.honeycrispEngine.dispose();
     runtime.db.close();
   }
 
-  private scheduleProjectSemanticIndexIfNeeded(runtime: WorkspaceRuntime, fallbackReason: string): void {
-    const activeScope = runtime.db.getActiveScope();
-    const reason = runtime.db.getProjectSemanticAutoRefreshReason(activeScope.id, fallbackReason);
-    if (!reason) return;
-    runtime.db.queueProjectSemanticIndex(activeScope.id, reason);
-    this.semanticIndexExecutor.schedule(activeScope.id, reason, runtime.workspacePath);
-  }
-
   private emitRuntimeChange(workspacePath: string): void {
     if (this.workspacePath === workspacePath) {
       const runtime = this.getForegroundRuntime();
-      if (runtime) this.scheduleProjectSemanticIndexIfNeeded(runtime, 'search_documents_changed');
       if (runtime && this.hasActiveRuntimeWork(runtime)) {
         return;
       }
@@ -2303,7 +2130,6 @@ export class WorkspaceService {
     }
     const runtime = this.backgroundRuntimes.get(workspacePath);
     if (runtime) {
-      this.scheduleProjectSemanticIndexIfNeeded(runtime, 'search_documents_changed');
       if (!this.hasActiveRuntimeWork(runtime)) {
         this.syncProgramRegistryForRuntime(runtime, false);
         this.onChange({ programRegistryChanged: true });
@@ -2542,19 +2368,14 @@ export class WorkspaceService {
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
       honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => getHoneycrispMemorySummary(runtime.workspacePath)),
-      projectGraph: this.profileMainTiming('snapshot.projectGraph', detail, () => this.getProjectGraphSummaryForSnapshot(runtime, activeScope.id)),
-      projectSemantic: this.profileMainTiming('snapshot.projectSemantic', detail, () => runtime.db.getProjectSemanticSummary(activeScope.id)),
+      projectGraph: inactiveProjectGraphSummary(activeScope.id),
+      projectSemantic: inactiveProjectSemanticSummary(activeScope.id),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
       notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications()),
       benchmark: this.profileMainTiming('snapshot.benchmark', detail, () => runtime.benchmarkRunner.getOverview())
     };
-  }
-
-  private getProjectGraphSummaryForSnapshot(runtime: WorkspaceRuntime, scopeVersionId: string): ProjectGraphSummary {
-    const summary = runtime.db.getProjectGraphSummary(scopeVersionId);
-    return summary.status === 'stale' ? runtime.db.refreshProjectGraph(scopeVersionId, nowIso(), 'snapshot_stale') : summary;
   }
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {
@@ -3098,6 +2919,51 @@ function emptyRecoveryReport(openedAt: string | null): WorkspaceRecoveryReport {
     interruptedVmContexts: 0,
     interruptedBenchmarkRuns: 0,
     notes: ['No interrupted authoritative state found.']
+  };
+}
+
+function inactiveProjectGraphSummary(scopeVersionId: string): ProjectGraphSummary {
+  return {
+    scopeVersionId,
+    status: 'disabled',
+    nodeCount: 0,
+    edgeCount: 0,
+    structuralEdgeCount: 0,
+    unresolvedEdgeCount: 0,
+    expectedNodeCount: 0,
+    staleReasons: [],
+    rebuildReason: null,
+    buildCount: 0,
+    nodeFamilyCounts: {},
+    edgeFamilyCounts: {},
+    extractionFamilyCounts: {},
+    indexedAt: null
+  };
+}
+
+function inactiveProjectSemanticSummary(scopeVersionId: string): ProjectSemanticSummary {
+  return {
+    scopeVersionId,
+    enabled: false,
+    status: 'disabled',
+    provider: 'none',
+    model: 'none',
+    remoteEmbeddingEnabled: false,
+    chunkCount: 0,
+    embeddedChunkCount: 0,
+    sourceDocumentCount: 0,
+    indexedSourceDocumentCount: 0,
+    indexSizeBytes: 0,
+    lastRefreshDurationMs: null,
+    namespaceCounts: {},
+    indexedAt: null,
+    queuedAt: null,
+    startedAt: null,
+    finishedAt: null,
+    jobReason: null,
+    lastError: null,
+    progressProcessed: null,
+    progressTotal: null
   };
 }
 

@@ -20,8 +20,6 @@ import type {
   ProgramRegistryState,
   ProfilingReport,
   ProfilingState,
-  ProgramGraphProjection,
-  ProgramGraphVisualization,
   ProgramScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
@@ -138,23 +136,8 @@ const api: BealeApi = {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState> {
     return ipcRenderer.invoke(IPC_CHANNELS.recordProfilingReport, report);
   },
-  setProjectSemanticIndexEnabled(enabled: boolean) {
-    return ipcRenderer.invoke(IPC_CHANNELS.setProjectSemanticIndexEnabled, enabled);
-  },
-  refreshProjectSemanticIndex() {
-    return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectSemanticIndex);
-  },
-  refreshProjectGraph() {
-    return ipcRenderer.invoke(IPC_CHANNELS.refreshProjectGraph);
-  },
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']) {
     return ipcRenderer.invoke(IPC_CHANNELS.openHoneycrispMemoryDirectory, name);
-  },
-  getProgramGraphVisualization(): Promise<ProgramGraphVisualization> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphVisualization);
-  },
-  getProgramGraphProjection(): Promise<ProgramGraphProjection> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getProgramGraphProjection);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

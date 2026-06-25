@@ -414,23 +414,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getProfilingState, () => workspaceService.getProfilingState());
   ipcMain.handle(IPC_CHANNELS.setProfilingEnabled, (_event, enabled: boolean) => workspaceService.setProfilingEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.recordProfilingReport, (_event, report: ProfilingReport) => workspaceService.recordProfilingReport(report));
-  ipcMain.handle(IPC_CHANNELS.setProjectSemanticIndexEnabled, (_event, enabled: boolean) =>
-    timedMainIpc('setProjectSemanticIndexEnabled', { enabled }, () => workspaceService.setProjectSemanticIndexEnabled(enabled))
-  );
-  ipcMain.handle(IPC_CHANNELS.refreshProjectSemanticIndex, () => timedMainIpc('refreshProjectSemanticIndex', {}, () => workspaceService.refreshProjectSemanticIndex()));
-  ipcMain.handle(IPC_CHANNELS.refreshProjectGraph, () => timedMainIpc('refreshProjectGraph', {}, () => workspaceService.refreshProjectGraph()));
   ipcMain.handle(IPC_CHANNELS.openHoneycrispMemoryDirectory, (_event, name: HoneycrispMemoryDirectorySummary['name']) =>
     timedMainIpcAsync('openHoneycrispMemoryDirectory', { directory: String(name) }, async () => {
       const path = workspaceService.resolveHoneycrispMemoryDirectoryPath(name);
       const error = await shell.openPath(path);
       if (error) throw new Error(error);
     })
-  );
-  ipcMain.handle(IPC_CHANNELS.getProgramGraphVisualization, () =>
-    timedMainIpc('getProgramGraphVisualization', {}, () => workspaceService.getProgramGraphVisualization())
-  );
-  ipcMain.handle(IPC_CHANNELS.getProgramGraphProjection, () =>
-    timedMainIpc('getProgramGraphProjection', {}, () => workspaceService.getProgramGraphProjection())
   );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>

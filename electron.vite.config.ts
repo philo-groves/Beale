@@ -14,8 +14,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts'),
-          projectSemanticIndexWorker: resolve(__dirname, 'src/main/projectSemanticIndexWorker.ts')
+          index: resolve(__dirname, 'src/main/index.ts')
         }
       }
     }

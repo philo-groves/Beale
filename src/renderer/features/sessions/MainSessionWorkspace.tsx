@@ -1,8 +1,7 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { HoneycrispMemorySummary, ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, ProgramScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
-import type { ProgramMainView } from '../programs/programViews';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -14,16 +13,13 @@ import type { SessionMainView } from './sessionViews';
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
-  graph,
   honeycrispMemory,
-  programView,
   researchPanelCollapsed,
   runCount,
   scope,
   selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
-  semantic,
   sessionView,
   visibleTraceCategories,
   busy,
@@ -32,23 +28,19 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onExpandResearchPanel,
   onOpenTraceFilters,
   onOpenHoneycrispMemoryDirectory,
-  onRefreshProjectGraph,
   onSelectTraceEvent,
   onSessionAction,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
-  graph: ProjectGraphSummary | null;
   honeycrispMemory: HoneycrispMemorySummary | null;
-  programView: ProgramMainView;
   researchPanelCollapsed: boolean;
   runCount: number;
   scope: ProgramScopeVersion | null;
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
-  semantic: ProjectSemanticSummary | null;
   sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
@@ -57,7 +49,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onExpandResearchPanel: () => void;
   onOpenTraceFilters: () => void;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
-  onRefreshProjectGraph: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
@@ -66,14 +57,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     return (
       <ProgramUnderstandingView
         busy={busy}
-        graph={graph}
         honeycrispMemory={honeycrispMemory}
-        programView={programView}
         runCount={runCount}
         scope={scope}
-        semantic={semantic}
         onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
-        onRefreshProjectGraph={onRefreshProjectGraph}
       />
     );
   }

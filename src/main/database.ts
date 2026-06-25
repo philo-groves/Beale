@@ -3719,8 +3719,6 @@ export class WorkspaceDatabase {
   }
 
   public saveProgramScope(draft: ProgramScopeDraft, options: { refreshInventory?: boolean } = {}): ProgramScopeVersion {
-    const previousActiveScope = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1').get('active'));
-    const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : true;
     const cleanedAssets = draft.assets
       .map((asset) => ({
         ...asset,
@@ -3760,11 +3758,11 @@ export class WorkspaceDatabase {
       for (const asset of cleanedAssets) {
         this.insertScopeAsset(id, asset, createdAt);
       }
-      this.setMetaValue(projectSemanticEnabledMetaKey(id), semanticEnabledForPreviousScope ? '1' : '0', createdAt);
+      this.setMetaValue(projectSemanticEnabledMetaKey(id), '0', createdAt);
     });
 
     const scope = this.getActiveScope();
-    if (options.refreshInventory !== false) {
+    if (options.refreshInventory === true) {
       this.refreshProjectInventory(scope.id);
     }
     return scope;
@@ -4865,16 +4863,15 @@ export class WorkspaceDatabase {
 
   public markPostSourceIndexingDeferred(scopeVersionId: string, reason: string): void {
     const markedAt = nowIso();
-    this.queueProjectSemanticIndex(scopeVersionId, reason);
     this.setMetaValue(
       `project_indexing_deferred:${scopeVersionId}`,
       JSON.stringify({
         reason,
         markedAt,
         inventory: 'deferred',
-        structure: 'deferred',
-        graph: 'deferred',
-        semantic: this.getProjectSemanticIndexEnabled(scopeVersionId) ? 'queued' : 'disabled'
+        structure: 'external',
+        graph: 'disabled',
+        semantic: 'disabled'
       }),
       markedAt
     );
@@ -6156,11 +6153,8 @@ export class WorkspaceDatabase {
   }
 
   public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
-    const startedAt = Date.now();
-    this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
-    this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
-    this.rebuildProjectGraph(scopeVersionId, indexedAt);
-    this.recordProjectGraphStatus(scopeVersionId, { rebuildReason: reason, indexedAt, durationMs: Date.now() - startedAt, incrementBuildCount: true });
+    void indexedAt;
+    void reason;
     return this.getProjectGraphSummary(scopeVersionId);
   }
 
@@ -6173,8 +6167,7 @@ export class WorkspaceDatabase {
   }
 
   private ensureProjectGraphFresh(scopeVersionId: string): ProjectGraphSummary {
-    const summary = this.getProjectGraphSummary(scopeVersionId);
-    return summary.status === 'stale' || summary.status === 'empty' ? this.refreshProjectGraph(scopeVersionId, nowIso(), summary.status === 'empty' ? 'empty_graph' : summary.staleReasons.join(',')) : summary;
+    return this.getProjectGraphSummary(scopeVersionId);
   }
 
   private projectGraphExpectedNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
@@ -6676,7 +6669,8 @@ export class WorkspaceDatabase {
   }
 
   public getProjectSemanticIndexEnabled(scopeVersionId = this.getActiveScope().id): boolean {
-    return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) !== '0';
+    void scopeVersionId;
+    return false;
   }
 
   public setProjectSemanticIndexEnabled(
@@ -7037,72 +7031,12 @@ export class WorkspaceDatabase {
   }
 
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
-    const summary = this.getProjectInventorySummary(scopeVersionId);
-    if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
-    return this.projectInventoryLooksStale(scopeVersionId) ? this.refreshProjectInventory(scopeVersionId) : summary;
+    return this.getProjectInventorySummary(scopeVersionId);
   }
 
   public refreshProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventoryRefreshReport {
-    const scope = this.getScopeVersion(scopeVersionId);
-    const indexedAt = nowIso();
-    const state: ProjectInventoryScanState = { indexedAt, scannedFiles: 0, skippedCount: 0, truncated: false };
-    const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
-
-    this.transaction(() => {
-      this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_structure_relations WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
-      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('scope_asset', 'inventory_item', 'structure_entity')", [scopeVersionId]);
-
-      for (const asset of scope.assets) {
-        this.upsertProjectSearchDocument({
-          scopeVersionId,
-          entityType: 'scope_asset',
-          entityId: asset.id,
-          title: `${asset.direction} ${asset.kind}: ${asset.value}`,
-          body: [
-            asset.value,
-            asset.kind,
-            asset.direction,
-            asset.sensitivity,
-            JSON.stringify(asset.attributes),
-            scope.programName,
-            scope.organizationName,
-            scope.descriptionMarkdown,
-            scope.rulesMarkdown
-          ].join('\n'),
-          sourcePath: isAbsolute(asset.value) ? asset.value : null,
-          metadata: {
-            direction: asset.direction,
-            kind: asset.kind,
-            sensitivity: asset.sensitivity,
-            attributes: asset.attributes
-          },
-          createdAt: asset.createdAt,
-          updatedAt: indexedAt
-        });
-      }
-
-      for (const asset of localAssets) {
-        this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
-      }
-
-      this.resolveProjectStructureRelationTargets(scopeVersionId);
-      this.rebuildProjectGraph(scopeVersionId, indexedAt);
-    });
-
     const summary = this.getProjectInventorySummary(scopeVersionId);
-    const report: ProjectInventoryRefreshReport = {
-      ...summary,
-      rootCount: localAssets.length,
-      skippedCount: state.skippedCount,
-      truncated: state.truncated
-    };
-    this.setMetaValue(`project_inventory:${scopeVersionId}:last_report`, JSON.stringify(report), indexedAt);
-    this.clearProjectIndexingDeferredState(scopeVersionId);
-    return report;
+    return { ...summary, rootCount: 0, skippedCount: 0, truncated: false };
   }
 
   public rebuildProjectSearchIndex(options: { includeInventory?: boolean } = {}): void {
@@ -7137,15 +7071,7 @@ export class WorkspaceDatabase {
       for (const row of rows(this.db.prepare('SELECT * FROM verifier_runs ORDER BY started_at ASC, rowid ASC').all())) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
     });
 
-    if (options.includeInventory) {
-      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
-        this.refreshProjectInventory(text(row, 'id'));
-      }
-    } else {
-      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
-        this.refreshProjectGraph(text(row, 'id'));
-      }
-    }
+    void options;
   }
 
   public searchProjectDocumentsForRun(runId: string, query: string, limit = 20, options: { refreshInventory?: boolean; scopeVersionId?: string } = {}): ProjectSearchResult[] {

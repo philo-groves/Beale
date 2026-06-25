@@ -1485,12 +1485,7 @@ export interface BealeApi {
   getProfilingState(): Promise<ProfilingState>;
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
-  setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
-  refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
-  refreshProjectGraph(): Promise<WorkspaceSnapshot>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
-  getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
-  getProgramGraphProjection(): Promise<ProgramGraphProjection>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

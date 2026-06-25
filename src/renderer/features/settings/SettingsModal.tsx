@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react';
-import { Bug, DatabaseZap, KeyRound, RefreshCw, Server, ShieldAlert, Terminal } from 'lucide-react';
+import { Bug, KeyRound, RefreshCw, Server, ShieldAlert, Terminal } from 'lucide-react';
 import type {
   DeveloperSettings,
   ExecutorBackendKind,
@@ -7,7 +7,6 @@ import type {
   ExecutorStatus,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
-  ProjectSemanticSummary,
   SandboxSetupInput,
   SandboxSetupResult,
   VmPreference,
@@ -15,7 +14,7 @@ import type {
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
-import { formatSessionDateTime, stateClass } from '../../lib/formatting';
+import { stateClass } from '../../lib/formatting';
 import { findBackendByKind } from '../../view-models/environmentDisplay';
 
 export type SettingsSection = 'general' | 'sandboxes' | 'providers' | 'developer';
@@ -24,7 +23,6 @@ export function SettingsModal({
   section,
   developerSettings,
   executor,
-  projectSemantic,
   programName,
   vmPreference,
   openAiStatus,
@@ -33,9 +31,7 @@ export function SettingsModal({
   onChangeSection,
   onClose,
   onSetVmPreference,
-  onRefreshProjectSemanticIndex,
   onSetDeveloperModeEnabled,
-  onSetProjectSemanticIndexEnabled,
   onSetupSandbox,
   onRefreshOpenAi,
   onStartOpenAiOAuth
@@ -43,7 +39,6 @@ export function SettingsModal({
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
   executor: ExecutorStatus | null;
-  projectSemantic: ProjectSemanticSummary | null;
   programName: string | null;
   vmPreference: VmPreference;
   openAiStatus: OpenAiAccountStatus | null;
@@ -52,9 +47,7 @@ export function SettingsModal({
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -84,13 +77,7 @@ export function SettingsModal({
         </nav>
         <section className="settings-view">
           {activeSection === 'general' ? (
-            <GeneralSettingsView
-              busy={busy}
-              projectSemantic={projectSemantic}
-              programName={programName}
-              onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
-              onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
-            />
+            <GeneralSettingsView programName={programName} />
           ) : activeSection === 'sandboxes' ? (
             <SandboxSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetupSandbox={onSetupSandbox} onSetVmPreference={onSetVmPreference} />
           ) : activeSection === 'providers' ? (
@@ -104,73 +91,18 @@ export function SettingsModal({
   );
 }
 
-function GeneralSettingsView({
-  projectSemantic,
-  programName,
-  busy,
-  onRefreshProjectSemanticIndex,
-  onSetProjectSemanticIndexEnabled
-}: {
-  projectSemantic: ProjectSemanticSummary | null;
-  programName: string | null;
-  busy: boolean;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
-}): JSX.Element {
+function GeneralSettingsView({ programName }: { programName: string | null }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
       <div className="settings-page-header">
         <h3>General</h3>
       </div>
-      <section className={`provider-card semantic-index-card readiness-${stateClass(projectSemantic?.status ?? 'disabled')}`}>
+      <section className="provider-card readiness-disabled">
         <div className="provider-heading">
-          <div className="status-icon">
-            <DatabaseZap size={18} />
-          </div>
           <div>
-            <h4>Retrieval Index</h4>
-            <p>{semanticHeading(projectSemantic, programName)}</p>
+            <h4>{programName || 'Current Program'}</h4>
+            <p>No general preferences are available.</p>
           </div>
-          <StatusPill status={projectSemantic?.status ?? 'disabled'} />
-        </div>
-
-        <div className="provider-grid semantic-provider-grid">
-          <div>
-            <span>Chunks</span>
-            <strong>{projectSemantic ? projectSemantic.chunkCount.toLocaleString() : '0'}</strong>
-          </div>
-          <div>
-            <span>Sources</span>
-            <strong>{semanticSourceLabel(projectSemantic)}</strong>
-          </div>
-          <div>
-            <span>Size</span>
-            <strong>{formatSemanticBytes(projectSemantic?.indexSizeBytes ?? 0)}</strong>
-          </div>
-          <div>
-            <span>Build</span>
-            <strong>{formatSemanticDuration(projectSemantic?.lastRefreshDurationMs ?? null)}</strong>
-          </div>
-        </div>
-
-        <p className="provider-detail">{semanticDetail(projectSemantic)}</p>
-
-        <div className="semantic-namespace-list" aria-label="Retrieval index namespaces">
-          {semanticNamespaceRows(projectSemantic).map(([namespace, count]) => (
-            <div key={namespace}>
-              <span>{namespaceLabel(namespace)}</span>
-              <strong>{count.toLocaleString()}</strong>
-            </div>
-          ))}
-        </div>
-
-        <div className="provider-actions semantic-index-actions">
-          <button type="button" disabled={busy || !projectSemantic} onClick={() => void onSetProjectSemanticIndexEnabled(!(projectSemantic?.enabled ?? false))}>
-            {projectSemantic?.enabled ? 'Disable' : 'Enable'}
-          </button>
-          <button type="button" disabled={busy || !projectSemantic?.enabled} onClick={() => void onRefreshProjectSemanticIndex()}>
-            Rebuild
-          </button>
         </div>
       </section>
     </div>
@@ -372,65 +304,6 @@ function SandboxSettingsView({
       </section>
     </div>
   );
-}
-
-function semanticHeading(summary: ProjectSemanticSummary | null, programName: string | null): string {
-  const name = programName?.trim() || 'the active program';
-  if (!summary) return 'Open a program to manage local retrieval indexes.';
-  if (!summary.enabled) return `Indexed retrieval is off for ${name}.`;
-  if (summary.status === 'queued') return `Retrieval indexing is queued for ${name}.`;
-  if (summary.status === 'indexing') return `Retrieval indexing is running for ${name}.`;
-  if (summary.status === 'error') return `Retrieval indexing failed for ${name}.`;
-  if (summary.status === 'canceled') return `Retrieval indexing was canceled for ${name}.`;
-  if (summary.status === 'stale') return `Indexed retrieval for ${name} needs rebuild.`;
-  if (summary.chunkCount === 0) return `Indexed retrieval is on for ${name}, but no chunks are indexed yet.`;
-  return `Indexed retrieval is on for ${name}.`;
-}
-
-function semanticDetail(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return 'Retrieval indexing is scoped to a single program and stored locally under .beale/.';
-  const progress =
-    typeof summary.progressProcessed === 'number' && typeof summary.progressTotal === 'number'
-      ? ` ${summary.progressProcessed.toLocaleString()}/${summary.progressTotal.toLocaleString()} source documents processed.`
-      : '';
-  if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.${progress}`;
-  if (summary.status === 'indexing')
-    return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.${progress}`;
-  if (summary.status === 'error') return `Last error: ${summary.lastError || 'Retrieval indexing failed. Search remains available without fresh indexed results.'}`;
-  if (summary.status === 'canceled') return `Canceled ${summary.finishedAt ? formatSessionDateTime(summary.finishedAt) : 'recently'}.`;
-  const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';
-  const model = `${summary.provider} / ${summary.model}`;
-  const remote = summary.remoteEmbeddingEnabled ? 'Remote embeddings are enabled.' : 'Remote embeddings are off; indexed material stays local.';
-  return `Last indexed ${indexed}. ${summary.embeddedChunkCount.toLocaleString()} embedded chunk${summary.embeddedChunkCount === 1 ? '' : 's'} using ${model}. ${remote}`;
-}
-
-function semanticSourceLabel(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return '0/0';
-  return `${summary.indexedSourceDocumentCount.toLocaleString()}/${summary.sourceDocumentCount.toLocaleString()}`;
-}
-
-function formatSemanticBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
-}
-
-function formatSemanticDuration(durationMs: number | null): string {
-  if (durationMs === null) return 'never';
-  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))} ms`;
-  return `${Math.round((durationMs / 1000) * 10) / 10} s`;
-}
-
-function semanticNamespaceRows(summary: ProjectSemanticSummary | null): Array<[string, number]> {
-  const rows = Object.entries(summary?.namespaceCounts ?? {}).filter(([, count]) => count > 0);
-  return rows.length ? rows.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])) : [['none', 0]];
-}
-
-function namespaceLabel(namespace: string): string {
-  return namespace
-    .split('_')
-    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
-    .join(' ');
 }
 
 function ProvidersSettingsView({

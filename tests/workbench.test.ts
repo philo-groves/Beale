@@ -62,14 +62,9 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
     expect(snapshot.openAi.readiness).toBe('not_configured');
     expect(snapshot.openAi.onboardingSteps.some((step) => step.id === 'secret_isolation')).toBe(true);
-    expect(snapshot.projectSemantic).toMatchObject({ enabled: true, remoteEmbeddingEnabled: false });
-    expect(['empty', 'queued', 'ready']).toContain(snapshot.projectSemantic.status);
+    expect(snapshot.projectSemantic).toMatchObject({ enabled: false, status: 'disabled', remoteEmbeddingEnabled: false });
+    expect(snapshot.projectGraph).toMatchObject({ status: 'disabled', nodeCount: 0, edgeCount: 0 });
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
-    const enabledSemantic = service.setProjectSemanticIndexEnabled(true);
-    expect(enabledSemantic.projectSemantic.enabled).toBe(true);
-    expect(['empty', 'queued', 'ready']).toContain(enabledSemantic.projectSemantic.status);
-    expect(service.refreshProjectSemanticIndex().projectSemantic.enabled).toBe(true);
-    expect(service.setProjectSemanticIndexEnabled(false).projectSemantic.status).toBe('disabled');
     expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
 
@@ -82,7 +77,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('refreshes stale context graphs for workspace snapshots', () => {
+  it('keeps legacy context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
@@ -106,17 +101,20 @@ describe('Beale workbench skeleton', () => {
       exploitPracticality: 'needs validation',
       scopeConfidence: 'in_scope'
     });
-    const staleGraph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
-    expect(staleGraph.status).toBe('stale');
-    expect(staleGraph.staleReasons.some((reason) => reason.startsWith('missing_node_family:hypothesis:'))).toBe(true);
+    const legacyGraph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
+    expect(legacyGraph.status).toBe('empty');
+    expect(legacyGraph.nodeCount).toBe(0);
     db.close();
 
     const reopened = new WorkspaceService();
     const refreshed = reopened.openWorkspace(dir);
-    expect(refreshed.projectGraph.status).toBe('ready');
-    expect(refreshed.projectGraph.nodeFamilyCounts.hypothesis).toBeGreaterThanOrEqual(1);
-    expect(refreshed.projectGraph.rebuildReason).toBe('snapshot_stale');
-    expect(reopened.refreshProjectGraph().projectGraph.status).toBe('ready');
+    expect(refreshed.projectGraph).toMatchObject({
+      scopeVersionId: runSnapshot.activeScope.id,
+      status: 'disabled',
+      nodeCount: 0,
+      edgeCount: 0,
+      buildCount: 0
+    });
     reopened.close();
   });
 
@@ -1304,18 +1302,11 @@ describe('Beale workbench skeleton', () => {
       promptMarkdown: '# Source indexing\nMaterialize the scoped Zuul repository.'
     });
     await waitForCondition(() => service.getSnapshot()?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul')) ?? false);
-    await waitForCondition(() => Number(service.getSnapshot()?.projectGraph.nodeFamilyCounts.inventory_item ?? 0) > 0);
 
     const snapshot = service.getSnapshot();
-    const graphVisualization = service.getProgramGraphVisualization();
-    const graphProjection = service.getProgramGraphProjection();
     expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(true);
-    expect(snapshot?.projectGraph.nodeFamilyCounts.inventory_item).toBeGreaterThan(0);
-    expect(graphVisualization.nodes.length).toBeGreaterThan(0);
-    expect(graphVisualization.sampledNodeCount).toBe(graphVisualization.nodes.length);
-    expect(graphProjection.nodes.length).toBe(snapshot?.projectGraph.nodeCount);
-    expect(graphProjection.diagnostics.nodeCount).toBe(graphProjection.nodes.length);
-    expect(graphProjection.clusters.some((cluster) => cluster.kind === 'source_group' || cluster.kind === 'entity_family')).toBe(true);
+    expect(snapshot?.projectGraph).toMatchObject({ status: 'disabled', nodeCount: 0, edgeCount: 0 });
+    expect(snapshot?.projectSemantic).toMatchObject({ enabled: false, status: 'disabled' });
     service.close();
   });
 
@@ -1373,17 +1364,14 @@ describe('Beale workbench skeleton', () => {
     );
 
     await waitForCondition(() => service.getSnapshot()?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul')) ?? false);
-    await waitForCondition(() => Number(service.getSnapshot()?.projectGraph.nodeFamilyCounts.inventory_item ?? 0) > 0);
     await waitForCondition(() => progressUpdates.at(-1)?.phase === 'complete', 5000);
 
     const snapshot = service.getSnapshot();
     const completedProgress = progressUpdates.at(-1);
     expect(snapshot?.activeScope.assets.some((asset) => String(asset.value).includes('github.com_Netflix_zuul'))).toBe(true);
     expect(completedProgress?.repositories[0]).toMatchObject({ stage: 'indexed' });
-    expect(progressUpdates.some((update) => update.repositories.some((repository) => repository.stage === 'indexing'))).toBe(true);
-    expect(snapshot?.projectSemantic.status).toBe('ready');
-    expect(snapshot?.projectSemantic.sourceDocumentCount).toBeGreaterThan(0);
-    expect(snapshot?.projectSemantic.indexedSourceDocumentCount).toBe(snapshot?.projectSemantic.sourceDocumentCount);
+    expect(progressUpdates.some((update) => update.repositories.some((repository) => repository.stage === 'indexing'))).toBe(false);
+    expect(snapshot?.projectSemantic).toMatchObject({ enabled: false, status: 'disabled' });
     service.close();
   });
 

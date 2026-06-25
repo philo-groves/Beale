@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Braces, Check, Clock, FileText, GitBranch, GitFork, List, Network, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Braces, Check, Clock, FileText, GitFork, List, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
-import type { ProgramMainView } from '../programs/programViews';
 import type { TraceCategoryId } from '../../traceClassification';
 import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../../view-models/sessionHeader';
 import { SESSION_MAIN_VIEW_ORDER, type SessionMainView } from './sessionViews';
@@ -12,23 +11,17 @@ export function SessionHeader({
   detail,
   events,
   honeycrispMemoryStatus,
-  programGraphStatus,
-  programSemanticStatus,
-  programView,
+  programOpen,
   visibleTraceCategories,
   sessionView,
-  onProgramViewChange,
   onSessionViewChange
 }: {
   detail: RunDetail | null;
   events: TraceEventRecord[];
   honeycrispMemoryStatus: string | null;
-  programGraphStatus: string | null;
-  programSemanticStatus: string | null;
-  programView: ProgramMainView | null;
+  programOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   sessionView: SessionMainView;
-  onProgramViewChange: (view: ProgramMainView) => void;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   return (
@@ -39,11 +32,8 @@ export function SessionHeader({
             <RunStatusIndicator detail={detail} />
             <SessionViewToggle sessionView={sessionView} onSessionViewChange={onSessionViewChange} />
           </>
-        ) : programView ? (
-          <>
-            <ProgramViewToggle programView={programView} onProgramViewChange={onProgramViewChange} />
-            <span className="program-header-view-title">{programViewTitle(programView)}</span>
-          </>
+        ) : programOpen ? (
+          <span className="program-header-view-title">Honeycrisp Memory</span>
         ) : null}
       </div>
       <div className="workbench-session-controls">
@@ -52,32 +42,18 @@ export function SessionHeader({
             <SessionConfigPills detail={detail} />
             <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
           </>
-        ) : programView ? (
-          <ProgramHeaderStatusPills graphStatus={programGraphStatus} memoryStatus={honeycrispMemoryStatus} semanticStatus={programSemanticStatus} />
+        ) : programOpen ? (
+          <ProgramHeaderStatusPills memoryStatus={honeycrispMemoryStatus} />
         ) : null}
       </div>
     </div>
   );
 }
 
-function programViewTitle(programView: ProgramMainView): string {
-  return programView === 'graph' ? 'Context Graph' : 'Honeycrisp Memory';
-}
-
-function ProgramHeaderStatusPills({
-  graphStatus,
-  memoryStatus,
-  semanticStatus
-}: {
-  graphStatus: string | null;
-  memoryStatus: string | null;
-  semanticStatus: string | null;
-}): JSX.Element {
+function ProgramHeaderStatusPills({ memoryStatus }: { memoryStatus: string | null }): JSX.Element {
   return (
     <div className="program-header-status-strip" aria-label="Program memory status">
       <ProgramHeaderStatusPill label="Memory" value={memoryStatus ?? 'missing'} />
-      <ProgramHeaderStatusPill label="Legacy Retrieval" value={semanticStatus ?? 'empty'} />
-      <ProgramHeaderStatusPill label="Legacy Graph" value={graphStatus ?? 'empty'} />
     </div>
   );
 }
@@ -87,37 +63,6 @@ function ProgramHeaderStatusPill({ label, value }: { label: string; value: strin
     <span className={`program-understanding-status status-${stateClass(value)}`} title={`${label}: ${traceLabel(value)}`}>
       {label}: {traceLabel(value)}
     </span>
-  );
-}
-
-function ProgramViewToggle({
-  programView,
-  onProgramViewChange
-}: {
-  programView: ProgramMainView;
-  onProgramViewChange: (view: ProgramMainView) => void;
-}): JSX.Element {
-  const options: Array<{ view: ProgramMainView; label: string; icon: JSX.Element }> = [
-    { view: 'understanding', label: 'Honeycrisp Memory', icon: <GitBranch size={15} /> },
-    { view: 'graph', label: 'Legacy context graph visualization', icon: <Network size={15} /> }
-  ];
-
-  return (
-    <div className="session-view-toggle" role="group" aria-label="Program view">
-      {options.map((option) => (
-        <button
-          type="button"
-          className={`session-view-button ${programView === option.view ? 'active' : ''}`}
-          title={option.label}
-          aria-label={option.label}
-          aria-pressed={programView === option.view}
-          key={option.view}
-          onClick={() => onProgramViewChange(option.view)}
-        >
-          {option.icon}
-        </button>
-      ))}
-    </div>
   );
 }
 

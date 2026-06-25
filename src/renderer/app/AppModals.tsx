@@ -84,8 +84,6 @@ export function AppModals({
   onProgramTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
-  onRefreshProjectSemanticIndex,
-  onSetProjectSemanticIndexEnabled,
   onSetDeveloperModeEnabled,
   onSetupSandbox,
   onSetVmPreference,
@@ -146,8 +144,6 @@ export function AppModals({
   onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
   onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
@@ -189,7 +185,6 @@ export function AppModals({
           section={settingsSection}
           developerSettings={developerSettings}
           executor={executor}
-          projectSemantic={snapshot?.projectSemantic ?? null}
           programName={activeProgramName}
           vmPreference={vmPreference}
           openAiOAuthResult={openAiOAuthResult}
@@ -198,9 +193,7 @@ export function AppModals({
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetVmPreference={onSetVmPreference}
-          onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
-          onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
           onSetupSandbox={onSetupSandbox}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}

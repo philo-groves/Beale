@@ -23,7 +23,6 @@ import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { ProgramSidebar } from './features/programs/ProgramSidebar';
-import type { ProgramMainView } from './features/programs/programViews';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
@@ -51,12 +50,9 @@ import {
 } from './view-models/appShell';
 import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
-import { semanticIndexAlertBody, semanticIndexRunningKey, shouldSuppressSemanticIndexInfoAlert } from './view-models/semanticIndexAlerts';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-
-const SEMANTIC_INDEX_ALERT_DELAY_MS = 10_000;
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -95,11 +91,7 @@ export function App(): JSX.Element {
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
-  const [programMainView, setProgramMainView] = useState<ProgramMainView>('understanding');
   const [busy, setBusy] = useState(false);
-  const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
-  const semanticIndexErrorAlertKeyRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
     openProgramMenuId,
@@ -157,10 +149,6 @@ export function App(): JSX.Element {
   useEffect(() => {
     void refreshExecutorStatus();
   }, [refreshExecutorStatus, snapshot?.executor]);
-
-  useEffect(() => {
-    if (!selectedRunId) setProgramMainView('understanding');
-  }, [selectedRunId, snapshot?.activeScope.id]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -292,21 +280,6 @@ export function App(): JSX.Element {
     },
     [loadSnapshot, refreshExecutorStatus]
   );
-
-  const setProjectSemanticIndexEnabled = useCallback(
-    async (enabled: boolean) => {
-      await runAction(() => window.beale.setProjectSemanticIndexEnabled(enabled));
-    },
-    [runAction]
-  );
-
-  const refreshProjectSemanticIndex = useCallback(async () => {
-    await runAction(() => window.beale.refreshProjectSemanticIndex());
-  }, [runAction]);
-
-  const refreshProjectGraph = useCallback(async () => {
-    await runAction(() => window.beale.refreshProjectGraph());
-  }, [runAction]);
 
   const openHoneycrispMemoryDirectory = useCallback(
     async (name: HoneycrispMemoryDirectorySummary['name']) => {
@@ -497,117 +470,6 @@ export function App(): JSX.Element {
     setPendingSearchTarget(null);
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
 
-  useEffect(() => {
-    const summary = snapshot?.projectSemantic ?? null;
-    const status = summary?.status ?? 'disabled';
-    const programName = snapshot?.activeScope.programName ?? 'the active program';
-    if (semanticIndexAlertTimerRef.current) {
-      clearTimeout(semanticIndexAlertTimerRef.current);
-      semanticIndexAlertTimerRef.current = null;
-    }
-
-    if (!summary || status === 'disabled' || status === 'ready' || status === 'empty' || status === 'stale' || status === 'canceled') {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-')));
-      return;
-    }
-
-    if (status === 'error') {
-      const errorKey = `${summary.scopeVersionId}:${summary.finishedAt ?? ''}:${summary.lastError ?? ''}`;
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      if (semanticIndexErrorAlertKeyRef.current !== errorKey) {
-        semanticIndexErrorAlertKeyRef.current = errorKey;
-        setWorkspaceAlerts((current) => [
-          ...current.filter((alert) => !alert.id.startsWith('semantic-index-error:')),
-          {
-            id: `semantic-index-error:${errorKey}`,
-            severity: 'error',
-            title: 'Project understanding failed',
-            bodyMarkdown: `Semantic indexing failed for ${programName}. ${summary.lastError || 'Open Settings > General for details.'}`
-          }
-        ]);
-      }
-      return;
-    }
-
-    if (
-      shouldSuppressSemanticIndexInfoAlert(summary) ||
-      (programOnboardingProgress && programOnboardingProgress.phase !== 'complete' && programOnboardingProgress.workspacePath === snapshot?.workspace.workspacePath)
-    ) {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      return;
-    }
-
-    if (status === 'queued' || status === 'indexing') {
-      const runningKey = semanticIndexRunningKey(summary);
-      if (semanticIndexRunningAlertKeyRef.current === runningKey) return;
-      semanticIndexAlertTimerRef.current = setTimeout(() => {
-        semanticIndexRunningAlertKeyRef.current = runningKey;
-        setWorkspaceAlerts((current) => {
-          const alertId = `semantic-index-running:${runningKey}`;
-          if (current.some((alert) => alert.id === alertId)) return current;
-          return [
-            ...current.filter((alert) => !alert.id.startsWith('semantic-index-running:')),
-            {
-              id: alertId,
-              severity: 'info',
-              title: 'Project understanding indexing',
-              bodyMarkdown: semanticIndexAlertBody(summary, programName)
-            }
-          ];
-        });
-      }, SEMANTIC_INDEX_ALERT_DELAY_MS);
-    }
-
-    return () => {
-      if (semanticIndexAlertTimerRef.current) {
-        clearTimeout(semanticIndexAlertTimerRef.current);
-        semanticIndexAlertTimerRef.current = null;
-      }
-    };
-  }, [
-    snapshot?.activeScope.programName,
-    snapshot?.projectSemantic?.finishedAt,
-    snapshot?.projectSemantic?.lastError,
-    snapshot?.projectSemantic?.jobReason,
-    snapshot?.projectSemantic?.queuedAt,
-    snapshot?.projectSemantic?.scopeVersionId,
-    snapshot?.projectSemantic?.startedAt,
-    snapshot?.projectSemantic?.status,
-    snapshot?.workspace.workspacePath,
-    programOnboardingProgress?.phase,
-    programOnboardingProgress?.workspacePath
-  ]);
-
-  useEffect(() => {
-    const summary = snapshot?.projectSemantic ?? null;
-    if (!summary || (summary.status !== 'queued' && summary.status !== 'indexing')) return;
-    if (shouldSuppressSemanticIndexInfoAlert(summary)) {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      return;
-    }
-    const alertId = `semantic-index-running:${semanticIndexRunningKey(summary)}`;
-    const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program');
-    setWorkspaceAlerts((current) => {
-      let changed = false;
-      const next = current.map((alert) => {
-        if (alert.id !== alertId || alert.bodyMarkdown === bodyMarkdown) return alert;
-        changed = true;
-        return { ...alert, bodyMarkdown };
-      });
-      return changed ? next : current;
-    });
-  }, [
-    snapshot?.activeScope.programName,
-    snapshot?.projectSemantic?.jobReason,
-    snapshot?.projectSemantic?.progressProcessed,
-    snapshot?.projectSemantic?.progressTotal,
-    snapshot?.projectSemantic?.queuedAt,
-    snapshot?.projectSemantic?.scopeVersionId,
-    snapshot?.projectSemantic?.startedAt,
-    snapshot?.projectSemantic?.status,
-    snapshot?.runs
-  ]);
-
   return (
     <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       <AppBackgroundPulses />
@@ -657,28 +519,22 @@ export function App(): JSX.Element {
           detail={activeRunDetail}
           events={activeTraceEvents}
           honeycrispMemoryStatus={!selectedRunId && snapshot ? snapshot.honeycrispMemory.status : null}
-          programGraphStatus={!selectedRunId && snapshot ? snapshot.projectGraph.status : null}
-          programSemanticStatus={!selectedRunId && snapshot ? snapshot.projectSemantic.status : null}
-          programView={!selectedRunId && snapshot ? programMainView : null}
+          programOpen={!selectedRunId && Boolean(snapshot)}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
-          onProgramViewChange={setProgramMainView}
           onSessionViewChange={setSessionMainView}
         />
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
             events={activeTraceEvents}
-            graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
             honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
-            programView={programMainView}
             researchPanelCollapsed={inspectorOpen}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
-            semantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
             sessionView={sessionMainView}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
@@ -687,7 +543,6 @@ export function App(): JSX.Element {
             onExpandResearchPanel={closeInspector}
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
-            onRefreshProjectGraph={refreshProjectGraph}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
@@ -775,8 +630,6 @@ export function App(): JSX.Element {
         onProgramTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
-        onRefreshProjectSemanticIndex={refreshProjectSemanticIndex}
-        onSetProjectSemanticIndexEnabled={setProjectSemanticIndexEnabled}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
         onSetupSandbox={setupSandbox}
         onSetVmPreference={updateVmPreference}

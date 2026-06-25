@@ -267,7 +267,7 @@ export function bealeToolDefinitions(): OpenAiToolDefinition[] {
       repository: stringProp('In-scope repository URL or label, such as https://github.com/org/repo or a scoped source label'),
       ref: stringProp('Optional branch, tag, or commit to checkout after clone; use an empty string for the default branch')
     }),
-    tool('search', 'Search scoped workspace metadata, source text, binary-derived strings, artifact summaries, and hybrid-ranked local semantic chunks when available. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
+    tool('search', 'Search scoped source text, binary-derived strings, artifact summaries, and retained workspace metadata. Supports plain terms, exact phrases, and simple regex/| alternatives. Does not perform target execution.', {
       query: stringProp('Search query. Use concise terms or simple regex alternatives, for example Route|pathPrefix|HttpRoutes.'),
       target: stringProp('Scoped target label, repository URL, materialized path, artifact id, or component hint; use an empty string when not needed')
     }),
@@ -687,27 +687,20 @@ export class BealeToolRouter {
     const artifactMatches = this.searchRunArtifacts(context, queryPlan, MAX_SEARCH_MATCHES);
     const effectiveScopeVersionId = this.db.getActiveScope().id;
     const metadataMatches = this.searchProjectMetadata(context, query, MAX_SEARCH_MATCHES, effectiveScopeVersionId);
-    const semanticMatches = this.searchProjectSemantic(context, query, MAX_SEARCH_MATCHES, effectiveScopeVersionId);
+    const semanticMatches: Array<Record<string, unknown>> = [];
     const directPhaseASeeds = this.selectPhaseASeedMatches({ fileMatches, artifactMatches, metadataMatches, semanticMatches, graphMatches: [] }, 24, queryPlan);
-    const phaseAGraphMatches = this.searchProjectGraph(effectiveScopeVersionId, directPhaseASeeds, MAX_SEARCH_MATCHES);
-    const phaseAGraphVariantMatches = this.searchProjectGraphVariants(effectiveScopeVersionId, [...directPhaseASeeds, ...phaseAGraphMatches], MAX_SEARCH_MATCHES);
     const phaseASeeds = this.selectPhaseASeedMatches(
       {
         fileMatches,
         artifactMatches,
         metadataMatches,
         semanticMatches,
-        graphMatches: [...phaseAGraphMatches, ...phaseAGraphVariantMatches]
+        graphMatches: []
       },
       16,
       queryPlan
     );
-    const sourceStructureSeeds = this.searchSourceStructureSeeds(effectiveScopeVersionId, phaseASeeds, 8);
-    const sourceInventorySeeds = this.searchSourceInventorySeeds(effectiveScopeVersionId, phaseASeeds, 8);
-    const phaseBSeeds = [...phaseASeeds, ...sourceStructureSeeds, ...sourceInventorySeeds];
-    const phaseBGraphMatches = this.searchProjectGraph(effectiveScopeVersionId, phaseBSeeds, MAX_SEARCH_MATCHES);
-    const phaseBGraphVariantMatches = this.searchProjectGraphVariants(effectiveScopeVersionId, [...phaseBSeeds, ...phaseBGraphMatches], MAX_SEARCH_MATCHES);
-    const initialGraphMatches = [...phaseAGraphMatches, ...phaseAGraphVariantMatches, ...phaseBGraphMatches, ...phaseBGraphVariantMatches];
+    const initialGraphMatches: Array<Record<string, unknown>> = [];
     const adaptiveFollowUp = this.adaptiveFollowUpSearch(context, effectiveScopeVersionId, queryPlan, {
       fileMatches,
       artifactMatches,
@@ -732,8 +725,8 @@ export class BealeToolRouter {
     const matches = searchAssembly.matches;
     const inventorySummary = this.db.getProjectInventorySummary(effectiveScopeVersionId);
     const structureSummary = this.db.getProjectStructureSummary(effectiveScopeVersionId);
-    const graphSummary = this.db.getProjectGraphSummary(effectiveScopeVersionId);
-    const semanticSummary = this.db.getProjectSemanticSummary(effectiveScopeVersionId);
+    const graphSummary = inactiveProjectGraphSummary(effectiveScopeVersionId);
+    const semanticSummary = inactiveProjectSemanticSummary(effectiveScopeVersionId);
     const indexingDeferredState = this.db.getProjectIndexingDeferredState(effectiveScopeVersionId);
     const sourceHint =
       files.length === 0 && collection.unmaterializedSource
@@ -2967,25 +2960,9 @@ export class BealeToolRouter {
     if (reasons.length === 0) return { metadataMatches: [], semanticMatches: [], graphMatches: [], diagnostics: null };
     const followUpQuery = this.adaptiveFollowUpQuery(queryPlan);
     if (!followUpQuery || followUpQuery.toLowerCase() === queryPlan.rawLower) return { metadataMatches: [], semanticMatches: [], graphMatches: [], diagnostics: null };
-    const followUpPlan = buildSearchQueryPlan(followUpQuery);
     const metadataMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectMetadata(context, followUpQuery, 12, scopeVersionId), followUpQuery, reasons);
-    const semanticMatches = this.tagAdaptiveFollowUpMatches(this.searchProjectSemantic(context, followUpQuery, 8, scopeVersionId), followUpQuery, reasons);
-    const seeds = this.selectPhaseASeedMatches(
-      {
-        fileMatches: [],
-        artifactMatches: [],
-        metadataMatches,
-        semanticMatches,
-        graphMatches: []
-      },
-      8,
-      followUpPlan
-    );
-    const graphMatches = this.tagAdaptiveFollowUpMatches(
-      [...this.searchProjectGraph(scopeVersionId, seeds, 12), ...this.searchProjectGraphVariants(scopeVersionId, seeds, 12)],
-      followUpQuery,
-      reasons
-    );
+    const semanticMatches: Array<Record<string, unknown>> = [];
+    const graphMatches: Array<Record<string, unknown>> = [];
     return {
       metadataMatches,
       semanticMatches,
@@ -3293,46 +3270,6 @@ export class BealeToolRouter {
     semanticSummary: ReturnType<WorkspaceDatabase['getProjectSemanticSummary']>;
   }): Array<Record<string, unknown>> {
     const reasons: Array<Record<string, unknown>> = [];
-    const candidateCounts = input.diagnostics.candidateCountsByLayer;
-    const selectedCounts = input.diagnostics.selectedCountsByLayer;
-    if (input.semanticSummary.status !== 'ready') {
-      reasons.push({
-        code: `semantic_index_${input.semanticSummary.status}`,
-        message: `Semantic index is ${input.semanticSummary.status}; semantic retrieval may be incomplete.`,
-        status: input.semanticSummary.status,
-        enabled: input.semanticSummary.enabled,
-        chunkCount: input.semanticSummary.chunkCount,
-        sourceDocumentCount: input.semanticSummary.sourceDocumentCount,
-        indexedSourceDocumentCount: input.semanticSummary.indexedSourceDocumentCount,
-        jobReason: input.semanticSummary.jobReason,
-        lastError: input.semanticSummary.lastError
-      });
-    }
-    if (numberValue(candidateCounts.semantic, 0) > 0 && numberValue(selectedCounts.semantic, 0) === 0) {
-      reasons.push({
-        code: 'semantic_candidates_not_selected',
-        message: 'Semantic candidates were available but ranking, merge, or diversification did not select a standalone semantic result.',
-        candidateCount: candidateCounts.semantic
-      });
-    }
-    if (input.graphSummary.status !== 'ready') {
-      reasons.push({
-        code: `graph_index_${input.graphSummary.status}`,
-        message: `Graph index is ${input.graphSummary.status}; graph retrieval may be incomplete.`,
-        status: input.graphSummary.status,
-        nodeCount: input.graphSummary.nodeCount,
-        edgeCount: input.graphSummary.edgeCount,
-        staleReasons: input.graphSummary.staleReasons,
-        rebuildReason: input.graphSummary.rebuildReason
-      });
-    } else if (input.graphSummary.nodeCount > 0 && input.diagnostics.graphExpansionCount === 0) {
-      reasons.push({
-        code: 'graph_ready_no_expansion',
-        message: 'Graph is ready but no graph expansion candidates were produced; top candidates may lack entity ids or matching graph nodes.',
-        nodeCount: input.graphSummary.nodeCount,
-        edgeCount: input.graphSummary.edgeCount
-      });
-    }
     if (input.queryPlan.intents.includes('route_api_lookup')) {
       if (input.structureSummary.routeCount === 0) {
         reasons.push({
@@ -3342,53 +3279,12 @@ export class BealeToolRouter {
           entityCount: input.structureSummary.entityCount
         });
       }
-      if ((input.graphSummary.edgeFamilyCounts.routes_to ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.handles_with ?? 0) === 0) {
-        reasons.push({
-          code: 'route_intent_no_route_graph_edges',
-          message: 'Query was classified as route/API lookup, but graph has no route/controller edges.',
-          routesToEdges: input.graphSummary.edgeFamilyCounts.routes_to ?? 0,
-          handlesWithEdges: input.graphSummary.edgeFamilyCounts.handles_with ?? 0
-        });
-      }
     }
-    if (input.queryPlan.intents.includes('auth_permission_question') && (input.graphSummary.edgeFamilyCounts.checks_permission ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.references_permission ?? 0) === 0) {
-      reasons.push({
-        code: 'auth_intent_no_permission_edges',
-        message: 'Query was classified as auth/permission, but graph has no permission-check edges.',
-        checksPermissionEdges: input.graphSummary.edgeFamilyCounts.checks_permission ?? 0,
-        referencesPermissionEdges: input.graphSummary.edgeFamilyCounts.references_permission ?? 0
-      });
-    }
-    if (input.queryPlan.intents.includes('sink_data_flow_question') && (input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.reads_model ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.writes_model ?? 0) === 0) {
-      reasons.push({
-        code: 'sink_intent_no_data_flow_edges',
-        message: 'Query was classified as sink/data-flow, but graph has no sink or model read/write edges.',
-        reachesSinkEdges: input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0,
-        readsModelEdges: input.graphSummary.edgeFamilyCounts.reads_model ?? 0,
-        writesModelEdges: input.graphSummary.edgeFamilyCounts.writes_model ?? 0
-      });
-    }
-    if (input.queryPlan.intents.includes('binary_orientation') && input.inventorySummary.binaryCount === 0 && (input.graphSummary.edgeFamilyCounts.imports_symbol ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.exports_symbol ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.contains_string ?? 0) === 0) {
+    if (input.queryPlan.intents.includes('binary_orientation') && input.inventorySummary.binaryCount === 0) {
       reasons.push({
         code: 'binary_intent_no_binary_index',
-        message: 'Query was classified as binary orientation, but no scoped binaries or binary graph edges are indexed.',
+        message: 'Query was classified as binary orientation, but no scoped binaries are indexed in retained metadata.',
         binaryCount: input.inventorySummary.binaryCount
-      });
-    }
-    if (input.queryPlan.intents.includes('prior_research_memory') && (input.graphSummary.nodeFamilyCounts.hypothesis ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.finding ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.evidence ?? 0) === 0) {
-      reasons.push({
-        code: 'research_memory_intent_no_memory_nodes',
-        message: 'Query was classified as prior research memory, but graph has no hypothesis, finding, or evidence nodes.',
-        hypothesisNodes: input.graphSummary.nodeFamilyCounts.hypothesis ?? 0,
-        findingNodes: input.graphSummary.nodeFamilyCounts.finding ?? 0,
-        evidenceNodes: input.graphSummary.nodeFamilyCounts.evidence ?? 0
-      });
-    }
-    if (input.queryPlan.intents.includes('variant_similarity_search') && numberValue(candidateCounts.graph_variant, 0) === 0) {
-      reasons.push({
-        code: 'variant_intent_no_variant_candidates',
-        message: 'Query was classified as variant/similarity search, but no graph-variant candidates were produced.',
-        graphExpansionCount: input.diagnostics.graphExpansionCount
       });
     }
     return reasons;
@@ -3434,91 +3330,29 @@ export class BealeToolRouter {
       add(
         'indexing',
         'post_source_indexing_deferred',
-        'Source was materialized recently and one or more indexes are still deferred or queued.',
-        'Direct source scanning is usable now. For metadata, structure, semantic, or graph misses, wait for background indexing or trigger indexing from Settings, then rerun search.',
+        'Source was materialized recently and Beale project indexes are disabled.',
+        'Direct source scanning is usable now. Use Honeycrisp skills or MCP for deeper code intelligence.',
         { indexingState: input.indexingDeferredState }
       );
     }
     if (input.inventorySummary.itemCount === 0 && !input.inventorySummary.indexedAt) {
-      add('inventory', 'run_indexing', 'Project inventory is empty.', 'Run project indexing or materialize source before relying on metadata, structure, semantic, or graph retrieval.');
+      add('inventory', 'metadata_inventory_empty', 'Retained project inventory is empty.', 'Search source files directly or use a Honeycrisp skill/MCP for code intelligence.');
     }
     if (input.structureSummary.status !== 'ready' || input.structureSummary.entityCount === 0) {
-      add('structure', 'run_structural_indexing', `Structural index is ${input.structureSummary.status}.`, 'Run indexing so route, symbol, call-site, sink, and permission entities are available.', {
+      add('structure', 'retained_structure_empty', `Retained structural metadata is ${input.structureSummary.status}.`, 'Use direct source search or a code-intelligence skill/MCP for structural queries.', {
         status: input.structureSummary.status,
         entityCount: input.structureSummary.entityCount,
         indexedFileCount: input.structureSummary.indexedFileCount
       });
     }
 
-    if (input.semanticSummary.status === 'disabled') {
-      add('semantic', 'enable_semantic_index', 'Semantic index is disabled.', 'Enable semantic indexing for the program if semantic or concept search is needed.');
-    } else if (input.semanticSummary.status === 'empty') {
-      add('semantic', 'run_semantic_indexing', 'Semantic index is empty.', 'Run semantic indexing from Settings or wait for the background indexer to populate chunks.', {
-        sourceDocumentCount: input.semanticSummary.sourceDocumentCount
-      });
-    } else if (input.semanticSummary.status === 'stale') {
-      add('semantic', 'rebuild_semantic_index', 'Semantic index is stale.', 'Rebuild semantic indexing so new or changed project documents are searchable.', {
-        indexedSourceDocumentCount: input.semanticSummary.indexedSourceDocumentCount,
-        sourceDocumentCount: input.semanticSummary.sourceDocumentCount
-      });
-    } else if (input.semanticSummary.status === 'queued' || input.semanticSummary.status === 'indexing') {
-      add('semantic', 'wait_for_semantic_indexing', `Semantic index is ${input.semanticSummary.status}.`, 'Wait for the background semantic indexer to finish, then rerun search.', {
-        progressProcessed: input.semanticSummary.progressProcessed,
-        progressTotal: input.semanticSummary.progressTotal
-      });
-    } else if (input.semanticSummary.status === 'error') {
-      add('semantic', 'inspect_semantic_index_error', 'Semantic indexing failed.', 'Inspect semantic index status and retry rebuild after resolving the error.', {
-        lastError: input.semanticSummary.lastError
-      });
-    }
-
-    if (input.graphSummary.status === 'empty') {
-      add('graph', 'run_graph_indexing', 'Graph index is empty.', 'Run indexing so graph proximity and variant retrieval can use inventory, structure, and research-memory relationships.');
-    } else if (input.graphSummary.status === 'stale') {
-      add('graph', 'rebuild_graph_index', 'Graph index is stale.', 'Rebuild graph indexing before relying on graph retrieval.', {
-        staleReasons: input.graphSummary.staleReasons,
-        rebuildReason: input.graphSummary.rebuildReason
-      });
-    } else if (input.graphSummary.status !== 'ready') {
-      add('graph', 'inspect_graph_index', `Graph index is ${input.graphSummary.status}.`, 'Inspect graph status before relying on graph retrieval.');
-    } else if (input.graphSummary.nodeCount > 0 && input.diagnostics.graphExpansionCount === 0) {
-      add('graph', 'no_graph_seed_entities', 'Graph is ready but search produced no graph expansion.', 'Search for a precise symbol, route, file, or research-memory term that maps to indexed graph entities.', {
-        nodeCount: input.graphSummary.nodeCount,
-        edgeCount: input.graphSummary.edgeCount
-      });
-    }
-
     if (input.queryPlan.intents.includes('route_api_lookup')) {
       if (input.structureSummary.routeCount === 0) {
-        add('structure', 'no_route_entities', 'No route entities are indexed.', 'Run structural indexing or verify the target uses a supported route framework.');
+        add('structure', 'no_route_entities', 'No retained route metadata is available.', 'Search source files directly or use a route-aware Honeycrisp skill/MCP.');
       }
-      if ((input.graphSummary.edgeFamilyCounts.routes_to ?? 0) === 0) {
-        add('graph', 'graph_has_no_routes_to_edges', 'Graph has no routes_to edges.', 'Run graph indexing after structural route extraction, or verify route/controller extraction supports this framework.', {
-          handlesWithEdges: input.graphSummary.edgeFamilyCounts.handles_with ?? 0
-        });
-      }
-    }
-    if (input.queryPlan.intents.includes('auth_permission_question') && (input.graphSummary.edgeFamilyCounts.checks_permission ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.references_permission ?? 0) === 0) {
-      add('graph', 'graph_has_no_permission_edges', 'Graph has no permission-check edges.', 'Run structural and graph indexing, or inspect whether permission checks use unsupported framework patterns.');
-    }
-    if (input.queryPlan.intents.includes('sink_data_flow_question') && (input.graphSummary.edgeFamilyCounts.reaches_sink ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.reads_model ?? 0) === 0 && (input.graphSummary.edgeFamilyCounts.writes_model ?? 0) === 0) {
-      add('graph', 'graph_has_no_sink_or_model_edges', 'Graph has no sink or model read/write edges.', 'Run structural and graph indexing, or inspect whether sink/model patterns are unsupported.');
     }
     if (input.queryPlan.intents.includes('binary_orientation') && input.inventorySummary.binaryCount === 0) {
       add('inventory', 'no_binaries_indexed', 'No scoped binaries are indexed.', 'Import or scope binary artifacts before relying on binary orientation search.');
-    }
-    if (input.queryPlan.intents.includes('prior_research_memory') && (input.graphSummary.nodeFamilyCounts.hypothesis ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.finding ?? 0) === 0 && (input.graphSummary.nodeFamilyCounts.evidence ?? 0) === 0) {
-      add('research_memory', 'no_research_memory_nodes', 'No research-memory graph nodes are indexed.', 'Create or import hypotheses, findings, or evidence before relying on prior research traversal.');
-    }
-    if (input.queryPlan.intents.includes('variant_similarity_search') && numberValue(input.diagnostics.candidateCountsByLayer.graph_variant, 0) === 0) {
-      add('graph', 'no_variant_candidates', 'No graph-backed variant candidates were produced.', 'Seed the search with an indexed route, handler, sink, permission, binary symbol, hypothesis, or finding.');
-    }
-
-    for (const reason of input.missingReasons) {
-      const code = stringValue(reason.code, '');
-      if (code === 'semantic_candidates_not_selected') {
-        add('ranking', 'semantic_candidates_not_selected', 'Semantic candidates were available but not selected.', 'Broaden the query or inspect retrievalSignals to see whether exact, graph, or negative-confidence signals dominated.');
-      }
     }
     return hints.slice(0, 12);
   }
@@ -6351,6 +6185,51 @@ function trimSnippet(value: string): string {
 
 function guestToolNetworkProfile(context: CreatedRunContext): 'offline' | 'scoped' | 'elevated' {
   return normalizeNetworkProfile(context.run.networkProfile);
+}
+
+function inactiveProjectGraphSummary(scopeVersionId: string): ReturnType<WorkspaceDatabase['getProjectGraphSummary']> {
+  return {
+    scopeVersionId,
+    status: 'disabled',
+    nodeCount: 0,
+    edgeCount: 0,
+    structuralEdgeCount: 0,
+    unresolvedEdgeCount: 0,
+    expectedNodeCount: 0,
+    staleReasons: [],
+    rebuildReason: null,
+    buildCount: 0,
+    nodeFamilyCounts: {},
+    edgeFamilyCounts: {},
+    extractionFamilyCounts: {},
+    indexedAt: null
+  };
+}
+
+function inactiveProjectSemanticSummary(scopeVersionId: string): ReturnType<WorkspaceDatabase['getProjectSemanticSummary']> {
+  return {
+    scopeVersionId,
+    enabled: false,
+    status: 'disabled',
+    provider: 'none',
+    model: 'none',
+    remoteEmbeddingEnabled: false,
+    chunkCount: 0,
+    embeddedChunkCount: 0,
+    sourceDocumentCount: 0,
+    indexedSourceDocumentCount: 0,
+    indexSizeBytes: 0,
+    lastRefreshDurationMs: null,
+    namespaceCounts: {},
+    indexedAt: null,
+    queuedAt: null,
+    startedAt: null,
+    finishedAt: null,
+    jobReason: null,
+    lastError: null,
+    progressProcessed: null,
+    progressTotal: null
+  };
 }
 
 function parseDebuggerSummary(stdout: string, stderr: string, exitCode: number | null): DebuggerSummary {
