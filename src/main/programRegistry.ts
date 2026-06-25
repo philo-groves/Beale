@@ -26,11 +26,15 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 
+function defaultProgramRegistryDirectory(): string {
+  return process.env.BEALE_PROGRAM_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
+}
+
 export class ProgramRegistry {
   private readonly db: DatabaseSync;
   public readonly registryPath: string;
 
-  public constructor(registryDirectory = join(homedir(), '.beale')) {
+  public constructor(registryDirectory = defaultProgramRegistryDirectory()) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'registry.sqlite');
     this.db = new DatabaseSync(this.registryPath);

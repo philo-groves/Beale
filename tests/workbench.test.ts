@@ -3,12 +3,16 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ProgramOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
+
+beforeEach(() => {
+  process.env.BEALE_PROGRAM_REGISTRY_DIR = tempWorkspace();
+});
 
 afterEach(() => {
   delete process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT;
@@ -29,6 +33,7 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
+  delete process.env.BEALE_PROGRAM_REGISTRY_DIR;
   delete process.env.BEALE_TOOLING_ARGS_PATH;
   delete process.env.POC_SAVE_DIR;
   delete process.env.XDG_CACHE_HOME;
@@ -612,6 +617,23 @@ describe('Beale workbench skeleton', () => {
     expect(calls[0]).toEqual(['tools', 'config', 'add', 'skill-dir', '/skills/new', '--workspace-root', workspace, '--json']);
     expect(calls[1]).toEqual(['tools', 'list', '--workspace-root', workspace, '--json']);
     expect(summary.config.preference.skillDirs).toEqual(['/skills/new']);
+    service.close();
+  });
+
+  it('isolates default program registry writes when the registry directory override is set', () => {
+    const workspace = tempWorkspace();
+    const registryDir = process.env.BEALE_PROGRAM_REGISTRY_DIR ?? '';
+    expect(registryDir).toBeTruthy();
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    service.getProgramRegistryState();
+
+    expect(existsSync(join(registryDir, 'registry.sqlite'))).toBe(true);
+    const registry = new DatabaseSync(join(registryDir, 'registry.sqlite'));
+    const rows = registry.prepare('SELECT program_name, workspace_path FROM programs').all() as Array<{ program_name: string; workspace_path: string }>;
+    registry.close();
+    expect(rows).toEqual([{ program_name: 'Untitled Program', workspace_path: workspace }]);
     service.close();
   });
 

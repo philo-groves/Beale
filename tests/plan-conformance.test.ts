@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
@@ -21,7 +21,12 @@ const OPENAI_ENV_NAMES = [
   'OPENAI_BASE_URL'
 ];
 
+beforeEach(() => {
+  process.env.BEALE_PROGRAM_REGISTRY_DIR = tempDir('beale-test-registry-');
+});
+
 afterEach(() => {
+  delete process.env.BEALE_PROGRAM_REGISTRY_DIR;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
