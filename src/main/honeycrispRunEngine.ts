@@ -73,6 +73,7 @@ interface HoneycrispFlowCapture {
     outputText?: string;
     followUpRecommendation?: string;
     followUpRationale?: string;
+    nextPromptSuggestions?: HoneycrispNextPromptSuggestion[];
     researchTrace?: {
       observations?: HoneycrispTraceItem[];
       inferences?: HoneycrispTraceItem[];
@@ -112,6 +113,12 @@ interface HoneycrispFlowCapture {
   tokenUsage?: unknown;
   eventTimeline?: HoneycrispCaptureEvent[];
   runtimeConfig?: Record<string, unknown>;
+}
+
+interface HoneycrispNextPromptSuggestion {
+  title?: string;
+  promptMarkdown?: string;
+  rationale?: string;
 }
 
 interface HoneycrispTraceItem {
@@ -680,6 +687,7 @@ export class HoneycrispRunEngine {
     }
 
     const assistantText = renderHoneycrispAssistantMessage(capture);
+    const nextPromptSuggestions = honeycrispNextPromptSuggestions(capture);
     if (assistantText) {
       const transcriptTrace = this.db.appendTraceEvent({
         runId: context.run.id,
@@ -691,6 +699,7 @@ export class HoneycrispRunEngine {
           outputText: assistantText,
           followUpRecommendation: capture.loop?.followUpRecommendation ?? null,
           followUpRationale: capture.loop?.followUpRationale ?? null,
+          nextPromptSuggestions,
           captureArtifactId: captureArtifact.id
         },
         vmContextId: context.vmContext.id
@@ -706,7 +715,8 @@ export class HoneycrispRunEngine {
           captureArtifactId: captureArtifact.id,
           captureTraceEventId: artifactTrace.id,
           executorName: capture.loop?.executorName ?? null,
-          executionMode: capture.loop?.executionMode ?? null
+          executionMode: capture.loop?.executionMode ?? null,
+          nextPromptSuggestions
         }
       });
       this.db.createNotification({
@@ -1484,29 +1494,25 @@ function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
 }
 
 function renderHoneycrispAssistantMessage(capture: HoneycrispFlowCapture): string {
-  const checkpoint = honeycrispAssistantCheckpoint(capture);
-  const parts = [
-    capture.loop?.outputText?.trim() ?? '',
-    capture.loop?.researchTrace?.goalAssessment?.rationale
-      ? `\n\nGoal assessment: ${capture.loop.researchTrace.goalAssessment.rationale}`
-      : '',
-    checkpoint ? `\n\n${checkpoint}` : ''
-  ].filter(Boolean);
-  return parts.join('');
+  return capture.loop?.outputText?.trim() ?? '';
 }
 
-function honeycrispAssistantCheckpoint(capture: HoneycrispFlowCapture): string {
-  if (capture.goalRun?.status !== 'active') return '';
-  const subGoal = capture.decision?.subGoalObjective?.trim();
-  if (capture.goalRun.terminalReason === 'loop_limit') {
-    return subGoal
-      ? `Checkpoint: Beale session completed the selected Honeycrisp subgoal while the root goal remains active.\n\nSubgoal: ${subGoal}`
-      : 'Checkpoint: Beale session completed a Honeycrisp subgoal while the root goal remains active.';
-  }
-  if (capture.goalRun.terminalReason === 'ready_to_respond') {
-    return 'Checkpoint: Honeycrisp is ready to respond while the root goal remains active.';
-  }
-  return '';
+function honeycrispNextPromptSuggestions(capture: HoneycrispFlowCapture): HoneycrispNextPromptSuggestion[] {
+  const suggestions = capture.loop?.nextPromptSuggestions;
+  if (!Array.isArray(suggestions)) return [];
+  return suggestions
+    .map((suggestion) => ({
+      title: typeof suggestion.title === 'string' ? suggestion.title.trim() : '',
+      promptMarkdown: typeof suggestion.promptMarkdown === 'string' ? suggestion.promptMarkdown.trim() : '',
+      rationale: typeof suggestion.rationale === 'string' ? suggestion.rationale.trim() : ''
+    }))
+    .filter((suggestion) => suggestion.title && suggestion.promptMarkdown)
+    .slice(0, 3)
+    .map((suggestion) => ({
+      title: suggestion.title,
+      promptMarkdown: suggestion.promptMarkdown,
+      ...(suggestion.rationale ? { rationale: suggestion.rationale } : {})
+    }));
 }
 
 function honeycrispGoalTraceSummary(capture: HoneycrispFlowCapture): string {

@@ -296,6 +296,11 @@ describe('Beale workbench skeleton', () => {
         "    outputText: 'Fixture Honeycrisp answer.',",
         "    followUpRecommendation: 'respond',",
         "    followUpRationale: 'Fixture complete.',",
+        '    nextPromptSuggestions: [',
+        "      { title: 'Verify fixture', promptMarkdown: 'Skeptically verify the fixture result with fresh evidence.', rationale: 'Test structured prompt suggestions.' },",
+        "      { title: 'Inspect adjacent fixture', promptMarkdown: 'Inspect adjacent fixture files without repeating exhausted targets.' },",
+        "      { title: 'Summarize fixture', promptMarkdown: 'Summarize the fixture evidence and decide whether to continue.' }",
+        '    ],',
         '    researchTrace: {',
         "      observations: [{ text: 'Fixture observation.', confidence: 1 }],",
         "      inferences: [{ text: 'Fixture inference.', confidence: 0.8 }],",
@@ -398,7 +403,26 @@ describe('Beale workbench skeleton', () => {
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
-    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(false);
+    const honeycrispTranscript = detail.transcriptMessages.find((message) => message.source === 'honeycrisp');
+    expect(honeycrispTranscript?.metadata.nextPromptSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Verify fixture',
+          promptMarkdown: 'Skeptically verify the fixture result with fresh evidence.'
+        })
+      ])
+    );
+    expect(
+      detail.traceEvents.find((event) => event.summary === 'Honeycrisp produced a final run response.')?.payload.nextPromptSuggestions
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Verify fixture',
+          promptMarkdown: 'Skeptically verify the fixture result with fresh evidence.'
+        })
+      ])
+    );
     expect(detail.run.summary).toContain('checkpoint completed');
     service.close();
   });

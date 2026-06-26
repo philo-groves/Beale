@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { Bug, ClipboardCheck, FileOutput, Search, X } from 'lucide-react';
+import { Bug, ChevronDown, ClipboardCheck, FileOutput, Play, Search, X } from 'lucide-react';
 import type { EvidenceRecord, FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import {
@@ -76,6 +76,13 @@ interface SpawnAgentOutput {
   event: TraceDisplayEvent;
   markdown: string;
   createdAt: string;
+  nextPromptSuggestions: SpawnNextPromptSuggestion[];
+}
+
+interface SpawnNextPromptSuggestion {
+  title: string;
+  promptMarkdown: string;
+  rationale?: string;
 }
 
 interface SpawnWorkspaceSize {
@@ -135,14 +142,18 @@ const SPAWN_FINDING_MEDIUM_STATE_CLASSES = new Set(['needs_evidence', 'needs-evi
 const SPAWN_DISMISSED_STATE_CLASSES = new Set(['false_positive', 'false-positive', 'out_of_scope', 'out-of-scope', 'dismissed', 'duplicate']);
 
 export const SpawnSessionView = memo(function SpawnSessionView({
+  busy,
   detail,
   events,
   selectedTraceEventId,
+  onStartNextPrompt,
   onSelectTraceEvent
 }: {
+  busy: boolean;
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   selectedTraceEventId: string | null;
+  onStartNextPrompt: (promptMarkdown: string) => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
 }): JSX.Element {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
@@ -343,7 +354,14 @@ export const SpawnSessionView = memo(function SpawnSessionView({
         )}
         {searchOpen && hiddenCount > 0 && !normalizedSearch ? <span>{hiddenCount} hidden</span> : null}
       </div>
-      {visibleAgentOutput ? <SpawnAgentOutputSheet output={visibleAgentOutput} onClose={() => setVisibleAgentOutput(null)} /> : null}
+      {visibleAgentOutput ? (
+        <SpawnAgentOutputSheet
+          busy={busy}
+          output={visibleAgentOutput}
+          onClose={() => setVisibleAgentOutput(null)}
+          onStartNextPrompt={onStartNextPrompt}
+        />
+      ) : null}
       {expandedTrail ? (
         <SpawnTrailDetailModal
           artifactById={artifactById}
@@ -791,7 +809,18 @@ function SpawnSearchChain({
   );
 }
 
-function SpawnAgentOutputSheet({ output, onClose }: { output: SpawnAgentOutput; onClose: () => void }): JSX.Element {
+function SpawnAgentOutputSheet({
+  busy,
+  output,
+  onClose,
+  onStartNextPrompt
+}: {
+  busy: boolean;
+  output: SpawnAgentOutput;
+  onClose: () => void;
+  onStartNextPrompt: (promptMarkdown: string) => void;
+}): JSX.Element {
+  const [expandedPromptIndex, setExpandedPromptIndex] = useState<number | null>(null);
   const createdAt = new Date(output.createdAt);
   const time = Number.isNaN(createdAt.getTime()) ? '' : formatSessionTime(createdAt);
   return (
@@ -807,6 +836,46 @@ function SpawnAgentOutputSheet({ output, onClose }: { output: SpawnAgentOutput; 
       </div>
       <div className="spawn-agent-output-body">
         <div className="spawn-output-markdown">{renderSpawnMarkdown(output.markdown)}</div>
+        {output.nextPromptSuggestions.length > 0 ? (
+          <div className="spawn-next-prompts" aria-label="Next prompt suggestions">
+            <div className="spawn-next-prompts-heading">
+              <span>Next Prompt Suggestions</span>
+            </div>
+            <div className="spawn-next-prompt-list">
+              {output.nextPromptSuggestions.map((suggestion, index) => {
+                const expanded = expandedPromptIndex === index;
+                return (
+                  <div className="spawn-next-prompt-card" key={`${suggestion.title}:${index}`}>
+                    <button
+                      type="button"
+                      className="spawn-next-prompt-main"
+                      disabled={busy}
+                      onClick={() => onStartNextPrompt(suggestion.promptMarkdown)}
+                    >
+                      <span className="spawn-next-prompt-icon" aria-hidden="true">
+                        <Play size={13} />
+                      </span>
+                      <span className="spawn-next-prompt-copy">
+                        <strong>{suggestion.title}</strong>
+                        {suggestion.rationale ? <em>{suggestion.rationale}</em> : null}
+                        <span className={`spawn-next-prompt-preview ${expanded ? 'expanded' : ''}`}>{suggestion.promptMarkdown}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="spawn-next-prompt-expand"
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${suggestion.title}`}
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedPromptIndex((current) => (current === index ? null : index))}
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -1101,7 +1170,8 @@ function latestCompletedAgentOutput(events: TraceDisplayEvent[], detail: RunDeta
       id: event.id,
       event,
       markdown,
-      createdAt: event.createdAt
+      createdAt: event.createdAt,
+      nextPromptSuggestions: nextPromptSuggestionsForEvent(event)
     };
   }
   return null;
@@ -1115,6 +1185,31 @@ function agentOutputMarkdownForEvent(event: TraceDisplayEvent): string {
   if (transcriptSource === 'openai_reasoning_summary' || transcriptKind === 'reasoning_summary') return '';
   const text = typeof event.payload.text === 'string' ? event.payload.text.trim() : '';
   return text;
+}
+
+function nextPromptSuggestionsForEvent(event: TraceDisplayEvent): SpawnNextPromptSuggestion[] {
+  const metadata = isRecord(event.payload.metadata) ? event.payload.metadata : {};
+  const raw = event.payload.nextPromptSuggestions ?? metadata.nextPromptSuggestions;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((suggestion) => {
+      if (!isRecord(suggestion)) return null;
+      const title = typeof suggestion.title === 'string' ? suggestion.title.trim() : '';
+      const promptMarkdown = typeof suggestion.promptMarkdown === 'string' ? suggestion.promptMarkdown.trim() : '';
+      const rationale = typeof suggestion.rationale === 'string' ? suggestion.rationale.trim() : '';
+      if (!title || !promptMarkdown) return null;
+      return {
+        title,
+        promptMarkdown,
+        ...(rationale ? { rationale } : {})
+      };
+    })
+    .filter((suggestion): suggestion is SpawnNextPromptSuggestion => Boolean(suggestion))
+    .slice(0, 3);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function pythonCodeEventForResult(events: TraceDisplayEvent[], resultEvent: TraceDisplayEvent): TraceDisplayEvent | null {

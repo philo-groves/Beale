@@ -45,6 +45,7 @@ import {
 } from './view-models/appShell';
 import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
+import { defaultRunInput } from './view-models/runSettings';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
@@ -379,6 +380,24 @@ export function App(): JSX.Element {
     },
     [clearRunDetail, setSelectedRunId]
   );
+  const startNextPrompt = useCallback(
+    (promptMarkdown: string): void => {
+      const trimmedPrompt = promptMarkdown.trim();
+      if (!trimmedPrompt) return;
+      void runAction(async () => {
+        const next = await window.beale.startRun({
+          ...defaultRunInput,
+          promptMarkdown: trimmedPrompt,
+          networkProfile: 'elevated',
+          sandboxProfile: 'host'
+        });
+        const latestRunId = next.runs[0]?.run.id;
+        if (latestRunId) handleResearchStarted(latestRunId);
+        return next;
+      });
+    },
+    [handleResearchStarted, runAction]
+  );
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
@@ -491,6 +510,7 @@ export function App(): JSX.Element {
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
+            onStartNextPrompt={startNextPrompt}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>

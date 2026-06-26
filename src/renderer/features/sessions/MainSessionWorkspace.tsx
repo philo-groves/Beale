@@ -30,6 +30,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenHoneycrispMemoryDirectory,
   onSelectTraceEvent,
   onSessionAction,
+  onStartNextPrompt,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
@@ -51,6 +52,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
+  onStartNextPrompt: (promptMarkdown: string) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   if (!selectedRunId) {
@@ -66,7 +68,16 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   }
 
   if (sessionView === 'spawn') {
-    return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+    return (
+      <SpawnSessionView
+        busy={busy}
+        detail={detail}
+        events={events}
+        selectedTraceEventId={selectedTraceEventId}
+        onSelectTraceEvent={onSelectTraceEvent}
+        onStartNextPrompt={onStartNextPrompt}
+      />
+    );
   }
 
   if (sessionView === 'context') {
