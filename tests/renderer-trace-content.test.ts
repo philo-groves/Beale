@@ -310,6 +310,44 @@ describe('renderer trace content view models', () => {
     ).toEqual(['1: a', '2: b', '3: c', '4: d', '5: e', '6: f']);
   });
 
+  it('builds structured file-read previews from Honeycrisp tool observations', () => {
+    expect(
+      codeBrowserTracePreview(
+        traceEvent({
+          type: 'tool_result',
+          source: 'tool',
+          summary: 'Honeycrisp tool.observed: Read 128 byte(s) from /repo/Src/parse.c with truncation.',
+          payload: {
+            honeycrispKind: 'tool.observed',
+            payload: {
+              toolName: 'file.read',
+              status: 'complete',
+              normalizedInputs: { path: '/repo/Src/parse.c', maxBytes: 128 },
+              result: {
+                requestedPath: '/repo/Src/parse.c',
+                resolvedPath: '/repo/Src/parse.c',
+                offset: 0,
+                bytesRead: 128,
+                totalBytes: 512,
+                truncated: true,
+                encoding: 'utf8',
+                containsNulByte: false,
+                text: ['parse one', 'parse two', 'parse three', 'parse four', 'parse five', 'parse six'].join('\n')
+              }
+            }
+          }
+        })
+      )
+    ).toEqual({
+      title: '/repo/Src/parse.c',
+      description: '',
+      facts: ['128 bytes', 'utf8', 'truncated yes'],
+      excerptLines: ['parse one', 'parse two', 'parse three', 'parse four', 'parse five'],
+      excerptLineCount: 6,
+      excerptTruncated: true
+    });
+  });
+
   it('builds structured search previews from ranked search results', () => {
     expect(
       searchTracePreview(
@@ -332,6 +370,35 @@ describe('renderer trace content view models', () => {
       title: 'Search auth middleware bypass',
       description: '31 matches',
       facts: ['47 files', '/repo/apps/api', '4 metadata', '2 semantic', '3 graph']
+    });
+  });
+
+  it('builds structured search previews from Honeycrisp repository observations', () => {
+    expect(
+      searchTracePreview(
+        traceEvent({
+          type: 'tool_result',
+          source: 'tool',
+          summary: 'Honeycrisp tool.observed: Repository search found 1 match(es) across 1 context root(s) for: parser',
+          payload: {
+            honeycrispKind: 'tool.observed',
+            payload: {
+              toolName: 'repository.search',
+              status: 'complete',
+              normalizedInputs: { query: 'parser', path: '/Users/philogroves/maxtac-resources/zsh', maxResults: 5 },
+              result: {
+                roots: ['/Users/philogroves/maxtac-resources/zsh'],
+                query: 'parser',
+                matches: [{ path: 'zsh/Test/A05execution.ztst', line: 263, preview: 'parser segfault piping to an', root: '/Users/philogroves/maxtac-resources/zsh' }]
+              }
+            }
+          }
+        })
+      )
+    ).toEqual({
+      title: 'Search parser',
+      description: '1 match',
+      facts: ['1 context root', '/Users/philogroves/maxtac-resources/zsh', 'limit 5']
     });
   });
 

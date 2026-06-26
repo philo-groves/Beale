@@ -301,6 +301,9 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
     };
   }
 
+  const honeycrispFileRead = honeycrispFileReadPreview(event, maxLines);
+  if (honeycrispFileRead) return honeycrispFileRead;
+
   if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
   const isCodeBrowserEvent = toolName === 'code_browser' || /^Code browser\b/i.test(event.summary);
   if (!isCodeBrowserEvent) return null;
@@ -344,6 +347,9 @@ export function searchTracePreview(event: TraceEventRecord): SearchTracePreview 
     };
   }
 
+  const honeycrispSearch = honeycrispRepositorySearchPreview(event);
+  if (honeycrispSearch) return honeycrispSearch;
+
   if (event.type !== 'tool_result') return null;
   const query = tracePayloadPrimitive(event.payload, 'query');
   const counts = searchCountsFromTraceEvent(event);
@@ -364,6 +370,62 @@ export function searchTracePreview(event: TraceEventRecord): SearchTracePreview 
       metadataMatches && metadataMatches > 0 ? `${metadataMatches} metadata` : null,
       semanticMatches && semanticMatches > 0 ? `${semanticMatches} semantic` : null,
       graphMatches && graphMatches > 0 ? `${graphMatches} graph` : null
+    ].filter((part): part is string => Boolean(part))
+  };
+}
+
+function honeycrispFileReadPreview(event: TraceEventRecord, maxLines: number): CodeBrowserTracePreview | null {
+  if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
+  const toolPayload = honeycrispToolPayload(event, 'file.read');
+  if (!toolPayload) return null;
+  const result = tracePayloadRecord(toolPayload, 'result');
+  const inputs = tracePayloadRecord(toolPayload, 'normalizedInputs');
+  const sourcePath = stringRecordValue(result ?? {}, 'resolvedPath') ?? stringRecordValue(result ?? {}, 'requestedPath') ?? stringRecordValue(inputs ?? {}, 'path');
+  const text = typeof result?.text === 'string' ? result.text : '';
+  const allExcerptLines = splitHoneycrispExcerptLines(text);
+  const visibleExcerptLines = allExcerptLines.slice(0, maxLines);
+  const bytesRead = numberPayloadValue(result ?? {}, 'bytesRead');
+  const offset = numberPayloadValue(result ?? {}, 'offset');
+  const status = stringRecordValue(toolPayload, 'status');
+  const truncated = stringRecordValue(result ?? {}, 'truncated') === 'true';
+  const containsNulByte = stringRecordValue(result ?? {}, 'containsNulByte') === 'true';
+
+  return {
+    title: sourcePath ? compactTracePath(sourcePath) : 'File read result',
+    description: status && status !== 'complete' ? traceLabel(status) : '',
+    facts: [
+      bytesRead !== null ? `${bytesRead} byte${bytesRead === 1 ? '' : 's'}` : null,
+      offset && offset > 0 ? `offset ${offset}` : null,
+      stringRecordValue(result ?? {}, 'encoding') ?? null,
+      containsNulByte ? 'contains NUL' : null,
+      traceBooleanPart('truncated', truncated ? 'true' : null)
+    ].filter((part): part is string => Boolean(part)),
+    excerptLines: visibleExcerptLines,
+    excerptLineCount: allExcerptLines.length,
+    excerptTruncated: allExcerptLines.length > visibleExcerptLines.length || truncated
+  };
+}
+
+function honeycrispRepositorySearchPreview(event: TraceEventRecord): SearchTracePreview | null {
+  if (event.type !== 'tool_result') return null;
+  const toolPayload = honeycrispToolPayload(event, 'repository.search');
+  if (!toolPayload) return null;
+  const result = tracePayloadRecord(toolPayload, 'result');
+  const inputs = tracePayloadRecord(toolPayload, 'normalizedInputs');
+  const query = stringRecordValue(result ?? {}, 'query') ?? stringRecordValue(inputs ?? {}, 'query');
+  const matches = tracePayloadArray(result ?? {}, 'matches') ?? tracePayloadArray(toolPayload, 'evidenceExtracted');
+  const roots = tracePayloadArray(result ?? {}, 'roots');
+  const matchCount = matches?.length ?? 0;
+  const path = stringRecordValue(inputs ?? {}, 'path') ?? firstStringArrayValue(roots);
+  const status = stringRecordValue(toolPayload, 'status');
+
+  return {
+    title: query ? `Search ${truncateText(query, 64)}` : 'Repository search result',
+    description: status && status !== 'complete' ? traceLabel(status) : `${matchCount} match${matchCount === 1 ? '' : 'es'}`,
+    facts: [
+      roots ? `${roots.length} context root${roots.length === 1 ? '' : 's'}` : null,
+      path ? compactTracePath(path) : null,
+      stringRecordValue(inputs ?? {}, 'maxResults') ? `limit ${stringRecordValue(inputs ?? {}, 'maxResults')}` : null
     ].filter((part): part is string => Boolean(part))
   };
 }
@@ -399,6 +461,27 @@ function evidenceReferenceFacts(payload: Record<string, unknown>): string[] {
     tracePayloadPrimitive(payload, 'findingId') || stringRecordValue(payload, 'finding_id') ? 'Linked finding' : null,
     tracePayloadPrimitive(payload, 'hypothesisId') || stringRecordValue(payload, 'hypothesis_id') ? 'Linked hypothesis' : null
   ].filter((part): part is string => Boolean(part));
+}
+
+function honeycrispToolPayload(event: TraceEventRecord, expectedToolName: string): Record<string, unknown> | null {
+  const kind = tracePayloadPrimitive(event.payload, 'honeycrispKind');
+  if (kind !== 'tool.observed' && kind !== 'tool.requested') return null;
+  const payload = tracePayloadRecord(event.payload, 'payload');
+  if (!payload) return null;
+  return stringRecordValue(payload, 'toolName') === expectedToolName ? payload : null;
+}
+
+function splitHoneycrispExcerptLines(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+  return normalized ? normalized.split('\n') : [];
+}
+
+function firstStringArrayValue(values: unknown[] | null): string | null {
+  if (!values) return null;
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 function boundedLineCountFromSummary(summary: string): number | null {

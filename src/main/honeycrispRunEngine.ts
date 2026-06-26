@@ -169,6 +169,45 @@ const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimat
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
 const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
 const LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS = 1200;
+const BEALE_HONEYCRISP_SKILL_ROOT = join('.beale', 'honeycrisp-skills');
+const BEALE_SKEPTICAL_TRIAGE_SKILL_ID = 'beale-skeptical-triage';
+const BEALE_SKEPTICAL_TRIAGE_SKILL_MARKDOWN = `# Beale Skeptical Vulnerability Triage
+Id: beale-skeptical-triage
+Version: 0.1
+Description: Beale vulnerability triage that keeps bugs as candidates until a realistic end-to-end proof-of-vulnerability and skeptical review are complete.
+Domain tags: vulnerability, security, proof, pov, triage, beale
+Recommended tools: repository.search, file.read, analysis.transform, experiment.run
+Recommended action classes: inspect, analyze, experiment, synthesize
+Runbook: Treat every suspected bug as candidate until a realistic end-to-end PoV and skeptical review both support it.
+---
+You are operating inside Beale as an authorized vulnerability research agent.
+Keep Honeycrisp general memory categories intact: evidence, claims, hypotheses, findings, proof attempts, and uncertainty.
+Do not use subagents. Perform both builder and skeptic roles yourself in the same loop, or clearly schedule the missing role as follow-up work.
+
+Triage rule:
+- A suspected bug is only a candidate until there is a realistic end-to-end proof-of-vulnerability.
+- Do not call a bug confirmed, verified, exploitable, security-impacting, or report-ready from static reasoning alone.
+- If proof is missing, record the finding as candidate/needs-evidence and preserve blockers and assumptions.
+
+Proof-of-vulnerability requirements:
+1. Define the attacker-controlled input, privilege boundary or trust boundary, vulnerable code path, trigger conditions, impact mechanism, and observable security effect.
+2. Build or specify a realistic end-to-end PoV that starts from the attacker-controlled input and reaches the claimed impact.
+3. Prefer runnable local proof artifacts, harnesses, test cases, scripts, debugger traces, or command transcripts when available.
+4. Tie every proof step to concrete evidence paths, tool observations, or artifacts.
+5. If a step cannot be executed in the current environment, mark it blocked and keep the bug as candidate.
+
+Skeptical review requirements:
+1. Try to falsify the bug before promoting it.
+2. Check environmental assumptions, parser/API semantics, initialization/error contracts, mitigations, build flags, permissions, reachability, and expected benign behavior.
+3. Search for nearby code patterns or documentation that contradict the claim.
+4. Identify false-positive explanations and what evidence would rule them out.
+5. If the skeptical review finds plausible doubt, keep the bug as candidate/needs-evidence.
+
+Output and writeback expectations:
+- Separate Candidate, Evidence, PoV Plan or PoV Result, Skeptical Review, Assumptions, Blockers, and Next Proof Step.
+- Promote to confirmed/verified only when the end-to-end PoV is realistic and the skeptical review is satisfied.
+- Otherwise explicitly state: candidate only.
+`;
 
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
@@ -807,10 +846,6 @@ function researchThoughtText(event: HoneycrispCaptureEvent): string {
       if (permitted.length > 0) return `**Plan** Tool classes available this loop: ${permitted.join(', ')}.`;
       return '';
     }
-    case 'tool.requested':
-      return summary ? `**Tool** ${summary}` : '';
-    case 'tool.observed':
-      return summary ? `**Observation** ${summary}` : '';
     case 'error.observed':
       return summary ? `**Issue** ${summary}` : '';
     default:
@@ -867,7 +902,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     args.push('--effort', input.reasoningEffort.trim());
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
-  args.push(...additionalHoneycrispRuntimeArgs());
+  args.push(...bealeHoneycrispRuntimeArgs(workspacePath));
   return args;
 }
 
@@ -932,7 +967,7 @@ export function invokeHoneycrispToolsList(workspacePath: string): Record<string,
     'list',
     '--workspace-root',
     workspacePath,
-    ...additionalHoneycrispRuntimeArgs(),
+    ...bealeHoneycrispRuntimeArgs(workspacePath),
     '--json'
   ];
   const result = spawnSync(invocation.command, fullArgs, {
@@ -1123,6 +1158,27 @@ function parseEnvArgs(name: string): string[] {
 
 function additionalHoneycrispRuntimeArgs(): string[] {
   return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
+}
+
+function bealeHoneycrispRuntimeArgs(workspacePath: string): string[] {
+  return [...bealeBuiltinHoneycrispSkillArgs(workspacePath), ...additionalHoneycrispRuntimeArgs()];
+}
+
+function bealeBuiltinHoneycrispSkillArgs(workspacePath: string): string[] {
+  const skillRoot = ensureBealeHoneycrispBuiltinSkills(workspacePath);
+  return ['--skill-dir', skillRoot, '--skill', BEALE_SKEPTICAL_TRIAGE_SKILL_ID];
+}
+
+function ensureBealeHoneycrispBuiltinSkills(workspacePath: string): string {
+  const skillRoot = join(workspacePath, BEALE_HONEYCRISP_SKILL_ROOT);
+  const skillDirectory = join(skillRoot, BEALE_SKEPTICAL_TRIAGE_SKILL_ID);
+  const skillPath = join(skillDirectory, 'SKILL.md');
+  const skillMarkdown = `${BEALE_SKEPTICAL_TRIAGE_SKILL_MARKDOWN.trim()}\n`;
+  mkdirSync(skillDirectory, { recursive: true });
+  if (!existsSync(skillPath) || readFileSync(skillPath, 'utf8') !== skillMarkdown) {
+    writeFileSync(skillPath, skillMarkdown, 'utf8');
+  }
+  return skillRoot;
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {

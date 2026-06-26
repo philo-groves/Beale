@@ -396,7 +396,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
-    expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(true);
+    expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(true);
     expect(detail.run.summary).toContain('checkpoint completed');
@@ -413,12 +413,18 @@ describe('Beale workbench skeleton', () => {
       [
         '#!/usr/bin/env node',
         "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
-        "import { dirname } from 'node:path';",
+        "import { dirname, join } from 'node:path';",
         'const args = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const contextPath = args[args.indexOf('--workspace-context') + 1];",
         "if (!contextPath) throw new Error('Missing --workspace-context');",
         "if (args.includes('--repo-root') || args.includes('--file-read-root')) throw new Error('Old repository guard args must not be passed');",
+        "const skillRoot = args[args.indexOf('--skill-dir') + 1];",
+        "if (!skillRoot || !String(skillRoot).endsWith(join('.beale', 'honeycrisp-skills'))) throw new Error('Beale built-in skill dir missing');",
+        "if (args[args.indexOf('--skill') + 1] !== 'beale-skeptical-triage') throw new Error('Beale skeptical triage skill missing');",
+        "const skillMarkdown = readFileSync(join(skillRoot, 'beale-skeptical-triage', 'SKILL.md'), 'utf8');",
+        "if (!skillMarkdown.includes('realistic end-to-end proof-of-vulnerability')) throw new Error('Beale PoV proof gate missing');",
+        "if (!skillMarkdown.includes('Do not use subagents')) throw new Error('Beale subagent guidance missing');",
         "const workspaceContext = JSON.parse(readFileSync(contextPath, 'utf8'));",
         "if (!workspaceContext.materializedSourcePaths?.some((path) => String(path).endsWith('/sources/zsh'))) throw new Error('Nested source path missing from workspace context');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
@@ -464,8 +470,10 @@ describe('Beale workbench skeleton', () => {
       configuredBy: 'env_root'
     });
     expect(JSON.stringify(launchEvent?.payload)).toContain('--workspace-context');
+    expect(JSON.stringify(launchEvent?.payload)).toContain('beale-skeptical-triage');
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--repo-root');
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--file-read-root');
+    expect(existsSync(join(workspace, '.beale', 'honeycrisp-skills', 'beale-skeptical-triage', 'SKILL.md'))).toBe(true);
     const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as { materializedSourcePaths?: string[]; knownRepositories?: Array<{ rootPath: string }> };
     expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
@@ -503,8 +511,11 @@ describe('Beale workbench skeleton', () => {
         '  tools: [{ name: "repository.search", transportName: "repository_search", actionClasses: ["search"], sideEffects: ["read"], requiredPermissions: ["filesystem:read"], metadata: { family: "repository-search" } }],',
         '  toolFamilies: { enabled: ["repository-search"], requested: ["repository-search"], disabled: [] },',
         '  skills: {',
-        '    loaded: [{ id: "parser-vuln", version: "0.1", description: "Parser research", domainTags: ["parser"], source: { kind: "local", uri: "/skills/parser" } }],',
-        '    selectedIds: ["parser-vuln"]',
+        '    loaded: [',
+        '      { id: "parser-vuln", version: "0.1", description: "Parser research", domainTags: ["parser"], source: { kind: "local", uri: "/skills/parser" } },',
+        '      { id: "beale-skeptical-triage", version: "0.1", description: "Beale skeptical triage", domainTags: ["vulnerability", "proof"], source: { kind: "local", uri: ".beale/honeycrisp-skills/beale-skeptical-triage" } }',
+        '    ],',
+        '    selectedIds: ["parser-vuln", "beale-skeptical-triage"]',
         '  },',
         '  mcp: {',
         '    status: "configured",',
@@ -546,12 +557,28 @@ describe('Beale workbench skeleton', () => {
     expect(args[args.indexOf('--workspace-root') + 1]).toBe(workspace);
     expect(args).toContain('--skill-dir');
     expect(args).toContain('--mcp-config');
-    expect(summary.skills.loaded[0]).toMatchObject({
-      id: 'parser-vuln',
-      version: '0.1',
-      selected: true,
-      domainTags: ['parser']
-    });
+    const skillDirs = args.flatMap((arg, index) => (arg === '--skill-dir' ? [args[index + 1]] : []));
+    const selectedSkills = args.flatMap((arg, index) => (arg === '--skill' ? [args[index + 1]] : []));
+    expect(skillDirs).toContain(join(workspace, '.beale', 'honeycrisp-skills'));
+    expect(skillDirs).toContain('/skills');
+    expect(selectedSkills).toContain('beale-skeptical-triage');
+    expect(selectedSkills).toContain('parser-vuln');
+    expect(summary.skills.loaded).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'parser-vuln',
+          version: '0.1',
+          selected: true,
+          domainTags: ['parser']
+        }),
+        expect.objectContaining({
+          id: 'beale-skeptical-triage',
+          version: '0.1',
+          selected: true,
+          domainTags: ['vulnerability', 'proof']
+        })
+      ])
+    );
     expect(summary.mcp).toMatchObject({
       status: 'configured',
       allowedServers: ['local'],
@@ -621,7 +648,17 @@ describe('Beale workbench skeleton', () => {
       .map((line) => JSON.parse(line) as string[]);
 
     expect(calls[0]).toEqual(['tools', 'config', 'add', 'skill-dir', '/skills/new', '--workspace-root', workspace, '--json']);
-    expect(calls[1]).toEqual(['tools', 'list', '--workspace-root', workspace, '--json']);
+    expect(calls[1]).toEqual([
+      'tools',
+      'list',
+      '--workspace-root',
+      workspace,
+      '--skill-dir',
+      join(workspace, '.beale', 'honeycrisp-skills'),
+      '--skill',
+      'beale-skeptical-triage',
+      '--json'
+    ]);
     expect(summary.config.preference.skillDirs).toEqual(['/skills/new']);
     service.close();
   });
