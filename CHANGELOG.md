@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added live Honeycrisp host controls: pause/resume preserves the active process tree, and general steering is delivered over a schema-versioned JSONL control stream to the next model turn.
 - Added automatic context graph refresh for stale program overview snapshots and a manual refresh control in the Honeycrisp Memory view.
 - Added per-row file explorer controls for Honeycrisp memory storage directories.
 - Added a Honeycrisp host-process run engine that starts research prompts from the Beale UI, launches the Honeycrisp CLI through a plain Node runtime, streams Honeycrisp stdout/stderr into trace events, imports the final Honeycrisp capture as a Beale artifact, and records final assistant output in the transcript and notification flow.

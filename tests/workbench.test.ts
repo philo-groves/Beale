@@ -436,6 +436,98 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('pauses, resumes, and steers an active Honeycrisp process', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-controlled-honeycrisp.mjs');
+    const controlLogPath = join(workspace, 'controls.jsonl');
+    const heartbeatPath = join(workspace, 'heartbeat.txt');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [controlLogPath, heartbeatPath, ...args] = process.argv.slice(2);',
+        "if (!args.includes('--control-stream')) throw new Error('missing --control-stream');",
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "writeFileSync(heartbeatPath, '0');",
+        'let heartbeat = 0;',
+        "const timer = setInterval(() => writeFileSync(heartbeatPath, String(++heartbeat)), 20);",
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', (chunk) => {",
+        '  buffer += chunk;',
+        "  let newlineIndex = buffer.indexOf('\\n');",
+        '  while (newlineIndex !== -1) {',
+        "    const line = buffer.slice(0, newlineIndex).replace(/\\r$/, '');",
+        '    buffer = buffer.slice(newlineIndex + 1);',
+        '    const message = JSON.parse(line);',
+        "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'steer') {",
+        '      clearInterval(timer);',
+        '      const now = new Date().toISOString();',
+        '      const capture = {',
+        '        capturedAt: now,',
+        "        goal: { id: 'goal_control', objective: 'Controlled run' },",
+        "        decision: { actionClass: 'inspect', subGoalId: 'subgoal_control', subGoalObjective: 'Apply steering' },",
+        "        goalRun: { status: 'complete', terminalReason: 'complete', loopsUsed: 1, maxLoops: 1 },",
+        "        loop: { status: 'complete', executorName: 'controlled-fixture', executionMode: 'custom', outputText: 'Steering received.', followUpRecommendation: 'respond' },",
+        '        eventTimeline: []',
+        '      };',
+        "      writeFileSync(capturePath, JSON.stringify(capture) + '\\n');",
+        '      setImmediate(() => process.exit(0));',
+        '    }',
+        "    newlineIndex = buffer.indexOf('\\n');",
+        '  }',
+        '});'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath, heartbeatPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('adaptive_portfolio'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: '# Controlled Honeycrisp fixture',
+        model: 'fixture-model',
+        reasoningEffort: 'minimal'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+      await waitForCondition(() => existsSync(heartbeatPath));
+      await waitForCondition(() => Number(readFileSync(heartbeatPath, 'utf8')) > 0);
+
+      service.steerRun({ type: 'pause', runId });
+      expect(service.getRunDetail(runId).run.status).toBe('paused');
+      const pausedHeartbeat = readFileSync(heartbeatPath, 'utf8');
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      expect(readFileSync(heartbeatPath, 'utf8')).toBe(pausedHeartbeat);
+
+      service.steerRun({ type: 'resume', runId });
+      expect(service.getRunDetail(runId).run.status).toBe('active');
+      await waitForCondition(() => readFileSync(heartbeatPath, 'utf8') !== pausedHeartbeat);
+
+      service.steerRun({ type: 'steer', runId, instruction: 'Inspect the authorization boundary next.' });
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+      const controls = readFileSync(controlLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { type: string; instruction?: string });
+      expect(controls.map((control) => control.type)).toEqual(['pause', 'resume', 'steer']);
+      expect(controls[2]?.instruction).toBe('Inspect the authorization boundary next.');
+      expect(
+        service.getRunDetail(runId).traceEvents.find((event) => event.summary === 'User steering added to current run.')?.payload
+      ).toMatchObject({ deliveredToHoneycrisp: true });
+    } finally {
+      service.close();
+    }
+  });
+
   it('runs the default Honeycrisp CLI through a plain Node runtime', async () => {
     const workspace = tempWorkspace();
     const honeycrispRoot = tempWorkspace();

@@ -37,6 +37,7 @@ interface HoneycrispWorkspaceRepositoryContext {
 interface ActiveHoneycrispRun {
   child: ChildProcessWithoutNullStreams;
   context: CreatedRunContext;
+  paused: boolean;
   stopped: boolean;
   liveHoneycrispEventIds: Set<string>;
   liveThoughts: Map<string, HoneycrispLiveThoughtState>;
@@ -267,11 +268,14 @@ export class HoneycrispRunEngine {
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
       env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+      detached: process.platform !== 'win32',
       windowsHide: true
     });
+    child.stdin.on('error', () => undefined);
     const active: ActiveHoneycrispRun = {
       child,
       context,
+      paused: false,
       stopped: false,
       liveHoneycrispEventIds: new Set(),
       liveThoughts: new Map()
@@ -309,7 +313,41 @@ export class HoneycrispRunEngine {
     const active = this.activeRuns.get(runId);
     if (!active) return;
     active.stopped = true;
-    active.child.kill('SIGTERM');
+    if (active.paused && process.platform !== 'win32') {
+      signalHoneycrispProcess(active.child, 'SIGCONT');
+    }
+    signalHoneycrispProcess(active.child, 'SIGTERM');
+  }
+
+  public pause(runId: string): boolean {
+    const active = this.activeRuns.get(runId);
+    if (!active) return false;
+    if (active.paused) return true;
+    this.sendControl(active, { schemaVersion: 1, type: 'pause' });
+    if (process.platform !== 'win32' && !signalHoneycrispProcess(active.child, 'SIGSTOP')) {
+      throw new Error(`Unable to pause Honeycrisp process for run ${runId}.`);
+    }
+    active.paused = true;
+    return true;
+  }
+
+  public resume(runId: string): boolean {
+    const active = this.activeRuns.get(runId);
+    if (!active) return false;
+    if (!active.paused) return true;
+    if (process.platform !== 'win32' && !signalHoneycrispProcess(active.child, 'SIGCONT')) {
+      throw new Error(`Unable to resume Honeycrisp process for run ${runId}.`);
+    }
+    active.paused = false;
+    this.sendControl(active, { schemaVersion: 1, type: 'resume' });
+    return true;
+  }
+
+  public steer(runId: string, instruction: string): boolean {
+    const active = this.activeRuns.get(runId);
+    if (!active) return false;
+    this.sendControl(active, { schemaVersion: 1, type: 'steer', instruction });
+    return true;
   }
 
   public dispose(): void {
@@ -317,6 +355,13 @@ export class HoneycrispRunEngine {
       this.stop(runId);
     }
     this.activeRuns.clear();
+  }
+
+  private sendControl(active: ActiveHoneycrispRun, message: Record<string, unknown>): void {
+    if (active.child.stdin.destroyed || active.child.stdin.writableEnded) {
+      throw new Error(`Honeycrisp control stream is unavailable for run ${active.context.run.id}.`);
+    }
+    active.child.stdin.write(`${JSON.stringify(message)}\n`, 'utf8');
   }
 
   private recordProcessLine(context: CreatedRunContext, stream: 'stdout' | 'stderr', line: string): void {
@@ -852,6 +897,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     '--executor',
     'agent',
     '--event-stream',
+    '--control-stream',
     '-p',
     input.promptMarkdown
   ];
@@ -875,6 +921,18 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
   args.push('--tool-max-bytes', String(toolMaxBytes()));
   args.push(...bealeHoneycrispRuntimeArgs());
   return args;
+}
+
+function signalHoneycrispProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): boolean {
+  if (process.platform !== 'win32' && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return true;
+    } catch {
+      // Fall through to signaling the direct child when no process group exists.
+    }
+  }
+  return child.kill(signal);
 }
 
 export function resolveHoneycrispInvocation(): HoneycrispInvocation {

@@ -1008,18 +1008,9 @@ export class WorkspaceService {
     switch (action.type) {
       case 'pause': {
         if (runEngine === 'honeycrisp') {
-          this.honeycrispEngine?.stop(action.runId);
-          if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
-          db.updateRunStatus(action.runId, 'stopped', 'Honeycrisp process stop requested because pause is unsupported.');
-          db.appendTraceEvent({
-            runId: action.runId,
-            attemptId: attempt?.id ?? null,
-            type: 'user_note',
-            source: 'user',
-            summary: 'Honeycrisp run stopped because process pause is not supported.',
-            payload: { note: action.note ?? '' }
-          });
-          break;
+          if (!this.honeycrispEngine?.pause(action.runId)) {
+            throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
+          }
         }
         if (runEngine === 'fixture') {
           this.fixtureEngine?.pause(action.runId);
@@ -1037,6 +1028,9 @@ export class WorkspaceService {
         break;
       }
       case 'resume': {
+        if (runEngine === 'honeycrisp' && !this.honeycrispEngine?.resume(action.runId)) {
+          throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
+        }
         if (attempt) db.updateAttemptState(attempt.id, 'active', 'Resumed by user steering.');
         db.updateRunStatus(action.runId, 'active', 'Resumed by user steering.');
         db.appendTraceEvent({
@@ -1049,15 +1043,6 @@ export class WorkspaceService {
         });
         if (runEngine === 'fixture') {
           this.fixtureEngine?.resume(action.runId);
-        } else if (runEngine === 'honeycrisp') {
-          db.appendTraceEvent({
-            runId: action.runId,
-            attemptId: attempt?.id ?? null,
-            type: 'approval_event',
-            source: 'system',
-            summary: 'Honeycrisp runs cannot be resumed after pause in this adapter slice.',
-            payload: { runEngine: 'honeycrisp' }
-          });
         }
         break;
       }
@@ -1081,13 +1066,18 @@ export class WorkspaceService {
         if (!instruction) {
           throw new Error('Steering instruction cannot be empty.');
         }
+        const deliveredToHoneycrisp =
+          runEngine !== 'honeycrisp' || Boolean(this.honeycrispEngine?.steer(action.runId, instruction));
+        if (!deliveredToHoneycrisp) {
+          throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
+        }
         db.appendTraceEvent({
           runId: action.runId,
           attemptId: attempt?.id ?? null,
           type: 'user_note',
           source: 'user',
           summary: 'User steering added to current run.',
-          payload: { instruction: redactForModelText(instruction) }
+          payload: { instruction: redactForModelText(instruction), deliveredToHoneycrisp: runEngine === 'honeycrisp' }
         });
         if (runEngine === 'fixture' && run.status === 'paused') {
           if (attempt) db.updateAttemptState(attempt.id, 'active', 'User steering added to current run.');
