@@ -36,7 +36,7 @@ export class WorkspaceRegistry {
 
   public constructor(registryDirectory = defaultWorkspaceRegistryDirectory()) {
     mkdirSync(registryDirectory, { recursive: true });
-    this.registryPath = join(registryDirectory, 'registry.sqlite');
+    this.registryPath = join(registryDirectory, 'workspace-registry.sqlite');
     this.db = new DatabaseSync(this.registryPath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initialize();

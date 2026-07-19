@@ -240,7 +240,7 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(workspace, '.beale', 'beale.sqlite'))).toBe(true);
 
     const registered = service.getWorkspaceRegistryState();
-    expect(registered.registryPath).toBe(join(registryDir, 'registry.sqlite'));
+    expect(registered.registryPath).toBe(join(registryDir, 'workspace-registry.sqlite'));
     expect(registered.workspaces).toHaveLength(1);
     expect(registered.workspaces[0]).toMatchObject({
       workspacePath: workspace,
@@ -713,11 +713,36 @@ describe('Beale workbench skeleton', () => {
     service.createWorkspace(workspace);
     service.getWorkspaceRegistryState();
 
-    expect(existsSync(join(registryDir, 'registry.sqlite'))).toBe(true);
-    const registry = new DatabaseSync(join(registryDir, 'registry.sqlite'));
+    expect(existsSync(join(registryDir, 'workspace-registry.sqlite'))).toBe(true);
+    const registry = new DatabaseSync(join(registryDir, 'workspace-registry.sqlite'));
     const rows = registry.prepare('SELECT workspace_name, workspace_path FROM workspaces').all() as Array<{ workspace_name: string; workspace_path: string }>;
     registry.close();
     expect(rows).toEqual([{ workspace_name: 'Untitled Workspace', workspace_path: workspace }]);
+    service.close();
+  });
+
+  it('does not open the incompatible pre-workspace registry database', () => {
+    const registryDir = tempWorkspace();
+    const legacyRegistryPath = join(registryDir, 'registry.sqlite');
+    const legacyRegistry = new DatabaseSync(legacyRegistryPath);
+    legacyRegistry.exec(`
+      CREATE TABLE research_sessions (
+        id TEXT PRIMARY KEY,
+        program_id TEXT,
+        workspace_path TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    legacyRegistry.close();
+
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const state = service.getWorkspaceRegistryState();
+
+    expect(state.registryPath).toBe(join(registryDir, 'workspace-registry.sqlite'));
+    expect(state.workspaces).toEqual([]);
+    expect(state.researchSessions).toEqual([]);
+    expect(existsSync(legacyRegistryPath)).toBe(true);
     service.close();
   });
 

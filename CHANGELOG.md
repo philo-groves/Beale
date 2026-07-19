@@ -97,6 +97,7 @@
 ### Changed
 
 - Renamed renderer, IPC, registry, shared-type, profiling, and SQLite vocabulary from programs to workspaces and authorized scopes; the fresh schema now uses `workspaces`, `scope_versions`, `workspace_name`, `scope_owner`, and `registry_workspace_id`.
+- Changed the global registry filename to `workspace-registry.sqlite` so the clean pre-alpha schema does not open or partially modify an incompatible legacy `registry.sqlite` database.
 - Changed Honeycrisp workspace context to lead with operator-recorded authorization, neutral scope facts, rules, expiry, network posture, and in/out assets, while no longer presenting the whole workspace root as source code.
 - Changed newly materialized repositories to use only the user-global checkout store with workspace-local source references; requested refs use separate checkout paths.
 - Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.

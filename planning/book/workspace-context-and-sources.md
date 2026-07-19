@@ -31,7 +31,7 @@ Repository checkout storage is user-global by default:
 
 ```text
 ~/.beale/
-  registry.sqlite
+  workspace-registry.sqlite
   repositories/
     <repository-slug>/
       default/
@@ -62,4 +62,4 @@ Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill.
 
 ## Pre-Alpha Schema
 
-The renderer, IPC API, global registry, and SQLite schema use workspace and authorized-scope vocabulary. Beale does not provide aliases or migrations for earlier `Program*` APIs, registry tables, scope columns, or Honeycrisp memory compatibility exports.
+The renderer, IPC API, global registry, and SQLite schema use workspace and authorized-scope vocabulary. The global registry uses `workspace-registry.sqlite`, leaving the incompatible pre-workspace `registry.sqlite` untouched. Beale does not provide aliases or migrations for earlier `Program*` APIs, registry tables, scope columns, or Honeycrisp memory compatibility exports.
