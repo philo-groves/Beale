@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -82,7 +83,9 @@ describe('source materializer', () => {
     const candidate = sourceRepositoryCandidates(scope)[0];
     let timerFired = false;
 
-    const materializedPromise = materializeGitRepositoryAsync(candidate, join(workspace, '.beale', 'beale.sqlite'), '');
+    const materializedPromise = materializeGitRepositoryAsync(candidate, join(workspace, '.beale', 'beale.sqlite'), '', {
+      repositoryStoreDirectory: join(workspace, 'beale-home', 'repositories')
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     timerFired = true;
     const materialized = await materializedPromise;
@@ -95,7 +98,9 @@ describe('source materializer', () => {
   it('fetches and checks out requested refs in managed existing checkouts', () => {
     const workspace = tempDir();
     mkdirSync(join(workspace, '.beale'), { recursive: true });
-    const managedCheckout = join(workspace, 'targets', 'repositories', 'github.com_Netflix_zuul');
+    const repositoryStore = join(workspace, 'beale-home', 'repositories');
+    const refDigest = createHash('sha256').update('feature-ref').digest('hex').slice(0, 12);
+    const managedCheckout = join(repositoryStore, 'github.com_Netflix_zuul', `feature-ref-${refDigest}`);
     mkdirSync(join(managedCheckout, '.git'), { recursive: true });
     const stateFile = join(workspace, 'git-head.txt');
     writeFileSync(stateFile, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
@@ -120,7 +125,9 @@ describe('source materializer', () => {
     const scope = scopeWithAssets([sourceAsset('repo_zuul', 'https://github.com/Netflix/zuul')]);
     const candidate = sourceRepositoryCandidates(scope)[0];
 
-    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'feature-ref');
+    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'feature-ref', {
+      repositoryStoreDirectory: repositoryStore
+    });
 
     expect(materialized.localPath).toBe(managedCheckout);
     expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
@@ -170,6 +177,39 @@ describe('source materializer', () => {
     expect(materialized.requestedRefMatchesHead).toBe(true);
     expect(log).toContain('"fetch"');
     expect(log).toContain('"checkout","--detach","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"');
+  });
+
+  it('reuses one user-global checkout from different workspaces', async () => {
+    const firstWorkspace = tempDir();
+    const secondWorkspace = tempDir();
+    const repositoryStore = join(tempDir(), 'repositories');
+    const fakeGit = join(tempDir(), 'fake-git-global.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args.includes('clone')) { mkdirSync(`${args.at(-1)}/.git`, { recursive: true }); process.exit(0); }",
+        "if (args.includes('rev-parse') && args.at(-1) === 'HEAD') { process.stdout.write('0123456789abcdef0123456789abcdef01234567\\n'); process.exit(0); }",
+        'process.exit(1);'
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    const candidate = sourceRepositoryCandidates(scopeWithAssets([sourceAsset('repo_zuul', 'https://github.com/Netflix/zuul')]))[0];
+
+    const first = await materializeGitRepositoryAsync(candidate, join(firstWorkspace, '.beale', 'beale.sqlite'), '', {
+      repositoryStoreDirectory: repositoryStore
+    });
+    const second = await materializeGitRepositoryAsync(candidate, join(secondWorkspace, '.beale', 'beale.sqlite'), '', {
+      repositoryStoreDirectory: repositoryStore
+    });
+
+    expect(first.cloned).toBe(true);
+    expect(second.cloned).toBe(false);
+    expect(second.localPath).toBe(first.localPath);
+    expect(first.localPath).toBe(join(repositoryStore, 'github.com_Netflix_zuul', 'default'));
   });
 });
 

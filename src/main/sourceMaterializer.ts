@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
 
@@ -33,6 +35,13 @@ const GIT_TIMEOUT_MS = 180_000;
 const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
 const SSH_SOURCE_REPOSITORY_RE = /\bgit@(?:github\.com|gitlab\.com):[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?\b/gi;
 const SOURCE_REPOSITORY_HOSTS = new Set(['github.com', 'gitlab.com']);
+
+export function defaultSourceRepositoryStoreDirectory(registryDirectory?: string): string {
+  const explicit = process.env.BEALE_REPOSITORY_STORE_DIR?.trim();
+  if (explicit) return resolve(explicit);
+  const bealeHome = registryDirectory ?? process.env.BEALE_PROGRAM_REGISTRY_DIR?.trim() ?? join(homedir(), '.beale');
+  return resolve(bealeHome, 'repositories');
+}
 
 export function sourceRepositoryCandidates(scope: ProgramScopeVersion): SourceRepositoryCandidate[] {
   const candidates = new Map<string, SourceRepositoryCandidate>();
@@ -78,13 +87,18 @@ export function selectSourceRepository(scope: ProgramScopeVersion, requested: st
   return { candidate: ranked[0].candidate, candidates, reason: 'matched' };
 }
 
-export function materializeGitRepository(candidate: SourceRepositoryCandidate, databasePath: string, ref: string): MaterializedSourceRepository {
+export function materializeGitRepository(
+  candidate: SourceRepositoryCandidate,
+  databasePath: string,
+  ref: string,
+  options: { repositoryStoreDirectory?: string } = {}
+): MaterializedSourceRepository {
   const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
-  const managedRoot = join(workspaceRoot, 'targets', 'repositories');
+  const managedRoot = resolve(options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory());
   const slug = repositorySlug(candidate.url);
-  const localPath = join(managedRoot, slug);
   const cleanRef = ref.trim();
-  mkdirSync(managedRoot, { recursive: true });
+  const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
+  mkdirSync(dirname(localPath), { recursive: true });
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
@@ -113,7 +127,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
+  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
   rmSync(tempPath, { recursive: true, force: true });
   try {
     runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
@@ -139,14 +153,14 @@ export async function materializeGitRepositoryAsync(
   candidate: SourceRepositoryCandidate,
   databasePath: string,
   ref: string,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; repositoryStoreDirectory?: string } = {}
 ): Promise<MaterializedSourceRepository> {
   const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
-  const managedRoot = join(workspaceRoot, 'targets', 'repositories');
+  const managedRoot = resolve(options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory());
   const slug = repositorySlug(candidate.url);
-  const localPath = join(managedRoot, slug);
   const cleanRef = ref.trim();
-  mkdirSync(managedRoot, { recursive: true });
+  const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
+  mkdirSync(dirname(localPath), { recursive: true });
 
   const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
   if (existingCheckout) {
@@ -175,7 +189,7 @@ export async function materializeGitRepositoryAsync(
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
+  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
   rmSync(tempPath, { recursive: true, force: true });
   try {
     await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath], options.signal);
@@ -271,6 +285,13 @@ function repositorySlug(url: string): string {
     .replace(/\.git$/i, '')
     .replace(/[^A-Za-z0-9_.-]+/g, '_')
     .slice(0, 120);
+}
+
+function repositoryCheckoutKey(ref: string): string {
+  if (!ref) return 'default';
+  const label = ref.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'ref';
+  const digest = createHash('sha256').update(ref).digest('hex').slice(0, 12);
+  return `${label}-${digest}`;
 }
 
 function workspaceRootFromDatabasePath(databasePath: string): string {

@@ -6,7 +6,9 @@ Status: accepted initial direction, 2026-04-26.
 
 Beale should use local embedded SQLite databases for authoritative persistent state.
 
-Each Beale workspace directory gets its own database. Beale should not use one global database for all targets or programs.
+Each Beale workspace directory gets its own research database. Beale should not use one global database for all research contexts.
+
+Repository checkout storage is the exception: source code may be stored once in a user-global Beale repository store and referenced from multiple workspace databases. The reference is workspace-local, and a global checkout is not globally visible to agents.
 
 Remote persistence, remote sync, and hosted storage are not first-release goals and should not be planned as an expected future path.
 
@@ -26,7 +28,7 @@ Authorized vulnerability research data is sensitive:
 
 Keeping persistence local reduces unnecessary exposure and makes the security model easier to reason about.
 
-Per-workspace databases also reduce accidental cross-program lookup. A researcher working on multiple authorized programs on the same machine should not accidentally retrieve hypotheses, traces, artifacts, or findings from another program.
+Per-workspace databases also reduce accidental cross-scope lookup. A researcher working on multiple authorized contexts on the same machine should not accidentally retrieve hypotheses, traces, artifacts, or findings from another workspace.
 
 ## Storage Layout
 

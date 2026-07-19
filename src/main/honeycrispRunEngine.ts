@@ -31,6 +31,7 @@ interface HoneycrispWorkspaceRepositoryContext {
   role: 'known_repository' | 'materialized_source' | 'workspace';
   source: 'beale';
   repositoryUrl?: string;
+  notes?: string[];
 }
 
 interface ActiveHoneycrispRun {
@@ -176,46 +177,6 @@ const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimat
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
 const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
 const LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS = 1200;
-const BEALE_HONEYCRISP_SKILL_ROOT = join('.beale', 'honeycrisp-skills');
-const BEALE_SKEPTICAL_TRIAGE_SKILL_ID = 'beale-skeptical-triage';
-const BEALE_SKEPTICAL_TRIAGE_SKILL_MARKDOWN = `# Beale Skeptical Vulnerability Triage
-Id: beale-skeptical-triage
-Version: 0.1
-Description: Beale vulnerability triage that keeps bugs as candidates until a realistic end-to-end proof-of-vulnerability and skeptical review are complete.
-Domain tags: vulnerability, security, proof, pov, triage, beale
-Recommended tools: repository.search, file.read, analysis.transform, experiment.run
-Recommended action classes: inspect, analyze, experiment, synthesize
-Runbook: Treat every suspected bug as candidate until a realistic end-to-end PoV and skeptical review both support it.
----
-You are operating inside Beale as an authorized vulnerability research agent.
-Keep Honeycrisp general memory categories intact: evidence, claims, hypotheses, findings, proof attempts, and uncertainty.
-Do not use subagents. Perform both builder and skeptic roles yourself in the same loop, or clearly schedule the missing role as follow-up work.
-
-Triage rule:
-- A suspected bug is only a candidate until there is a realistic end-to-end proof-of-vulnerability.
-- Do not call a bug confirmed, verified, exploitable, security-impacting, or report-ready from static reasoning alone.
-- If proof is missing, record the finding as candidate/needs-evidence and preserve blockers and assumptions.
-
-Proof-of-vulnerability requirements:
-1. Define the attacker-controlled input, privilege boundary or trust boundary, vulnerable code path, trigger conditions, impact mechanism, and observable security effect.
-2. Build or specify a realistic end-to-end PoV that starts from the attacker-controlled input and reaches the claimed impact.
-3. Prefer runnable local proof artifacts, harnesses, test cases, scripts, debugger traces, or command transcripts when available.
-4. Tie every proof step to concrete evidence paths, tool observations, or artifacts.
-5. If a step cannot be executed in the current environment, mark it blocked and keep the bug as candidate.
-
-Skeptical review requirements:
-1. Try to falsify the bug before promoting it.
-2. Check environmental assumptions, parser/API semantics, initialization/error contracts, mitigations, build flags, permissions, reachability, and expected benign behavior.
-3. Search for nearby code patterns or documentation that contradict the claim.
-4. Identify false-positive explanations and what evidence would rule them out.
-5. If the skeptical review finds plausible doubt, keep the bug as candidate/needs-evidence.
-
-Output and writeback expectations:
-- Separate Candidate, Evidence, PoV Plan or PoV Result, Skeptical Review, Assumptions, Blockers, and Next Proof Step.
-- Promote to confirmed/verified only when the end-to-end PoV is realistic and the skeptical review is satisfied.
-- Otherwise explicitly state: candidate only.
-`;
-
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -912,7 +873,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     args.push('--effort', input.reasoningEffort.trim());
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
-  args.push(...bealeHoneycrispRuntimeArgs(workspacePath));
+  args.push(...bealeHoneycrispRuntimeArgs());
   return args;
 }
 
@@ -977,7 +938,7 @@ export function invokeHoneycrispToolsList(workspacePath: string): Record<string,
     'list',
     '--workspace-root',
     workspacePath,
-    ...bealeHoneycrispRuntimeArgs(workspacePath),
+    ...bealeHoneycrispRuntimeArgs(),
     '--json'
   ];
   const result = spawnSync(invocation.command, fullArgs, {
@@ -1062,7 +1023,7 @@ function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: s
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
   for (const asset of scope.assets) {
-    if (asset.direction !== 'in_scope') continue;
+    if (asset.direction !== 'in_scope' || !isLocalResearchMaterialKind(asset.kind)) continue;
     const root = localRootForAsset(asset);
     if (!root) continue;
     if (!materializedSourcePaths.includes(root)) {
@@ -1073,23 +1034,12 @@ function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: s
       knownRepositories.push({
         rootPath: root,
         label: honeycrispAssetLabel(asset),
-        role: 'known_repository',
+        role: 'materialized_source',
         source: 'beale',
-        ...(repositoryUrl ? { repositoryUrl } : {})
-      });
-    }
-  }
-  const workspaceRoot = localDirectoryRoot(workspacePath);
-  if (workspaceRoot) {
-    if (!materializedSourcePaths.includes(workspaceRoot)) {
-      materializedSourcePaths.push(workspaceRoot);
-    }
-    if (!knownRepositories.some((repository) => repository.rootPath === workspaceRoot)) {
-      knownRepositories.push({
-        rootPath: workspaceRoot,
-        label: 'Workspace root',
-        role: 'workspace',
-        source: 'beale'
+        ...(repositoryUrl ? { repositoryUrl } : {}),
+        ...(asset.attributes?.sourceStorage === 'user_global'
+          ? { notes: ['User-global Beale source checkout referenced by this workspace. Research state remains workspace-local.'] }
+          : {})
       });
     }
   }
@@ -1098,12 +1048,46 @@ function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: s
     workspaceRoot: workspacePath,
     knownRepositories,
     materializedSourcePaths,
-    projectNotes: [
-      `Program: ${scope.programName}`,
-      `Organization: ${scope.organizationName}`,
-      `Network profile: ${scope.networkProfile}`
-    ].filter((note) => !note.endsWith(': '))
+    projectNotes: honeycrispScopeNotes(scope)
   };
+}
+
+function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
+  return kind === 'repo' || kind === 'path' || kind === 'binary';
+}
+
+function honeycrispScopeNotes(scope: ProgramScopeVersion): string[] {
+  const notes = [
+    'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
+    scope.programName.trim() ? `Scope: ${boundedContextText(scope.programName)}` : '',
+    scope.organizationName.trim() ? `Scope owner or subject: ${boundedContextText(scope.organizationName)}` : '',
+    scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
+    `Network access profile: ${boundedContextText(scope.networkProfile)}`,
+    scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: not recorded; confirm if the research context may be stale.',
+    scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
+  ];
+  const orderedAssets = [...scope.assets].sort((left, right) => Number(left.direction === 'in_scope') - Number(right.direction === 'in_scope'));
+  for (const asset of orderedAssets.slice(0, 200)) {
+    const instruction = stringAttribute(asset.attributes?.instruction);
+    notes.push(
+      `${asset.direction === 'in_scope' ? 'In scope' : 'Out of scope'} (${asset.kind}, ${asset.sensitivity}): ${honeycrispScopeAssetValue(asset)}` +
+        (instruction ? ` — ${boundedContextText(instruction, 1_000)}` : '')
+    );
+  }
+  if (scope.assets.length > 200) {
+    notes.push(`Scope asset list truncated: ${scope.assets.length - 200} additional assets remain in Beale.`);
+  }
+  return notes.filter(Boolean);
+}
+
+function honeycrispScopeAssetValue(asset: ScopeAsset): string {
+  if (asset.kind === 'credential_ref') return '[host-held credential reference; value withheld from agent context]';
+  return boundedContextText(asset.value, 1_000);
+}
+
+function boundedContextText(value: string, maxChars = 6_000): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length <= maxChars ? normalized : `${normalized.slice(0, maxChars - 1)}…`;
 }
 
 function localRootForAsset(asset: ScopeAsset): string | null {
@@ -1170,25 +1154,8 @@ function additionalHoneycrispRuntimeArgs(): string[] {
   return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
 }
 
-function bealeHoneycrispRuntimeArgs(workspacePath: string): string[] {
-  return [...bealeBuiltinHoneycrispSkillArgs(workspacePath), ...additionalHoneycrispRuntimeArgs()];
-}
-
-function bealeBuiltinHoneycrispSkillArgs(workspacePath: string): string[] {
-  const skillRoot = ensureBealeHoneycrispBuiltinSkills(workspacePath);
-  return ['--skill-dir', skillRoot, '--skill', BEALE_SKEPTICAL_TRIAGE_SKILL_ID];
-}
-
-function ensureBealeHoneycrispBuiltinSkills(workspacePath: string): string {
-  const skillRoot = join(workspacePath, BEALE_HONEYCRISP_SKILL_ROOT);
-  const skillDirectory = join(skillRoot, BEALE_SKEPTICAL_TRIAGE_SKILL_ID);
-  const skillPath = join(skillDirectory, 'SKILL.md');
-  const skillMarkdown = `${BEALE_SKEPTICAL_TRIAGE_SKILL_MARKDOWN.trim()}\n`;
-  mkdirSync(skillDirectory, { recursive: true });
-  if (!existsSync(skillPath) || readFileSync(skillPath, 'utf8') !== skillMarkdown) {
-    writeFileSync(skillPath, skillMarkdown, 'utf8');
-  }
-  return skillRoot;
+function bealeHoneycrispRuntimeArgs(): string[] {
+  return additionalHoneycrispRuntimeArgs();
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {

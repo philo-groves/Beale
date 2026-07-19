@@ -88,12 +88,15 @@
 
 ### Removed
 
+- Removed the mandatory `beale-skeptical-triage` Honeycrisp skill and its workspace-generated runbook; research triage is now owned by the selected model unless the user explicitly selects additional guidance.
 - Removed Beale-managed VM/Docker sandbox setup, executor runtime, vmctl tooling, and Settings > Sandboxes. Beale now treats Honeycrisp execution as host-process execution; users should launch Beale/Honeycrisp inside their own VM or container when OS isolation is required.
 - Removed the Beale benchmark/CyberGym prototype runner, harness scripts, IPC, settings, scenario UI, and tests. Domain-specific harnesses now belong in Honeycrisp skills, MCP servers, or external project tooling.
 - Removed Beale's parallel fake/OpenAI research-agent runtime and structured-tool router. New research sessions now route through Honeycrisp, with a guarded fixture engine retained only for deterministic tests.
 
 ### Changed
 
+- Changed Honeycrisp workspace context to lead with operator-recorded authorization, neutral scope facts, rules, expiry, network posture, and in/out assets, while no longer presenting the whole workspace root as source code.
+- Changed newly materialized repositories to use a user-global checkout store with workspace-local source references; existing workspace-local checkouts remain supported and requested refs use separate checkout paths.
 - Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.
 - Changed New Research and OpenAI provider defaults on the Honeycrisp harness branch to use GPT-5.6 Sol with high reasoning.
 - Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.

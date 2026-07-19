@@ -15,7 +15,13 @@ import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { readHoneycrispAgentContext } from './agentContextReader';
 import { ProgramRegistry } from './programRegistry';
 import { ProfilingService } from './profilingService';
-import { extractSourceRepositoryUrls, materializeGitRepositoryAsync, normalizeSourceRepositoryUrl, sourceRepositoryCandidates } from './sourceMaterializer';
+import {
+  defaultSourceRepositoryStoreDirectory,
+  extractSourceRepositoryUrls,
+  materializeGitRepositoryAsync,
+  normalizeSourceRepositoryUrl,
+  sourceRepositoryCandidates
+} from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
@@ -269,6 +275,7 @@ function hostExecutionStatus(): ExecutorStatus {
 
 export interface WorkspaceServiceOptions {
   programRegistryDirectory?: string;
+  repositoryStoreDirectory?: string;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
 }
@@ -606,10 +613,14 @@ export class WorkspaceService {
       }
       const abortController = new AbortController();
       job.activeClone = { repositoryUrl: candidate.url, abortController };
-      job.repositories.set(key, { ...row, stage: 'cloning', message: 'Cloning repository into the workspace.', updatedAt: nowIso() });
+      job.repositories.set(key, { ...row, stage: 'cloning', message: 'Cloning repository into Beale source storage.', updatedAt: nowIso() });
       this.emitOnboardingRepositoryProgress(job);
       try {
-        const materialized = await materializeGitRepositoryAsync(candidate, runtime.db.getDatabasePath(), '', { signal: abortController.signal });
+        const materialized = await materializeGitRepositoryAsync(candidate, runtime.db.getDatabasePath(), '', {
+          signal: abortController.signal,
+          repositoryStoreDirectory:
+            this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.programRegistryDirectory)
+        });
         const latest = job.repositories.get(key) ?? row;
         materializedAssets.push({
           direction: 'in_scope',
@@ -618,6 +629,8 @@ export class WorkspaceService {
           sensitivity: candidate.sensitivity,
           attributes: {
             source: 'beale_onboarding_index',
+            sourceStorage: 'user_global',
+            sourceReferenceVersion: 1,
             repositoryUrl: materialized.repositoryUrl,
             sourceAssetId: candidate.sourceAssetId,
             head: materialized.head,
