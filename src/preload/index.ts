@@ -5,16 +5,16 @@ import type {
   DeveloperSettings,
   GeneratedResearchPrompt,
   HostEnvironment,
-  HackerOneProgramLookupResult,
+  HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
   HoneycrispToolingConfigUpdate,
-  ProgramOnboardingInput,
-  ProgramOnboardingProgressUpdate,
-  ProgramOnboardingSkipInput,
-  ProgramRegistryState,
+  WorkspaceOnboardingInput,
+  WorkspaceOnboardingProgressUpdate,
+  WorkspaceOnboardingSkipInput,
+  WorkspaceRegistryState,
   ProfilingReport,
   ProfilingState,
-  ProgramScopeDraft,
+  WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
   SessionTranscriptSearchInput,
@@ -38,11 +38,11 @@ const api: BealeApi = {
   selectWorkspace(mode: WorkspacePickerMode) {
     return ipcRenderer.invoke(IPC_CHANNELS.selectWorkspace, mode);
   },
-  selectProgramDirectory() {
-    return ipcRenderer.invoke(IPC_CHANNELS.selectProgramDirectory);
+  selectWorkspaceDirectory() {
+    return ipcRenderer.invoke(IPC_CHANNELS.selectWorkspaceDirectory);
   },
-  getProgramRegistry() {
-    return ipcRenderer.invoke(IPC_CHANNELS.getProgramRegistry);
+  getWorkspaceRegistry() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceRegistry);
   },
   getDeveloperSettings(): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getDeveloperSettings);
@@ -50,25 +50,25 @@ const api: BealeApi = {
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
   },
-  lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneProgram, identifier);
+  lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneScope, identifier);
   },
-  createProgram(input: ProgramOnboardingInput) {
-    return ipcRenderer.invoke(IPC_CHANNELS.createProgram, input);
+  createScopedWorkspace(input: WorkspaceOnboardingInput) {
+    return ipcRenderer.invoke(IPC_CHANNELS.createScopedWorkspace, input);
   },
-  skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null> {
-    return ipcRenderer.invoke(IPC_CHANNELS.skipProgramOnboardingRepository, input);
+  skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.skipWorkspaceOnboardingRepository, input);
   },
-  onProgramOnboardingUpdate(listener: (update: ProgramOnboardingProgressUpdate) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, update: ProgramOnboardingProgressUpdate): void => listener(update);
-    ipcRenderer.on(IPC_CHANNELS.programOnboardingUpdated, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.programOnboardingUpdated, wrapped);
+  onWorkspaceOnboardingUpdate(listener: (update: WorkspaceOnboardingProgressUpdate) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, update: WorkspaceOnboardingProgressUpdate): void => listener(update);
+    ipcRenderer.on(IPC_CHANNELS.workspaceOnboardingUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceOnboardingUpdated, wrapped);
   },
-  openProgram(programId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.openProgram, programId);
+  openRegisteredWorkspace(registryWorkspaceId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openRegisteredWorkspace, registryWorkspaceId);
   },
-  removeProgram(programId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.removeProgram, programId);
+  removeRegisteredWorkspace(registryWorkspaceId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeRegisteredWorkspace, registryWorkspaceId);
   },
   openWorkspace(path: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, path);
@@ -120,17 +120,14 @@ const api: BealeApi = {
     ipcRenderer.on(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
   },
-  saveProgramScope(scope: ProgramScopeDraft) {
-    return ipcRenderer.invoke(IPC_CHANNELS.saveProgramScope, scope);
+  saveScope(scope: WorkspaceScopeDraft) {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveScope, scope);
   },
   startRun(input: StartRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.startRun, input);
   },
   exportWorkspaceBackup(note?: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.exportWorkspaceBackup, note);
-  },
-  migrateLegacyResearchMemoryToHoneycrisp(runId?: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.migrateLegacyResearchMemoryToHoneycrisp, runId);
   },
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
@@ -191,10 +188,10 @@ const api: BealeApi = {
     ipcRenderer.on(IPC_CHANNELS.snapshotUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.snapshotUpdated, wrapped);
   },
-  onProgramRegistry(listener: (state: ProgramRegistryState) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, state: ProgramRegistryState): void => listener(state);
-    ipcRenderer.on(IPC_CHANNELS.programRegistryUpdated, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.programRegistryUpdated, wrapped);
+  onWorkspaceRegistry(listener: (state: WorkspaceRegistryState) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: WorkspaceRegistryState): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.workspaceRegistryUpdated, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceRegistryUpdated, wrapped);
   }
 };
 

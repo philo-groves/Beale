@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ProgramOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
+import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
 
 beforeEach(() => {
-  process.env.BEALE_PROGRAM_REGISTRY_DIR = tempWorkspace();
+  process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempWorkspace();
 });
 
 afterEach(() => {
@@ -33,7 +33,7 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
-  delete process.env.BEALE_PROGRAM_REGISTRY_DIR;
+  delete process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   delete process.env.BEALE_TOOLING_ARGS_PATH;
   delete process.env.POC_SAVE_DIR;
   delete process.env.XDG_CACHE_HOME;
@@ -51,7 +51,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.workspace.workspacePath).toBe(dir);
     expect(snapshot.workspace.databasePath).toBe(join(dir, '.beale', 'beale.sqlite'));
     expect(snapshot.activeScope.version).toBe(1);
-    expect(snapshot.activeScope.programName).toBe('Untitled Program');
+    expect(snapshot.activeScope.workspaceName).toBe('Untitled Workspace');
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
     expect(snapshot.openAi.readiness).toBe('not_configured');
     expect(snapshot.openAi.onboardingSteps.some((step) => step.id === 'secret_isolation')).toBe(true);
@@ -64,8 +64,17 @@ describe('Beale workbench skeleton', () => {
     const benchmarkTables = schema
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('benchmark_runs', 'benchmark_task_results') ORDER BY name")
       .all();
+    const scopeTable = schema.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'scope_versions'").get();
+    const removedSchemaTables = schema
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('program_scope_versions', 'schema_migrations') ORDER BY name")
+      .all();
+    const scopeColumns = (schema.prepare('PRAGMA table_info(scope_versions)').all() as Array<{ name: string }>).map((row) => row.name);
     schema.close();
     expect(benchmarkTables).toHaveLength(0);
+    expect(scopeTable).toBeTruthy();
+    expect(removedSchemaTables).toHaveLength(0);
+    expect(scopeColumns).toEqual(expect.arrayContaining(['workspace_name', 'scope_owner']));
+    expect(scopeColumns).not.toEqual(expect.arrayContaining(['program_name', 'organization_name']));
 
     const workspaceId = snapshot.workspace.workspaceId;
     service.close();
@@ -76,7 +85,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('keeps legacy context graph state inert for workspace snapshots', () => {
+  it('keeps disabled context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
@@ -90,7 +99,7 @@ describe('Beale workbench skeleton', () => {
       runId: String(runId),
       state: 'needs_evidence',
       title: 'Snapshot graph refresh hypothesis',
-      descriptionMarkdown: 'The program overview should refresh stale graph state before rendering.',
+      descriptionMarkdown: 'The workspace overview should refresh stale graph state before rendering.',
       component: 'overview graph',
       bugClass: 'state_sync',
       priorityScore: 0.4,
@@ -100,9 +109,9 @@ describe('Beale workbench skeleton', () => {
       exploitPracticality: 'needs validation',
       scopeConfidence: 'in_scope'
     });
-    const legacyGraph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
-    expect(legacyGraph.status).toBe('empty');
-    expect(legacyGraph.nodeCount).toBe(0);
+    const graph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
+    expect(graph.status).toBe('empty');
+    expect(graph.nodeCount).toBe(0);
     db.close();
 
     const reopened = new WorkspaceService();
@@ -205,49 +214,49 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('onboards programs into the global registry and mirrors run summaries', () => {
+  it('onboards workspaces into the global registry and mirrors run summaries', () => {
     const workspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    expect(service.getProgramRegistryState().programs).toHaveLength(0);
-    const inspection = service.inspectProgramDirectory(workspace);
+    expect(service.getWorkspaceRegistryState().workspaces).toHaveLength(0);
+    const inspection = service.inspectWorkspaceDirectory(workspace);
     expect(inspection.requiresOnboarding).toBe(true);
     expect(inspection.defaults?.workspacePath).toBe(workspace);
     expect(existsSync(join(workspace, '.beale'))).toBe(false);
 
-    const snapshot = service.createProgram({
+    const snapshot = service.createScopedWorkspace({
       workspacePath: workspace,
-      programName: 'Acme Bug Bounty',
-      organizationName: '',
+      workspaceName: 'Acme Bug Bounty',
+      scopeOwner: '',
       descriptionMarkdown: 'Authorized parser research.',
       rulesMarkdown: 'Stay inside recorded scope.',
       networkProfile: 'offline',
       expiresAt: '   '
     });
-    expect(snapshot.activeScope.programName).toBe('Acme Bug Bounty');
-    expect(snapshot.activeScope.organizationName).toBe('');
+    expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
+    expect(snapshot.activeScope.scopeOwner).toBe('');
     expect(snapshot.activeScope.expiresAt).toBeNull();
     expect(existsSync(join(workspace, '.beale', 'beale.sqlite'))).toBe(true);
 
-    const registered = service.getProgramRegistryState();
+    const registered = service.getWorkspaceRegistryState();
     expect(registered.registryPath).toBe(join(registryDir, 'registry.sqlite'));
-    expect(registered.programs).toHaveLength(1);
-    expect(registered.programs[0]).toMatchObject({
+    expect(registered.workspaces).toHaveLength(1);
+    expect(registered.workspaces[0]).toMatchObject({
       workspacePath: workspace,
-      programName: 'Acme Bug Bounty',
-      organizationName: '',
+      workspaceName: 'Acme Bug Bounty',
+      scopeOwner: '',
       runCount: 0
     });
-    expect(service.inspectProgramDirectory(workspace).knownProgram?.id).toBe(registered.programs[0].id);
+    expect(service.inspectWorkspaceDirectory(workspace).knownWorkspace?.id).toBe(registered.workspaces[0].id);
 
     const runSnapshot = service.startRun(runInput('verified_finding'), 'complete');
     const latestRun = runSnapshot.runs[0]?.run;
     expect(latestRun).toBeTruthy();
-    const withRun = service.getProgramRegistryState();
-    expect(withRun.programs[0].runCount).toBe(1);
+    const withRun = service.getWorkspaceRegistryState();
+    expect(withRun.workspaces[0].runCount).toBe(1);
     expect(withRun.researchSessions[0]).toMatchObject({
-      programId: withRun.programs[0].id,
+      registryWorkspaceId: withRun.workspaces[0].id,
       workspacePath: workspace,
       runId: latestRun?.id,
       title: latestRun?.title,
@@ -257,11 +266,11 @@ describe('Beale workbench skeleton', () => {
     });
     service.close();
 
-    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
-    const persisted = reopened.getProgramRegistryState();
-    expect(persisted.programs[0].programName).toBe('Acme Bug Bounty');
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const persisted = reopened.getWorkspaceRegistryState();
+    expect(persisted.workspaces[0].workspaceName).toBe('Acme Bug Bounty');
     expect(persisted.researchSessions[0].runId).toBe(latestRun?.id);
-    expect(reopened.openProgram(persisted.programs[0].id).activeScope.programName).toBe('Acme Bug Bounty');
+    expect(reopened.openRegisteredWorkspace(persisted.workspaces[0].id).activeScope.workspaceName).toBe('Acme Bug Bounty');
     reopened.close();
   });
 
@@ -470,9 +479,9 @@ describe('Beale workbench skeleton', () => {
     writeFileSync(join(nestedSourceRoot, 'parse.c'), 'parse_context_save();\n');
     writeFileSync(credentialReferencePath, 'host-only-reference\n');
     service.createWorkspace(workspace);
-    service.saveProgramScope({
-      programName: 'ZSH Fixture',
-      organizationName: 'Apple Security Bounty',
+    service.saveScope({
+      workspaceName: 'ZSH Fixture',
+      scopeOwner: 'Apple Security Bounty',
       descriptionMarkdown: 'Local nested source fixture for Honeycrisp integration.',
       rulesMarkdown: 'Use local context provided by the operator.',
       networkProfile: 'offline',
@@ -695,26 +704,26 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('isolates default program registry writes when the registry directory override is set', () => {
+  it('isolates default workspace registry writes when the registry directory override is set', () => {
     const workspace = tempWorkspace();
-    const registryDir = process.env.BEALE_PROGRAM_REGISTRY_DIR ?? '';
+    const registryDir = process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '';
     expect(registryDir).toBeTruthy();
 
     const service = new WorkspaceService();
     service.createWorkspace(workspace);
-    service.getProgramRegistryState();
+    service.getWorkspaceRegistryState();
 
     expect(existsSync(join(registryDir, 'registry.sqlite'))).toBe(true);
     const registry = new DatabaseSync(join(registryDir, 'registry.sqlite'));
-    const rows = registry.prepare('SELECT program_name, workspace_path FROM programs').all() as Array<{ program_name: string; workspace_path: string }>;
+    const rows = registry.prepare('SELECT workspace_name, workspace_path FROM workspaces').all() as Array<{ workspace_name: string; workspace_path: string }>;
     registry.close();
-    expect(rows).toEqual([{ program_name: 'Untitled Program', workspace_path: workspace }]);
+    expect(rows).toEqual([{ workspace_name: 'Untitled Workspace', workspace_path: workspace }]);
     service.close();
   });
 
   it('persists developer mode and profiling diagnostics settings', () => {
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
     expect(service.getDeveloperSettings()).toEqual({ developerModeEnabled: false });
     expect(service.getProfilingState().enabled).toBe(false);
@@ -723,7 +732,7 @@ describe('Beale workbench skeleton', () => {
     expect(service.getProfilingState().enabled).toBe(true);
     service.close();
 
-    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
     expect(reopened.getDeveloperSettings()).toEqual({ developerModeEnabled: true });
     expect(reopened.getProfilingState().enabled).toBe(true);
     expect(reopened.setDeveloperModeEnabled(false)).toEqual({ developerModeEnabled: false });
@@ -762,9 +771,9 @@ describe('Beale workbench skeleton', () => {
 
     const response = service.searchSessionTranscripts({ query: 'fixture workbench', limit: 5 });
     expect(response.totalTranscriptMatches).toBe(1);
-    expect(response.programCount).toBe(1);
-    expect(response.programs[0]).toMatchObject({
-      programName: 'Untitled Program',
+    expect(response.workspaceCount).toBe(1);
+    expect(response.workspaces[0]).toMatchObject({
+      workspaceName: 'Untitled Workspace',
       totalTranscriptMatches: 1
     });
     expect(response.results[0]).toMatchObject({
@@ -776,8 +785,8 @@ describe('Beale workbench skeleton', () => {
     expect(service.searchSessionTranscripts({ query: 'not-present-in-session-transcripts' })).toEqual({
       results: [],
       totalTranscriptMatches: 0,
-      programCount: 0,
-      programs: []
+      workspaceCount: 0,
+      workspaces: []
     });
     service.close();
   });
@@ -790,35 +799,35 @@ describe('Beale workbench skeleton', () => {
     const response = service.searchSessionTranscripts({ query: 'limitedneedle', limit: 1 });
     expect(response.results).toHaveLength(1);
     expect(response.totalTranscriptMatches).toBe(2);
-    expect(response.programCount).toBe(1);
-    expect(response.programs[0]).toMatchObject({
-      programName: 'Untitled Program',
+    expect(response.workspaceCount).toBe(1);
+    expect(response.workspaces[0]).toMatchObject({
+      workspaceName: 'Untitled Workspace',
       totalTranscriptMatches: 2
     });
     service.close();
   });
 
-  it('searches the current program by default and can opt into loaded programs', () => {
+  it('searches the current workspace by default and can opt into loaded workspaces', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: firstWorkspace,
-      programName: 'First Program',
-      organizationName: '',
-      descriptionMarkdown: 'First persisted program.',
+      workspaceName: 'First Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
     service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# First\nsharedneedle first transcript.' }, 'complete');
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: secondWorkspace,
-      programName: 'Second Program',
-      organizationName: '',
-      descriptionMarkdown: 'Second persisted program.',
+      workspaceName: 'Second Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
       networkProfile: 'offline',
       expiresAt: null
@@ -827,97 +836,97 @@ describe('Beale workbench skeleton', () => {
 
     const currentOnly = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10 });
     expect(currentOnly.totalTranscriptMatches).toBe(1);
-    expect(currentOnly.programCount).toBe(1);
-    expect(currentOnly.programs).toHaveLength(1);
-    expect(currentOnly.programs[0]).toMatchObject({
-      programName: 'Second Program',
+    expect(currentOnly.workspaceCount).toBe(1);
+    expect(currentOnly.workspaces).toHaveLength(1);
+    expect(currentOnly.workspaces[0]).toMatchObject({
+      workspaceName: 'Second Workspace',
       totalTranscriptMatches: 1
     });
-    expect(new Set(currentOnly.results.map((result) => result.programName))).toEqual(new Set(['Second Program']));
+    expect(new Set(currentOnly.results.map((result) => result.workspaceName))).toEqual(new Set(['Second Workspace']));
 
-    const acrossLoaded = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10, currentProgramOnly: false });
+    const acrossLoaded = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10, currentWorkspaceOnly: false });
     expect(acrossLoaded.totalTranscriptMatches).toBe(2);
-    expect(acrossLoaded.programCount).toBe(2);
-    expect(new Map(acrossLoaded.programs.map((program) => [program.programName, program.totalTranscriptMatches]))).toEqual(
+    expect(acrossLoaded.workspaceCount).toBe(2);
+    expect(new Map(acrossLoaded.workspaces.map((workspace) => [workspace.workspaceName, workspace.totalTranscriptMatches]))).toEqual(
       new Map([
-        ['First Program', 1],
-        ['Second Program', 1]
+        ['First Workspace', 1],
+        ['Second Workspace', 1]
       ])
     );
-    expect(new Set(acrossLoaded.results.map((result) => result.programName))).toEqual(new Set(['First Program', 'Second Program']));
+    expect(new Set(acrossLoaded.results.map((result) => result.workspaceName))).toEqual(new Set(['First Workspace', 'Second Workspace']));
     expect(acrossLoaded.results.every((result) => result.workspacePath === firstWorkspace || result.workspacePath === secondWorkspace)).toBe(true);
     service.close();
   });
 
-  it('keeps program sidebar order stable when programs are opened', () => {
+  it('keeps workspace sidebar order stable when workspaces are opened', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: firstWorkspace,
-      programName: 'First Program',
-      organizationName: '',
-      descriptionMarkdown: 'First persisted program.',
+      workspaceName: 'First Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: secondWorkspace,
-      programName: 'Second Program',
-      organizationName: '',
-      descriptionMarkdown: 'Second persisted program.',
+      workspaceName: 'Second Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
 
-    const initialOrder = service.getProgramRegistryState().programs.map((program) => program.id);
-    const firstProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'First Program');
-    expect(firstProgram).toBeTruthy();
-    service.openProgram(firstProgram?.id ?? '');
-    expect(service.getProgramRegistryState().programs.map((program) => program.id)).toEqual(initialOrder);
+    const initialOrder = service.getWorkspaceRegistryState().workspaces.map((workspace) => workspace.id);
+    const firstRegisteredWorkspace = service.getWorkspaceRegistryState().workspaces.find((workspace) => workspace.workspaceName === 'First Workspace');
+    expect(firstRegisteredWorkspace).toBeTruthy();
+    service.openRegisteredWorkspace(firstRegisteredWorkspace?.id ?? '');
+    expect(service.getWorkspaceRegistryState().workspaces.map((workspace) => workspace.id)).toEqual(initialOrder);
     service.close();
   });
 
-  it('keeps active research sessions running when another program is opened', async () => {
+  it('keeps active research sessions running when another workspace is opened', async () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: firstWorkspace,
-      programName: 'First Program',
-      organizationName: '',
-      descriptionMarkdown: 'First persisted program.',
+      workspaceName: 'First Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
-    const firstProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'First Program');
+    const firstRegisteredWorkspace = service.getWorkspaceRegistryState().workspaces.find((workspace) => workspace.workspaceName === 'First Workspace');
     const activeSnapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
     const runId = activeSnapshot.runs[0]?.run.id ?? '';
     const initialTraceCount = service.getRunDetail(runId).traceEvents.length;
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: secondWorkspace,
-      programName: 'Second Program',
-      organizationName: '',
-      descriptionMarkdown: 'Second persisted program.',
+      workspaceName: 'Second Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
-    expect(service.getSnapshot()?.activeScope.programName).toBe('Second Program');
+    expect(service.getSnapshot()?.activeScope.workspaceName).toBe('Second Workspace');
 
     await new Promise<void>((resolve) => setTimeout(resolve, 950));
-    const backgroundSession = service.getProgramRegistryState().researchSessions.find((session) => session.runId === runId);
+    const backgroundSession = service.getWorkspaceRegistryState().researchSessions.find((session) => session.runId === runId);
     expect(backgroundSession?.status).toBe('active');
 
-    service.openProgram(firstProgram?.id ?? '');
+    service.openRegisteredWorkspace(firstRegisteredWorkspace?.id ?? '');
     const detail = service.getRunDetail(runId);
     expect(detail.run.status).toBe('active');
     expect(detail.traceEvents.length).toBeGreaterThan(initialTraceCount);
@@ -951,13 +960,13 @@ describe('Beale workbench skeleton', () => {
     chmodSync(fakeGit, 0o700);
     process.env.BEALE_GIT_COMMAND = fakeGit;
     const service = new WorkspaceService();
-    const progressUpdates: ProgramOnboardingProgressUpdate[] = [];
+    const progressUpdates: WorkspaceOnboardingProgressUpdate[] = [];
 
-    service.createProgram(
+    service.createScopedWorkspace(
       {
         workspacePath: workspace,
-        programName: 'Onboarding Source Program',
-        organizationName: 'Example Org',
+        workspaceName: 'Onboarding Source Workspace',
+        scopeOwner: 'Example Org',
         descriptionMarkdown: 'Onboarding should clone selected repositories.',
         rulesMarkdown: 'Offline source review.',
         networkProfile: 'offline',
@@ -984,7 +993,7 @@ describe('Beale workbench skeleton', () => {
     const snapshot = service.getSnapshot();
     const completedProgress = progressUpdates.at(-1);
     const sourceReference = snapshot?.activeScope.assets.find((asset) => String(asset.value).includes('github.com_Netflix_zuul'));
-    expect(sourceReference?.value).toContain(join(process.env.BEALE_PROGRAM_REGISTRY_DIR ?? '', 'repositories'));
+    expect(sourceReference?.value).toContain(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'repositories'));
     expect(sourceReference?.attributes).toMatchObject({
       sourceStorage: 'user_global',
       sourceReferenceVersion: 1,
@@ -999,7 +1008,7 @@ describe('Beale workbench skeleton', () => {
   it('does not broadcast full workspace snapshots for active trace-only runtime updates', async () => {
     const workspace = tempWorkspace();
     const changes: boolean[] = [];
-    const service = new WorkspaceService((change) => changes.push(change.programRegistryChanged));
+    const service = new WorkspaceService((change) => changes.push(change.workspaceRegistryChanged));
 
     service.createWorkspace(workspace);
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
@@ -1016,88 +1025,88 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('removes programs from the global registry without deleting workspaces', () => {
+  it('removes workspaces from the global registry without deleting workspaces', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: firstWorkspace,
-      programName: 'First Program',
-      organizationName: '',
-      descriptionMarkdown: 'First persisted program.',
+      workspaceName: 'First Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: secondWorkspace,
-      programName: 'Second Program',
-      organizationName: '',
-      descriptionMarkdown: 'Second persisted program.',
+      workspaceName: 'Second Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
 
-    const secondProgram = service.getProgramRegistryState().programs.find((program) => program.programName === 'Second Program');
-    expect(secondProgram).toBeTruthy();
-    expect(service.removeProgram(secondProgram?.id ?? '')).toBeNull();
+    const secondRegisteredWorkspace = service.getWorkspaceRegistryState().workspaces.find((workspace) => workspace.workspaceName === 'Second Workspace');
+    expect(secondRegisteredWorkspace).toBeTruthy();
+    expect(service.removeRegisteredWorkspace(secondRegisteredWorkspace?.id ?? '')).toBeNull();
     expect(service.getSnapshot()).toBeNull();
     expect(existsSync(secondWorkspace)).toBe(true);
 
-    const remaining = service.getProgramRegistryState().programs;
-    expect(remaining.map((program) => program.programName)).toEqual(['First Program']);
-    expect(service.openProgram(remaining[0]?.id ?? '').activeScope.programName).toBe('First Program');
+    const remaining = service.getWorkspaceRegistryState().workspaces;
+    expect(remaining.map((workspace) => workspace.workspaceName)).toEqual(['First Workspace']);
+    expect(service.openRegisteredWorkspace(remaining[0]?.id ?? '').activeScope.workspaceName).toBe('First Workspace');
     service.close();
   });
 
-  it('reopens the last known program and skips missing workspaces gracefully', () => {
+  it('reopens the last known workspace and skips missing workspaces gracefully', () => {
     const firstWorkspace = tempWorkspace();
     const secondWorkspace = tempWorkspace();
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: firstWorkspace,
-      programName: 'First Program',
-      organizationName: '',
-      descriptionMarkdown: 'First persisted program.',
+      workspaceName: 'First Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
-    service.createProgram({
+    service.createScopedWorkspace({
       workspacePath: secondWorkspace,
-      programName: 'Second Program',
-      organizationName: '',
-      descriptionMarkdown: 'Second persisted program.',
+      workspaceName: 'Second Workspace',
+      scopeOwner: '',
+      descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
       networkProfile: 'offline',
       expiresAt: null
     });
     service.dispose();
 
-    const reopened = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
-    const restored = reopened.openLastProgramIfAvailable();
-    expect(restored?.activeScope.programName).toBe('Second Program');
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const restored = reopened.openLastWorkspaceIfAvailable();
+    expect(restored?.activeScope.workspaceName).toBe('Second Workspace');
     expect(reopened.getSnapshot()?.workspace.workspacePath).toBe(secondWorkspace);
     reopened.dispose();
 
     rmSync(secondWorkspace, { recursive: true, force: true });
-    const missing = new WorkspaceService(() => undefined, { programRegistryDirectory: registryDir });
-    expect(missing.openLastProgramIfAvailable()).toBeNull();
+    const missing = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(missing.openLastWorkspaceIfAvailable()).toBeNull();
     expect(missing.getSnapshot()).toBeNull();
-    expect(missing.getProgramRegistryState().programs.some((program) => program.workspacePath === secondWorkspace)).toBe(true);
+    expect(missing.getWorkspaceRegistryState().workspaces.some((workspace) => workspace.workspacePath === secondWorkspace)).toBe(true);
     missing.dispose();
   });
 
-  it('looks up HackerOne program metadata and imports public structured scope', async () => {
+  it('looks up HackerOne scope metadata and imports public structured scope', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-hackerone-import-review';
     const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
-      programRegistryDirectory: tempWorkspace(),
+      workspaceRegistryDirectory: tempWorkspace(),
       hackerOneFetch: async (_url, init) => {
         const body = JSON.parse(String(init?.body)) as { variables: { handle: string } };
         expect(body.variables.handle).toBe('github');
@@ -1157,8 +1166,8 @@ describe('Beale workbench skeleton', () => {
         expect(JSON.stringify(request)).toContain('github.com');
         expect(JSON.stringify(request)).toContain('Third-party services');
         const review = {
-          programName: 'GitHub',
-          organizationName: 'GitHub',
+          workspaceName: 'GitHub',
+          scopeOwner: 'GitHub',
           scopeMarkdown: '## Scope\n- In scope: github.com\n- Out of scope: Third-party services',
           rulesMarkdown: '## Rules\nStay in scope. Verify the current HackerOne page before live testing.'
         };
@@ -1172,13 +1181,13 @@ describe('Beale workbench skeleton', () => {
       }
     });
 
-    const lookup = await service.lookupHackerOneProgram('https://hackerone.com/github');
+    const lookup = await service.lookupHackerOneScope('https://hackerone.com/github');
     expect(lookup).toMatchObject({
       handle: 'github',
       sourceUrl: 'https://hackerone.com/github',
-      programName: 'GitHub',
-      organizationName: 'GitHub',
-      descriptionMarkdown: 'Authorized research under the GitHub Security Bounty program on HackerOne.',
+      workspaceName: 'GitHub',
+      scopeOwner: 'GitHub',
+      descriptionMarkdown: 'Authorized research under the GitHub Security Bounty workspace on HackerOne.',
       networkProfile: 'elevated',
       importedScopeCount: 3
     });
@@ -1222,20 +1231,20 @@ describe('Beale workbench skeleton', () => {
     delete process.env.OPENAI_API_KEY;
     let requestedHackerOne = false;
     const service = new WorkspaceService(() => undefined, {
-      programRegistryDirectory: tempWorkspace(),
+      workspaceRegistryDirectory: tempWorkspace(),
       hackerOneFetch: async () => {
         requestedHackerOne = true;
         return new Response('{}', { status: 200 });
       }
     });
 
-    await expect(service.lookupHackerOneProgram('github')).rejects.toThrow(/Authenticate with OpenAI first/);
+    await expect(service.lookupHackerOneScope('github')).rejects.toThrow(/Authenticate with OpenAI first/);
     expect(requestedHackerOne).toBe(false);
     expect(() =>
-      service.createProgram({
+      service.createScopedWorkspace({
         workspacePath: tempWorkspace(),
-        programName: 'GitHub',
-        organizationName: 'GitHub',
+        workspaceName: 'GitHub',
+        scopeOwner: 'GitHub',
         descriptionMarkdown: '',
         rulesMarkdown: '',
         networkProfile: 'scoped',
@@ -1258,8 +1267,8 @@ describe('Beale workbench skeleton', () => {
   it('reports missing Responses API scope clearly during HackerOne model review', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-without-responses-write';
     const service = new WorkspaceService(() => undefined, {
-      programRegistryDirectory: tempWorkspace(),
-      hackerOneFetch: async () => hackerOneProgramResponse(),
+      workspaceRegistryDirectory: tempWorkspace(),
+      hackerOneFetch: async () => hackerOneWorkspaceResponse(),
       openAiFetch: async () =>
         new Response(
           JSON.stringify({
@@ -1272,11 +1281,11 @@ describe('Beale workbench skeleton', () => {
         )
     });
 
-    await expect(service.lookupHackerOneProgram('github')).rejects.toThrow(/Responses API write scope.*BEALE_OPENAI_ACCESS_TOKEN.*OPENAI_API_KEY/);
+    await expect(service.lookupHackerOneScope('github')).rejects.toThrow(/Responses API write scope.*BEALE_OPENAI_ACCESS_TOKEN.*OPENAI_API_KEY/);
     service.close();
   });
 
-  it('generates a recommended research prompt from program scope and prior research', async () => {
+  it('generates a recommended research prompt from workspace scope and prior research', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
     const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
@@ -1287,7 +1296,7 @@ describe('Beale workbench skeleton', () => {
         expect(request.model).toBe('gpt-5.4');
         expect(request.tools).toEqual([]);
         expect(request.reasoning).toEqual({ effort: 'medium' });
-        expect(serialized).toContain('Kernel Audit Program');
+        expect(serialized).toContain('Kernel Audit Workspace');
         expect(serialized).toContain('/src/kernel');
         expect(serialized).toContain('previousResearch');
         expect(serialized).toContain('likelyUnderexploredInScopeAssets');
@@ -1317,9 +1326,9 @@ describe('Beale workbench skeleton', () => {
     });
 
     service.createWorkspace(tempWorkspace());
-    service.saveProgramScope({
-      programName: 'Kernel Audit Program',
-      organizationName: 'Kernel Org',
+    service.saveScope({
+      workspaceName: 'Kernel Audit Workspace',
+      scopeOwner: 'Kernel Org',
       descriptionMarkdown: 'Authorized source and binary review for kernel-adjacent parsing components.',
       rulesMarkdown: 'Only test local fixtures and scoped repositories.',
       networkProfile: 'offline',
@@ -1505,151 +1514,6 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('upgrades an older migration marker into the current workspace schema', () => {
-    const dir = tempWorkspace();
-    mkdirSync(join(dir, '.beale', 'artifacts', 'sha256'), { recursive: true });
-    const raw = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
-    raw.exec(`
-      CREATE TABLE schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        applied_at TEXT NOT NULL
-      );
-      INSERT INTO schema_migrations (version, name, applied_at)
-      VALUES (1, 'old_fixture_schema', '2026-01-01T00:00:00.000Z');
-    `);
-    raw.close();
-
-    const service = new WorkspaceService();
-    const snapshot = service.openWorkspace(dir);
-    expect(snapshot.activeScope.programName).toBe('Untitled Program');
-    expect(snapshot.recovery.interruptedRuns).toBe(0);
-    service.close();
-  });
-
-  it('migrates schema v3 export records to export review state', () => {
-    const dir = tempWorkspace();
-    const artifactRoot = join(dir, '.beale', 'artifacts');
-    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const raw = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
-    raw.exec(`
-      CREATE TABLE schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        applied_at TEXT NOT NULL
-      );
-      INSERT INTO schema_migrations (version, name, applied_at)
-      VALUES (3, 'initial_workbench_schema', '2026-01-01T00:00:00.000Z');
-
-      CREATE TABLE workspace_meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE program_scope_versions (
-        id TEXT PRIMARY KEY,
-        version INTEGER NOT NULL UNIQUE,
-        status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
-        program_name TEXT NOT NULL,
-        organization_name TEXT NOT NULL,
-        description_markdown TEXT NOT NULL,
-        network_policy_json TEXT NOT NULL,
-        rules_markdown TEXT NOT NULL,
-        active_from TEXT NOT NULL,
-        expires_at TEXT,
-        created_at TEXT NOT NULL,
-        created_by TEXT NOT NULL
-      );
-
-      CREATE TABLE scope_assets (
-        id TEXT PRIMARY KEY,
-        scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
-        direction TEXT NOT NULL CHECK (direction IN ('in_scope', 'out_of_scope')),
-        kind TEXT NOT NULL,
-        value TEXT NOT NULL,
-        attributes_json TEXT NOT NULL,
-        sensitivity TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE exports (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        finding_id TEXT,
-        kind TEXT NOT NULL,
-        relative_path TEXT NOT NULL,
-        redaction_policy_json TEXT NOT NULL,
-        included_artifacts_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
-    raw.close();
-
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
-    db.initialize();
-    db.close();
-
-    const migrated = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
-    const columns = (migrated.prepare('PRAGMA table_info(exports)').all() as Array<{ name: string }>).map((row) => row.name);
-    const migration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 4').get();
-    const notificationsMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 5').get();
-    const contextCompactionMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 6').get();
-    const transcriptMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 7').get();
-    const cweMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 9').get();
-    const projectIndexMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 11').get();
-    const projectStructureMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 12').get();
-    const projectSemanticMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 13').get();
-    const projectGraphMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 14').get();
-    const projectGraphStatusMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 15').get();
-    const projectSearchPerformanceMigration = migrated.prepare('SELECT version FROM schema_migrations WHERE version = 19').get();
-    const notificationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'").get();
-    const transcriptTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transcript_messages'").get();
-    const weaknessTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'weakness_mappings'").get();
-    const inventoryTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_inventory_items'").get();
-    const searchDocumentsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get();
-    const searchFtsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_fts'").get();
-    const structureTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get();
-    const structureRelationsTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_relations'").get();
-    const semanticChunksTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_semantic_chunks'").get();
-    const graphNodesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_nodes'").get();
-    const graphEdgesTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_edges'").get();
-    const graphStatusTable = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_graph_status'").get();
-    const semanticScopeDocumentIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_semantic_scope_document'").get();
-    const graphVariantNodeIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_graph_edges_variant_node'").get();
-    const graphVariantLabelIndex = migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_project_graph_edges_variant_label'").get();
-    const cweEntry = migrated.prepare("SELECT name FROM cwe_entries WHERE cwe_id = 'CWE-862'").get();
-    migrated.close();
-    expect(columns).toEqual(expect.arrayContaining(['status', 'review_decision', 'review_note', 'reviewed_at']));
-    expect(migration).toBeTruthy();
-    expect(notificationsMigration).toBeTruthy();
-    expect(contextCompactionMigration).toBeTruthy();
-    expect(transcriptMigration).toBeTruthy();
-    expect(cweMigration).toBeTruthy();
-    expect(projectIndexMigration).toBeTruthy();
-    expect(projectStructureMigration).toBeTruthy();
-    expect(projectSemanticMigration).toBeTruthy();
-    expect(projectGraphMigration).toBeTruthy();
-    expect(projectGraphStatusMigration).toBeTruthy();
-    expect(projectSearchPerformanceMigration).toBeTruthy();
-    expect(notificationsTable).toBeTruthy();
-    expect(transcriptTable).toBeTruthy();
-    expect(weaknessTable).toBeTruthy();
-    expect(inventoryTable).toBeTruthy();
-    expect(searchDocumentsTable).toBeTruthy();
-    expect(searchFtsTable).toBeTruthy();
-    expect(structureTable).toBeTruthy();
-    expect(structureRelationsTable).toBeTruthy();
-    expect(semanticChunksTable).toBeTruthy();
-    expect(graphNodesTable).toBeTruthy();
-    expect(graphEdgesTable).toBeTruthy();
-    expect(graphStatusTable).toBeTruthy();
-    expect(semanticScopeDocumentIndex).toBeTruthy();
-    expect(graphVariantNodeIndex).toBeTruthy();
-    expect(graphVariantLabelIndex).toBeTruthy();
-    expect(cweEntry).toBeTruthy();
-  });
-
   it('recovers interrupted active state on workspace reopen', () => {
     const service = openService();
     const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
@@ -1672,9 +1536,9 @@ describe('Beale workbench skeleton', () => {
   it('persists scope edits as a new active version with typed assets', () => {
     const service = openService();
 
-    const snapshot = service.saveProgramScope({
-      programName: 'Example Bug Bounty',
-      organizationName: 'Example Org',
+    const snapshot = service.saveScope({
+      workspaceName: 'Example Bug Bounty',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Authorized open-ended vulnerability discovery on scoped assets.',
       rulesMarkdown: 'No out-of-scope network testing.',
       networkProfile: 'scoped',
@@ -1688,7 +1552,7 @@ describe('Beale workbench skeleton', () => {
     });
 
     expect(snapshot.activeScope.version).toBe(2);
-    expect(snapshot.activeScope.programName).toBe('Example Bug Bounty');
+    expect(snapshot.activeScope.workspaceName).toBe('Example Bug Bounty');
     expect(snapshot.activeScope.networkProfile).toBe('scoped');
     expect(snapshot.activeScope.assets).toHaveLength(4);
     expect(snapshot.activeScope.assets.map((item) => item.value)).toContain('admin.example.test');
@@ -1702,9 +1566,9 @@ describe('Beale workbench skeleton', () => {
 
   it('records a deterministic fixture run graph that replays from persisted state', () => {
     const service = openService();
-    service.saveProgramScope({
-      programName: 'Parser Program',
-      organizationName: 'Example Org',
+    service.saveScope({
+      workspaceName: 'Parser Workspace',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Scoped parser research.',
       rulesMarkdown: 'Stay inside local fixtures.',
       networkProfile: 'offline',
@@ -1861,137 +1725,6 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.filter((event) => event.summary.startsWith('Honeycrisp memory steering forwarded:'))).toHaveLength(5);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp memory steering forwarded: request_reproduction.')).toBe(true);
     expect(JSON.stringify(detail.traceEvents.at(-1)?.payload)).not.toContain('forwardsecret12345');
-    service.close();
-  });
-
-  it('exports Beale legacy research memory as Honeycrisp import events', () => {
-    const dir = tempWorkspace();
-    const logPath = join(dir, 'honeycrisp-import-calls.jsonl');
-    const fakeHoneycrisp = join(dir, 'fake-honeycrisp-import.mjs');
-    writeFileSync(
-      fakeHoneycrisp,
-      [
-        "import { appendFileSync, readFileSync } from 'node:fs';",
-        `const logPath = ${JSON.stringify(logPath)};`,
-        "const args = process.argv.slice(2);",
-        "appendFileSync(logPath, JSON.stringify(args) + '\\n');",
-        "const memoryIndex = args.indexOf('memory');",
-        "const command = args[memoryIndex + 1] || 'unknown';",
-        "const importPath = args[memoryIndex + 2];",
-        "const eventCount = command === 'import-events' ? readFileSync(importPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
-        "console.log(JSON.stringify({ action: command, importPath, loadedEvents: eventCount, appendedEvents: eventCount, skippedExistingEvents: 0, recordsWritten: Math.max(0, eventCount - 2), proofObjectsUpdated: 2, agentState: { memory: {}, proof: {}, storage: {} } }));"
-      ].join('\n'),
-      'utf8'
-    );
-    chmodSync(fakeHoneycrisp, 0o700);
-    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
-    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
-
-    const artifactRoot = join(dir, '.beale', 'artifacts');
-    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
-    db.initialize();
-    const context = db.createRun({
-      scopeVersionId: db.getActiveScope().id,
-      title: 'Legacy migration run',
-      promptMarkdown: '# Legacy migration run',
-      mode: 'open_discovery',
-      model: 'fixture',
-      reasoningEffort: 'medium',
-      attemptStrategy: 'single_path',
-      networkProfile: 'offline',
-      sandboxProfile: 'host',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
-    });
-    const hypothesis = db.createHypothesis({
-      runId: context.run.id,
-      state: 'needs_evidence',
-      title: 'Legacy parser hypothesis',
-      descriptionMarkdown: 'Legacy hypothesis body.',
-      component: 'parser',
-      bugClass: 'logic',
-      priorityScore: 61,
-      attackerReachability: 'local',
-      impact: 'medium',
-      evidenceConfidence: 'model',
-      exploitPracticality: 'unknown',
-      scopeConfidence: 'in_scope'
-    });
-    const finding = db.createFinding({
-      runId: context.run.id,
-      hypothesisId: hypothesis.id,
-      state: 'needs_evidence',
-      title: 'Legacy parser finding',
-      summaryMarkdown: 'Legacy finding summary.',
-      impactMarkdown: 'Legacy impact.',
-      priorityScore: 72
-    });
-    db.createEvidence({
-      runId: context.run.id,
-      hypothesisId: hypothesis.id,
-      findingId: finding.id,
-      kind: 'observation',
-      summary: 'Legacy parser evidence.'
-    });
-    const contract = db.createVerifierContract({
-      runId: context.run.id,
-      hypothesisId: hypothesis.id,
-      findingId: finding.id,
-      mode: 'reproduction',
-      status: 'approved',
-      setupStepsMarkdown: 'Prepare legacy fixture.',
-      triggerStepsMarkdown: 'Run legacy verifier.',
-      expectedObservations: { pass: true },
-      invariants: {},
-      artifactsToCollect: {},
-      passCriteria: { reproduced: true }
-    });
-    db.createVerifierRun({
-      contractId: contract.id,
-      runId: context.run.id,
-      status: 'pass',
-      blockedIssue: '',
-      behaviorPreserved: 'yes',
-      diagnosticsClean: 'yes',
-      regressionTests: 'not run',
-      result: { realExecution: true },
-      endedAt: '2026-06-25T12:00:00.000Z'
-    });
-    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared legacy migration fixture.');
-    db.updateRunStatus(context.run.id, 'completed', 'Prepared legacy migration fixture.');
-    db.close();
-
-    const service = new WorkspaceService();
-    service.openWorkspace(dir);
-    const runId = context.run.id;
-    const before = service.getRunDetail(runId);
-    expect(before.legacyResearchMemory?.status).toBe('legacy_only');
-    expect(before.legacyResearchMemory?.migrationNeeded).toBe(true);
-    expect(before.evidence.length).toBeGreaterThan(0);
-
-    const migrated = service.migrateLegacyResearchMemoryToHoneycrisp(runId);
-    const calls = readFileSync(logPath, 'utf8')
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as string[]);
-    const importedEvents = readFileSync(migrated.importPath, 'utf8')
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as { kind: string; id: string; payload: Record<string, unknown> });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(expect.arrayContaining(['memory', 'import-events', migrated.importPath]));
-    expect(migrated.runIds).toEqual([runId]);
-    expect(migrated.eventCount).toBe(importedEvents.length);
-    expect(migrated.appendedEvents).toBe(importedEvents.length);
-    expect(migrated.legacy.hypotheses).toBeGreaterThan(0);
-    expect(importedEvents.some((event) => event.kind === 'model.hypothesis')).toBe(true);
-    expect(importedEvents.some((event) => event.kind === 'tool.observed')).toBe(true);
-    expect(importedEvents.some((event) => event.kind === 'finding.updated')).toBe(true);
-    expect(importedEvents.some((event) => event.kind === 'proof.requested')).toBe(true);
-    expect(importedEvents.every((event) => /^evt_[0-9a-f-]{36}$/i.test(event.id))).toBe(true);
-    const findingEvent = importedEvents.find((event) => event.kind === 'finding.updated');
-    expect(findingEvent?.payload.domainMetadata).toMatchObject({ source: 'beale_legacy', bealeRunId: runId });
     service.close();
   });
 
@@ -2207,9 +1940,9 @@ describe('Beale workbench skeleton', () => {
     writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
     const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
     db.initialize();
-    db.saveProgramScope({
-      programName: 'Verifier Program',
-      organizationName: 'Example Org',
+    db.saveScope({
+      workspaceName: 'Verifier Workspace',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Scoped verifier target.',
       rulesMarkdown: 'Host verifier only.',
       networkProfile: 'offline',
@@ -2347,9 +2080,9 @@ describe('Beale workbench skeleton', () => {
 
   it('exports a checkpointed workspace backup archive with a review manifest', () => {
     const service = openService();
-    service.saveProgramScope({
-      programName: 'Backup Program',
-      organizationName: 'Example Org',
+    service.saveScope({
+      workspaceName: 'Backup Workspace',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Scoped backup test.',
       rulesMarkdown: 'Offline only.',
       networkProfile: 'offline',
@@ -2385,7 +2118,7 @@ function tempWorkspace(): string {
   return dir;
 }
 
-function hackerOneProgramResponse(): Response {
+function hackerOneWorkspaceResponse(): Response {
   return new Response(
     JSON.stringify({
       data: {

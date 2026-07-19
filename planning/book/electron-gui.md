@@ -8,8 +8,8 @@ Beale's Electron GUI should be a vulnerability research workbench, not a chat-fi
 
 The primary experience is:
 
-1. Select or create a vulnerability research program workspace.
-2. Define program description, authorization, and scope.
+1. Select or create a research workspace.
+2. Define its description, authorization, and scope.
 3. Submit a markdown research prompt to start a run.
 4. Track multiple concurrent research runs.
 5. Inspect traces, tools, hypotheses, artifacts, and verifier results.
@@ -17,30 +17,31 @@ The primary experience is:
 
 ## Top-Level Navigation
 
-The app should have a side navigation view for known vulnerability research programs.
+The app should have a side navigation view for known research workspaces.
 
-Each program maps to a workspace directory with its own local `.beale/` database.
+Each workspace maps to a directory with its own local `.beale/` database.
 
 The side navigation should support:
 
-- Switching between known programs.
+- Switching between known workspaces.
 - Opening a workspace directory.
-- Creating a new program workspace.
+- Creating a new workspace.
 - Showing basic status for each workspace where practical.
 
-Search should default to the current research program because each workspace database is intentionally isolated. The UI may offer an explicit opt-in to search across loaded programs, but broad cross-program search must be visible to the user and must stay local to known Beale workspaces.
+Search should default to the current workspace because each workspace database is intentionally isolated. The UI may offer an explicit opt-in to search across loaded workspaces, but broader search must be visible to the user and remain local to known Beale workspaces.
 
-## Program Scope View
+## Authorized Scope View
 
-Each workspace needs a program scope view.
+Each workspace needs an authorized scope view.
 
 Purpose:
 
-- Define and edit the vulnerability research program description and scope.
+- Define and edit the research context, authorization boundary, and scope.
 
 Fields should include:
 
-- Program or organization name.
+- Workspace name.
+- Scope owner or subject, when useful.
 - Scope description.
 - In-scope domains and hosts.
 - In-scope repositories.
@@ -49,7 +50,7 @@ Fields should include:
 - In-scope accounts or credential references.
 - Explicit out-of-scope assets.
 - Network policy.
-- Notes about program rules.
+- Rules and constraints.
 - Expiration or review date where applicable.
 
 This view should be reusable for initial setup and later editing.
@@ -92,7 +93,7 @@ The prompt is the research request or task brief. It is not a continuous chat as
 
 The start-run interface should show:
 
-- Active program scope.
+- Active authorized scope.
 - Selected task mode if applicable.
 - Model and reasoning settings.
 - Attempt strategy.

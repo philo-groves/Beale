@@ -5,10 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type {
   DeveloperSettings,
-  ProgramDirectorySelection,
-  ProgramOnboardingDefaults,
-  ProgramRegistryEntry,
-  ProgramRegistryState,
+  WorkspaceDirectorySelection,
+  WorkspaceOnboardingDefaults,
+  WorkspaceRegistryEntry,
+  WorkspaceRegistryState,
   ResearchSessionSummary,
   RunEngineKind,
   RunStatus,
@@ -26,15 +26,15 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   updatedAt: null
 };
 
-function defaultProgramRegistryDirectory(): string {
-  return process.env.BEALE_PROGRAM_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
+function defaultWorkspaceRegistryDirectory(): string {
+  return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
 }
 
-export class ProgramRegistry {
+export class WorkspaceRegistry {
   private readonly db: DatabaseSync;
   public readonly registryPath: string;
 
-  public constructor(registryDirectory = defaultProgramRegistryDirectory()) {
+  public constructor(registryDirectory = defaultWorkspaceRegistryDirectory()) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'registry.sqlite');
     this.db = new DatabaseSync(this.registryPath);
@@ -46,11 +46,11 @@ export class ProgramRegistry {
     this.db.close();
   }
 
-  public getState(): ProgramRegistryState {
+  public getState(): WorkspaceRegistryState {
     return {
       registryPath: this.registryPath,
       vmPreference: this.getVmPreference(),
-      programs: this.listPrograms(),
+      workspaces: this.listWorkspaces(),
       researchSessions: this.listResearchSessions()
     };
   }
@@ -82,70 +82,70 @@ export class ProgramRegistry {
     return this.getDeveloperSettings();
   }
 
-  public inspectDirectory(path: string): ProgramDirectorySelection {
+  public inspectDirectory(path: string): WorkspaceDirectorySelection {
     const workspacePath = resolve(path);
-    const knownProgram = this.getProgramByPath(workspacePath);
+    const knownWorkspace = this.getWorkspaceByPath(workspacePath);
     return {
       canceled: false,
       path: workspacePath,
-      knownProgram,
-      requiresOnboarding: !knownProgram,
-      defaults: knownProgram ? null : defaultsForProgramDirectory(workspacePath)
+      knownWorkspace,
+      requiresOnboarding: !knownWorkspace,
+      defaults: knownWorkspace ? null : defaultsForWorkspaceDirectory(workspacePath)
     };
   }
 
-  public getProgram(programId: string): ProgramRegistryEntry | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM programs WHERE id = ?').get(programId));
-    return row ? this.mapProgram(row) : null;
+  public getWorkspace(registryWorkspaceId: string): WorkspaceRegistryEntry | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM workspaces WHERE id = ?').get(registryWorkspaceId));
+    return row ? this.mapWorkspace(row) : null;
   }
 
-  public getProgramByPath(path: string): ProgramRegistryEntry | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM programs WHERE workspace_path = ?').get(resolve(path)));
-    return row ? this.mapProgram(row) : null;
+  public getWorkspaceByPath(path: string): WorkspaceRegistryEntry | null {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM workspaces WHERE workspace_path = ?').get(resolve(path)));
+    return row ? this.mapWorkspace(row) : null;
   }
 
-  public getLastKnownProgram(): ProgramRegistryEntry | null {
-    const metaProgramId = this.getMeta('last_program_id');
-    if (metaProgramId) {
-      const program = this.getProgram(metaProgramId);
-      if (program) return program;
+  public getLastKnownWorkspace(): WorkspaceRegistryEntry | null {
+    const metaWorkspaceId = this.getMeta('last_registry_workspace_id');
+    if (metaWorkspaceId) {
+      const workspace = this.getWorkspace(metaWorkspaceId);
+      if (workspace) return workspace;
     }
 
     const row = rowOrUndefined(
       this.db
         .prepare(
           `SELECT *
-           FROM programs
+           FROM workspaces
            WHERE last_opened_at IS NOT NULL
            ORDER BY last_opened_at DESC, updated_at DESC
            LIMIT 1`
         )
         .get()
     );
-    return row ? this.mapProgram(row) : null;
+    return row ? this.mapWorkspace(row) : null;
   }
 
-  public removeProgram(programId: string): ProgramRegistryEntry | null {
-    const program = this.getProgram(programId);
-    if (!program) return null;
+  public removeRegisteredWorkspace(registryWorkspaceId: string): WorkspaceRegistryEntry | null {
+    const workspace = this.getWorkspace(registryWorkspaceId);
+    if (!workspace) return null;
 
-    this.db.prepare('DELETE FROM programs WHERE id = ?').run(programId);
-    if (this.getMeta('last_program_id') === programId) {
-      this.deleteMeta('last_program_id');
+    this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(registryWorkspaceId);
+    if (this.getMeta('last_registry_workspace_id') === registryWorkspaceId) {
+      this.deleteMeta('last_registry_workspace_id');
     }
-    if (this.getMeta('last_workspace_path') === program.workspacePath) {
+    if (this.getMeta('last_workspace_path') === workspace.workspacePath) {
       this.deleteMeta('last_workspace_path');
     }
-    return program;
+    return workspace;
   }
 
   public syncWorkspace(snapshot: WorkspaceSnapshot, options: { rememberLast?: boolean } = {}): void {
-    const program = this.upsertProgramFromSnapshot(snapshot);
+    const workspace = this.upsertWorkspaceFromSnapshot(snapshot);
     if (options.rememberLast ?? true) {
-      this.rememberLastKnownProgram(program);
+      this.rememberLastKnownWorkspace(workspace);
     }
     for (const row of snapshot.runs) {
-      this.upsertResearchSession(program.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, sessionUpdatedAt(row));
+      this.upsertResearchSession(workspace.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, sessionUpdatedAt(row));
     }
   }
 
@@ -158,12 +158,12 @@ export class ProgramRegistry {
         updated_at TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS programs (
+      CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
         workspace_path TEXT NOT NULL UNIQUE,
-        workspace_id TEXT,
-        program_name TEXT NOT NULL,
-        organization_name TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        workspace_name TEXT NOT NULL,
+        scope_owner TEXT NOT NULL,
         description_markdown TEXT NOT NULL,
         rules_markdown TEXT NOT NULL,
         network_profile TEXT NOT NULL,
@@ -175,9 +175,9 @@ export class ProgramRegistry {
 
       CREATE TABLE IF NOT EXISTS research_sessions (
         id TEXT PRIMARY KEY,
-        program_id TEXT REFERENCES programs(id) ON DELETE SET NULL,
+        registry_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         workspace_path TEXT NOT NULL,
-        workspace_id TEXT,
+        workspace_id TEXT NOT NULL,
         run_id TEXT NOT NULL,
         title TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -196,24 +196,17 @@ export class ProgramRegistry {
         UNIQUE(workspace_path, run_id)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_programs_updated_at ON programs(updated_at);
-      CREATE INDEX IF NOT EXISTS idx_research_sessions_program_id ON research_sessions(program_id);
+      CREATE INDEX IF NOT EXISTS idx_workspaces_updated_at ON workspaces(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_research_sessions_registry_workspace_id ON research_sessions(registry_workspace_id);
       CREATE INDEX IF NOT EXISTS idx_research_sessions_updated_at ON research_sessions(updated_at);
     `);
     this.db
       .prepare('INSERT OR IGNORE INTO registry_meta (key, value, updated_at) VALUES (?, ?, ?)')
       .run('schema_version', '1', nowIso());
-    this.addColumnIfMissing('research_sessions', 'prompt_markdown', "TEXT NOT NULL DEFAULT ''");
   }
 
-  private addColumnIfMissing(table: string, column: string, definition: string): void {
-    const columns = rows(this.db.prepare(`PRAGMA table_info(${table})`).all());
-    if (columns.some((row) => text(row, 'name') === column)) return;
-    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
-  }
-
-  private listPrograms(): ProgramRegistryEntry[] {
-    return rows(this.db.prepare('SELECT * FROM programs ORDER BY created_at DESC, id DESC').all()).map((row) => this.mapProgram(row));
+  private listWorkspaces(): WorkspaceRegistryEntry[] {
+    return rows(this.db.prepare('SELECT * FROM workspaces ORDER BY created_at DESC, id DESC').all()).map((row) => this.mapWorkspace(row));
   }
 
   private listResearchSessions(limit = 200): ResearchSessionSummary[] {
@@ -239,23 +232,23 @@ export class ProgramRegistry {
     this.db.prepare('DELETE FROM registry_meta WHERE key = ?').run(key);
   }
 
-  private rememberLastKnownProgram(program: ProgramRegistryEntry): void {
-    this.setMeta('last_program_id', program.id);
-    this.setMeta('last_workspace_path', program.workspacePath);
+  private rememberLastKnownWorkspace(workspace: WorkspaceRegistryEntry): void {
+    this.setMeta('last_registry_workspace_id', workspace.id);
+    this.setMeta('last_workspace_path', workspace.workspacePath);
   }
 
-  private upsertProgramFromSnapshot(snapshot: WorkspaceSnapshot): ProgramRegistryEntry {
+  private upsertWorkspaceFromSnapshot(snapshot: WorkspaceSnapshot): WorkspaceRegistryEntry {
     const now = nowIso();
     const scope = snapshot.activeScope;
     const workspacePath = resolve(snapshot.workspace.workspacePath);
-    const existing = this.getProgramByPath(workspacePath);
+    const existing = this.getWorkspaceByPath(workspacePath);
     if (existing) {
       this.db
         .prepare(
-          `UPDATE programs SET
+          `UPDATE workspaces SET
             workspace_id = ?,
-            program_name = ?,
-            organization_name = ?,
+            workspace_name = ?,
+            scope_owner = ?,
             description_markdown = ?,
             rules_markdown = ?,
             network_profile = ?,
@@ -266,8 +259,8 @@ export class ProgramRegistry {
         )
         .run(
           snapshot.workspace.workspaceId,
-          scope.programName,
-          scope.organizationName,
+          scope.workspaceName,
+          scope.scopeOwner,
           scope.descriptionMarkdown,
           scope.rulesMarkdown,
           scope.networkProfile,
@@ -276,16 +269,16 @@ export class ProgramRegistry {
           now,
           existing.id
         );
-      const updated = this.getProgram(existing.id);
-      if (!updated) throw new Error(`Program registry update failed: ${existing.id}`);
+      const updated = this.getWorkspace(existing.id);
+      if (!updated) throw new Error(`Workspace registry update failed: ${existing.id}`);
       return updated;
     }
 
-    const id = `program_${randomUUID()}`;
+    const id = `workspace_${randomUUID()}`;
     this.db
       .prepare(
-        `INSERT INTO programs (
-          id, workspace_path, workspace_id, program_name, organization_name, description_markdown,
+        `INSERT INTO workspaces (
+          id, workspace_path, workspace_id, workspace_name, scope_owner, description_markdown,
           rules_markdown, network_profile, expires_at, created_at, updated_at, last_opened_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
@@ -293,8 +286,8 @@ export class ProgramRegistry {
         id,
         workspacePath,
         snapshot.workspace.workspaceId,
-        scope.programName,
-        scope.organizationName,
+        scope.workspaceName,
+        scope.scopeOwner,
         scope.descriptionMarkdown,
         scope.rulesMarkdown,
         scope.networkProfile,
@@ -303,13 +296,13 @@ export class ProgramRegistry {
         now,
         now
       );
-    const inserted = this.getProgram(id);
-    if (!inserted) throw new Error(`Program registry insert failed: ${id}`);
+    const inserted = this.getWorkspace(id);
+    if (!inserted) throw new Error(`Workspace registry insert failed: ${id}`);
     return inserted;
   }
 
   private upsertResearchSession(
-    programId: string,
+    registryWorkspaceId: string,
     workspacePath: string,
     workspaceId: string,
     row: WorkspaceSnapshot['runs'][number],
@@ -318,7 +311,7 @@ export class ProgramRegistry {
     const run = row.run;
     const existing = rowOrUndefined(this.db.prepare('SELECT id FROM research_sessions WHERE workspace_path = ? AND run_id = ?').get(resolve(workspacePath), run.id));
     const values = [
-      programId,
+      registryWorkspaceId,
       resolve(workspacePath),
       workspaceId,
       run.id,
@@ -342,7 +335,7 @@ export class ProgramRegistry {
       this.db
         .prepare(
           `UPDATE research_sessions SET
-            program_id = ?,
+            registry_workspace_id = ?,
             workspace_path = ?,
             workspace_id = ?,
             run_id = ?,
@@ -369,7 +362,7 @@ export class ProgramRegistry {
     this.db
       .prepare(
         `INSERT INTO research_sessions (
-          id, program_id, workspace_path, workspace_id, run_id, title, status, run_engine,
+          id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
           mode, prompt_markdown, summary, model, reasoning_effort, network_profile, sandbox_profile,
           created_at, started_at, ended_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -377,15 +370,15 @@ export class ProgramRegistry {
       .run(`session_${randomUUID()}`, ...values);
   }
 
-  private mapProgram(row: SqlRow): ProgramRegistryEntry {
+  private mapWorkspace(row: SqlRow): WorkspaceRegistryEntry {
     const workspacePath = text(row, 'workspace_path');
     const runSummary = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS run_count, MAX(created_at) AS last_run_at FROM research_sessions WHERE workspace_path = ?').get(workspacePath));
     return {
       id: text(row, 'id'),
       workspacePath,
-      workspaceId: nullableText(row, 'workspace_id'),
-      programName: text(row, 'program_name'),
-      organizationName: text(row, 'organization_name'),
+      workspaceId: text(row, 'workspace_id'),
+      workspaceName: text(row, 'workspace_name'),
+      scopeOwner: text(row, 'scope_owner'),
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
       networkProfile: text(row, 'network_profile'),
@@ -401,9 +394,9 @@ export class ProgramRegistry {
   private mapResearchSession(row: SqlRow): ResearchSessionSummary {
     return {
       id: text(row, 'id'),
-      programId: nullableText(row, 'program_id'),
+      registryWorkspaceId: text(row, 'registry_workspace_id'),
       workspacePath: text(row, 'workspace_path'),
-      workspaceId: nullableText(row, 'workspace_id'),
+      workspaceId: text(row, 'workspace_id'),
       runId: text(row, 'run_id'),
       title: text(row, 'title'),
       status: text(row, 'status') as RunStatus,
@@ -423,11 +416,11 @@ export class ProgramRegistry {
   }
 }
 
-export function defaultsForProgramDirectory(workspacePath: string): ProgramOnboardingDefaults {
+export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceOnboardingDefaults {
   return {
     workspacePath: resolve(workspacePath),
-    programName: titleFromDirectoryName(basename(resolve(workspacePath))),
-    organizationName: '',
+    workspaceName: titleFromDirectoryName(basename(resolve(workspacePath))),
+    scopeOwner: '',
     descriptionMarkdown: '',
     rulesMarkdown: '',
     networkProfile: 'elevated',
@@ -470,7 +463,7 @@ function titleFromDirectoryName(value: string): string {
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!normalized) return 'Untitled Program';
+  if (!normalized) return 'Untitled Workspace';
   return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 

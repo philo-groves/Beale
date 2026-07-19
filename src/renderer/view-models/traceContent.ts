@@ -670,7 +670,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
   if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
   if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
-  if (summary === 'OpenAI completed thought.' || isLegacyThoughtSummary(summary)) return 'Thought';
+  if (summary === 'OpenAI completed thought.') return 'Thought';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
   if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';
@@ -768,10 +768,6 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
 
   if (startsWithTraceVerb(summary)) return summary;
   return `${traceCategoryFallbackPrefix(category)}: ${summary}`;
-}
-
-function isLegacyThoughtSummary(summary: string): boolean {
-  return summary.startsWith('OpenAI completed reasoning') && summary.endsWith('summary.');
 }
 
 function startsWithTraceVerb(summary: string): boolean {

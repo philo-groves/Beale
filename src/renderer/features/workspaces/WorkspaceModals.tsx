@@ -1,64 +1,64 @@
 import type { JSX } from 'react';
-import type { ProgramRegistryEntry, ResearchSessionSummary } from '@shared/types';
+import type { WorkspaceRegistryEntry, ResearchSessionSummary } from '@shared/types';
 import { Modal } from '../../app/Modal';
-import { promptSessionTitle, shortRelativeAge } from '../../view-models/programDisplay';
+import { promptSessionTitle, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
-export function ProgramInformationModal({ program, onClose }: { program: ProgramRegistryEntry; onClose: () => void }): JSX.Element {
+export function WorkspaceInformationModal({ workspace, onClose }: { workspace: WorkspaceRegistryEntry; onClose: () => void }): JSX.Element {
   return (
-    <Modal title="Program Information" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
-      <div className="program-info-grid">
-        <div>
-          <span>Program</span>
-          <strong>{program.programName}</strong>
-        </div>
-        <div>
-          <span>Organization</span>
-          <strong>{program.organizationName || 'None'}</strong>
-        </div>
+    <Modal title="Workspace Information" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+      <div className="workspace-info-grid">
         <div>
           <span>Workspace</span>
-          <strong>{program.workspacePath}</strong>
+          <strong>{workspace.workspaceName}</strong>
+        </div>
+        <div>
+          <span>Scope Owner or Subject</span>
+          <strong>{workspace.scopeOwner || 'None'}</strong>
+        </div>
+        <div>
+          <span>Directory</span>
+          <strong>{workspace.workspacePath}</strong>
         </div>
         <div>
           <span>Network</span>
-          <strong>{program.networkProfile}</strong>
+          <strong>{workspace.networkProfile}</strong>
         </div>
         <div>
           <span>Authorization Expires</span>
-          <strong>{program.expiresAt ?? 'Never'}</strong>
+          <strong>{workspace.expiresAt ?? 'Never'}</strong>
         </div>
         <div>
           <span>Research Sessions</span>
-          <strong>{program.runCount}</strong>
+          <strong>{workspace.runCount}</strong>
         </div>
-        <div className="program-info-block">
+        <div className="workspace-info-block">
           <span>Description</span>
-          <p>{program.descriptionMarkdown || 'No description recorded.'}</p>
+          <p>{workspace.descriptionMarkdown || 'No description recorded.'}</p>
         </div>
-        <div className="program-info-block">
+        <div className="workspace-info-block">
           <span>Scope and Rules</span>
-          <p>{program.rulesMarkdown || 'No scope or rules recorded.'}</p>
+          <p>{workspace.rulesMarkdown || 'No scope or rules recorded.'}</p>
         </div>
       </div>
     </Modal>
   );
 }
 
-export function ProgramSessionHistoryModal({
-  program,
+export function WorkspaceSessionHistoryModal({
+  workspace,
   sessions,
   selectedRunId,
   onClose,
   onOpenSession
 }: {
-  program: ProgramRegistryEntry;
+  workspace: WorkspaceRegistryEntry;
   sessions: ResearchSessionSummary[];
   selectedRunId: string | null;
   onClose: () => void;
   onOpenSession: (session: ResearchSessionSummary) => void;
 }): JSX.Element {
   return (
-    <Modal title={`${program.programName} Sessions`} wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+    <Modal title={`${workspace.workspaceName} Sessions`} wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
       <div className="session-history-list">
         {sessions.length > 0 ? (
           sessions.map((session) => (

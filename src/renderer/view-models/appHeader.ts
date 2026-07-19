@@ -1,13 +1,13 @@
-export function displayProgramHeaderName(programName: string | null | undefined): string {
-  const normalized = (programName ?? '').trim().replace(/\s+/g, ' ');
-  if (!normalized) return 'No Program Selected';
+export function displayWorkspaceHeaderName(workspaceName: string | null | undefined): string {
+  const normalized = (workspaceName ?? '').trim().replace(/\s+/g, ' ');
+  if (!normalized) return 'No Workspace Selected';
   return normalized
     .split(/(\s+)/)
-    .map((part) => (part.trim() ? titleCaseProgramPart(part) : part))
+    .map((part) => (part.trim() ? titleCaseWorkspacePart(part) : part))
     .join('');
 }
 
-function titleCaseProgramPart(value: string): string {
+function titleCaseWorkspacePart(value: string): string {
   return value
     .split(/([-_/])/)
     .map((part) => {

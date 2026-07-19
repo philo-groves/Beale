@@ -15,7 +15,7 @@ The Honeycrisp harness branch should keep Beale's reusable research workbench su
 - Authorized workspace onboarding and scope.
 - Session heat and research momentum.
 - Trace timeline, evidence, hypotheses, findings, transcripts, and notifications.
-- Program understanding and relationship graph views.
+- Workspace understanding and relationship graph views.
 - Provider and sandbox configuration views.
 
 The branch should remove Beale's verification-era emphasis on benchmark operation:
@@ -66,6 +66,6 @@ Session heat is a good candidate for a built-in MCP-style capability: the host c
 - [ ] Decide which benchmark services stay as private test infrastructure.
 - [x] Prototype a Honeycrisp process adapter behind Beale's existing run engine boundary.
 - [x] Launch the default Honeycrisp CLI through a plain Node runtime from Electron.
-- [x] Reframe Beale's no-session program overview around Honeycrisp memory events, derived records, storage directories, retrieval index state, and program tracking.
+- [x] Reframe Beale's no-session workspace overview around Honeycrisp memory events, derived records, storage directories, retrieval index state, and workspace tracking.
 - [ ] Replace capture-after-exit import with live JSONL event streaming when Honeycrisp exposes it.
 - [ ] Promote high-confidence Honeycrisp hypotheses/evidence into Beale hypothesis and evidence tables instead of trace-only rows.

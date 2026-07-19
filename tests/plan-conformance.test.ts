@@ -6,6 +6,7 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { IPC_CHANNELS } from '../src/shared/ipc';
 import type { ScopeAssetKind, StartRunInput } from '../src/shared/types';
 
 const ROOT = process.cwd();
@@ -22,17 +23,22 @@ const OPENAI_ENV_NAMES = [
 ];
 
 beforeEach(() => {
-  process.env.BEALE_PROGRAM_REGISTRY_DIR = tempDir('beale-test-registry-');
+  process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempDir('beale-test-registry-');
 });
 
 afterEach(() => {
-  delete process.env.BEALE_PROGRAM_REGISTRY_DIR;
+  delete process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe('plan conformance', () => {
+  it('keeps every host API on a distinct IPC channel', () => {
+    const channels = Object.values(IPC_CHANNELS);
+    expect(new Set(channels).size).toBe(channels.length);
+  });
+
   it('keeps planning documents linked from the book summary', () => {
     const summaryPath = join(ROOT, 'planning/book/SUMMARY.md');
     const summary = readFileSync(summaryPath, 'utf8');
@@ -62,7 +68,7 @@ describe('plan conformance', () => {
   });
 
   it('keeps authoritative SQL mutation inside the persistence service', () => {
-    const persistenceFiles = new Set(['src/main/database.ts', 'src/main/programRegistry.ts']);
+    const persistenceFiles = new Set(['src/main/database.ts', 'src/main/workspaceRegistry.ts']);
     const files = filesUnder('src').filter(isSourceFile).filter((path) => !persistenceFiles.has(normalizePath(path)));
     const forbiddenSql = [/\bINSERT INTO\b/i, /\bCREATE TABLE\b/i, /\bDELETE FROM\b/i, /\bALTER TABLE\b/i, /\bUPDATE\s+[a-z_]+\s+SET\b/i, /\bPRAGMA\b/i];
 
@@ -151,9 +157,9 @@ describe('plan conformance', () => {
   it('keeps fixture run evidence provenance distinct from model claims', () => {
     const service = new WorkspaceService();
     service.createWorkspace(tempDir('beale-plan-workspace-'));
-    service.saveProgramScope({
-      programName: 'Plan Program',
-      organizationName: 'Example Org',
+    service.saveScope({
+      workspaceName: 'Plan Workspace',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Plan conformance scope.',
       rulesMarkdown: 'Stay inside local fixtures.',
       networkProfile: 'offline',

@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { HoneycrispMemorySummary, ProgramScopeVersion, RunDetail, SteeringAction } from '@shared/types';
-import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
+import type { HoneycrispMemorySummary, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
+import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/ResearchSidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -38,7 +38,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   honeycrispMemory: HoneycrispMemorySummary | null;
   researchPanelCollapsed: boolean;
   runCount: number;
-  scope: ProgramScopeVersion | null;
+  scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
@@ -57,7 +57,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
 }): JSX.Element | null {
   if (!selectedRunId) {
     return (
-      <ProgramUnderstandingView
+      <WorkspaceUnderstandingView
         busy={busy}
         honeycrispMemory={honeycrispMemory}
         runCount={runCount}

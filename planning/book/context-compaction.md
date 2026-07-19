@@ -36,7 +36,7 @@ The compaction system should:
 - Keep tool, artifact, verifier, and trace-backed observations distinct from model claims.
 - Preserve active hypotheses, findings, open questions, and unresolved blockers.
 - Preserve current VM/import/sandbox state and make resets or forks visible.
-- Keep original prompt, program scope, network profile, and safety-relevant rules visible.
+- Keep the original objective, authorized scope, network profile, and safety-relevant rules visible.
 - Drop or summarize stale branches that no longer affect the next action.
 - Prefer compact structured state over raw transcript replay.
 - Record compaction decisions in the trace.
@@ -85,12 +85,12 @@ The compacted replay message should be structured and redacted. It should includ
    - Latest trace sequence included.
 
 2. Authorization state:
-   - Program name and organization.
+   - Workspace name and scope owner or subject.
    - Network profile.
    - Sandbox profile.
    - In-scope assets.
    - Out-of-scope assets.
-   - Important program rules.
+   - Important scope rules and constraints.
 
 3. Original task:
    - Original prompt.

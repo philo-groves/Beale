@@ -6,12 +6,12 @@ import type {
   HoneycrispMemorySummary,
   HoneycrispProofAttemptSummary,
   HoneycrispProofObligationSummary,
-  ProgramScopeVersion,
+  WorkspaceScopeVersion,
   ScopeAsset
 } from '@shared/types';
 import { formatSessionDateTime, networkProfileLabel, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 
-export function ProgramUnderstandingView({
+export function WorkspaceUnderstandingView({
   busy,
   honeycrispMemory,
   onOpenHoneycrispMemoryDirectory,
@@ -22,24 +22,24 @@ export function ProgramUnderstandingView({
   honeycrispMemory: HoneycrispMemorySummary | null;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
   runCount: number;
-  scope: ProgramScopeVersion | null;
+  scope: WorkspaceScopeVersion | null;
 }): JSX.Element {
   const inScopeAssets = scope?.assets.filter((asset) => asset.direction === 'in_scope') ?? [];
   const repositoryAssets = inScopeAssets.filter((asset) => asset.kind === 'repo').slice(0, 6);
   return (
-    <div className="program-understanding-workspace" aria-label="Honeycrisp Memory">
-      <div className="program-understanding-scroll">
-        <div className="program-understanding-summary-grid" aria-label="Program summary">
+    <div className="workspace-understanding-workspace" aria-label="Honeycrisp Memory">
+      <div className="workspace-understanding-scroll">
+        <div className="workspace-understanding-summary-grid" aria-label="Workspace summary">
           <SummaryTile icon={<Database size={17} />} label="Durable Memory" value={`${formatCount(honeycrispMemory?.recordCount ?? 0)} records`} detail={`${formatCount(honeycrispMemory?.eventCount ?? 0)} accepted events`} />
           <SummaryTile icon={<GitBranch size={17} />} label="Findings" value={formatCount(honeycrispMemory?.records.findings.length ?? 0)} detail={`${formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} proof attempts`} />
           <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
-          <SummaryTile icon={<Network size={17} />} label="Program Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active program'} />
+          <SummaryTile icon={<Network size={17} />} label="Workspace Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active workspace'} />
         </div>
 
-        <div className="program-understanding-layout">
-          <section className="program-understanding-section program-understanding-section-wide" aria-label="Honeycrisp memory">
+        <div className="workspace-understanding-layout">
+          <section className="workspace-understanding-section workspace-understanding-section-wide" aria-label="Honeycrisp memory">
             <SectionHeader icon={<Database size={16} />} title="Honeycrisp Memory" status={honeycrispMemory?.status ?? 'missing'} />
-            <div className="program-understanding-metric-grid">
+            <div className="workspace-understanding-metric-grid">
               <MetricCell label="Accepted Events" value={formatCount(honeycrispMemory?.eventCount ?? 0)} />
               <MetricCell label="Memory Records" value={formatCount(honeycrispMemory?.recordCount ?? 0)} />
               <MetricCell label="Claim Edges" value={formatCount(honeycrispMemory?.claimGraphEdgeCount ?? 0)} />
@@ -58,13 +58,13 @@ export function ProgramUnderstandingView({
                 ['Latest Record', formatNullableDate(honeycrispMemory?.latestRecordUpdatedAt)]
               ]}
             />
-            {honeycrispMemory?.lastError ? <p className="program-understanding-warning">{honeycrispMemory.lastError}</p> : null}
-            <div className="program-understanding-list-grid">
+            {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
+            <div className="workspace-understanding-list-grid">
               <CountList title="Event Kinds" counts={honeycrispMemory?.eventKindCounts} />
               <CountList title="Record Kinds" counts={honeycrispMemory?.recordKindCounts} />
               <CountList title="Record Statuses" counts={honeycrispMemory?.recordStatusCounts} />
             </div>
-            <div className="program-understanding-list-grid">
+            <div className="workspace-understanding-list-grid">
               <MemoryRecordList title="Evidence" records={honeycrispMemory?.records.evidence ?? []} />
               <MemoryRecordList title="Hypotheses" records={honeycrispMemory?.records.hypotheses ?? []} />
               <MemoryRecordList title="Findings" records={honeycrispMemory?.records.findings ?? []} />
@@ -75,12 +75,12 @@ export function ProgramUnderstandingView({
             <StorageDirectoryList busy={busy} directories={honeycrispMemory?.directories ?? []} onOpenDirectory={onOpenHoneycrispMemoryDirectory} />
           </section>
 
-          <section className="program-understanding-section" aria-label="Program tracking">
-            <SectionHeader icon={<Boxes size={16} />} title="Program Tracking" />
+          <section className="workspace-understanding-section" aria-label="Workspace tracking">
+            <SectionHeader icon={<Boxes size={16} />} title="Workspace Tracking" />
             <KeyValueRows
               rows={[
-                ['Program', scope?.programName ?? 'None'],
-                ['Organization', scope?.organizationName ?? 'None'],
+                ['Workspace', scope?.workspaceName ?? 'None'],
+                ['Organization', scope?.scopeOwner ?? 'None'],
                 ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
@@ -100,11 +100,11 @@ export function ProgramUnderstandingView({
 
 function SummaryTile({ detail, icon, label, value }: { detail: string; icon: ReactNode; label: string; value: string }): JSX.Element {
   return (
-    <div className="program-understanding-summary-tile">
-      <span className="program-understanding-summary-icon" aria-hidden="true">
+    <div className="workspace-understanding-summary-tile">
+      <span className="workspace-understanding-summary-icon" aria-hidden="true">
         {icon}
       </span>
-      <span className="program-understanding-summary-copy">
+      <span className="workspace-understanding-summary-copy">
         <span>{label}</span>
         <strong>{value}</strong>
         <small>{detail}</small>
@@ -115,20 +115,20 @@ function SummaryTile({ detail, icon, label, value }: { detail: string; icon: Rea
 
 function SectionHeader({ action, icon, status, title }: { action?: ReactNode; icon: ReactNode; status?: string; title: string }): JSX.Element {
   return (
-    <div className="program-understanding-section-header">
-      <span className="program-understanding-section-icon" aria-hidden="true">
+    <div className="workspace-understanding-section-header">
+      <span className="workspace-understanding-section-icon" aria-hidden="true">
         {icon}
       </span>
       <h3>{title}</h3>
       {status ? <StatusPill value={status} /> : null}
-      {action ? <span className="program-understanding-section-action">{action}</span> : null}
+      {action ? <span className="workspace-understanding-section-action">{action}</span> : null}
     </div>
   );
 }
 
 function MetricCell({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="program-understanding-metric-cell">
+    <div className="workspace-understanding-metric-cell">
       <span>{label}</span>
       <strong title={value}>{value}</strong>
     </div>
@@ -138,7 +138,7 @@ function MetricCell({ label, value }: { label: string; value: string }): JSX.Ele
 function CountList({ counts, title }: { counts: Record<string, number> | null | undefined; title: string }): JSX.Element {
   const entries = topCountEntries(counts, 6);
   return (
-    <div className="program-understanding-count-list">
+    <div className="workspace-understanding-count-list">
       <h4>{title}</h4>
       {entries.length > 0 ? (
         <ul>
@@ -158,7 +158,7 @@ function CountList({ counts, title }: { counts: Record<string, number> | null | 
 
 function MemoryRecordList({ records, title }: { records: HoneycrispMemoryRecordSummary[]; title: string }): JSX.Element {
   return (
-    <div className="program-understanding-count-list">
+    <div className="workspace-understanding-count-list">
       <h4>{title}</h4>
       {records.length > 0 ? (
         <ul>
@@ -196,7 +196,7 @@ function ProofStateList({
     }))
   ];
   return (
-    <div className="program-understanding-count-list">
+    <div className="workspace-understanding-count-list">
       <h4>Proof State</h4>
       {rows.length > 0 ? (
         <ul>
@@ -216,7 +216,7 @@ function ProofStateList({
 
 function KeyValueRows({ rows }: { rows: Array<[string, string]> }): JSX.Element {
   return (
-    <dl className="program-understanding-key-values">
+    <dl className="workspace-understanding-key-values">
       {rows.map(([key, value]) => (
         <div key={key}>
           <dt>{key}</dt>
@@ -229,7 +229,7 @@ function KeyValueRows({ rows }: { rows: Array<[string, string]> }): JSX.Element 
 
 function RepositoryList({ assets, total }: { assets: ScopeAsset[]; total: number }): JSX.Element {
   return (
-    <div className="program-understanding-repositories">
+    <div className="workspace-understanding-repositories">
       <h4>Repositories</h4>
       {assets.length > 0 ? (
         <ul>
@@ -258,7 +258,7 @@ function StorageDirectoryList({
   onOpenDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
 }): JSX.Element {
   return (
-    <div className="program-understanding-repositories program-understanding-storage-directories">
+    <div className="workspace-understanding-repositories workspace-understanding-storage-directories">
       <h4>Storage Directories</h4>
       {directories.length > 0 ? (
         <ul>
@@ -268,7 +268,7 @@ function StorageDirectoryList({
               <small>{directory.exists ? `${formatCount(directory.entryCount)} entries` : 'missing'}</small>
               <button
                 type="button"
-                className="program-understanding-row-icon-button"
+                className="workspace-understanding-row-icon-button"
                 title={directory.exists ? `Open ${traceLabel(directory.name)} directory` : `${traceLabel(directory.name)} directory is missing`}
                 aria-label={directory.exists ? `Open ${traceLabel(directory.name)} directory` : `${traceLabel(directory.name)} directory is missing`}
                 disabled={busy || !directory.exists}
@@ -288,7 +288,7 @@ function StorageDirectoryList({
 
 function StatusPill({ label, value }: { label?: string; value: string }): JSX.Element {
   return (
-    <span className={`program-understanding-status status-${stateClass(value)}`} title={label ? `${label}: ${traceLabel(value)}` : traceLabel(value)}>
+    <span className={`workspace-understanding-status status-${stateClass(value)}`} title={label ? `${label}: ${traceLabel(value)}` : traceLabel(value)}>
       {label ? `${label}: ` : ''}
       {traceLabel(value)}
     </span>

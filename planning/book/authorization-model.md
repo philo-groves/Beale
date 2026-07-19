@@ -4,9 +4,9 @@ Status: revised sandbox default, 2026-04-28.
 
 ## Decision
 
-Beale authorization is program-scoped.
+Beale authorization is workspace-scoped.
 
-Each vulnerability research program or organization defines the allowed scope. The agent may work inside that scope without per-action approval.
+Each workspace records an operator-provided authorization boundary. The research context may come from a bug bounty, internal assessment, first-party product research, hobby research, or another authorized setting. The agent may work inside the recorded scope without per-action approval.
 
 Examples of scoped assets:
 
@@ -17,15 +17,16 @@ Examples of scoped assets:
 - Services.
 - Local files.
 - Documentation.
-- Test accounts or credentials provided for the program.
+- Test accounts or credentials provided for the authorized scope.
 
 The sandbox exists to protect the human Beale researcher and their machine from potentially dangerous commands and executables. It is not primarily an authorization prompt mechanism. The default session sandbox is host execution with a visible warning; VM execution remains preferred for risky work, while Docker is an explicit lower-assurance option.
 
 ## Scope Model
 
-Each workspace should record the active program scope:
+Each workspace should record the active authorized scope:
 
-- Program or organization name.
+- Workspace name.
+- Scope owner or subject, when useful.
 - Scope description.
 - In-scope domains and hosts.
 - In-scope repositories.
@@ -35,7 +36,7 @@ Each workspace should record the active program scope:
 - Explicit out-of-scope assets.
 - Network policy.
 - Expiration or review date where applicable.
-- User notes about program rules.
+- Rules and constraints.
 
 The agent can operate autonomously inside this recorded scope.
 
@@ -104,7 +105,7 @@ Approval-not-required examples:
 
 ## Network Policy
 
-Network access should be controlled by the recorded program scope.
+Network access should be controlled by the recorded authorized scope.
 
 Default posture:
 
@@ -113,7 +114,7 @@ Default posture:
 - Sandbox network can be enabled for in-scope domains, hosts, or services when the backend can enforce the selected profile.
 - Out-of-scope network access is blocked unless approval records a scoped exception or scope amendment.
 
-Program scope should drive allowlists rather than ad hoc model decisions.
+The authorized scope should drive allowlists rather than ad hoc model decisions.
 
 ## Target Executables
 
@@ -140,4 +141,4 @@ Authorization and sandboxing are related but separate:
 - Authorization says what target assets Beale may research.
 - Sandboxing says where and how risky operations may execute.
 
-The first-release UX should make program scope explicit up front, then minimize prompts during normal in-scope research.
+The first-release UX should make authorization and scope explicit up front, then minimize prompts during normal in-scope research.

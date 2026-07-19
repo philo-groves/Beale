@@ -22,7 +22,7 @@ Authorized vulnerability research data is sensitive:
 - Crash inputs and corpora.
 - Potential zero-days.
 - Exploitability notes.
-- Private program scope and authorization details.
+- Private scope and authorization details.
 - Disclosure drafts.
 - Tool traces that may contain secrets or proprietary data.
 
@@ -87,7 +87,7 @@ Required:
 
 - Structured search over entity fields, states, timestamps, paths, symbols, CVEs, CWEs, components, tool names, artifact hashes, and run IDs.
 - SQLite full-text search over notes, summaries, hypotheses, findings, reports, and selected tool-output summaries.
-- Per-program local semantic search over scoped workspace data, with per-program disable controls.
+- Per-workspace local semantic search over scoped data, with per-workspace disable controls.
 
 Semantic search must stay workspace-local and should never query across independent Beale workspaces.
 
@@ -131,4 +131,4 @@ Exports must be user-initiated and should make included data clear before writin
 
 ## Planning Consequence
 
-The storage schema should assume local-first isolation. Every entity belongs to one workspace database, and cross-program research correlation must be explicit import/export work rather than an accidental default.
+The storage schema should assume local-first isolation. Every entity belongs to one workspace database, and cross-workspace research correlation must be explicit import/export work rather than an accidental default.

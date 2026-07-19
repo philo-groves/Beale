@@ -15,7 +15,7 @@ export type SettingsSection = 'general' | 'providers' | 'developer';
 export function SettingsModal({
   section,
   developerSettings,
-  programName,
+  workspaceName,
   openAiStatus,
   openAiOAuthResult,
   busy,
@@ -27,7 +27,7 @@ export function SettingsModal({
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
-  programName: string | null;
+  workspaceName: string | null;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   busy: boolean;
@@ -61,7 +61,7 @@ export function SettingsModal({
         </nav>
         <section className="settings-view">
           {activeSection === 'general' ? (
-            <GeneralSettingsView programName={programName} />
+            <GeneralSettingsView workspaceName={workspaceName} />
           ) : activeSection === 'providers' ? (
             <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
           ) : (
@@ -73,7 +73,7 @@ export function SettingsModal({
   );
 }
 
-function GeneralSettingsView({ programName }: { programName: string | null }): JSX.Element {
+function GeneralSettingsView({ workspaceName }: { workspaceName: string | null }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
       <div className="settings-page-header">
@@ -82,7 +82,7 @@ function GeneralSettingsView({ programName }: { programName: string | null }): J
       <section className="provider-card readiness-enabled">
         <div className="provider-heading">
           <div>
-            <h4>{programName || 'Current Program'}</h4>
+            <h4>{workspaceName || 'Current Workspace'}</h4>
             <p>Honeycrisp runs with the current user's host privileges. Launch Beale and Honeycrisp inside your own VM or container when you want operating-system isolation.</p>
           </div>
         </div>

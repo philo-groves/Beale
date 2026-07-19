@@ -72,7 +72,7 @@ Required keys:
 - `workspace_id`
 - `created_at`
 
-### `program_scope_versions`
+### `scope_versions`
 
 Purpose:
 
@@ -83,8 +83,8 @@ Fields:
 - `id`
 - `version`
 - `status`
-- `program_name`
-- `organization_name`
+- `workspace_name`
+- `scope_owner`
 - `description_markdown`
 - `network_policy_json`
 - `rules_markdown`

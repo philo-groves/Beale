@@ -520,7 +520,7 @@ function memoryCorruptionSteps(): ScenarioStep[] {
 function policyBlockSteps(): ScenarioStep[] {
   return [
     (context) => {
-      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Checking requested network access against recorded program scope.');
+      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Checking requested network access against recorded workspace scope.');
       recordTool(context, 'search', { query: 'external callback endpoint' }, 'Search summarized in-scope callback documentation.', {
         observation: 'Scoped documentation does not authorize the requested external host.'
       });

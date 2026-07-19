@@ -54,12 +54,12 @@ The workspace database remains authoritative for whether a global checkout belon
 
 Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Research memory, findings, traces, artifacts, and indexes remain workspace-local and are never retrieved across workspaces by default.
 
-Existing repositories inside older workspaces continue to work. Beale does not move or rewrite those checkouts automatically.
+Repository materialization does not search for or reuse managed checkouts inside workspace directories. Source already present on disk must be added as an explicit path reference; repositories cloned by Beale use the user-global store.
 
 ## Guidance Boundary
 
 Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Evidence and finding state still live in Beale's data model, but the research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
 
-## Compatibility Note
+## Pre-Alpha Schema
 
-Internal database and renderer types still use historical `Program*` names. They are implementation compatibility names, not the intended product concept. Renaming that persistence and UI surface is a separate migration so this context change does not risk existing workspaces.
+The renderer, IPC API, global registry, and SQLite schema use workspace and authorized-scope vocabulary. Beale does not provide aliases or migrations for earlier `Program*` APIs, registry tables, scope columns, or Honeycrisp memory compatibility exports.

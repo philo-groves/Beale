@@ -30,6 +30,8 @@ Do not use legacy branding in new docs or code. Use `Beale`.
   - Product name: `Beale`
   - Workspace metadata directory: `.beale/`
   - Workspace database: `.beale/beale.sqlite`
+  - Workspace registry: user-global metadata for known Beale workspaces
+  - Authorized scope: the recorded authorization boundary within a workspace
   - First release focus: authorized open-ended vulnerability discovery
   - Execution posture: Beale and Honeycrisp run with the current user's host privileges; users should launch them inside their own VM/container when OS isolation is required
 - If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
@@ -55,7 +57,7 @@ Preserve these invariants in docs and implementation:
 - Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
 - Findings require tool, artifact, or verifier-backed evidence.
 - User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.
-- Live-target testing is allowed only when the recorded program scope and active network profile permit it.
+- Live-target testing is allowed only when the recorded authorized scope and active network profile permit it.
 
 ## Implementation Rules
 
@@ -63,7 +65,7 @@ Preserve these invariants in docs and implementation:
 - Prefer the first vertical slice in `planning/book/vertical-slice.md` before broader feature work.
 - Keep the first implementation narrow:
   - Workspace open/create.
-  - Program scope.
+  - Authorized scope.
   - SQLite persistence.
   - Run tracker.
   - Run detail.

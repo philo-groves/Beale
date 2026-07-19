@@ -1,12 +1,12 @@
-# Program Memory and Duplicate Control
+# Workspace Memory and Duplicate Control
 
 Status: proposed design direction, 2026-04-29.
 
 ## Decision
 
-Beale should treat hypotheses and findings as program-wide research memory, not only session-local records.
+Beale should treat hypotheses and findings as workspace-wide research memory, not only session-local records.
 
-When the agent proposes a new hypothesis or finding, Beale should check prior work for the same research program before creating another record. Duplicate control should happen in two places:
+When the agent proposes a new hypothesis or finding, Beale should check prior work for the same research workspace before creating another record. Duplicate control should happen in two places:
 
 - Before a model-proposed claim becomes a hypothesis.
 - Before a reproduced or verified claim becomes a finding.
@@ -16,16 +16,16 @@ The goal is not to suppress useful follow-up research. The goal is to prevent th
 Core rule:
 
 ```text
-Same program + same underlying weakness + same affected surface = duplicate.
+Same workspace + same underlying weakness + same affected surface = duplicate.
 Same weakness class on a meaningfully different surface, attacker path, or impact = variant or related lead.
 New evidence for an existing issue should strengthen the existing record rather than create a duplicate.
 ```
 
 ## Rationale
 
-Open-ended research sessions naturally revisit promising areas. This is useful when the agent is deepening evidence, testing exploit chains, or looking for variants. It is wasteful when the agent creates a new hypothesis or finding for a bug that was already confirmed earlier in the same program.
+Open-ended research sessions naturally revisit promising areas. This is useful when the agent is deepening evidence, testing exploit chains, or looking for variants. It is wasteful when the agent creates a new hypothesis or finding for a bug that was already confirmed earlier in the same workspace.
 
-Without program-wide duplicate control, Beale risks:
+Without workspace-wide duplicate control, Beale risks:
 
 - Inflating the finding list with repeated records.
 - Making session heat look more severe than the underlying research state.
@@ -34,7 +34,7 @@ Without program-wide duplicate control, Beale risks:
 - Confusing the researcher during disclosure export.
 - Training the prompt generator to chase already-exhausted surfaces.
 
-The product should remember what has already been tried, dismissed, reproduced, verified, and disclosed for a program.
+The product should remember what has already been tried, dismissed, reproduced, verified, and disclosed for a workspace.
 
 ## Non-Goals
 
@@ -48,7 +48,7 @@ Duplicate control is not:
 - A semantic embedding requirement for v1.
 - A reason to hide historical work from the researcher.
 
-Beale should only compare records inside the same configured research program unless the user explicitly links programs later.
+Beale should only compare records inside the same configured research workspace unless the user explicitly links workspaces later.
 
 ## Claim Identity
 
@@ -58,7 +58,7 @@ A claim identity should be based on the underlying security behavior, not on the
 
 Useful identity fields:
 
-- Program ID.
+- Workspace ID.
 - Affected asset, host, package, repository, app, endpoint, path, class, function, or component.
 - CWE mapping.
 - Plain-English bug class.
@@ -94,14 +94,14 @@ For v1, `duplicate` can be represented as a state plus trace relationship. `vari
 
 ## Pre-Hypothesis Gate
 
-Before creating a hypothesis from the structured `hypothesis` tool, Beale should compare the proposed claim against prior hypotheses and findings for the same program.
+Before creating a hypothesis from the structured `hypothesis` tool, Beale should compare the proposed claim against prior hypotheses and findings for the same workspace.
 
 The gate should consider:
 
 - Active, reproduced, verified, disclosure-ready, duplicate, dismissed, and false-positive records.
 - Current session records.
 - Prior session records.
-- Program scope and affected asset.
+- Workspace scope and affected asset.
 - CWE and bug class.
 - Component and attack surface.
 - Description and impact.
@@ -119,7 +119,7 @@ This gives the agent immediate feedback before it spends another branch reproduc
 
 ## Pre-Finding Sanity Gate
 
-Before creating a finding or auto-promoting a reproduced hypothesis into a finding, Beale should run a stricter duplicate check against existing findings for the same program.
+Before creating a finding or auto-promoting a reproduced hypothesis into a finding, Beale should run a stricter duplicate check against existing findings for the same workspace.
 
 The finding gate should be stricter than the hypothesis gate because findings affect disclosure, exports, heat, and researcher trust.
 
@@ -161,7 +161,7 @@ When evidence strengthens an existing finding, Beale should link it to the exist
 
 ## Data Model
 
-The first implementation can avoid a large schema migration by deriving duplicate candidates from existing program, run, hypothesis, finding, evidence, artifact, CWE, and trace records.
+The first implementation can avoid a large schema migration by deriving duplicate candidates from existing workspace, run, hypothesis, finding, evidence, artifact, CWE, and trace records.
 
 Suggested later tables:
 
@@ -172,7 +172,7 @@ Suggested later tables:
 `claim_fingerprints` should store normalized comparison data:
 
 - `id`
-- `program_id`
+- `registry_workspace_id`
 - `entity_kind`: `hypothesis` or `finding`
 - `entity_id`
 - `asset_key`
@@ -190,7 +190,7 @@ Suggested later tables:
 `claim_relationships` should link related records:
 
 - `id`
-- `program_id`
+- `registry_workspace_id`
 - `source_entity_kind`
 - `source_entity_id`
 - `target_entity_kind`
@@ -203,7 +203,7 @@ Suggested later tables:
 `duplicate_reviews` should preserve review decisions:
 
 - `id`
-- `program_id`
+- `registry_workspace_id`
 - `run_id`
 - `attempt_id`
 - `proposed_entity_kind`
@@ -227,7 +227,7 @@ Suggested deterministic stages:
 1. Normalize obvious identifiers: domains, URLs, paths, package names, repo-relative file paths, class names, function names, endpoints, and mobile bundle IDs.
 2. Normalize weakness class: CWE IDs, bug class, security mechanism, and attacker position.
 3. Normalize impact: data exposed, boundary crossed, privilege gained, code executed, or policy bypassed.
-4. Compare against prior program records with weighted scoring.
+4. Compare against prior workspace records with weighted scoring.
 5. Require strong surface and mechanism agreement for automatic duplicate blocking.
 6. Treat uncertain matches as `ambiguous`, `variant`, or `chain_candidate`, not as duplicates.
 
@@ -253,7 +253,7 @@ Suggested payload fields:
 - `duplicateReview.rationale`
 - `duplicateReview.recommendedNextAction`
 
-When creation is blocked, the tool result should use `status: "success"` with a clear duplicate outcome rather than a hard tool error. The model did nothing invalid; Beale is redirecting it to better program-aware behavior.
+When creation is blocked, the tool result should use `status: "success"` with a clear duplicate outcome rather than a hard tool error. The model did nothing invalid; Beale is redirecting it to better workspace-aware behavior.
 
 Hard errors should remain reserved for malformed input, unknown referenced IDs, verifier violations, or policy violations.
 
@@ -269,7 +269,7 @@ Rules:
 - Investigate chains when the duplicate record can combine with another finding or hypothesis.
 - When Beale reports ambiguity, gather discriminating evidence rather than renaming the same claim.
 
-The prompt generator for new research sessions should also use program memory:
+The prompt generator for new research sessions should also use workspace memory:
 
 - Avoid already verified or disclosure-ready findings unless the goal is chaining, patch validation, or report preparation.
 - Avoid dismissed and duplicate areas unless the user asks to revisit them.
@@ -295,7 +295,7 @@ The UI should show duplicate relationships where they help the researcher:
 - Finding detail: "Also observed in session X" or "Merged evidence from session Y."
 - Hypothesis detail: "Blocked as duplicate of finding Z."
 - Trace modal: duplicate-review decision and matched fields.
-- Program history: quiet duplicate/variant relationship markers.
+- Workspace history: quiet duplicate/variant relationship markers.
 
 The main hypothesis and finding lists should not become cluttered with every duplicate attempt. They should show durable research records, while trace preserves the decision trail.
 
@@ -315,7 +315,7 @@ Research momentum can reflect useful duplicate handling:
 
 Suggested implementation sequence:
 
-1. Add deterministic duplicate candidate lookup across prior records for the same program.
+1. Add deterministic duplicate candidate lookup across prior records for the same workspace.
 2. Add pre-hypothesis duplicate review in the structured `hypothesis` tool.
 3. Add pre-finding duplicate review in the structured `finding` tool and auto-promotion path.
 4. Link duplicate evidence to existing findings instead of creating a second finding.
@@ -329,7 +329,7 @@ The first useful slice should block obvious duplicates and redirect the agent to
 ## Open Questions
 
 - Should Beale expose a first-class "related records" UI before relationship tables exist?
-- Should duplicate-review thresholds be configurable per program?
-- Should imported external reports seed program memory as hypotheses, candidate findings, or evidence?
+- Should duplicate-review thresholds be configurable per workspace?
+- Should imported external reports seed workspace memory as hypotheses, candidate findings, or evidence?
 - Should disclosure exports include duplicate-review history by default, or only when it clarifies evidence provenance?
-- How should Beale handle the same vulnerability across multiple separately configured programs owned by the same organization?
+- How should Beale handle the same vulnerability across multiple separately configured workspaces owned by the same organization?

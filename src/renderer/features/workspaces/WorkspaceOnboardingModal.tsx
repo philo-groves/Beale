@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { ProgramOnboardingProgressUpdate, ProgramOnboardingRepositoryProgress } from '@shared/types';
+import type { WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
 import { emptyDateClass } from '../../lib/formatting';
@@ -13,11 +13,11 @@ import {
   setRepositoryIndexNow,
   templateLabel,
   type OnboardingRepository,
-  type ProgramOnboardingFormState,
-  type ProgramTemplateKind
-} from '../../view-models/programOnboarding';
+  type WorkspaceOnboardingFormState,
+  type WorkspaceTemplateKind
+} from '../../view-models/workspaceOnboarding';
 
-export function ProgramOnboardingModal({
+export function WorkspaceOnboardingModal({
   form,
   busy,
   progress,
@@ -28,14 +28,14 @@ export function ProgramOnboardingModal({
   onTemplate,
   onSubmit
 }: {
-  form: ProgramOnboardingFormState;
+  form: WorkspaceOnboardingFormState;
   busy: boolean;
-  progress: ProgramOnboardingProgressUpdate | null;
-  onChange: (next: ProgramOnboardingFormState) => void;
+  progress: WorkspaceOnboardingProgressUpdate | null;
+  onChange: (next: WorkspaceOnboardingFormState) => void;
   onCancel: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
   onSkipRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
-  onTemplate: (templateKind: ProgramTemplateKind) => void;
+  onTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onSubmit: () => void;
 }): JSX.Element {
   const [hackerOneIdentifier, setHackerOneIdentifier] = useState('');
@@ -43,10 +43,10 @@ export function ProgramOnboardingModal({
   const [repositoryError, setRepositoryError] = useState<string | null>(null);
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
-  const update = (key: keyof ProgramOnboardingFormState, value: string): void => {
+  const update = (key: keyof WorkspaceOnboardingFormState, value: string): void => {
     onChange({ ...form, [key]: value });
   };
-  const canSubmit = form.programName.trim().length > 0;
+  const canSubmit = form.workspaceName.trim().length > 0;
   const repositories = onboardingRepositories(form);
   const indexNowSelected = hasIndexNowRepository(form);
   const submitting = Boolean(progress);
@@ -72,14 +72,14 @@ export function ProgramOnboardingModal({
 
   return (
     <Modal
-      title="New Program"
+      title="New Workspace"
       wide
-      className="program-onboarding-modal"
+      className="workspace-onboarding-modal"
       onClose={submitting && !progressComplete ? () => undefined : onCancel}
       footer={
-        <div className="program-onboarding-footer-content">
-          {indexNowSelected ? <div className="program-onboarding-index-warning">Repository cloning and indexing may take several minutes.</div> : null}
-          <div className="program-onboarding-footer-actions">
+        <div className="workspace-onboarding-footer-content">
+          {indexNowSelected ? <div className="workspace-onboarding-index-warning">Repository cloning and indexing may take several minutes.</div> : null}
+          <div className="workspace-onboarding-footer-actions">
             <button type="button" disabled={busy || (submitting && !progressComplete)} onClick={onCancel}>
               {submitting ? 'Close' : 'Cancel'}
             </button>
@@ -88,17 +88,17 @@ export function ProgramOnboardingModal({
                 {progressComplete ? 'Done' : 'Working...'}
               </button>
             ) : (
-              <button className="primary-button" type="submit" form="program-onboarding-form" disabled={busy || lookupBusy || !canSubmit}>
-                {lookupBusy ? 'Importing Program...' : 'Create Program'}
+              <button className="primary-button" type="submit" form="workspace-onboarding-form" disabled={busy || lookupBusy || !canSubmit}>
+                {lookupBusy ? 'Importing Scope...' : 'Create Workspace'}
               </button>
             )}
           </div>
         </div>
       }
     >
-      <div className="program-onboarding-layout">
+      <div className="workspace-onboarding-layout">
         <form
-          id="program-onboarding-form"
+          id="workspace-onboarding-form"
           className="modal-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -109,8 +109,8 @@ export function ProgramOnboardingModal({
             Workspace directory
             <input value={form.workspacePath} readOnly />
           </label>
-          <div className="template-toggle-row" role="group" aria-label="Program template">
-            {(['manual', 'hackerone', 'apple', 'msrc'] as ProgramTemplateKind[]).map((templateKind) => (
+          <div className="template-toggle-row" role="group" aria-label="Workspace template">
+            {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (
               <button
                 type="button"
                 className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
@@ -125,7 +125,7 @@ export function ProgramOnboardingModal({
           {form.templateKind === 'hackerone' ? (
             <div className="hackerone-lookup">
               <label>
-                Program Identifier
+                HackerOne handle or URL
                 <input value={hackerOneIdentifier} placeholder="github" disabled={submitting} onChange={(event) => setHackerOneIdentifier(event.target.value)} />
               </label>
               <button type="button" disabled={submitting || busy || lookupBusy || !hackerOneIdentifier.trim()} onClick={lookupHackerOne}>
@@ -136,12 +136,12 @@ export function ProgramOnboardingModal({
           ) : null}
           <div className="form-grid">
             <label>
-              Program name
-              <input value={form.programName} disabled={submitting} onChange={(event) => update('programName', event.target.value)} autoFocus />
+              Workspace name
+              <input value={form.workspaceName} disabled={submitting} onChange={(event) => update('workspaceName', event.target.value)} autoFocus />
             </label>
             <label>
-              Organization (optional)
-              <input value={form.organizationName} disabled={submitting} onChange={(event) => update('organizationName', event.target.value)} />
+              Scope owner or subject (optional)
+              <input value={form.scopeOwner} disabled={submitting} onChange={(event) => update('scopeOwner', event.target.value)} />
             </label>
           </div>
           <label>
@@ -195,7 +195,7 @@ function RepositoryOnboardingPanel({
   onSkipRepository
 }: {
   repositories: OnboardingRepository[];
-  progress: ProgramOnboardingProgressUpdate | null;
+  progress: WorkspaceOnboardingProgressUpdate | null;
   repositoryError: string | null;
   repositoryUrl: string;
   onAddRepository: () => void;
@@ -207,8 +207,8 @@ function RepositoryOnboardingPanel({
   const submitting = Boolean(progress);
   const rows = progress ? progress.repositories : repositories;
   return (
-    <aside className="program-repository-panel" aria-label="Program repositories">
-      <div className="program-repository-header">
+    <aside className="workspace-repository-panel" aria-label="Workspace repositories">
+      <div className="workspace-repository-header">
         <div>
           <span>Repositories</span>
           <strong>{rows.length}</strong>
@@ -216,7 +216,7 @@ function RepositoryOnboardingPanel({
       </div>
       {!submitting ? (
         <>
-          <div className="program-repository-add">
+          <div className="workspace-repository-add">
             <label>
               Repository URL
               <input
@@ -238,21 +238,21 @@ function RepositoryOnboardingPanel({
           {repositoryError ? <div className="error-box">{repositoryError}</div> : null}
         </>
       ) : (
-        <div className="program-repository-progress-summary">{progress?.phase === 'complete' ? 'Repository onboarding complete.' : 'Creating program and preparing selected repositories.'}</div>
+        <div className="workspace-repository-progress-summary">{progress?.phase === 'complete' ? 'Repository onboarding complete.' : 'Creating workspace and preparing selected repositories.'}</div>
       )}
       {rows.length === 0 ? (
-        <div className="program-repository-empty">No repositories listed.</div>
+        <div className="workspace-repository-empty">No repositories listed.</div>
       ) : (
-        <div className="program-repository-list">
+        <div className="workspace-repository-list">
           {progress
             ? progress.repositories.map((repository) => <RepositoryProgressItem key={repository.repositoryUrl} repository={repository} onSkipRepository={onSkipRepository} />)
             : repositories.map((repository) => (
-                <div className="program-repository-item" key={`${repository.assetIndex}:${repository.url}`}>
-                  <div className="program-repository-main">
+                <div className="workspace-repository-item" key={`${repository.assetIndex}:${repository.url}`}>
+                  <div className="workspace-repository-main">
                     <strong>{repository.label}</strong>
                     <span>{repository.url}</span>
                   </div>
-                  <label className="program-repository-index">
+                  <label className="workspace-repository-index">
                     <input type="checkbox" checked={repository.indexNow} onChange={(event) => onSetIndexNow(repository.assetIndex, event.target.checked)} />
                     <span>Index Now</span>
                   </label>
@@ -271,20 +271,20 @@ function RepositoryProgressItem({
   repository,
   onSkipRepository
 }: {
-  repository: ProgramOnboardingRepositoryProgress;
+  repository: WorkspaceOnboardingRepositoryProgress;
   onSkipRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
 }): JSX.Element {
   const skipStage = repositorySkipStage(repository);
   return (
-    <div className={`program-repository-item progress-stage-${repository.stage}`}>
-      <div className="program-repository-main">
+    <div className={`workspace-repository-item progress-stage-${repository.stage}`}>
+      <div className="workspace-repository-main">
         <strong>{repository.label}</strong>
         <span>{repository.repositoryUrl}</span>
         <em>{repository.error ? `${repository.message} ${repository.error}` : repository.message}</em>
       </div>
-      <span className="program-repository-stage">{progressStageLabel(repository.stage)}</span>
+      <span className="workspace-repository-stage">{progressStageLabel(repository.stage)}</span>
       {skipStage ? (
-        <button type="button" className="program-repository-skip-button" onClick={() => void onSkipRepository(repository.repositoryUrl, skipStage)}>
+        <button type="button" className="workspace-repository-skip-button" onClick={() => void onSkipRepository(repository.repositoryUrl, skipStage)}>
           {skipStage === 'clone' ? 'Clone Later' : 'Index Later'}
         </button>
       ) : null}
@@ -292,13 +292,13 @@ function RepositoryProgressItem({
   );
 }
 
-function repositorySkipStage(repository: ProgramOnboardingRepositoryProgress): 'clone' | 'index' | null {
+function repositorySkipStage(repository: WorkspaceOnboardingRepositoryProgress): 'clone' | 'index' | null {
   if (repository.stage === 'queued' || repository.stage === 'cloning' || repository.stage === 'clone_failed') return 'clone';
   if (repository.stage === 'index_queued' || repository.stage === 'indexing') return 'index';
   return null;
 }
 
-function progressStageLabel(stage: ProgramOnboardingRepositoryProgress['stage']): string {
+function progressStageLabel(stage: WorkspaceOnboardingRepositoryProgress['stage']): string {
   switch (stage) {
     case 'queued':
       return 'Queued';

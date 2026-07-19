@@ -7,7 +7,7 @@ import type {
   HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
-  ProgramOnboardingProgressUpdate,
+  WorkspaceOnboardingProgressUpdate,
   RunDetail,
   SessionTranscriptSearchResult,
   SteeringAction,
@@ -18,7 +18,7 @@ import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
-import { ProgramSidebar } from './features/programs/ProgramSidebar';
+import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
@@ -26,8 +26,8 @@ import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sess
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
-import { useProgramActions, type ProgramActionOptions } from './hooks/useProgramActions';
-import { useProgramOverlayState } from './hooks/useProgramOverlayState';
+import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
+import { useWorkspaceOverlayState } from './hooks/useWorkspaceOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
@@ -43,7 +43,7 @@ import {
   selectedRunStatus,
   windowControlPlatformForState
 } from './view-models/appShell';
-import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
+import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { defaultRunInput } from './view-models/runSettings';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
@@ -56,22 +56,22 @@ export function App(): JSX.Element {
   const handleError = useCallback((message: string) => setError(message), []);
   const {
     snapshot,
-    programRegistry,
+    workspaceRegistry,
     hostEnvironment,
     windowChromeState,
     openAiStatus,
     selectedRunId,
-    setProgramRegistry,
+    setWorkspaceRegistry,
     setOpenAiStatus,
     setSelectedRunId,
     applySnapshot,
     loadSnapshot,
-    loadProgramRegistry
+    loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
-  const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
-  const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
+  const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -90,14 +90,14 @@ export function App(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
-    openProgramMenuId,
-    setOpenProgramMenuId,
-    programInfo,
-    setProgramInfo,
-    setSessionHistoryProgramId,
-    sessionHistoryProgram,
+    openRegisteredWorkspaceMenuId,
+    setOpenWorkspaceMenuId,
+    workspaceInfo,
+    setWorkspaceInfo,
+    setSessionHistoryWorkspaceId,
+    sessionHistoryWorkspace,
     sessionHistorySessions
-  } = useProgramOverlayState(programRegistry);
+  } = useWorkspaceOverlayState(workspaceRegistry);
   const {
     profilingState,
     lastProfilingReport,
@@ -114,8 +114,8 @@ export function App(): JSX.Element {
 
   useDevRenderProbe('app.shell', () => ({
     selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
-    programs: programRegistry?.programs.length ?? 0,
-    sessions: programRegistry?.researchSessions.length ?? 0,
+    workspaces: workspaceRegistry?.workspaces.length ?? 0,
+    sessions: workspaceRegistry?.researchSessions.length ?? 0,
     traceEvents: runDetail?.traceEvents.length ?? 0,
     transcripts: runDetail?.transcriptMessages.length ?? 0
   }));
@@ -142,14 +142,14 @@ export function App(): JSX.Element {
         const next = await action();
         if (next) applySnapshot(next);
         await loadSnapshot();
-        await loadProgramRegistry();
+        await loadWorkspaceRegistry();
       } catch (caught) {
         setError(errorMessage(caught));
       } finally {
         setBusy(false);
       }
     },
-    [applySnapshot, loadProgramRegistry, loadSnapshot]
+    [applySnapshot, loadWorkspaceRegistry, loadSnapshot]
   );
 
   const openNotification = useCallback(
@@ -179,24 +179,24 @@ export function App(): JSX.Element {
     setWorkspaceAlerts((current) => current.filter((alert) => alert.id !== alertId));
   }, []);
 
-  const closeProgramOnboarding = useCallback((): void => {
-    setProgramDraft(null);
-    setProgramOnboardingProgress(null);
+  const closeWorkspaceOnboarding = useCallback((): void => {
+    setWorkspaceDraft(null);
+    setWorkspaceOnboardingProgress(null);
   }, []);
 
-  const skipProgramOnboardingRepository = useCallback(
+  const skipWorkspaceOnboardingRepository = useCallback(
     async (repositoryUrl: string, stage: 'clone' | 'index'): Promise<void> => {
-      if (!programOnboardingProgress) return;
-      const update = await window.beale.skipProgramOnboardingRepository({
-        requestId: programOnboardingProgress.requestId,
+      if (!workspaceOnboardingProgress) return;
+      const update = await window.beale.skipWorkspaceOnboardingRepository({
+        requestId: workspaceOnboardingProgress.requestId,
         repositoryUrl,
         stage
       });
       if (update) {
-        setProgramOnboardingProgress(update);
+        setWorkspaceOnboardingProgress(update);
       }
     },
-    [programOnboardingProgress]
+    [workspaceOnboardingProgress]
   );
 
   const openWorkspaceAlert = useCallback(
@@ -210,8 +210,8 @@ export function App(): JSX.Element {
     [dismissWorkspaceAlert]
   );
 
-  const runProgramAction = useCallback(
-    async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: ProgramActionOptions = {}) => {
+  const runWorkspaceAction = useCallback(
+    async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: WorkspaceActionOptions = {}) => {
       if (markBusy) {
         setBusy(true);
       }
@@ -219,7 +219,7 @@ export function App(): JSX.Element {
       try {
         await action();
         if (reloadRegistry) {
-          await loadProgramRegistry();
+          await loadWorkspaceRegistry();
         }
       } catch (caught) {
         setError(errorMessage(caught));
@@ -229,7 +229,7 @@ export function App(): JSX.Element {
         }
       }
     },
-    [loadProgramRegistry]
+    [loadWorkspaceRegistry]
   );
 
   const openHoneycrispMemoryDirectory = useCallback(
@@ -287,24 +287,24 @@ export function App(): JSX.Element {
   }, []);
 
   const {
-    addProgram,
-    openRegisteredProgram,
+    addWorkspace,
+    openRegisteredWorkspace,
     openResearchSession,
-    removeRegisteredProgram,
-    submitProgramOnboarding,
+    removeRegisteredWorkspace,
+    submitWorkspaceOnboarding,
     applyOnboardingTemplate,
-    lookupHackerOneProgram
-  } = useProgramActions({
+    lookupHackerOneScope
+  } = useWorkspaceActions({
     snapshot,
-    programDraft,
-    runProgramAction,
+    workspaceDraft,
+    runWorkspaceAction,
     applySnapshot,
     clearRunDetail,
     setSelectedRunId,
-    setProgramDraft,
-    setProgramOnboardingProgress,
-    setProgramInfo,
-    setOpenProgramMenuId
+    setWorkspaceDraft,
+    setWorkspaceOnboardingProgress,
+    setWorkspaceInfo,
+    setOpenWorkspaceMenuId
   });
 
   const handleSessionAction = useCallback(
@@ -320,16 +320,16 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
-  const activeProgramEntry = useMemo(() => {
-    if (!snapshot || !programRegistry) return null;
+  const activeWorkspaceEntry = useMemo(() => {
+    if (!snapshot || !workspaceRegistry) return null;
     return (
-      programRegistry.programs.find(
-        (program) =>
-          (snapshot.workspace.workspaceId.length > 0 && program.workspaceId === snapshot.workspace.workspaceId) ||
-          program.workspacePath === snapshot.workspace.workspacePath
+      workspaceRegistry.workspaces.find(
+        (workspace) =>
+          (snapshot.workspace.workspaceId.length > 0 && workspace.workspaceId === snapshot.workspace.workspaceId) ||
+          workspace.workspacePath === snapshot.workspace.workspacePath
       ) ?? null
     );
-  }, [programRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
+  }, [workspaceRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
@@ -361,7 +361,7 @@ export function App(): JSX.Element {
     sidebarCollapsed,
     inspectorOpen
   });
-  const currentProgramName = snapshot?.activeScope.programName ?? 'No Program Selected';
+  const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
@@ -403,12 +403,12 @@ export function App(): JSX.Element {
     (result: SessionTranscriptSearchResult, query: string): void => {
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
-      const targetProgram = programRegistry?.programs.find((program) => program.id === result.programId || program.workspacePath === result.workspacePath) ?? null;
-      const activeProgram = snapshot?.workspace.workspacePath === result.workspacePath;
-      if (targetProgram && !activeProgram) {
-        void runProgramAction(async () => {
+      const targetWorkspace = workspaceRegistry?.workspaces.find((workspace) => workspace.id === result.registryWorkspaceId) ?? null;
+      const activeWorkspace = snapshot?.workspace.workspacePath === result.workspacePath;
+      if (targetWorkspace && !activeWorkspace) {
+        void runWorkspaceAction(async () => {
           clearRunDetail();
-          applySnapshot(await window.beale.openProgram(targetProgram.id));
+          applySnapshot(await window.beale.openRegisteredWorkspace(targetWorkspace.id));
           setSelectedRunId(result.runId);
         }, { markBusy: false, reloadRegistry: false });
         setSearchOpen(false);
@@ -420,7 +420,7 @@ export function App(): JSX.Element {
       setSelectedRunId(result.runId);
       setSearchOpen(false);
     },
-    [applySnapshot, clearRunDetail, programRegistry, runProgramAction, selectedRunId, setSelectedRunId, snapshot]
+    [applySnapshot, clearRunDetail, workspaceRegistry, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
   );
   const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
   const closeInspector = useCallback(() => setInspectorOpen(false), []);
@@ -439,40 +439,40 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
-        programName={currentProgramName}
-        activeProgram={activeProgramEntry}
+        workspaceName={currentWorkspaceName}
+        activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
         profilingEnabled={profilingState?.enabled ?? false}
         onOpenResearchPrompt={setResearchPromptDetail}
-        onOpenProgramInfo={setProgramInfo}
+        onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
-        onAddProgram={() => {
-          addProgram();
+        onAddWorkspace={() => {
+          addWorkspace();
         }}
         onToggleSidebar={toggleSidebar}
       />
-      <ProgramSidebar
+      <WorkspaceSidebar
         busy={busy}
         collapsed={sidebarCollapsed}
         error={error}
-        openProgramMenuId={openProgramMenuId}
-        programRegistry={programRegistry}
+        openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
+        workspaceRegistry={workspaceRegistry}
         selectedRunId={selectedRunId}
         snapshot={snapshot}
-        onAddProgram={() => {
-          addProgram();
+        onAddWorkspace={() => {
+          addWorkspace();
         }}
-        onOpenProgram={(program) => {
-          openRegisteredProgram(program);
+        onOpenWorkspace={(workspace) => {
+          openRegisteredWorkspace(workspace);
         }}
-        onOpenProgramInfo={setProgramInfo}
-        onOpenResearchSession={(program, session) => {
-          openResearchSession(program, session);
+        onOpenWorkspaceInfo={setWorkspaceInfo}
+        onOpenResearchSession={(workspace, session) => {
+          openResearchSession(workspace, session);
         }}
-        onRemoveProgram={removeRegisteredProgram}
+        onRemoveWorkspace={removeRegisteredWorkspace}
         onResizePointerDown={beginSidebarResize}
-        onSetOpenProgramMenuId={setOpenProgramMenuId}
-        onShowMoreSessions={setSessionHistoryProgramId}
+        onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
+        onShowMoreSessions={setSessionHistoryWorkspaceId}
         onShowMcpServers={() => setToolingModal('mcpServers')}
         onSearch={openSearch}
         onShowSkills={() => setToolingModal('skills')}
@@ -484,7 +484,7 @@ export function App(): JSX.Element {
           detail={activeRunDetail}
           events={activeTraceEvents}
           honeycrispMemoryStatus={!selectedRunId && snapshot ? snapshot.honeycrispMemory.status : null}
-          programOpen={!selectedRunId && Boolean(snapshot)}
+          workspaceOpen={!selectedRunId && Boolean(snapshot)}
           sessionView={sessionMainView}
           visibleTraceCategories={visibleTraceCategories}
           onSessionViewChange={setSessionMainView}
@@ -543,7 +543,7 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
-        activeProgramName={snapshot?.activeScope.programName ?? 'current program'}
+        activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
         developerSettings={developerSettings}
         newResearchOpen={newResearchOpen}
@@ -552,16 +552,16 @@ export function App(): JSX.Element {
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
-        programDraft={programDraft}
-        programOnboardingProgress={programOnboardingProgress}
-        programInfo={programInfo}
+        workspaceDraft={workspaceDraft}
+        workspaceOnboardingProgress={workspaceOnboardingProgress}
+        workspaceInfo={workspaceInfo}
         researchPromptDetail={researchPromptDetail}
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
         selectedTraceFinding={selectedTraceFinding}
         selectedTraceHypothesis={selectedTraceHypothesis}
-        sessionHistoryProgram={sessionHistoryProgram}
+        sessionHistoryWorkspace={sessionHistoryWorkspace}
         sessionHistorySessions={sessionHistorySessions}
         settingsOpen={settingsOpen}
         settingsSection={settingsSection}
@@ -571,26 +571,26 @@ export function App(): JSX.Element {
         toolingModal={toolingModal}
         visibleTraceCategories={visibleTraceCategories}
         onCancelNewResearch={() => setNewResearchOpen(false)}
-        onCancelProgramOnboarding={closeProgramOnboarding}
-        onChangeProgramDraft={setProgramDraft}
+        onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
+        onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onCloseProgramInfo={() => setProgramInfo(null)}
+        onCloseWorkspaceInfo={() => setWorkspaceInfo(null)}
         onCloseResearchPrompt={() => setResearchPromptDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
-        onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
+        onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
         onCloseTooling={() => setToolingModal(null)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
-        onLookupHackerOne={lookupHackerOneProgram}
-        onOpenSessionHistorySession={(program, session) => {
-          openResearchSession(program, session);
-          setSessionHistoryProgramId(null);
+        onLookupHackerOne={lookupHackerOneScope}
+        onOpenSessionHistorySession={(workspace, session) => {
+          openResearchSession(workspace, session);
+          setSessionHistoryWorkspaceId(null);
         }}
-        onProgramTemplate={applyOnboardingTemplate}
+        onWorkspaceTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
@@ -601,8 +601,8 @@ export function App(): JSX.Element {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
         }}
-        onSubmitProgramOnboarding={submitProgramOnboarding}
-        onSkipProgramOnboardingRepository={skipProgramOnboardingRepository}
+        onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
+        onSkipWorkspaceOnboardingRepository={skipWorkspaceOnboardingRepository}
         runAction={runAction}
       />
     </div>

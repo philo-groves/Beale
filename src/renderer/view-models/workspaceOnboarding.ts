@@ -1,15 +1,15 @@
 import type {
-  HackerOneProgramLookupResult,
-  ProgramOnboardingDefaults,
-  ProgramOnboardingInput,
+  HackerOneScopeLookupResult,
+  WorkspaceOnboardingDefaults,
+  WorkspaceOnboardingInput,
   ScopeAssetInput
 } from '@shared/types';
 
-export interface ProgramOnboardingFormState {
-  templateKind: ProgramTemplateKind;
+export interface WorkspaceOnboardingFormState {
+  templateKind: WorkspaceTemplateKind;
   workspacePath: string;
-  programName: string;
-  organizationName: string;
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -17,7 +17,7 @@ export interface ProgramOnboardingFormState {
   assets: ScopeAssetInput[];
 }
 
-export type ProgramTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
+export type WorkspaceTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
 
 export interface OnboardingRepository {
   assetIndex: number;
@@ -31,7 +31,7 @@ export const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
 
 const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?(?:[/?#][^\s<>)\]]*)?/gi;
 
-const APPLE_PROGRAM_DESCRIPTION =
+const APPLE_SCOPE_DESCRIPTION =
   'Authorized research under the Apple Security Bounty program for eligible Apple product, platform, service, and security mechanism vulnerabilities described by Apple Security Research.';
 
 const APPLE_SCOPE_AND_RULES = [
@@ -61,7 +61,7 @@ const APPLE_SCOPE_AND_RULES = [
   '- Do not brute force Target Flags.'
 ].join('\n');
 
-const MSRC_PROGRAM_DESCRIPTION =
+const MSRC_SCOPE_DESCRIPTION =
   'Authorized research under Microsoft Security Response Center bounty programs for eligible Microsoft cloud, endpoint, on-premises, developer, AI, identity, and service vulnerabilities described by MSRC.';
 
 const MSRC_SCOPE_AND_RULES = [
@@ -93,12 +93,12 @@ const MSRC_SCOPE_AND_RULES = [
   '- Do not publicly disclose before Microsoft has had time to remediate under CVD.'
 ].join('\n');
 
-export function onboardingFormFromDefaults(defaults: ProgramOnboardingDefaults): ProgramOnboardingFormState {
+export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults): WorkspaceOnboardingFormState {
   return {
     templateKind: 'manual',
     workspacePath: defaults.workspacePath,
-    programName: defaults.programName,
-    organizationName: defaults.organizationName,
+    workspaceName: defaults.workspaceName,
+    scopeOwner: defaults.scopeOwner,
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
     networkProfile: defaults.networkProfile,
@@ -107,11 +107,11 @@ export function onboardingFormFromDefaults(defaults: ProgramOnboardingDefaults):
   };
 }
 
-export function onboardingInputFromForm(form: ProgramOnboardingFormState): ProgramOnboardingInput {
+export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): WorkspaceOnboardingInput {
   return {
     workspacePath: form.workspacePath,
-    programName: form.programName,
-    organizationName: form.organizationName,
+    workspaceName: form.workspaceName,
+    scopeOwner: form.scopeOwner,
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
     networkProfile: form.networkProfile,
@@ -130,7 +130,7 @@ export function onboardingInputFromForm(form: ProgramOnboardingFormState): Progr
   };
 }
 
-export function onboardingRepositories(form: ProgramOnboardingFormState): OnboardingRepository[] {
+export function onboardingRepositories(form: WorkspaceOnboardingFormState): OnboardingRepository[] {
   const repositories: OnboardingRepository[] = [];
   const seenUrls = new Set<string>();
   form.assets.forEach((asset, assetIndex) => {
@@ -152,15 +152,15 @@ export function onboardingRepositories(form: ProgramOnboardingFormState): Onboar
   return repositories;
 }
 
-export function hasIndexNowRepository(form: ProgramOnboardingFormState): boolean {
+export function hasIndexNowRepository(form: WorkspaceOnboardingFormState): boolean {
   return onboardingRepositories(form).some((repository) => repository.indexNow);
 }
 
-export function setRepositoryIndexNow(form: ProgramOnboardingFormState, assetIndex: number, indexNow: boolean): ProgramOnboardingFormState {
+export function setRepositoryIndexNow(form: WorkspaceOnboardingFormState, assetIndex: number, indexNow: boolean): WorkspaceOnboardingFormState {
   return updateAssetAttributes(form, assetIndex, { [ONBOARDING_INDEX_NOW_ATTRIBUTE]: indexNow });
 }
 
-export function addRepositoryToOnboardingForm(form: ProgramOnboardingFormState, repositoryUrl: string): ProgramOnboardingFormState {
+export function addRepositoryToOnboardingForm(form: WorkspaceOnboardingFormState, repositoryUrl: string): WorkspaceOnboardingFormState {
   const normalizedUrl = normalizeOnboardingRepositoryUrl(repositoryUrl);
   if (!normalizedUrl) {
     throw new Error('Enter a GitHub or GitLab repository URL.');
@@ -186,7 +186,7 @@ export function addRepositoryToOnboardingForm(form: ProgramOnboardingFormState, 
   };
 }
 
-export function removeRepositoryFromOnboardingForm(form: ProgramOnboardingFormState, assetIndex: number): ProgramOnboardingFormState {
+export function removeRepositoryFromOnboardingForm(form: WorkspaceOnboardingFormState, assetIndex: number): WorkspaceOnboardingFormState {
   return {
     ...form,
     assets: form.assets.filter((_asset, index) => index !== assetIndex)
@@ -194,14 +194,14 @@ export function removeRepositoryFromOnboardingForm(form: ProgramOnboardingFormSt
 }
 
 export function onboardingFormFromHackerOneLookup(
-  form: ProgramOnboardingFormState,
-  lookup: HackerOneProgramLookupResult
-): ProgramOnboardingFormState {
+  form: WorkspaceOnboardingFormState,
+  lookup: HackerOneScopeLookupResult
+): WorkspaceOnboardingFormState {
   return {
     ...form,
     templateKind: 'hackerone',
-    programName: lookup.programName,
-    organizationName: lookup.organizationName,
+    workspaceName: lookup.workspaceName,
+    scopeOwner: lookup.scopeOwner,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
     networkProfile: lookup.networkProfile,
@@ -210,7 +210,7 @@ export function onboardingFormFromHackerOneLookup(
   };
 }
 
-export function templateLabel(templateKind: ProgramTemplateKind): string {
+export function templateLabel(templateKind: WorkspaceTemplateKind): string {
   switch (templateKind) {
     case 'manual':
       return 'Manual';
@@ -223,7 +223,7 @@ export function templateLabel(templateKind: ProgramTemplateKind): string {
   }
 }
 
-export function applyProgramTemplate(form: ProgramOnboardingFormState, templateKind: ProgramTemplateKind): ProgramOnboardingFormState {
+export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templateKind: WorkspaceTemplateKind): WorkspaceOnboardingFormState {
   if (templateKind === 'manual' || templateKind === 'hackerone') {
     return { ...form, templateKind };
   }
@@ -231,9 +231,9 @@ export function applyProgramTemplate(form: ProgramOnboardingFormState, templateK
     return {
       ...form,
       templateKind,
-      programName: 'Apple Security Bounty',
-      organizationName: 'Apple',
-      descriptionMarkdown: APPLE_PROGRAM_DESCRIPTION,
+      workspaceName: 'Apple Security Bounty',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
       networkProfile: 'elevated',
       expiresAt: '',
@@ -243,9 +243,9 @@ export function applyProgramTemplate(form: ProgramOnboardingFormState, templateK
   return {
     ...form,
     templateKind,
-    programName: 'Microsoft Security Response Center',
-    organizationName: 'Microsoft',
-    descriptionMarkdown: MSRC_PROGRAM_DESCRIPTION,
+    workspaceName: 'Microsoft Security Response Center',
+    scopeOwner: 'Microsoft',
+    descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
     networkProfile: 'elevated',
     expiresAt: '',
@@ -253,7 +253,7 @@ export function applyProgramTemplate(form: ProgramOnboardingFormState, templateK
   };
 }
 
-function updateAssetAttributes(form: ProgramOnboardingFormState, assetIndex: number, attributes: Record<string, unknown>): ProgramOnboardingFormState {
+function updateAssetAttributes(form: WorkspaceOnboardingFormState, assetIndex: number, attributes: Record<string, unknown>): WorkspaceOnboardingFormState {
   return {
     ...form,
     assets: form.assets.map((asset, index) =>

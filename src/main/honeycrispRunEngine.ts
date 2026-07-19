@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { ProgramScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
+import type { WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 
 export interface HoneycrispRunHandle {
@@ -1012,14 +1012,14 @@ function isPlainNodeExecutable(path: string): boolean {
   return name === 'node' || name === 'node.exe';
 }
 
-function writeHoneycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: string, contextPath: string): HoneycrispWorkspaceContextFile {
+function writeHoneycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath: string, contextPath: string): HoneycrispWorkspaceContextFile {
   const context = honeycrispWorkspaceContext(scope, workspacePath);
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
   return context;
 }
 
-function honeycrispWorkspaceContext(scope: ProgramScopeVersion, workspacePath: string): HoneycrispWorkspaceContextFile {
+function honeycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath: string): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
   for (const asset of scope.assets) {
@@ -1056,11 +1056,11 @@ function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
   return kind === 'repo' || kind === 'path' || kind === 'binary';
 }
 
-function honeycrispScopeNotes(scope: ProgramScopeVersion): string[] {
+function honeycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
-    scope.programName.trim() ? `Scope: ${boundedContextText(scope.programName)}` : '',
-    scope.organizationName.trim() ? `Scope owner or subject: ${boundedContextText(scope.organizationName)}` : '',
+    scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
+    scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
     scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
     `Network access profile: ${boundedContextText(scope.networkProfile)}`,
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: not recorded; confirm if the research context may be stale.',

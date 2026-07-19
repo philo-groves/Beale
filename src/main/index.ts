@@ -8,10 +8,10 @@ import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispToolingConfigUpdate,
   ProfilingReport,
-  ProgramRegistryState,
-  ProgramOnboardingInput,
-  ProgramOnboardingSkipInput,
-  ProgramScopeDraft,
+  WorkspaceRegistryState,
+  WorkspaceOnboardingInput,
+  WorkspaceOnboardingSkipInput,
+  WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
@@ -308,26 +308,26 @@ function shortMetricId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
-function broadcastSnapshot(change: WorkspaceChange = { programRegistryChanged: true }): void {
-  timedMainIpc('broadcastSnapshot.total', { registry: change.programRegistryChanged }, () => {
+function broadcastSnapshot(change: WorkspaceChange = { workspaceRegistryChanged: true }): void {
+  timedMainIpc('broadcastSnapshot.total', { registry: change.workspaceRegistryChanged }, () => {
     const snapshot = timedMainIpc('broadcastSnapshot.getSnapshot', {}, () => workspaceService.getSnapshot());
-    const programRegistry = change.programRegistryChanged
-      ? timedMainIpc('broadcastSnapshot.getProgramRegistry', snapshotBroadcastMetricDetail(snapshot), () => workspaceService.getCachedProgramRegistryState())
+    const workspaceRegistry = change.workspaceRegistryChanged
+      ? timedMainIpc('broadcastSnapshot.getWorkspaceRegistry', snapshotBroadcastMetricDetail(snapshot), () => workspaceService.getCachedWorkspaceRegistryState())
       : null;
     const windows = BrowserWindow.getAllWindows();
     timedMainIpc(
       'broadcastSnapshot.sendAll',
       {
         ...snapshotBroadcastMetricDetail(snapshot),
-        ...(programRegistry ? programRegistryBroadcastMetricDetail(programRegistry) : { registryPrograms: 0, registrySessions: 0 }),
-        registry: Boolean(programRegistry),
+        ...(workspaceRegistry ? workspaceRegistryBroadcastMetricDetail(workspaceRegistry) : { registryWorkspaces: 0, registrySessions: 0 }),
+        registry: Boolean(workspaceRegistry),
         windows: windows.length
       },
       () => {
         for (const window of windows) {
           window.webContents.send(IPC_CHANNELS.snapshotUpdated, snapshot);
-          if (programRegistry) {
-            window.webContents.send(IPC_CHANNELS.programRegistryUpdated, programRegistry);
+          if (workspaceRegistry) {
+            window.webContents.send(IPC_CHANNELS.workspaceRegistryUpdated, workspaceRegistry);
           }
         }
       }
@@ -344,10 +344,10 @@ function snapshotBroadcastMetricDetail(snapshot: WorkspaceSnapshot | null): Reco
   };
 }
 
-function programRegistryBroadcastMetricDetail(programRegistry: ProgramRegistryState): Record<string, string | number | boolean> {
+function workspaceRegistryBroadcastMetricDetail(workspaceRegistry: WorkspaceRegistryState): Record<string, string | number | boolean> {
   return {
-    registryPrograms: programRegistry.programs.length,
-    registrySessions: programRegistry.researchSessions.length
+    registryWorkspaces: workspaceRegistry.workspaces.length,
+    registrySessions: workspaceRegistry.researchSessions.length
   };
 }
 
@@ -363,9 +363,9 @@ function registerIpc(): void {
     };
   });
 
-  ipcMain.handle(IPC_CHANNELS.selectProgramDirectory, async () => {
+  ipcMain.handle(IPC_CHANNELS.selectWorkspaceDirectory, async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Add Beale program',
+      title: 'Add Beale workspace',
       properties: ['openDirectory', 'createDirectory']
     });
     const path = result.filePaths[0] ?? null;
@@ -373,24 +373,24 @@ function registerIpc(): void {
       ? {
           canceled: true,
           path: null,
-          knownProgram: null,
+          knownWorkspace: null,
           requiresOnboarding: false,
           defaults: null
         }
-      : workspaceService.inspectProgramDirectory(path);
+      : workspaceService.inspectWorkspaceDirectory(path);
   });
-  ipcMain.handle(IPC_CHANNELS.getProgramRegistry, () => timedMainIpc('getProgramRegistry', {}, () => workspaceService.getProgramRegistryState()));
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () => timedMainIpc('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryState()));
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
-  ipcMain.handle(IPC_CHANNELS.lookupHackerOneProgram, (_event, identifier: string) => workspaceService.lookupHackerOneProgram(identifier));
-  ipcMain.handle(IPC_CHANNELS.createProgram, (event, input: ProgramOnboardingInput) =>
-    workspaceService.createProgram(input, (update) => event.sender.send(IPC_CHANNELS.programOnboardingUpdated, update))
+  ipcMain.handle(IPC_CHANNELS.lookupHackerOneScope, (_event, identifier: string) => workspaceService.lookupHackerOneScope(identifier));
+  ipcMain.handle(IPC_CHANNELS.createScopedWorkspace, (event, input: WorkspaceOnboardingInput) =>
+    workspaceService.createScopedWorkspace(input, (update) => event.sender.send(IPC_CHANNELS.workspaceOnboardingUpdated, update))
   );
-  ipcMain.handle(IPC_CHANNELS.skipProgramOnboardingRepository, (_event, input: ProgramOnboardingSkipInput) => workspaceService.skipProgramOnboardingRepository(input));
-  ipcMain.handle(IPC_CHANNELS.openProgram, (_event, programId: string) =>
-    timedMainIpc('openProgram', { program: shortMetricId(programId) }, () => workspaceService.openProgram(programId))
+  ipcMain.handle(IPC_CHANNELS.skipWorkspaceOnboardingRepository, (_event, input: WorkspaceOnboardingSkipInput) => workspaceService.skipWorkspaceOnboardingRepository(input));
+  ipcMain.handle(IPC_CHANNELS.openRegisteredWorkspace, (_event, registryWorkspaceId: string) =>
+    timedMainIpc('openRegisteredWorkspace', { workspace: shortMetricId(registryWorkspaceId) }, () => workspaceService.openRegisteredWorkspace(registryWorkspaceId))
   );
-  ipcMain.handle(IPC_CHANNELS.removeProgram, (_event, programId: string) => workspaceService.removeProgram(programId));
+  ipcMain.handle(IPC_CHANNELS.removeRegisteredWorkspace, (_event, registryWorkspaceId: string) => workspaceService.removeRegisteredWorkspace(registryWorkspaceId));
   ipcMain.handle(IPC_CHANNELS.openWorkspace, (_event, path: string) => workspaceService.openWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.createWorkspace, (_event, path: string) => workspaceService.createWorkspace(path));
   ipcMain.handle(IPC_CHANNELS.getSnapshot, () => timedMainIpc('getSnapshot', {}, () => workspaceService.getSnapshot()));
@@ -420,16 +420,11 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.cancelResearchPromptGeneration, (_event, requestId: string) => workspaceService.cancelResearchPromptGeneration(requestId));
-  ipcMain.handle(IPC_CHANNELS.saveProgramScope, (_event, scope: ProgramScopeDraft) => workspaceService.saveProgramScope(scope));
+  ipcMain.handle(IPC_CHANNELS.saveScope, (_event, scope: WorkspaceScopeDraft) => workspaceService.saveScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) =>
     timedMainIpc('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () => workspaceService.startRun(input))
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
-  ipcMain.handle(IPC_CHANNELS.migrateLegacyResearchMemoryToHoneycrisp, (_event, runId?: string) =>
-    timedMainIpc('migrateLegacyResearchMemoryToHoneycrisp', { run: runId ? shortMetricId(runId) : 'all' }, () =>
-      workspaceService.migrateLegacyResearchMemoryToHoneycrisp(runId)
-    )
-  );
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>
     timedMainIpc('getRunDetail', { run: shortMetricId(runId) }, () => workspaceService.getRunDetail(runId))
   );
@@ -445,7 +440,7 @@ function registerIpc(): void {
     )
   );
   ipcMain.handle(IPC_CHANNELS.searchSessionTranscripts, (_event, input: SessionTranscriptSearchInput) =>
-    timedMainIpc('searchSessionTranscripts', { chars: input.query.length, limit: input.limit ?? 24, currentProgramOnly: input.currentProgramOnly !== false }, () =>
+    timedMainIpc('searchSessionTranscripts', { chars: input.query.length, limit: input.limit ?? 24, currentWorkspaceOnly: input.currentWorkspaceOnly !== false }, () =>
       workspaceService.searchSessionTranscripts(input)
     )
   );
@@ -478,7 +473,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   setImmediate(() => {
-    workspaceService.openLastProgramIfAvailable();
+    workspaceService.openLastWorkspaceIfAvailable();
   });
   if (smokeTestMode) {
     setTimeout(() => app.quit(), 1500);

@@ -8,8 +8,8 @@ import type {
   OpenAiOAuthStartResult,
   ProfilingReport,
   ProfilingState,
-  ProgramOnboardingProgressUpdate,
-  ProgramRegistryEntry,
+  WorkspaceOnboardingProgressUpdate,
+  WorkspaceRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
   SessionTranscriptSearchResult,
@@ -17,8 +17,8 @@ import type {
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { ProgramInformationModal, ProgramSessionHistoryModal } from '../features/programs/ProgramModals';
-import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingModal';
+import { WorkspaceInformationModal, WorkspaceSessionHistoryModal } from '../features/workspaces/WorkspaceModals';
+import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
 import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
@@ -28,12 +28,12 @@ import { HoneycrispToolingModal, type HoneycrispToolingModalKind } from '../feat
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
-import type { ProgramOnboardingFormState, ProgramTemplateKind } from '../view-models/programOnboarding';
+import type { WorkspaceOnboardingFormState, WorkspaceTemplateKind } from '../view-models/workspaceOnboarding';
 
 export function AppModals({
   activeNotification,
   activeRunDetail,
-  activeProgramName,
+  activeWorkspaceName,
   busy,
   developerSettings,
   newResearchOpen,
@@ -42,16 +42,16 @@ export function AppModals({
   profilingOpen,
   profilingState,
   lastProfilingReport,
-  programDraft,
-  programOnboardingProgress,
-  programInfo,
+  workspaceDraft,
+  workspaceOnboardingProgress,
+  workspaceInfo,
   researchPromptDetail,
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
   selectedTraceFinding,
   selectedTraceHypothesis,
-  sessionHistoryProgram,
+  sessionHistoryWorkspace,
   sessionHistorySessions,
   settingsOpen,
   settingsSection,
@@ -61,13 +61,13 @@ export function AppModals({
   toolingModal,
   visibleTraceCategories,
   onCancelNewResearch,
-  onCancelProgramOnboarding,
-  onChangeProgramDraft,
+  onCancelWorkspaceOnboarding,
+  onChangeWorkspaceDraft,
   onChangeSettingsSection,
   onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
-  onCloseProgramInfo,
+  onCloseWorkspaceInfo,
   onCloseResearchPrompt,
   onCloseSearch,
   onCloseSessionHistory,
@@ -77,21 +77,21 @@ export function AppModals({
   onCloseTraceFilters,
   onLookupHackerOne,
   onOpenSessionHistorySession,
-  onProgramTemplate,
+  onWorkspaceTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
   onSetDeveloperModeEnabled,
   onStartOpenAiOAuth,
   onStartedNewResearch,
   onSteerNotification,
-  onSubmitProgramOnboarding,
-  onSkipProgramOnboardingRepository,
+  onSubmitWorkspaceOnboarding,
+  onSkipWorkspaceOnboardingRepository,
   onOpenSearchResult,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
-  activeProgramName: string;
+  activeWorkspaceName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
   newResearchOpen: boolean;
@@ -100,16 +100,16 @@ export function AppModals({
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
-  programDraft: ProgramOnboardingFormState | null;
-  programOnboardingProgress: ProgramOnboardingProgressUpdate | null;
-  programInfo: ProgramRegistryEntry | null;
+  workspaceDraft: WorkspaceOnboardingFormState | null;
+  workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
+  workspaceInfo: WorkspaceRegistryEntry | null;
   researchPromptDetail: RunDetail | null;
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
   selectedTraceFinding: FindingRecord | null;
   selectedTraceHypothesis: HypothesisRecord | null;
-  sessionHistoryProgram: ProgramRegistryEntry | null;
+  sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
   sessionHistorySessions: ResearchSessionSummary[];
   settingsOpen: boolean;
   settingsSection: SettingsSection;
@@ -119,13 +119,13 @@ export function AppModals({
   toolingModal: HoneycrispToolingModalKind | null;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
-  onCancelProgramOnboarding: () => void;
-  onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
+  onCancelWorkspaceOnboarding: () => void;
+  onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onCloseProgramInfo: () => void;
+  onCloseWorkspaceInfo: () => void;
   onCloseResearchPrompt: () => void;
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
@@ -134,32 +134,32 @@ export function AppModals({
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onOpenSessionHistorySession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
-  onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
+  onOpenSessionHistorySession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
+  onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
-  onSubmitProgramOnboarding: () => void;
-  onSkipProgramOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
+  onSubmitWorkspaceOnboarding: () => void;
+  onSkipWorkspaceOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
     <>
-      {programDraft ? (
-        <ProgramOnboardingModal
+      {workspaceDraft ? (
+        <WorkspaceOnboardingModal
           busy={busy}
-          form={programDraft}
-          progress={programOnboardingProgress}
-          onCancel={onCancelProgramOnboarding}
-          onChange={onChangeProgramDraft}
+          form={workspaceDraft}
+          progress={workspaceOnboardingProgress}
+          onCancel={onCancelWorkspaceOnboarding}
+          onChange={onChangeWorkspaceDraft}
           onLookupHackerOne={onLookupHackerOne}
-          onSkipRepository={onSkipProgramOnboardingRepository}
-          onTemplate={onProgramTemplate}
-          onSubmit={onSubmitProgramOnboarding}
+          onSkipRepository={onSkipWorkspaceOnboardingRepository}
+          onTemplate={onWorkspaceTemplate}
+          onSubmit={onSubmitWorkspaceOnboarding}
         />
       ) : null}
       {newResearchOpen && snapshot ? (
@@ -175,7 +175,7 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
-          programName={activeProgramName}
+          workspaceName={activeWorkspaceName}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
           busy={busy}
@@ -203,7 +203,7 @@ export function AppModals({
       ) : null}
       {searchOpen ? (
         <TranscriptSearchModal
-          activeProgramName={activeProgramName}
+          activeWorkspaceName={activeWorkspaceName}
           workspaceOpen={Boolean(snapshot)}
           selectedRunId={selectedRunId}
           onClose={onCloseSearch}
@@ -229,14 +229,14 @@ export function AppModals({
           onClose={onCloseTraceDetail}
         />
       ) : null}
-      {programInfo ? <ProgramInformationModal program={programInfo} onClose={onCloseProgramInfo} /> : null}
-      {sessionHistoryProgram ? (
-        <ProgramSessionHistoryModal
-          program={sessionHistoryProgram}
+      {workspaceInfo ? <WorkspaceInformationModal workspace={workspaceInfo} onClose={onCloseWorkspaceInfo} /> : null}
+      {sessionHistoryWorkspace ? (
+        <WorkspaceSessionHistoryModal
+          workspace={sessionHistoryWorkspace}
           sessions={sessionHistorySessions}
           selectedRunId={selectedRunId}
           onClose={onCloseSessionHistory}
-          onOpenSession={(session) => onOpenSessionHistorySession(sessionHistoryProgram, session)}
+          onOpenSession={(session) => onOpenSessionHistorySession(sessionHistoryWorkspace, session)}
         />
       ) : null}
     </>

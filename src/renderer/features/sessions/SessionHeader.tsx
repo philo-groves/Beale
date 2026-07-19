@@ -11,7 +11,7 @@ export function SessionHeader({
   detail,
   events,
   honeycrispMemoryStatus,
-  programOpen,
+  workspaceOpen,
   visibleTraceCategories,
   sessionView,
   onSessionViewChange
@@ -19,21 +19,21 @@ export function SessionHeader({
   detail: RunDetail | null;
   events: TraceEventRecord[];
   honeycrispMemoryStatus: string | null;
-  programOpen: boolean;
+  workspaceOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   sessionView: SessionMainView;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   return (
     <div className="workbench-header">
-      <div className="workbench-program">
+      <div className="workbench-workspace">
         {detail ? (
           <>
             <RunStatusIndicator detail={detail} />
             <SessionViewToggle sessionView={sessionView} onSessionViewChange={onSessionViewChange} />
           </>
-        ) : programOpen ? (
-          <span className="program-header-view-title">Honeycrisp Memory</span>
+        ) : workspaceOpen ? (
+          <span className="workspace-header-view-title">Honeycrisp Memory</span>
         ) : null}
       </div>
       <div className="workbench-session-controls">
@@ -42,25 +42,25 @@ export function SessionHeader({
             <SessionConfigPills detail={detail} />
             <SessionTimestamps detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} />
           </>
-        ) : programOpen ? (
-          <ProgramHeaderStatusPills memoryStatus={honeycrispMemoryStatus} />
+        ) : workspaceOpen ? (
+          <WorkspaceHeaderStatusPills memoryStatus={honeycrispMemoryStatus} />
         ) : null}
       </div>
     </div>
   );
 }
 
-function ProgramHeaderStatusPills({ memoryStatus }: { memoryStatus: string | null }): JSX.Element {
+function WorkspaceHeaderStatusPills({ memoryStatus }: { memoryStatus: string | null }): JSX.Element {
   return (
-    <div className="program-header-status-strip" aria-label="Program memory status">
-      <ProgramHeaderStatusPill label="Memory" value={memoryStatus ?? 'missing'} />
+    <div className="workspace-header-status-strip" aria-label="Workspace memory status">
+      <WorkspaceHeaderStatusPill label="Memory" value={memoryStatus ?? 'missing'} />
     </div>
   );
 }
 
-function ProgramHeaderStatusPill({ label, value }: { label: string; value: string }): JSX.Element {
+function WorkspaceHeaderStatusPill({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <span className={`program-understanding-status status-${stateClass(value)}`} title={`${label}: ${traceLabel(value)}`}>
+    <span className={`workspace-understanding-status status-${stateClass(value)}`} title={`${label}: ${traceLabel(value)}`}>
       {label}: {traceLabel(value)}
     </span>
   );

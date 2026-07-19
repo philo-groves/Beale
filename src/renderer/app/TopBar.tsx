@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, ProgramRegistryEntry, RunDetail, ZoomState } from '@shared/types';
+import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
@@ -11,29 +11,29 @@ type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   platform,
-  programName,
-  activeProgram,
+  workspaceName,
+  activeWorkspace,
   activeRunDetail,
   profilingEnabled,
   onOpenResearchPrompt,
-  onOpenProgramInfo,
+  onOpenWorkspaceInfo,
   onOpenProfiling,
-  onAddProgram,
+  onAddWorkspace,
   onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
   platform: HostEnvironment['platform'];
-  programName: string;
-  activeProgram: ProgramRegistryEntry | null;
+  workspaceName: string;
+  activeWorkspace: WorkspaceRegistryEntry | null;
   activeRunDetail: RunDetail | null;
   profilingEnabled: boolean;
   onOpenResearchPrompt: (detail: RunDetail) => void;
-  onOpenProgramInfo: (program: ProgramRegistryEntry) => void;
+  onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenProfiling: () => void;
-  onAddProgram: () => void;
+  onAddWorkspace: () => void;
   onToggleSidebar: () => void;
 }): JSX.Element {
-  useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, programName, run: activeRunDetail?.run.id ?? 'none' }));
+  useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, workspaceName, run: activeRunDetail?.run.id ?? 'none' }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -119,10 +119,10 @@ export const TopBar = memo(function TopBar({
     void window.beale.closeWindow();
   }, []);
 
-  const addProgram = useCallback(() => {
+  const addWorkspace = useCallback(() => {
     setOpenMenu(null);
-    onAddProgram();
-  }, [onAddProgram]);
+    onAddWorkspace();
+  }, [onAddWorkspace]);
 
   return (
     <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${openMenu ? 'menu-open' : ''}`}>
@@ -151,8 +151,8 @@ export const TopBar = memo(function TopBar({
           </button>
           {openMenu === 'file' ? (
             <div className="window-menu-dropdown" role="menu" aria-label="File">
-              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={addProgram}>
-                <span>New Research Program</span>
+              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={addWorkspace}>
+                <span>New Research Workspace</span>
               </button>
             </div>
           ) : null}
@@ -236,10 +236,10 @@ export const TopBar = memo(function TopBar({
         </div>
       </nav>
       <AppHeaderTitle
-        programName={programName}
-        activeProgram={activeProgram}
+        workspaceName={workspaceName}
+        activeWorkspace={activeWorkspace}
         detail={activeRunDetail}
-        onOpenProgramInfo={onOpenProgramInfo}
+        onOpenWorkspaceInfo={onOpenWorkspaceInfo}
         onOpenResearchPrompt={onOpenResearchPrompt}
       />
       {profilingEnabled || !isMac ? (

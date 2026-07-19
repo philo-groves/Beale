@@ -31,7 +31,7 @@ It combines:
 The guiding philosophy is **human-steered, verifiable research** rather than fully autonomous scanning or benchmark chasing.
 
 ### Core Principles
-- **Authorization first** — everything stays within scoped, permitted programs/targets
+- **Authorization first** — everything stays within the operator-recorded authorized scope
 - **Evidence over claims** — model reasoning must be backed by observable tool results and artifacts
 - **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
 - **Operator-controlled isolation** — Beale/Honeycrisp run with the user's host privileges; launch them inside your own VM or container when isolation is required
@@ -41,7 +41,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Key Concepts
 
-- **Workspaces**: Local folders containing your target programs with `.beale/` metadata
+- **Workspaces**: Local research contexts with `.beale/` metadata, an authorized scope, and references to relevant source material
 - **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
 - **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
@@ -61,7 +61,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ## Current State
 
 - Electron + Vite + TypeScript foundation
-- Multi-program local workspace registry
+- User-global registry of local Beale workspaces
 - SQLite-backed research session persistence under `.beale/`
 - Honeycrisp-backed research session execution
 - Trace UI with model, tool, system, hypothesis, finding, evidence, and compaction events
@@ -75,9 +75,9 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp is the source of truth for general agent state: goals, subgoals, memory events, hypotheses, evidence, findings, proof obligations, proof attempts, storage refs, context usage, and tool traces. Beale keeps the researcher interface, program/project setup, prompt planning, visualization, heatmap presentation, and vulnerability-specific disclosure/export/report workflows.
+Honeycrisp is the source of truth for general agent state: goals, subgoals, memory events, hypotheses, evidence, findings, proof obligations, proof attempts, storage refs, context usage, and tool traces. Beale keeps the researcher interface, workspace and authorized-scope setup, prompt planning, visualization, heatmap presentation, and vulnerability-specific disclosure/export/report workflows.
 
-Older Beale workspaces may still contain legacy `hypotheses`, `evidence`, `findings`, and verifier tables. Beale keeps those readable for compatibility and provides a one-time migration path that exports legacy general research records as Honeycrisp memory events, then asks Honeycrisp to validate/import them. Security-specific metadata such as CWE mappings and reportability stays attached as domain metadata or Beale overlay state rather than becoming Honeycrisp core schema.
+Beale is pre-alpha and uses one current schema without compatibility migrations. Workspaces created with earlier schemas should be recreated rather than opened with the current build.
 
 The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
 
