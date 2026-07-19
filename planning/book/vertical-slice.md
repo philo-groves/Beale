@@ -66,8 +66,8 @@ It avoids blocking on:
 - Markdown prompt textarea.
 - Mode selector with `open_discovery` default.
 - Attempt strategy selector with `adaptive_portfolio` default.
-- Model display defaulting to `gpt-5.5`.
-- Reasoning display defaulting to `xhigh`.
+- Model display defaulting to `gpt-5.6-sol`.
+- Reasoning display defaulting to `high`.
 - Network and sandbox profile display.
 - Budget placeholders.
 
@@ -229,4 +229,3 @@ The fake run engine should include a few scenario fixtures:
 The first slice is done when Beale feels like a real vulnerability research workbench using simulated research activity.
 
 It should be obvious where OpenAI, VM execution, structured tools, and benchmark mode will plug in next.
-

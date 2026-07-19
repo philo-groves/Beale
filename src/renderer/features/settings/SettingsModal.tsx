@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
 import { Bug, KeyRound, RefreshCw, Terminal } from 'lucide-react';
 import type {
   DeveloperSettings,
@@ -183,7 +184,7 @@ function ProvidersSettingsView({
           </div>
           <div>
             <span>Model</span>
-            <strong>{openAiStatus?.defaultModel ?? 'gpt-5.5'}</strong>
+            <strong>{openAiStatus?.defaultModel ?? DEFAULT_RESEARCH_MODEL}</strong>
           </div>
           <div>
             <span>Boundary</span>

@@ -60,7 +60,7 @@ Includes:
 - OAuth-first account flow.
 - OpenAI Responses API adapter.
 - WebSocket transport where available.
-- `gpt-5.5` with `xhigh` default.
+- `gpt-5.6-sol` with `high` reasoning by default.
 - Beale-owned run engine and trace schema.
 - Tool-call protocol mapping.
 - Context packing and replay policy.

@@ -15,7 +15,7 @@ Answered:
 
 Answered:
 
-- Primary OpenAI integration is OpenAI-first, OAuth-first, Responses API first, WebSocket-first for active runs, with `gpt-5.5` and `xhigh` reasoning as defaults. Beale owns the research orchestration while using OpenAI agent patterns where they help. See `planning/book/openai-integration.md`.
+- Primary OpenAI integration is OpenAI-first, OAuth-first, Responses API first, WebSocket-first for active runs, with `gpt-5.6-sol` and `high` reasoning as defaults. Beale owns the research orchestration while using OpenAI agent patterns where they help. See `planning/book/openai-integration.md`.
 - Agent loop ownership is hybrid: Beale owns the outer vulnerability-research loop, while OpenAI owns the inner model mechanics where they improve model performance and API alignment. See `planning/book/agent-loop-ownership.md`.
 - Persistence is local-only embedded SQLite, with one database per workspace directory to prevent accidental cross-program lookup. Remote persistence and sync are non-goals. See `planning/book/persistence-model.md`.
 - Default sandboxing is host-backed for convenience, with local disposable VMs preferred for high-risk execution and Docker available as a lower-assurance explicit sandbox option. See `planning/book/sandbox-model.md`.

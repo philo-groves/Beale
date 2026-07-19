@@ -1137,7 +1137,7 @@ describe('Beale workbench skeleton', () => {
       openAiFetch: async (_url, init) => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         modelRequests.push(request);
-        expect(request.model).toBe('gpt-5.5');
+        expect(request.model).toBe('gpt-5.6-sol');
         expect(request.tools).toEqual([]);
         expect(request.reasoning).toEqual({ effort: 'medium' });
         expect(JSON.stringify(request)).toContain('github.com');

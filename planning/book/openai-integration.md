@@ -11,8 +11,8 @@ Default integration:
 - Authentication: OAuth with a ChatGPT/Codex account. API-key-only operation is not the first-release target.
 - Primary API surface: Responses API.
 - Primary transport: Responses API WebSocket transport where available, for efficient long-running agent interaction.
-- Default model: `gpt-5.5`.
-- Default reasoning effort: `xhigh`.
+- Default model: `gpt-5.6-sol`.
+- Default reasoning effort: `high`.
 - Orchestration: Beale-owned run, trace, sandbox, tool, hypothesis, and verifier model.
 
 Beale should still remain adapter-shaped internally, but the first implementation should not dilute itself into provider-neutral lowest-common-denominator design. The OpenAI/Codex user path is the product path for v1.
@@ -61,7 +61,7 @@ Source: https://developers.openai.com/codex/config-reference#configtoml
 
 Default:
 
-- `model`: `gpt-5.5`
+- `model`: `gpt-5.6-sol`
 - `reasoning.effort`: `xhigh`
 
 This is intentionally expensive and latency-tolerant because v1 is optimizing for difficult open-ended vulnerability research, not chat responsiveness.
@@ -120,7 +120,7 @@ The first implementation should be:
 2. OAuth-first.
 3. Responses API first.
 4. WebSocket-first for active runs.
-5. `gpt-5.5` + `xhigh` by default.
+5. `gpt-5.6-sol` + `high` by default.
 6. Beale-owned orchestration around OpenAI model/tool APIs.
 
 Other providers and non-OpenAI account modes can be supported later only if they do not weaken the v1 workbench design.

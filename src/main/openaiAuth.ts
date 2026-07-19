@@ -2,6 +2,7 @@ import type { OpenAiAccountStatus, OpenAiAuthReadiness, OpenAiAuthSource, OpenAi
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import { join } from 'node:path';
 
 const SECRET_ENV_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|OPENAI/i;
@@ -59,8 +60,8 @@ export class OpenAiAuthService {
       label: labelFor(credential?.source ?? null, readiness),
       credentialHint: credentialHintFor(readiness),
       credentialsHostOnly: true,
-      defaultModel: 'gpt-5.5',
-      defaultReasoningEffort: 'xhigh',
+      defaultModel: DEFAULT_RESEARCH_MODEL,
+      defaultReasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
       supportsWebSocket,
       preferredTransport: resolveOpenAiTransport(supportsWebSocket),
       readiness,
@@ -355,7 +356,7 @@ function onboardingStepsFor(probe: CredentialProbe, readiness: OpenAiAuthReadine
       id: 'model_defaults',
       label: 'Model defaults',
       status: 'complete',
-      detail: 'Responses API defaults are gpt-5.5 with xhigh reasoning.',
+      detail: `Responses API defaults are ${DEFAULT_RESEARCH_MODEL} with ${DEFAULT_RESEARCH_REASONING_EFFORT} reasoning.`,
       command: null
     }
   ];

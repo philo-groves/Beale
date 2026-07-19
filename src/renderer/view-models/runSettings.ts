@@ -1,4 +1,5 @@
 import type { StartRunInput } from '@shared/types';
+import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../../shared/modelDefaults';
 
 export const UNBOUNDED_MINUTES = 999_999;
 export const UNBOUNDED_ATTEMPTS = 999_999;
@@ -8,8 +9,8 @@ export const defaultRunInput: StartRunInput = {
   promptMarkdown: '',
   mode: 'dynamic',
   attemptStrategy: 'adaptive_portfolio',
-  model: 'gpt-5.3-codex-spark',
-  reasoningEffort: 'minimal',
+  model: DEFAULT_RESEARCH_MODEL,
+  reasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
   networkProfile: 'elevated',
   sandboxProfile: 'host',
   budget: {

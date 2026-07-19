@@ -95,7 +95,7 @@
 ### Changed
 
 - Changed the no-session program overview to lead with Honeycrisp memory health, accepted event counts, derived record counts, storage directories, and retrieval/program tracking support panes.
-- Changed New Research defaults on the Honeycrisp harness branch to use the Honeycrisp run engine with the Codex Spark model preference.
+- Changed New Research and OpenAI provider defaults on the Honeycrisp harness branch to use GPT-5.6 Sol with high reasoning.
 - Changed trace row category pills so evidence rows display `Evidence` and reasoning rows display `Agent Output`.
 - Changed duplicate-blocked trace rows so attributes use compact trace styling while the blocked title keeps prose styling.
 - Changed thought trace formatting to keep bold thought titles on their own line and separate multiple thoughts with a blank line.

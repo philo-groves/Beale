@@ -98,8 +98,8 @@ describe('plan conformance', () => {
       const auth = new OpenAiAuthService();
       const status = auth.getStatus();
       expect(status.credentialsHostOnly).toBe(true);
-      expect(status.defaultModel).toBe('gpt-5.5');
-      expect(status.defaultReasoningEffort).toBe('xhigh');
+      expect(status.defaultModel).toBe('gpt-5.6-sol');
+      expect(status.defaultReasoningEffort).toBe('high');
 
       const adapter = new OpenAiResponsesAdapter(auth, async () => new Response('', { status: 500 }), 'https://api.openai.test/v1', null);
       const request = adapter.buildRequest({
@@ -116,7 +116,7 @@ describe('plan conformance', () => {
       expect(request.stream).toBe(true);
       expect(request.tool_choice).toBe('auto');
       expect(request.parallel_tool_calls).toBe(true);
-      expect(request.reasoning).toEqual({ effort: 'xhigh' });
+      expect(request.reasoning).toEqual({ effort: 'high' });
     });
   });
 

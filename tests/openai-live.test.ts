@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 
@@ -15,7 +16,7 @@ describe('OpenAI live smoke', () => {
 
     const adapter = new OpenAiResponsesAdapter(auth);
     const body = adapter.buildRequest({
-      model: process.env.BEALE_OPENAI_LIVE_MODEL ?? 'gpt-5.5',
+      model: process.env.BEALE_OPENAI_LIVE_MODEL ?? DEFAULT_RESEARCH_MODEL,
       instructions: 'Return exactly BEALE_OK and no other text.',
       input: [
         {
