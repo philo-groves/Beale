@@ -2,7 +2,7 @@ import type { RunDetail } from '@shared/types';
 import { tracePayloadRecord } from '../../traceClassification';
 import type { ContextMeter } from './types';
 
-const DEFAULT_CONTEXT_TOKEN_LIMIT = 272_000;
+const DEFAULT_CONTEXT_TOKEN_LIMIT = 372_000;
 
 export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
   const tokenLimit = contextTokenLimitForDetail(detail);

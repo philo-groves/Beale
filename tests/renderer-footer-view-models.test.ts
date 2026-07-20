@@ -4,7 +4,7 @@ import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsa
 import { hostEnvironmentLabel } from '../src/renderer/view-models/environmentDisplay';
 
 describe('renderer footer view models', () => {
-  it('formats context usage against the default 272k limit', () => {
+  it('formats context usage against the default 372k Sol limit', () => {
     const meter = contextMeterForDetail(
       runDetail({
         traceEvents: [
@@ -19,10 +19,10 @@ describe('renderer footer view models', () => {
       })
     );
 
-    expect(meter.label).toBe('136k/272k');
-    expect(visibleContextMeterLabel(meter)).toBe('136k/272k');
+    expect(meter.label).toBe('136k/372k');
+    expect(visibleContextMeterLabel(meter)).toBe('136k/372k');
     expect(visibleSessionTokenUsageLabel(meter)).toBe('136k');
-    expect(meter.fraction).toBe(0.5);
+    expect(meter.fraction).toBeCloseTo(136 / 372);
   });
 
   it('formats cumulative session token usage with decimals starting at millions', () => {
@@ -60,8 +60,8 @@ describe('renderer footer view models', () => {
       })
     );
 
-    expect(meter.label).toBe('9.3k/272k');
-    expect(visibleContextMeterLabel(meter)).toBe('9.3k/272k');
+    expect(meter.label).toBe('9.3k/372k');
+    expect(visibleContextMeterLabel(meter)).toBe('9.3k/372k');
     expect(visibleSessionTokenUsageLabel(meter)).toBe('0');
     expect(meter.source).toBe('Honeycrisp serialized capture estimate');
   });

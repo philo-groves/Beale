@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
@@ -267,7 +268,7 @@ export class HoneycrispRunEngine {
 
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
-      env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
+      env: honeycrispProcessEnvironment(),
       detached: process.platform !== 'win32',
       windowsHide: true
     });
@@ -772,6 +773,18 @@ export class HoneycrispRunEngine {
     this.activeRuns.delete(context.run.id);
     this.onChange();
   }
+}
+
+export function honeycrispProcessEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' };
+  if (env.HONEYCRISP_CODEX_AUTH_FILE?.trim()) return env;
+
+  const configured = process.env.BEALE_OPENAI_CODEX_AUTH_FILE?.trim();
+  const candidate = configured
+    ? configured.replace(/^~(?=$|\/)/, homedir())
+    : join(homedir(), '.codex', 'auth.json');
+  if (existsSync(candidate)) env.HONEYCRISP_CODEX_AUTH_FILE = candidate;
+  return env;
 }
 
 class LineBuffer {

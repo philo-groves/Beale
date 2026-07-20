@@ -1030,6 +1030,13 @@ export class WorkspaceService {
         break;
       }
       case 'resume': {
+        const instruction = action.instruction?.trim();
+        if (run.status !== 'paused') {
+          throw new Error(`Only paused runs can be resumed. Continue terminal runs in a new session.`);
+        }
+        if (instruction && runEngine === 'honeycrisp' && !this.honeycrispEngine?.steer(action.runId, instruction)) {
+          throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
+        }
         if (runEngine === 'honeycrisp' && !this.honeycrispEngine?.resume(action.runId)) {
           throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
         }
@@ -1041,7 +1048,7 @@ export class WorkspaceService {
           type: 'user_note',
           source: 'user',
           summary: 'Run resumed by user.',
-          payload: { note: action.note ?? '' }
+          payload: { note: action.note ?? '', instruction: instruction ?? '' }
         });
         if (runEngine === 'fixture') {
           this.fixtureEngine?.resume(action.runId);

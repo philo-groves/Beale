@@ -1261,7 +1261,7 @@ export interface PriorityFactorInput {
 
 export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
-  | { type: 'resume'; runId: string; note?: string }
+  | { type: 'resume'; runId: string; instruction?: string; note?: string }
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string }
   | { type: 'fork'; runId: string; instruction: string }

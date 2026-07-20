@@ -251,6 +251,9 @@
 
 ### Fixed
 
+- Fixed Honeycrisp startup with the Sol default by bridging the fresher host Codex OAuth credential by file reference, releasing control-stream stdin after startup failures, and treating terminal-session Continue as a new continuation session rather than a paused-process resume.
+- Updated the default session context meter to Sol's 372k context window.
+
 - Fixed Honeycrisp session context tracking so the footer imports reported model usage when available and falls back to an explicitly marked serialized-capture estimate instead of showing zero.
 - Fixed Spawn center-stack alignment and Python preview spacing so attached Python code previews stay vertically centered and readable.
 - Fixed Spawn thought anchoring so attached Python/result squircles grow downward without moving the thought being read.

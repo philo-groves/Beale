@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
+import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
@@ -20,6 +21,7 @@ afterEach(() => {
   delete process.env.BEALE_OPENAI_ACCESS_TOKEN;
   delete process.env.BEALE_OPENAI_AUTH_COMMAND;
   delete process.env.BEALE_OPENAI_AUTH_ARGS_JSON;
+  delete process.env.BEALE_OPENAI_CODEX_AUTH_FILE;
   delete process.env.OPENAI_API_KEY;
   delete process.env.BEALE_HONEYCRISP_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_COMMAND;
@@ -33,6 +35,7 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
+  delete process.env.HONEYCRISP_CODEX_AUTH_FILE;
   delete process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   delete process.env.BEALE_TOOLING_ARGS_PATH;
   delete process.env.POC_SAVE_DIR;
@@ -43,6 +46,17 @@ afterEach(() => {
 });
 
 describe('Beale workbench skeleton', () => {
+  it('bridges the host Codex auth file path into Honeycrisp without credential values', () => {
+    const codexAuthFile = join(tempWorkspace(), 'auth.json');
+    writeFileSync(codexAuthFile, '{}');
+    process.env.BEALE_OPENAI_CODEX_AUTH_FILE = codexAuthFile;
+
+    const env = honeycrispProcessEnvironment();
+
+    expect(env.HONEYCRISP_CODEX_AUTH_FILE).toBe(codexAuthFile);
+    expect(JSON.stringify(env)).not.toContain('access_token');
+  });
+
   it('initializes and reopens a workspace-local SQLite database', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();

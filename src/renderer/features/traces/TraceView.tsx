@@ -614,12 +614,22 @@ const MainSteerArea = memo(function MainSteerArea({
 
   const continueSession = (): void => {
     if (controlsDisabled || !runId) return;
-    if (trimmedInstruction) {
-      onSessionAction({ type: 'steer', runId, instruction: trimmedInstruction });
+    if (status === 'paused') {
+      onSessionAction({
+        type: 'resume',
+        runId,
+        ...(trimmedInstruction ? { instruction: trimmedInstruction } : {}),
+        note: 'Continue requested from session controls.'
+      });
       setInstruction('');
       return;
     }
-    onSessionAction({ type: 'resume', runId, note: 'Continue requested from session controls.' });
+    onSessionAction({
+      type: 'fork',
+      runId,
+      instruction: trimmedInstruction || 'Continue this research in a new session from the prior session context.'
+    });
+    setInstruction('');
   };
 
   return (
@@ -643,7 +653,7 @@ const MainSteerArea = memo(function MainSteerArea({
               </button>
             </>
           ) : (
-            <button type="button" className="main-session-control-button primary" title="Continue this session" disabled={controlsDisabled} onClick={continueSession}>
+            <button type="button" className="main-session-control-button primary" title={status === 'paused' ? 'Resume this session' : 'Continue in a new session'} disabled={controlsDisabled} onClick={continueSession}>
               <Play size={12} />
               <span>Continue</span>
             </button>
