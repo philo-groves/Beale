@@ -135,6 +135,28 @@ export function isHoneycrispToolObservationError(event: TraceEventRecord): boole
   return Boolean(tracePayloadRecord(payload, 'error') || stringRecordValue(payload, 'error') || status === 'error' || status === 'blocked');
 }
 
+export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunDetail | null = null): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload) return '';
+  const toolName = honeycrispToolName(event);
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return '';
+  if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
+  if (toolName !== 'memory.get') return '';
+
+  const memoryId = stringRecordValue(inputs, 'id');
+  if (!memoryId) return '';
+  const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
+  return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+export function isEmptyHoneycrispMemorySearchObservation(event: TraceEventRecord): boolean {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'memory.search' || isHoneycrispToolObservationError(event)) return false;
+  const payload = honeycrispEventToolPayload(event);
+  return Boolean(payload && Array.isArray(payload.result) && payload.result.length === 0);
+}
+
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
   return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
 }
@@ -842,31 +864,23 @@ function honeycrispToolTraceDetailText(event: TraceEventRecord, detail: RunDetai
 
   const payload = honeycrispEventToolPayload(event);
   if (!payload) return '';
-  if (kind === 'tool.requested') return honeycrispToolRequestDetailText(event, payload, detail);
+  if (kind === 'tool.requested') return honeycrispToolTraceSubtext(event, detail);
   const status = stringRecordValue(payload, 'status');
   const error = tracePayloadRecord(payload, 'error');
   const errorMessage = error ? stringRecordValue(error, 'message') : stringRecordValue(payload, 'error');
   if (errorMessage) return errorMessage;
-  return status && status !== 'complete' ? traceLabel(status) : '';
+  const subtext = honeycrispToolTraceSubtext(event, detail);
+  return subtext || (status && status !== 'complete' ? traceLabel(status) : '');
 }
 
-function honeycrispToolRequestDetailText(event: TraceEventRecord, payload: Record<string, unknown>, detail: RunDetail | null): string {
-  const toolName = honeycrispToolName(event);
-  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
-  if (!inputs) return '';
-  if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
-  if (toolName === 'file.read') return stringRecordValue(inputs, 'path') ?? '';
-  if (toolName !== 'memory.get') return '';
-
-  const memoryId = stringRecordValue(inputs, 'id');
-  if (!memoryId) return '';
-  const memoryType = memoryTypeForGetRequest(event, memoryId, detail);
-  return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
-}
-
-function memoryTypeForGetRequest(event: TraceEventRecord, memoryId: string, detail: RunDetail | null): string | null {
+function memoryTypeForGetTrace(event: TraceEventRecord, memoryId: string, detail: RunDetail | null): string | null {
   const catalogType = detail?.honeycrispMemory?.nodes.find((node) => node.id === memoryId)?.type;
   if (catalogType) return catalogType;
+
+  const currentPayload = honeycrispEventToolPayload(event);
+  const currentResult = currentPayload ? tracePayloadRecord(currentPayload, 'result') : null;
+  const currentType = currentResult ? stringRecordValue(currentResult, 'type') : null;
+  if (currentType) return currentType;
 
   const pairingKey = honeycrispToolPairingKey(event);
   const observation = pairingKey

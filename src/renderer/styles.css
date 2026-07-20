@@ -4218,6 +4218,45 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   -webkit-line-clamp: unset;
 }
 
+.main-trace-tool-observation-detail {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.main-trace-tool-subtext {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #777777;
+  padding: 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-trace-tool-empty-memory {
+  min-width: 0;
+  width: 100%;
+  display: block;
+  border: 0;
+  border-radius: 8px;
+  background: #3f270f;
+  color: #ffc477;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .main-trace-tool-error-detail {
   min-width: 0;
   width: 100%;

@@ -8,6 +8,8 @@ import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
+  honeycrispToolTraceSubtext,
+  isEmptyHoneycrispMemorySearchObservation,
   isHoneycrispToolObservationError,
   isProseTraceEvent,
   isPythonExecutionTraceEvent,
@@ -67,6 +69,48 @@ export const TraceEventRow = memo(function TraceEventRow({
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
   const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
+  const honeycrispToolObservation = honeycrispToolEventKind(event) === 'tool.observed';
+  const toolObservationSubtext = honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
+  const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
+  const structuredContextContent = pythonPreview ? (
+    <PythonTracePreview preview={pythonPreview} />
+  ) : verifierPreview ? (
+    <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+  ) : evidencePreview ? (
+    <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+  ) : codeBrowserPreview ? (
+    <CodeBrowserTracePreviewRow
+      preview={codeBrowserPreview}
+      hideTitle={honeycrispToolObservation && toolObservationSubtext === codeBrowserPreview.title}
+      hasSearchHighlight={hasSearchHighlight}
+      searchHighlightQuery={searchHighlightQuery}
+    />
+  ) : duplicateBlockedDetail ? (
+    <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+  ) : reasoningSummaries.length > 0 ? (
+    <ReasoningTraceContinuation summaries={reasoningSummaries} sourceLabel={sourceLabel} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+  ) : toolObservationError && hasDetail ? (
+    <span className="main-trace-tool-error-detail">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</span>
+  ) : null;
+  const fallbackContextContent = hasDetail ? (
+    proseDetail ? (
+      <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
+    ) : (
+      <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
+    )
+  ) : null;
+  const contextContent = honeycrispToolObservation ? (
+    <div className="main-trace-tool-observation-detail">
+      {toolObservationSubtext ? (
+        <code className="main-trace-tool-subtext">
+          {hasSearchHighlight ? renderSearchHighlightedText(toolObservationSubtext, searchHighlightQuery) : toolObservationSubtext}
+        </code>
+      ) : null}
+      {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : structuredContextContent}
+    </div>
+  ) : (
+    structuredContextContent ?? fallbackContextContent
+  );
   return (
     <button
       type="button"
@@ -99,36 +143,7 @@ export const TraceEventRow = memo(function TraceEventRow({
           </div>
         </div>
         {reasoningSummaries.length > 0 && !hasReasoningContinuation ? null : (
-          <div className="main-trace-context">
-            {pythonPreview ? (
-              <PythonTracePreview preview={pythonPreview} />
-            ) : verifierPreview ? (
-              <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-            ) : evidencePreview ? (
-              <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-            ) : codeBrowserPreview ? (
-              <CodeBrowserTracePreviewRow preview={codeBrowserPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-            ) : duplicateBlockedDetail ? (
-              <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-            ) : reasoningSummaries.length > 0 ? (
-              <ReasoningTraceContinuation
-                summaries={reasoningSummaries}
-                sourceLabel={sourceLabel}
-                hasSearchHighlight={hasSearchHighlight}
-                searchHighlightQuery={searchHighlightQuery}
-              />
-            ) : toolObservationError && hasDetail ? (
-              <span className="main-trace-tool-error-detail">
-                {hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}
-              </span>
-            ) : hasDetail ? (
-              proseDetail ? (
-                <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
-              ) : (
-                <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
-              )
-            ) : null}
-          </div>
+          <div className="main-trace-context">{contextContent}</div>
         )}
       </div>
     </button>
@@ -137,16 +152,18 @@ export const TraceEventRow = memo(function TraceEventRow({
 
 function CodeBrowserTracePreviewRow({
   preview,
+  hideTitle,
   hasSearchHighlight,
   searchHighlightQuery
 }: {
   preview: CodeBrowserTracePreview;
+  hideTitle: boolean;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
 }): JSX.Element {
   return (
     <div className="main-trace-code-browser-preview">
-      <StructuredTracePreview preview={preview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+      <StructuredTracePreview preview={preview} hideTitle={hideTitle} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
       {preview.excerptLines.length > 0 ? (
         <PythonTraceBlock
           label="Excerpt"
@@ -233,16 +250,18 @@ function reasoningSummaryDescription(summary: ReasoningTraceSummarySegment | und
 }
 function StructuredTracePreview({
   preview,
+  hideTitle = false,
   hasSearchHighlight,
   searchHighlightQuery
 }: {
   preview: TraceStructuredPreview;
+  hideTitle?: boolean;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
 }): JSX.Element {
   return (
     <span className="main-trace-structured-preview">
-      <strong>{hasSearchHighlight ? renderSearchHighlightedText(preview.title, searchHighlightQuery) : preview.title}</strong>
+      {!hideTitle ? <strong>{hasSearchHighlight ? renderSearchHighlightedText(preview.title, searchHighlightQuery) : preview.title}</strong> : null}
       {preview.description ? (
         <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(preview.description, searchHighlightQuery) : renderTraceProseText(preview.description, 'agent_output')}</span>
       ) : null}

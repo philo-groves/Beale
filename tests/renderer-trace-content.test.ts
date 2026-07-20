@@ -7,8 +7,10 @@ import {
   evidenceTracePreview,
   findingForTraceEvent,
   formatReasoningTraceText,
+  honeycrispToolTraceSubtext,
   hypothesisForTraceEvent,
   isHoneycrispToolObservationError,
+  isEmptyHoneycrispMemorySearchObservation,
   isProseTraceEvent,
   lineRangePart,
   pythonTracePreview,
@@ -230,6 +232,19 @@ describe('renderer trace content view models', () => {
     expect(traceEventDetailText(memorySearch, 'non_standard')).toBe('ZFTP length boundary');
     expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Finding · ${memoryId}`);
     expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
+  });
+
+  it('preserves request subtext on Honeycrisp observations and identifies empty memory searches', () => {
+    const memoryId = 'finding_0123456789abcdefabcd';
+    const memorySearch = honeycrispToolObservation('memory.search', { query: 'ZFTP length boundary' }, []);
+    const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'finding' });
+    const fileRead = honeycrispToolObservation('file.read', { path: '/repo/Src/Modules/zftp.c' }, { text: 'source' });
+
+    expect(honeycrispToolTraceSubtext(memorySearch)).toBe('ZFTP length boundary');
+    expect(honeycrispToolTraceSubtext(memoryGet)).toBe(`Finding · ${memoryId}`);
+    expect(honeycrispToolTraceSubtext(fileRead)).toBe('');
+    expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
+    expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
   });
 
   it('builds python previews and prose decisions for trace rows', () => {
@@ -566,6 +581,25 @@ function honeycrispToolRequest(toolName: string, normalizedInputs: Record<string
         toolActionId: `action_${toolName}`,
         toolName,
         normalizedInputs
+      }
+    }
+  });
+}
+
+function honeycrispToolObservation(toolName: string, normalizedInputs: Record<string, unknown>, result: unknown): TraceEventRecord {
+  return traceEvent({
+    source: 'tool',
+    type: 'tool_result',
+    summary: `Honeycrisp tool.observed: ${toolName}`,
+    payload: {
+      agentPath: '/root',
+      honeycrispKind: 'tool.observed',
+      payload: {
+        toolActionId: `action_${toolName}`,
+        toolName,
+        normalizedInputs,
+        status: 'complete',
+        result
       }
     }
   });
