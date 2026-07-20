@@ -15,7 +15,6 @@
     "build": "npm run typecheck && electron-vite build"
   },
   "dependencies": {
-    "d3-force": "^3.0.0",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -23,7 +22,6 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@types/d3-force": "^3.0.10",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",

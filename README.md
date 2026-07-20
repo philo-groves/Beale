@@ -25,14 +25,14 @@ Beale is a specialized research environment designed to help security researcher
 It combines:
 - A structured, auditable workbench for mapping architecture, trust boundaries, and attack surfaces
 - Honeycrisp-driven reasoning and discovery loops
-- Strong emphasis on evidence, verification, provenance, and responsible disclosure
+- Strong emphasis on reproducible observations, provenance, and responsible disclosure
 - Honeycrisp-backed execution, memory, trace, context, and artifact visibility
 
 The guiding philosophy is **human-steered, verifiable research** rather than fully autonomous scanning or benchmark chasing.
 
 ### Core Principles
 - **Authorization first** — everything stays within the operator-recorded authorized scope
-- **Evidence over claims** — model reasoning must be backed by observable tool results and artifacts
+- **References over unsupported claims** — durable conclusions should point to observable tool results, files, commands, or artifacts
 - **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
 - **Operator-controlled isolation** — Beale/Honeycrisp run with the user's host privileges; launch them inside your own VM or container when isolation is required
 - **Human in the loop** — steering, review, hypothesis validation, and patch checking remain researcher-driven
@@ -43,7 +43,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - **Workspaces**: Local authorized research contexts with a Honeycrisp-owned SQLite database, Beale artifacts, and references to relevant source material
 - **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
-- **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
+- **Trace & Memory**: Timeline of model and tool activity beside a searchable, tiered catalog of durable research knowledge
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
 - **Harness**: Trusted Electron main process manages credentials, policy, persistence, and coordination
 
@@ -64,9 +64,9 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - User-global registry of local Beale workspaces
 - Unified Honeycrisp-owned SQLite persistence at `.honeycrisp/memory/memory.sqlite`
 - Honeycrisp-backed research session execution
-- Trace UI with model, tool, system, hypothesis, finding, evidence, and compaction events
+- Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Session transcripts persisted separately from trace metadata
-- Hypothesis and finding side panels
+- List-only Honeycrisp memory catalog with search, tier/type filters, inline details, references, and textual relationships
 - Steering for active sessions
 - OpenAI provider onboarding/status UI
 - Opt-in local profiling that writes structured JSONL reports

@@ -5,9 +5,9 @@ import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../src/
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
-  it('uses spawn as the default session view before the trace log', () => {
-    expect(DEFAULT_SESSION_MAIN_VIEW).toBe('spawn');
-    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['spawn', 'context', 'list']);
+  it('uses the list-only trace and memory view by default', () => {
+    expect(DEFAULT_SESSION_MAIN_VIEW).toBe('list');
+    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['list', 'context']);
   });
 
   it('formats status and session configuration pills', () => {

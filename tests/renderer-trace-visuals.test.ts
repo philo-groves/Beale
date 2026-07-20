@@ -18,7 +18,7 @@ describe('renderer trace visual helpers', () => {
     expect(traceCategoryLabel('code_navigation')).toBe('Code Nav');
     expect(traceCategoryLabel('failure_recovery')).toBe('Error');
     expect(traceCategoryLabel('non_standard')).toBe('Non-standard');
-    expect(traceCategoryBadgeLabel('evidence')).toBe('Evidence');
+    expect(traceCategoryBadgeLabel('evidence')).toBe('References');
     expect(traceCategoryBadgeLabel('reasoning')).toBe('Agent Output');
   });
 

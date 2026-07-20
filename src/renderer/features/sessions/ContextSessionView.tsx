@@ -53,7 +53,7 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
   const storage = useMemo(() => readRecord(payload.storage), [payload]);
   const requestLabel = firstString(request ?? {}, ['prompt']) ?? 'None';
   const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
-  const evidenceRefCount = findingNodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
+  const findingReferenceCount = findingNodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
 
   return (
     <div className="context-session-workspace" aria-label="Context view">
@@ -91,8 +91,8 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           />
           <SummaryTile
             icon={<ListChecks size={17} />}
-            label="Evidence"
-            value={`${formatCount(evidenceRefCount)} finding refs`}
+            label="References"
+            value={`${formatCount(findingReferenceCount)} finding refs`}
             detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} total references`}
           />
         </div>

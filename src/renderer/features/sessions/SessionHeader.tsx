@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Braces, Check, Clock, FileText, GitFork, List, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Braces, Check, Clock, FileText, GitFork, List, Pause, RefreshCw, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -157,7 +157,6 @@ function SessionViewToggle({
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   const optionByView: Record<SessionMainView, { label: string; icon: JSX.Element }> = {
-    spawn: { label: 'Spawn view', icon: <Sparkles size={15} /> },
     context: { label: 'Context view', icon: <Braces size={15} /> },
     list: { label: 'Trace log', icon: <List size={15} /> }
   };

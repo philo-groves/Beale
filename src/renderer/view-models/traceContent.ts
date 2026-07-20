@@ -269,8 +269,8 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
     if (!args) return null;
     const kind = stringRecordValue(args, 'kind') ?? 'evidence';
     return {
-      title: `${traceLabel(kind)} evidence`,
-      description: stringRecordValue(args, 'summary') ?? 'Evidence request prepared.',
+      title: `${traceLabel(kind)} reference`,
+      description: stringRecordValue(args, 'summary') ?? 'Reference request prepared.',
       facts: evidenceReferenceFacts(args)
     };
   }
@@ -278,8 +278,8 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
   if (event.type !== 'artifact_created' || !tracePayloadPrimitive(event.payload, 'evidenceId')) return null;
   const kind = tracePayloadPrimitive(event.payload, 'kind') ?? 'evidence';
   return {
-    title: `${traceLabel(kind)} evidence`,
-    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Evidence recorded.',
+    title: `${traceLabel(kind)} reference`,
+    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Reference recorded.',
     facts: evidenceReferenceFacts(event.payload)
   };
 }
@@ -657,7 +657,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
     if (toolName === 'hypothesis') return /^OpenAI requested Beale tool: hypothesis\.$/i.test(summary) ? 'Queue Hypothesis' : 'Prepare Hypothesis';
     if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
-    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Evidence' : 'Prepare Evidence';
+    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Reference' : 'Prepare Reference';
     if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
     if (toolName === 'code_browser') return /^OpenAI requested Beale tool: code_browser\.$/i.test(summary) ? 'Queue Code Browser' : 'Prepare Code Browser';
     if (toolName === 'resource_lookup') return /^OpenAI requested Beale tool: resource_lookup\.$/i.test(summary) ? 'Queue Resource Lookup' : 'Prepare Resource Lookup';
@@ -704,7 +704,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match?.[1] === 'python') return 'Prepare Python';
   if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
   if (match?.[1] === 'finding') return 'Prepare Finding';
-  if (match?.[1] === 'evidence') return 'Prepare Evidence';
+  if (match?.[1] === 'evidence') return 'Prepare Reference';
   if (match?.[1] === 'verifier') return 'Prepare Verifier';
   if (match?.[1] === 'code_browser') return 'Prepare Code Browser';
   if (match?.[1] === 'resource_lookup') return 'Prepare Resource Lookup';
@@ -745,7 +745,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
   if (match) return `Record portfolio branch: ${match[1]}`;
   match = summary.match(/^Evidence recorded: (.+)\.$/);
-  if (match) return 'Evidence Recorded';
+  if (match) return 'Reference Recorded';
   match = summary.match(/^Requested (.+)\.$/);
   if (match) return `Request ${match[1]}`;
   match = summary.match(/^Artifact recorded: (.+)\.$/);

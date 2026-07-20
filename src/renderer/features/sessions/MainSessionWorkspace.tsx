@@ -2,19 +2,17 @@ import { memo } from 'react';
 import type { JSX } from 'react';
 import type { HoneycrispMemorySummary, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
-import { ResearchSidePanel } from '../research/ResearchSidePanel';
+import { MemorySidePanel } from '../research/MemorySidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { ContextSessionView } from './ContextSessionView';
-import { SpawnSessionView } from './SpawnSessionView';
 import type { SessionMainView } from './sessionViews';
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
   honeycrispMemory,
-  researchPanelCollapsed,
   runCount,
   scope,
   selectedRunId,
@@ -25,18 +23,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   busy,
   traceFilterCount,
   totalTraceFilterCount,
-  onExpandResearchPanel,
   onOpenTraceFilters,
   onOpenHoneycrispMemoryDirectory,
   onSelectTraceEvent,
   onSessionAction,
-  onStartNextPrompt,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   honeycrispMemory: HoneycrispMemorySummary | null;
-  researchPanelCollapsed: boolean;
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
@@ -47,12 +42,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   busy: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
-  onExpandResearchPanel: () => void;
   onOpenTraceFilters: () => void;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onStartNextPrompt: (promptMarkdown: string) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   if (!selectedRunId) {
@@ -67,25 +60,12 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     );
   }
 
-  if (sessionView === 'spawn') {
-    return (
-      <SpawnSessionView
-        busy={busy}
-        detail={detail}
-        events={events}
-        selectedTraceEventId={selectedTraceEventId}
-        onSelectTraceEvent={onSelectTraceEvent}
-        onStartNextPrompt={onStartNextPrompt}
-      />
-    );
-  }
-
   if (sessionView === 'context') {
     return <ContextSessionView honeycrispMemory={detail?.honeycrispMemory ?? null} selectedRunId={selectedRunId} />;
   }
 
   return (
-    <div className={`main-session-grid ${researchPanelCollapsed ? 'research-collapsed' : ''}`}>
+    <div className="main-session-grid">
       <TraceView
         busy={busy}
         detail={detail}
@@ -101,14 +81,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
-      <ResearchSidePanel
-        collapsed={researchPanelCollapsed}
-        detail={detail}
-        events={events}
-        selectedTraceEventId={selectedTraceEventId}
-        onExpand={onExpandResearchPanel}
-        onSelectTraceEvent={onSelectTraceEvent}
-      />
+      <MemorySidePanel memory={detail?.honeycrispMemory ?? null} />
     </div>
   );
 });

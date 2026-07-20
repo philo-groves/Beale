@@ -25,7 +25,6 @@ export function appShellClassName(input: {
   platform: HostEnvironment['platform'];
   windowChromeState: WindowChromeState;
   sidebarCollapsed: boolean;
-  inspectorOpen: boolean;
 }): string {
   return [
     'app-shell',
@@ -34,8 +33,7 @@ export function appShellClassName(input: {
     `platform-${input.platform}`,
     input.sessionActive ? 'session-active' : '',
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
-    input.sidebarCollapsed ? 'sidebar-collapsed' : '',
-    input.inspectorOpen ? 'inspector-open' : ''
+    input.sidebarCollapsed ? 'sidebar-collapsed' : ''
   ]
     .filter(Boolean)
     .join(' ');

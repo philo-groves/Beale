@@ -31,7 +31,7 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
   { id: 'vm_execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
   { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
-  { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
+  { id: 'evidence', label: 'References / Artifacts', description: 'Referenced outputs, artifacts, finding records, and exportable observations.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
   { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
@@ -52,7 +52,7 @@ export function traceCategoryLabel(category: TraceCategoryId): string {
 }
 
 export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
-  if (category === 'evidence') return 'Evidence';
+  if (category === 'evidence') return 'References';
   if (category === 'reasoning') return 'Agent Output';
   return traceCategoryLabel(category);
 }

@@ -27,10 +27,9 @@ describe('renderer app shell view model', () => {
         sessionActive: true,
         platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
-        sidebarCollapsed: true,
-        inspectorOpen: true
+        sidebarCollapsed: true
       })
-    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed inspector-open');
+    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed');
   });
 
   it('resolves window control platform fallbacks', () => {

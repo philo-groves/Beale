@@ -33,7 +33,7 @@ export function researchMomentumForDetail(detail: RunDetail | null, heat: Sessio
 
   if (hasMomentumHotLead(detail, heat, recent)) {
     const supporting = recent.filter((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'evidence');
-    return momentumState('hot', `Evidence-backed ${traceLabel(heat)} lead is active.`, supporting.length > 0 ? supporting : recent.slice(-3));
+    return momentumState('hot', `Observation-backed ${traceLabel(heat)} lead is active.`, supporting.length > 0 ? supporting : recent.slice(-3));
   }
 
   const verifyingEvents = recent.filter(isMomentumVerifyingEvent);

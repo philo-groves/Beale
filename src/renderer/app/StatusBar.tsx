@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { Bell, Monitor, PanelRightClose, PanelRightOpen, Settings } from 'lucide-react';
+import { Bell, Monitor, Settings } from 'lucide-react';
 import type { HostEnvironment, RunDetail } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { ResearchMomentumLine } from '../features/momentum/ResearchMomentumLine';
@@ -13,18 +13,14 @@ export const StatusBar = memo(function StatusBar({
   detail,
   momentum,
   notificationCount,
-  inspectorOpen,
-  onOpenSettings,
-  onToggleInspector
+  onOpenSettings
 }: {
   hostEnvironment: HostEnvironment | null;
   activity: EnvironmentActivity;
   detail: RunDetail | null;
   momentum: ResearchMomentum;
   notificationCount: number;
-  inspectorOpen: boolean;
   onOpenSettings: () => void;
-  onToggleInspector: () => void;
 }): JSX.Element {
   useDevRenderProbe('footer.statusBar', () => ({
     host: hostEnvironment?.platform ?? 'unknown',
@@ -33,8 +29,6 @@ export const StatusBar = memo(function StatusBar({
     notifications: notificationCount
   }));
   const osLabel = hostEnvironmentLabel(hostEnvironment);
-  const InspectorToggleIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
-
   return (
     <footer className="status-bar">
       <div className="environment-switcher" aria-label="Environment target">
@@ -51,16 +45,6 @@ export const StatusBar = memo(function StatusBar({
         <button type="button" className="status-icon-button notification-button" title={`${notificationCount} unread notification${notificationCount === 1 ? '' : 's'}`}>
           <Bell size={15} />
           {notificationCount > 0 ? <span>{notificationCount}</span> : null}
-        </button>
-        <button
-          type="button"
-          className="status-icon-button"
-          title={inspectorOpen ? 'Hide evidence pane' : 'Show evidence pane'}
-          aria-label={inspectorOpen ? 'Hide evidence pane' : 'Show evidence pane'}
-          aria-pressed={inspectorOpen}
-          onClick={onToggleInspector}
-        >
-          <InspectorToggleIcon size={14} />
         </button>
       </div>
     </footer>

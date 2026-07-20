@@ -51,7 +51,7 @@ Beta requirement:
 - Minimum useful actions:
   - File: add/open research program, close window.
   - Edit: copy, paste, select all where focused controls support it.
-  - View: toggle sidebar, toggle inspector, open trace filters, reload.
+  - View: toggle sidebar, open trace filters, reload.
   - Window: minimize, maximize or restore, close.
 
 ### Sidebar Utility Buttons

@@ -95,6 +95,10 @@
 
 ### Removed
 
+- Removed the right-side Evidence navigation pane, its footer toggle, and the collapsed sideways Trails/Evidence rail.
+- Removed the graphical Spawn trail view and its trail derivation layer; sessions now open to the list-only trace and Memory view.
+- Removed unused graph-visualization styling and dependencies from the renderer.
+
 - Removed the Honeycrisp goal/subgoal controller contract from Beale sessions, including mode, strategy, research-branch controls, goal checkpoints, and goal-shaped capture metadata.
 - Removed Beale's Honeycrisp memory CLI/raw-SQLite fallback chain and the event-derived record/proof vocabulary from workspace memory views.
 
@@ -105,6 +109,8 @@
 - Removed Beale's parallel fake/OpenAI research-agent runtime and structured-tool router. New research sessions now route through Honeycrisp, with a guarded fixture engine retained only for deterministic tests.
 
 ### Changed
+
+- Replaced the always-visible hypothesis/finding/evidence trail column with a list-only Honeycrisp memory catalog supporting search, tier/type filters, inline record details, references, and textual relationships.
 
 - Changed steering for inactive Honeycrisp sessions to continue the existing run with a new attempt and bounded prior-session context instead of implicitly forking a new run.
 - Changed Honeycrisp session import to schema-v2 `request` and `agent` captures produced by Pi's native agent loop. Context views now show the request, workspace context, selected skills, and available tools without controller decisions or generated subgoals.

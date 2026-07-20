@@ -82,7 +82,7 @@ The known renderer hot paths are:
 - trace item label/content derivation,
 - markdown rendering for thoughts and agent responses,
 - syntax highlighting for Python and JSON,
-- hypothesis/finding/evidence list derivation,
+- memory catalog filtering and relationship derivation,
 - sidebar program and session ordering,
 - context meter and momentum animation,
 - background pulse animation,
@@ -96,7 +96,7 @@ Active session state should not invalidate the whole UI.
 
 Recommended boundaries:
 
-- App shell state: sidebar open, inspector open, modal kind, window controls.
+- App shell state: sidebar open, modal kind, window controls.
 - Workspace list state: programs, selected program, session summaries.
 - Active run state: current run detail, streaming updates, trace window.
 - Footer telemetry state: environment labels, momentum, context meter.
@@ -118,7 +118,7 @@ Rules:
 - Avoid re-highlighting code blocks that have not changed.
 - Keep trace insert animations short and queue-aware.
 - Prefer modal detail rendering for large payloads rather than expanding every row.
-- Keep inspector/evidence sidebars independent from trace scroll updates.
+- Keep the memory catalog independent from trace scroll updates.
 
 The goal is not fewer traces. The goal is less repeated work per trace.
 

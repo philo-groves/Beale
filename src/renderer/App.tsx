@@ -19,7 +19,6 @@ import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
-import { EvidenceSidebar } from './features/research/EvidenceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
@@ -45,7 +44,6 @@ import {
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
-import { defaultRunInput } from './view-models/runSettings';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
@@ -74,7 +72,6 @@ export function App(): JSX.Element {
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [toolingModal, setToolingModal] = useState<'skills' | 'mcpServers' | null>(null);
@@ -358,8 +355,7 @@ export function App(): JSX.Element {
     sessionActive: activeRunDetail?.run.status === 'active',
     platform: windowControlPlatform,
     windowChromeState,
-    sidebarCollapsed,
-    inspectorOpen
+    sidebarCollapsed
   });
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const openSettings = useCallback(() => setSettingsOpen(true), []);
@@ -379,24 +375,6 @@ export function App(): JSX.Element {
       setNewResearchOpen(false);
     },
     [clearRunDetail, setSelectedRunId]
-  );
-  const startNextPrompt = useCallback(
-    (promptMarkdown: string): void => {
-      const trimmedPrompt = promptMarkdown.trim();
-      if (!trimmedPrompt) return;
-      void runAction(async () => {
-        const next = await window.beale.startRun({
-          ...defaultRunInput,
-          promptMarkdown: trimmedPrompt,
-          networkProfile: 'elevated',
-          sandboxProfile: 'host'
-        });
-        const latestRunId = next.runs[0]?.run.id;
-        if (latestRunId) handleResearchStarted(latestRunId);
-        return next;
-      });
-    },
-    [handleResearchStarted, runAction]
   );
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
@@ -422,9 +400,6 @@ export function App(): JSX.Element {
     },
     [applySnapshot, clearRunDetail, workspaceRegistry, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
   );
-  const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
-  const closeInspector = useCallback(() => setInspectorOpen(false), []);
-
   useEffect(() => {
     if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
     const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
@@ -494,7 +469,6 @@ export function App(): JSX.Element {
             detail={activeRunDetail}
             events={activeTraceEvents}
             honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
-            researchPanelCollapsed={inspectorOpen}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
@@ -505,32 +479,21 @@ export function App(): JSX.Element {
             busy={busy}
             traceFilterCount={visibleTraceCategories.length}
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
-            onExpandResearchPanel={closeInspector}
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onSelectTraceEvent={selectTraceEvent}
             onSessionAction={handleSessionAction}
-            onStartNextPrompt={startNextPrompt}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>
       </main>
-      <aside className="inspector-sidebar" aria-label="Evidence" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
-        <EvidenceSidebar
-          detail={activeRunDetail}
-          events={activeTraceEvents}
-          onSelectTraceEvent={selectTraceEvent}
-        />
-      </aside>
       <StatusBar
         hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
         activity={environmentActivity}
         detail={activeRunDetail}
         momentum={researchMomentum}
         notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
-        inspectorOpen={inspectorOpen}
         onOpenSettings={openSettings}
-        onToggleInspector={toggleInspector}
       />
       <NotificationStack
         notifications={snapshot?.notifications ?? []}
