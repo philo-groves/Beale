@@ -4,6 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve 
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
+import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -533,7 +534,6 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 1;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -7372,13 +7372,21 @@ export class WorkspaceDatabase {
   }
 
   private createSchema(): void {
-    this.db.exec(SCHEMA_SQL);
-    this.db.exec(MEMORY_GRAPH_SCHEMA_SQL);
-    this.db.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
-    this.db.exec(PROJECT_GRAPH_SCHEMA_SQL);
-    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
-    this.db.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
-    this.db.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
+    applyDatabaseMigrations(this.db, 'beale_workbench', [
+      {
+        version: 1,
+        name: 'workspace_schema_baseline',
+        up: (database) => {
+          database.exec(SCHEMA_SQL);
+          database.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
+          database.exec(PROJECT_GRAPH_SCHEMA_SQL);
+          database.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
+          database.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
+          database.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
+          database.prepare("DELETE FROM workspace_meta WHERE key = 'schema_version'").run();
+        }
+      }
+    ]);
   }
 
   private ensureCweCatalog(): void {
@@ -7441,12 +7449,8 @@ export class WorkspaceDatabase {
     const workspaceId = `workspace_${randomUUID()}`;
     this.db
       .prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
-      .run('schema_version', String(SCHEMA_VERSION), createdAt);
-    this.db
-      .prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
       .run('workspace_id', workspaceId, createdAt);
     this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run('created_at', createdAt, createdAt);
-    this.db.prepare('UPDATE workspace_meta SET value = ?, updated_at = ? WHERE key = ?').run(String(SCHEMA_VERSION), createdAt, 'schema_version');
   }
 
   private ensureDefaultScope(): void {
@@ -10152,79 +10156,6 @@ export class WorkspaceDatabase {
     return 'fixture';
   }
 }
-
-const MEMORY_GRAPH_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS honeycrisp_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS memory_nodes (
-  id TEXT PRIMARY KEY,
-  tier TEXT NOT NULL,
-  scope_key TEXT NOT NULL,
-  session_id TEXT,
-  workspace_id TEXT NOT NULL,
-  workspace_name TEXT NOT NULL,
-  subject_id TEXT,
-  subject_name TEXT,
-  type TEXT NOT NULL,
-  title TEXT NOT NULL,
-  title_norm TEXT NOT NULL,
-  summary TEXT NOT NULL DEFAULT '',
-  body TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'draft',
-  confidence REAL NOT NULL DEFAULT 0.5,
-  attributes_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  revision INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS memory_node_assets (
-  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
-  asset_id TEXT NOT NULL,
-  PRIMARY KEY(node_id, asset_id)
-);
-CREATE TABLE IF NOT EXISTS memory_node_tags (
-  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
-  tag TEXT NOT NULL,
-  PRIMARY KEY(node_id, tag)
-);
-CREATE TABLE IF NOT EXISTS memory_edges (
-  from_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
-  to_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
-  relation TEXT NOT NULL,
-  note TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY(from_id, to_id, relation)
-);
-CREATE TABLE IF NOT EXISTS memory_federated_edges (
-  from_id TEXT NOT NULL,
-  to_id TEXT NOT NULL,
-  relation TEXT NOT NULL,
-  note TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY(from_id, to_id, relation)
-);
-CREATE TABLE IF NOT EXISTS memory_evidence_refs (
-  id TEXT PRIMARY KEY,
-  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  path_base TEXT,
-  path TEXT,
-  locator_json TEXT NOT NULL DEFAULT '{}',
-  summary TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS memory_nodes_tier_identity_idx ON memory_nodes(tier, scope_key, type, title_norm);
-CREATE INDEX IF NOT EXISTS memory_nodes_context_idx ON memory_nodes(tier, scope_key, updated_at);
-CREATE INDEX IF NOT EXISTS memory_nodes_type_status_idx ON memory_nodes(type, status);
-CREATE INDEX IF NOT EXISTS memory_nodes_updated_at_idx ON memory_nodes(updated_at);
-CREATE INDEX IF NOT EXISTS memory_node_assets_asset_idx ON memory_node_assets(asset_id, node_id);
-CREATE INDEX IF NOT EXISTS memory_node_tags_tag_idx ON memory_node_tags(tag, node_id);
-CREATE INDEX IF NOT EXISTS memory_edges_to_idx ON memory_edges(to_id, relation);
-CREATE INDEX IF NOT EXISTS memory_federated_edges_to_idx ON memory_federated_edges(to_id, relation);
-CREATE INDEX IF NOT EXISTS memory_evidence_node_idx ON memory_evidence_refs(node_id);
-INSERT OR REPLACE INTO honeycrisp_meta(key, value) VALUES ('schema_version', '2');
-`;
 
 const NOTIFICATIONS_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notifications (

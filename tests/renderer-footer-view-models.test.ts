@@ -49,6 +49,37 @@ describe('renderer footer view models', () => {
     expect(sessionTokenLabelForTotal(1_100_000_000)).toBe('1.1b');
   });
 
+  it('does not count aggregate capture usage again when summing model calls', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({ payload: { usage: { total_tokens: 2_000 } } }),
+          traceEvent({ id: 'trace_second', sequence: 2, payload: { usage: { total_tokens: 3_000 } } }),
+          traceEvent({
+            id: 'trace_capture',
+            sequence: 3,
+            type: 'artifact_created',
+            createdAt: '2026-04-29T00:01:00.000Z',
+            payload: { usage: { input_tokens: 4_500, total_tokens: 5_000 } }
+          })
+        ]
+      })
+    );
+
+    expect(meter.totalSessionTokens).toBe(5_000);
+    expect(meter.label).toBe('4.5k/372k');
+  });
+
+  it('uses aggregate capture usage when turn telemetry is unavailable', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [traceEvent({ type: 'artifact_created', payload: { usage: { input_tokens: 4_500, total_tokens: 5_000 } } })]
+      })
+    );
+
+    expect(meter.totalSessionTokens).toBe(5_000);
+  });
+
   it('accepts host-agent camelCase usage and source labels', () => {
     const meter = contextMeterForDetail(
       runDetail({

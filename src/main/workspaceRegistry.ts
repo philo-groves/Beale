@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   DeveloperSettings,
   WorkspaceDirectorySelection,
@@ -151,7 +152,10 @@ export class WorkspaceRegistry {
 
   private initialize(): void {
     this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec(`
+    applyDatabaseMigrations(this.db, 'beale_registry', [{
+      version: 1,
+      name: 'registry_schema_baseline',
+      up: (database) => database.exec(`
       CREATE TABLE IF NOT EXISTS registry_meta (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -199,10 +203,9 @@ export class WorkspaceRegistry {
       CREATE INDEX IF NOT EXISTS idx_workspaces_updated_at ON workspaces(updated_at);
       CREATE INDEX IF NOT EXISTS idx_research_sessions_registry_workspace_id ON research_sessions(registry_workspace_id);
       CREATE INDEX IF NOT EXISTS idx_research_sessions_updated_at ON research_sessions(updated_at);
-    `);
-    this.db
-      .prepare('INSERT OR IGNORE INTO registry_meta (key, value, updated_at) VALUES (?, ?, ?)')
-      .run('schema_version', '1', nowIso());
+      DELETE FROM registry_meta WHERE key = 'schema_version';
+    `)
+    }]);
   }
 
   private listWorkspaces(): WorkspaceRegistryEntry[] {

@@ -74,9 +74,15 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
 
 function totalSessionTokensForDetail(detail: RunDetail | null): number {
   if (!detail) return 0;
-  return detail.traceEvents.reduce((total, event) => {
+  const reportedTurnTotal = detail.traceEvents.reduce((total, event) => {
+    if (event.type === 'artifact_created') return total;
     const usage = tracePayloadRecord(event.payload, 'usage');
     return total + (usageTotalTokens(usage) ?? 0);
+  }, 0);
+  if (reportedTurnTotal > 0) return reportedTurnTotal;
+  return detail.traceEvents.reduce((total, event) => {
+    if (event.type !== 'artifact_created') return total;
+    return total + (usageTotalTokens(tracePayloadRecord(event.payload, 'usage')) ?? 0);
   }, 0);
 }
 

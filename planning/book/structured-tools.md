@@ -6,6 +6,8 @@ Status: accepted initial direction, 2026-04-26.
 
 Honeycrisp additionally provides `spawn_agent`, `send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and `wait_agent`. These coordinate model sessions; they are not research actions and do not create evidence or findings by themselves. They inherit the current authorized scope and tool policy. See [Subagent Orchestration](subagent-orchestration.md).
 
+Honeycrisp's current tool schemas are the capability contract presented to the model. Code-intelligence `maxBytes` fields advertise the configured runtime maximum. `memory.save` requires `attributes.impact` and `attributes.reachability` when saving a `chain`, matching the durable-memory validator instead of relying on recovery after a rejected call.
+
 ## Decision
 
 Beale's first model-facing structured research tool set should be minimal:

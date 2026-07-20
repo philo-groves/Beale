@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added component-scoped, transactional SQLite migrations for the shared Honeycrisp database and user-global workspace registry, including in-place baseline adoption for existing data.
 - Added Memory and Subagents tabs to the session sidebar, including child summaries with latest activity, agent-scoped trace navigation, and a Back to Main control.
 - Added Codex-style Honeycrisp subagent orchestration with bounded concurrency, optional conversation inheritance, child model/effort selection, inter-agent messaging and follow-ups, interruption, waiting, agent-aware Beale traces, and captured child run metadata.
 - Added tiered Honeycrisp memory for session-local, workspace-reusable, and same-subject reusable knowledge. Beale supplies explicit peer database references only for registered workspaces with the same normalized scope owner or subject.
@@ -284,6 +285,8 @@
 - Removed unreachable legacy run tracker, detail, inspector, and hardening code from `App.tsx`.
 
 ### Fixed
+
+- Fixed duplicate Honeycrisp tool lifecycle traces, doubled session token totals, event-stream stdout noise, nested repository source-root discovery, misleading tool byte schemas, and Memory/Subagents lists shrinking instead of scrolling.
 
 - Hidden host-only traces are no longer shown by default and can be restored through the Non-standard trace filter.
 - Fixed per-run network profiles in Honeycrisp workspace context, live Sol turn/token telemetry, duplicate live events during final capture import, excessive incremental thought snapshots, stale research-prompt evidence vocabulary, and underspecified memory node/status/evidence tool vocabularies.

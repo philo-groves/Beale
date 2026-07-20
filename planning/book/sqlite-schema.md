@@ -59,7 +59,7 @@ The exact generator can be ULID, UUIDv7, or another sortable unique ID. The impo
 
 Purpose:
 
-- Store workspace-local metadata and schema version.
+- Store workspace-local identity and settings metadata. Schema versions live only in `schema_migrations`.
 
 Fields:
 
@@ -69,7 +69,6 @@ Fields:
 
 Required keys:
 
-- `schema_version`
 - `workspace_id`
 - `created_at`
 
@@ -694,6 +693,7 @@ Use a migration table:
 
 ```text
 schema_migrations
+  component
   version
   name
   applied_at
@@ -703,6 +703,9 @@ Rules:
 
 - Migrations are append-only.
 - Released migrations are immutable.
+- Honeycrisp and Beale record independently owned migrations under component-scoped versions in the shared database.
+- The user-global workspace registry uses the same ledger shape with its own `beale_registry` component.
+- Existing pre-migration databases adopt the idempotent baseline in place without rewriting durable research data.
 - Migration tests should create old schemas and upgrade them.
 - Failed migrations must leave a recoverable database or a backup copy.
 

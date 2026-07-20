@@ -63,6 +63,8 @@ The Honeycrisp-owned workspace database remains authoritative for whether a glob
 
 Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Findings, traces, artifacts, indexes, and session/workspace-tier memories remain workspace-local. Subject-tier graph nodes may be retrieved from explicitly listed same-subject peer databases; this does not expose peer operational tables or artifact contents.
 
+Some managed checkouts contain a project directory below the ref-specific checkout root. Beale records bounded immediate child content roots when they contain common source or build markers. Honeycrisp includes those roots in model context and file-read hints while retaining the referenced checkout root as the authorization boundary.
+
 ## Memory Tiers
 
 Honeycrisp keeps the existing `memory.search`, `memory.get`, `memory.save`, `memory.correct`, and `memory.link` tool set. Nodes are categorized by origin session, workspace, and optional owner or subject. The selected tier controls reuse:

@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
@@ -60,6 +60,7 @@ interface HoneycrispWorkspaceAuthorizationContext {
 
 interface HoneycrispWorkspaceRepositoryContext {
   rootPath: string;
+  contentRoots?: string[];
   label?: string;
   role: 'known_repository' | 'materialized_source' | 'workspace';
   source: 'beale';
@@ -516,6 +517,7 @@ export class HoneycrispRunEngine {
     if (event.kind === 'research.event') {
       const honeycrispEvent = honeycrispCaptureEventFromLiveEvent(event);
       if (!honeycrispEvent) return;
+      if (honeycrispEvent.id && active?.liveHoneycrispEventIds.has(honeycrispEvent.id)) return;
       if (honeycrispEvent.id) active?.liveHoneycrispEventIds.add(honeycrispEvent.id);
       this.appendHoneycrispTimelineEvent(context, honeycrispEvent);
       this.recordLiveResearchSummary(context, honeycrispEvent);
@@ -1390,6 +1392,7 @@ function honeycrispWorkspaceContext(
       const repositoryUrl = stringAttribute(asset.attributes?.repositoryUrl);
       knownRepositories.push({
         rootPath: root,
+        ...inferredRepositoryContentRoots(root),
         label: honeycrispAssetLabel(asset),
         role: 'materialized_source',
         source: 'beale',
@@ -1433,6 +1436,35 @@ function honeycrispWorkspaceContext(
     materializedSourcePaths,
     projectNotes: honeycrispScopeNotes(scope, networkProfile)
   };
+}
+
+const REPOSITORY_CONTENT_MARKERS = [
+  'src',
+  'Src',
+  'Sources',
+  'include',
+  'lib',
+  'package.json',
+  'Cargo.toml',
+  'go.mod',
+  'pyproject.toml',
+  'CMakeLists.txt',
+  'configure'
+];
+
+function inferredRepositoryContentRoots(rootPath: string): { contentRoots: string[] } | Record<string, never> {
+  try {
+    const children = readdirSync(rootPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .slice(0, 64);
+    const contentRoots = children
+      .filter((entry) => REPOSITORY_CONTENT_MARKERS.some((marker) => existsSync(join(rootPath, entry.name, marker))))
+      .map((entry) => join(rootPath, entry.name))
+      .slice(0, 8);
+    return contentRoots.length > 0 ? { contentRoots } : {};
+  } catch {
+    return {};
+  }
 }
 
 function honeycrispMemorySubjectId(subjectName: string): string {

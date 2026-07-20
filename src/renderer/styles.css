@@ -2592,6 +2592,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .subagent-catalog-list {
   min-width: 0;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 7px;
   padding: 0 4px 12px 0;
@@ -2961,6 +2962,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-height: 0;
   overflow: auto;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 7px;
   padding: 0 3px 12px 0;

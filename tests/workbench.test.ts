@@ -74,29 +74,53 @@ describe('Beale workbench skeleton', () => {
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
     expect(existsSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
+    const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
+    expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry'").get()).toEqual({
+      version: 1,
+      name: 'registry_schema_baseline'
+    });
+    expect(registry.prepare("SELECT value FROM registry_meta WHERE key = 'schema_version'").get()).toBeUndefined();
+    registry.close();
     const schema = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     const benchmarkTables = schema
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('benchmark_runs', 'benchmark_task_results') ORDER BY name")
       .all();
     const scopeTable = schema.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'scope_versions'").get();
-    const removedSchemaTables = schema
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('program_scope_versions', 'schema_migrations') ORDER BY name")
-      .all();
+    const removedSchemaTables = schema.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'program_scope_versions'").all();
+    const migration = schema
+      .prepare("SELECT component, version, name FROM schema_migrations WHERE component = 'beale_workbench'")
+      .get();
     const scopeColumns = (schema.prepare('PRAGMA table_info(scope_versions)').all() as Array<{ name: string }>).map((row) => row.name);
+    const obsoleteSchemaVersion = schema.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get();
     schema.close();
     expect(benchmarkTables).toHaveLength(0);
     expect(scopeTable).toBeTruthy();
     expect(removedSchemaTables).toHaveLength(0);
+    expect(migration).toEqual({ component: 'beale_workbench', version: 1, name: 'workspace_schema_baseline' });
+    expect(obsoleteSchemaVersion).toBeUndefined();
     expect(scopeColumns).toEqual(expect.arrayContaining(['workspace_name', 'scope_owner']));
     expect(scopeColumns).not.toEqual(expect.arrayContaining(['program_name', 'organization_name']));
 
     const workspaceId = snapshot.workspace.workspaceId;
     service.close();
 
+    const preMigrationDatabase = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    preMigrationDatabase.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench'").run();
+    preMigrationDatabase.prepare("INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES ('schema_version', '1', ?)").run(new Date().toISOString());
+    preMigrationDatabase.close();
+
     const reopened = service.openWorkspace(dir);
     expect(reopened.workspace.workspaceId).toBe(workspaceId);
     expect(reopened.activeScope.version).toBe(1);
     service.close();
+
+    const migratedDatabase = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    expect(migratedDatabase.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_workbench'").get()).toEqual({
+      version: 1,
+      name: 'workspace_schema_baseline'
+    });
+    expect(migratedDatabase.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get()).toBeUndefined();
+    migratedDatabase.close();
   });
 
   it('keeps disabled context graph state inert for workspace snapshots', () => {
@@ -699,9 +723,10 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService();
     const nestedSourceRoot = join(workspace, 'sources', 'zsh');
     const credentialReferencePath = join(workspace, 'credentials', 'research-account');
-    mkdirSync(nestedSourceRoot, { recursive: true });
+    const nestedContentRoot = join(nestedSourceRoot, 'zsh');
+    mkdirSync(join(nestedContentRoot, 'Src'), { recursive: true });
     mkdirSync(dirname(credentialReferencePath), { recursive: true });
-    writeFileSync(join(nestedSourceRoot, 'parse.c'), 'parse_context_save();\n');
+    writeFileSync(join(nestedContentRoot, 'Src', 'parse.c'), 'parse_context_save();\n');
     writeFileSync(credentialReferencePath, 'host-only-reference\n');
     service.createWorkspace(workspace);
     service.saveScope({
@@ -741,7 +766,7 @@ describe('Beale workbench skeleton', () => {
     const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as {
       authorization?: { recorded?: boolean; source?: string; scopeName?: string; networkProfile?: string };
       materializedSourcePaths?: string[];
-      knownRepositories?: Array<{ rootPath: string }>;
+      knownRepositories?: Array<{ rootPath: string; contentRoots?: string[] }>;
       projectNotes?: string[];
       memoryTierContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string; peers?: unknown[] };
     };
@@ -762,6 +787,7 @@ describe('Beale workbench skeleton', () => {
     expect(workspaceContext.memoryTierContext?.subjectId).toMatch(/^subject_/);
     expect(workspaceContext.materializedSourcePaths).not.toContain(workspace);
     expect(workspaceContext.knownRepositories?.some((repository) => repository.rootPath === nestedSourceRoot)).toBe(true);
+    expect(workspaceContext.knownRepositories?.find((repository) => repository.rootPath === nestedSourceRoot)?.contentRoots).toEqual([nestedContentRoot]);
     expect(workspaceContext.projectNotes).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^Authorization:/),
