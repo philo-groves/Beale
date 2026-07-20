@@ -7385,6 +7385,67 @@ export class WorkspaceDatabase {
           database.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
           database.prepare("DELETE FROM workspace_meta WHERE key = 'schema_version'").run();
         }
+      },
+      {
+        version: 2,
+        name: 'reconcile_errored_honeycrisp_run_status',
+        up: (database) => {
+          const migratedAt = nowIso();
+          const summary = 'Honeycrisp capture reported an agent error.';
+          const erroredLatestSessionIds = `
+            SELECT candidate.id
+            FROM model_sessions AS candidate
+            WHERE candidate.provider = 'honeycrisp'
+              AND candidate.transport = 'host_process'
+              AND candidate.status = 'completed'
+              AND CASE
+                WHEN json_valid(candidate.metadata_json)
+                THEN json_extract(candidate.metadata_json, '$.honeycrispAgentStatus')
+                ELSE NULL
+              END = 'error'
+              AND candidate.id = (
+                SELECT latest.id
+                FROM model_sessions AS latest
+                WHERE latest.run_id = candidate.run_id
+                ORDER BY latest.created_at DESC, latest.rowid DESC
+                LIMIT 1
+              )`;
+          const erroredRunIds = `
+            SELECT model_sessions.run_id
+            FROM model_sessions
+            WHERE model_sessions.id IN (${erroredLatestSessionIds})`;
+
+          database
+            .prepare(
+              `UPDATE attempts
+               SET status = 'failed', short_state = ?, ended_at = COALESCE(ended_at, ?)
+               WHERE run_id IN (${erroredRunIds})
+                 AND status = 'completed'
+                 AND id = (
+                   SELECT latest.id
+                   FROM attempts AS latest
+                   WHERE latest.run_id = attempts.run_id
+                   ORDER BY latest.started_at DESC, latest.rowid DESC
+                   LIMIT 1
+                 )`
+            )
+            .run(summary, migratedAt);
+          database
+            .prepare(
+              `UPDATE runs
+               SET status = 'failed', summary = ?, ended_at = COALESCE(ended_at, ?)
+               WHERE id IN (${erroredRunIds})
+                 AND status = 'completed'`
+            )
+            .run(summary, migratedAt);
+          database
+            .prepare(
+              `UPDATE model_sessions
+               SET status = 'failed', updated_at = ?
+               WHERE id IN (${erroredLatestSessionIds})`
+            )
+            .run(migratedAt);
+        }
       }
     ]);
   }

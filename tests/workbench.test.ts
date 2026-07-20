@@ -123,6 +123,54 @@ describe('Beale workbench skeleton', () => {
     migratedDatabase.close();
   });
 
+  it('migrates legacy completed runs whose latest Honeycrisp capture reported an agent error', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runId = snapshot.runs[0]?.run.id ?? '';
+    const attemptId = service.getRunDetail(runId).attempts.at(-1)?.id ?? '';
+    service.close();
+
+    const databasePath = join(workspace, '.honeycrisp', 'memory', 'memory.sqlite');
+    const legacyDatabase = new DatabaseSync(databasePath);
+    const now = new Date().toISOString();
+    legacyDatabase
+      .prepare(
+        `INSERT INTO model_sessions (
+          id, run_id, provider, transport, previous_response_id, status,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, 'honeycrisp', 'host_process', NULL, 'completed', ?, ?, ?)`
+      )
+      .run('model_session_legacy_error', runId, JSON.stringify({ honeycrispAgentStatus: 'error' }), now, now);
+    legacyDatabase.prepare("UPDATE runs SET status = 'completed', summary = 'Incorrect legacy completion.' WHERE id = ?").run(runId);
+    legacyDatabase
+      .prepare("UPDATE attempts SET status = 'completed', short_state = 'Incorrect legacy completion.' WHERE id = ?")
+      .run(attemptId);
+    legacyDatabase.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 2").run();
+    legacyDatabase.close();
+
+    const reopened = new WorkspaceService();
+    reopened.openWorkspace(workspace);
+    const detail = reopened.getRunDetail(runId);
+    reopened.close();
+
+    expect(detail.run).toMatchObject({ status: 'failed', summary: 'Honeycrisp capture reported an agent error.' });
+    expect(detail.attempts.find((attempt) => attempt.id === attemptId)).toMatchObject({
+      status: 'failed',
+      shortState: 'Honeycrisp capture reported an agent error.'
+    });
+    expect(detail.modelSessions.at(-1)?.status).toBe('failed');
+
+    const migratedDatabase = new DatabaseSync(databasePath);
+    expect(
+      migratedDatabase
+        .prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 2")
+        .get()
+    ).toEqual({ version: 2, name: 'reconcile_errored_honeycrisp_run_status' });
+    migratedDatabase.close();
+  });
+
   it('keeps disabled context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
@@ -471,6 +519,46 @@ describe('Beale workbench skeleton', () => {
       ])
     );
     expect(detail.run.summary).toContain('completed the research session');
+    service.close();
+  });
+
+  it('marks an errored Honeycrisp capture as failed even when the host process exits cleanly', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-error.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const args = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        'const now = new Date().toISOString();',
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Transient failure fixture' }, agent: { id: 'agent_error', status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'Transient provider failure.' }, eventTimeline: [] }) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const snapshot = service.startRun({
+      ...runInput('adaptive_portfolio'),
+      runEngine: 'honeycrisp',
+      promptMarkdown: 'Exercise errored capture handling.'
+    });
+    const runId = snapshot.runs[0]?.run.id ?? '';
+
+    await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'failed', 5000);
+
+    const detail = service.getRunDetail(runId);
+    expect(detail.run.status).toBe('failed');
+    expect(detail.attempts.at(-1)?.status).toBe('failed');
+    expect(detail.modelSessions.at(-1)?.status).toBe('failed');
+    expect(detail.modelSessions.at(-1)?.metadata).toMatchObject({ honeycrispAgentStatus: 'error' });
+    expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
     service.close();
   });
 

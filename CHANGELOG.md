@@ -289,6 +289,7 @@
 
 ### Fixed
 
+- Fixed broad Honeycrisp memory queries being treated as one literal substring, added bounded retries for transient model-provider failures before substantive output, and made Beale mark errored Honeycrisp captures as failed even when the host process exits normally. A database migration repairs affected persisted run, attempt, and model-session statuses.
 - Fixed Memory sidebar context filters so Session, Workspace, and Subject use stored identity dimensions instead of the mutually exclusive reuse tier.
 - Fixed duplicate Honeycrisp tool lifecycle traces, doubled session token totals, event-stream stdout noise, nested repository source-root discovery, misleading tool byte schemas, and Memory/Subagents lists shrinking instead of scrolling.
 

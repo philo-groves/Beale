@@ -77,6 +77,8 @@ Subject identity comes from the operator-recorded scope owner or subject. Beale 
 
 At session start, Honeycrisp selects a small memory view from the same graph used by `memory.search` and the other memory tools. Current-session nodes are prioritized; request-relevant and recent workspace nodes retain continuity; subject nodes are included only when the request matches them or a selected node links to them. The bounded entries preserve stable ids, tier and scope identity, type, status, confidence, concise body content, asset and tag labels, evidence references, relationships, timestamps, and revisions. The model can use the unchanged memory tools for details or updates.
 
+`memory.search` tokenizes natural-language queries and ranks matches across node ids, types, content, assets, tags, and evidence. A known node id remains retrievable when the model includes it alongside descriptive search terms.
+
 When memory tools are present, Honeycrisp gives the agent a compact research-memory policy:
 
 - Search memory early and when research crosses system boundaries. Prefer security-sensitive code near dangerous sinks, established primitives, historical bugs, and relevant successful trajectories.

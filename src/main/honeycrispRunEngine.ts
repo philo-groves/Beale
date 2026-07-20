@@ -844,10 +844,11 @@ export class HoneycrispRunEngine {
       const capture = parseHoneycrispCapture(captureText);
       const contextUsage = this.importCapture(context, capture, capturePath, captureText, active.liveHoneycrispEventIds);
       const summary = honeycrispCompletionSummary(capture);
-      this.db.updateAttemptState(context.attempt.id, 'completed', summary);
-      this.db.updateRunStatus(context.run.id, 'completed', summary);
+      const completed = capture.agent?.status === 'complete';
+      this.db.updateAttemptState(context.attempt.id, completed ? 'completed' : 'failed', summary);
+      this.db.updateRunStatus(context.run.id, completed ? 'completed' : 'failed', summary);
       this.db.updateModelSessionByRun(context.run.id, {
-        status: 'completed',
+        status: completed ? 'completed' : 'failed',
         metadata: {
           capturePath,
           agentStatus: capture.agent?.status ?? null,
