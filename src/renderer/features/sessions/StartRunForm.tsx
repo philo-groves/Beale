@@ -100,7 +100,7 @@ export function StartRunForm({
         <textarea
           className="prompt-box"
           rows={6}
-          placeholder="Describe the research objective, scope constraints, and evidence requirements."
+          placeholder="Describe the research objective, constraints, and desired outcome."
           value={input.promptMarkdown}
           onChange={(event) => update('promptMarkdown', event.target.value)}
         />

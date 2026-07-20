@@ -72,6 +72,8 @@ interface ActiveHoneycrispRun {
   context: CreatedRunContext;
   paused: boolean;
   stopped: boolean;
+  stopReason: 'user' | 'time_limit' | null;
+  budgetTimer: NodeJS.Timeout | null;
   liveHoneycrispEventIds: Set<string>;
   liveThoughts: Map<string, HoneycrispLiveThoughtState>;
 }
@@ -157,7 +159,6 @@ interface HoneycrispLiveEvent {
 
 interface HoneycrispLiveThoughtState {
   text: string;
-  lastTranscriptAt: number;
   snapshotCount: number;
 }
 
@@ -185,8 +186,8 @@ const HONEYCRISP_REPORTED_USAGE_SOURCE = 'Honeycrisp reported model usage';
 const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimate';
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
 const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
-const LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS = 1200;
 const CONTINUATION_CONTEXT_MAX_CHARS = 32_000;
+const UNBOUNDED_RUN_MINUTES = 999_999;
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -334,7 +335,8 @@ export class HoneycrispRunEngine {
       workspaceContextPath,
       context.run.id,
       this.db.getWorkspaceId(),
-      this.memoryPeers(scope.scopeOwner)
+      this.memoryPeers(scope.scopeOwner),
+      input.networkProfile
     );
     const args = [
       ...invocation.prefixArgs,
@@ -370,10 +372,13 @@ export class HoneycrispRunEngine {
       context,
       paused: false,
       stopped: false,
+      stopReason: null,
+      budgetTimer: null,
       liveHoneycrispEventIds: new Set(),
       liveThoughts: new Map()
     };
     this.activeRuns.set(context.run.id, active);
+    this.armTimeLimit(active, input.budget.maxMinutes);
 
     const stdout = new LineBuffer((line) => this.recordProcessLine(context, 'stdout', line));
     const stderr = new LineBuffer((line) => this.recordProcessLine(context, 'stderr', line));
@@ -382,10 +387,12 @@ export class HoneycrispRunEngine {
 
     const completion = new Promise<void>((resolveCompletion) => {
       child.once('error', (error) => {
+        this.clearTimeLimit(active);
         this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
         resolveCompletion();
       });
       child.once('close', (code, signal) => {
+        this.clearTimeLimit(active);
         stdout.flush();
         stderr.flush();
         this.activeRuns.delete(context.run.id);
@@ -405,11 +412,44 @@ export class HoneycrispRunEngine {
   public stop(runId: string): void {
     const active = this.activeRuns.get(runId);
     if (!active) return;
+    this.stopActiveRun(active, 'user');
+  }
+
+  private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit'): void {
     active.stopped = true;
+    active.stopReason = reason;
+    this.clearTimeLimit(active);
     if (active.paused && process.platform !== 'win32') {
       signalHoneycrispProcess(active.child, 'SIGCONT');
     }
     signalHoneycrispProcess(active.child, 'SIGTERM');
+  }
+
+  private armTimeLimit(active: ActiveHoneycrispRun, maxMinutes: number): void {
+    if (!Number.isFinite(maxMinutes) || maxMinutes <= 0 || maxMinutes >= UNBOUNDED_RUN_MINUTES) return;
+    const timeoutMs = Math.max(1, Math.round(maxMinutes * 60_000));
+    active.budgetTimer = setTimeout(() => {
+      if (this.activeRuns.get(active.context.run.id) !== active) return;
+      this.db.appendTraceEvent({
+        runId: active.context.run.id,
+        attemptId: active.context.attempt.id,
+        type: 'vm_event',
+        source: 'system',
+        summary: 'Session time limit reached.',
+        payload: { maxMinutes },
+        vmContextId: active.context.vmContext.id,
+        modelVisible: false
+      });
+      this.onChange();
+      this.stopActiveRun(active, 'time_limit');
+    }, timeoutMs);
+    active.budgetTimer.unref();
+  }
+
+  private clearTimeLimit(active: ActiveHoneycrispRun): void {
+    if (!active.budgetTimer) return;
+    clearTimeout(active.budgetTimer);
+    active.budgetTimer = null;
   }
 
   public pause(runId: string): boolean {
@@ -499,11 +539,46 @@ export class HoneycrispRunEngine {
       return;
     }
 
-    if (event.kind === 'tool.progress' || event.kind === 'agent.event') {
+    if (event.kind === 'agent.event') {
+      if (stringPayload(event.payload ?? {}, 'type') !== 'turn_completed') return;
+      const turn = numberPayload(event.payload ?? {}, 'turn');
+      const reportedUsage = normalizeTokenUsage(recordValue(event.payload?.usage) ?? {});
+      const usage = reportedUsage ? reportedHoneycrispTraceUsage(reportedUsage) : null;
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: event.kind === 'tool.progress' ? 'vm_event' : 'model_message',
+        type: 'model_message',
+        source: 'executor',
+        summary: turn ? `Honeycrisp model turn ${turn} completed.` : 'Honeycrisp model turn completed.',
+        payload: {
+          honeycrispLiveKind: event.kind,
+          honeycrispTimestamp: event.timestamp ?? null,
+          ...(event.payload ?? {}),
+          ...(usage ? { usage } : {})
+        },
+        vmContextId: context.vmContext.id,
+        modelVisible: false
+      });
+      if (reportedUsage) {
+        this.db.updateModelSessionByRun(context.run.id, {
+          metadata: {
+            latestReportedInputTokens: reportedUsage.inputTokens,
+            latestReportedTotalTokens: reportedUsage.totalTokens,
+            latestContextUsageSource: HONEYCRISP_REPORTED_USAGE_SOURCE,
+            latestContextUsageEstimated: false,
+            latestContextUsageReportedCallCount: turn ?? 1
+          }
+        });
+      }
+      this.onChange();
+      return;
+    }
+
+    if (event.kind === 'tool.progress') {
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'vm_event',
         source: 'executor',
         summary: honeycrispLiveEventSummary(event),
         payload: {
@@ -576,24 +651,18 @@ export class HoneycrispRunEngine {
     const state =
       active?.liveThoughts.get(key) ?? {
         text: '',
-        lastTranscriptAt: 0,
         snapshotCount: 0
       };
     state.text = text ?? (delta ? `${state.text}${delta}` : state.text);
     const thought = state.text.trim();
     if (!thought) return;
 
-    const now = Date.now();
     const phase = stringPayload(payload, 'phase') ?? 'delta';
-    const shouldSnapshot =
-      phase === 'completed' ||
-      state.snapshotCount === 0 ||
-      now - state.lastTranscriptAt >= LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS;
+    const shouldSnapshot = phase === 'completed' || state.snapshotCount === 0;
     active?.liveThoughts.set(key, state);
     if (!shouldSnapshot) return;
 
     state.snapshotCount += 1;
-    state.lastTranscriptAt = now;
     const trace = this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -607,6 +676,7 @@ export class HoneycrispRunEngine {
         transcriptKind: 'reasoning_summary',
         responseId,
         itemId,
+        turn: numberPayload(payload, 'turn'),
         phase,
         live: true,
         snapshot: state.snapshotCount,
@@ -643,19 +713,23 @@ export class HoneycrispRunEngine {
     signal: NodeJS.Signals | null,
     active: ActiveHoneycrispRun
   ): void {
-    const processPayload = { code, signal, capturePath };
+    const processPayload = { code, signal, capturePath, stopReason: active.stopReason };
     if (active.stopped) {
+      const timeLimitReached = active.stopReason === 'time_limit';
+      const stoppedSummary = timeLimitReached
+        ? 'Honeycrisp host process stopped at the session time limit.'
+        : 'Honeycrisp host process was stopped by Beale.';
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
         type: 'vm_event',
         source: 'executor',
-        summary: 'Honeycrisp host process was stopped by Beale.',
+        summary: stoppedSummary,
         payload: processPayload,
         vmContextId: context.vmContext.id
       });
-      this.db.updateAttemptState(context.attempt.id, 'stopped', 'Honeycrisp host process stopped.');
-      this.db.updateRunStatus(context.run.id, 'stopped', 'Honeycrisp host process stopped.');
+      this.db.updateAttemptState(context.attempt.id, 'stopped', stoppedSummary);
+      this.db.updateRunStatus(context.run.id, 'stopped', stoppedSummary);
       this.db.updateModelSessionByRun(context.run.id, { status: 'stopped', metadata: processPayload });
       this.onChange();
       return;
@@ -701,6 +775,11 @@ export class HoneycrispRunEngine {
     liveHoneycrispEventIds: ReadonlySet<string> = new Set()
   ): HoneycrispContextUsageSummary | null {
     const contextUsage = summarizeHoneycrispContextUsage(capture, captureText);
+    const importedEventIds = new Set(liveHoneycrispEventIds);
+    for (const traceEvent of this.db.getRunDetail(context.run.id).traceEvents) {
+      const eventId = stringPayload(traceEvent.payload, 'honeycrispEventId');
+      if (eventId) importedEventIds.add(eventId);
+    }
     const captureArtifact = this.db.createArtifact({
       kind: 'honeycrisp_flow_capture',
       mimeType: 'application/json',
@@ -756,7 +835,7 @@ export class HoneycrispRunEngine {
     });
 
     for (const event of capture.eventTimeline ?? []) {
-      if (event.id && liveHoneycrispEventIds.has(event.id)) continue;
+      if (event.id && importedEventIds.has(event.id)) continue;
       this.appendHoneycrispTimelineEvent(context, event);
     }
 
@@ -1181,9 +1260,10 @@ function writeHoneycrispWorkspaceContext(
   contextPath: string,
   sessionId: string,
   workspaceId: string,
-  peers: HoneycrispMemoryPeerContext[]
+  peers: HoneycrispMemoryPeerContext[],
+  networkProfile: string
 ): HoneycrispWorkspaceContextFile {
-  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, peers);
+  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, peers, networkProfile);
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
   return context;
@@ -1194,7 +1274,8 @@ function honeycrispWorkspaceContext(
   workspacePath: string,
   sessionId: string,
   workspaceId: string,
-  peers: HoneycrispMemoryPeerContext[]
+  peers: HoneycrispMemoryPeerContext[],
+  networkProfile: string
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
@@ -1242,7 +1323,7 @@ function honeycrispWorkspaceContext(
             scopeId: scope.id,
             scopeName: scope.workspaceName,
             ...(scope.scopeOwner.trim() ? { scopeOwner: scope.scopeOwner } : {}),
-            networkProfile: scope.networkProfile,
+            networkProfile,
             activeFrom: scope.activeFrom,
             ...(scope.expiresAt ? { expiresAt: scope.expiresAt } : {})
           }
@@ -1250,7 +1331,7 @@ function honeycrispWorkspaceContext(
       : {}),
     knownRepositories,
     materializedSourcePaths,
-    projectNotes: honeycrispScopeNotes(scope)
+    projectNotes: honeycrispScopeNotes(scope, networkProfile)
   };
 }
 
@@ -1263,13 +1344,13 @@ function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
   return kind === 'repo' || kind === 'path' || kind === 'binary';
 }
 
-function honeycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
+function honeycrispScopeNotes(scope: WorkspaceScopeVersion, networkProfile: string): string[] {
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
     scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
-    `Network access profile: ${boundedContextText(scope.networkProfile)}`,
+    `Network access profile: ${boundedContextText(networkProfile)}`,
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
     scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
   ];
@@ -1515,15 +1596,27 @@ function normalizeTokenUsage(record: Record<string, unknown>): NormalizedTokenUs
     positiveNumberRecordValue(record, 'input_tokens') ??
     positiveNumberRecordValue(record, 'prompt_tokens') ??
     positiveNumberRecordValue(record, 'inputTokens') ??
-    positiveNumberRecordValue(record, 'promptTokens');
+    positiveNumberRecordValue(record, 'promptTokens') ??
+    positiveNumberRecordValue(record, 'input');
   const outputTokens =
     positiveNumberRecordValue(record, 'output_tokens') ??
     positiveNumberRecordValue(record, 'completion_tokens') ??
     positiveNumberRecordValue(record, 'outputTokens') ??
-    positiveNumberRecordValue(record, 'completionTokens');
+    positiveNumberRecordValue(record, 'completionTokens') ??
+    positiveNumberRecordValue(record, 'output');
   const totalTokens = positiveNumberRecordValue(record, 'total_tokens') ?? positiveNumberRecordValue(record, 'totalTokens');
   if (inputTokens === null && outputTokens === null && totalTokens === null) return null;
   return { inputTokens, outputTokens, totalTokens };
+}
+
+function reportedHoneycrispTraceUsage(usage: NormalizedTokenUsage): Record<string, unknown> {
+  return {
+    ...(usage.inputTokens !== null ? { input_tokens: usage.inputTokens } : {}),
+    ...(usage.outputTokens !== null ? { output_tokens: usage.outputTokens } : {}),
+    ...(usage.totalTokens !== null ? { total_tokens: usage.totalTokens } : {}),
+    source: HONEYCRISP_REPORTED_USAGE_SOURCE,
+    estimated: false
+  };
 }
 
 function honeycrispTraceUsage(usage: HoneycrispContextUsageSummary): Record<string, unknown> {

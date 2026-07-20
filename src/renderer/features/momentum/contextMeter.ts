@@ -90,7 +90,8 @@ function usageTotalTokens(usage: Record<string, unknown> | null): number | null 
     numberRecordValue(usage, 'output_tokens') ??
     numberRecordValue(usage, 'completion_tokens') ??
     numberRecordValue(usage, 'outputTokens') ??
-    numberRecordValue(usage, 'completionTokens');
+    numberRecordValue(usage, 'completionTokens') ??
+    numberRecordValue(usage, 'output');
   if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
   return null;
 }
@@ -100,7 +101,8 @@ function inputTokensFromUsage(usage: Record<string, unknown> | null): number | n
     numberRecordValue(usage, 'input_tokens') ??
     numberRecordValue(usage, 'prompt_tokens') ??
     numberRecordValue(usage, 'inputTokens') ??
-    numberRecordValue(usage, 'promptTokens')
+    numberRecordValue(usage, 'promptTokens') ??
+    numberRecordValue(usage, 'input')
   );
 }
 

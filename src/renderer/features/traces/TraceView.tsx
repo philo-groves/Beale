@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, GitFork, Play, RefreshCw, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
 import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -592,24 +592,14 @@ const MainSteerArea = memo(function MainSteerArea({
     setInstruction('');
   };
 
-  const forkSession = (): void => {
+  const pauseSession = (): void => {
     if (controlsDisabled || !runId) return;
-    onSessionAction({
-      type: 'fork',
-      runId,
-      instruction: trimmedInstruction || 'Fork from the current session state and continue independent vulnerability research.'
-    });
-    setInstruction('');
+    onSessionAction({ type: 'pause', runId, note: 'Pause requested from session controls.' });
   };
 
-  const restartSession = (): void => {
+  const stopSession = (): void => {
     if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'restart_from_snapshot', runId, note: 'Restart requested from session controls.' });
-  };
-
-  const abortSession = (): void => {
-    if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'stop', runId, note: 'Abort requested from session controls.' });
+    onSessionAction({ type: 'stop', runId, note: 'Stop requested from session controls.' });
   };
 
   const continueSession = (): void => {
@@ -639,17 +629,13 @@ const MainSteerArea = memo(function MainSteerArea({
         <div className="main-session-controls" aria-label="Session controls">
           {inProgress ? (
             <>
-              <button type="button" className="main-session-control-button" title="Fork this session" disabled={controlsDisabled} onClick={forkSession}>
-                <GitFork size={12} />
-                <span>Fork</span>
+              <button type="button" className="main-session-control-button" title="Pause this session" disabled={controlsDisabled || status !== 'active'} onClick={pauseSession}>
+                <Pause size={12} />
+                <span>Pause</span>
               </button>
-              <button type="button" className="main-session-control-button" title="Restart from snapshot" disabled={controlsDisabled} onClick={restartSession}>
-                <RefreshCw size={12} />
-                <span>Restart</span>
-              </button>
-              <button type="button" className="main-session-control-button danger" title="Abort this session" disabled={controlsDisabled} onClick={abortSession}>
+              <button type="button" className="main-session-control-button danger" title="Stop this session" disabled={controlsDisabled} onClick={stopSession}>
                 <Square size={11} />
-                <span>Abort</span>
+                <span>Stop</span>
               </button>
             </>
           ) : (

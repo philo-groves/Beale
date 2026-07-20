@@ -66,6 +66,29 @@ describe('renderer footer view models', () => {
     expect(meter.source).toBe('Honeycrisp serialized capture estimate');
   });
 
+  it('accepts Pi live usage field names', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              usage: {
+                input: 12_000,
+                output: 800,
+                totalTokens: 12_800,
+                source: 'Honeycrisp reported model usage'
+              }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.label).toBe('12k/372k');
+    expect(meter.totalSessionTokens).toBe(12_800);
+    expect(meter.source).toBe('Honeycrisp reported model usage');
+  });
+
   it('uses compaction token pressure as the current context source when newer', () => {
     const meter = contextMeterForDetail(
       runDetail({

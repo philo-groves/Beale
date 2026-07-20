@@ -110,6 +110,9 @@
 
 ### Changed
 
+- Honeycrisp sessions keep model tools available unless an explicit tool-call limit is configured, enforce their wall-clock session limit, and present compact turn/tool progress instead of raw agent lifecycle streams.
+- Active-session controls now expose Pause and Stop; continuing an inactive session extends it in place.
+
 - Replaced the always-visible hypothesis/finding/evidence trail column with a list-only Honeycrisp memory catalog supporting search, tier/type filters, inline record details, references, and textual relationships.
 
 - Changed steering for inactive Honeycrisp sessions to continue the existing run with a new attempt and bounded prior-session context instead of implicitly forking a new run.
@@ -265,6 +268,8 @@
 - Removed unreachable legacy run tracker, detail, inspector, and hardening code from `App.tsx`.
 
 ### Fixed
+
+- Fixed per-run network profiles in Honeycrisp workspace context, live Sol turn/token telemetry, duplicate live events during final capture import, excessive incremental thought snapshots, stale research-prompt evidence vocabulary, and underspecified memory node/status/evidence tool vocabularies.
 
 - Fixed Honeycrisp startup with the Sol default by bridging the fresher host Codex OAuth credential by file reference, releasing control-stream stdin after startup failures, and treating terminal-session Continue as a new continuation session rather than a paused-process resume.
 - Updated the default session context meter to Sol's 372k context window.

@@ -363,7 +363,7 @@ describe('Beale workbench skeleton', () => {
         "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { event: { id: 'evt_live_progress', sequence: 5, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
         "console.log('fixture honeycrisp stdout');"
       ].join('\n')
@@ -419,6 +419,9 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp agent session: Fixture Honeycrisp research'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
+    expect(
+      detail.traceEvents.filter((event) => (event.payload as { honeycrispEventId?: string }).honeycrispEventId === 'evt_tool_result')
+    ).toHaveLength(1);
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
@@ -538,6 +541,46 @@ describe('Beale workbench skeleton', () => {
     }
   });
 
+  it('stops an active Honeycrisp process when its session time limit is reached', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-long-running-honeycrisp.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "process.on('SIGTERM', () => process.exit(0));",
+        'setInterval(() => undefined, 1000);'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('adaptive_portfolio'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Exercise the bounded Honeycrisp fixture.',
+        model: 'fixture-model',
+        reasoningEffort: 'minimal',
+        budget: { maxMinutes: 0.001, maxAttempts: 1, maxCostUsd: 0 }
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'stopped', 3000);
+
+      const detail = service.getRunDetail(runId);
+      expect(detail.traceEvents.some((event) => event.summary === 'Session time limit reached.')).toBe(true);
+      expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp host process stopped at the session time limit.')).toBe(true);
+      expect(detail.run.summary).toBe('Honeycrisp host process stopped at the session time limit.');
+      expect(detail.modelSessions[0]?.metadata).toMatchObject({ stopReason: 'time_limit' });
+    } finally {
+      service.close();
+    }
+  });
+
   it('extends a completed Honeycrisp session in place with prior transcript context', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-continuing-honeycrisp.mjs');
@@ -633,6 +676,8 @@ describe('Beale workbench skeleton', () => {
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
+        "if (workspaceContext.authorization?.networkProfile !== 'offline') throw new Error('Per-session network profile missing from authorization context');",
+        "if (!workspaceContext.projectNotes?.includes('Network access profile: offline')) throw new Error('Per-session network profile missing from project notes');",
         "if (!workspaceContext.memoryTierContext?.sessionId || !workspaceContext.memoryTierContext?.workspaceId) throw new Error('Memory tier session/workspace context missing');",
         "if (workspaceContext.memoryTierContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
@@ -644,6 +689,7 @@ describe('Beale workbench skeleton', () => {
         "  agent: { id: 'agent_node_fixture', status: 'complete', executorName: 'node-cli-fixture', outputText: 'Node CLI fixture done.' },",
         '  eventTimeline: []',
         "}, null, 2) + '\\n');",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload: { type: 'turn_completed', turn: 1, responseId: 'response_fixture', stopReason: 'stop', usage: { input: 123, output: 45, totalTokens: 168 } } }));",
         "console.log('node cli fixture stdout');"
       ].join('\n')
     );
@@ -663,7 +709,7 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple Security Bounty',
       descriptionMarkdown: 'Local nested source fixture for Honeycrisp integration.',
       rulesMarkdown: 'Use local context provided by the operator.',
-      networkProfile: 'offline',
+      networkProfile: 'elevated',
       expiresAt: null,
       assets: [
         asset('in_scope', 'path', nestedSourceRoot),
@@ -721,6 +767,7 @@ describe('Beale workbench skeleton', () => {
         expect.stringMatching(/^Authorization:/),
         expect.stringContaining('Scope: ZSH Fixture'),
         expect.stringContaining('Rules and constraints: Use local context provided by the operator.'),
+        'Network access profile: offline',
         expect.stringContaining(`In scope (path, internal): ${nestedSourceRoot}`),
         expect.stringContaining('Out of scope (domain, internal): excluded.example.test'),
         expect.stringContaining('In scope (credential_ref, internal): [host-held credential reference; value withheld from agent context]')
@@ -730,6 +777,12 @@ describe('Beale workbench skeleton', () => {
     expect(detail.modelSessions[0]?.metadata.latestContextUsageSource).toBe('Honeycrisp serialized capture estimate');
     expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
+    expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp model turn 1 completed.')?.payload.usage).toMatchObject({
+      input_tokens: 123,
+      output_tokens: 45,
+      total_tokens: 168,
+      estimated: false
+    });
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
     service.close();
   });
