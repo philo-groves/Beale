@@ -86,7 +86,7 @@ Responsibilities:
 - Initialize `.beale/`.
 - Create the Honeycrisp-owned workspace SQLite database.
 - Resolve workspace-local paths.
-- Prevent accidental cross-workspace lookups.
+- Prevent accidental cross-workspace lookups while resolving explicit same-subject durable-memory peers.
 - Provide narrow import operations for scoped files, repos, binaries, archives, and documents.
 
 Host-safe setup should flow through this service rather than a general host shell.

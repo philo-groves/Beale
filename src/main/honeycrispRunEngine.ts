@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -23,9 +24,27 @@ interface HoneycrispWorkspaceContextFile {
   schemaVersion: 1;
   workspaceRoot: string;
   authorization?: HoneycrispWorkspaceAuthorizationContext;
+  memoryTierContext: HoneycrispMemoryTierContext;
   knownRepositories: HoneycrispWorkspaceRepositoryContext[];
   materializedSourcePaths: string[];
   projectNotes: string[];
+}
+
+export interface HoneycrispMemoryPeerContext {
+  databasePath: string;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId: string;
+  subjectName: string;
+}
+
+interface HoneycrispMemoryTierContext {
+  sessionId: string;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId?: string;
+  subjectName?: string;
+  peers: HoneycrispMemoryPeerContext[];
 }
 
 interface HoneycrispWorkspaceAuthorizationContext {
@@ -175,7 +194,8 @@ export class HoneycrispRunEngine {
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
-    private readonly onChange: () => void = () => undefined
+    private readonly onChange: () => void = () => undefined,
+    private readonly memoryPeers: (scopeOwner: string) => HoneycrispMemoryPeerContext[] = () => []
   ) {}
 
   public startRun(input: StartRunInput): HoneycrispRunHandle {
@@ -308,7 +328,14 @@ export class HoneycrispRunEngine {
     const fileStem = continuation ? `${context.run.id}.${context.attempt.id}` : context.run.id;
     const capturePath = join(runDirectory, `${fileStem}.capture.json`);
     const workspaceContextPath = join(runDirectory, `${fileStem}.workspace-context.json`);
-    writeHoneycrispWorkspaceContext(scope, this.workspacePath, workspaceContextPath);
+    writeHoneycrispWorkspaceContext(
+      scope,
+      this.workspacePath,
+      workspaceContextPath,
+      context.run.id,
+      this.db.getWorkspaceId(),
+      this.memoryPeers(scope.scopeOwner)
+    );
     const args = [
       ...invocation.prefixArgs,
       ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath)
@@ -1148,14 +1175,27 @@ function isPlainNodeExecutable(path: string): boolean {
   return name === 'node' || name === 'node.exe';
 }
 
-function writeHoneycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath: string, contextPath: string): HoneycrispWorkspaceContextFile {
-  const context = honeycrispWorkspaceContext(scope, workspacePath);
+function writeHoneycrispWorkspaceContext(
+  scope: WorkspaceScopeVersion,
+  workspacePath: string,
+  contextPath: string,
+  sessionId: string,
+  workspaceId: string,
+  peers: HoneycrispMemoryPeerContext[]
+): HoneycrispWorkspaceContextFile {
+  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, peers);
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
   return context;
 }
 
-function honeycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath: string): HoneycrispWorkspaceContextFile {
+function honeycrispWorkspaceContext(
+  scope: WorkspaceScopeVersion,
+  workspacePath: string,
+  sessionId: string,
+  workspaceId: string,
+  peers: HoneycrispMemoryPeerContext[]
+): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
   for (const asset of scope.assets) {
@@ -1182,6 +1222,18 @@ function honeycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath:
   return {
     schemaVersion: 1,
     workspaceRoot: workspacePath,
+    memoryTierContext: {
+      sessionId,
+      workspaceId,
+      workspaceName: scope.workspaceName,
+      ...(scope.scopeOwner.trim()
+        ? {
+            subjectId: honeycrispMemorySubjectId(scope.scopeOwner),
+            subjectName: scope.scopeOwner.trim()
+          }
+        : {}),
+      peers
+    },
     ...(isRecordedWorkspaceScope(scope)
       ? {
           authorization: {
@@ -1200,6 +1252,11 @@ function honeycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath:
     materializedSourcePaths,
     projectNotes: honeycrispScopeNotes(scope)
   };
+}
+
+function honeycrispMemorySubjectId(subjectName: string): string {
+  const normalized = subjectName.trim().replace(/\s+/g, ' ').toLowerCase();
+  return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
 }
 
 function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {

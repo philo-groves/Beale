@@ -56,6 +56,7 @@ export function WorkspaceUnderstandingView({
             />
             {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
             <div className="workspace-understanding-list-grid">
+              <CountList title="Memory Tiers" counts={honeycrispMemory?.nodeTierCounts} />
               <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} />
               <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} />
             </div>
@@ -75,7 +76,7 @@ export function WorkspaceUnderstandingView({
             <KeyValueRows
               rows={[
                 ['Workspace', scope?.workspaceName ?? 'None'],
-                ['Organization', scope?.scopeOwner ?? 'None'],
+                ['Owner / Subject', scope?.scopeOwner ?? 'None'],
                 ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
@@ -160,7 +161,9 @@ function MemoryNodeList({ nodes, title }: { nodes: HoneycrispMemoryNodeSummary[]
           {nodes.slice(0, 5).map((node) => (
             <li key={node.id}>
               <span title={node.summary || node.body}>{truncateText(node.title || node.summary || node.id, 64)}</span>
-              <strong title={node.status}>{traceLabel(node.status)}</strong>
+              <strong title={`${traceLabel(node.tier)} memory · ${traceLabel(node.status)}`}>
+                {traceLabel(node.tier)} · {traceLabel(node.status)}
+              </strong>
             </li>
           ))}
         </ul>

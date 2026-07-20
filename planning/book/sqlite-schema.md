@@ -26,6 +26,7 @@ The first schema should be explicit and queryable. It should avoid opaque docume
 
 - One SQLite database per workspace.
 - No global cross-workspace database.
+- Same-subject durable-memory federation uses an explicit allowlist of peer workspace databases; it does not merge databases or expose operational tables.
 - Enable foreign keys.
 - Use WAL mode for normal app operation.
 - Store timestamps as UTC ISO-8601 text or integer epoch milliseconds consistently.

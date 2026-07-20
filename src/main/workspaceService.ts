@@ -1801,8 +1801,35 @@ export class WorkspaceService {
       lastRecovery: db.recoverInterruptedState('workspace_open'),
       db,
       fixtureEngine: null,
-      honeycrispEngine: new HoneycrispRunEngine(db, workspacePath, () => this.emitRuntimeChange(workspacePath))
+      honeycrispEngine: new HoneycrispRunEngine(
+        db,
+        workspacePath,
+        () => this.emitRuntimeChange(workspacePath),
+        (scopeOwner) => this.honeycrispMemoryPeers(workspacePath, scopeOwner)
+      )
     };
+  }
+
+  private honeycrispMemoryPeers(workspacePath: string, scopeOwner: string) {
+    const subjectName = scopeOwner.trim();
+    if (!subjectName) return [];
+    const subjectId = memorySubjectId(subjectName);
+    const normalizedSubject = subjectName.replace(/\s+/g, ' ').toLowerCase();
+    return this.getWorkspaceRegistry()
+      .getState()
+      .workspaces.filter(
+        (workspace) =>
+          resolve(workspace.workspacePath) !== resolve(workspacePath) &&
+          workspace.scopeOwner.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedSubject &&
+          existsSync(join(workspace.workspacePath, WORKSPACE_DATABASE_RELATIVE_PATH))
+      )
+      .map((workspace) => ({
+        databasePath: join(workspace.workspacePath, WORKSPACE_DATABASE_RELATIVE_PATH),
+        workspaceId: workspace.workspaceId,
+        workspaceName: workspace.workspaceName,
+        subjectId,
+        subjectName
+      }));
   }
 
   private getForegroundRuntime(): WorkspaceRuntime | null {
@@ -3548,6 +3575,11 @@ function searchWorkspaceContext(workspacePath: string, workspace: WorkspaceRegis
     workspacePath: resolve(workspacePath),
     workspaceName: workspace.workspaceName
   };
+}
+
+function memorySubjectId(subjectName: string): string {
+  const normalized = subjectName.trim().replace(/\s+/g, ' ').toLowerCase();
+  return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
 }
 
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {

@@ -99,6 +99,39 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('upgrades existing Honeycrisp graph nodes into workspace-tier memory', () => {
+    const workspace = tempWorkspace();
+    const databasePath = join(workspace, '.honeycrisp', 'memory', 'memory.sqlite');
+    mkdirSync(dirname(databasePath), { recursive: true });
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      CREATE TABLE memory_nodes (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft',
+        confidence REAL NOT NULL DEFAULT 0.5, attributes_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, UNIQUE(type, title_norm)
+      );
+      INSERT INTO memory_nodes VALUES ('legacy_asset', 'asset', 'Legacy target', 'legacy target', 'Existing knowledge.', '', 'confirmed', 0.9, '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1);
+    `);
+    legacy.close();
+
+    const db = new WorkspaceDatabase(databasePath, join(workspace, '.beale', 'artifacts'));
+    db.initialize();
+    db.close();
+
+    const upgraded = new DatabaseSync(databasePath);
+    const node = upgraded.prepare('SELECT tier, scope_key, workspace_id, workspace_name FROM memory_nodes WHERE id = ?').get('legacy_asset') as Record<string, unknown>;
+    const workspaceId = upgraded.prepare("SELECT value FROM workspace_meta WHERE key = 'workspace_id'").get() as { value: string };
+    expect(node).toMatchObject({
+      tier: 'workspace',
+      scope_key: workspaceId.value,
+      workspace_id: workspaceId.value,
+      workspace_name: 'Untitled Workspace'
+    });
+    expect((upgraded.prepare("SELECT value FROM honeycrisp_meta WHERE key = 'schema_version'").get() as { value: string }).value).toBe('2');
+    upgraded.close();
+  });
+
   it('keeps disabled context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
@@ -600,6 +633,8 @@ describe('Beale workbench skeleton', () => {
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
+        "if (!workspaceContext.memoryTierContext?.sessionId || !workspaceContext.memoryTierContext?.workspaceId) throw new Error('Memory tier session/workspace context missing');",
+        "if (workspaceContext.memoryTierContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
@@ -662,6 +697,7 @@ describe('Beale workbench skeleton', () => {
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string }>;
       projectNotes?: string[];
+      memoryTierContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string; peers?: unknown[] };
     };
     expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
     expect(workspaceContext.authorization).toMatchObject({
@@ -670,6 +706,14 @@ describe('Beale workbench skeleton', () => {
       scopeName: 'ZSH Fixture',
       networkProfile: 'offline'
     });
+    expect(workspaceContext.memoryTierContext).toMatchObject({
+      sessionId: runId,
+      workspaceName: 'ZSH Fixture',
+      subjectName: 'Apple Security Bounty',
+      peers: []
+    });
+    expect(workspaceContext.memoryTierContext?.workspaceId).toBeTruthy();
+    expect(workspaceContext.memoryTierContext?.subjectId).toMatch(/^subject_/);
     expect(workspaceContext.materializedSourcePaths).not.toContain(workspace);
     expect(workspaceContext.knownRepositories?.some((repository) => repository.rootPath === nestedSourceRoot)).toBe(true);
     expect(workspaceContext.projectNotes).toEqual(
@@ -687,6 +731,74 @@ describe('Beale workbench skeleton', () => {
     expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
+    service.close();
+  });
+
+  it('shares subject-tier memory context with registered workspaces for the same owner', async () => {
+    const zshWorkspace = tempWorkspace();
+    const mdnsWorkspace = tempWorkspace();
+    const fakeHoneycrisp = join(mdnsWorkspace, 'fake-subject-peer-honeycrisp.mjs');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const args = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const contextPath = args[args.indexOf('--workspace-context') + 1];",
+        "const context = JSON.parse(readFileSync(contextPath, 'utf8'));",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 2, capturedAt: new Date().toISOString(), request: { prompt: 'Subject peer fixture' }, agent: { id: 'agent_subject_peer', status: 'complete', executorName: 'subject-peer-fixture', outputText: 'Subject peer visible.' }, eventTimeline: [] }) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const service = new WorkspaceService();
+    service.createWorkspace(zshWorkspace);
+    service.saveScope({
+      workspaceName: 'Zsh',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: 'Authorized Zsh research.',
+      rulesMarkdown: 'Local source only.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    service.createWorkspace(mdnsWorkspace);
+    service.saveScope({
+      workspaceName: 'mDNSResponder',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: 'Authorized mDNSResponder research.',
+      rulesMarkdown: 'Local source only.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    const snapshot = service.startRun({
+      ...runInput('adaptive_portfolio'),
+      runEngine: 'honeycrisp',
+      promptMarkdown: 'Inspect interactions with related Apple components.'
+    });
+    const runId = snapshot.runs[0]?.run.id ?? '';
+    await waitForCondition(() => ['completed', 'failed', 'stopped'].includes(service.getRunDetail(runId).run.status), 5000);
+
+    const runDetail = service.getRunDetail(runId);
+    expect(runDetail.run.status, JSON.stringify(runDetail.traceEvents.map((event) => ({ summary: event.summary, payload: event.payload })))).toBe('completed');
+    const launch = runDetail.traceEvents.find((event) => event.summary === 'Honeycrisp host process launched.');
+    const contextPath = (launch?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
+    const context = JSON.parse(readFileSync(contextPath, 'utf8')) as {
+      memoryTierContext?: { peers?: Array<{ databasePath: string; workspaceId: string; workspaceName: string; subjectName: string }> };
+    };
+    expect(context.memoryTierContext?.peers).toEqual([
+      expect.objectContaining({
+        databasePath: join(zshWorkspace, '.honeycrisp', 'memory', 'memory.sqlite'),
+        workspaceName: 'Zsh',
+        subjectName: 'Apple'
+      })
+    ]);
     service.close();
   });
 

@@ -28,7 +28,7 @@ Authorized vulnerability research data is sensitive:
 
 Keeping persistence local reduces unnecessary exposure and makes the security model easier to reason about.
 
-Per-workspace databases also reduce accidental cross-scope lookup. A researcher working on multiple authorized contexts on the same machine should not accidentally retrieve hypotheses, traces, artifacts, or findings from another workspace.
+Per-workspace databases also reduce accidental cross-scope lookup. A researcher working on multiple authorized contexts on the same machine should not accidentally retrieve traces, artifacts, findings, or workspace/session memory from another workspace. Concise subject-tier knowledge is the narrow exception: Beale explicitly supplies registered peer database paths only when their normalized scope owner or subject matches.
 
 ## Storage Layout
 
@@ -68,7 +68,13 @@ The exact directory names can change during implementation, but the isolation pr
 - Artifact metadata.
 - Search indexes.
 
-Durable knowledge is a separate logical layer in the same database. It contains concise typed nodes, normalized asset and tag links, directed relationships, revisions, and evidence references. Run events, transcripts, goals, and bulk outputs are operational data and must not be promoted automatically into durable knowledge.
+Durable knowledge is a separate logical layer in the same database. It contains concise typed nodes, normalized asset and tag links, directed relationships, revisions, and evidence references. Each node records its origin session, workspace, and optional scope owner or subject, plus a visibility tier:
+
+- `session`: visible only to the originating research session.
+- `workspace`: reusable across sessions in the originating workspace.
+- `subject`: reusable from explicitly supplied peer workspace databases with the same normalized owner or subject.
+
+Subject federation reads only durable graph tables. Run events, transcripts, goals, bulk outputs, operational findings, and artifact contents remain workspace-local and must not be promoted automatically into durable knowledge.
 
 Large binary payloads should not be stored directly in normal relational tables. They should live as files in the workspace artifact store and be referenced by content hash and metadata from SQLite.
 
@@ -93,8 +99,9 @@ Required:
 - Structured search over entity fields, states, timestamps, paths, symbols, CVEs, CWEs, components, tool names, artifact hashes, and run IDs.
 - SQLite full-text search over notes, summaries, hypotheses, findings, reports, and selected tool-output summaries.
 - Per-workspace local semantic search over scoped data, with per-workspace disable controls.
+- Tier-aware durable-memory search over the current session/workspace and explicitly matched subject peers.
 
-Semantic search must stay workspace-local and should never query across independent Beale workspaces.
+Semantic search must stay workspace-local and should never query across independent Beale workspaces. Subject-tier graph federation is not global semantic search.
 
 ## Trace Model
 
@@ -130,10 +137,10 @@ Exports must be user-initiated and should make included data clear before writin
 
 - Remote-hosted project database.
 - Cloud sync.
-- Cross-workspace global search.
+- Cross-workspace global search outside explicit same-subject durable-memory federation.
 - Shared multi-user backend.
 - Background upload of traces, artifacts, or findings.
 
 ## Planning Consequence
 
-The storage schema should assume local-first isolation. Every entity belongs to one workspace database, and cross-workspace research correlation must be explicit import/export work rather than an accidental default.
+The storage schema should assume local-first isolation. Every entity belongs to one workspace database. Cross-workspace durable-memory correlation is allowed only through the explicit subject tier and Beale's same-subject peer allowlist; all other correlation requires explicit import/export.

@@ -75,7 +75,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp's `.honeycrisp/memory/memory.sqlite` is the single workspace database for both headless and Beale-driven research. Operational session data and the durable knowledge graph share that database, but remain conceptually separate. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, goals, and bulk outputs are not memory. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
+Honeycrisp's `.honeycrisp/memory/memory.sqlite` is the single workspace database for both headless and Beale-driven research. Operational session data and the durable knowledge graph share that database, but remain conceptually separate. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, goals, and bulk outputs are not memory. Nodes are tiered as session, workspace, or owner/subject knowledge. Beale supplies same-subject peer database references explicitly, allowing concise subject knowledge to cross related workspaces without exposing peer traces, artifacts, or operational findings. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
 
 Beale is pre-alpha and uses one current schema without compatibility migrations. Workspaces created with earlier schemas should be recreated rather than opened with the current build.
 

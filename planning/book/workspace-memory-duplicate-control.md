@@ -48,7 +48,7 @@ Duplicate control is not:
 - A semantic embedding requirement for v1.
 - A reason to hide historical work from the researcher.
 
-Beale should only compare records inside the same configured research workspace unless the user explicitly links workspaces later.
+Beale should only auto-deduplicate operational hypotheses and findings inside the same configured research workspace. Same-subject durable memory can inform related research in another workspace, but it does not silently merge findings or evidence across workspace authorization contexts.
 
 ## Claim Identity
 
@@ -332,4 +332,4 @@ The first useful slice should block obvious duplicates and redirect the agent to
 - Should duplicate-review thresholds be configurable per workspace?
 - Should imported external reports seed workspace memory as hypotheses, candidate findings, or evidence?
 - Should disclosure exports include duplicate-review history by default, or only when it clarifies evidence provenance?
-- How should Beale handle the same vulnerability across multiple separately configured workspaces owned by the same organization?
+- Should same-subject memory eventually support an explicit user-reviewed relationship between separately authorized findings without merging their operational evidence?

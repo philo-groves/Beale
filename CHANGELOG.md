@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added tiered Honeycrisp memory for session-local, workspace-reusable, and same-subject reusable knowledge. Beale supplies explicit peer database references only for registered workspaces with the same normalized scope owner or subject.
 - Added run-start repository acquisition for explicit GitHub and GitLab repository URLs. Beale materializes source in the user-global repository store and records workspace-local source references before Honeycrisp starts.
 - Added structured recorded-scope authorization context to the Beale-to-Honeycrisp handoff so authorized workspace research does not depend on prompt-section wording.
 

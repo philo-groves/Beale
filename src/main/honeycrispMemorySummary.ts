@@ -42,6 +42,7 @@ export function getHoneycrispMemorySummary(workspacePath: string): HoneycrispMem
       latestNodeUpdatedAt: hasNodes ? latestText(database, 'memory_nodes', 'updated_at') : null,
       nodeTypeCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'type') : {},
       nodeStatusCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'status') : {},
+      nodeTierCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'tier') : {},
       nodes,
       edges
     };
@@ -72,6 +73,7 @@ function emptySummary(databasePath: string, storageRoot: string, artifactDirecto
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
+    nodeTierCounts: {},
     nodes: [],
     edges: [],
     directories: [artifactDirectorySummary(artifactDirectoryPath)],
@@ -88,6 +90,12 @@ function readNodes(database: DatabaseSync): HoneycrispMemoryNodeSummary[] {
     const id = requiredString(row.id);
     return {
       id,
+      tier: requiredMemoryTier(row.tier),
+      sessionId: optionalString(row.session_id),
+      workspaceId: requiredString(row.workspace_id),
+      workspaceName: requiredString(row.workspace_name),
+      subjectId: optionalString(row.subject_id),
+      subjectName: optionalString(row.subject_name),
       type: requiredString(row.type),
       title: requiredString(row.title),
       summary: requiredString(row.summary),
@@ -127,7 +135,13 @@ function readEvidence(database: DatabaseSync): Map<string, HoneycrispMemoryEvide
 }
 
 function readEdges(database: DatabaseSync): HoneycrispMemoryEdgeSummary[] {
-  return (database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[]).map((row) => ({
+  const rows = [
+    ...(database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[]),
+    ...(tableExists(database, 'memory_federated_edges')
+      ? (database.prepare('SELECT * FROM memory_federated_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[])
+      : [])
+  ];
+  return rows.map((row) => ({
     fromId: requiredString(row.from_id),
     toId: requiredString(row.to_id),
     relation: requiredString(row.relation),
@@ -208,4 +222,9 @@ function optionalString(value: unknown): string | null { return typeof value ===
 function requiredNumber(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Expected SQLite numeric value.');
   return value;
+}
+
+function requiredMemoryTier(value: unknown): HoneycrispMemoryNodeSummary['tier'] {
+  if (value === 'session' || value === 'workspace' || value === 'subject') return value;
+  throw new Error('Expected a Honeycrisp memory tier.');
 }

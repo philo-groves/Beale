@@ -21,6 +21,8 @@ Each Honeycrisp run receives:
 - The recorded expiry or review date, or a factual indication that no expiry was recorded.
 - The bounded list of in-scope and out-of-scope assets.
 - Only materialized source paths referenced by the active scope.
+- Memory identity containing the current session id, stable workspace id and label, and optional normalized scope owner or subject.
+- Registered peer memory database references only for workspaces whose normalized owner or subject exactly matches the active workspace.
 
 Credential reference values are not copied into model-facing workspace notes. They remain host-held references.
 
@@ -55,7 +57,17 @@ The Honeycrisp-owned workspace database remains authoritative for whether a glob
 - `sourceStorage: user_global`.
 - A source-reference schema version.
 
-Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Research memory, findings, traces, artifacts, and indexes remain workspace-local and are never retrieved across workspaces by default.
+Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Findings, traces, artifacts, indexes, and session/workspace-tier memories remain workspace-local. Subject-tier graph nodes may be retrieved from explicitly listed same-subject peer databases; this does not expose peer operational tables or artifact contents.
+
+## Memory Tiers
+
+Honeycrisp keeps the existing `memory.search`, `memory.get`, `memory.save`, `memory.correct`, and `memory.link` tool set. Nodes are categorized by origin session, workspace, and optional owner or subject. The selected tier controls reuse:
+
+- Session memory is transient to the current Beale run id.
+- Workspace memory is the default and remains available to later sessions in that workspace.
+- Subject memory is intended for reusable system-boundary, invariant, mitigation, procedure, and interaction knowledge that can benefit other authorized workspaces for the same subject.
+
+Subject identity comes from the operator-recorded scope owner or subject. Beale compares normalized exact values and passes concrete peer database paths; Honeycrisp does not discover or scan unrelated workspaces.
 
 Repository materialization does not search for or reuse managed checkouts inside workspace directories. Source already present on disk must be added as an explicit path reference; repositories cloned by Beale use the user-global store.
 
