@@ -79,7 +79,7 @@ interface ActiveHoneycrispRun {
 }
 
 interface HoneycrispFlowCapture {
-  schemaVersion?: 2 | 3;
+  schemaVersion?: 4;
   capturedAt?: string;
   request?: {
     prompt?: string;
@@ -102,19 +102,6 @@ interface HoneycrispFlowCapture {
       nextQuestions?: HoneycrispTraceItem[];
     };
     raw?: unknown;
-  };
-  contextV2?: {
-    sections?: Array<{
-      estimatedTokens?: number | string;
-      tokenBudget?: number | string;
-    }>;
-  };
-  memoryIntegration?: {
-    databasePath?: string;
-    eventLogCount?: number;
-    recordCount?: number;
-    eventsAppended?: number;
-    recordsWritten?: number;
   };
   storageManifest?: {
     path?: string;
@@ -173,7 +160,6 @@ interface HoneycrispContextUsageSummary {
   estimated: boolean;
   reportedCallCount: number;
   estimatedSerializedTokens: number | null;
-  contextV2EstimatedTokens: number | null;
 }
 
 interface NormalizedTokenUsage {
@@ -863,7 +849,6 @@ export class HoneycrispRunEngine {
         metadata: {
           capturePath,
           agentStatus: capture.agent?.status ?? null,
-          memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
           ...honeycrispAgentMetadata(capture),
           ...honeycrispContextUsageMetadata(contextUsage)
         }
@@ -900,7 +885,6 @@ export class HoneycrispRunEngine {
       metadata: {
         sourcePath: capturePath,
         capturedAt: capture.capturedAt ?? null,
-        memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
         storageManifestPath: capture.storageManifest?.path ?? null,
         ...honeycrispAgentMetadata(capture),
         ...honeycrispContextUsageMetadata(contextUsage)
@@ -918,7 +902,6 @@ export class HoneycrispRunEngine {
         sourcePath: capturePath,
         request: capture.request ?? null,
         agent: honeycrispAgentPayload(capture),
-        memoryIntegration: capture.memoryIntegration ?? null,
         storageManifest: capture.storageManifest ?? null,
         ...(contextUsage
           ? {
@@ -1588,8 +1571,6 @@ function mapHoneycrispEvent(kind: string | undefined): { type: TraceEventType; s
       return { type: 'tool_result', source: 'tool' };
     case 'model.hypothesis':
       return { type: 'hypothesis_event', source: 'model' };
-    case 'artifact.tombstoned':
-      return { type: 'artifact_created', source: 'system' };
     case 'error.observed':
       return { type: 'approval_event', source: 'system' };
     case 'model.visible_note':
@@ -1609,7 +1590,6 @@ function honeycrispEventSummary(event: HoneycrispCaptureEvent): string {
 function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, captureText: string): HoneycrispContextUsageSummary | null {
   const reported = summarizeReportedHoneycrispUsage(capture);
   const estimatedSerializedTokens = estimateSerializedTokens(captureText);
-  const contextV2EstimatedTokens = estimatedHoneycrispContextV2Tokens(capture);
 
   if (reported && reported.usage.inputTokens !== null) {
     return {
@@ -1619,8 +1599,7 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
       source: HONEYCRISP_REPORTED_USAGE_SOURCE,
       estimated: false,
       reportedCallCount: reported.callCount,
-      estimatedSerializedTokens,
-      contextV2EstimatedTokens
+      estimatedSerializedTokens
     };
   }
 
@@ -1632,8 +1611,7 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
       source: HONEYCRISP_MIXED_USAGE_SOURCE,
       estimated: true,
       reportedCallCount: reported.callCount,
-      estimatedSerializedTokens,
-      contextV2EstimatedTokens
+      estimatedSerializedTokens
     };
   }
 
@@ -1645,8 +1623,7 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
       source: HONEYCRISP_ESTIMATED_USAGE_SOURCE,
       estimated: true,
       reportedCallCount: 0,
-      estimatedSerializedTokens,
-      contextV2EstimatedTokens
+      estimatedSerializedTokens
     };
   }
 
@@ -1755,8 +1732,7 @@ function honeycrispTraceUsage(usage: HoneycrispContextUsageSummary): Record<stri
     source: usage.source,
     estimated: usage.estimated,
     reportedCallCount: usage.reportedCallCount,
-    estimatedSerializedTokens: usage.estimatedSerializedTokens,
-    contextV2EstimatedTokens: usage.contextV2EstimatedTokens
+    estimatedSerializedTokens: usage.estimatedSerializedTokens
   };
 }
 
@@ -1768,8 +1744,7 @@ function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | n
     latestContextUsageSource: usage.source,
     latestContextUsageEstimated: usage.estimated,
     latestContextUsageReportedCallCount: usage.reportedCallCount,
-    latestEstimatedSerializedTokens: usage.estimatedSerializedTokens,
-    latestContextV2EstimatedTokens: usage.contextV2EstimatedTokens
+    latestEstimatedSerializedTokens: usage.estimatedSerializedTokens
   };
 }
 
@@ -1799,11 +1774,6 @@ function honeycrispAgentPayload(capture: HoneycrispFlowCapture): Record<string, 
     startedAt: capture.agent?.startedAt ?? null,
     completedAt: capture.agent?.completedAt ?? null
   };
-}
-
-function estimatedHoneycrispContextV2Tokens(capture: HoneycrispFlowCapture): number | null {
-  const total = (capture.contextV2?.sections ?? []).reduce((sum, section) => sum + (positiveNumber(section.estimatedTokens) ?? 0), 0);
-  return total > 0 ? Math.ceil(total) : null;
 }
 
 function estimateSerializedTokens(value: string): number | null {
@@ -1889,6 +1859,9 @@ function parseHoneycrispCapture(text: string): HoneycrispFlowCapture {
   const value = JSON.parse(text) as unknown;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Honeycrisp capture was not a JSON object.');
+  }
+  if ((value as { schemaVersion?: unknown }).schemaVersion !== 4) {
+    throw new Error('Honeycrisp capture must use schema version 4.');
   }
   return value as HoneycrispFlowCapture;
 }

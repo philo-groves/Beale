@@ -3484,7 +3484,6 @@ export class WorkspaceDatabase {
     this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
-    this.ensureMemoryTierSchema();
     this.ensureProjectSearchIndexSeeded();
     this.ensureProjectStructureIndexSeeded();
   }
@@ -7382,73 +7381,6 @@ export class WorkspaceDatabase {
     this.db.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
   }
 
-  private ensureMemoryTierSchema(): void {
-    const columns = new Set(
-      rows(this.db.prepare('PRAGMA table_info(memory_nodes)').all()).map((row) => text(row, 'name'))
-    );
-    if (!columns.has('tier')) {
-      const scope = this.getActiveScope();
-      this.db.exec('PRAGMA foreign_keys = OFF;');
-      try {
-        this.db.exec(`
-          BEGIN IMMEDIATE;
-          CREATE TABLE memory_nodes_tiered (
-            id TEXT PRIMARY KEY,
-            tier TEXT NOT NULL,
-            scope_key TEXT NOT NULL,
-            session_id TEXT,
-            workspace_id TEXT NOT NULL,
-            workspace_name TEXT NOT NULL,
-            subject_id TEXT,
-            subject_name TEXT,
-            type TEXT NOT NULL,
-            title TEXT NOT NULL,
-            title_norm TEXT NOT NULL,
-            summary TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'draft',
-            confidence REAL NOT NULL DEFAULT 0.5,
-            attributes_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1
-          );
-        `);
-        this.db
-          .prepare(
-            `INSERT INTO memory_nodes_tiered (
-               id, tier, scope_key, session_id, workspace_id, workspace_name, subject_id, subject_name,
-               type, title, title_norm, summary, body, status, confidence, attributes_json, created_at, updated_at, revision
-             )
-             SELECT id, 'workspace', ?, NULL, ?, ?, ?, ?, type, title, title_norm, summary, body, status, confidence, attributes_json, created_at, updated_at, revision
-             FROM memory_nodes`
-          )
-          .run(
-            this.getWorkspaceId(),
-            this.getWorkspaceId(),
-            scope.workspaceName,
-            scope.scopeOwner.trim() ? memorySubjectId(scope.scopeOwner) : null,
-            scope.scopeOwner.trim() || null
-          );
-        this.db.exec('DROP TABLE memory_nodes; ALTER TABLE memory_nodes_tiered RENAME TO memory_nodes; COMMIT;');
-      } catch (error) {
-        try {
-          this.db.exec('ROLLBACK;');
-        } catch {
-          // No active migration transaction remains.
-        }
-        throw error;
-      } finally {
-        this.db.exec('PRAGMA foreign_keys = ON;');
-      }
-    }
-    this.db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS memory_nodes_tier_identity_idx ON memory_nodes(tier, scope_key, type, title_norm);
-      CREATE INDEX IF NOT EXISTS memory_nodes_context_idx ON memory_nodes(tier, scope_key, updated_at);
-      INSERT OR REPLACE INTO honeycrisp_meta(key, value) VALUES ('schema_version', '2');
-    `);
-  }
-
   private ensureCweCatalog(): void {
     const importedAt = nowIso();
     this.db
@@ -10282,6 +10214,8 @@ CREATE TABLE IF NOT EXISTS memory_evidence_refs (
   summary TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS memory_nodes_tier_identity_idx ON memory_nodes(tier, scope_key, type, title_norm);
+CREATE INDEX IF NOT EXISTS memory_nodes_context_idx ON memory_nodes(tier, scope_key, updated_at);
 CREATE INDEX IF NOT EXISTS memory_nodes_type_status_idx ON memory_nodes(type, status);
 CREATE INDEX IF NOT EXISTS memory_nodes_updated_at_idx ON memory_nodes(updated_at);
 CREATE INDEX IF NOT EXISTS memory_node_assets_asset_idx ON memory_node_assets(asset_id, node_id);

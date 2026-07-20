@@ -99,39 +99,6 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('upgrades existing Honeycrisp graph nodes into workspace-tier memory', () => {
-    const workspace = tempWorkspace();
-    const databasePath = join(workspace, '.honeycrisp', 'memory', 'memory.sqlite');
-    mkdirSync(dirname(databasePath), { recursive: true });
-    const legacy = new DatabaseSync(databasePath);
-    legacy.exec(`
-      CREATE TABLE memory_nodes (
-        id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL,
-        summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft',
-        confidence REAL NOT NULL DEFAULT 0.5, attributes_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, UNIQUE(type, title_norm)
-      );
-      INSERT INTO memory_nodes VALUES ('legacy_asset', 'asset', 'Legacy target', 'legacy target', 'Existing knowledge.', '', 'confirmed', 0.9, '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1);
-    `);
-    legacy.close();
-
-    const db = new WorkspaceDatabase(databasePath, join(workspace, '.beale', 'artifacts'));
-    db.initialize();
-    db.close();
-
-    const upgraded = new DatabaseSync(databasePath);
-    const node = upgraded.prepare('SELECT tier, scope_key, workspace_id, workspace_name FROM memory_nodes WHERE id = ?').get('legacy_asset') as Record<string, unknown>;
-    const workspaceId = upgraded.prepare("SELECT value FROM workspace_meta WHERE key = 'workspace_id'").get() as { value: string };
-    expect(node).toMatchObject({
-      tier: 'workspace',
-      scope_key: workspaceId.value,
-      workspace_id: workspaceId.value,
-      workspace_name: 'Untitled Workspace'
-    });
-    expect((upgraded.prepare("SELECT value FROM honeycrisp_meta WHERE key = 'schema_version'").get() as { value: string }).value).toBe('2');
-    upgraded.close();
-  });
-
   it('keeps disabled context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
@@ -328,7 +295,7 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
-        '  schemaVersion: 2,',
+        '  schemaVersion: 4,',
         '  capturedAt: now,',
         "  request: { prompt: 'Fixture Honeycrisp research' },",
         '  agent: {',
@@ -366,7 +333,6 @@ describe('Beale workbench skeleton', () => {
         '      subagents: { maxThreads: 6, maxDepth: 1, agents: [{ id: \'agent_child\', path: \'/root/parser_review\', status: \'completed\', model: \'gpt-5.6-sol\', reasoningEffort: \'high\', modelCalls: [{ usage: { input_tokens: 1000, output_tokens: 100, total_tokens: 1100 } }] }] }',
         '    }',
         '  },',
-        "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1 },",
         "  storageManifest: { path: '/tmp/fixture-manifest.json', artifactCount: 0, artifacts: [] },",
         '  eventTimeline: [',
         "    { id: 'evt_context', sequence: 1, timestamp: now, kind: 'context.compiled', summary: 'Fixture context compiled.', payload: { request: 'fixture' } },",
@@ -516,7 +482,7 @@ describe('Beale workbench skeleton', () => {
         '      clearInterval(timer);',
         '      const now = new Date().toISOString();',
         '      const capture = {',
-        '        schemaVersion: 2,',
+        '        schemaVersion: 4,',
         '        capturedAt: now,',
         "        request: { prompt: 'Controlled run' },",
         "        agent: { id: 'agent_control', status: 'complete', executorName: 'controlled-fixture', startedAt: now, completedAt: now, outputText: 'Steering received.' },",
@@ -634,7 +600,7 @@ describe('Beale workbench skeleton', () => {
         "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, turn }) + '\\n');",
         'const now = new Date().toISOString();',
         'const capture = {',
-        '  schemaVersion: 2,',
+        '  schemaVersion: 4,',
         '  capturedAt: now,',
         '  request: { prompt },',
         "  agent: { id: `agent_${turn}`, status: 'complete', executorName: 'continuation-fixture', startedAt: now, completedAt: now, outputText: `Turn ${turn} response.` },",
@@ -718,7 +684,7 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
         '  capturedAt: new Date().toISOString(),',
-        '  schemaVersion: 2,',
+        '  schemaVersion: 4,',
         "  request: { prompt: 'Node CLI fixture request' },",
         "  agent: { id: 'agent_node_fixture', status: 'complete', executorName: 'node-cli-fixture', outputText: 'Node CLI fixture done.' },",
         '  eventTimeline: []',
@@ -836,7 +802,7 @@ describe('Beale workbench skeleton', () => {
         "const contextPath = args[args.indexOf('--workspace-context') + 1];",
         "const context = JSON.parse(readFileSync(contextPath, 'utf8'));",
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 2, capturedAt: new Date().toISOString(), request: { prompt: 'Subject peer fixture' }, agent: { id: 'agent_subject_peer', status: 'complete', executorName: 'subject-peer-fixture', outputText: 'Subject peer visible.' }, eventTimeline: [] }) + '\\n');"
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: new Date().toISOString(), request: { prompt: 'Subject peer fixture' }, agent: { id: 'agent_subject_peer', status: 'complete', executorName: 'subject-peer-fixture', outputText: 'Subject peer visible.' }, eventTimeline: [] }) + '\\n');"
       ].join('\n')
     );
     chmodSync(fakeHoneycrisp, 0o700);
@@ -918,7 +884,7 @@ describe('Beale workbench skeleton', () => {
         "if (context.authorization?.recorded !== true) throw new Error('recorded scope missing');",
         "if (!context.knownRepositories?.some((repository) => repository.repositoryUrl === 'https://github.com/apple-oss-distributions/zsh')) throw new Error('repository reference missing');",
         'mkdirSync(dirname(capturePath), { recursive: true });',
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 2, capturedAt: new Date().toISOString(), request: { prompt: 'Prepare source' }, agent: { id: 'agent_source_fixture', status: 'complete', executorName: 'source-fixture', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: new Date().toISOString(), request: { prompt: 'Prepare source' }, agent: { id: 'agent_source_fixture', status: 'complete', executorName: 'source-fixture', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
       ].join('\n')
     );
     chmodSync(fakeGit, 0o700);
