@@ -212,5 +212,5 @@ Before closed beta:
 - Export paths should include review before files leave the workspace.
 - Run control should support pause, resume, and stop with trace-preserving semantics.
 - Hypothesis/finding controls should support at least dismiss, reproduce, and duplicate review.
-- VM and host-execution state should be understandable from the footer and settings.
+- Execution state should be understandable from session context and settings without consuming persistent footer space.
 - README should clearly state the project status and authorized-use boundary.

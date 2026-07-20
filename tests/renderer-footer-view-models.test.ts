@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
-import { hostEnvironmentLabel } from '../src/renderer/view-models/environmentDisplay';
+import { isSessionUsageVisible } from '../src/renderer/features/momentum/SessionUsageStatus';
 
 describe('renderer footer view models', () => {
+  it('shows token usage whenever a session is selected', () => {
+    expect(isSessionUsageVisible(null)).toBe(false);
+    expect(isSessionUsageVisible(runDetail({ status: 'completed' }))).toBe(true);
+    expect(isSessionUsageVisible(runDetail({ status: 'active' }))).toBe(true);
+  });
+
   it('formats context usage against the default 372k Sol limit', () => {
     const meter = contextMeterForDetail(
       runDetail({
@@ -118,14 +124,18 @@ describe('renderer footer view models', () => {
     expect(meter.label).toBe('250k/500k');
     expect(meter.source).toBe('compaction pressure');
   });
-
-  it('formats host footer labels from host-owned state', () => {
-    expect(hostEnvironmentLabel({ platform: 'linux', osLabel: '', isWsl: true, remoteName: 'Ubuntu' })).toBe('WSL: Ubuntu');
-  });
 });
 
-function runDetail(input: { traceEvents?: TraceEventRecord[]; contextCompactions?: Array<Record<string, unknown>>; modelSessions?: Array<Record<string, unknown>> }): RunDetail {
+function runDetail(input: {
+  traceEvents?: TraceEventRecord[];
+  contextCompactions?: Array<Record<string, unknown>>;
+  modelSessions?: Array<Record<string, unknown>>;
+  status?: 'active' | 'completed';
+}): RunDetail {
   return {
+    run: {
+      status: input.status ?? 'active'
+    },
     traceEvents: input.traceEvents ?? [],
     contextCompactions: input.contextCompactions ?? [],
     modelSessions: input.modelSessions ?? []

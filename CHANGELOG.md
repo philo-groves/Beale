@@ -97,6 +97,7 @@
 
 ### Removed
 
+- Removed the footer momentum snake and strawberry, host-device label, and persistent notification icon. Context usage, session tokens, and Settings now form a compact lower-left cluster, while notifications continue to appear as transient alerts.
 - Removed Honeycrisp's retired events, episodes, claims, procedures, hypotheses, prospective, and scratch directory taxonomy from model-facing workspace context and new storage initialization.
 - Removed the right-side Evidence navigation pane, its footer toggle, and the collapsed sideways Trails/Evidence rail.
 - Removed the graphical Spawn trail view and its trail derivation layer; sessions now open to the list-only trace and Memory view.
@@ -113,6 +114,7 @@
 
 ### Changed
 
+- Changed the lower-left footer cluster so Settings appears first and token usage appears whenever a session is selected, regardless of run status.
 - Honeycrisp sessions keep model tools available unless an explicit tool-call limit is configured, enforce their wall-clock session limit, and present compact turn/tool progress instead of raw agent lifecycle streams.
 - Active-session controls now expose Pause and Stop; continuing an inactive session extends it in place.
 

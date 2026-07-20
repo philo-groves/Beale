@@ -212,7 +212,7 @@ Implementation note, 2026-04-30:
 - Top bar and window control rendering moved into `src/renderer/app/TopBar.tsx`.
 - App background pulse rendering moved into `src/renderer/app/AppBackgroundPulses.tsx`.
 - Workspace/sidebar rendering moved into `src/renderer/features/workspaces/WorkspaceSidebar.tsx`.
-- Momentum snake/context rendering moved into `src/renderer/features/momentum/`.
+- Compact context and session-token rendering lives in `src/renderer/features/momentum/`; the earlier snake and strawberry visualization was removed.
 - Shared modal rendering moved into `src/renderer/app/Modal.tsx`.
 - Notification stack/detail rendering moved into `src/renderer/features/notifications/Notifications.tsx`.
 - Original research prompt modal rendering moved into `src/renderer/features/sessions/ResearchPromptModal.tsx`.
@@ -246,7 +246,7 @@ Implementation note, 2026-04-30:
 - Research item provenance helpers moved into `src/renderer/view-models/researchItems.ts`.
 - Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
-- Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
+- The footer-only host and VM display helpers were removed with the persistent device label.
 - Run detail selection, incremental update merge, cursor, and instrumentation summary helpers moved into `src/renderer/view-models/runDetailUpdates.ts`.
 - Inset scrollbar activation moved into `src/renderer/hooks/useInsetScrollbarActivation.ts`.
 - Resizable sidebar state and width clamping moved into `src/renderer/hooks/useResizableSidebar.ts`.

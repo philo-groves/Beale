@@ -36,7 +36,6 @@ import { useTraceSelection } from './hooks/useTraceSelection';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
-import { environmentActivityForDetail } from './view-models/environmentDisplay';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -359,7 +358,6 @@ export function App(): JSX.Element {
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
-  const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = appShellClassName({
     sessionHeat,
@@ -506,11 +504,7 @@ export function App(): JSX.Element {
         </div>
       </main>
       <StatusBar
-        hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
-        activity={environmentActivity}
         detail={activeRunDetail}
-        momentum={researchMomentum}
-        notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
         onOpenSettings={openSettings}
       />
       <NotificationStack

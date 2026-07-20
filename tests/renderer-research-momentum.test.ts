@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { environmentActivityForDetail } from '../src/renderer/view-models/environmentDisplay';
 import { researchMomentumForDetail } from '../src/renderer/view-models/researchMomentum';
 
 describe('renderer research momentum view model', () => {
@@ -51,23 +50,6 @@ describe('renderer research momentum view model', () => {
 
     expect(momentum.state).toBe('stuck');
     expect(momentum.reason).toBe('Repeated source availability blockers detected.');
-  });
-
-  it('uses host activity from the latest trace event', () => {
-    expect(environmentActivityForDetail(null)).toEqual({ host: false, guest: false });
-    expect(
-      environmentActivityForDetail(
-        runDetail({
-          traceEvents: [
-            traceEvent({
-              source: 'executor',
-              type: 'tool_result',
-              summary: 'Host python operation finished with success.'
-            })
-          ]
-        })
-      )
-    ).toEqual({ host: true, guest: false });
   });
 });
 

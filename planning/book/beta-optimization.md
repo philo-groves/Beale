@@ -143,12 +143,9 @@ Animations make the app feel alive, but they must yield to input responsiveness.
 
 Animated systems:
 
-- momentum snake,
-- strawberry/context meter,
 - background pulses,
 - trace insertion slides,
 - scroll fades,
-- environment activity sheen,
 - severity background transitions.
 
 Rules:
