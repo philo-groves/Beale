@@ -98,7 +98,7 @@ describe('renderer trace content view models', () => {
         traceEvent({
           type: 'model_message',
           source: 'model',
-          summary: 'Reasoning summary.',
+          summary: 'Reasoning.',
           payload: {
             text: '**Focus** Check parser',
             transcriptKind: 'reasoning_summary'
@@ -115,7 +115,7 @@ describe('renderer trace content view models', () => {
         traceEvent({
           type: 'model_message',
           source: 'model',
-          summary: 'Reasoning summary.',
+          summary: 'Reasoning.',
           payload: {
             transcriptKind: 'reasoning_summary',
             reasoningSummaryTexts: ['**Inspecting parser**', '**Inspecting parser**\n\n**Checking bounds**', '**Reviewing call sites**']

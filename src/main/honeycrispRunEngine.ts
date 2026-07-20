@@ -769,11 +769,11 @@ export class HoneycrispRunEngine {
       source: 'model',
       summary: subagent
         ? phase === 'completed'
-          ? `Honeycrisp subagent ${agentPath} completed reasoning summary.`
-          : `Honeycrisp subagent ${agentPath} reasoning summary.`
+          ? `Honeycrisp subagent ${agentPath} completed reasoning.`
+          : `Honeycrisp subagent ${agentPath} reasoning.`
         : phase === 'completed'
-          ? 'Honeycrisp completed reasoning summary.'
-          : 'Honeycrisp reasoning summary.',
+          ? 'Honeycrisp completed reasoning.'
+          : 'Honeycrisp reasoning.',
       payload: {
         text: summaryText,
         transcriptRole: 'assistant',

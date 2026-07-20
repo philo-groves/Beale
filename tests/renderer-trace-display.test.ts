@@ -201,7 +201,7 @@ describe('renderer trace display view models', () => {
       modelVisible: true,
       sequence: 20.01,
       source: 'model',
-      summary: 'Reasoning summary.',
+      summary: 'Reasoning.',
       transcriptMessageId: 'message_reasoning',
       vmContextId: 'vm_test',
       payload: {

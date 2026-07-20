@@ -193,8 +193,8 @@ export function isReasoningTraceEvent(event: TraceEventRecord, category: TraceCa
     tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary' ||
-    event.summary === 'Reasoning summary.' ||
-    event.summary === 'Reasoning summary'
+    event.summary === 'Reasoning.' ||
+    event.summary === 'Reasoning'
   );
 }
 
@@ -684,7 +684,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI response created.') return 'Turn Started';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
   if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
-  if (summary === 'Reasoning summary.' || summary === 'Reasoning summary') return 'Reasoning Summary';
+  if (summary === 'Reasoning.' || summary === 'Reasoning') return 'Reasoning';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
   if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';

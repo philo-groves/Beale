@@ -114,11 +114,12 @@
 
 ### Changed
 
+- Reasoning trace rows now lead with their first summary and repeat the Model source label beside each uninterrupted continuation instead of showing a redundant Reasoning title.
 - Increased primary trace and session-context typography to match the left sidebar's readable text scale while keeping metadata, badges, and controls compact.
 - Honeycrisp tool trace titles now use the specific tool name, such as Repository Search Requested or File Read Observed, instead of the generic Honeycrisp Tool label.
 - Consolidated uninterrupted reasoning-summary traces under one trace-list header, preserving individual summary boundaries and removing repeated partial summary lines.
 - Removed the secondary content header, moved session view controls and statistics into the main application header, and moved session configuration pills into the Session Summary dialog.
-- Renamed the model trace category and summaries from Thought to Reasoning Summary to reflect Pi's provider-generated reasoning-summary stream without implying access to hidden chain-of-thought.
+- Renamed the model trace category and summaries from Thought to Reasoning to reflect Pi's provider-generated reasoning-summary stream without implying access to hidden chain-of-thought.
 
 - Changed Honeycrisp session context to use bounded tiered graph memory with evidence and relationship anchors, hide internal workspace and peer storage paths, and rely on native tool definitions instead of duplicate storage and tool-policy prompt sections. Beale's Context view now distinguishes injected memory from the full workspace memory catalog and lists the tools actually available to the model; diagnostic flow captures are no longer model-visible artifacts.
 - Changed the lower-left footer cluster so Settings appears first and token usage appears whenever a session is selected, regardless of run status.

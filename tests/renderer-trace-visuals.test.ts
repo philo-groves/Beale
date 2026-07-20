@@ -19,7 +19,7 @@ describe('renderer trace visual helpers', () => {
     expect(traceCategoryLabel('failure_recovery')).toBe('Error');
     expect(traceCategoryLabel('non_standard')).toBe('Non-standard');
     expect(traceCategoryBadgeLabel('evidence')).toBe('References');
-    expect(traceCategoryBadgeLabel('reasoning')).toBe('Reasoning Summary');
+    expect(traceCategoryBadgeLabel('reasoning')).toBe('Reasoning');
   });
 
   it('formats trace type labels for detail metadata', () => {

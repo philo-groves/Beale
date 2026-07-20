@@ -56,6 +56,10 @@ export const TraceEventRow = memo(function TraceEventRow({
   const codeBrowserPreview = useMemo(() => codeBrowserTracePreview(event), [event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
   const reasoningSummaries = useMemo(() => reasoningTraceSummariesForEvent(event, category), [category, event]);
+  const primaryReasoningSummary = reasoningSummaries[0] ?? null;
+  const displaySummary = primaryReasoningSummary ? reasoningSummaryHeading(primaryReasoningSummary) : summary;
+  const hasReasoningContinuation = Boolean(reasoningSummaryDescription(primaryReasoningSummary ?? undefined) || reasoningSummaries.length > 1);
+  const sourceLabel = traceLabel(event.source);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
   const hasDetail = detailText.length > 0;
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
@@ -82,8 +86,8 @@ export const TraceEventRow = memo(function TraceEventRow({
       <div className="main-trace-event-body">
         <div className="main-trace-line">
           <div className="main-trace-title">
-            <strong>{hasSearchHighlight ? renderSearchHighlightedText(summary, searchHighlightQuery) : summary}</strong>
-            <span className="main-trace-source-label">{traceLabel(event.source)}</span>
+            <span className="main-trace-title-text">{hasSearchHighlight ? renderSearchHighlightedText(displaySummary, searchHighlightQuery) : displaySummary}</span>
+            <span className="main-trace-source-label">{sourceLabel}</span>
           </div>
           <div className="main-trace-flags">
             <div className="main-trace-badges">
@@ -92,27 +96,34 @@ export const TraceEventRow = memo(function TraceEventRow({
             </div>
           </div>
         </div>
-        <div className="main-trace-context">
-          {pythonPreview ? (
-            <PythonTracePreview preview={pythonPreview} />
-          ) : verifierPreview ? (
-            <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : evidencePreview ? (
-            <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : codeBrowserPreview ? (
-            <CodeBrowserTracePreviewRow preview={codeBrowserPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : duplicateBlockedDetail ? (
-            <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : reasoningSummaries.length > 0 ? (
-            <ReasoningTracePreview summaries={reasoningSummaries} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : hasDetail ? (
-            proseDetail ? (
-              <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
-            ) : (
-              <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
-            )
-          ) : null}
-        </div>
+        {reasoningSummaries.length > 0 && !hasReasoningContinuation ? null : (
+          <div className="main-trace-context">
+            {pythonPreview ? (
+              <PythonTracePreview preview={pythonPreview} />
+            ) : verifierPreview ? (
+              <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+            ) : evidencePreview ? (
+              <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+            ) : codeBrowserPreview ? (
+              <CodeBrowserTracePreviewRow preview={codeBrowserPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+            ) : duplicateBlockedDetail ? (
+              <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+            ) : reasoningSummaries.length > 0 ? (
+              <ReasoningTraceContinuation
+                summaries={reasoningSummaries}
+                sourceLabel={sourceLabel}
+                hasSearchHighlight={hasSearchHighlight}
+                searchHighlightQuery={searchHighlightQuery}
+              />
+            ) : hasDetail ? (
+              proseDetail ? (
+                <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
+              ) : (
+                <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
+              )
+            ) : null}
+          </div>
+        )}
       </div>
     </button>
   );
@@ -162,35 +173,58 @@ function DuplicateBlockedTracePreview({
   );
 }
 
-function ReasoningTracePreview({
+function ReasoningTraceContinuation({
   summaries,
+  sourceLabel,
   hasSearchHighlight,
   searchHighlightQuery
 }: {
   summaries: ReasoningTraceSummarySegment[];
+  sourceLabel: string;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
-}): JSX.Element {
+}): JSX.Element | null {
+  const firstDescription = reasoningSummaryDescription(summaries[0]);
+  const remaining = summaries.slice(1);
+  if (!firstDescription && remaining.length === 0) return null;
+
   return (
-    <span className="main-trace-reasoning-detail">
-      {summaries.map((summary, index) => (
-        <span className="main-trace-reasoning-summary" key={`${summary.title ?? 'summary'}-${index}`}>
-          {summary.title ? (
-            <strong className="main-trace-markdown-strong main-trace-reasoning-title">
-              {hasSearchHighlight ? renderSearchHighlightedText(summary.title, searchHighlightQuery) : summary.title}
-            </strong>
-          ) : null}
-          {summary.description ? (
-            <span className="main-trace-prose main-trace-reasoning-description">
-              {hasSearchHighlight ? renderSearchHighlightedText(summary.description, searchHighlightQuery) : renderTraceProseText(summary.description, 'agent_output')}
-            </span>
-          ) : null}
+    <span className={`main-trace-reasoning-detail ${firstDescription ? 'has-leading-description' : 'title-only'}`}>
+      {firstDescription ? (
+        <span className="main-trace-prose main-trace-reasoning-description">
+          {hasSearchHighlight ? renderSearchHighlightedText(firstDescription, searchHighlightQuery) : renderTraceProseText(firstDescription, 'agent_output')}
         </span>
-      ))}
+      ) : null}
+      {remaining.map((summary, index) => {
+        const heading = reasoningSummaryHeading(summary);
+        const description = reasoningSummaryDescription(summary);
+        return (
+          <span className="main-trace-reasoning-summary" key={`${heading}-${index}`}>
+            <span className="main-trace-reasoning-line">
+              <span className="main-trace-title-text">
+                {hasSearchHighlight ? renderSearchHighlightedText(heading, searchHighlightQuery) : heading}
+              </span>
+              <span className="main-trace-source-label">{sourceLabel}</span>
+            </span>
+            {description ? (
+              <span className="main-trace-prose main-trace-reasoning-description">
+                {hasSearchHighlight ? renderSearchHighlightedText(description, searchHighlightQuery) : renderTraceProseText(description, 'agent_output')}
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
     </span>
   );
 }
 
+function reasoningSummaryHeading(summary: ReasoningTraceSummarySegment): string {
+  return summary.title ?? summary.description;
+}
+
+function reasoningSummaryDescription(summary: ReasoningTraceSummarySegment | undefined): string {
+  return summary?.title ? summary.description : '';
+}
 function StructuredTracePreview({
   preview,
   hasSearchHighlight,

@@ -3791,7 +3791,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   height: 24px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid #494949;
+  border: 0;
   border-radius: 999px;
   background: #111111;
   color: #a8a8a8;
@@ -3971,12 +3971,12 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: nowrap;
 }
 
-.main-trace-title strong {
+.main-trace-title-text {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
   font-size: 1rem;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3989,8 +3989,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding-bottom: 9px;
 }
 
-.main-trace-event.category-agent_output .main-trace-title strong,
-.main-trace-event.category-reasoning .main-trace-title strong {
+.main-trace-event.category-agent_output .main-trace-title-text,
+.main-trace-event.category-reasoning .main-trace-title-text {
   display: -webkit-box;
   overflow: hidden;
   color: #f0f0f0;
@@ -4076,20 +4076,26 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 10px;
 }
 
+.main-trace-reasoning-detail.title-only {
+  padding-top: 5px;
+}
+
 .main-trace-reasoning-summary {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
-.main-trace-reasoning-title,
 .main-trace-reasoning-description {
   min-width: 0;
   display: block;
 }
 
-.main-trace-reasoning-title {
-  font-size: 1rem;
+.main-trace-reasoning-line {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
 }
 
 .main-trace-structured-preview {
