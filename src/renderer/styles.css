@@ -3722,7 +3722,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-template-columns: 12px 27px minmax(0, 1fr);
   gap: 7px;
   align-items: stretch;
-  min-height: 44px;
   justify-content: stretch;
   border: 0;
   border-radius: 0 8px 8px 0;
@@ -3985,8 +3984,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .main-trace-event.category-agent_output .main-trace-event-body,
 .main-trace-event.category-reasoning .main-trace-event-body {
   gap: 5px;
-  padding-top: 8px;
-  padding-bottom: 9px;
 }
 
 .main-trace-event.category-agent_output .main-trace-title-text,
