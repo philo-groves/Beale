@@ -82,7 +82,7 @@ At session start, Honeycrisp selects a small memory view from the same graph use
 When memory tools are present, Honeycrisp gives the agent a compact research-memory policy:
 
 - Search memory early and when research crosses system boundaries. Prefer security-sensitive code near dangerous sinks, established primitives, historical bugs, and relevant successful trajectories.
-- Record relevant historical bugs with affected assets; user-controlled ingress as sources; dangerous operations as sinks; always-true security rules as invariants; and system- or hardware-level exploitation blockers as mitigations.
+- Reserve bugs for confirmed historical flaw precedents that predate the current research, with affected assets and precedent evidence. A flaw established during current research is a primitive, or part of a chain when reachability and impact are established. Record user-controlled ingress as sources; dangerous operations as sinks; always-true security rules as invariants; and system- or hardware-level exploitation blockers as mitigations.
 - Record reusable sequences of important research actions as trajectories, not routine narration.
 - Record an individual flaw as a primitive only after static analysis supports it and code or tool evidence is attached.
 - Record a chain only when linked sources, primitives, sinks, and assets establish end-to-end attacker reachability and security impact. Confirming a chain requires a realistic proof-of-vulnerability independently approved by a review subagent. If review is unavailable or inconclusive, the chain remains suspected.
@@ -95,7 +95,7 @@ When a user-authored run prompt explicitly contains a supported GitHub or GitLab
 
 ## Guidance Boundary
 
-Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Concise assets, bugs, invariants, mitigations, sources, sinks, hypotheses, primitives, chains, procedures, trajectories, and their evidence references live in Honeycrisp's small knowledge graph; operational workbench rows share the same SQLite file without becoming a second memory model. The research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
+Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Concise assets, historical bugs, invariants, mitigations, sources, sinks, hypotheses, primitives, chains, procedures, trajectories, and their evidence references live in Honeycrisp's small knowledge graph; operational workbench rows share the same SQLite file without becoming a second memory model. The research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
 
 ## Pre-Alpha Schema
 
