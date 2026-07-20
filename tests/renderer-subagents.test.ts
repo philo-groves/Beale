@@ -40,13 +40,14 @@ describe('subagent trace view models', () => {
 
   it('filters traces by exact canonical child path', () => {
     const events = [
+      traceEvent({ id: 'setup', payload: {} }),
       traceEvent({ id: 'root', payload: { agentPath: '/root' } }),
       traceEvent({ id: 'one', payload: { agentPath: '/root/one' } }),
       traceEvent({ id: 'two', payload: { agentPath: '/root/two' } })
     ];
 
     expect(traceEventsForSubagent(events, '/root/one').map((event) => event.id)).toEqual(['one']);
-    expect(traceEventsForSubagent(events, null)).toBe(events);
+    expect(traceEventsForSubagent(events, null).map((event) => event.id)).toEqual(['setup', 'root']);
   });
 
   it('formats compact relative activity labels', () => {

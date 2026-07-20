@@ -40,7 +40,12 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
 }
 
 export function traceEventsForSubagent<TEvent extends TraceEventRecord>(events: TEvent[], path: string | null): TEvent[] {
-  if (!path) return events;
+  if (!path) {
+    return events.filter((event) => {
+      const agentPath = traceAgentPath(event);
+      return !agentPath || agentPath === '/root';
+    });
+  }
   return events.filter((event) => traceAgentPath(event) === path);
 }
 
