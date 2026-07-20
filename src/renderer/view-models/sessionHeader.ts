@@ -1,10 +1,8 @@
-import type { RunDetail, RunStatus, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { formatDurationHms, formatSessionDateTime, formatSessionStart, traceLabel } from '../lib/formatting';
 import { traceCategoryForEvent } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
-import { latestTraceTurnNumber } from './traceDisplay';
-
-export type RunStatusClass = 'active' | 'completed' | 'failed' | 'paused' | 'queued';
+import { latestTraceTurnNumber, traceEventVisibleInTimeline } from './traceDisplay';
 
 export interface SessionConfigPill {
   label: string;
@@ -20,14 +18,6 @@ export interface SessionHeaderTiming {
   durationMs: number;
   durationLabel: string;
   durationTooltip: string;
-}
-
-export function runStatusClass(status: RunStatus): RunStatusClass {
-  if (status === 'completed') return 'completed';
-  if (status === 'failed') return 'failed';
-  if (status === 'active') return 'active';
-  if (status === 'queued') return 'queued';
-  return 'paused';
 }
 
 export function sessionConfigPills(detail: RunDetail): SessionConfigPill[] {
@@ -52,7 +42,7 @@ export function sessionHeaderTiming(
   const durationEndMs = active ? nowMs : updated.getTime();
   const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
   const latestTurn = latestTraceTurnNumber(events) ?? 0;
-  const visibleEventCount = events.filter((event) => visibleTraceCategories.includes(traceCategoryForEvent(event))).length;
+  const visibleEventCount = events.filter((event) => traceEventVisibleInTimeline(event, traceCategoryForEvent(event), visibleTraceCategories)).length;
   const totalEventCount = events.length;
   const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
 

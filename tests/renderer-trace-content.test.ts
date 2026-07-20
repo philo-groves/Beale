@@ -12,6 +12,7 @@ import {
   lineRangePart,
   pythonTracePreview,
   pythonToolCallPreview,
+  reasoningTraceSummariesForEvent,
   reasoningTraceSummariesFromText,
   searchTracePreview,
   traceEventDetailText,
@@ -100,6 +101,27 @@ describe('renderer trace content view models', () => {
         'agent_output'
       )
     ).toBe('**Focus**\nCheck parser');
+  });
+
+  it('preserves title-only coalesced reasoning summaries and removes repeated partial segments', () => {
+    expect(
+      reasoningTraceSummariesForEvent(
+        traceEvent({
+          type: 'model_message',
+          source: 'model',
+          summary: 'Reasoning summary.',
+          payload: {
+            transcriptKind: 'reasoning_summary',
+            reasoningSummaryTexts: ['**Inspecting parser**', '**Inspecting parser**\n\n**Checking bounds**', '**Reviewing call sites**']
+          }
+        }),
+        'reasoning'
+      )
+    ).toEqual([
+      { title: 'Inspecting parser', description: '' },
+      { title: 'Checking bounds', description: '' },
+      { title: 'Reviewing call sites', description: '' }
+    ]);
   });
 
   it('formats key trace detail content without raw JSON noise', () => {

@@ -114,6 +114,8 @@
 
 ### Changed
 
+- Consolidated uninterrupted reasoning-summary traces under one trace-list header, preserving individual summary boundaries and removing repeated partial summary lines.
+- Removed the secondary content header, moved session view controls and statistics into the main application header, and moved session configuration pills into the Session Summary dialog.
 - Renamed the model trace category and summaries from Thought to Reasoning Summary to reflect Pi's provider-generated reasoning-summary stream without implying access to hidden chain-of-thought.
 
 - Changed Honeycrisp session context to use bounded tiered graph memory with evidence and relationship anchors, hide internal workspace and peer storage paths, and rely on native tool definitions instead of duplicate storage and tool-policy prompt sections. Beale's Context view now distinguishes injected memory from the full workspace memory catalog and lists the tools actually available to the model; diagnostic flow captures are no longer model-visible artifacts.
@@ -277,6 +279,7 @@
 
 ### Fixed
 
+- Hidden host-only traces are no longer shown by default and can be restored through the Non-standard trace filter.
 - Fixed per-run network profiles in Honeycrisp workspace context, live Sol turn/token telemetry, duplicate live events during final capture import, excessive incremental thought snapshots, stale research-prompt evidence vocabulary, and underspecified memory node/status/evidence tool vocabularies.
 
 - Fixed Honeycrisp startup with the Sol default by bridging the fresher host Codex OAuth credential by file reference, releasing control-stream stdin after startup failures, and treating terminal-session Continue as a new continuation session rather than a paused-process resume.

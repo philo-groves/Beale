@@ -21,7 +21,7 @@ import {
   type ReasoningTraceSummarySegment,
   type TraceStructuredPreview
 } from '../../view-models/traceContent';
-import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { traceDisplayEventIds, type TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { codeBlockLineRows, highlightPythonCode, renderTraceProseText, type CodeBlockLineNumberMode } from './traceMarkup';
 import { traceCategoryBadgeLabel, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
@@ -72,6 +72,7 @@ export const TraceEventRow = memo(function TraceEventRow({
         entering ? 'trace-entering' : ''
       }`}
       data-trace-event-id={event.id}
+      data-trace-event-ids={traceDisplayEventIds(event).join(' ')}
       aria-pressed={selected}
       onClick={() => onSelect(event)}
     >

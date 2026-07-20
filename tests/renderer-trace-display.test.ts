@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
 import { traceCategoryForEvent, type TraceCategoryId } from '../src/renderer/traceClassification';
-import { buildTraceDisplayEvents, buildTraceTimelineEntries, groupRenderedTraceEntries, traceGroupStatusLabel, type TraceTimelineGroup } from '../src/renderer/view-models/traceDisplay';
+import {
+  buildTraceDisplayEvents,
+  buildTraceTimelineEntries,
+  coalesceConsecutiveReasoningEntries,
+  groupRenderedTraceEntries,
+  traceDisplayEventContainsId,
+  traceGroupStatusLabel,
+  type TraceTimelineGroup
+} from '../src/renderer/view-models/traceDisplay';
 
 const ALL_CATEGORIES: TraceCategoryId[] = [
   'agent_output',
@@ -79,6 +87,41 @@ describe('renderer trace display view models', () => {
 
     expect(entries.map((entry) => entry.event.id)).toEqual(['trace_tool']);
     expect(entries[0].group).toMatchObject({ key: 'turn-2-2', visibleCount: 1, toolCount: 1, modelCount: 0 });
+  });
+
+  it('hides host-only traces unless the non-standard filter is enabled', () => {
+    const events = [
+      traceEvent({ id: 'trace_visible', sequence: 1, modelVisible: true }),
+      traceEvent({ id: 'trace_host_only', sequence: 2, modelVisible: false })
+    ];
+
+    expect(buildTraceTimelineEntries(events, ['events']).map((entry) => entry.event.id)).toEqual(['trace_visible']);
+    expect(buildTraceTimelineEntries(events, ['events', 'non_standard']).map((entry) => entry.event.id)).toEqual([
+      'trace_visible',
+      'trace_host_only'
+    ]);
+  });
+
+  it('coalesces only uninterrupted reasoning summaries within the same turn', () => {
+    const entries = buildTraceTimelineEntries(
+      [
+        traceEvent({ id: 'reasoning_one', sequence: 1, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Inspecting parser**' } }),
+        traceEvent({ id: 'reasoning_two', sequence: 2, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Checking bounds**' } }),
+        traceEvent({ id: 'tool_interrupt', sequence: 3, source: 'tool', type: 'tool_result', payload: { turn: 1 }, summary: 'Search returned output.' }),
+        traceEvent({ id: 'reasoning_three', sequence: 4, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Reviewing result**' } }),
+        traceEvent({ id: 'reasoning_next_turn', sequence: 5, payload: { turn: 2, transcriptSource: 'openai_reasoning_summary', text: '**Starting next turn**' } })
+      ],
+      ALL_CATEGORIES
+    );
+
+    const coalesced = coalesceConsecutiveReasoningEntries(entries);
+
+    expect(coalesced.map((entry) => entry.event.id)).toEqual(['reasoning_one', 'tool_interrupt', 'reasoning_three', 'reasoning_next_turn']);
+    expect(coalesced[0].event.payload).toMatchObject({
+      reasoningSummaryTexts: ['**Inspecting parser**', '**Checking bounds**'],
+      coalescedTraceEventIds: ['reasoning_one', 'reasoning_two']
+    });
+    expect(traceDisplayEventContainsId(coalesced[0].event, 'reasoning_two')).toBe(true);
   });
 
   it('groups rendered consecutive entries by shared timeline group', () => {

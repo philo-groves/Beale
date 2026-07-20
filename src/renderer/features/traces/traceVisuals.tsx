@@ -36,7 +36,7 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
   { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
   { id: 'failure_recovery', label: 'Error', description: 'Errors, retries, cleanup issues, recovery notes, and blocked operations.' },
-  { id: 'non_standard', label: 'Non-standard', description: 'Verbose model lifecycle events hidden from the default trace view.' },
+  { id: 'non_standard', label: 'Non-standard', description: 'Verbose lifecycle and host-only traces hidden from the default trace view.' },
   { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
 ];
 

@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { RunDetail, RunStatus } from '@shared/types';
-import { traceGroupStatusLabel, type TraceDisplayEvent, type TraceTimelineEntry, type TraceTimelineGroup } from '../../view-models/traceDisplay';
+import { traceDisplayEventContainsId, traceGroupStatusLabel, type TraceDisplayEvent, type TraceTimelineEntry, type TraceTimelineGroup } from '../../view-models/traceDisplay';
 import { TraceEventRow } from './TraceEventRow';
 import { formatTraceTimestamp } from './traceVisuals';
 
@@ -53,7 +53,7 @@ export function TraceTurnGroup({
             event={event}
             key={event.id}
             searchHighlightQuery={searchHighlightQuery}
-            selected={event.id === selectedTraceEventId}
+            selected={traceDisplayEventContainsId(event, selectedTraceEventId)}
             onSelect={onSelectTraceEvent}
           />
         ))}

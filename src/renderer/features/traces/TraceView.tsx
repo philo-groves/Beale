@@ -6,7 +6,14 @@ import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '..
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
 import { traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
-import { buildTraceTimelineEntries, groupRenderedTraceEntries, latestTraceGroupKey, type TraceDisplayEvent } from '../../view-models/traceDisplay';
+import {
+  buildTraceTimelineEntries,
+  coalesceConsecutiveReasoningEntries,
+  groupRenderedTraceEntries,
+  latestTraceGroupKey,
+  traceDisplayEventIds,
+  type TraceDisplayEvent
+} from '../../view-models/traceDisplay';
 import { TraceTurnGroup } from './TraceTurnGroup';
 
 interface TraceScrollAnchor {
@@ -62,7 +69,7 @@ export const TraceView = memo(function TraceView({
   const traceFilterKey = visibleTraceCategories.join('|');
   const timelineEntries = useMemo(
     () =>
-      devInstrumentation.time('trace.buildTimelineEntries', () => buildTraceTimelineEntries(events, visibleTraceCategories), {
+      devInstrumentation.time('trace.buildTimelineEntries', () => coalesceConsecutiveReasoningEntries(buildTraceTimelineEntries(events, visibleTraceCategories)), {
         events: events.length,
         categories: visibleTraceCategories.length
       }),
@@ -76,7 +83,10 @@ export const TraceView = memo(function TraceView({
   const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
   const presentedTimelineEntries = useMemo(() => timelineEntries.filter((entry) => revealedTraceEntryIds.has(entry.event.id)), [revealedTraceEntryIds, timelineEntries]);
   const presentedEvents = useMemo(() => presentedTimelineEntries.map((entry) => entry.event), [presentedTimelineEntries]);
-  const presentedEntryIndexById = useMemo(() => new Map(presentedTimelineEntries.map((entry, index) => [entry.event.id, index])), [presentedTimelineEntries]);
+  const presentedEntryIndexById = useMemo(
+    () => new Map(presentedTimelineEntries.flatMap((entry, index) => traceDisplayEventIds(entry.event).map((eventId) => [eventId, index] as const))),
+    [presentedTimelineEntries]
+  );
   const latestPresentedEventId = presentedEvents.at(-1)?.id ?? '';
   const maxWindowStart = Math.max(0, presentedTimelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
@@ -328,7 +338,7 @@ export const TraceView = memo(function TraceView({
     if (pendingSelectedTraceCenterRef.current !== selectedTraceEventId) return undefined;
     const traceList = traceListRef.current;
     if (!traceList) return undefined;
-    const selectedNode = traceEventNodes(traceList).find((node) => node.dataset.traceEventId === selectedTraceEventId);
+    const selectedNode = traceEventNodes(traceList).find((node) => traceNodeContainsEventId(node, selectedTraceEventId));
     if (!selectedNode) return undefined;
 
     traceFollowLatestRef.current = false;
@@ -690,6 +700,11 @@ function sessionControlStatusLabel(status: RunStatus | null): string {
 
 function traceEventNodes(list: HTMLDivElement): HTMLElement[] {
   return Array.from(list.querySelectorAll<HTMLElement>('[data-trace-event-id]'));
+}
+
+function traceNodeContainsEventId(node: HTMLElement, eventId: string): boolean {
+  if (node.dataset.traceEventId === eventId) return true;
+  return (node.dataset.traceEventIds ?? '').split(' ').includes(eventId);
 }
 
 function captureTraceScrollAnchor(list: HTMLDivElement, options: TraceScrollAnchorOptions = {}): TraceScrollAnchor | null {

@@ -20,7 +20,6 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
-import { SessionHeader } from './features/sessions/SessionHeader';
 import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import type { SettingsSection } from './features/settings/SettingsModal';
@@ -81,7 +80,7 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
-  const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
+  const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
@@ -428,13 +427,19 @@ export function App(): JSX.Element {
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
+        events={visibleSessionTraceEvents}
         profilingEnabled={profilingState?.enabled ?? false}
-        onOpenResearchPrompt={setResearchPromptDetail}
+        sessionView={sessionMainView}
+        selectedSubagentPath={selectedSubagentPath}
+        visibleTraceCategories={visibleTraceCategories}
+        onBackToMain={() => setSelectedSubagentPath(null)}
+        onOpenSessionSummary={setSessionSummaryDetail}
         onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
         onAddWorkspace={() => {
           addWorkspace();
         }}
+        onSessionViewChange={setSessionMainView}
         onToggleSidebar={toggleSidebar}
       />
       <WorkspaceSidebar
@@ -466,17 +471,6 @@ export function App(): JSX.Element {
       />
 
       <main className="workbench" data-session-heat={sessionHeat}>
-        <SessionHeader
-          detail={activeRunDetail}
-          events={visibleSessionTraceEvents}
-          honeycrispMemoryStatus={!selectedRunId && snapshot ? snapshot.honeycrispMemory.status : null}
-          workspaceOpen={!selectedRunId && Boolean(snapshot)}
-          sessionView={sessionMainView}
-          selectedSubagentPath={selectedSubagentPath}
-          visibleTraceCategories={visibleTraceCategories}
-          onSessionViewChange={setSessionMainView}
-          onBackToMain={() => setSelectedSubagentPath(null)}
-        />
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
@@ -530,7 +524,7 @@ export function App(): JSX.Element {
         workspaceDraft={workspaceDraft}
         workspaceOnboardingProgress={workspaceOnboardingProgress}
         workspaceInfo={workspaceInfo}
-        researchPromptDetail={researchPromptDetail}
+        sessionSummaryDetail={sessionSummaryDetail}
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
@@ -553,7 +547,7 @@ export function App(): JSX.Element {
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
         onCloseWorkspaceInfo={() => setWorkspaceInfo(null)}
-        onCloseResearchPrompt={() => setResearchPromptDetail(null)}
+        onCloseSessionSummary={() => setSessionSummaryDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
         onCloseSettings={() => setSettingsOpen(false)}

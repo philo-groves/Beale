@@ -1,5 +1,5 @@
 import type { RunDetail, RunStatus, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
-import { stringRecordValue, traceCategoryForEvent, traceEventOutcome } from '../traceClassification';
+import { stringRecordValue, traceCategoryForEvent, traceEventOutcome, tracePayloadArray, tracePayloadPrimitive } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
 export interface TraceDisplayEvent extends TraceEventRecord {
@@ -90,7 +90,7 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
 
     group.updatedAt = event.createdAt;
     const category = traceCategoryForEvent(event);
-    if (!visibleCategories.includes(category)) continue;
+    if (!traceEventVisibleInTimeline(event, category, visibleCategories)) continue;
 
     group.visibleCount += 1;
     if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
@@ -106,6 +106,89 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
   }
 
   return entries;
+}
+
+export function traceEventVisibleInTimeline(
+  event: TraceEventRecord,
+  category: TraceCategoryId,
+  visibleCategories: TraceCategoryId[]
+): boolean {
+  if (!visibleCategories.includes(category)) return false;
+  return event.modelVisible || visibleCategories.includes('non_standard');
+}
+
+export function coalesceConsecutiveReasoningEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): TraceTimelineEntry<TEvent>[] {
+  const coalesced: TraceTimelineEntry<TEvent>[] = [];
+
+  for (const entry of entries) {
+    const previous = coalesced.at(-1);
+    if (
+      previous &&
+      previous.group === entry.group &&
+      previous.event.modelVisible === entry.event.modelVisible &&
+      traceCategoryForEvent(previous.event) === 'reasoning' &&
+      traceCategoryForEvent(entry.event) === 'reasoning'
+    ) {
+      previous.event = mergeReasoningEvents(previous.event, entry.event);
+      continue;
+    }
+    coalesced.push({ ...entry });
+  }
+
+  return coalesced;
+}
+
+export function traceDisplayEventIds(event: TraceEventRecord): string[] {
+  const coalescedIds = stringArrayPayload(event.payload, 'coalescedTraceEventIds');
+  return coalescedIds.length > 0 ? coalescedIds : [event.id];
+}
+
+export function traceDisplayEventContainsId(event: TraceEventRecord, eventId: string | null): boolean {
+  return Boolean(eventId && traceDisplayEventIds(event).includes(eventId));
+}
+
+function mergeReasoningEvents<TEvent extends TraceEventRecord>(previous: TEvent, next: TEvent): TEvent {
+  const reasoningSummaryTexts = [...reasoningSummaryTextsForMerge(previous), ...reasoningSummaryTextsForMerge(next)];
+  const transcriptMessageIds = uniqueStrings([
+    ...stringArrayPayload(previous.payload, 'transcriptMessageIds'),
+    previous.payload.transcriptMessageId,
+    ...stringArrayPayload(next.payload, 'transcriptMessageIds'),
+    next.payload.transcriptMessageId
+  ]);
+  const linkedTraceEventIds = uniqueStrings([
+    ...stringArrayPayload(previous.payload, 'linkedTraceEventIds'),
+    previous.payload.linkedTraceEventId,
+    ...stringArrayPayload(next.payload, 'linkedTraceEventIds'),
+    next.payload.linkedTraceEventId
+  ]);
+
+  return {
+    ...previous,
+    payload: {
+      ...previous.payload,
+      text: reasoningSummaryTexts.join('\n\n'),
+      reasoningSummaryTexts,
+      coalescedTraceEventIds: uniqueStrings([...traceDisplayEventIds(previous), ...traceDisplayEventIds(next)]),
+      ...(transcriptMessageIds.length > 0 ? { transcriptMessageIds } : {}),
+      ...(linkedTraceEventIds.length > 0 ? { linkedTraceEventIds } : {})
+    },
+    modelVisible: previous.modelVisible && next.modelVisible
+  } as TEvent;
+}
+
+function reasoningSummaryTextsForMerge(event: TraceEventRecord): string[] {
+  const existing = stringArrayPayload(event.payload, 'reasoningSummaryTexts');
+  if (existing.length > 0) return existing;
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  return text ? [text] : [];
+}
+
+function stringArrayPayload(payload: Record<string, unknown>, key: string): string[] {
+  return (tracePayloadArray(payload, key) ?? []).filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
 }
 
 function traceAgentPath(event: TraceEventRecord): string | null {

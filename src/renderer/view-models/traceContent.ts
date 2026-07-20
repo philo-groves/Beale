@@ -200,8 +200,24 @@ export function isReasoningTraceEvent(event: TraceEventRecord, category: TraceCa
 
 export function reasoningTraceSummariesForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceSummarySegment[] {
   if (!isReasoningTraceEvent(event, category)) return [];
+  const summaryTexts = (tracePayloadArray(event.payload, 'reasoningSummaryTexts') ?? []).filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+  if (summaryTexts.length > 0) {
+    return uniqueReasoningSummarySegments(summaryTexts.flatMap((text) => reasoningTraceSummariesFromText(text)));
+  }
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   return text ? reasoningTraceSummariesFromText(text) : [];
+}
+
+function uniqueReasoningSummarySegments(segments: ReasoningTraceSummarySegment[]): ReasoningTraceSummarySegment[] {
+  const seen = new Set<string>();
+  return segments.filter((segment) => {
+    const key = `${segment.title ?? ''}\u0000${segment.description}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function pythonToolCallPreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): PythonToolCallPreview | null {

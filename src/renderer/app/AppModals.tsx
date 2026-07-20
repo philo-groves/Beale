@@ -19,7 +19,7 @@ import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceInformationModal, WorkspaceSessionHistoryModal } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
-import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
+import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
@@ -45,7 +45,7 @@ export function AppModals({
   workspaceDraft,
   workspaceOnboardingProgress,
   workspaceInfo,
-  researchPromptDetail,
+  sessionSummaryDetail,
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
@@ -68,7 +68,7 @@ export function AppModals({
   onCloseNotification,
   onCloseProfiling,
   onCloseWorkspaceInfo,
-  onCloseResearchPrompt,
+  onCloseSessionSummary,
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
@@ -103,7 +103,7 @@ export function AppModals({
   workspaceDraft: WorkspaceOnboardingFormState | null;
   workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
   workspaceInfo: WorkspaceRegistryEntry | null;
-  researchPromptDetail: RunDetail | null;
+  sessionSummaryDetail: RunDetail | null;
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
@@ -126,7 +126,7 @@ export function AppModals({
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
   onCloseWorkspaceInfo: () => void;
-  onCloseResearchPrompt: () => void;
+  onCloseSessionSummary: () => void;
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
@@ -219,7 +219,7 @@ export function AppModals({
           onSteer={(instruction) => onSteerNotification(activeNotification, instruction)}
         />
       ) : null}
-      {researchPromptDetail ? <ResearchPromptModal detail={researchPromptDetail} onClose={onCloseResearchPrompt} /> : null}
+      {sessionSummaryDetail ? <SessionSummaryModal detail={sessionSummaryDetail} onClose={onCloseSessionSummary} /> : null}
       {traceDetailOpen && selectedTraceEvent ? (
         <TraceDetailModal
           detail={activeRunDetail}

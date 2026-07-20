@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { DEFAULT_SESSION_MAIN_VIEW, SESSION_MAIN_VIEW_ORDER } from '../src/renderer/features/sessions/sessionViews';
-import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
+import { sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
@@ -10,11 +10,9 @@ describe('renderer session header view models', () => {
     expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['list', 'context']);
   });
 
-  it('formats status and session configuration pills', () => {
+  it('formats session configuration pills', () => {
     const detail = runDetail();
 
-    expect(runStatusClass('failed')).toBe('failed');
-    expect(runStatusClass('stopped')).toBe('paused');
     expect(sessionConfigPills(detail)).toEqual([
       { label: 'Dynamic', tooltip: 'Mode: Dynamic' },
       { label: 'Breadth First', tooltip: 'Strategy: Breadth First' },
