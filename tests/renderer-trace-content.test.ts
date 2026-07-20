@@ -25,8 +25,14 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI response completed.' }), 'agent_output')).toBe('Response Completed');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI Responses request sent for turn 12.' }), 'agent_output')).toBe('Request for Turn 12');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'OpenAI streamed model output delta.' }), 'agent_output')).toBe('Model Output');
-    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: repository.search' }), 'tools')).toBe('Honeycrisp Tool Requested');
-    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results' }), 'tools')).toBe('Honeycrisp Tool Observed');
+    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: repository.search' }), 'tools')).toBe('Repository Search Requested');
+    expect(
+      traceEventSummary(
+        traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results', payload: { payload: { toolName: 'file.read' } } }),
+        'tools'
+      )
+    ).toBe('File Read Observed');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results' }), 'tools')).toBe('Tool Observed');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'Honeycrisp context.compiled: 53k tokens' }), 'agent_output')).toBe('Honeycrisp Context Compiled');
     expect(
       traceEventSummary(

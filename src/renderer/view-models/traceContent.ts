@@ -696,8 +696,8 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
   if (summary === 'OpenAI context window pressure triggered compacted retry.') return 'Compact context for retry';
   if (summary === 'OpenAI Responses run failed.') return 'Fail Responses run';
-  if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return 'Honeycrisp Tool Requested';
-  if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return 'Honeycrisp Tool Observed';
+  if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Requested');
+  if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Observed');
   if (/^Honeycrisp context\.compiled(?::|$)/i.test(summary)) return 'Honeycrisp Context Compiled';
   if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
   if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
@@ -781,6 +781,20 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
 
   if (startsWithTraceVerb(summary)) return summary;
   return `${traceCategoryFallbackPrefix(category)}: ${summary}`;
+}
+
+function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, action: 'Requested' | 'Observed'): string {
+  const nestedPayload = tracePayloadRecord(event.payload, 'payload');
+  const toolName =
+    tracePayloadPrimitive(event.payload, 'toolName') ??
+    (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
+    honeycrispToolNameFromSummary(summary);
+  return `${toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool'} ${action}`;
+}
+
+function honeycrispToolNameFromSummary(summary: string): string | null {
+  const match = summary.match(/^Honeycrisp tool\.(?:requested|observed):\s*([a-zA-Z][a-zA-Z0-9_.-]*?)\s*\.?$/);
+  return match?.[1] ?? null;
 }
 
 function startsWithTraceVerb(summary: string): boolean {

@@ -114,6 +114,8 @@
 
 ### Changed
 
+- Increased primary trace and session-context typography to match the left sidebar's readable text scale while keeping metadata, badges, and controls compact.
+- Honeycrisp tool trace titles now use the specific tool name, such as Repository Search Requested or File Read Observed, instead of the generic Honeycrisp Tool label.
 - Consolidated uninterrupted reasoning-summary traces under one trace-list header, preserving individual summary boundaries and removing repeated partial summary lines.
 - Removed the secondary content header, moved session view controls and statistics into the main application header, and moved session configuration pills into the Session Summary dialog.
 - Renamed the model trace category and summaries from Thought to Reasoning Summary to reflect Pi's provider-generated reasoning-summary stream without implying access to hidden chain-of-thought.
