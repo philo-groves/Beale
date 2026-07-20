@@ -106,24 +106,6 @@ export function StartRunForm({
         />
         <div className="start-grid">
           <label>
-            Mode
-            <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
-              <option value="dynamic">Dynamic</option>
-              <option value="open_discovery">Open Discovery</option>
-              <option value="targeted_reproduction">Targeted Reproduction</option>
-              <option value="patch_validation">Patch Validation</option>
-              <option value="variant_analysis">Variant Analysis</option>
-            </select>
-          </label>
-          <label>
-            Strategy
-            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-              <option value="adaptive_portfolio">Adaptive Portfolio</option>
-              <option value="single_path">Single Path</option>
-              <option value="reproduction_first">Reproduction First</option>
-            </select>
-          </label>
-          <label>
             Network
             <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
               {NETWORK_PROFILE_OPTIONS.map((profile) => (
@@ -164,16 +146,6 @@ export function SessionSettingsFields({
           placeholder="Unlimited"
           value={minuteLimitValue}
           onChange={(event) => onUpdateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
-        />
-      </label>
-      <label>
-        Max Research Branches
-        <input
-          type="number"
-          min={1}
-          value={1}
-          disabled
-          onChange={() => undefined}
         />
       </label>
       <label>

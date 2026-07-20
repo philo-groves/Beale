@@ -282,20 +282,16 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
-        '  schemaVersion: 1,',
+        '  schemaVersion: 2,',
         '  capturedAt: now,',
-        "  goal: { id: 'goal_fixture', objective: 'Fixture Honeycrisp research', scopeConstraints: [], evidenceRequirements: [], riskFlags: [] },",
-        "  decision: { actionClass: 'synthesize', subGoalId: 'subgoal_fixture', subGoalObjective: 'Run fixture', rationale: 'Test adapter' },",
-        "  goalRun: { status: 'active', terminalReason: 'loop_limit', loopsUsed: 1, maxLoops: 1, safetyMaxLoops: 3, blockedThreshold: 3, consecutiveBlockedCount: 0, statusReason: 'The configured goal loop budget was reached before terminal proof.' },",
-        '  loop: {',
-        "    planId: 'loop_fixture',",
-        "    resultId: 'loopresult_fixture',",
+        "  request: { prompt: 'Fixture Honeycrisp research' },",
+        '  agent: {',
+        "    id: 'agent_fixture',",
         "    status: 'complete',",
         "    executorName: 'fixture-honeycrisp',",
-        "    executionMode: 'deterministic',",
+        '    startedAt: now,',
+        '    completedAt: now,',
         "    outputText: 'Fixture Honeycrisp answer.',",
-        "    followUpRecommendation: 'respond',",
-        "    followUpRationale: 'Fixture complete.',",
         '    nextPromptSuggestions: [',
         "      { title: 'Verify fixture', promptMarkdown: 'Skeptically verify the fixture result with fresh evidence.', rationale: 'Test structured prompt suggestions.' },",
         "      { title: 'Inspect adjacent fixture', promptMarkdown: 'Inspect adjacent fixture files without repeating exhausted targets.' },",
@@ -309,8 +305,7 @@ describe('Beale workbench skeleton', () => {
         '      rejectedPaths: [],',
         '      uncertainty: [],',
         '      nextQuestions: [],',
-        '      evidenceLinks: [],',
-        "      goalAssessment: { status: 'complete', rationale: 'Fixture goal satisfied.' }",
+        '      evidenceLinks: []',
         '    },',
         '    raw: {',
         "      provider: 'fixture-provider',",
@@ -324,10 +319,10 @@ describe('Beale workbench skeleton', () => {
         '      plannedToolCallCount: 0',
         '    }',
         '  },',
-        "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1, usedMemoryDrivenController: true, usedFirstRunFallback: false },",
+        "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1 },",
         "  storageManifest: { path: '/tmp/fixture-manifest.json', artifactCount: 0, artifacts: [] },",
         '  eventTimeline: [',
-        "    { id: 'evt_goal', sequence: 1, timestamp: now, kind: 'goal.created', summary: 'Fixture goal created.', payload: { objective: 'fixture' } },",
+        "    { id: 'evt_context', sequence: 1, timestamp: now, kind: 'context.compiled', summary: 'Fixture context compiled.', payload: { request: 'fixture' } },",
         "    { id: 'evt_tool_call', sequence: 2, timestamp: now, kind: 'tool.requested', summary: 'Fixture tool requested.', payload: { toolName: 'repository.search' } },",
         "    { id: 'evt_tool_result', sequence: 3, timestamp: now, kind: 'tool.observed', summary: 'Fixture tool observed.', payload: { summary: 'search result' } },",
         "    { id: 'evt_claim', sequence: 4, timestamp: now, kind: 'model.claim', summary: 'Fixture model claim.', payload: { text: 'claim' } }",
@@ -367,25 +362,18 @@ describe('Beale workbench skeleton', () => {
       latestReportedTotalTokens: 13023,
       latestContextUsageSource: 'Honeycrisp reported model usage',
       latestContextUsageEstimated: false,
-      honeycrispGoalId: 'goal_fixture',
-      honeycrispGoalStatus: 'active',
-      honeycrispGoalTerminalReason: 'loop_limit',
-      honeycrispSubGoalId: 'subgoal_fixture',
-      honeycrispSubGoalObjective: 'Run fixture',
-      honeycrispBealeSessionBoundary: 'beale_subgoal_checkpoint'
+      honeycrispAgentRunId: 'agent_fixture',
+      honeycrispAgentStatus: 'complete',
+      honeycrispRequestPrompt: 'Fixture Honeycrisp research'
     });
     expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.')?.payload).toMatchObject({
-      goal: {
-        id: 'goal_fixture',
-        objective: 'Fixture Honeycrisp research'
+      request: {
+        prompt: 'Fixture Honeycrisp research'
       },
-      decision: {
-        subGoalId: 'subgoal_fixture',
-        subGoalObjective: 'Run fixture'
-      },
-      goalRun: {
-        status: 'active',
-        terminalReason: 'loop_limit'
+      agent: {
+        id: 'agent_fixture',
+        status: 'complete',
+        executorName: 'fixture-honeycrisp'
       },
       usage: {
         input_tokens: 12345,
@@ -395,7 +383,7 @@ describe('Beale workbench skeleton', () => {
         estimated: false
       }
     });
-    expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp selected subgoal: Run fixture'))).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp agent session: Fixture Honeycrisp research'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
@@ -403,7 +391,6 @@ describe('Beale workbench skeleton', () => {
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
-    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('root goal remains active'))).toBe(false);
     const honeycrispTranscript = detail.transcriptMessages.find((message) => message.source === 'honeycrisp');
     expect(honeycrispTranscript?.metadata.nextPromptSuggestions).toEqual(
       expect.arrayContaining([
@@ -423,7 +410,7 @@ describe('Beale workbench skeleton', () => {
         })
       ])
     );
-    expect(detail.run.summary).toContain('checkpoint completed');
+    expect(detail.run.summary).toContain('completed the research session');
     service.close();
   });
 
@@ -459,11 +446,10 @@ describe('Beale workbench skeleton', () => {
         '      clearInterval(timer);',
         '      const now = new Date().toISOString();',
         '      const capture = {',
+        '        schemaVersion: 2,',
         '        capturedAt: now,',
-        "        goal: { id: 'goal_control', objective: 'Controlled run' },",
-        "        decision: { actionClass: 'inspect', subGoalId: 'subgoal_control', subGoalObjective: 'Apply steering' },",
-        "        goalRun: { status: 'complete', terminalReason: 'complete', loopsUsed: 1, maxLoops: 1 },",
-        "        loop: { status: 'complete', executorName: 'controlled-fixture', executionMode: 'custom', outputText: 'Steering received.', followUpRecommendation: 'respond' },",
+        "        request: { prompt: 'Controlled run' },",
+        "        agent: { id: 'agent_control', status: 'complete', executorName: 'controlled-fixture', startedAt: now, completedAt: now, outputText: 'Steering received.' },",
         '        eventTimeline: []',
         '      };',
         "      writeFileSync(capturePath, JSON.stringify(capture) + '\\n');",
@@ -545,8 +531,9 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
         '  capturedAt: new Date().toISOString(),',
-        "  goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1 },",
-        "  loop: { status: 'complete', executorName: 'node-cli-fixture', executionMode: 'mock', outputText: 'Node CLI fixture done.' },",
+        '  schemaVersion: 2,',
+        "  request: { prompt: 'Node CLI fixture request' },",
+        "  agent: { id: 'agent_node_fixture', status: 'complete', executorName: 'node-cli-fixture', outputText: 'Node CLI fixture done.' },",
         '  eventTimeline: []',
         "}, null, 2) + '\\n');",
         "console.log('node cli fixture stdout');"
@@ -659,7 +646,7 @@ describe('Beale workbench skeleton', () => {
         "if (context.authorization?.recorded !== true) throw new Error('recorded scope missing');",
         "if (!context.knownRepositories?.some((repository) => repository.repositoryUrl === 'https://github.com/apple-oss-distributions/zsh')) throw new Error('repository reference missing');",
         'mkdirSync(dirname(capturePath), { recursive: true });',
-        "writeFileSync(capturePath, JSON.stringify({ capturedAt: new Date().toISOString(), goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1 }, loop: { status: 'complete', executorName: 'source-fixture', executionMode: 'mock', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 2, capturedAt: new Date().toISOString(), request: { prompt: 'Prepare source' }, agent: { id: 'agent_source_fixture', status: 'complete', executorName: 'source-fixture', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
       ].join('\n')
     );
     chmodSync(fakeGit, 0o700);

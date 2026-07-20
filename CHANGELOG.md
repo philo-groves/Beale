@@ -94,6 +94,7 @@
 
 ### Removed
 
+- Removed the Honeycrisp goal/subgoal controller contract from Beale sessions, including mode, strategy, research-branch controls, goal checkpoints, and goal-shaped capture metadata.
 - Removed Beale's Honeycrisp memory CLI/raw-SQLite fallback chain and the event-derived record/proof vocabulary from workspace memory views.
 
 - Removed pre-alpha compatibility paths: the 19-step workspace database migration ladder, legacy Beale-to-Honeycrisp memory export, path-based session ownership, old `Program*` API aliases, and workspace-local managed checkout discovery.
@@ -104,6 +105,7 @@
 
 ### Changed
 
+- Changed Honeycrisp session import to schema-v2 `request` and `agent` captures produced by Pi's native agent loop. Context views now show the request, workspace context, selected skills, and available tools without controller decisions or generated subgoals.
 - Changed Honeycrisp scope handling to treat a recorded Beale workspace scope as sufficient authorization for in-scope research, avoiding repeated authorization questions while retaining explicit scope boundaries and network-profile enforcement.
 
 - Unified Beale and Honeycrisp workspace persistence in `.honeycrisp/memory/memory.sqlite`, making desktop and future headless operation schema-compatible without data copying.

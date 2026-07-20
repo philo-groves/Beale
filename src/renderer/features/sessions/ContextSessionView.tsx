@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { Braces, CircleHelp, Database, FolderTree, ListChecks, RefreshCw, Wrench } from 'lucide-react';
+import { Braces, Database, FolderTree, ListChecks, RefreshCw, Wrench } from 'lucide-react';
 import type { AgentContextState, HoneycrispMemorySummary } from '@shared/types';
 import { formatSessionDateTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 
@@ -47,19 +47,11 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
   const status = error ? 'error' : state?.status ?? 'empty';
   const latestEvent = state?.event ?? null;
   const selectedSkills = useMemo(() => readRecordArray(payload.selectedSkills), [payload]);
-  const openQuestions = useMemo(() => readStringArray(payload.openQuestions), [payload]);
-  const candidateToolActions = useMemo(() => readRecordArray(payload.candidateToolActions), [payload]);
-  const skippedToolActions = useMemo(() => readRecordArray(payload.skippedToolActions), [payload]);
-  const activeGoal = useMemo(() => readRecord(payload.activeGoal), [payload]);
-  const activeSubGoal = useMemo(() => readRecord(payload.activeSubGoal), [payload]);
-  const toolPermissions = useMemo(() => readRecord(payload.toolPermissions), [payload]);
+  const request = useMemo(() => readRecord(payload.request), [payload]);
+  const workspaceContext = useMemo(() => readRecord(payload.workspaceContext), [payload]);
+  const toolPermissions = useMemo(() => readRecordArray(payload.toolPermissions), [payload]);
   const storage = useMemo(() => readRecord(payload.storage), [payload]);
-  const activeGoalLabel = firstString(activeGoal ?? {}, ['objective', 'id']) ?? latestEvent?.goalId ?? 'None';
-  const activeSubGoalLabel =
-    firstString(activeSubGoal ?? {}, ['objective', 'id']) ??
-    stringValue(payload.activeSubGoalId) ??
-    latestEvent?.subGoalId ??
-    'None';
+  const requestLabel = firstString(request ?? {}, ['prompt']) ?? 'None';
   const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
   const evidenceRefCount = findingNodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
 
@@ -80,16 +72,16 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             detail={latestEvent ? formatSessionDateTime(latestEvent.timestamp) : 'No compiled event'}
           />
           <SummaryTile
-            icon={<CircleHelp size={17} />}
-            label="Open Questions"
-            value={formatCount(openQuestions.length)}
-            detail={openQuestions[0] ? truncateText(openQuestions[0], 84) : 'None'}
+            icon={<ListChecks size={17} />}
+            label="Selected Skills"
+            value={formatCount(selectedSkills.length)}
+            detail={selectedSkills[0] ? firstString(selectedSkills[0], ['description', 'id']) ?? 'Configured' : 'None'}
           />
           <SummaryTile
             icon={<Wrench size={17} />}
-            label="Tool Actions"
-            value={`${formatCount(candidateToolActions.length)} planned`}
-            detail={`${formatCount(skippedToolActions.length)} skipped`}
+            label="Available Tools"
+            value={formatCount(toolPermissions.length)}
+            detail="Model-selected"
           />
           <SummaryTile
             icon={<Database size={17} />}
@@ -113,23 +105,21 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
               rows={[
                 ['Run', selectedRunId],
                 ['Event', latestEvent?.eventId ?? 'None'],
-                ['Goal', activeGoalLabel],
-                ['Subgoal', activeSubGoalLabel],
+                ['Request', truncateText(requestLabel, 140)],
                 ['Read', state?.readAt ? formatSessionDateTime(state.readAt) : 'Pending'],
                 ['Payload Hash', latestEvent?.payloadHash ?? 'None']
               ]}
             />
-            <QuestionList questions={openQuestions} />
           </section>
 
-          <section className="context-session-section" aria-label="Active goal">
-            <SectionHeader icon={<Braces size={16} />} title="Active Goal" />
-            <ObjectPreview value={activeGoal} emptyLabel="No active goal summary" />
+          <section className="context-session-section" aria-label="Research request">
+            <SectionHeader icon={<Braces size={16} />} title="Research Request" />
+            <ObjectPreview value={request} emptyLabel="No research request" />
           </section>
 
-          <section className="context-session-section" aria-label="Active subgoal">
-            <SectionHeader icon={<Braces size={16} />} title="Active Subgoal" />
-            <ObjectPreview value={activeSubGoal} emptyLabel="No active subgoal summary" />
+          <section className="context-session-section" aria-label="Workspace context">
+            <SectionHeader icon={<Braces size={16} />} title="Workspace Context" />
+            <ObjectPreview value={workspaceContext} emptyLabel="No workspace context" />
           </section>
 
           <section className="context-session-section" aria-label="Selected skills">
@@ -170,11 +160,7 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
 
           <section className="context-session-section" aria-label="Tool permissions">
             <SectionHeader icon={<Wrench size={16} />} title="Tool State" />
-            <ObjectPreview value={toolPermissions} emptyLabel="No tool permissions" />
-            <RecordList records={candidateToolActions} emptyLabel="No candidate tool actions" primaryKeys={['toolName', 'name']} secondaryKeys={['reason', 'summary']} />
-            {skippedToolActions.length > 0 ? (
-              <RecordList records={skippedToolActions} emptyLabel="No skipped tool actions" primaryKeys={['toolName', 'name']} secondaryKeys={['reason', 'summary']} />
-            ) : null}
+            <ObjectPreview value={toolPermissions.length > 0 ? { tools: toolPermissions } : null} emptyLabel="No tool permissions" />
           </section>
 
           <section className="context-session-section" aria-label="Storage layout">
@@ -247,22 +233,6 @@ function KeyValueRows({ rows }: { rows: Array<[string, string]> }): JSX.Element 
   );
 }
 
-function QuestionList({ questions }: { questions: string[] }): JSX.Element {
-  if (questions.length === 0) {
-    return <p className="context-session-empty">No open questions</p>;
-  }
-  return (
-    <div className="context-session-list-block">
-      <h4>Open Questions</h4>
-      <ul>
-        {questions.map((question, index) => (
-          <li key={`${question}:${index}`}>{question}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function RecordList({
   emptyLabel,
   primaryKeys,
@@ -308,10 +278,6 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
 }
 
 function stringValue(value: unknown): string | null {

@@ -57,37 +57,18 @@ interface ActiveHoneycrispRun {
 }
 
 interface HoneycrispFlowCapture {
+  schemaVersion?: 2;
   capturedAt?: string;
-  goal?: {
+  request?: {
+    prompt?: string;
+  };
+  agent?: {
     id?: string;
-    objective?: string;
-    scopeConstraints?: unknown;
-    evidenceRequirements?: unknown;
-    riskFlags?: unknown;
-  };
-  decision?: {
-    actionClass?: string;
-    subGoalId?: string;
-    subGoalObjective?: string;
-    rationale?: string;
-  };
-  goalRun?: {
-    status?: string;
-    terminalReason?: string;
-    statusReason?: string;
-    loopsUsed?: number;
-    maxLoops?: number | null;
-    safetyMaxLoops?: number;
-    blockedThreshold?: number;
-    consecutiveBlockedCount?: number;
-  };
-  loop?: {
     status?: string;
     executorName?: string;
-    executionMode?: string;
+    startedAt?: string;
+    completedAt?: string;
     outputText?: string;
-    followUpRecommendation?: string;
-    followUpRationale?: string;
     nextPromptSuggestions?: HoneycrispNextPromptSuggestion[];
     researchTrace?: {
       observations?: HoneycrispTraceItem[];
@@ -97,10 +78,6 @@ interface HoneycrispFlowCapture {
       rejectedPaths?: HoneycrispTraceItem[];
       uncertainty?: HoneycrispTraceItem[];
       nextQuestions?: HoneycrispTraceItem[];
-      goalAssessment?: {
-        status?: string;
-        rationale?: string;
-      };
     };
     raw?: unknown;
   };
@@ -116,7 +93,6 @@ interface HoneycrispFlowCapture {
     recordCount?: number;
     eventsAppended?: number;
     recordsWritten?: number;
-    usedMemoryDrivenController?: boolean;
   };
   storageManifest?: {
     path?: string;
@@ -182,7 +158,6 @@ interface NormalizedTokenUsage {
   totalTokens: number | null;
 }
 
-const UNBOUNDED_RUN_ATTEMPTS = 999_999;
 const DEFAULT_HONEYCRISP_TOOL_MAX_BYTES = 200_000;
 const MAX_LIVE_OUTPUT_CHARS = 4_000;
 const MAX_SUMMARY_CHARS = 220;
@@ -245,8 +220,6 @@ export class HoneycrispRunEngine {
       summary: 'Honeycrisp research run started from markdown prompt.',
       payload: {
         runEngine: 'honeycrisp',
-        mode: input.mode,
-        attemptStrategy: input.attemptStrategy,
         sandboxProfile: input.sandboxProfile
       },
       vmContextId: context.vmContext.id
@@ -597,11 +570,9 @@ export class HoneycrispRunEngine {
         status: 'completed',
         metadata: {
           capturePath,
-          goalStatus: capture.goalRun?.status ?? null,
-          goalTerminalReason: capture.goalRun?.terminalReason ?? null,
-          loopStatus: capture.loop?.status ?? null,
+          agentStatus: capture.agent?.status ?? null,
           memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
-          ...honeycrispGoalMetadata(capture),
+          ...honeycrispAgentMetadata(capture),
           ...honeycrispContextUsageMetadata(contextUsage)
         }
       });
@@ -634,7 +605,7 @@ export class HoneycrispRunEngine {
         capturedAt: capture.capturedAt ?? null,
         memoryDatabasePath: capture.memoryIntegration?.databasePath ?? null,
         storageManifestPath: capture.storageManifest?.path ?? null,
-        ...honeycrispGoalMetadata(capture),
+        ...honeycrispAgentMetadata(capture),
         ...honeycrispContextUsageMetadata(contextUsage)
       },
       content: captureText
@@ -648,9 +619,8 @@ export class HoneycrispRunEngine {
       summary: 'Honeycrisp flow capture preserved as a Beale artifact.',
       payload: {
         sourcePath: capturePath,
-        goal: honeycrispGoalPayload(capture),
-        decision: honeycrispDecisionPayload(capture),
-        goalRun: honeycrispGoalRunPayload(capture),
+        request: capture.request ?? null,
+        agent: honeycrispAgentPayload(capture),
         memoryIntegration: capture.memoryIntegration ?? null,
         storageManifest: capture.storageManifest ?? null,
         ...(contextUsage
@@ -669,12 +639,10 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       type: 'model_message',
       source: 'system',
-      summary: honeycrispGoalTraceSummary(capture),
+      summary: honeycrispAgentTraceSummary(capture),
       payload: {
-        goal: honeycrispGoalPayload(capture),
-        decision: honeycrispDecisionPayload(capture),
-        goalRun: honeycrispGoalRunPayload(capture),
-        bealeSessionBoundary: honeycrispSessionBoundary(capture)
+        request: capture.request ?? null,
+        agent: honeycrispAgentPayload(capture)
       },
       vmContextId: context.vmContext.id,
       modelVisible: false
@@ -685,7 +653,7 @@ export class HoneycrispRunEngine {
       this.appendHoneycrispTimelineEvent(context, event);
     }
 
-    for (const [kind, items] of Object.entries(capture.loop?.researchTrace ?? {})) {
+    for (const [kind, items] of Object.entries(capture.agent?.researchTrace ?? {})) {
       if (!Array.isArray(items)) continue;
       for (const item of items.filter(isHoneycrispTraceItem)) {
         this.db.appendTraceEvent({
@@ -716,8 +684,6 @@ export class HoneycrispRunEngine {
         summary: 'Honeycrisp produced a final run response.',
         payload: {
           outputText: assistantText,
-          followUpRecommendation: capture.loop?.followUpRecommendation ?? null,
-          followUpRationale: capture.loop?.followUpRationale ?? null,
           nextPromptSuggestions,
           captureArtifactId: captureArtifact.id
         },
@@ -733,8 +699,7 @@ export class HoneycrispRunEngine {
         metadata: {
           captureArtifactId: captureArtifact.id,
           captureTraceEventId: artifactTrace.id,
-          executorName: capture.loop?.executorName ?? null,
-          executionMode: capture.loop?.executionMode ?? null,
+          executorName: capture.agent?.executorName ?? null,
           nextPromptSuggestions
         }
       });
@@ -872,21 +837,6 @@ function researchThoughtText(event: HoneycrispCaptureEvent): string {
   const payload = recordValue(event.payload);
   const summary = stringPayload(payload ?? {}, 'summary') ?? (typeof event.summary === 'string' ? event.summary.trim() : '');
   switch (event.kind) {
-    case 'memory.decision': {
-      const actionClass = stringPayload(payload ?? {}, 'actionClass');
-      const subGoal = recordValue(payload?.subGoal);
-      const objective = stringPayload(subGoal ?? {}, 'objective');
-      const conciseObjective = objective ? truncateSummary(objective) : '';
-      if (conciseObjective && actionClass) return `**Plan** Selected ${actionClass} work on: ${conciseObjective}`;
-      if (conciseObjective) return `**Plan** Selected work on: ${conciseObjective}`;
-      if (actionClass) return `**Plan** Selected ${actionClass} work.`;
-      return '';
-    }
-    case 'loop.planned': {
-      const permitted = stringArrayPayload(payload?.permittedToolClasses);
-      if (permitted.length > 0) return `**Plan** Tool classes available this loop: ${permitted.join(', ')}.`;
-      return '';
-    }
     case 'error.observed':
       return summary ? `**Issue** ${summary}` : '';
     default:
@@ -897,11 +847,6 @@ function researchThoughtText(event: HoneycrispCaptureEvent): string {
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function stringArrayPayload(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => (typeof item === 'string' && item.trim() ? [item.trim()] : []));
 }
 
 function numberPayload(payload: Record<string, unknown>, key: string): number | null {
@@ -917,8 +862,6 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     capturePath,
     '--workspace-context',
     workspaceContextPath,
-    '--goal-loops',
-    String(goalLoopsForInput(input)),
     '--executor',
     'agent',
     '--event-stream',
@@ -1201,14 +1144,6 @@ function stringAttribute(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function goalLoopsForInput(input: StartRunInput): number {
-  const envValue = positiveIntegerEnv('BEALE_HONEYCRISP_GOAL_LOOPS');
-  if (envValue) return envValue;
-  const attempts = Math.floor(input.budget.maxAttempts);
-  if (!Number.isFinite(attempts) || attempts <= 0 || attempts >= UNBOUNDED_RUN_ATTEMPTS) return 1;
-  return attempts;
-}
-
 function toolMaxBytes(): number {
   return positiveIntegerEnv('BEALE_HONEYCRISP_TOOL_MAX_BYTES') ?? DEFAULT_HONEYCRISP_TOOL_MAX_BYTES;
 }
@@ -1368,7 +1303,7 @@ function summarizeReportedHoneycrispUsage(
 }
 
 function collectHoneycrispUsageRecords(capture: HoneycrispFlowCapture): Record<string, unknown>[] {
-  const raw = recordValue(capture.loop?.raw);
+  const raw = recordValue(capture.agent?.raw);
   const modelCallUsages = arrayRecordValues(raw?.modelCalls).flatMap((call) => {
     const usage = recordValue(call.usage);
     return usage ? [usage] : [];
@@ -1426,62 +1361,24 @@ function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | n
   };
 }
 
-function honeycrispGoalMetadata(capture: HoneycrispFlowCapture): Record<string, unknown> {
+function honeycrispAgentMetadata(capture: HoneycrispFlowCapture): Record<string, unknown> {
   return {
-    honeycrispGoalId: capture.goal?.id ?? null,
-    honeycrispGoalObjective: capture.goal?.objective ?? null,
-    honeycrispGoalStatus: capture.goalRun?.status ?? null,
-    honeycrispGoalTerminalReason: capture.goalRun?.terminalReason ?? null,
-    honeycrispGoalStatusReason: capture.goalRun?.statusReason ?? null,
-    honeycrispGoalLoopsUsed: capture.goalRun?.loopsUsed ?? null,
-    honeycrispGoalMaxLoops: capture.goalRun?.maxLoops ?? null,
-    honeycrispSubGoalId: capture.decision?.subGoalId ?? null,
-    honeycrispSubGoalObjective: capture.decision?.subGoalObjective ?? null,
-    honeycrispSubGoalActionClass: capture.decision?.actionClass ?? null,
-    honeycrispSubGoalRationale: capture.decision?.rationale ?? null,
-    honeycrispBealeSessionBoundary: honeycrispSessionBoundary(capture)
+    honeycrispAgentRunId: capture.agent?.id ?? null,
+    honeycrispAgentStatus: capture.agent?.status ?? null,
+    honeycrispAgentStartedAt: capture.agent?.startedAt ?? null,
+    honeycrispAgentCompletedAt: capture.agent?.completedAt ?? null,
+    honeycrispRequestPrompt: capture.request?.prompt ?? null
   };
 }
 
-function honeycrispGoalPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
+function honeycrispAgentPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
   return {
-    id: capture.goal?.id ?? null,
-    objective: capture.goal?.objective ?? null,
-    scopeConstraints: capture.goal?.scopeConstraints ?? null,
-    evidenceRequirements: capture.goal?.evidenceRequirements ?? null,
-    riskFlags: capture.goal?.riskFlags ?? null
+    id: capture.agent?.id ?? null,
+    status: capture.agent?.status ?? null,
+    executorName: capture.agent?.executorName ?? null,
+    startedAt: capture.agent?.startedAt ?? null,
+    completedAt: capture.agent?.completedAt ?? null
   };
-}
-
-function honeycrispDecisionPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
-  return {
-    actionClass: capture.decision?.actionClass ?? null,
-    subGoalId: capture.decision?.subGoalId ?? null,
-    subGoalObjective: capture.decision?.subGoalObjective ?? null,
-    rationale: capture.decision?.rationale ?? null
-  };
-}
-
-function honeycrispGoalRunPayload(capture: HoneycrispFlowCapture): Record<string, unknown> {
-  return {
-    status: capture.goalRun?.status ?? null,
-    terminalReason: capture.goalRun?.terminalReason ?? null,
-    statusReason: capture.goalRun?.statusReason ?? null,
-    loopsUsed: capture.goalRun?.loopsUsed ?? null,
-    maxLoops: capture.goalRun?.maxLoops ?? null,
-    safetyMaxLoops: capture.goalRun?.safetyMaxLoops ?? null,
-    blockedThreshold: capture.goalRun?.blockedThreshold ?? null,
-    consecutiveBlockedCount: capture.goalRun?.consecutiveBlockedCount ?? null
-  };
-}
-
-function honeycrispSessionBoundary(capture: HoneycrispFlowCapture): string {
-  const status = capture.goalRun?.status ?? '';
-  const terminalReason = capture.goalRun?.terminalReason ?? '';
-  if (status === 'active' && terminalReason === 'loop_limit') return 'beale_subgoal_checkpoint';
-  if (status === 'active' && terminalReason === 'ready_to_respond') return 'beale_response_checkpoint';
-  if (status === 'active') return 'active_goal_checkpoint';
-  return 'terminal_goal';
 }
 
 function estimatedHoneycrispContextV2Tokens(capture: HoneycrispFlowCapture): number | null {
@@ -1531,25 +1428,16 @@ function positiveNumber(value: unknown): number | null {
 }
 
 function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
-  const goalStatus = capture.goalRun?.status ?? 'unknown';
-  const terminalReason = capture.goalRun?.terminalReason ?? '';
-  const terminal = terminalReason ? ` (${terminalReason})` : '';
-  if (goalStatus === 'active' && terminalReason === 'loop_limit') {
-    const subGoal = capture.decision?.subGoalObjective ? ` after subgoal "${truncateSummary(capture.decision.subGoalObjective)}"` : '';
-    return `Honeycrisp checkpoint completed${subGoal}; root goal remains active.`;
-  }
-  if (goalStatus === 'active' && terminalReason === 'ready_to_respond') {
-    return 'Honeycrisp response checkpoint completed; root goal remains active.';
-  }
-  return `Honeycrisp process finished with goal status ${goalStatus}${terminal}.`;
+  const status = capture.agent?.status ?? 'unknown';
+  return status === 'complete' ? 'Honeycrisp completed the research session.' : `Honeycrisp process finished with agent status ${status}.`;
 }
 
 function renderHoneycrispAssistantMessage(capture: HoneycrispFlowCapture): string {
-  return capture.loop?.outputText?.trim() ?? '';
+  return capture.agent?.outputText?.trim() ?? '';
 }
 
 function honeycrispNextPromptSuggestions(capture: HoneycrispFlowCapture): HoneycrispNextPromptSuggestion[] {
-  const suggestions = capture.loop?.nextPromptSuggestions;
+  const suggestions = capture.agent?.nextPromptSuggestions;
   if (!Array.isArray(suggestions)) return [];
   return suggestions
     .map((suggestion) => ({
@@ -1566,16 +1454,11 @@ function honeycrispNextPromptSuggestions(capture: HoneycrispFlowCapture): Honeyc
     }));
 }
 
-function honeycrispGoalTraceSummary(capture: HoneycrispFlowCapture): string {
-  const subGoal = capture.decision?.subGoalObjective?.trim();
-  if (subGoal) {
-    return `Honeycrisp selected subgoal: ${truncateSummary(subGoal)}`;
-  }
-  const goal = capture.goal?.objective?.trim();
-  if (goal) {
-    return `Honeycrisp goal checkpoint: ${truncateSummary(goal)}`;
-  }
-  return 'Honeycrisp goal checkpoint imported.';
+function honeycrispAgentTraceSummary(capture: HoneycrispFlowCapture): string {
+  const prompt = capture.request?.prompt?.trim();
+  return prompt
+    ? `Honeycrisp agent session: ${truncateSummary(prompt)}`
+    : 'Honeycrisp agent session imported.';
 }
 
 function isHoneycrispTraceItem(value: unknown): value is HoneycrispTraceItem {

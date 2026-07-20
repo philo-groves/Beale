@@ -685,7 +685,6 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return 'Honeycrisp Tool Requested';
   if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return 'Honeycrisp Tool Observed';
   if (/^Honeycrisp context\.compiled(?::|$)/i.test(summary)) return 'Honeycrisp Context Compiled';
-  if (/^Honeycrisp goal\.(created|updated|completed)(?::|$)/i.test(summary)) return 'Honeycrisp Goal';
   if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
   if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
   if (summary === 'Run started from markdown prompt.') return 'Start run from prompt';
