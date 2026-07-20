@@ -30,6 +30,8 @@ The workspace directory is still passed to Honeycrisp as its persistence root. I
 
 Honeycrisp storage paths and its former directory taxonomy are not model-facing workspace context. The agent receives the memory tier identity and the `memory.*` tools; the unified SQLite database and artifact directory remain runtime implementation details.
 
+Honeycrisp projects the operational workspace context before the first model turn. The projection keeps authorization, repository and source references, project notes, and current session/workspace/subject identity. It removes the workspace persistence root, the peer workspace registry, and all local or peer memory database paths. Relevant subject-tier nodes identify their origin workspace when selected.
+
 Honeycrisp treats structured recorded-scope metadata as sufficient scope for ordinary in-scope research. Prompt wording does not need to repeat a labeled `Scope:` section, and the controller should ask for clarification only when the workspace has no recorded scope or a material boundary is genuinely ambiguous.
 
 ## Source Storage
@@ -70,6 +72,10 @@ Honeycrisp keeps the existing `memory.search`, `memory.get`, `memory.save`, `mem
 - Subject memory is intended for reusable system-boundary, invariant, mitigation, procedure, and interaction knowledge that can benefit other authorized workspaces for the same subject.
 
 Subject identity comes from the operator-recorded scope owner or subject. Beale compares normalized exact values and passes concrete peer database paths; Honeycrisp does not discover or scan unrelated workspaces.
+
+At session start, Honeycrisp selects a small memory view from the same graph used by `memory.search` and the other memory tools. Current-session nodes are prioritized; request-relevant and recent workspace nodes retain continuity; subject nodes are included only when the request matches them or a selected node links to them. The bounded entries preserve stable ids, tier and scope identity, type, status, confidence, concise body content, asset and tag labels, evidence references, relationships, timestamps, and revisions. The model can use the unchanged memory tools for details or updates.
+
+Tool schemas supplied by the agent runtime are the model's capability description. Beale and Honeycrisp do not also inject a prose or JSON tool-policy section, and storage layout is not a model context section. Enforcement remains in Honeycrisp lifecycle hooks. The `context.compiled` trace records selected memory and concise available-tool descriptors so Beale can show the exact context shape without exposing storage plumbing. Full Honeycrisp flow captures remain internal diagnostic artifacts and are not exposed through model-visible Beale artifact lookup.
 
 Repository materialization does not search for or reuse managed checkouts inside workspace directories. Source already present on disk must be added as an explicit path reference; repositories cloned by Beale use the user-global store.
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { Braces, Database, FolderTree, ListChecks, RefreshCw, Users, Wrench } from 'lucide-react';
+import { Braces, Database, ListChecks, RefreshCw, Users, Wrench } from 'lucide-react';
 import type { AgentContextState, HoneycrispMemorySummary } from '@shared/types';
 import { formatSessionDateTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 
@@ -49,12 +49,13 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
   const selectedSkills = useMemo(() => readRecordArray(payload.selectedSkills), [payload]);
   const request = useMemo(() => readRecord(payload.request), [payload]);
   const workspaceContext = useMemo(() => readRecord(payload.workspaceContext), [payload]);
-  const toolPermissions = useMemo(() => readRecordArray(payload.toolPermissions), [payload]);
+  const memoryContext = useMemo(() => readRecordArray(payload.memoryContext), [payload]);
+  const availableTools = useMemo(() => readRecordArray(payload.availableTools), [payload]);
   const collaborationTools = useMemo(() => readRecordArray(payload.collaborationTools), [payload]);
-  const storage = useMemo(() => readRecord(payload.storage), [payload]);
   const requestLabel = firstString(request ?? {}, ['prompt']) ?? 'None';
   const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
-  const findingReferenceCount = findingNodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
+  const injectedReferenceCount = memoryContext.reduce((count, node) => count + arrayLength(node.evidence), 0);
+  const injectedRelationshipCount = memoryContext.reduce((count, node) => count + arrayLength(node.relationships), 0);
 
   return (
     <div className="context-session-workspace" aria-label="Context view">
@@ -81,8 +82,8 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           <SummaryTile
             icon={<Wrench size={17} />}
             label="Available Tools"
-            value={formatCount(toolPermissions.length)}
-            detail="Model-selected"
+            value={formatCount(availableTools.length)}
+            detail={availableTools[0] ? firstString(availableTools[0], ['name']) ?? 'Configured' : 'None'}
           />
           <SummaryTile
             icon={<Users size={17} />}
@@ -92,15 +93,15 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           />
           <SummaryTile
             icon={<Database size={17} />}
-            label="Findings"
-            value={formatCount(findingNodes.length)}
-            detail={findingNodes[0]?.title ? truncateText(findingNodes[0].title, 84) : 'None'}
+            label="Injected Memory"
+            value={formatCount(memoryContext.length)}
+            detail={memoryContext[0] ? firstString(memoryContext[0], ['title', 'id']) ?? 'Selected' : 'None'}
           />
           <SummaryTile
             icon={<ListChecks size={17} />}
             label="References"
-            value={`${formatCount(findingReferenceCount)} finding refs`}
-            detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} total references`}
+            value={`${formatCount(injectedReferenceCount)} injected refs`}
+            detail={`${formatCount(injectedRelationshipCount)} injected relationships`}
           />
         </div>
 
@@ -134,6 +135,16 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             <RecordList records={selectedSkills} emptyLabel="No selected skills" primaryKeys={['name', 'id']} secondaryKeys={['purpose', 'summary', 'description']} />
           </section>
 
+          <section className="context-session-section" aria-label="Injected memory">
+            <SectionHeader icon={<Database size={16} />} title="Injected Memory" />
+            <RecordList
+              records={memoryContext.map(memoryContextListRecord)}
+              emptyLabel="No memory selected for this request"
+              primaryKeys={['title', 'id']}
+              secondaryKeys={['detail', 'summary']}
+            />
+          </section>
+
           <section className="context-session-section" aria-label="Honeycrisp findings">
             <SectionHeader icon={<Database size={16} />} title="Honeycrisp Findings" status={honeycrispMemory?.source ?? 'none'} />
             <RecordList
@@ -165,9 +176,14 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             />
           </section>
 
-          <section className="context-session-section" aria-label="Tool permissions">
-            <SectionHeader icon={<Wrench size={16} />} title="Tool State" />
-            <ObjectPreview value={toolPermissions.length > 0 ? { tools: toolPermissions } : null} emptyLabel="No tool permissions" />
+          <section className="context-session-section" aria-label="Available tools">
+            <SectionHeader icon={<Wrench size={16} />} title="Available Tools" />
+            <RecordList
+              records={availableTools}
+              emptyLabel="No model tools"
+              primaryKeys={['name']}
+              secondaryKeys={['description', 'sideEffects']}
+            />
           </section>
 
           <section className="context-session-section" aria-label="Collaboration tools">
@@ -178,11 +194,6 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
               primaryKeys={['name']}
               secondaryKeys={['description']}
             />
-          </section>
-
-          <section className="context-session-section" aria-label="Storage layout">
-            <SectionHeader icon={<FolderTree size={16} />} title="Storage" />
-            <ObjectPreview value={storage} emptyLabel="No storage layout" />
           </section>
 
           <section className="context-session-section context-session-section-wide" aria-label="Raw context payload">
@@ -289,12 +300,31 @@ function ObjectPreview({ emptyLabel, value }: { emptyLabel: string; value: Recor
   return <pre className="context-session-object-preview">{JSON.stringify(value, null, 2)}</pre>;
 }
 
+function memoryContextListRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const evidenceCount = Array.isArray(record.evidence) ? record.evidence.length : 0;
+  const relationshipCount = Array.isArray(record.relationships) ? record.relationships.length : 0;
+  const identity = [
+    stringValue(record.tier),
+    stringValue(record.type),
+    stringValue(record.status)
+  ].filter((value): value is string => Boolean(value));
+  const summary = firstString(record, ['summary', 'body']) ?? 'No summary';
+  return {
+    ...record,
+    detail: `${identity.join(' / ') || 'memory'} · ${summary} · ${formatCount(evidenceCount)} refs · ${formatCount(relationshipCount)} relationships`
+  };
+}
+
 function readRecord(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
 }
 
 function readRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function stringValue(value: unknown): string | null {

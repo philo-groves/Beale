@@ -114,6 +114,7 @@
 
 ### Changed
 
+- Changed Honeycrisp session context to use bounded tiered graph memory with evidence and relationship anchors, hide internal workspace and peer storage paths, and rely on native tool definitions instead of duplicate storage and tool-policy prompt sections. Beale's Context view now distinguishes injected memory from the full workspace memory catalog and lists the tools actually available to the model; diagnostic flow captures are no longer model-visible artifacts.
 - Changed the lower-left footer cluster so Settings appears first and token usage appears whenever a session is selected, regardless of run status.
 - Honeycrisp sessions keep model tools available unless an explicit tool-call limit is configured, enforce their wall-clock session limit, and present compact turn/tool progress instead of raw agent lifecycle streams.
 - Active-session controls now expose Pause and Stop; continuing an inactive session extends it in place.

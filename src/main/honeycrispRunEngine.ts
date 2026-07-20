@@ -79,7 +79,7 @@ interface ActiveHoneycrispRun {
 }
 
 interface HoneycrispFlowCapture {
-  schemaVersion?: 2;
+  schemaVersion?: 2 | 3;
   capturedAt?: string;
   request?: {
     prompt?: string;
@@ -895,7 +895,7 @@ export class HoneycrispRunEngine {
       kind: 'honeycrisp_flow_capture',
       mimeType: 'application/json',
       sensitivity: 'internal',
-      modelVisible: true,
+      modelVisible: false,
       source: 'honeycrisp',
       metadata: {
         sourcePath: capturePath,

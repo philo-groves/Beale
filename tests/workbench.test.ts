@@ -196,10 +196,23 @@ describe('Beale workbench skeleton', () => {
       activeSubGoalId: 'subgoal_latest',
       openQuestions: ['Where does parser input cross a trust boundary?'],
       selectedSkills: [{ id: 'maxtac-sast-surface-triage', name: 'Surface triage' }],
-      toolPermissions: { allowedSideEffects: ['read'] },
-      candidateToolActions: [{ toolName: 'repository.search', reason: 'Map parser entrypoints' }],
-      skippedToolActions: [],
-      storage: { databasePath: memoryPath }
+      memoryContext: [{
+        id: 'mem_parser_boundary',
+        tier: 'workspace',
+        type: 'hypothesis',
+        title: 'Parser boundary',
+        summary: 'Parser input may cross a trust boundary.',
+        status: 'suspected',
+        evidence: [],
+        relationships: []
+      }],
+      availableTools: [{
+        name: 'repository.search',
+        description: 'Search materialized source repositories.',
+        actionClasses: ['inspect'],
+        sideEffects: 'read'
+      }],
+      collaborationTools: []
     };
     const db = new WorkspaceDatabase(memoryPath, join(dir, '.beale', 'artifacts'));
     db.initialize();
@@ -437,7 +450,7 @@ describe('Beale workbench skeleton', () => {
     ).toHaveLength(1);
     expect(detail.traceEvents.find((event) => event.payload.honeycrispEventId === 'evt_tool_result')?.payload.agentPath).toBe('/root/parser_review');
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
-    expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
+    expect(detail.artifacts.find((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toMatchObject({ modelVisible: false });
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
