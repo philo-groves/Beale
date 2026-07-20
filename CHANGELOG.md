@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added run-start repository acquisition for explicit GitHub and GitLab repository URLs. Beale materializes source in the user-global repository store and records workspace-local source references before Honeycrisp starts.
+- Added structured recorded-scope authorization context to the Beale-to-Honeycrisp handoff so authorized workspace research does not depend on prompt-section wording.
+
 - Added a Honeycrisp-owned durable knowledge graph with typed nodes, directed relationships, asset links, tags, evidence references, and optimistic revisions.
 
 - Added live Honeycrisp host controls: pause/resume preserves the active process tree, and general steering is delivered over a schema-versioned JSONL control stream to the next model turn.
@@ -100,6 +103,8 @@
 - Removed Beale's parallel fake/OpenAI research-agent runtime and structured-tool router. New research sessions now route through Honeycrisp, with a guarded fixture engine retained only for deterministic tests.
 
 ### Changed
+
+- Changed Honeycrisp scope handling to treat a recorded Beale workspace scope as sufficient authorization for in-scope research, avoiding repeated authorization questions while retaining explicit scope boundaries and network-profile enforcement.
 
 - Unified Beale and Honeycrisp workspace persistence in `.honeycrisp/memory/memory.sqlite`, making desktop and future headless operation schema-compatible without data copying.
 - Changed durable memory to explicit model-managed reusable knowledge; run events, transcripts, goals, and bulk artifacts are no longer automatically promoted into memory.

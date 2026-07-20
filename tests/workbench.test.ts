@@ -540,6 +540,7 @@ describe('Beale workbench skeleton', () => {
         "if (!workspaceContext.materializedSourcePaths?.some((path) => String(path).endsWith('/sources/zsh'))) throw new Error('Nested source path missing from workspace context');",
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
+        "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
@@ -597,11 +598,18 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(workspace, '.beale', 'honeycrisp-skills', 'beale-skeptical-triage', 'SKILL.md'))).toBe(false);
     const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as {
+      authorization?: { recorded?: boolean; source?: string; scopeName?: string; networkProfile?: string };
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string }>;
       projectNotes?: string[];
     };
     expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
+    expect(workspaceContext.authorization).toMatchObject({
+      recorded: true,
+      source: 'beale',
+      scopeName: 'ZSH Fixture',
+      networkProfile: 'offline'
+    });
     expect(workspaceContext.materializedSourcePaths).not.toContain(workspace);
     expect(workspaceContext.knownRepositories?.some((repository) => repository.rootPath === nestedSourceRoot)).toBe(true);
     expect(workspaceContext.projectNotes).toEqual(
@@ -619,6 +627,83 @@ describe('Beale workbench skeleton', () => {
     expect(Number(detail.modelSessions[0]?.metadata.latestReportedInputTokens)).toBeGreaterThan(0);
     expect(detail.traceEvents.some((event) => event.summary.includes('node cli fixture stdout'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
+    service.close();
+  });
+
+  it('materializes explicitly referenced run repositories before Honeycrisp starts', async () => {
+    const workspace = tempWorkspace();
+    const repositoryStore = join(tempWorkspace(), 'repositories');
+    const fakeGit = join(workspace, 'fake-git-run-source.mjs');
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-run-source.mjs');
+    writeFileSync(
+      fakeGit,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        "if (args.includes('clone')) { mkdirSync(`${args.at(-1)}/.git`, { recursive: true }); process.exit(0); }",
+        "if (args.includes('rev-parse') && args.at(-1) === 'HEAD') { process.stdout.write('0123456789abcdef0123456789abcdef01234567\\n'); process.exit(0); }",
+        'process.exit(1);'
+      ].join('\n')
+    );
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const args = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const contextPath = args[args.indexOf('--workspace-context') + 1];",
+        "const context = JSON.parse(readFileSync(contextPath, 'utf8'));",
+        "if (context.authorization?.recorded !== true) throw new Error('recorded scope missing');",
+        "if (!context.knownRepositories?.some((repository) => repository.repositoryUrl === 'https://github.com/apple-oss-distributions/zsh')) throw new Error('repository reference missing');",
+        'mkdirSync(dirname(capturePath), { recursive: true });',
+        "writeFileSync(capturePath, JSON.stringify({ capturedAt: new Date().toISOString(), goalRun: { status: 'complete', loopsUsed: 1, maxLoops: 1 }, loop: { status: 'complete', executorName: 'source-fixture', executionMode: 'mock', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeGit, 0o700);
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_GIT_COMMAND = fakeGit;
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
+
+    const service = new WorkspaceService(() => undefined, { repositoryStoreDirectory: repositoryStore });
+    service.createWorkspace(workspace);
+    service.saveScope({
+      workspaceName: 'Zsh',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: 'Authorized local source research.',
+      rulesMarkdown: 'Do not access live targets.',
+      networkProfile: 'elevated',
+      expiresAt: null,
+      assets: []
+    });
+
+    const snapshot = await service.startRunWithSourcePreparation({
+      ...runInput('adaptive_portfolio'),
+      runEngine: 'honeycrisp',
+      networkProfile: 'elevated',
+      promptMarkdown:
+        'Materialize https://github.com/apple-oss-distributions/zsh and inspect the ZFTP module using local source only.'
+    });
+    const runId = snapshot.runs[0]?.run.id ?? '';
+    await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+    const activeScope = service.getSnapshot()?.activeScope;
+    const localSource = activeScope?.assets.find(
+      (asset) => asset.attributes?.sourceStorage === 'user_global' && asset.attributes?.repositoryUrl === 'https://github.com/apple-oss-distributions/zsh'
+    );
+    expect(localSource?.value).toBe(join(repositoryStore, 'github.com_apple-oss-distributions_zsh', 'default'));
+    expect(activeScope?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://github.com/apple-oss-distributions/zsh'
+        })
+      ])
+    );
     service.close();
   });
 

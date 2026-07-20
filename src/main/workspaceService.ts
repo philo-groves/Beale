@@ -904,6 +904,111 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
+  public async startRunWithSourcePreparation(input: StartRunInput): Promise<WorkspaceSnapshot> {
+    if (input.runEngine === 'honeycrisp') {
+      await this.materializeRunPromptRepositories(input);
+    }
+    return this.startRun(input);
+  }
+
+  private async materializeRunPromptRepositories(input: StartRunInput): Promise<void> {
+    const repositoryUrls = extractSourceRepositoryUrls(input.promptMarkdown);
+    if (repositoryUrls.length === 0) return;
+
+    const db = this.requireDb();
+    const scope = db.getActiveScope();
+    if (!isRecordedWorkspaceScope(scope)) {
+      throw new Error('Repository acquisition requires a recorded workspace scope. Add the research scope to this workspace, then start the run again.');
+    }
+
+    const existingLocalUrls = new Set(
+      scope.assets
+        .filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && existsSync(asset.value))
+        .map((asset) => normalizeSourceRepositoryUrl(stringValue(asset.attributes?.repositoryUrl, '')))
+        .filter((url): url is string => Boolean(url))
+        .map((url) => url.toLowerCase())
+    );
+    const pendingUrls = repositoryUrls.filter((url) => !existingLocalUrls.has(url.toLowerCase()));
+    if (pendingUrls.length === 0) return;
+    if (input.networkProfile === 'offline') {
+      throw new Error('This run references repository source that is not available locally, but its network profile is offline. Select Scoped or Elevated networking to obtain it.');
+    }
+
+    const candidatesByUrl = new Map(sourceRepositoryCandidates(scope).map((candidate) => [candidate.url.toLowerCase(), candidate]));
+    const materializedAssets: ScopeAssetInput[] = [];
+    const repositoryAssets: ScopeAssetInput[] = [];
+    for (const repositoryUrl of pendingUrls) {
+      const key = repositoryUrl.toLowerCase();
+      const existingCandidate = candidatesByUrl.get(key);
+      const candidate = existingCandidate ?? {
+        url: repositoryUrl,
+        label: repositoryUrl,
+        sourceAssetId: `run_prompt:${repositoryUrl}`,
+        sourceAssetKind: 'repo' as const,
+        sensitivity: 'public'
+      };
+      const materialized = await materializeGitRepositoryAsync(candidate, '', {
+        repositoryStoreDirectory:
+          this.options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory(this.options.workspaceRegistryDirectory)
+      });
+      if (!existingCandidate) {
+        repositoryAssets.push({
+          direction: 'in_scope',
+          kind: 'repo',
+          value: repositoryUrl,
+          sensitivity: 'public',
+          attributes: {
+            source: 'research_prompt',
+            repositoryUrl,
+            explicitlyRequestedByUser: true
+          }
+        });
+      }
+      materializedAssets.push({
+        direction: 'in_scope',
+        kind: 'repo',
+        value: materialized.localPath,
+        sensitivity: candidate.sensitivity,
+        attributes: {
+          source: 'beale_run_source',
+          sourceStorage: 'user_global',
+          sourceReferenceVersion: 1,
+          repositoryUrl: materialized.repositoryUrl,
+          sourceAssetId: candidate.sourceAssetId,
+          head: materialized.head,
+          materializedRef: materialized.ref ?? '',
+          cloned: materialized.cloned,
+          headRefName: materialized.headRefName,
+          headDescribe: materialized.headDescribe,
+          requestedRefHead: materialized.requestedRefHead,
+          requestedRefMatchesHead: materialized.requestedRefMatchesHead
+        }
+      });
+    }
+
+    const nextAssets = scope.assets.map(scopeAssetInput);
+    const existingValues = new Set(nextAssets.map((asset) => `${asset.kind}:${asset.value.toLowerCase()}`));
+    for (const asset of [...repositoryAssets, ...materializedAssets]) {
+      const key = `${asset.kind}:${asset.value.toLowerCase()}`;
+      if (existingValues.has(key)) continue;
+      nextAssets.push(asset);
+      existingValues.add(key);
+    }
+    if (nextAssets.length === scope.assets.length) return;
+    db.saveScope(
+      {
+        workspaceName: scope.workspaceName,
+        scopeOwner: scope.scopeOwner,
+        descriptionMarkdown: scope.descriptionMarkdown,
+        rulesMarkdown: scope.rulesMarkdown,
+        networkProfile: scope.networkProfile,
+        expiresAt: scope.expiresAt,
+        assets: nextAssets
+      },
+      { refreshInventory: false }
+    );
+  }
+
   public exportWorkspaceBackup(note = ''): WorkspaceSnapshot {
     const result = this.createWorkspaceBackup(note);
     this.requireDb().recordWorkspaceBackup(result);
@@ -2840,6 +2945,13 @@ function scopeAssetInput(asset: WorkspaceScopeVersion['assets'][number]): ScopeA
     sensitivity: asset.sensitivity,
     attributes: asset.attributes
   };
+}
+
+function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
+  return (
+    (scope.workspaceName.trim() !== '' && scope.workspaceName !== 'Untitled Workspace') ||
+    Boolean(scope.scopeOwner.trim() || scope.descriptionMarkdown.trim() || scope.rulesMarkdown.trim() || scope.assets.length > 0)
+  );
 }
 
 function normalizeHackerOneIdentifier(identifier: string): string {

@@ -12,18 +12,21 @@ The model-facing context should provide recorded facts and boundaries while leav
 
 Each Honeycrisp run receives:
 
-- An explicit statement that authorization was recorded by the operator.
+- Structured recorded-scope metadata supplied by Beale, including the scope version, label, network profile, and optional expiry.
+- A concise statement that authorization was recorded by the operator for model context.
 - A neutral scope label and optional owner or subject.
 - The scope description.
 - Rules and constraints.
 - The active network profile.
-- The recorded expiry or review date, including an explicit warning when no date was recorded.
+- The recorded expiry or review date, or a factual indication that no expiry was recorded.
 - The bounded list of in-scope and out-of-scope assets.
 - Only materialized source paths referenced by the active scope.
 
 Credential reference values are not copied into model-facing workspace notes. They remain host-held references.
 
 The workspace directory is still passed to Honeycrisp as its persistence root. It is not automatically listed as a source path or known repository.
+
+Honeycrisp treats structured recorded-scope metadata as sufficient scope for ordinary in-scope research. Prompt wording does not need to repeat a labeled `Scope:` section, and the controller should ask for clarification only when the workspace has no recorded scope or a material boundary is genuinely ambiguous.
 
 ## Source Storage
 
@@ -55,6 +58,8 @@ The Honeycrisp-owned workspace database remains authoritative for whether a glob
 Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Research memory, findings, traces, artifacts, and indexes remain workspace-local and are never retrieved across workspaces by default.
 
 Repository materialization does not search for or reuse managed checkouts inside workspace directories. Source already present on disk must be added as an explicit path reference; repositories cloned by Beale use the user-global store.
+
+When a user-authored run prompt explicitly contains a supported GitHub or GitLab repository URL, Beale materializes it before Honeycrisp starts, provided the workspace has a recorded scope and the selected run network profile is not offline. The canonical URL and user-global checkout are then recorded as in-scope workspace assets. A checkout already referenced by the workspace is reused without another clone.
 
 ## Guidance Boundary
 

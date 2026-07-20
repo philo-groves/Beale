@@ -422,7 +422,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.cancelResearchPromptGeneration, (_event, requestId: string) => workspaceService.cancelResearchPromptGeneration(requestId));
   ipcMain.handle(IPC_CHANNELS.saveScope, (_event, scope: WorkspaceScopeDraft) => workspaceService.saveScope(scope));
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) =>
-    timedMainIpc('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () => workspaceService.startRun(input))
+    timedMainIpcAsync('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () =>
+      workspaceService.startRunWithSourcePreparation(input)
+    )
   );
   ipcMain.handle(IPC_CHANNELS.exportWorkspaceBackup, (_event, note?: string) => workspaceService.exportWorkspaceBackup(note));
   ipcMain.handle(IPC_CHANNELS.getRunDetail, (_event, runId: string) =>

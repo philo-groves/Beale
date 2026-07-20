@@ -33,6 +33,8 @@ Honeycrisp does not need Beale's chat-like prompt generation flow.
 
 Starting a run should be a direct host instruction form: the user supplies the research objective while Beale supplies the recorded authorization boundary, scope facts, and relevant source references. Beale should pass that context to the configured host agent and then render events, artifacts, and session state as they stream back.
 
+Recorded authorization is passed as structured workspace context rather than inferred from prose or required prompt headings. Honeycrisp may proceed within that boundary without repeatedly asking the user to restate authorization. Hard limits remain host-enforced through the active scope and selected network profile.
+
 Beale should not impose a mandatory triage or research-method skill. The default model owns investigation and skeptical review. Explicit user-selected Honeycrisp skills remain supported.
 
 ## Host Protocol Target
@@ -46,6 +48,8 @@ The Beale-to-Honeycrisp boundary should prefer a small structured protocol that 
 - Preserve artifact paths and durable memory ids without assuming Beale owns Honeycrisp storage internals.
 
 The first branch slice uses the existing Honeycrisp CLI as that protocol boundary. Beale starts a host process, passes the run prompt plus authorization context and explicitly referenced source roots, streams stdout/stderr into Beale trace events, and imports the final Honeycrisp flow capture as a Beale artifact and assistant transcript. Source checkouts may live in the user-global Beale repository store; their inclusion in a run remains workspace-local.
+
+Before launching Honeycrisp, Beale resolves explicit GitHub or GitLab repository URLs in the user-authored prompt through its user-global source store and records the resulting checkout as a workspace-local reference. Offline runs require the source to have already been attached to the workspace.
 
 When launching the CLI from Electron, Beale must resolve a plain Node runtime instead of using Electron's own executable as `process.execPath`. Packaged or nonstandard deployments can override this with `BEALE_HONEYCRISP_NODE_COMMAND`.
 

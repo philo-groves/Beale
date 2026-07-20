@@ -21,9 +21,21 @@ export interface HoneycrispInvocation {
 interface HoneycrispWorkspaceContextFile {
   schemaVersion: 1;
   workspaceRoot: string;
+  authorization?: HoneycrispWorkspaceAuthorizationContext;
   knownRepositories: HoneycrispWorkspaceRepositoryContext[];
   materializedSourcePaths: string[];
   projectNotes: string[];
+}
+
+interface HoneycrispWorkspaceAuthorizationContext {
+  recorded: true;
+  source: 'beale';
+  scopeId: string;
+  scopeName: string;
+  scopeOwner?: string;
+  networkProfile: string;
+  activeFrom: string;
+  expiresAt?: string;
 }
 
 interface HoneycrispWorkspaceRepositoryContext {
@@ -1093,6 +1105,20 @@ function honeycrispWorkspaceContext(scope: WorkspaceScopeVersion, workspacePath:
   return {
     schemaVersion: 1,
     workspaceRoot: workspacePath,
+    ...(isRecordedWorkspaceScope(scope)
+      ? {
+          authorization: {
+            recorded: true,
+            source: 'beale',
+            scopeId: scope.id,
+            scopeName: scope.workspaceName,
+            ...(scope.scopeOwner.trim() ? { scopeOwner: scope.scopeOwner } : {}),
+            networkProfile: scope.networkProfile,
+            activeFrom: scope.activeFrom,
+            ...(scope.expiresAt ? { expiresAt: scope.expiresAt } : {})
+          }
+        }
+      : {}),
     knownRepositories,
     materializedSourcePaths,
     projectNotes: honeycrispScopeNotes(scope)
@@ -1110,7 +1136,7 @@ function honeycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
     scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
     `Network access profile: ${boundedContextText(scope.networkProfile)}`,
-    scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: not recorded; confirm if the research context may be stale.',
+    scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
     scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
   ];
   const orderedAssets = [...scope.assets].sort((left, right) => Number(left.direction === 'in_scope') - Number(right.direction === 'in_scope'));
@@ -1125,6 +1151,17 @@ function honeycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
     notes.push(`Scope asset list truncated: ${scope.assets.length - 200} additional assets remain in Beale.`);
   }
   return notes.filter(Boolean);
+}
+
+function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
+  return (
+    scope.workspaceName.trim() !== '' && scope.workspaceName !== 'Untitled Workspace'
+  ) || Boolean(
+    scope.scopeOwner.trim() ||
+      scope.descriptionMarkdown.trim() ||
+      scope.rulesMarkdown.trim() ||
+      scope.assets.length > 0
+  );
 }
 
 function honeycrispScopeAssetValue(asset: ScopeAsset): string {
