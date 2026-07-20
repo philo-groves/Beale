@@ -70,6 +70,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
   const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
   const honeycrispToolObservation = honeycrispToolEventKind(event) === 'tool.observed';
+  const fileReadObservation = honeycrispToolObservation && honeycrispToolName(event) === 'file.read';
   const toolObservationSubtext = honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
   const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
   const structuredContextContent = pythonPreview ? (
@@ -82,6 +83,7 @@ export const TraceEventRow = memo(function TraceEventRow({
     <CodeBrowserTracePreviewRow
       preview={codeBrowserPreview}
       hideTitle={honeycrispToolObservation && toolObservationSubtext === codeBrowserPreview.title}
+      plainTitle={fileReadObservation}
       hasSearchHighlight={hasSearchHighlight}
       searchHighlightQuery={searchHighlightQuery}
     />
@@ -153,16 +155,18 @@ export const TraceEventRow = memo(function TraceEventRow({
 function CodeBrowserTracePreviewRow({
   preview,
   hideTitle,
+  plainTitle,
   hasSearchHighlight,
   searchHighlightQuery
 }: {
   preview: CodeBrowserTracePreview;
   hideTitle: boolean;
+  plainTitle: boolean;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
 }): JSX.Element {
   return (
-    <div className="main-trace-code-browser-preview">
+    <div className={`main-trace-code-browser-preview ${plainTitle ? 'title-plain' : ''}`}>
       <StructuredTracePreview preview={preview} hideTitle={hideTitle} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
       {preview.excerptLines.length > 0 ? (
         <PythonTraceBlock

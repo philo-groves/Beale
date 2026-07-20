@@ -4205,6 +4205,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   font-style: italic;
 }
 
+.main-trace-event.category-agent_output .main-trace-prose,
+.main-trace-event.category-agent_output .main-trace-prose .main-trace-markdown-heading,
+.main-trace-event.category-agent_output .main-trace-prose .main-trace-markdown-strong,
+.main-trace-event.category-agent_output .main-trace-prose .main-trace-markdown-em {
+  color: var(--text);
+}
+
 .main-trace-event.trace-compact-sublabel .main-trace-context > code {
   display: block;
   overflow: hidden;
@@ -4285,6 +4292,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   width: 100%;
   display: grid;
   gap: 8px;
+}
+
+.main-trace-code-browser-preview.title-plain .main-trace-structured-preview > strong {
+  font-weight: 400;
 }
 
 .main-trace-python-preview p {
