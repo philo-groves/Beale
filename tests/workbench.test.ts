@@ -349,7 +349,8 @@ describe('Beale workbench skeleton', () => {
         '      usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 },',
         '      modelCalls: [{ usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 } }],',
         '      toolCallCount: 0,',
-        '      plannedToolCallCount: 0',
+        '      plannedToolCallCount: 0,',
+        '      subagents: { maxThreads: 6, maxDepth: 1, agents: [{ id: \'agent_child\', path: \'/root/parser_review\', status: \'completed\', model: \'gpt-5.6-sol\', reasoningEffort: \'high\', modelCalls: [{ usage: { input_tokens: 1000, output_tokens: 100, total_tokens: 1100 } }] }] }',
         '    }',
         '  },',
         "  memoryIntegration: { enabled: true, databasePath: '/tmp/fixture-memory.sqlite', eventLogCount: 4, recordCount: 4, eventsAppended: 4, recordsWritten: 4, latestRetrievalCandidateCount: 1 },",
@@ -365,6 +366,9 @@ describe('Beale workbench skeleton', () => {
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Inspect parser boundary.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, usage: { input: 1000, output: 100, totalTokens: 1100 } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
         "console.log('fixture honeycrisp stdout');"
       ].join('\n')
     );
@@ -392,12 +396,17 @@ describe('Beale workbench skeleton', () => {
     expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
     expect(detail.modelSessions[0]?.metadata).toMatchObject({
       latestReportedInputTokens: 12345,
-      latestReportedTotalTokens: 13023,
+      latestReportedTotalTokens: 14123,
       latestContextUsageSource: 'Honeycrisp reported model usage',
       latestContextUsageEstimated: false,
       honeycrispAgentRunId: 'agent_fixture',
       honeycrispAgentStatus: 'complete',
-      honeycrispRequestPrompt: 'Fixture Honeycrisp research'
+      honeycrispRequestPrompt: 'Fixture Honeycrisp research',
+      honeycrispSubagentCount: 1,
+      honeycrispSubagentCompletedCount: 1,
+      honeycrispSubagentFailedCount: 0,
+      honeycrispSubagentMaxThreads: 6,
+      honeycrispSubagentMaxDepth: 1
     });
     expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.')?.payload).toMatchObject({
       request: {
@@ -410,13 +419,16 @@ describe('Beale workbench skeleton', () => {
       },
       usage: {
         input_tokens: 12345,
-        output_tokens: 678,
-        total_tokens: 13023,
+        output_tokens: 778,
+        total_tokens: 14123,
         source: 'Honeycrisp reported model usage',
         estimated: false
       }
     });
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp agent session: Fixture Honeycrisp research'))).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review started.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review turn 1 completed.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review completed.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(

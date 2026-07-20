@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { Braces, Database, FolderTree, ListChecks, RefreshCw, Wrench } from 'lucide-react';
+import { Braces, Database, FolderTree, ListChecks, RefreshCw, Users, Wrench } from 'lucide-react';
 import type { AgentContextState, HoneycrispMemorySummary } from '@shared/types';
 import { formatSessionDateTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 
@@ -50,6 +50,7 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
   const request = useMemo(() => readRecord(payload.request), [payload]);
   const workspaceContext = useMemo(() => readRecord(payload.workspaceContext), [payload]);
   const toolPermissions = useMemo(() => readRecordArray(payload.toolPermissions), [payload]);
+  const collaborationTools = useMemo(() => readRecordArray(payload.collaborationTools), [payload]);
   const storage = useMemo(() => readRecord(payload.storage), [payload]);
   const requestLabel = firstString(request ?? {}, ['prompt']) ?? 'None';
   const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
@@ -82,6 +83,12 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             label="Available Tools"
             value={formatCount(toolPermissions.length)}
             detail="Model-selected"
+          />
+          <SummaryTile
+            icon={<Users size={17} />}
+            label="Collaboration"
+            value={formatCount(collaborationTools.length)}
+            detail={collaborationTools.length > 0 ? 'Subagent tools' : 'None'}
           />
           <SummaryTile
             icon={<Database size={17} />}
@@ -161,6 +168,16 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           <section className="context-session-section" aria-label="Tool permissions">
             <SectionHeader icon={<Wrench size={16} />} title="Tool State" />
             <ObjectPreview value={toolPermissions.length > 0 ? { tools: toolPermissions } : null} emptyLabel="No tool permissions" />
+          </section>
+
+          <section className="context-session-section" aria-label="Collaboration tools">
+            <SectionHeader icon={<Users size={16} />} title="Collaboration" />
+            <RecordList
+              records={collaborationTools}
+              emptyLabel="No collaboration tools"
+              primaryKeys={['name']}
+              secondaryKeys={['description']}
+            />
           </section>
 
           <section className="context-session-section" aria-label="Storage layout">

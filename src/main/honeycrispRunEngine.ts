@@ -540,8 +540,15 @@ export class HoneycrispRunEngine {
     }
 
     if (event.kind === 'agent.event') {
-      if (stringPayload(event.payload ?? {}, 'type') !== 'turn_completed') return;
+      const eventType = stringPayload(event.payload ?? {}, 'type');
+      if (eventType === 'subagent.activity') {
+        this.recordSubagentActivity(context, event);
+        return;
+      }
+      if (eventType !== 'turn_completed') return;
       const turn = numberPayload(event.payload ?? {}, 'turn');
+      const agentPath = stringPayload(event.payload ?? {}, 'agentPath');
+      const subagent = Boolean(agentPath && agentPath !== '/root');
       const reportedUsage = normalizeTokenUsage(recordValue(event.payload?.usage) ?? {});
       const usage = reportedUsage ? reportedHoneycrispTraceUsage(reportedUsage) : null;
       this.db.appendTraceEvent({
@@ -549,7 +556,13 @@ export class HoneycrispRunEngine {
         attemptId: context.attempt.id,
         type: 'model_message',
         source: 'executor',
-        summary: turn ? `Honeycrisp model turn ${turn} completed.` : 'Honeycrisp model turn completed.',
+        summary: subagent
+          ? turn
+            ? `Honeycrisp subagent ${agentPath} turn ${turn} completed.`
+            : `Honeycrisp subagent ${agentPath} turn completed.`
+          : turn
+            ? `Honeycrisp model turn ${turn} completed.`
+            : 'Honeycrisp model turn completed.',
         payload: {
           honeycrispLiveKind: event.kind,
           honeycrispTimestamp: event.timestamp ?? null,
@@ -559,7 +572,7 @@ export class HoneycrispRunEngine {
         vmContextId: context.vmContext.id,
         modelVisible: false
       });
-      if (reportedUsage) {
+      if (reportedUsage && !subagent) {
         this.db.updateModelSessionByRun(context.run.id, {
           metadata: {
             latestReportedInputTokens: reportedUsage.inputTokens,
@@ -591,6 +604,36 @@ export class HoneycrispRunEngine {
       });
       this.onChange();
     }
+  }
+
+  private recordSubagentActivity(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const payload = event.payload ?? {};
+    const action = stringPayload(payload, 'action') ?? 'updated';
+    const agentPath = stringPayload(payload, 'agentPath') ?? 'unknown agent';
+    const summaries: Record<string, string> = {
+      spawned: `Honeycrisp subagent ${agentPath} started.`,
+      message: `Honeycrisp sent a message to subagent ${agentPath}.`,
+      followup: `Honeycrisp extended subagent ${agentPath}.`,
+      interrupted: `Honeycrisp subagent ${agentPath} was interrupted.`,
+      completed: `Honeycrisp subagent ${agentPath} completed.`,
+      errored: `Honeycrisp subagent ${agentPath} failed.`
+    };
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary: summaries[action] ?? `Honeycrisp subagent ${agentPath} ${action}.`,
+      payload: {
+        honeycrispLiveKind: event.kind,
+        honeycrispTimestamp: event.timestamp ?? null,
+        transcriptRole: 'system',
+        ...(event.payload ?? {})
+      },
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange();
   }
 
   private recordLiveResearchThought(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
@@ -647,7 +690,11 @@ export class HoneycrispRunEngine {
     const delta = stringPayload(payload, 'delta');
     const responseId = stringPayload(payload, 'responseId') ?? 'live-response';
     const itemId = stringPayload(payload, 'itemId') ?? `thought:${responseId}`;
-    const key = `${responseId}\u0000${itemId}`;
+    const agentId = stringPayload(payload, 'agentId');
+    const agentPath = stringPayload(payload, 'agentPath');
+    const parentAgentId = stringPayload(payload, 'parentAgentId');
+    const subagent = Boolean(agentPath && agentPath !== '/root');
+    const key = `${agentPath ?? '/root'}\u0000${responseId}\u0000${itemId}`;
     const state =
       active?.liveThoughts.get(key) ?? {
         text: '',
@@ -668,7 +715,13 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       type: 'model_message',
       source: 'model',
-      summary: phase === 'completed' ? 'Honeycrisp completed thought.' : 'Honeycrisp thought.',
+      summary: subagent
+        ? phase === 'completed'
+          ? `Honeycrisp subagent ${agentPath} completed thought.`
+          : `Honeycrisp subagent ${agentPath} thought.`
+        : phase === 'completed'
+          ? 'Honeycrisp completed thought.'
+          : 'Honeycrisp thought.',
       payload: {
         text: thought,
         transcriptRole: 'assistant',
@@ -676,6 +729,9 @@ export class HoneycrispRunEngine {
         transcriptKind: 'reasoning_summary',
         responseId,
         itemId,
+        agentId,
+        agentPath,
+        parentAgentId,
         turn: numberPayload(payload, 'turn'),
         phase,
         live: true,
@@ -696,6 +752,9 @@ export class HoneycrispRunEngine {
       metadata: {
         responseId,
         itemId,
+        agentId,
+        agentPath,
+        parentAgentId,
         phase,
         live: true,
         snapshot: state.snapshotCount,
@@ -1576,11 +1635,22 @@ function summarizeReportedHoneycrispUsage(
 
 function collectHoneycrispUsageRecords(capture: HoneycrispFlowCapture): Record<string, unknown>[] {
   const raw = recordValue(capture.agent?.raw);
-  const modelCallUsages = arrayRecordValues(raw?.modelCalls).flatMap((call) => {
+  const rootModelCallUsages = arrayRecordValues(raw?.modelCalls).flatMap((call) => {
     const usage = recordValue(call.usage);
     return usage ? [usage] : [];
   });
-  if (modelCallUsages.length > 0) return modelCallUsages;
+  const subagents = recordValue(raw?.subagents);
+  const childModelCallUsages = arrayRecordValues(subagents?.agents).flatMap((agent) =>
+    arrayRecordValues(agent.modelCalls).flatMap((call) => {
+      const usage = recordValue(call.usage);
+      return usage ? [usage] : [];
+    })
+  );
+  if (rootModelCallUsages.length > 0 || childModelCallUsages.length > 0) {
+    // Child usage contributes to session totals. Root calls remain last so the
+    // context meter reflects the root agent's latest prompt size.
+    return [...childModelCallUsages, ...rootModelCallUsages];
+  }
 
   const rawUsage = recordValue(raw?.usage);
   if (rawUsage) return [rawUsage];
@@ -1646,12 +1716,20 @@ function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | n
 }
 
 function honeycrispAgentMetadata(capture: HoneycrispFlowCapture): Record<string, unknown> {
+  const raw = recordValue(capture.agent?.raw);
+  const subagentRuntime = recordValue(raw?.subagents);
+  const subagents = arrayRecordValues(subagentRuntime?.agents);
   return {
     honeycrispAgentRunId: capture.agent?.id ?? null,
     honeycrispAgentStatus: capture.agent?.status ?? null,
     honeycrispAgentStartedAt: capture.agent?.startedAt ?? null,
     honeycrispAgentCompletedAt: capture.agent?.completedAt ?? null,
-    honeycrispRequestPrompt: capture.request?.prompt ?? null
+    honeycrispRequestPrompt: capture.request?.prompt ?? null,
+    honeycrispSubagentCount: subagents.length,
+    honeycrispSubagentCompletedCount: subagents.filter((agent) => agent.status === 'completed').length,
+    honeycrispSubagentFailedCount: subagents.filter((agent) => agent.status === 'errored').length,
+    honeycrispSubagentMaxThreads: numberPayload(subagentRuntime ?? {}, 'maxThreads'),
+    honeycrispSubagentMaxDepth: numberPayload(subagentRuntime ?? {}, 'maxDepth')
   };
 }
 

@@ -45,6 +45,8 @@ export function traceTurnNumber(event: TraceEventRecord): number | null {
 export function latestTraceTurnNumber(events: TraceEventRecord[]): number | null {
   let latest: number | null = null;
   for (const event of events) {
+    const agentPath = traceAgentPath(event);
+    if (agentPath && agentPath !== '/root') continue;
     latest = traceTurnNumber(event) ?? latest;
   }
   return latest;
@@ -52,10 +54,15 @@ export function latestTraceTurnNumber(events: TraceEventRecord[]): number | null
 
 export function latestTraceGroupKey(events: TraceEventRecord[]): string {
   let key = 'setup';
+  let identity = 'setup';
   for (const event of events) {
     const turnNumber = traceTurnNumber(event);
     if (turnNumber !== null) {
-      key = `turn-${turnNumber}-${event.sequence}`;
+      const nextIdentity = traceTurnIdentity(event, turnNumber);
+      if (nextIdentity !== identity) {
+        identity = nextIdentity;
+        key = traceTurnGroupKey(event, turnNumber);
+      }
     }
   }
   return key;
@@ -64,11 +71,21 @@ export function latestTraceGroupKey(events: TraceEventRecord[]): string {
 export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(events: TEvent[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry<TEvent>[] {
   const entries: TraceTimelineEntry<TEvent>[] = [];
   let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
+  let identity = 'setup';
 
   for (const event of events) {
     const turnNumber = traceTurnNumber(event);
     if (turnNumber !== null) {
-      group = createTraceTimelineGroup(`turn-${turnNumber}-${event.sequence}`, `Turn ${turnNumber}`, event.createdAt);
+      const nextIdentity = traceTurnIdentity(event, turnNumber);
+      if (nextIdentity !== identity) {
+        identity = nextIdentity;
+        const agentPath = traceAgentPath(event);
+        group = createTraceTimelineGroup(
+          traceTurnGroupKey(event, turnNumber),
+          agentPath && agentPath !== '/root' ? `${agentPath} · Turn ${turnNumber}` : `Turn ${turnNumber}`,
+          event.createdAt
+        );
+      }
     }
 
     group.updatedAt = event.createdAt;
@@ -89,6 +106,21 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
   }
 
   return entries;
+}
+
+function traceAgentPath(event: TraceEventRecord): string | null {
+  return stringRecordValue(event.payload, 'agentPath');
+}
+
+function traceTurnIdentity(event: TraceEventRecord, turnNumber: number): string {
+  return `${traceAgentPath(event) ?? '/root'}\u0000${turnNumber}`;
+}
+
+function traceTurnGroupKey(event: TraceEventRecord, turnNumber: number): string {
+  const agentPath = traceAgentPath(event);
+  if (!agentPath || agentPath === '/root') return `turn-${turnNumber}-${event.sequence}`;
+  const slug = agentPath.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-');
+  return `agent-${slug}-turn-${turnNumber}-${event.sequence}`;
 }
 
 export function groupRenderedTraceEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): RenderedTraceGroup<TEvent>[] {
@@ -173,6 +205,7 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
           ? 'Ask agent.'
           : 'Record system message.';
   const linkedTurn = linkedTraceEvent?.payload.turn;
+  const linkedAgentPath = linkedTraceEvent ? traceAgentPath(linkedTraceEvent) : null;
   const payload: Record<string, unknown> = {
     text: message.contentMarkdown,
     transcriptMessageId: message.id,
@@ -180,6 +213,7 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
     transcriptSource: message.source,
     ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
     ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
+    ...(linkedAgentPath ? { agentPath: linkedAgentPath } : {}),
     metadata: message.metadata
   };
 

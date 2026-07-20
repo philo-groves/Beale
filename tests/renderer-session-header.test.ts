@@ -57,6 +57,16 @@ describe('renderer session header view models', () => {
     expect(latestTraceTurnNumber(events)).toBe(7);
     expect(latestTraceGroupKey(events)).toBe('turn-7-2');
   });
+
+  it('keeps child turns out of the root session turn count', () => {
+    const events = [
+      traceEvent({ id: 'root_turn', sequence: 1, payload: { turn: 2, agentPath: '/root' } }),
+      traceEvent({ id: 'child_turn', sequence: 2, payload: { turn: 8, agentPath: '/root/worker' } })
+    ];
+
+    expect(latestTraceTurnNumber(events)).toBe(2);
+    expect(latestTraceGroupKey(events)).toBe('agent-root-worker-turn-8-2');
+  });
 });
 
 function runDetail(input: { traceEvents?: TraceEventRecord[]; findings?: Array<Record<string, unknown>> } = {}): RunDetail {

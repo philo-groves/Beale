@@ -2,6 +2,10 @@
 
 Status: accepted initial direction, 2026-04-26.
 
+## Collaboration Tools
+
+Honeycrisp additionally provides `spawn_agent`, `send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and `wait_agent`. These coordinate model sessions; they are not research actions and do not create evidence or findings by themselves. They inherit the current authorized scope and tool policy. See [Subagent Orchestration](subagent-orchestration.md).
+
 ## Decision
 
 Beale's first model-facing structured research tool set should be minimal:

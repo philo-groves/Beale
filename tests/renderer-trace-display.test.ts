@@ -99,6 +99,25 @@ describe('renderer trace display view models', () => {
     expect(groups[1].entries.map((entry) => entry.event.id)).toEqual(['trace_turn', 'trace_tool']);
   });
 
+  it('keeps root and subagent turns in distinct agent-aware groups', () => {
+    const entries = buildTraceTimelineEntries(
+      [
+        traceEvent({ id: 'root_thought', sequence: 1, payload: { turn: 1, agentPath: '/root' } }),
+        traceEvent({ id: 'root_same_turn', sequence: 2, payload: { turn: 1, agentPath: '/root' } }),
+        traceEvent({ id: 'child_turn', sequence: 3, payload: { turn: 1, agentPath: '/root/parser_review' } }),
+        traceEvent({ id: 'root_return', sequence: 4, payload: { turn: 2, agentPath: '/root' } })
+      ],
+      ALL_CATEGORIES
+    );
+
+    expect(entries.map((entry) => [entry.event.id, entry.group.key, entry.group.label])).toEqual([
+      ['root_thought', 'turn-1-1', 'Turn 1'],
+      ['root_same_turn', 'turn-1-1', 'Turn 1'],
+      ['child_turn', 'agent-root-parser_review-turn-1-3', '/root/parser_review · Turn 1'],
+      ['root_return', 'turn-2-4', 'Turn 2']
+    ]);
+  });
+
   it('labels trace group status from errors, active latest state, completed activity, and passive events', () => {
     expect(traceGroupStatusLabel(group({ failureCount: 2 }), true, 'active')).toEqual({ kind: 'review', label: '2 Errors' });
     expect(traceGroupStatusLabel(group(), true, 'active')).toEqual({ kind: 'active', label: 'Active' });
