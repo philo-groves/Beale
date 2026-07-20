@@ -22,6 +22,7 @@ import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { SessionHeader } from './features/sessions/SessionHeader';
 import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
+import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
@@ -84,6 +85,7 @@ export function App(): JSX.Element {
   const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
+  const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
@@ -122,6 +124,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
+    setSelectedSubagentPath(null);
   }, [selectedRunId]);
 
   useEffect(() => {
@@ -331,6 +334,15 @@ export function App(): JSX.Element {
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
   );
+  const visibleSessionTraceEvents = useMemo(
+    () => traceEventsForSubagent(activeTraceEvents, selectedSubagentPath),
+    [activeTraceEvents, selectedSubagentPath]
+  );
+  const activeSubagents = useMemo(() => subagentSummaries(activeTraceEvents), [activeTraceEvents]);
+  useEffect(() => {
+    if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
+    setSelectedSubagentPath(null);
+  }, [activeSubagents, selectedSubagentPath]);
   const {
     selectedTraceEventId,
     traceDetailOpen,
@@ -342,7 +354,7 @@ export function App(): JSX.Element {
     closeTraceDetail
   } = useTraceSelection({
     detail: activeRunDetail,
-    events: activeTraceEvents,
+    events: visibleSessionTraceEvents,
     selectedRunId
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
@@ -404,6 +416,7 @@ export function App(): JSX.Element {
     if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
     const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
     if (!targetEvent) return;
+    setSelectedSubagentPath(null);
     focusTraceEvent(targetEvent);
     setPendingSearchTarget(null);
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
@@ -457,21 +470,25 @@ export function App(): JSX.Element {
       <main className="workbench" data-session-heat={sessionHeat}>
         <SessionHeader
           detail={activeRunDetail}
-          events={activeTraceEvents}
+          events={visibleSessionTraceEvents}
           honeycrispMemoryStatus={!selectedRunId && snapshot ? snapshot.honeycrispMemory.status : null}
           workspaceOpen={!selectedRunId && Boolean(snapshot)}
           sessionView={sessionMainView}
+          selectedSubagentPath={selectedSubagentPath}
           visibleTraceCategories={visibleTraceCategories}
           onSessionViewChange={setSessionMainView}
+          onBackToMain={() => setSelectedSubagentPath(null)}
         />
         <div className="workspace-page">
           <MainSessionWorkspace
             detail={activeRunDetail}
-            events={activeTraceEvents}
+            events={visibleSessionTraceEvents}
+            allEvents={activeTraceEvents}
             honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
+            selectedSubagentPath={selectedSubagentPath}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
             sessionView={sessionMainView}
@@ -482,6 +499,7 @@ export function App(): JSX.Element {
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onSelectTraceEvent={selectTraceEvent}
+            onSelectSubagent={setSelectedSubagentPath}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
           />

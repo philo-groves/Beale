@@ -148,6 +148,9 @@ interface HoneycrispCaptureEvent {
   summary?: string;
   payload?: unknown;
   artifactRefs?: unknown;
+  agentId?: string;
+  agentPath?: string;
+  parentAgentId?: string;
 }
 
 interface HoneycrispLiveEvent {
@@ -539,6 +542,11 @@ export class HoneycrispRunEngine {
       return;
     }
 
+    if (event.kind === 'model.output') {
+      this.recordLiveSubagentOutput(context, event);
+      return;
+    }
+
     if (event.kind === 'agent.event') {
       const eventType = stringPayload(event.payload ?? {}, 'type');
       if (eventType === 'subagent.activity') {
@@ -632,6 +640,50 @@ export class HoneycrispRunEngine {
       },
       vmContextId: context.vmContext.id,
       modelVisible: false
+    });
+    this.onChange();
+  }
+
+  private recordLiveSubagentOutput(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const payload = event.payload ?? {};
+    const agentPath = stringPayload(payload, 'agentPath');
+    const phase = stringPayload(payload, 'phase');
+    const text = stringPayload(payload, 'text');
+    if (!agentPath || agentPath === '/root' || phase !== 'completed' || !text) return;
+    const responseId = stringPayload(payload, 'responseId') ?? `subagent:${agentPath}`;
+    const itemId = stringPayload(payload, 'itemId') ?? 'text:0';
+    const trace = this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'model',
+      summary: `Honeycrisp subagent ${agentPath} responded.`,
+      payload: {
+        ...(event.payload ?? {}),
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        transcriptKind: 'agent_output',
+        responseId,
+        itemId,
+        live: true
+      },
+      vmContextId: context.vmContext.id
+    });
+    this.db.createTranscriptMessage({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      traceEventId: trace.id,
+      role: 'assistant',
+      contentMarkdown: text,
+      source: 'honeycrisp',
+      metadata: {
+        agentId: stringPayload(payload, 'agentId'),
+        agentPath,
+        parentAgentId: stringPayload(payload, 'parentAgentId'),
+        responseId,
+        itemId,
+        live: true
+      }
     });
     this.onChange();
   }
@@ -968,6 +1020,9 @@ export class HoneycrispRunEngine {
       source: mapped.source,
       summary: honeycrispEventSummary(event),
       payload: {
+        agentId: event.agentId ?? null,
+        agentPath: event.agentPath ?? null,
+        parentAgentId: event.parentAgentId ?? null,
         honeycrispEventId: event.id ?? null,
         honeycrispKind: event.kind ?? 'unknown',
         honeycrispSequence: event.sequence ?? null,
@@ -1060,7 +1115,10 @@ function honeycrispCaptureEventFromLiveEvent(event: HoneycrispLiveEvent): Honeyc
     timestamp: stringPayload(rawEvent, 'timestamp') ?? undefined,
     summary: stringPayload(rawEvent, 'summary') ?? undefined,
     payload: rawEvent.payload ?? null,
-    artifactRefs: rawEvent.artifactRefs ?? null
+    artifactRefs: rawEvent.artifactRefs ?? null,
+    agentId: stringPayload(payload, 'agentId') ?? undefined,
+    agentPath: stringPayload(payload, 'agentPath') ?? undefined,
+    parentAgentId: stringPayload(payload, 'parentAgentId') ?? undefined
   };
 }
 

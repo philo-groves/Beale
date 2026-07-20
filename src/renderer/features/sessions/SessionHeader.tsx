@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Braces, Check, Clock, FileText, GitFork, List, Pause, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Braces, Check, Clock, FileText, GitFork, List, Pause, RefreshCw, X } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { stateClass, traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -14,6 +14,8 @@ export function SessionHeader({
   workspaceOpen,
   visibleTraceCategories,
   sessionView,
+  selectedSubagentPath,
+  onBackToMain,
   onSessionViewChange
 }: {
   detail: RunDetail | null;
@@ -22,6 +24,8 @@ export function SessionHeader({
   workspaceOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   sessionView: SessionMainView;
+  selectedSubagentPath: string | null;
+  onBackToMain: () => void;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   return (
@@ -31,6 +35,12 @@ export function SessionHeader({
           <>
             <RunStatusIndicator detail={detail} />
             <SessionViewToggle sessionView={sessionView} onSessionViewChange={onSessionViewChange} />
+            {selectedSubagentPath ? (
+              <button type="button" className="back-to-main-button" title="Return to the full session trace" onClick={onBackToMain}>
+                <ArrowLeft size={14} />
+                <span>Back to Main</span>
+              </button>
+            ) : null}
           </>
         ) : workspaceOpen ? (
           <span className="workspace-header-view-title">Honeycrisp Memory</span>

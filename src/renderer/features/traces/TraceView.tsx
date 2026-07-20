@@ -32,6 +32,7 @@ export const TraceView = memo(function TraceView({
   detail,
   events,
   selectedRunId,
+  traceScopeKey,
   selectedTraceEventId,
   searchHighlightQuery,
   traceFilterCount,
@@ -46,6 +47,7 @@ export const TraceView = memo(function TraceView({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   selectedRunId: string | null;
+  traceScopeKey: string;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   traceFilterCount: number;
@@ -66,7 +68,7 @@ export const TraceView = memo(function TraceView({
       }),
     [events, traceFilterKey]
   );
-  const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceFilterKey}`;
+  const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceScopeKey}:${traceFilterKey}`;
   const timelineEntryIds = useMemo(() => timelineEntries.map((entry) => entry.event.id), [timelineEntries]);
   const timelineEntryKey = useMemo(() => timelineEntryIds.join('|'), [timelineEntryIds]);
   const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
@@ -361,7 +363,7 @@ export const TraceView = memo(function TraceView({
   useEffect(() => {
     traceFollowLatestRef.current = true;
     setTraceWindowStart(0);
-  }, [selectedRunId, traceFilterKey]);
+  }, [selectedRunId, traceFilterKey, traceScopeKey]);
 
   useEffect(() => {
     setTraceWindowStart((current) => Math.min(current, maxWindowStart));

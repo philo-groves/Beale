@@ -2,7 +2,7 @@ import { memo } from 'react';
 import type { JSX } from 'react';
 import type { HoneycrispMemorySummary, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
-import { MemorySidePanel } from '../research/MemorySidePanel';
+import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -12,10 +12,12 @@ import type { SessionMainView } from './sessionViews';
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
+  allEvents,
   honeycrispMemory,
   runCount,
   scope,
   selectedRunId,
+  selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
   sessionView,
@@ -26,15 +28,18 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters,
   onOpenHoneycrispMemoryDirectory,
   onSelectTraceEvent,
+  onSelectSubagent,
   onSessionAction,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  allEvents: TraceDisplayEvent[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
+  selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   sessionView: SessionMainView;
@@ -45,6 +50,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenTraceFilters: () => void;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onSelectSubagent: (path: string) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
@@ -71,6 +77,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         detail={detail}
         events={events}
         selectedRunId={selectedRunId}
+        traceScopeKey={selectedSubagentPath ?? 'main'}
         selectedTraceEventId={selectedTraceEventId}
         searchHighlightQuery={searchHighlightQuery}
         traceFilterCount={traceFilterCount}
@@ -81,7 +88,13 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
-      <MemorySidePanel memory={detail?.honeycrispMemory ?? null} />
+      <ResearchSidePanel
+        events={allEvents}
+        memory={detail?.honeycrispMemory ?? null}
+        runId={selectedRunId}
+        selectedSubagentPath={selectedSubagentPath}
+        onSelectSubagent={onSelectSubagent}
+      />
     </div>
   );
 });

@@ -364,9 +364,10 @@ describe('Beale workbench skeleton', () => {
         "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Inspect parser boundary.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', eventType: 'text_end', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, responseId: 'child_response', itemId: 'text:0', text: 'Parser boundary inspected.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, usage: { input: 1000, output: 100, totalTokens: 1100 } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
         "console.log('fixture honeycrisp stdout');"
@@ -434,12 +435,20 @@ describe('Beale workbench skeleton', () => {
     expect(
       detail.traceEvents.filter((event) => (event.payload as { honeycrispEventId?: string }).honeycrispEventId === 'evt_tool_result')
     ).toHaveLength(1);
+    expect(detail.traceEvents.find((event) => event.payload.honeycrispEventId === 'evt_tool_result')?.payload.agentPath).toBe('/root/parser_review');
     expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.some((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
-    const honeycrispTranscript = detail.transcriptMessages.find((message) => message.source === 'honeycrisp');
+    expect(
+      detail.transcriptMessages.some(
+        (message) => message.source === 'honeycrisp' && message.metadata.agentPath === '/root/parser_review' && message.contentMarkdown === 'Parser boundary inspected.'
+      )
+    ).toBe(true);
+    const honeycrispTranscript = detail.transcriptMessages.find(
+      (message) => message.source === 'honeycrisp' && Array.isArray(message.metadata.nextPromptSuggestions)
+    );
     expect(honeycrispTranscript?.metadata.nextPromptSuggestions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

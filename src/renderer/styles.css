@@ -1653,6 +1653,31 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   outline-offset: 2px;
 }
 
+.back-to-main-button {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #2b2b2b;
+  border-radius: 8px;
+  background: #121212;
+  color: var(--muted-strong);
+  padding: 0 9px;
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.back-to-main-button:hover {
+  border-color: var(--line-strong);
+  background: #1b1b1b;
+  color: var(--text);
+}
+
+.back-to-main-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 2px;
+}
+
 .session-header-metric {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2491,6 +2516,70 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 12px 8px 0 12px;
 }
 
+.memory-catalog.view-subagents {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.research-side-tabs {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #111111;
+  padding: 3px;
+}
+
+.research-side-tabs button {
+  min-width: 0;
+  height: 30px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 7px;
+  font-size: 0.68rem;
+  font-weight: 820;
+}
+
+.research-side-tabs button:hover,
+.research-side-tabs button.active {
+  background: #202020;
+  color: var(--text);
+}
+
+.research-side-tabs button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.research-side-tabs button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-side-tabs button strong {
+  min-width: 18px;
+  border-radius: 999px;
+  background: #151515;
+  color: var(--muted-strong);
+  padding: 2px 5px;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.research-side-tabs button.active strong {
+  background: #2b2b2b;
+  color: var(--text);
+}
+
 .memory-catalog-header {
   min-width: 0;
   display: flex;
@@ -2617,6 +2706,102 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .memory-catalog-empty.is-error {
+  color: var(--red);
+}
+
+.subagent-catalog-list {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 0 4px 12px 0;
+}
+
+.subagent-catalog-item {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #111111;
+  color: var(--muted-strong);
+  padding: 10px;
+  text-align: left;
+}
+
+.subagent-catalog-item:hover,
+.subagent-catalog-item.selected {
+  border-color: var(--line-strong);
+  background: #181818;
+}
+
+.subagent-catalog-item.selected {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.subagent-catalog-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.subagent-catalog-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subagent-catalog-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-catalog-heading time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.subagent-catalog-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  line-height: 1.38;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.subagent-catalog-status {
+  justify-self: start;
+  border-radius: 999px;
+  background: #1d1d1d;
+  color: var(--muted);
+  padding: 2px 6px;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.subagent-catalog-status.status-running,
+.subagent-catalog-status.status-pending {
+  color: var(--accent);
+}
+
+.subagent-catalog-status.status-completed {
+  color: var(--green);
+}
+
+.subagent-catalog-status.status-errored,
+.subagent-catalog-status.status-failed {
   color: var(--red);
 }
 

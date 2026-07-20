@@ -1,20 +1,38 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { ChevronDown, Database, Search } from 'lucide-react';
+import { ChevronDown, Database, GitFork, Search } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey } from '../../view-models/memoryCatalog';
+import { formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
+import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
 type MemoryTierFilter = 'all' | HoneycrispMemoryNodeSummary['tier'];
+type ResearchSideView = 'memory' | 'subagents';
 
-export const MemorySidePanel = memo(function MemorySidePanel({ memory }: { memory: HoneycrispMemorySummary | null }): JSX.Element {
+export const ResearchSidePanel = memo(function ResearchSidePanel({
+  events,
+  memory,
+  runId,
+  selectedSubagentPath,
+  onSelectSubagent
+}: {
+  events: TraceDisplayEvent[];
+  memory: HoneycrispMemorySummary | null;
+  runId: string;
+  selectedSubagentPath: string | null;
+  onSelectSubagent: (path: string) => void;
+}): JSX.Element {
+  const [activeView, setActiveView] = useState<ResearchSideView>('memory');
   const [query, setQuery] = useState('');
   const [tier, setTier] = useState<MemoryTierFilter>('all');
   const [type, setType] = useState('all');
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
+  const subagents = useMemo(() => subagentSummaries(events), [events]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, { query, tier, type }),
@@ -23,6 +41,17 @@ export const MemorySidePanel = memo(function MemorySidePanel({ memory }: { memor
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
+
+  useEffect(() => {
+    setActiveView('memory');
+  }, [runId]);
+
+  useEffect(() => {
+    if (activeView !== 'subagents') return undefined;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, [activeView]);
 
   useDevRenderProbe('research.memory', () => ({
     loaded: Boolean(memory),
@@ -33,70 +62,112 @@ export const MemorySidePanel = memo(function MemorySidePanel({ memory }: { memor
   }));
 
   return (
-    <aside className="main-session-side memory-catalog" aria-label="Memory">
-      <header className="memory-catalog-header">
-        <span>
+    <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
+      <header className="research-side-tabs" role="tablist" aria-label="Session details">
+        <button
+          type="button"
+          className={activeView === 'memory' ? 'active' : ''}
+          role="tab"
+          aria-selected={activeView === 'memory'}
+          onClick={() => setActiveView('memory')}
+        >
           <Database size={15} />
-          Memory
-        </span>
-        <strong>{filteredNodes.length === nodes.length ? nodes.length : `${filteredNodes.length}/${nodes.length}`}</strong>
+          <span>Memory</span>
+          <strong>{filteredNodes.length === nodes.length ? nodes.length : `${filteredNodes.length}/${nodes.length}`}</strong>
+        </button>
+        <button
+          type="button"
+          className={activeView === 'subagents' ? 'active' : ''}
+          role="tab"
+          aria-selected={activeView === 'subagents'}
+          onClick={() => setActiveView('subagents')}
+        >
+          <GitFork size={15} />
+          <span>Subagents</span>
+          <strong>{subagents.length}</strong>
+        </button>
       </header>
 
-      <div className="memory-catalog-controls">
-        <label className="memory-catalog-search">
-          <Search size={14} aria-hidden="true" />
-          <input
-            type="search"
-            value={query}
-            placeholder="Search memory"
-            aria-label="Search memory"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <div className="memory-catalog-filter-row">
-          <div className="memory-tier-filter" aria-label="Memory tier filter">
-            {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
-              <button
-                type="button"
-                className={tier === candidate ? 'selected' : ''}
-                aria-pressed={tier === candidate}
-                key={candidate}
-                onClick={() => setTier(candidate)}
-              >
-                {traceLabel(candidate)}
-              </button>
-            ))}
+      {activeView === 'memory' ? (
+        <>
+          <div className="memory-catalog-controls">
+            <label className="memory-catalog-search">
+              <Search size={14} aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                placeholder="Search memory"
+                aria-label="Search memory"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            <div className="memory-catalog-filter-row">
+              <div className="memory-tier-filter" aria-label="Memory tier filter">
+                {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
+                  <button
+                    type="button"
+                    className={tier === candidate ? 'selected' : ''}
+                    aria-pressed={tier === candidate}
+                    key={candidate}
+                    onClick={() => setTier(candidate)}
+                  >
+                    {traceLabel(candidate)}
+                  </button>
+                ))}
+              </div>
+              <label className="memory-type-filter">
+                <span>Type</span>
+                <select value={type} aria-label="Memory type filter" onChange={(event) => setType(event.target.value)}>
+                  <option value="all">All types</option>
+                  {nodeTypes.map((nodeType) => (
+                    <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
-          <label className="memory-type-filter">
-            <span>Type</span>
-            <select value={type} aria-label="Memory type filter" onChange={(event) => setType(event.target.value)}>
-              <option value="all">All types</option>
-              {nodeTypes.map((nodeType) => (
-                <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
 
-      {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
-      {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
-      {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
-      {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
-      {filteredNodes.length > 0 ? (
-        <MainSideScrollRegion listClassName="memory-catalog-list" updateKey={updateKey}>
-          {filteredNodes.map((node) => (
-            <MemoryCatalogItem
-              expanded={expandedNodeId === node.id}
-              key={node.id}
-              node={node}
-              nodeById={nodeById}
-              relationships={relationshipsByNodeId.get(node.id) ?? []}
-              onToggle={() => setExpandedNodeId((current) => current === node.id ? null : node.id)}
-            />
+          {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
+          {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
+          {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
+          {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
+          {filteredNodes.length > 0 ? (
+            <MainSideScrollRegion listClassName="memory-catalog-list" updateKey={updateKey}>
+              {filteredNodes.map((node) => (
+                <MemoryCatalogItem
+                  expanded={expandedNodeId === node.id}
+                  key={node.id}
+                  node={node}
+                  nodeById={nodeById}
+                  relationships={relationshipsByNodeId.get(node.id) ?? []}
+                  onToggle={() => setExpandedNodeId((current) => current === node.id ? null : node.id)}
+                />
+              ))}
+            </MainSideScrollRegion>
+          ) : null}
+        </>
+      ) : subagents.length > 0 ? (
+        <MainSideScrollRegion listClassName="subagent-catalog-list" updateKey={subagents.map((agent) => `${agent.path}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}>
+          {subagents.map((agent) => (
+            <button
+              type="button"
+              className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
+              aria-pressed={selectedSubagentPath === agent.path}
+              key={agent.path}
+              onClick={() => onSelectSubagent(agent.path)}
+            >
+              <span className="subagent-catalog-heading">
+                <strong>{agent.name}</strong>
+                <time dateTime={agent.lastActiveAt} title={formatSessionDateTime(agent.lastActiveAt)}>{formatRelativeActivity(agent.lastActiveAt, nowMs)}</time>
+              </span>
+              <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
+              <span className={`subagent-catalog-status status-${stateClass(agent.status)}`}>{traceLabel(agent.status)}</span>
+            </button>
           ))}
         </MainSideScrollRegion>
-      ) : null}
+      ) : (
+        <div className="memory-catalog-empty">No subagents in this session.</div>
+      )}
     </aside>
   );
 });

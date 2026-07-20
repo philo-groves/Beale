@@ -51,7 +51,9 @@ Full-history children use the parent's model and reasoning effort. Partial-histo
 
 Honeycrisp flow captures store child identity, parent, path, status, model, reasoning effort, inheritance mode, timestamps, output, error, turn count, tool count, and model-call metadata under `agent.raw.subagents`.
 
-Beale records child lifecycle events and agent-aware model turns in the session trace. Child thoughts are keyed by agent path so concurrent response ids cannot overwrite root or sibling state. Root and child turns receive distinct list groups, and child token use contributes to total session use without replacing the root agent's latest context reading.
+Beale records child lifecycle events, research-tool activity, and agent-aware model turns in the session trace. Child thoughts are keyed by agent path so concurrent response ids cannot overwrite root or sibling state. Root and child turns receive distinct list groups, and child token use contributes to total session use without replacing the root agent's latest context reading.
+
+The session sidebar defaults to Memory and provides a Subagents tab derived from persisted trace metadata. Each child row shows its canonical name, latest message preview, status, and compact time since activity. Selecting a child filters the existing trace list to that exact agent path; Back to Main restores the complete session trace. This presentation adds no separate subagent persistence model, so replayed and future headless sessions use the same Honeycrisp-owned session data.
 
 ## Deferred Work
 
