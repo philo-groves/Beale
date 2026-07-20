@@ -219,29 +219,29 @@ describe('renderer trace content view models', () => {
   });
 
   it('renders concise structured subtext for selected Honeycrisp tool requests', () => {
-    const memoryId = 'finding_0123456789abcdefabcd';
+    const memoryId = 'trajectory_0123456789abcdefabcd';
     const memorySearch = honeycrispToolRequest('memory.search', { query: 'ZFTP length boundary' });
     const memoryGet = honeycrispToolRequest('memory.get', { id: memoryId });
     const fileRead = honeycrispToolRequest('file.read', { path: '/repo/Src/Modules/zftp.c', offset: 320 });
     const detail = runDetail({
       honeycrispMemory: {
-        nodes: [{ id: memoryId, type: 'finding' }]
+        nodes: [{ id: memoryId, type: 'trajectory' }]
       } as RunDetail['honeycrispMemory']
     });
 
     expect(traceEventDetailText(memorySearch, 'non_standard')).toBe('ZFTP length boundary');
-    expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Finding · ${memoryId}`);
+    expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Trajectory · ${memoryId}`);
     expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
   });
 
   it('preserves request subtext on Honeycrisp observations and identifies empty memory searches', () => {
-    const memoryId = 'finding_0123456789abcdefabcd';
+    const memoryId = 'trajectory_0123456789abcdefabcd';
     const memorySearch = honeycrispToolObservation('memory.search', { query: 'ZFTP length boundary' }, []);
-    const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'finding' });
+    const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'trajectory' });
     const fileRead = honeycrispToolObservation('file.read', { path: '/repo/Src/Modules/zftp.c' }, { text: 'source' });
 
     expect(honeycrispToolTraceSubtext(memorySearch)).toBe('ZFTP length boundary');
-    expect(honeycrispToolTraceSubtext(memoryGet)).toBe(`Finding · ${memoryId}`);
+    expect(honeycrispToolTraceSubtext(memoryGet)).toBe(`Trajectory · ${memoryId}`);
     expect(honeycrispToolTraceSubtext(fileRead)).toBe('');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);

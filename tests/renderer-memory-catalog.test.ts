@@ -4,7 +4,7 @@ import { filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdate
 
 describe('renderer memory catalog', () => {
   it('filters across context identities, types, node text, tags, and references', () => {
-    const sessionFinding = memoryNode({ id: 'session_finding', sessionId: 'run_current', type: 'finding', title: 'ZFTP length confusion', tags: ['parser'] });
+    const sessionPrimitive = memoryNode({ id: 'session_primitive', sessionId: 'run_current', type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
     const subjectInvariant = memoryNode({
       id: 'subject_invariant',
       tier: 'subject',
@@ -13,10 +13,10 @@ describe('renderer memory catalog', () => {
       title: 'Apple parser boundary',
       evidenceRefs: [{ id: 'ref_one', kind: 'code', pathBase: 'repository', path: 'Src/Modules/zftp.c', locator: {}, summary: 'Length check', createdAt: '2026-07-19T12:00:00.000Z' }]
     });
-    const nodes = [sessionFinding, subjectInvariant];
+    const nodes = [sessionPrimitive, subjectInvariant];
     const context = { sessionId: 'run_current', workspaceId: 'workspace_zsh', subjectId: 'subject_apple' };
 
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'session', type: 'all', ...context })).toEqual([sessionFinding]);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'session', type: 'all', ...context })).toEqual([sessionPrimitive]);
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'workspace', type: 'all', ...context })).toEqual(nodes);
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'subject', type: 'all', ...context })).toEqual(nodes);
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'all', type: 'invariant', ...context })).toEqual([subjectInvariant]);
@@ -44,7 +44,7 @@ function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): Honey
     workspaceName: 'Zsh',
     subjectId: 'subject_apple',
     subjectName: 'Apple',
-    type: 'finding',
+    type: 'primitive',
     title: 'Memory title',
     summary: 'Memory summary',
     body: 'Memory body',

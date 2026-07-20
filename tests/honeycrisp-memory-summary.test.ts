@@ -42,11 +42,11 @@ describe('Honeycrisp memory summary', () => {
     `);
     const insertNode = db.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     insertNode.run('hypothesis_one', 'session', 'run_one', 'run_one', 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'hypothesis', 'Parser state confusion', 'parser state confusion', 'State may cross requests.', '', 'suspected', 0.6, '{}', '2026-06-25T10:00:00.000Z', '2026-06-25T10:01:00.000Z', 1);
-    insertNode.run('finding_one', 'subject', 'subject_apple', null, 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'finding', 'Parser state crosses requests', 'parser state crosses requests', 'Reproduced state reuse.', 'Details', 'confirmed', 0.95, '{"impact":"cross-request influence"}', '2026-06-25T10:02:00.000Z', '2026-06-25T10:03:00.000Z', 2);
-    db.prepare('INSERT INTO memory_node_assets VALUES (?, ?)').run('finding_one', 'asset_api');
-    db.prepare('INSERT INTO memory_node_tags VALUES (?, ?)').run('finding_one', 'parser');
-    db.prepare('INSERT INTO memory_edges VALUES (?, ?, ?, ?, ?, ?)').run('hypothesis_one', 'finding_one', 'promoted_to', 'Reproduced', '2026-06-25T10:03:00.000Z', '2026-06-25T10:03:00.000Z');
-    db.prepare('INSERT INTO memory_evidence_refs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('evidence_one', 'finding_one', 'code', 'repository', 'src/parser.ts', '{"line":42}', 'State write', '2026-06-25T10:02:30.000Z');
+    insertNode.run('trajectory_one', 'subject', 'subject_apple', null, 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'trajectory', 'Parser state investigation route', 'parser state investigation route', 'State-reuse analysis route.', 'Details', 'confirmed', 0.95, '{"outcome":"cross-request influence"}', '2026-06-25T10:02:00.000Z', '2026-06-25T10:03:00.000Z', 2);
+    db.prepare('INSERT INTO memory_node_assets VALUES (?, ?)').run('trajectory_one', 'asset_api');
+    db.prepare('INSERT INTO memory_node_tags VALUES (?, ?)').run('trajectory_one', 'parser');
+    db.prepare('INSERT INTO memory_edges VALUES (?, ?, ?, ?, ?, ?)').run('hypothesis_one', 'trajectory_one', 'informed', 'Reusable route', '2026-06-25T10:03:00.000Z', '2026-06-25T10:03:00.000Z');
+    db.prepare('INSERT INTO memory_evidence_refs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('evidence_one', 'trajectory_one', 'code', 'repository', 'src/parser.ts', '{"line":42}', 'State write', '2026-06-25T10:02:30.000Z');
     db.close();
 
     const summary = getHoneycrispMemorySummary(workspace);
@@ -59,22 +59,22 @@ describe('Honeycrisp memory summary', () => {
       evidenceRefCount: 1,
       storageArtifactCount: 1,
       latestNodeUpdatedAt: '2026-06-25T10:03:00.000Z',
-      nodeTypeCounts: { finding: 1, hypothesis: 1 },
+      nodeTypeCounts: { hypothesis: 1, trajectory: 1 },
       nodeStatusCounts: { confirmed: 1, suspected: 1 },
       nodeTierCounts: { session: 1, subject: 1 }
     });
     expect(summary.nodes[0]).toMatchObject({
-      id: 'finding_one',
+      id: 'trajectory_one',
       tier: 'subject',
       workspaceName: 'Zsh',
       subjectName: 'Apple',
-      type: 'finding',
+      type: 'trajectory',
       assetIds: ['asset_api'],
       tags: ['parser'],
       revision: 2,
       evidenceRefs: [expect.objectContaining({ pathBase: 'repository', path: 'src/parser.ts' })]
     });
-    expect(summary.edges[0]).toMatchObject({ fromId: 'hypothesis_one', toId: 'finding_one', relation: 'promoted_to' });
+    expect(summary.edges[0]).toMatchObject({ fromId: 'hypothesis_one', toId: 'trajectory_one', relation: 'informed' });
   });
 });
 

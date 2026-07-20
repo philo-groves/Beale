@@ -40,9 +40,9 @@ export function sessionHeatForHoneycrispMemory(memory: HoneycrispMemorySummary |
   for (const node of memory.nodes) {
     const status = stateClass(node.status);
     if (isIgnoredHeatState(status) || status === 'rejected' || status === 'stale') continue;
-    if (node.type === 'finding' && status === 'confirmed') score = Math.max(score, 3);
-    else if ((node.type === 'finding' || node.type === 'chain' || node.type === 'primitive') && status === 'suspected') score = Math.max(score, 2);
-    else if (node.type === 'finding' || node.type === 'hypothesis') score = Math.max(score, 1);
+    if ((node.type === 'chain' || node.type === 'primitive') && status === 'confirmed') score = Math.max(score, 3);
+    else if ((node.type === 'chain' || node.type === 'primitive') && status === 'suspected') score = Math.max(score, 2);
+    else if (node.type === 'hypothesis') score = Math.max(score, 1);
   }
 
   if (score >= 3) return 'high';

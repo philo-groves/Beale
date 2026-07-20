@@ -24,13 +24,13 @@ export function WorkspaceUnderstandingView({
 }): JSX.Element {
   const inScopeAssets = scope?.assets.filter((asset) => asset.direction === 'in_scope') ?? [];
   const repositoryAssets = inScopeAssets.filter((asset) => asset.kind === 'repo').slice(0, 6);
-  const findings = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
+  const primitives = honeycrispMemory?.nodes.filter((node) => node.type === 'primitive') ?? [];
   return (
     <div className="workspace-understanding-workspace" aria-label="Honeycrisp Memory">
       <div className="workspace-understanding-scroll">
         <div className="workspace-understanding-summary-grid" aria-label="Workspace summary">
           <SummaryTile icon={<Database size={17} />} label="Durable Knowledge" value={`${formatCount(honeycrispMemory?.nodeCount ?? 0)} nodes`} detail={`${formatCount(honeycrispMemory?.edgeCount ?? 0)} relationships`} />
-          <SummaryTile icon={<GitBranch size={17} />} label="Findings" value={formatCount(findings.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
+          <SummaryTile icon={<GitBranch size={17} />} label="Primitives" value={formatCount(primitives.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
           <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
           <SummaryTile icon={<Network size={17} />} label="Workspace Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active workspace'} />
         </div>
@@ -44,7 +44,7 @@ export function WorkspaceUnderstandingView({
               <MetricCell label="References" value={formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} />
               <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
               <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
-              <MetricCell label="Findings" value={formatCount(findings.length)} />
+              <MetricCell label="Primitives" value={formatCount(primitives.length)} />
             </div>
             <KeyValueRows
               rows={[
@@ -63,7 +63,7 @@ export function WorkspaceUnderstandingView({
             <div className="workspace-understanding-list-grid">
               <MemoryNodeList title="Assets and Boundaries" nodes={nodesByType(honeycrispMemory, ['asset', 'source', 'sink'])} />
               <MemoryNodeList title="Hypotheses" nodes={nodesByType(honeycrispMemory, ['hypothesis'])} />
-              <MemoryNodeList title="Findings and Bugs" nodes={nodesByType(honeycrispMemory, ['finding', 'bug'])} />
+              <MemoryNodeList title="Bug History" nodes={nodesByType(honeycrispMemory, ['bug'])} />
               <MemoryNodeList title="Invariants and Mitigations" nodes={nodesByType(honeycrispMemory, ['invariant', 'mitigation'])} />
               <MemoryNodeList title="Primitives and Chains" nodes={nodesByType(honeycrispMemory, ['primitive', 'chain'])} />
               <MemoryNodeList title="Procedures and Trajectories" nodes={nodesByType(honeycrispMemory, ['procedure', 'trajectory'])} />
@@ -81,7 +81,7 @@ export function WorkspaceUnderstandingView({
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
                 ['Sessions', formatCount(runCount)],
-                ['Honeycrisp Findings', formatCount(findings.length)],
+                ['Security Primitives', formatCount(primitives.length)],
                 ['References', formatCount(honeycrispMemory?.evidenceRefCount ?? 0)]
               ]}
             />

@@ -2983,7 +2983,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #151515;
 }
 
-.memory-catalog-item.type-finding,
+.memory-catalog-item.type-primitive,
 .memory-catalog-item.type-bug {
   border-left-color: var(--red);
 }

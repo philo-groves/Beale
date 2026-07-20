@@ -39,7 +39,7 @@ describe('renderer session heat view models', () => {
 
   it('computes general research intensity from Honeycrisp memory state', () => {
     const memory = honeycrispMemory({
-      findingStatus: 'confirmed'
+      primitiveStatus: 'confirmed'
     });
 
     expect(sessionHeatForHoneycrispMemory(memory)).toBe('high');
@@ -47,7 +47,7 @@ describe('renderer session heat view models', () => {
   });
 
   it('lets Beale vulnerability-specific rows boost Honeycrisp general heat', () => {
-    const memory = honeycrispMemory({ findingStatus: 'suspected' });
+    const memory = honeycrispMemory({ primitiveStatus: 'suspected' });
     const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
 
     expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory, findings: [finding] }))).toBe('critical');
@@ -89,17 +89,17 @@ function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisReco
   } as unknown as HypothesisRecord;
 }
 
-function honeycrispMemory(input: { findingStatus: string }): HoneycrispMemorySummary {
+function honeycrispMemory(input: { primitiveStatus: string }): HoneycrispMemorySummary {
   return {
     status: 'ready',
     source: 'honeycrisp_sqlite',
     nodes: [{
-      id: 'finding_test',
-      type: 'finding',
-      title: 'General finding',
-      summary: 'General finding',
+      id: 'primitive_test',
+      type: 'primitive',
+      title: 'General primitive',
+      summary: 'General primitive',
       body: '',
-      status: input.findingStatus,
+      status: input.primitiveStatus,
       confidence: 0.9,
       assetIds: [],
       tags: [],

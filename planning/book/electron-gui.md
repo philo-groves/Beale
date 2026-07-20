@@ -68,7 +68,7 @@ The permanent research-side surface is a list-only memory catalog inspired by th
 
 It should:
 
-- Read Honeycrisp typed memory nodes directly rather than rebuilding hypotheses, findings, and evidence into a parallel Beale model.
+- Read Honeycrisp typed memory nodes directly rather than rebuilding its durable knowledge and references into a parallel Beale model.
 - Search titles, summaries, bodies, types, statuses, scope metadata, assets, tags, and references.
 - Filter by stored origin session, workspace, or subject identity and by node type. The node's reuse tier remains separate metadata shown on the record.
 - Show status, confidence, tier, revision, update time, and relationship/reference counts at a glance.

@@ -53,7 +53,7 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
   const availableTools = useMemo(() => readRecordArray(payload.availableTools), [payload]);
   const collaborationTools = useMemo(() => readRecordArray(payload.collaborationTools), [payload]);
   const requestLabel = firstString(request ?? {}, ['prompt']) ?? 'None';
-  const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
+  const securityNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'primitive' || node.type === 'chain') ?? [];
   const injectedReferenceCount = memoryContext.reduce((count, node) => count + arrayLength(node.evidence), 0);
   const injectedRelationshipCount = memoryContext.reduce((count, node) => count + arrayLength(node.relationships), 0);
 
@@ -145,16 +145,16 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             />
           </section>
 
-          <section className="context-session-section" aria-label="Honeycrisp findings">
-            <SectionHeader icon={<Database size={16} />} title="Honeycrisp Findings" status={honeycrispMemory?.source ?? 'none'} />
+          <section className="context-session-section" aria-label="Honeycrisp security primitives and chains">
+            <SectionHeader icon={<Database size={16} />} title="Primitives and Chains" status={honeycrispMemory?.source ?? 'none'} />
             <RecordList
-              records={findingNodes.map((node) => ({
+              records={securityNodes.map((node) => ({
                 id: node.id,
                 title: node.title,
                 detail: node.summary || node.body,
                 status: node.status
               }))}
-              emptyLabel="No Honeycrisp findings"
+              emptyLabel="No primitives or chains"
               primaryKeys={['title', 'id']}
               secondaryKeys={['detail', 'status']}
             />
