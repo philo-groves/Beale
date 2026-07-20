@@ -198,7 +198,7 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
   const type: TraceEventRecord['type'] = message.role === 'user' ? 'user_note' : 'model_message';
   const summary =
     message.source === 'openai_reasoning_summary'
-      ? 'Thought.'
+      ? 'Reasoning summary.'
       : message.role === 'assistant'
         ? 'Report agent output.'
         : message.role === 'user'

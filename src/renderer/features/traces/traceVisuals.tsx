@@ -27,7 +27,7 @@ export interface TraceCategoryOption {
 
 export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
-  { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
+  { id: 'reasoning', label: 'Reasoning Summary', description: 'Provider-generated summaries of reasoning, intent, and concise rationale. Hidden chain-of-thought is not exposed.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
   { id: 'vm_execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
   { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
@@ -53,7 +53,7 @@ export function traceCategoryLabel(category: TraceCategoryId): string {
 
 export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
   if (category === 'evidence') return 'References';
-  if (category === 'reasoning') return 'Agent Output';
+  if (category === 'reasoning') return 'Reasoning Summary';
   return traceCategoryLabel(category);
 }
 

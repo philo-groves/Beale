@@ -10,7 +10,7 @@ import {
   evidenceTracePreview,
   isProseTraceEvent,
   isPythonExecutionTraceEvent,
-  reasoningTraceThoughtsForEvent,
+  reasoningTraceSummariesForEvent,
   pythonTracePreview,
   traceEventDetailText,
   traceEventSummary,
@@ -18,7 +18,7 @@ import {
   type CodeBrowserTracePreview,
   type DuplicateBlockedTraceDetail,
   type PythonToolCallPreview,
-  type ReasoningTraceThought,
+  type ReasoningTraceSummarySegment,
   type TraceStructuredPreview
 } from '../../view-models/traceContent';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -55,7 +55,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const evidencePreview = useMemo(() => evidenceTracePreview(event), [event]);
   const codeBrowserPreview = useMemo(() => codeBrowserTracePreview(event), [event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
-  const reasoningThoughts = useMemo(() => reasoningTraceThoughtsForEvent(event, category), [category, event]);
+  const reasoningSummaries = useMemo(() => reasoningTraceSummariesForEvent(event, category), [category, event]);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
   const hasDetail = detailText.length > 0;
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
@@ -102,8 +102,8 @@ export const TraceEventRow = memo(function TraceEventRow({
             <CodeBrowserTracePreviewRow preview={codeBrowserPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : duplicateBlockedDetail ? (
             <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-          ) : reasoningThoughts.length > 0 ? (
-            <ReasoningTracePreview thoughts={reasoningThoughts} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
+          ) : reasoningSummaries.length > 0 ? (
+            <ReasoningTracePreview summaries={reasoningSummaries} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
           ) : hasDetail ? (
             proseDetail ? (
               <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
@@ -162,26 +162,26 @@ function DuplicateBlockedTracePreview({
 }
 
 function ReasoningTracePreview({
-  thoughts,
+  summaries,
   hasSearchHighlight,
   searchHighlightQuery
 }: {
-  thoughts: ReasoningTraceThought[];
+  summaries: ReasoningTraceSummarySegment[];
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
 }): JSX.Element {
   return (
     <span className="main-trace-reasoning-detail">
-      {thoughts.map((thought, index) => (
-        <span className="main-trace-reasoning-thought" key={`${thought.title ?? 'thought'}-${index}`}>
-          {thought.title ? (
+      {summaries.map((summary, index) => (
+        <span className="main-trace-reasoning-summary" key={`${summary.title ?? 'summary'}-${index}`}>
+          {summary.title ? (
             <strong className="main-trace-markdown-strong main-trace-reasoning-title">
-              {hasSearchHighlight ? renderSearchHighlightedText(thought.title, searchHighlightQuery) : thought.title}
+              {hasSearchHighlight ? renderSearchHighlightedText(summary.title, searchHighlightQuery) : summary.title}
             </strong>
           ) : null}
-          {thought.description ? (
+          {summary.description ? (
             <span className="main-trace-prose main-trace-reasoning-description">
-              {hasSearchHighlight ? renderSearchHighlightedText(thought.description, searchHighlightQuery) : renderTraceProseText(thought.description, 'agent_output')}
+              {hasSearchHighlight ? renderSearchHighlightedText(summary.description, searchHighlightQuery) : renderTraceProseText(summary.description, 'agent_output')}
             </span>
           ) : null}
         </span>

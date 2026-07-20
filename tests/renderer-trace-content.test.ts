@@ -12,7 +12,7 @@ import {
   lineRangePart,
   pythonTracePreview,
   pythonToolCallPreview,
-  reasoningTraceThoughtsFromText,
+  reasoningTraceSummariesFromText,
   searchTracePreview,
   traceEventDetailText,
   traceEventSummary,
@@ -78,11 +78,11 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
   });
 
-  it('formats reasoning summaries while preserving thought boundaries', () => {
+  it('formats reasoning summaries while preserving summary boundaries', () => {
     expect(formatReasoningTraceText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toBe(
       '**Focus**\nCheck parser with range checks\n\n**Risk**\nValidate index use'
     );
-    expect(reasoningTraceThoughtsFromText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toEqual([
+    expect(reasoningTraceSummariesFromText('**Focus** Check parser\nwith range checks\n\n**Risk** Validate index use')).toEqual([
       { title: 'Focus', description: 'Check parser with range checks' },
       { title: 'Risk', description: 'Validate index use' }
     ]);
@@ -91,7 +91,7 @@ describe('renderer trace content view models', () => {
         traceEvent({
           type: 'model_message',
           source: 'model',
-          summary: 'OpenAI completed thought.',
+          summary: 'Reasoning summary.',
           payload: {
             text: '**Focus** Check parser',
             transcriptKind: 'reasoning_summary'

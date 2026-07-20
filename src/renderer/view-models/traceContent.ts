@@ -148,7 +148,7 @@ export interface DuplicateBlockedTraceDetail {
   title: string;
 }
 
-export interface ReasoningTraceThought {
+export interface ReasoningTraceSummarySegment {
   title: string | null;
   description: string;
 }
@@ -193,16 +193,15 @@ export function isReasoningTraceEvent(event: TraceEventRecord, category: TraceCa
     tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary' ||
-    event.summary === 'Thought.' ||
-    event.summary === 'Thought' ||
-    event.summary === 'OpenAI completed thought.'
+    event.summary === 'Reasoning summary.' ||
+    event.summary === 'Reasoning summary'
   );
 }
 
-export function reasoningTraceThoughtsForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceThought[] {
+export function reasoningTraceSummariesForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceSummarySegment[] {
   if (!isReasoningTraceEvent(event, category)) return [];
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
-  return text ? reasoningTraceThoughtsFromText(text) : [];
+  return text ? reasoningTraceSummariesFromText(text) : [];
 }
 
 export function pythonToolCallPreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): PythonToolCallPreview | null {
@@ -572,22 +571,22 @@ function isPythonToolCallEvent(event: TraceEventRecord): boolean {
 }
 
 export function formatReasoningTraceText(text: string): string {
-  return reasoningTraceThoughtsFromText(text)
-    .map((thought) => {
-      if (!thought.title) return thought.description;
-      return thought.description ? `**${thought.title}**\n${thought.description}` : `**${thought.title}**`;
+  return reasoningTraceSummariesFromText(text)
+    .map((segment) => {
+      if (!segment.title) return segment.description;
+      return segment.description ? `**${segment.title}**\n${segment.description}` : `**${segment.title}**`;
     })
     .join('\n\n');
 }
 
-export function reasoningTraceThoughtsFromText(text: string): ReasoningTraceThought[] {
-  const thoughts: ReasoningTraceThought[] = [];
+export function reasoningTraceSummariesFromText(text: string): ReasoningTraceSummarySegment[] {
+  const summaries: ReasoningTraceSummarySegment[] = [];
   let currentTitle: string | null = null;
   let currentLines: string[] = [];
 
   const flushCurrent = (): void => {
     const description = currentLines.join(' ').trim();
-    if (currentTitle || description) thoughts.push({ title: currentTitle, description });
+    if (currentTitle || description) summaries.push({ title: currentTitle, description });
     currentTitle = null;
     currentLines = [];
   };
@@ -610,7 +609,7 @@ export function reasoningTraceThoughtsFromText(text: string): ReasoningTraceThou
   }
 
   flushCurrent();
-  return thoughts;
+  return summaries;
 }
 
 export function compactTracePath(value: string): string {
@@ -669,8 +668,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI response created.') return 'Turn Started';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
   if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
-  if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
-  if (summary === 'OpenAI completed thought.') return 'Thought';
+  if (summary === 'Reasoning summary.' || summary === 'Reasoning summary') return 'Reasoning Summary';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
   if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';

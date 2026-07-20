@@ -75,7 +75,7 @@ interface ActiveHoneycrispRun {
   stopReason: 'user' | 'time_limit' | null;
   budgetTimer: NodeJS.Timeout | null;
   liveHoneycrispEventIds: Set<string>;
-  liveThoughts: Map<string, HoneycrispLiveThoughtState>;
+  liveReasoningSummaries: Map<string, HoneycrispLiveReasoningSummaryState>;
 }
 
 interface HoneycrispFlowCapture {
@@ -160,7 +160,7 @@ interface HoneycrispLiveEvent {
   payload?: Record<string, unknown>;
 }
 
-interface HoneycrispLiveThoughtState {
+interface HoneycrispLiveReasoningSummaryState {
   text: string;
   snapshotCount: number;
 }
@@ -378,7 +378,7 @@ export class HoneycrispRunEngine {
       stopReason: null,
       budgetTimer: null,
       liveHoneycrispEventIds: new Set(),
-      liveThoughts: new Map()
+      liveReasoningSummaries: new Map()
     };
     this.activeRuns.set(context.run.id, active);
     this.armTimeLimit(active, input.budget.maxMinutes);
@@ -532,13 +532,13 @@ export class HoneycrispRunEngine {
       if (!honeycrispEvent) return;
       if (honeycrispEvent.id) active?.liveHoneycrispEventIds.add(honeycrispEvent.id);
       this.appendHoneycrispTimelineEvent(context, honeycrispEvent);
-      this.recordLiveResearchThought(context, honeycrispEvent);
+      this.recordLiveResearchSummary(context, honeycrispEvent);
       this.onChange();
       return;
     }
 
     if (event.kind === 'model.thought') {
-      this.recordLiveThought(context, event, active);
+      this.recordLiveReasoningSummary(context, event, active);
       return;
     }
 
@@ -688,9 +688,9 @@ export class HoneycrispRunEngine {
     this.onChange();
   }
 
-  private recordLiveResearchThought(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
-    const thought = researchThoughtText(event);
-    if (!thought) return;
+  private recordLiveResearchSummary(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
+    const summaryText = researchSummaryText(event);
+    if (!summaryText) return;
     const payload = recordValue(event.payload);
     const itemId = event.id ?? `${event.kind ?? 'event'}:${event.timestamp ?? Date.now()}`;
     const trace = this.db.appendTraceEvent({
@@ -698,9 +698,9 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       type: 'model_message',
       source: 'model',
-      summary: 'Honeycrisp progress thought.',
+      summary: 'Honeycrisp progress summary.',
       payload: {
-        text: thought,
+        text: summaryText,
         transcriptRole: 'assistant',
         transcriptSource: 'openai_reasoning_summary',
         transcriptKind: 'reasoning_summary',
@@ -720,7 +720,7 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       traceEventId: trace.id,
       role: 'assistant',
-      contentMarkdown: thought,
+      contentMarkdown: summaryText,
       source: 'openai_reasoning_summary',
       metadata: {
         responseId: 'honeycrisp-progress',
@@ -736,29 +736,29 @@ export class HoneycrispRunEngine {
     });
   }
 
-  private recordLiveThought(context: CreatedRunContext, event: HoneycrispLiveEvent, active: ActiveHoneycrispRun | undefined): void {
+  private recordLiveReasoningSummary(context: CreatedRunContext, event: HoneycrispLiveEvent, active: ActiveHoneycrispRun | undefined): void {
     const payload = event.payload ?? {};
     const text = stringPayload(payload, 'text');
     const delta = stringPayload(payload, 'delta');
     const responseId = stringPayload(payload, 'responseId') ?? 'live-response';
-    const itemId = stringPayload(payload, 'itemId') ?? `thought:${responseId}`;
+    const itemId = stringPayload(payload, 'itemId') ?? `reasoning-summary:${responseId}`;
     const agentId = stringPayload(payload, 'agentId');
     const agentPath = stringPayload(payload, 'agentPath');
     const parentAgentId = stringPayload(payload, 'parentAgentId');
     const subagent = Boolean(agentPath && agentPath !== '/root');
     const key = `${agentPath ?? '/root'}\u0000${responseId}\u0000${itemId}`;
     const state =
-      active?.liveThoughts.get(key) ?? {
+      active?.liveReasoningSummaries.get(key) ?? {
         text: '',
         snapshotCount: 0
       };
     state.text = text ?? (delta ? `${state.text}${delta}` : state.text);
-    const thought = state.text.trim();
-    if (!thought) return;
+    const summaryText = state.text.trim();
+    if (!summaryText) return;
 
     const phase = stringPayload(payload, 'phase') ?? 'delta';
     const shouldSnapshot = phase === 'completed' || state.snapshotCount === 0;
-    active?.liveThoughts.set(key, state);
+    active?.liveReasoningSummaries.set(key, state);
     if (!shouldSnapshot) return;
 
     state.snapshotCount += 1;
@@ -769,13 +769,13 @@ export class HoneycrispRunEngine {
       source: 'model',
       summary: subagent
         ? phase === 'completed'
-          ? `Honeycrisp subagent ${agentPath} completed thought.`
-          : `Honeycrisp subagent ${agentPath} thought.`
+          ? `Honeycrisp subagent ${agentPath} completed reasoning summary.`
+          : `Honeycrisp subagent ${agentPath} reasoning summary.`
         : phase === 'completed'
-          ? 'Honeycrisp completed thought.'
-          : 'Honeycrisp thought.',
+          ? 'Honeycrisp completed reasoning summary.'
+          : 'Honeycrisp reasoning summary.',
       payload: {
-        text: thought,
+        text: summaryText,
         transcriptRole: 'assistant',
         transcriptSource: 'openai_reasoning_summary',
         transcriptKind: 'reasoning_summary',
@@ -799,7 +799,7 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       traceEventId: trace.id,
       role: 'assistant',
-      contentMarkdown: thought,
+      contentMarkdown: summaryText,
       source: 'openai_reasoning_summary',
       metadata: {
         responseId,
@@ -1136,7 +1136,7 @@ function honeycrispLiveEventSummary(event: HoneycrispLiveEvent): string {
   return `Honeycrisp live event: ${event.kind ?? 'unknown'}`;
 }
 
-function researchThoughtText(event: HoneycrispCaptureEvent): string {
+function researchSummaryText(event: HoneycrispCaptureEvent): string {
   const payload = recordValue(event.payload);
   const summary = stringPayload(payload ?? {}, 'summary') ?? (typeof event.summary === 'string' ? event.summary.trim() : '');
   switch (event.kind) {

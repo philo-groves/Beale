@@ -151,7 +151,7 @@ function isCodeNavigationEvent(event: TraceEventRecord, toolName: string | null)
 }
 
 function modelEventLooksLikeReasoning(event: TraceEventRecord): boolean {
-  return /\b(plan|planned|prepared|objective|rationale|reason|strategy|hypothesis|intent|thought)\b/i.test(event.summary);
+  return /\b(plan|planned|prepared|objective|rationale|reason|reasoning summary|strategy|hypothesis|intent)\b/i.test(event.summary);
 }
 
 function normalizeStatus(status: string | null): string | null {
