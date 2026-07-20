@@ -4070,11 +4070,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   width: 100%;
   display: grid;
-  gap: 10px;
+  gap: 13px;
 }
 
 .main-trace-reasoning-detail.title-only {
-  padding-top: 5px;
+  padding-top: 8px;
 }
 
 .main-trace-reasoning-summary {
