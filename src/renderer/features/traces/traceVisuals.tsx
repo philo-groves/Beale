@@ -16,7 +16,14 @@ import {
 } from 'lucide-react';
 import type { TraceEventRecord } from '@shared/types';
 import { formatSessionTime, traceLabel } from '../../lib/formatting';
-import { traceEventOutcome, tracePayloadPrimitive } from '../../traceClassification';
+import {
+  honeycrispToolEventKind,
+  honeycrispToolPayload,
+  stringRecordValue,
+  traceEventOutcome,
+  tracePayloadPrimitive,
+  tracePayloadRecord
+} from '../../traceClassification';
 import type { TraceCategoryId } from '../../traceClassification';
 
 export interface TraceCategoryOption {
@@ -58,6 +65,7 @@ export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
 }
 
 export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
+  if (honeycrispToolEventKind(event)) return traceCategoryIcon('tools');
   const outcome = traceEventOutcome(event);
   if (isVerifierFailureResult(event)) return <XCircle size={13} />;
   if (outcome === 'success') return <CheckCircle2 size={13} />;
@@ -66,6 +74,8 @@ export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryI
 }
 
 export function traceEventMarkerToneClass(event: TraceEventRecord): string {
+  const toolObservationOutcome = honeycrispToolObservationOutcome(event);
+  if (toolObservationOutcome) return `marker-tool-observation-${toolObservationOutcome}`;
   return isVerifierFailureResult(event) ? 'marker-verifier-failure' : '';
 }
 
@@ -101,6 +111,20 @@ function isVerifierFailureResult(event: TraceEventRecord): boolean {
   return /\bwith fail(?:ed|ure)?\b/i.test(event.summary);
 }
 
+function honeycrispToolObservationOutcome(event: TraceEventRecord): 'success' | 'failure' | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed') return null;
+  const payload = honeycrispToolPayload(event);
+  const status = normalizeToolStatus(payload ? stringRecordValue(payload, 'status') : null);
+  const error = payload ? tracePayloadRecord(payload, 'error') ?? stringRecordValue(payload, 'error') : null;
+  if (error || status === 'error' || status === 'blocked' || status === 'failure' || status === 'failed') return 'failure';
+  if (status === 'complete' || status === 'completed' || status === 'success' || status === 'ok') return 'success';
+  return traceEventOutcome(event) === 'failure' ? 'failure' : 'success';
+}
+
 function normalizeVerifierStatus(value: string | null): string | null {
+  return value ? value.toLowerCase().replace(/[\s-]+/g, '_') : null;
+}
+
+function normalizeToolStatus(value: string | null): string | null {
   return value ? value.toLowerCase().replace(/[\s-]+/g, '_') : null;
 }

@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
-import { toolNameFromSummary, traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
+import { honeycrispToolEventKind, honeycrispToolName, toolNameFromSummary, traceCategoryForEvent, traceEventOutcome } from '../../traceClassification';
 import { tracePayloadPrimitive } from '../../traceClassification';
 import {
   codeBrowserTracePreview,
@@ -316,6 +316,9 @@ function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventR
   if (previous.selected !== next.selected || previous.entering !== next.entering || previous.searchHighlightQuery !== next.searchHighlightQuery || previous.onSelect !== next.onSelect) return false;
   if (!sameTraceDisplayEvent(previous.event, next.event)) return false;
   if (!traceEventNeedsRunDetail(previous.event) && !traceEventNeedsRunDetail(next.event)) return true;
+  if (isHoneycrispMemoryGetRequest(previous.event) || isHoneycrispMemoryGetRequest(next.event)) {
+    return previous.detail?.traceEvents === next.detail?.traceEvents && previous.detail?.honeycrispMemory?.nodes === next.detail?.honeycrispMemory?.nodes;
+  }
   if (isPythonExecutionTraceEvent(previous.event) || isPythonExecutionTraceEvent(next.event)) {
     return previous.detail?.traceEvents === next.detail?.traceEvents;
   }
@@ -323,7 +326,7 @@ function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventR
 }
 
 function traceToolClassName(event: TraceDisplayEvent): string {
-  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  const toolName = honeycrispToolName(event) ?? tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
   if (!toolName) return '';
   const safeName = toolName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
   return safeName ? `tool-${safeName}` : '';
@@ -348,5 +351,9 @@ function sameTraceDisplayEvent(previous: TraceDisplayEvent, next: TraceDisplayEv
 }
 
 function traceEventNeedsRunDetail(event: TraceDisplayEvent): boolean {
-  return event.type === 'hypothesis_event' || event.type === 'finding_event' || isPythonExecutionTraceEvent(event);
+  return event.type === 'hypothesis_event' || event.type === 'finding_event' || isPythonExecutionTraceEvent(event) || isHoneycrispMemoryGetRequest(event);
+}
+
+function isHoneycrispMemoryGetRequest(event: TraceDisplayEvent): boolean {
+  return honeycrispToolEventKind(event) === 'tool.requested' && honeycrispToolName(event) === 'memory.get';
 }

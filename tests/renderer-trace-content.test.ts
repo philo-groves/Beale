@@ -32,8 +32,8 @@ describe('renderer trace content view models', () => {
         traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results', payload: { payload: { toolName: 'file.read' } } }),
         'tools'
       )
-    ).toBe('File Read Observed');
-    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results' }), 'tools')).toBe('Tool Observed');
+    ).toBe('File Read');
+    expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results' }), 'tools')).toBe('Tool');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'Honeycrisp context.compiled: 53k tokens' }), 'agent_output')).toBe('Honeycrisp Context Compiled');
     expect(
       traceEventSummary(
@@ -214,6 +214,22 @@ describe('renderer trace content view models', () => {
       title: 'ACME challenge middleware bypasses Pages access control'
     });
     expect(isProseTraceEvent(duplicate, 'failure_recovery')).toBe(true);
+  });
+
+  it('renders concise structured subtext for selected Honeycrisp tool requests', () => {
+    const memoryId = 'finding_0123456789abcdefabcd';
+    const memorySearch = honeycrispToolRequest('memory.search', { query: 'ZFTP length boundary' });
+    const memoryGet = honeycrispToolRequest('memory.get', { id: memoryId });
+    const fileRead = honeycrispToolRequest('file.read', { path: '/repo/Src/Modules/zftp.c', offset: 320 });
+    const detail = runDetail({
+      honeycrispMemory: {
+        nodes: [{ id: memoryId, type: 'finding' }]
+      } as RunDetail['honeycrispMemory']
+    });
+
+    expect(traceEventDetailText(memorySearch, 'non_standard')).toBe('ZFTP length boundary');
+    expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Finding · ${memoryId}`);
+    expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
   });
 
   it('builds python previews and prose decisions for trace rows', () => {
@@ -504,7 +520,9 @@ describe('renderer trace content view models', () => {
   });
 });
 
-function runDetail(input: { traceEvents?: TraceEventRecord[]; hypotheses?: HypothesisRecord[]; findings?: FindingRecord[] } = {}): RunDetail {
+function runDetail(
+  input: { traceEvents?: TraceEventRecord[]; hypotheses?: HypothesisRecord[]; findings?: FindingRecord[]; honeycrispMemory?: RunDetail['honeycrispMemory'] } = {}
+): RunDetail {
   return {
     run: {
       id: 'run_test',
@@ -531,8 +549,26 @@ function runDetail(input: { traceEvents?: TraceEventRecord[]; hypotheses?: Hypot
     modelSessions: [],
     contextCompactions: [],
     policyEvents: [],
-    exports: []
+    exports: [],
+    ...(input.honeycrispMemory ? { honeycrispMemory: input.honeycrispMemory } : {})
   } as unknown as RunDetail;
+}
+
+function honeycrispToolRequest(toolName: string, normalizedInputs: Record<string, unknown>): TraceEventRecord {
+  return traceEvent({
+    source: 'model',
+    type: 'tool_call',
+    summary: `Honeycrisp tool.requested: ${toolName}`,
+    payload: {
+      agentPath: '/root',
+      honeycrispKind: 'tool.requested',
+      payload: {
+        toolActionId: `action_${toolName}`,
+        toolName,
+        normalizedInputs
+      }
+    }
+  });
 }
 
 function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisRecord {

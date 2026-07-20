@@ -2,7 +2,7 @@ import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { formatDurationHms, formatSessionDateTime, formatSessionStart, traceLabel } from '../lib/formatting';
 import { traceCategoryForEvent } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
-import { latestTraceTurnNumber, traceEventVisibleInTimeline } from './traceDisplay';
+import { latestTraceTurnNumber, pendingHoneycrispToolRequestEventIds, traceEventVisibleInTimeline } from './traceDisplay';
 
 export interface SessionConfigPill {
   label: string;
@@ -42,7 +42,10 @@ export function sessionHeaderTiming(
   const durationEndMs = active ? nowMs : updated.getTime();
   const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
   const latestTurn = latestTraceTurnNumber(events) ?? 0;
-  const visibleEventCount = events.filter((event) => traceEventVisibleInTimeline(event, traceCategoryForEvent(event), visibleTraceCategories)).length;
+  const pendingToolRequestEventIds = pendingHoneycrispToolRequestEventIds(events);
+  const visibleEventCount = events.filter((event) =>
+    traceEventVisibleInTimeline(event, traceCategoryForEvent(event), visibleTraceCategories, pendingToolRequestEventIds.has(event.id))
+  ).length;
   const totalEventCount = events.length;
   const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
 

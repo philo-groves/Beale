@@ -1,5 +1,13 @@
 import type { RunDetail, RunStatus, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
-import { stringRecordValue, traceCategoryForEvent, traceEventOutcome, tracePayloadArray, tracePayloadPrimitive } from '../traceClassification';
+import {
+  honeycrispToolEventKind,
+  honeycrispToolPairingKey,
+  stringRecordValue,
+  traceCategoryForEvent,
+  traceEventOutcome,
+  tracePayloadArray,
+  tracePayloadPrimitive
+} from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
 export interface TraceDisplayEvent extends TraceEventRecord {
@@ -70,6 +78,7 @@ export function latestTraceGroupKey(events: TraceEventRecord[]): string {
 
 export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(events: TEvent[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry<TEvent>[] {
   const entries: TraceTimelineEntry<TEvent>[] = [];
+  const pendingToolRequestEventIds = pendingHoneycrispToolRequestEventIds(events);
   let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
   let identity = 'setup';
 
@@ -90,7 +99,7 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
 
     group.updatedAt = event.createdAt;
     const category = traceCategoryForEvent(event);
-    if (!traceEventVisibleInTimeline(event, category, visibleCategories)) continue;
+    if (!traceEventVisibleInTimeline(event, category, visibleCategories, pendingToolRequestEventIds.has(event.id))) continue;
 
     group.visibleCount += 1;
     if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
@@ -111,10 +120,32 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
 export function traceEventVisibleInTimeline(
   event: TraceEventRecord,
   category: TraceCategoryId,
-  visibleCategories: TraceCategoryId[]
+  visibleCategories: TraceCategoryId[],
+  pendingToolRequest = false
 ): boolean {
+  if (pendingToolRequest && honeycrispToolEventKind(event) === 'tool.requested') return true;
   if (!visibleCategories.includes(category)) return false;
   return event.modelVisible || visibleCategories.includes('non_standard');
+}
+
+export function pendingHoneycrispToolRequestEventIds(events: readonly TraceEventRecord[]): Set<string> {
+  const pendingByKey = new Map<string, string[]>();
+
+  for (const event of events) {
+    const kind = honeycrispToolEventKind(event);
+    const pairingKey = honeycrispToolPairingKey(event);
+    if (!kind || !pairingKey) continue;
+    if (kind === 'tool.requested') {
+      pendingByKey.set(pairingKey, [...(pendingByKey.get(pairingKey) ?? []), event.id]);
+      continue;
+    }
+    const pending = pendingByKey.get(pairingKey);
+    if (!pending?.length) continue;
+    pending.shift();
+    if (pending.length === 0) pendingByKey.delete(pairingKey);
+  }
+
+  return new Set([...pendingByKey.values()].flat());
 }
 
 export function coalesceConsecutiveReasoningEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): TraceTimelineEntry<TEvent>[] {

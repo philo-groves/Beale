@@ -1,6 +1,10 @@
 import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
 import { traceLabel, truncateText } from '../lib/formatting';
 import {
+  honeycrispToolEventKind,
+  honeycrispToolName,
+  honeycrispToolPairingKey,
+  honeycrispToolPayload as honeycrispEventToolPayload,
   isToolCallNamed,
   stringRecordValue,
   toolNameFromSummary,
@@ -120,7 +124,7 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
     return isReasoningTraceEvent(event, category) ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
   }
 
-  return tracePayloadDetailText(event, category);
+  return tracePayloadDetailText(event, category, detail);
 }
 
 export function isHoneycrispToolObservationError(event: TraceEventRecord): boolean {
@@ -797,7 +801,8 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     tracePayloadPrimitive(event.payload, 'toolName') ??
     (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
     honeycrispToolNameFromSummary(summary);
-  return `${toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool'} ${action}`;
+  const label = toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
+  return action === 'Requested' ? `${label} Requested` : label;
 }
 
 function honeycrispToolNameFromSummary(summary: string): string | null {
@@ -810,8 +815,8 @@ function startsWithTraceVerb(summary: string): boolean {
   return TRACE_SUMMARY_VERBS.has(firstWord);
 }
 
-function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
-  const honeycrispToolDetail = honeycrispToolTraceDetailText(event);
+function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null): string {
+  const honeycrispToolDetail = honeycrispToolTraceDetailText(event, detail);
   if (honeycrispToolDetail !== null) return honeycrispToolDetail;
 
   const payload = event.payload;
@@ -831,12 +836,13 @@ function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategory
   return truncateText(formatTraceDetailParts(parts), 300);
 }
 
-function honeycrispToolTraceDetailText(event: TraceEventRecord): string | null {
+function honeycrispToolTraceDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
   const kind = honeycrispToolEventKind(event);
   if (kind !== 'tool.requested' && kind !== 'tool.observed') return null;
 
-  const payload = tracePayloadRecord(event.payload, 'payload');
+  const payload = honeycrispEventToolPayload(event);
   if (!payload) return '';
+  if (kind === 'tool.requested') return honeycrispToolRequestDetailText(event, payload, detail);
   const status = stringRecordValue(payload, 'status');
   const error = tracePayloadRecord(payload, 'error');
   const errorMessage = error ? stringRecordValue(error, 'message') : stringRecordValue(payload, 'error');
@@ -844,15 +850,35 @@ function honeycrispToolTraceDetailText(event: TraceEventRecord): string | null {
   return status && status !== 'complete' ? traceLabel(status) : '';
 }
 
-function honeycrispToolEventKind(event: TraceEventRecord): string | null {
-  return (
-    tracePayloadPrimitive(event.payload, 'honeycrispKind') ??
-    (event.summary.startsWith('Honeycrisp tool.requested')
-      ? 'tool.requested'
-      : event.summary.startsWith('Honeycrisp tool.observed')
-        ? 'tool.observed'
-        : null)
-  );
+function honeycrispToolRequestDetailText(event: TraceEventRecord, payload: Record<string, unknown>, detail: RunDetail | null): string {
+  const toolName = honeycrispToolName(event);
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return '';
+  if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'file.read') return stringRecordValue(inputs, 'path') ?? '';
+  if (toolName !== 'memory.get') return '';
+
+  const memoryId = stringRecordValue(inputs, 'id');
+  if (!memoryId) return '';
+  const memoryType = memoryTypeForGetRequest(event, memoryId, detail);
+  return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+function memoryTypeForGetRequest(event: TraceEventRecord, memoryId: string, detail: RunDetail | null): string | null {
+  const catalogType = detail?.honeycrispMemory?.nodes.find((node) => node.id === memoryId)?.type;
+  if (catalogType) return catalogType;
+
+  const pairingKey = honeycrispToolPairingKey(event);
+  const observation = pairingKey
+    ? detail?.traceEvents.find((candidate) => honeycrispToolEventKind(candidate) === 'tool.observed' && honeycrispToolPairingKey(candidate) === pairingKey)
+    : null;
+  const observationPayload = observation ? honeycrispEventToolPayload(observation) : null;
+  const result = observationPayload ? tracePayloadRecord(observationPayload, 'result') : null;
+  const observedType = result ? stringRecordValue(result, 'type') : null;
+  if (observedType) return observedType;
+
+  const stableIdType = memoryId.match(/^([a-z][a-z0-9]*)_[a-f0-9]{12,}$/i)?.[1];
+  return stableIdType ?? null;
 }
 
 function detailPartsForToolCall(event: TraceEventRecord): string[] | null {

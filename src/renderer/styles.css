@@ -3935,6 +3935,20 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: #101010;
 }
 
+.main-trace-event.marker-tool-observation-success .main-trace-marker span,
+.trace-filter-icon.marker-tool-observation-success {
+  border-color: #777777;
+  background: #111111;
+  color: var(--green);
+}
+
+.main-trace-event.marker-tool-observation-failure .main-trace-marker span,
+.trace-filter-icon.marker-tool-observation-failure {
+  border-color: #777777;
+  background: #111111;
+  color: var(--red);
+}
+
 .main-trace-line {
   min-width: 0;
   display: grid;

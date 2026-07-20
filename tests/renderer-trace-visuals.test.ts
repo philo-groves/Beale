@@ -5,7 +5,9 @@ import {
   DEFAULT_TRACE_CATEGORY_IDS,
   TRACE_CATEGORY_OPTIONS,
   traceCategoryBadgeLabel,
+  traceCategoryIcon,
   traceCategoryLabel,
+  traceEventIcon,
   traceEventMarkerToneClass,
   traceTypeLabel
 } from '../src/renderer/features/traces/traceVisuals';
@@ -49,7 +51,36 @@ describe('renderer trace visual helpers', () => {
       )
     ).toBe('');
   });
+
+  it('uses the request symbol and status-colored marker tone for Honeycrisp tool observations', () => {
+    const request = honeycrispToolEvent('tool.requested', 'complete');
+    const success = honeycrispToolEvent('tool.observed', 'complete');
+    const failure = honeycrispToolEvent('tool.observed', 'error', { message: 'Read failed' });
+
+    expect(traceEventIcon(request, 'non_standard').type).toBe(traceCategoryIcon('tools').type);
+    expect(traceEventIcon(success, 'tools').type).toBe(traceEventIcon(request, 'non_standard').type);
+    expect(traceEventIcon(failure, 'failure_recovery').type).toBe(traceEventIcon(request, 'non_standard').type);
+    expect(traceEventMarkerToneClass(success)).toBe('marker-tool-observation-success');
+    expect(traceEventMarkerToneClass(failure)).toBe('marker-tool-observation-failure');
+  });
 });
+
+function honeycrispToolEvent(kind: 'tool.requested' | 'tool.observed', status: string, error?: Record<string, unknown>): TraceEventRecord {
+  return traceEvent({
+    source: kind === 'tool.requested' ? 'model' : 'tool',
+    type: kind === 'tool.requested' ? 'tool_call' : 'tool_result',
+    summary: `Honeycrisp ${kind}: file.read`,
+    payload: {
+      honeycrispKind: kind,
+      payload: {
+        toolActionId: 'action_file_read',
+        toolName: 'file.read',
+        status,
+        ...(error ? { error } : {})
+      }
+    }
+  });
+}
 
 function traceEvent(overrides: Partial<TraceEventRecord>): TraceEventRecord {
   return {
