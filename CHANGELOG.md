@@ -95,6 +95,7 @@
 
 ### Removed
 
+- Removed Honeycrisp's retired events, episodes, claims, procedures, hypotheses, prospective, and scratch directory taxonomy from model-facing workspace context and new storage initialization.
 - Removed the right-side Evidence navigation pane, its footer toggle, and the collapsed sideways Trails/Evidence rail.
 - Removed the graphical Spawn trail view and its trail derivation layer; sessions now open to the list-only trace and Memory view.
 - Removed unused graph-visualization styling and dependencies from the renderer.

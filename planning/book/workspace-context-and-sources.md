@@ -28,6 +28,8 @@ Credential reference values are not copied into model-facing workspace notes. Th
 
 The workspace directory is still passed to Honeycrisp as its persistence root. It is not automatically listed as a source path or known repository.
 
+Honeycrisp storage paths and its former directory taxonomy are not model-facing workspace context. The agent receives the memory tier identity and the `memory.*` tools; the unified SQLite database and artifact directory remain runtime implementation details.
+
 Honeycrisp treats structured recorded-scope metadata as sufficient scope for ordinary in-scope research. Prompt wording does not need to repeat a labeled `Scope:` section, and the controller should ask for clarification only when the workspace has no recorded scope or a material boundary is genuinely ambiguous.
 
 ## Source Storage
