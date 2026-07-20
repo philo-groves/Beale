@@ -77,6 +77,14 @@ Subject identity comes from the operator-recorded scope owner or subject. Beale 
 
 At session start, Honeycrisp selects a small memory view from the same graph used by `memory.search` and the other memory tools. Current-session nodes are prioritized; request-relevant and recent workspace nodes retain continuity; subject nodes are included only when the request matches them or a selected node links to them. The bounded entries preserve stable ids, tier and scope identity, type, status, confidence, concise body content, asset and tag labels, evidence references, relationships, timestamps, and revisions. The model can use the unchanged memory tools for details or updates.
 
+When memory tools are present, Honeycrisp gives the agent a compact research-memory policy:
+
+- Search memory early and when research crosses system boundaries. Prefer security-sensitive code near dangerous sinks, established primitives, historical bugs, and relevant successful trajectories.
+- Record relevant historical bugs with affected assets; user-controlled ingress as sources; dangerous operations as sinks; always-true security rules as invariants; and system- or hardware-level exploitation blockers as mitigations.
+- Record reusable sequences of important research actions as trajectories, not routine narration.
+- Record an individual flaw as a primitive only after static analysis supports it and code or tool evidence is attached.
+- Record a chain only when linked sources, primitives, sinks, and assets establish end-to-end attacker reachability and security impact. Confirming a chain requires a realistic proof-of-vulnerability independently approved by a review subagent. If review is unavailable or inconclusive, the chain remains suspected.
+
 Tool schemas supplied by the agent runtime are the model's capability description. Beale and Honeycrisp do not also inject a prose or JSON tool-policy section, and storage layout is not a model context section. Enforcement remains in Honeycrisp lifecycle hooks. The `context.compiled` trace records selected memory and concise available-tool descriptors so Beale can show the exact context shape without exposing storage plumbing. Full Honeycrisp flow captures remain internal diagnostic artifacts and are not exposed through model-visible Beale artifact lookup.
 
 Repository materialization does not search for or reuse managed checkouts inside workspace directories. Source already present on disk must be added as an explicit path reference; repositories cloned by Beale use the user-global store.
@@ -85,7 +93,7 @@ When a user-authored run prompt explicitly contains a supported GitHub or GitLab
 
 ## Guidance Boundary
 
-Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Durable evidence pointers, hypotheses, and findings live in Honeycrisp's small knowledge graph; operational workbench rows share the same SQLite file without becoming a second memory model. The research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
+Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Concise assets, bugs, invariants, mitigations, sources, sinks, hypotheses, primitives, chains, procedures, trajectories, and their evidence references live in Honeycrisp's small knowledge graph; operational workbench rows share the same SQLite file without becoming a second memory model. The research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
 
 ## Pre-Alpha Schema
 

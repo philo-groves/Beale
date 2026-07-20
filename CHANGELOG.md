@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added concise memory-use guidance for Honeycrisp research sessions: search prior knowledge early, record sources, sinks, invariants, mitigations, bugs, and trajectories deliberately, require static support for primitives, and require an independently reviewed realistic proof-of-vulnerability before confirming a chain.
 - Added component-scoped, transactional SQLite migrations for the shared Honeycrisp database and user-global workspace registry, including in-place baseline adoption for existing data.
 - Added Memory and Subagents tabs to the session sidebar, including child summaries with latest activity, agent-scoped trace navigation, and a Back to Main control.
 - Added Codex-style Honeycrisp subagent orchestration with bounded concurrency, optional conversation inheritance, child model/effort selection, inter-agent messaging and follow-ups, interruption, waiting, agent-aware Beale traces, and captured child run metadata.
