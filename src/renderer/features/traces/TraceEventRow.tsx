@@ -8,6 +8,7 @@ import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
+  isHoneycrispToolObservationError,
   isProseTraceEvent,
   isPythonExecutionTraceEvent,
   reasoningTraceSummariesForEvent,
@@ -62,6 +63,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const sourceLabel = traceLabel(event.source);
   const detailText = useMemo(() => traceEventDetailText(event, category, detailForEvent), [category, detailForEvent, event]);
   const hasDetail = detailText.length > 0;
+  const toolObservationError = useMemo(() => isHoneycrispToolObservationError(event), [event]);
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
   const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
@@ -115,6 +117,10 @@ export const TraceEventRow = memo(function TraceEventRow({
                 hasSearchHighlight={hasSearchHighlight}
                 searchHighlightQuery={searchHighlightQuery}
               />
+            ) : toolObservationError && hasDetail ? (
+              <span className="main-trace-tool-error-detail">
+                {hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}
+              </span>
             ) : hasDetail ? (
               proseDetail ? (
                 <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>

@@ -123,6 +123,14 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
   return tracePayloadDetailText(event, category);
 }
 
+export function isHoneycrispToolObservationError(event: TraceEventRecord): boolean {
+  if (honeycrispToolEventKind(event) !== 'tool.observed') return false;
+  const payload = tracePayloadRecord(event.payload, 'payload');
+  if (!payload) return false;
+  const status = stringRecordValue(payload, 'status');
+  return Boolean(tracePayloadRecord(payload, 'error') || stringRecordValue(payload, 'error') || status === 'error' || status === 'blocked');
+}
+
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
   return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
 }
@@ -803,6 +811,9 @@ function startsWithTraceVerb(summary: string): boolean {
 }
 
 function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
+  const honeycrispToolDetail = honeycrispToolTraceDetailText(event);
+  if (honeycrispToolDetail !== null) return honeycrispToolDetail;
+
   const payload = event.payload;
   const parts =
     [
@@ -818,6 +829,30 @@ function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategory
       fallbackPayloadParts(payload, category)
     ].find((candidate): candidate is string[] => Boolean(candidate && candidate.length > 0)) ?? [];
   return truncateText(formatTraceDetailParts(parts), 300);
+}
+
+function honeycrispToolTraceDetailText(event: TraceEventRecord): string | null {
+  const kind = honeycrispToolEventKind(event);
+  if (kind !== 'tool.requested' && kind !== 'tool.observed') return null;
+
+  const payload = tracePayloadRecord(event.payload, 'payload');
+  if (!payload) return '';
+  const status = stringRecordValue(payload, 'status');
+  const error = tracePayloadRecord(payload, 'error');
+  const errorMessage = error ? stringRecordValue(error, 'message') : stringRecordValue(payload, 'error');
+  if (errorMessage) return errorMessage;
+  return status && status !== 'complete' ? traceLabel(status) : '';
+}
+
+function honeycrispToolEventKind(event: TraceEventRecord): string | null {
+  return (
+    tracePayloadPrimitive(event.payload, 'honeycrispKind') ??
+    (event.summary.startsWith('Honeycrisp tool.requested')
+      ? 'tool.requested'
+      : event.summary.startsWith('Honeycrisp tool.observed')
+        ? 'tool.observed'
+        : null)
+  );
 }
 
 function detailPartsForToolCall(event: TraceEventRecord): string[] | null {

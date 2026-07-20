@@ -4207,6 +4207,23 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   -webkit-line-clamp: unset;
 }
 
+.main-trace-tool-error-detail {
+  min-width: 0;
+  width: 100%;
+  display: block;
+  overflow: visible;
+  border: 0;
+  border-radius: 8px;
+  background: #3b171b;
+  color: #ff9ba2;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .main-trace-python-preview {
   min-width: 0;
   width: 100%;

@@ -114,6 +114,7 @@
 
 ### Changed
 
+- Honeycrisp tool traces no longer show identifier-heavy event-envelope metadata beneath the trace title; useful structured previews remain visible, and observation failures show only their full error message in a multiline dark-red panel.
 - Reasoning trace rows now lead with their first summary and repeat the Model source label beside each uninterrupted continuation instead of showing a redundant Reasoning title.
 - Increased primary trace and session-context typography to match the left sidebar's readable text scale while keeping metadata, badges, and controls compact.
 - Honeycrisp tool trace titles now use the specific tool name, such as Repository Search Requested or File Read Observed, instead of the generic Honeycrisp Tool label.

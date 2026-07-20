@@ -8,6 +8,7 @@ import {
   findingForTraceEvent,
   formatReasoningTraceText,
   hypothesisForTraceEvent,
+  isHoneycrispToolObservationError,
   isProseTraceEvent,
   lineRangePart,
   pythonTracePreview,
@@ -138,6 +139,45 @@ describe('renderer trace content view models', () => {
       payload: { query: 'decodeToken', matches: ['a', 'b'], filesConsidered: 14, target: 'auth' }
     });
     expect(traceEventDetailText(search, 'code_navigation')).toBe('query "decodeToken" · 2 matches · files 14 · target auth');
+
+    const honeycrispToolRequest = traceEvent({
+      type: 'tool_call',
+      source: 'tool',
+      summary: 'Honeycrisp tool.requested: repository.search',
+      payload: {
+        agentId: 'agent_root',
+        agentPath: '/root',
+        honeycrispEventId: 'evt_tool_request',
+        honeycrispKind: 'tool.requested',
+        honeycrispSequence: 12,
+        payload: {
+          toolActionId: 'action_repository_search',
+          toolName: 'repository.search',
+          normalizedInputs: { query: 'decodeToken' }
+        }
+      }
+    });
+    expect(traceEventDetailText(honeycrispToolRequest, 'code_navigation')).toBe('');
+
+    const honeycrispToolFailure = traceEvent({
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Honeycrisp tool.observed: Repository search failed.',
+      payload: {
+        agentId: 'agent_root',
+        honeycrispKind: 'tool.observed',
+        honeycrispSequence: 13,
+        payload: {
+          toolActionId: 'action_repository_search',
+          toolName: 'repository.search',
+          status: 'error',
+          error: { message: 'Repository is unavailable' }
+        }
+      }
+    });
+    expect(traceEventDetailText(honeycrispToolFailure, 'failure_recovery')).toBe('Repository is unavailable');
+    expect(isHoneycrispToolObservationError(honeycrispToolFailure)).toBe(true);
+    expect(isHoneycrispToolObservationError(honeycrispToolRequest)).toBe(false);
 
     const hypothesisTool = traceEvent({
       type: 'tool_call',
