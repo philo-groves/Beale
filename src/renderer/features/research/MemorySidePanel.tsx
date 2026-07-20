@@ -9,7 +9,7 @@ import { filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdate
 import { formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
-type MemoryTierFilter = 'all' | HoneycrispMemoryNodeSummary['tier'];
+type MemoryScopeFilter = 'all' | 'session' | 'workspace' | 'subject';
 type ResearchSideView = 'memory' | 'subagents';
 
 export const ResearchSidePanel = memo(function ResearchSidePanel({
@@ -27,16 +27,19 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 }): JSX.Element {
   const [activeView, setActiveView] = useState<ResearchSideView>('memory');
   const [query, setQuery] = useState('');
-  const [tier, setTier] = useState<MemoryTierFilter>('all');
+  const [scope, setScope] = useState<MemoryScopeFilter>('all');
   const [type, setType] = useState('all');
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
+  const currentSessionNode = nodes.find((node) => node.sessionId === runId);
+  const workspaceId = currentSessionNode?.workspaceId ?? nodes[0]?.workspaceId ?? null;
+  const subjectId = currentSessionNode?.subjectId ?? nodes.find((node) => node.workspaceId === workspaceId && node.subjectId)?.subjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events), [events]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(
-    () => filterMemoryCatalogNodes(nodes, { query, tier, type }),
-    [nodes, query, tier, type]
+    () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
+    [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
@@ -57,7 +60,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     loaded: Boolean(memory),
     nodes: nodes.length,
     visibleNodes: filteredNodes.length,
-    tier,
+    scope,
     type
   }));
 
@@ -102,14 +105,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               />
             </label>
             <div className="memory-catalog-filter-row">
-              <div className="memory-tier-filter" aria-label="Memory tier filter">
+              <div className="memory-tier-filter" aria-label="Memory context filter">
                 {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
                   <button
                     type="button"
-                    className={tier === candidate ? 'selected' : ''}
-                    aria-pressed={tier === candidate}
+                    className={scope === candidate ? 'selected' : ''}
+                    aria-pressed={scope === candidate}
                     key={candidate}
-                    onClick={() => setTier(candidate)}
+                    onClick={() => setScope(candidate)}
                   >
                     {traceLabel(candidate)}
                   </button>

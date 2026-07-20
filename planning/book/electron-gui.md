@@ -70,7 +70,7 @@ It should:
 
 - Read Honeycrisp typed memory nodes directly rather than rebuilding hypotheses, findings, and evidence into a parallel Beale model.
 - Search titles, summaries, bodies, types, statuses, scope metadata, assets, tags, and references.
-- Filter by session, workspace, or subject tier and by node type.
+- Filter by stored origin session, workspace, or subject identity and by node type. The node's reuse tier remains separate metadata shown on the record.
 - Show status, confidence, tier, revision, update time, and relationship/reference counts at a glance.
 - Expand one record inline to show its summary, body, scope metadata, assets, tags, references, and textual relationships.
 - Use `References` for supporting file, command, URL, artifact, and human-note records in the UI.

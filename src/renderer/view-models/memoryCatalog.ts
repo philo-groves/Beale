@@ -2,17 +2,27 @@ import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary } from '@
 
 export interface MemoryCatalogFilters {
   query: string;
-  tier: 'all' | HoneycrispMemoryNodeSummary['tier'];
+  scope: 'all' | 'session' | 'workspace' | 'subject';
+  sessionId: string;
+  workspaceId: string | null;
+  subjectId: string | null;
   type: string;
 }
 
 export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], filters: MemoryCatalogFilters): HoneycrispMemoryNodeSummary[] {
   const query = filters.query.trim().toLocaleLowerCase();
   return nodes.filter((node) => {
-    if (filters.tier !== 'all' && node.tier !== filters.tier) return false;
+    if (!memoryNodeMatchesScope(node, filters)) return false;
     if (filters.type !== 'all' && node.type !== filters.type) return false;
     return !query || memoryNodeSearchText(node).includes(query);
   });
+}
+
+function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: MemoryCatalogFilters): boolean {
+  if (filters.scope === 'all') return true;
+  if (filters.scope === 'session') return node.sessionId === filters.sessionId;
+  if (filters.scope === 'workspace') return filters.workspaceId !== null && node.workspaceId === filters.workspaceId;
+  return filters.subjectId !== null && node.subjectId === filters.subjectId;
 }
 
 export function groupMemoryRelationships(edges: HoneycrispMemoryEdgeSummary[]): Map<string, HoneycrispMemoryEdgeSummary[]> {
