@@ -74,6 +74,7 @@ Session heat is a good candidate for a built-in MCP-style capability: the host c
 - [x] Prototype a Honeycrisp process adapter behind Beale's existing run engine boundary.
 - [x] Launch the default Honeycrisp CLI through a plain Node runtime from Electron.
 - [x] Add bidirectional host control: process-tree pause/resume plus JSONL steering delivered to the active Honeycrisp Pi agent loop.
+- [x] Continue inactive sessions in place: steering starts a new Honeycrisp attempt under the existing Beale run and supplies the bounded prior session transcript as model context.
 - [x] Reframe Beale's no-session workspace overview around durable knowledge, artifact storage, retrieval index state, and workspace tracking.
 - [x] Unify Beale and Honeycrisp persistence in the Honeycrisp-owned workspace database and replace event-derived memory views with the durable knowledge graph.
 - [ ] Replace capture-after-exit import with live JSONL event streaming when Honeycrisp exposes it.

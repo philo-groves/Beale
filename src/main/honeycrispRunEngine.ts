@@ -3,8 +3,9 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
+import type { RunRecord, TranscriptMessageRecord, WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
+import { redactForModelText } from './redaction';
 
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
@@ -166,6 +167,7 @@ const HONEYCRISP_ESTIMATED_USAGE_SOURCE = 'Honeycrisp serialized capture estimat
 const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture estimate';
 const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
 const LIVE_THOUGHT_TRANSCRIPT_INTERVAL_MS = 1200;
+const CONTINUATION_CONTEXT_MAX_CHARS = 32_000;
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -225,10 +227,87 @@ export class HoneycrispRunEngine {
       vmContextId: context.vmContext.id
     });
 
+    return this.launchRun(context, input, scope, false);
+  }
+
+  public extendRun(runId: string, instruction: string): HoneycrispRunHandle {
+    if (this.activeRuns.has(runId)) {
+      throw new Error(`Honeycrisp run ${runId} is already active.`);
+    }
+    const detail = this.db.getRunDetail(runId);
+    const run = detail.run;
+    const scope = this.db.getScopeVersion(run.scopeVersionId);
+    const parentAttempt = detail.attempts.at(-1) ?? null;
+    const attempt = this.db.createAttempt({
+      runId,
+      parentAttemptId: parentAttempt?.id ?? null,
+      status: 'active',
+      shortState: 'Continuing the current Honeycrisp research session.',
+      strategyRole: 'session_continuation',
+      vmBackend: 'host',
+      vmImageId: 'host-machine',
+      vmSnapshotId: 'none',
+      vmState: 'host_active',
+      vmMetadata: {
+        executor: 'honeycrisp',
+        targetExecution: false,
+        hostProcess: true,
+        continuation: true,
+        honeycrispWorkspaceRoot: this.workspacePath
+      }
+    });
+    const refreshed = this.db.getRunDetail(runId);
+    const vmContext = refreshed.vmContexts.find((candidate) => candidate.id === attempt.vmContextId);
+    if (!vmContext) throw new Error(`Continuation VM context not found for run ${runId}.`);
+    const context: CreatedRunContext = { run, attempt, vmContext };
+    const continuationInput = startRunInputFromRun(run, buildContinuationPrompt(run, detail.transcriptMessages, instruction));
+
+    this.db.createModelSession({
+      runId,
+      provider: 'honeycrisp',
+      transport: 'host_process',
+      status: 'active',
+      metadata: {
+        model: run.model,
+        reasoningEffort: run.reasoningEffort,
+        continuation: true,
+        parentAttemptId: parentAttempt?.id ?? null
+      }
+    });
+    const steeringTrace = this.db.appendTraceEvent({
+      runId,
+      attemptId: attempt.id,
+      type: 'user_note',
+      source: 'user',
+      summary: 'User steering extended the current research session.',
+      payload: { instruction: redactForModelText(instruction), continuation: true },
+      vmContextId: vmContext.id
+    });
+    this.db.createTranscriptMessage({
+      runId,
+      attemptId: attempt.id,
+      traceEventId: steeringTrace.id,
+      role: 'user',
+      contentMarkdown: instruction,
+      source: 'user_steering',
+      metadata: { continuation: true }
+    });
+    this.db.updateRunStatus(runId, 'active', 'Continuing the current Honeycrisp research session.');
+
+    return this.launchRun(context, continuationInput, scope, true);
+  }
+
+  private launchRun(
+    context: CreatedRunContext,
+    input: StartRunInput,
+    scope: WorkspaceScopeVersion,
+    continuation: boolean
+  ): HoneycrispRunHandle {
     const invocation = resolveHoneycrispInvocation();
     const runDirectory = join(this.workspacePath, '.beale', 'honeycrisp-runs');
-    const capturePath = join(runDirectory, `${context.run.id}.capture.json`);
-    const workspaceContextPath = join(runDirectory, `${context.run.id}.workspace-context.json`);
+    const fileStem = continuation ? `${context.run.id}.${context.attempt.id}` : context.run.id;
+    const capturePath = join(runDirectory, `${fileStem}.capture.json`);
+    const workspaceContextPath = join(runDirectory, `${fileStem}.workspace-context.json`);
     writeHoneycrispWorkspaceContext(scope, this.workspacePath, workspaceContextPath);
     const args = [
       ...invocation.prefixArgs,
@@ -239,14 +318,15 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       type: 'vm_event',
       source: 'executor',
-      summary: 'Honeycrisp host process launched.',
+      summary: continuation ? 'Honeycrisp host process launched to continue the current session.' : 'Honeycrisp host process launched.',
       payload: {
         command: invocation.command,
         args: redactHoneycrispArgs(args),
         cwd: invocation.cwd,
         configuredBy: invocation.configuredBy,
         capturePath,
-        workspaceContextPath
+        workspaceContextPath,
+        continuation
       },
       vmContextId: context.vmContext.id
     });
@@ -891,6 +971,60 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
   return args;
 }
 
+function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunInput {
+  return {
+    promptMarkdown,
+    mode: run.mode,
+    attemptStrategy: run.attemptStrategy,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    networkProfile: run.networkProfile,
+    sandboxProfile: run.sandboxProfile,
+    targetAssetId: run.targetAssetId,
+    targetPath: run.targetPath,
+    budget: {
+      maxMinutes: finiteRecordNumber(run.budget, 'maxMinutes', 1),
+      maxAttempts: finiteRecordNumber(run.budget, 'maxAttempts', 1),
+      maxCostUsd: finiteRecordNumber(run.budget, 'maxCostUsd', 0)
+    },
+    runEngine: 'honeycrisp'
+  };
+}
+
+function buildContinuationPrompt(run: RunRecord, messages: readonly TranscriptMessageRecord[], instruction: string): string {
+  const originalRequest = run.promptMarkdown.trim().slice(0, CONTINUATION_CONTEXT_MAX_CHARS / 2);
+  const priorTurns = messages
+    .filter((message) => message.source === 'honeycrisp' || message.source === 'user_steering')
+    .map((message) => `${message.role === 'assistant' ? 'Agent' : 'User'}:\n${message.contentMarkdown.trim()}`)
+    .filter((message) => message.length > 0);
+  const retainedTurns: string[] = [];
+  let retainedChars = originalRequest.length;
+  for (let index = priorTurns.length - 1; index >= 0; index -= 1) {
+    const turn = priorTurns[index];
+    if (!turn) continue;
+    const remainingChars = CONTINUATION_CONTEXT_MAX_CHARS - retainedChars;
+    if (remainingChars <= 0) break;
+    if (turn.length > remainingChars) {
+      retainedTurns.unshift(`[Earlier content omitted]\n${turn.slice(-remainingChars)}`);
+      break;
+    }
+    retainedTurns.unshift(turn);
+    retainedChars += turn.length;
+  }
+  return [
+    instruction.trim(),
+    '',
+    '## Existing session context',
+    `Original request:\n${originalRequest}`,
+    ...(retainedTurns.length > 0 ? ['', ...retainedTurns] : [])
+  ].join('\n');
+}
+
+function finiteRecordNumber(record: Record<string, unknown>, key: string, fallback: number): number {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 function signalHoneycrispProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): boolean {
   if (process.platform !== 'win32' && child.pid) {
     try {
@@ -1178,7 +1312,7 @@ function bealeHoneycrispRuntimeArgs(): string[] {
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {
-  const sensitiveFlags = new Set(['--config']);
+  const sensitiveFlags = new Set(['--config', '-p']);
   const redacted: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

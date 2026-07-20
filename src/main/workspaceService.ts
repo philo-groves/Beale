@@ -1109,7 +1109,7 @@ export class WorkspaceService {
     if (!run) {
       throw new Error(`Run not found: ${action.runId}`);
     }
-    const attempt = db.getFirstAttempt(action.runId);
+    const attempt = db.getRunDetail(action.runId).attempts.at(-1) ?? null;
     const runEngine = stringFromRecord(run.budget, 'runEngine');
 
     switch (action.type) {
@@ -1137,7 +1137,7 @@ export class WorkspaceService {
       case 'resume': {
         const instruction = action.instruction?.trim();
         if (run.status !== 'paused') {
-          throw new Error(`Only paused runs can be resumed. Continue terminal runs in a new session.`);
+          throw new Error(`Only paused runs can be resumed. Use steering to continue an inactive session.`);
         }
         if (instruction && runEngine === 'honeycrisp' && !this.honeycrispEngine?.steer(action.runId, instruction)) {
           throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
@@ -1180,18 +1180,27 @@ export class WorkspaceService {
         if (!instruction) {
           throw new Error('Steering instruction cannot be empty.');
         }
-        const deliveredToHoneycrisp =
-          runEngine !== 'honeycrisp' || Boolean(this.honeycrispEngine?.steer(action.runId, instruction));
-        if (!deliveredToHoneycrisp) {
-          throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
+        const deliveredToActiveHoneycrisp = runEngine === 'honeycrisp' && Boolean(this.honeycrispEngine?.steer(action.runId, instruction));
+        if (runEngine === 'honeycrisp' && !deliveredToActiveHoneycrisp) {
+          this.requireHoneycrispEngine().extendRun(action.runId, instruction);
+          break;
         }
-        db.appendTraceEvent({
+        const steeringTrace = db.appendTraceEvent({
           runId: action.runId,
           attemptId: attempt?.id ?? null,
           type: 'user_note',
           source: 'user',
           summary: 'User steering added to current run.',
-          payload: { instruction: redactForModelText(instruction), deliveredToHoneycrisp: runEngine === 'honeycrisp' }
+          payload: { instruction: redactForModelText(instruction), deliveredToHoneycrisp: deliveredToActiveHoneycrisp }
+        });
+        db.createTranscriptMessage({
+          runId: action.runId,
+          attemptId: attempt?.id ?? null,
+          traceEventId: steeringTrace.id,
+          role: 'user',
+          contentMarkdown: instruction,
+          source: 'user_steering',
+          metadata: { deliveredToHoneycrisp: deliveredToActiveHoneycrisp }
         });
         if (runEngine === 'fixture' && run.status === 'paused') {
           if (attempt) db.updateAttemptState(attempt.id, 'active', 'User steering added to current run.');

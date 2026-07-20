@@ -505,6 +505,79 @@ describe('Beale workbench skeleton', () => {
     }
   });
 
+  it('extends a completed Honeycrisp session in place with prior transcript context', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-continuing-honeycrisp.mjs');
+    const invocationLogPath = join(workspace, 'invocations.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [invocationLogPath, ...args] = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const prompt = args[args.indexOf('-p') + 1];",
+        "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
+        'const turn = priorCount + 1;',
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, turn }) + '\\n');",
+        'const now = new Date().toISOString();',
+        'const capture = {',
+        '  schemaVersion: 2,',
+        '  capturedAt: now,',
+        '  request: { prompt },',
+        "  agent: { id: `agent_${turn}`, status: 'complete', executorName: 'continuation-fixture', startedAt: now, completedAt: now, outputText: `Turn ${turn} response.` },",
+        '  eventTimeline: []',
+        '};',
+        "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('adaptive_portfolio'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Research the ZFTP module for memory-safety vulnerabilities.',
+        model: 'fixture-model',
+        reasoningEffort: 'minimal'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+      service.steerRun({ type: 'steer', runId, instruction: 'Now inspect integer truncation paths.' });
+      expect(service.getSnapshot()?.runs).toHaveLength(1);
+      expect(service.getRunDetail(runId).run.status).toBe('active');
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+      const detail = service.getRunDetail(runId);
+      const invocations = readFileSync(invocationLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { capturePath: string; prompt: string; turn: number });
+      expect(detail.run.id).toBe(runId);
+      expect(detail.attempts).toHaveLength(2);
+      expect(detail.modelSessions).toHaveLength(2);
+      expect(detail.modelSessions.map((session) => session.status)).toEqual(['completed', 'completed']);
+      expect(detail.transcriptMessages.map((message) => message.contentMarkdown)).toEqual(
+        expect.arrayContaining(['Now inspect integer truncation paths.', 'Turn 1 response.', 'Turn 2 response.'])
+      );
+      expect(invocations).toHaveLength(2);
+      expect(invocations[1]?.capturePath).not.toBe(invocations[0]?.capturePath);
+      expect(invocations[1]?.prompt).toContain('Now inspect integer truncation paths.');
+      expect(invocations[1]?.prompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
+      expect(invocations[1]?.prompt).toContain('Turn 1 response.');
+      expect(detail.traceEvents.some((event) => event.summary === 'User steering extended the current research session.')).toBe(true);
+    } finally {
+      service.close();
+    }
+  });
+
   it('runs the default Honeycrisp CLI through a plain Node runtime', async () => {
     const workspace = tempWorkspace();
     const honeycrispRoot = tempWorkspace();

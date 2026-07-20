@@ -3967,7 +3967,7 @@ export class WorkspaceDatabase {
   }
 
   public updateModelSessionByRun(runId: string, patch: { previousResponseId?: string | null; status?: string; metadata?: Record<string, unknown> }): void {
-    const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId));
+    const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(runId));
     if (!existing) return;
     const nextPreviousResponseId = Object.prototype.hasOwnProperty.call(patch, 'previousResponseId')
       ? patch.previousResponseId ?? null

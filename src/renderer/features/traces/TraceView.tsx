@@ -625,9 +625,9 @@ const MainSteerArea = memo(function MainSteerArea({
       return;
     }
     onSessionAction({
-      type: 'fork',
+      type: 'steer',
       runId,
-      instruction: trimmedInstruction || 'Continue this research in a new session from the prior session context.'
+      instruction: trimmedInstruction || 'Continue the current research session.'
     });
     setInstruction('');
   };
@@ -653,7 +653,7 @@ const MainSteerArea = memo(function MainSteerArea({
               </button>
             </>
           ) : (
-            <button type="button" className="main-session-control-button primary" title={status === 'paused' ? 'Resume this session' : 'Continue in a new session'} disabled={controlsDisabled} onClick={continueSession}>
+            <button type="button" className="main-session-control-button primary" title={status === 'paused' ? 'Resume this session' : 'Continue this session'} disabled={controlsDisabled} onClick={continueSession}>
               <Play size={12} />
               <span>Continue</span>
             </button>
