@@ -97,6 +97,7 @@
 
 ### Removed
 
+- Removed the retired Honeycrisp `evidenceExtracted` and `claimsProposed` tool-observation fields and Beale's repository-search fallback; structured tool results are now the sole source of observation data.
 - Removed compatibility for Honeycrisp's retired derived-memory, proof, context-packet-v2, and pre-tier graph schemas; Beale now uses only the tiered graph-memory schema and schema-v4 capture contract.
 - Removed the footer momentum snake and strawberry, host-device label, and persistent notification icon. Context usage, session tokens, and Settings now form a compact lower-left cluster, while notifications continue to appear as transient alerts.
 - Removed Honeycrisp's retired events, episodes, claims, procedures, hypotheses, prospective, and scratch directory taxonomy from model-facing workspace context and new storage initialization.

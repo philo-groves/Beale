@@ -462,7 +462,7 @@ function honeycrispRepositorySearchPreview(event: TraceEventRecord): SearchTrace
   const result = tracePayloadRecord(toolPayload, 'result');
   const inputs = tracePayloadRecord(toolPayload, 'normalizedInputs');
   const query = stringRecordValue(result ?? {}, 'query') ?? stringRecordValue(inputs ?? {}, 'query');
-  const matches = tracePayloadArray(result ?? {}, 'matches') ?? tracePayloadArray(toolPayload, 'evidenceExtracted');
+  const matches = tracePayloadArray(result ?? {}, 'matches');
   const roots = tracePayloadArray(result ?? {}, 'roots');
   const matchCount = matches?.length ?? 0;
   const path = stringRecordValue(inputs ?? {}, 'path') ?? firstStringArrayValue(roots);
