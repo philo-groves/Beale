@@ -39,8 +39,7 @@ describe('renderer session heat view models', () => {
 
   it('computes general research intensity from Honeycrisp memory state', () => {
     const memory = honeycrispMemory({
-      findingStatus: 'supported',
-      proofResult: 'pass'
+      findingStatus: 'confirmed'
     });
 
     expect(sessionHeatForHoneycrispMemory(memory)).toBe('high');
@@ -48,7 +47,7 @@ describe('renderer session heat view models', () => {
   });
 
   it('lets Beale vulnerability-specific rows boost Honeycrisp general heat', () => {
-    const memory = honeycrispMemory({ findingStatus: 'supported', proofResult: null });
+    const memory = honeycrispMemory({ findingStatus: 'suspected' });
     const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
 
     expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory, findings: [finding] }))).toBe('critical');
@@ -90,82 +89,25 @@ function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisReco
   } as unknown as HypothesisRecord;
 }
 
-function honeycrispMemory(input: { findingStatus: string; proofResult: string | null }): HoneycrispMemorySummary {
+function honeycrispMemory(input: { findingStatus: string }): HoneycrispMemorySummary {
   return {
     status: 'ready',
     source: 'honeycrisp_sqlite',
-    records: {
-      evidence: [
-        {
-          id: 'mem_evidence',
-          kind: 'evidence',
-          status: 'confirmed',
-          title: 'Evidence',
-          summary: 'Evidence',
-          detail: 'Evidence',
-          confidence: 1,
-          goalId: null,
-          subGoalId: null,
-          sourceEventIds: [],
-          tags: [],
-          updatedAt: null,
-          domainLabels: [],
-          domainMetadata: {},
-          raw: {}
-        }
-      ],
-      episodes: [],
-      semanticClaims: [],
-      hypotheses: [],
-      findings: [
-        {
-          id: 'mem_finding',
-          kind: 'finding',
-          status: input.findingStatus,
-          title: 'General finding',
-          summary: 'General finding',
-          detail: 'General finding',
-          confidence: 0.9,
-          goalId: null,
-          subGoalId: null,
-          sourceEventIds: [],
-          tags: [],
-          updatedAt: null,
-          domainLabels: [],
-          domainMetadata: {},
-          raw: {}
-        }
-      ],
-      beliefs: [],
-      procedures: [],
-      prospectiveChecks: [],
-      working: []
-    },
-    proof: {
-      obligationCount: 1,
-      attemptCount: input.proofResult ? 1 : 0,
-      obligationStatusCounts: { open: 1 },
-      attemptStatusCounts: input.proofResult ? { completed: 1 } : {},
-      resultCounts: input.proofResult ? { [input.proofResult]: 1 } : {},
-      obligations: [],
-      attempts: input.proofResult
-        ? [
-            {
-              id: 'proof_attempt',
-              obligationId: 'proof_obl',
-              status: 'completed',
-              result: input.proofResult,
-              methodKind: 'empirical_reproduction',
-              methodName: 'Fixture',
-              summary: 'Proof passed',
-              verifier: null,
-              evidenceRefIds: [],
-              sourceEventIds: [],
-              updatedAt: null,
-              raw: {}
-            }
-          ]
-        : []
-    }
+    nodes: [{
+      id: 'finding_test',
+      type: 'finding',
+      title: 'General finding',
+      summary: 'General finding',
+      body: '',
+      status: input.findingStatus,
+      confidence: 0.9,
+      assetIds: [],
+      tags: [],
+      attributes: {},
+      evidenceRefs: [{ id: 'evidence_test', kind: 'code', pathBase: 'repository', path: 'src/parser.ts', locator: {}, summary: 'Evidence', createdAt: '2026-01-01T00:00:00.000Z' }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      revision: 1
+    }]
   } as unknown as HoneycrispMemorySummary;
 }

@@ -2,10 +2,8 @@ import type { JSX, ReactNode } from 'react';
 import { Boxes, Database, FolderOpen, GitBranch, Network } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
-  HoneycrispMemoryRecordSummary,
+  HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
-  HoneycrispProofAttemptSummary,
-  HoneycrispProofObligationSummary,
   WorkspaceScopeVersion,
   ScopeAsset
 } from '@shared/types';
@@ -26,12 +24,13 @@ export function WorkspaceUnderstandingView({
 }): JSX.Element {
   const inScopeAssets = scope?.assets.filter((asset) => asset.direction === 'in_scope') ?? [];
   const repositoryAssets = inScopeAssets.filter((asset) => asset.kind === 'repo').slice(0, 6);
+  const findings = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
   return (
     <div className="workspace-understanding-workspace" aria-label="Honeycrisp Memory">
       <div className="workspace-understanding-scroll">
         <div className="workspace-understanding-summary-grid" aria-label="Workspace summary">
-          <SummaryTile icon={<Database size={17} />} label="Durable Memory" value={`${formatCount(honeycrispMemory?.recordCount ?? 0)} records`} detail={`${formatCount(honeycrispMemory?.eventCount ?? 0)} accepted events`} />
-          <SummaryTile icon={<GitBranch size={17} />} label="Findings" value={formatCount(honeycrispMemory?.records.findings.length ?? 0)} detail={`${formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} proof attempts`} />
+          <SummaryTile icon={<Database size={17} />} label="Durable Knowledge" value={`${formatCount(honeycrispMemory?.nodeCount ?? 0)} nodes`} detail={`${formatCount(honeycrispMemory?.edgeCount ?? 0)} relationships`} />
+          <SummaryTile icon={<GitBranch size={17} />} label="Findings" value={formatCount(findings.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} evidence references`} />
           <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
           <SummaryTile icon={<Network size={17} />} label="Workspace Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active workspace'} />
         </div>
@@ -40,37 +39,33 @@ export function WorkspaceUnderstandingView({
           <section className="workspace-understanding-section workspace-understanding-section-wide" aria-label="Honeycrisp memory">
             <SectionHeader icon={<Database size={16} />} title="Honeycrisp Memory" status={honeycrispMemory?.status ?? 'missing'} />
             <div className="workspace-understanding-metric-grid">
-              <MetricCell label="Accepted Events" value={formatCount(honeycrispMemory?.eventCount ?? 0)} />
-              <MetricCell label="Memory Records" value={formatCount(honeycrispMemory?.recordCount ?? 0)} />
-              <MetricCell label="Claim Edges" value={formatCount(honeycrispMemory?.claimGraphEdgeCount ?? 0)} />
-              <MetricCell label="Artifact Refs" value={formatCount(honeycrispMemory?.artifactRefCount ?? 0)} />
+              <MetricCell label="Knowledge Nodes" value={formatCount(honeycrispMemory?.nodeCount ?? 0)} />
+              <MetricCell label="Relationships" value={formatCount(honeycrispMemory?.edgeCount ?? 0)} />
+              <MetricCell label="Evidence Refs" value={formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} />
               <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
               <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
-              <MetricCell label="Findings" value={formatCount(honeycrispMemory?.records.findings.length ?? 0)} />
-              <MetricCell label="Proof Attempts" value={formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} />
+              <MetricCell label="Findings" value={formatCount(findings.length)} />
             </div>
             <KeyValueRows
               rows={[
                 ['Source', traceLabel(honeycrispMemory?.source ?? 'none')],
                 ['Database', honeycrispMemory?.databasePath ?? 'Not initialized'],
                 ['Storage Root', honeycrispMemory?.storageRoot ?? 'Not initialized'],
-                ['Latest Event', formatNullableDate(honeycrispMemory?.latestEventAt)],
-                ['Latest Record', formatNullableDate(honeycrispMemory?.latestRecordUpdatedAt)]
+                ['Latest Node', formatNullableDate(honeycrispMemory?.latestNodeUpdatedAt)]
               ]}
             />
             {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
             <div className="workspace-understanding-list-grid">
-              <CountList title="Event Kinds" counts={honeycrispMemory?.eventKindCounts} />
-              <CountList title="Record Kinds" counts={honeycrispMemory?.recordKindCounts} />
-              <CountList title="Record Statuses" counts={honeycrispMemory?.recordStatusCounts} />
+              <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} />
+              <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} />
             </div>
             <div className="workspace-understanding-list-grid">
-              <MemoryRecordList title="Evidence" records={honeycrispMemory?.records.evidence ?? []} />
-              <MemoryRecordList title="Hypotheses" records={honeycrispMemory?.records.hypotheses ?? []} />
-              <MemoryRecordList title="Findings" records={honeycrispMemory?.records.findings ?? []} />
-              <MemoryRecordList title="Procedures" records={honeycrispMemory?.records.procedures ?? []} />
-              <MemoryRecordList title="Prospective Checks" records={honeycrispMemory?.records.prospectiveChecks ?? []} />
-              <ProofStateList obligations={honeycrispMemory?.proof.obligations ?? []} attempts={honeycrispMemory?.proof.attempts ?? []} />
+              <MemoryNodeList title="Assets and Boundaries" nodes={nodesByType(honeycrispMemory, ['asset', 'source', 'sink'])} />
+              <MemoryNodeList title="Hypotheses" nodes={nodesByType(honeycrispMemory, ['hypothesis'])} />
+              <MemoryNodeList title="Findings and Bugs" nodes={nodesByType(honeycrispMemory, ['finding', 'bug'])} />
+              <MemoryNodeList title="Invariants and Mitigations" nodes={nodesByType(honeycrispMemory, ['invariant', 'mitigation'])} />
+              <MemoryNodeList title="Primitives and Chains" nodes={nodesByType(honeycrispMemory, ['primitive', 'chain'])} />
+              <MemoryNodeList title="Procedures and Trajectories" nodes={nodesByType(honeycrispMemory, ['procedure', 'trajectory'])} />
             </div>
             <StorageDirectoryList busy={busy} directories={honeycrispMemory?.directories ?? []} onOpenDirectory={onOpenHoneycrispMemoryDirectory} />
           </section>
@@ -85,8 +80,8 @@ export function WorkspaceUnderstandingView({
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
                 ['Sessions', formatCount(runCount)],
-                ['Honeycrisp Findings', formatCount(honeycrispMemory?.records.findings.length ?? 0)],
-                ['Proof Attempts', formatCount(honeycrispMemory?.proof.attemptCount ?? 0)]
+                ['Honeycrisp Findings', formatCount(findings.length)],
+                ['Evidence References', formatCount(honeycrispMemory?.evidenceRefCount ?? 0)]
               ]}
             />
             <CountList title="Asset Types" counts={assetKindCounts(inScopeAssets)} />
@@ -156,16 +151,16 @@ function CountList({ counts, title }: { counts: Record<string, number> | null | 
   );
 }
 
-function MemoryRecordList({ records, title }: { records: HoneycrispMemoryRecordSummary[]; title: string }): JSX.Element {
+function MemoryNodeList({ nodes, title }: { nodes: HoneycrispMemoryNodeSummary[]; title: string }): JSX.Element {
   return (
     <div className="workspace-understanding-count-list">
       <h4>{title}</h4>
-      {records.length > 0 ? (
+      {nodes.length > 0 ? (
         <ul>
-          {records.slice(0, 5).map((record) => (
-            <li key={record.id}>
-              <span title={record.detail}>{truncateText(record.title || record.summary || record.id, 64)}</span>
-              <strong title={record.status}>{traceLabel(record.status)}</strong>
+          {nodes.slice(0, 5).map((node) => (
+            <li key={node.id}>
+              <span title={node.summary || node.body}>{truncateText(node.title || node.summary || node.id, 64)}</span>
+              <strong title={node.status}>{traceLabel(node.status)}</strong>
             </li>
           ))}
         </ul>
@@ -176,42 +171,8 @@ function MemoryRecordList({ records, title }: { records: HoneycrispMemoryRecordS
   );
 }
 
-function ProofStateList({
-  attempts,
-  obligations
-}: {
-  attempts: HoneycrispProofAttemptSummary[];
-  obligations: HoneycrispProofObligationSummary[];
-}): JSX.Element {
-  const rows = [
-    ...attempts.slice(0, 3).map((attempt) => ({
-      id: attempt.id,
-      label: attempt.summary || attempt.methodName || attempt.id,
-      status: attempt.result ?? attempt.status
-    })),
-    ...obligations.slice(0, Math.max(0, 5 - attempts.length)).map((obligation) => ({
-      id: obligation.id,
-      label: obligation.question || obligation.id,
-      status: obligation.status
-    }))
-  ];
-  return (
-    <div className="workspace-understanding-count-list">
-      <h4>Proof State</h4>
-      {rows.length > 0 ? (
-        <ul>
-          {rows.map((row) => (
-            <li key={row.id}>
-              <span title={row.label}>{truncateText(row.label, 64)}</span>
-              <strong title={row.status}>{traceLabel(row.status)}</strong>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>No proof state yet.</p>
-      )}
-    </div>
-  );
+function nodesByType(memory: HoneycrispMemorySummary | null, types: string[]): HoneycrispMemoryNodeSummary[] {
+  return memory?.nodes.filter((node) => types.includes(node.type)) ?? [];
 }
 
 function KeyValueRows({ rows }: { rows: Array<[string, string]> }): JSX.Element {

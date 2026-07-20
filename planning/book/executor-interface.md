@@ -166,7 +166,7 @@ Rules:
 
 - Imports are explicit trace events.
 - Imports should be read-only where practical.
-- Host `.beale/beale.sqlite` is never imported.
+- The host workspace database is never imported.
 - Host credential stores are never imported.
 - Broad host directory mounts are prohibited.
 

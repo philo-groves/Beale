@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added a Honeycrisp-owned durable knowledge graph with typed nodes, directed relationships, asset links, tags, evidence references, and optimistic revisions.
+
 - Added live Honeycrisp host controls: pause/resume preserves the active process tree, and general steering is delivered over a schema-versioned JSONL control stream to the next model turn.
 - Added automatic context graph refresh for stale program overview snapshots and a manual refresh control in the Honeycrisp Memory view.
 - Added per-row file explorer controls for Honeycrisp memory storage directories.
@@ -89,6 +91,8 @@
 
 ### Removed
 
+- Removed Beale's Honeycrisp memory CLI/raw-SQLite fallback chain and the event-derived record/proof vocabulary from workspace memory views.
+
 - Removed pre-alpha compatibility paths: the 19-step workspace database migration ladder, legacy Beale-to-Honeycrisp memory export, path-based session ownership, old `Program*` API aliases, and workspace-local managed checkout discovery.
 - Removed the mandatory `beale-skeptical-triage` Honeycrisp skill and its workspace-generated runbook; research triage is now owned by the selected model unless the user explicitly selects additional guidance.
 - Removed Beale-managed VM/Docker sandbox setup, executor runtime, vmctl tooling, and Settings > Sandboxes. Beale now treats Honeycrisp execution as host-process execution; users should launch Beale/Honeycrisp inside their own VM or container when OS isolation is required.
@@ -96,6 +100,9 @@
 - Removed Beale's parallel fake/OpenAI research-agent runtime and structured-tool router. New research sessions now route through Honeycrisp, with a guarded fixture engine retained only for deterministic tests.
 
 ### Changed
+
+- Unified Beale and Honeycrisp workspace persistence in `.honeycrisp/memory/memory.sqlite`, making desktop and future headless operation schema-compatible without data copying.
+- Changed durable memory to explicit model-managed reusable knowledge; run events, transcripts, goals, and bulk artifacts are no longer automatically promoted into memory.
 
 - Renamed renderer, IPC, registry, shared-type, profiling, and SQLite vocabulary from programs to workspaces and authorized scopes; the fresh schema now uses `workspaces`, `scope_versions`, `workspace_name`, `scope_owner`, and `registry_workspace_id`.
 - Changed the global registry filename to `workspace-registry.sqlite` so the clean pre-alpha schema does not open or partially modify an incompatible legacy `registry.sqlite` database.

@@ -964,30 +964,6 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   };
 }
 
-export function invokeHoneycrispMemoryCommand(workspacePath: string, args: string[]): Record<string, unknown> {
-  const invocation = resolveHoneycrispInvocation();
-  const fullArgs = [
-    ...invocation.prefixArgs,
-    'memory',
-    ...args,
-    '--workspace-root',
-    workspacePath,
-    '--json'
-  ];
-  const result = spawnSync(invocation.command, fullArgs, {
-    cwd: invocation.cwd,
-    encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' },
-    timeout: 10_000,
-    windowsHide: true
-  });
-  if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || 'Honeycrisp memory command failed.').trim();
-    throw new Error(`Honeycrisp memory steering failed: ${detail}`);
-  }
-  return parseHoneycrispJsonCommandOutput(result.stdout, 'Honeycrisp memory steering');
-}
-
 export function invokeHoneycrispToolsList(workspacePath: string): Record<string, unknown> {
   const invocation = resolveHoneycrispInvocation();
   const fullArgs = [

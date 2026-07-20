@@ -60,8 +60,8 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
     stringValue(payload.activeSubGoalId) ??
     latestEvent?.subGoalId ??
     'None';
-  const findingRecords = honeycrispMemory?.records.findings ?? [];
-  const proofAttempts = honeycrispMemory?.proof.attempts ?? [];
+  const findingNodes = honeycrispMemory?.nodes.filter((node) => node.type === 'finding') ?? [];
+  const evidenceRefCount = findingNodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
 
   return (
     <div className="context-session-workspace" aria-label="Context view">
@@ -69,7 +69,7 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
         <div className="context-session-summary-grid" aria-label="Context summary">
           <SummaryTile
             icon={<Database size={17} />}
-            label="SQLite Log"
+            label="Workspace DB"
             value={traceLabel(status)}
             detail={state?.databasePath ? truncateText(state.databasePath, 84) : 'Waiting for workspace'}
           />
@@ -94,14 +94,14 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           <SummaryTile
             icon={<Database size={17} />}
             label="Findings"
-            value={formatCount(findingRecords.length)}
-            detail={findingRecords[0]?.title ? truncateText(findingRecords[0].title, 84) : 'None'}
+            value={formatCount(findingNodes.length)}
+            detail={findingNodes[0]?.title ? truncateText(findingNodes[0].title, 84) : 'None'}
           />
           <SummaryTile
             icon={<ListChecks size={17} />}
-            label="Proof"
-            value={`${formatCount(honeycrispMemory?.proof.obligationCount ?? 0)} obligations`}
-            detail={`${formatCount(honeycrispMemory?.proof.attemptCount ?? 0)} attempts`}
+            label="Evidence"
+            value={`${formatCount(evidenceRefCount)} finding refs`}
+            detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} total references`}
           />
         </div>
 
@@ -140,11 +140,11 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
           <section className="context-session-section" aria-label="Honeycrisp findings">
             <SectionHeader icon={<Database size={16} />} title="Honeycrisp Findings" status={honeycrispMemory?.source ?? 'none'} />
             <RecordList
-              records={findingRecords.map((record) => ({
-                id: record.id,
-                title: record.title,
-                detail: record.detail,
-                status: record.status
+              records={findingNodes.map((node) => ({
+                id: node.id,
+                title: node.title,
+                detail: node.summary || node.body,
+                status: node.status
               }))}
               emptyLabel="No Honeycrisp findings"
               primaryKeys={['title', 'id']}
@@ -152,18 +152,19 @@ export function ContextSessionView({ honeycrispMemory, selectedRunId }: { honeyc
             />
           </section>
 
-          <section className="context-session-section" aria-label="Honeycrisp proof state">
-            <SectionHeader icon={<ListChecks size={16} />} title="Proof State" />
+          <section className="context-session-section" aria-label="Honeycrisp knowledge relationships">
+            <SectionHeader icon={<ListChecks size={16} />} title="Knowledge Relationships" />
             <RecordList
-              records={proofAttempts.map((attempt) => ({
-                id: attempt.id,
-                result: attempt.result ?? attempt.status,
-                summary: attempt.summary,
-                method: attempt.methodName || attempt.methodKind
+              records={(honeycrispMemory?.edges ?? []).map((edge) => ({
+                id: `${edge.fromId}:${edge.relation}:${edge.toId}`,
+                relation: edge.relation,
+                from: edge.fromId,
+                to: edge.toId,
+                note: edge.note
               }))}
-              emptyLabel="No proof attempts"
-              primaryKeys={['summary', 'id']}
-              secondaryKeys={['result', 'method']}
+              emptyLabel="No knowledge relationships"
+              primaryKeys={['relation', 'id']}
+              secondaryKeys={['note', 'from', 'to']}
             />
           </section>
 

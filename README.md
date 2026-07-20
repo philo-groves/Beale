@@ -41,7 +41,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Key Concepts
 
-- **Workspaces**: Local research contexts with `.beale/` metadata, an authorized scope, and references to relevant source material
+- **Workspaces**: Local authorized research contexts with a Honeycrisp-owned SQLite database, Beale artifacts, and references to relevant source material
 - **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
 - **Trace & Evidence**: Timeline of model thoughts vs. real observations, hypothesis board, validated findings
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
@@ -51,10 +51,10 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Architecture (High-Level)
 
-- **Trusted Host** (Electron main): Credentials, SQLite trace DB, policy enforcement, artifact acceptance
+- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and desktop access to the Honeycrisp-owned workspace database
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
 - **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
-- **Agent Integration**: Honeycrisp launches as the research engine; Beale imports captures and displays trace, memory, context, proof, storage, and artifacts
+- **Agent Integration**: Honeycrisp launches as the research engine; Beale and headless Honeycrisp use the same workspace database and Beale displays traces, durable knowledge, context, and artifacts
 
 ---
 
@@ -62,7 +62,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - Electron + Vite + TypeScript foundation
 - User-global registry of local Beale workspaces
-- SQLite-backed research session persistence under `.beale/`
+- Unified Honeycrisp-owned SQLite persistence at `.honeycrisp/memory/memory.sqlite`
 - Honeycrisp-backed research session execution
 - Trace UI with model, tool, system, hypothesis, finding, evidence, and compaction events
 - Session transcripts persisted separately from trace metadata
@@ -75,7 +75,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp is the source of truth for general agent state: goals, subgoals, memory events, hypotheses, evidence, findings, proof obligations, proof attempts, storage refs, context usage, and tool traces. Beale keeps the researcher interface, workspace and authorized-scope setup, prompt planning, visualization, heatmap presentation, and vulnerability-specific disclosure/export/report workflows.
+Honeycrisp's `.honeycrisp/memory/memory.sqlite` is the single workspace database for both headless and Beale-driven research. Operational session data and the durable knowledge graph share that database, but remain conceptually separate. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, goals, and bulk outputs are not memory. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
 
 Beale is pre-alpha and uses one current schema without compatibility migrations. Workspaces created with earlier schemas should be recreated rather than opened with the current build.
 

@@ -6,7 +6,7 @@ Status: branch direction for `harness/honeycrisp`, 2026-06-25.
 
 Beale should integrate Honeycrisp as a host-side research agent dependency.
 
-Honeycrisp should not contain Beale-specific references. Beale owns the Electron workbench, process lifecycle, user safety controls, workspace selection, and renderer UX. Honeycrisp owns the general research runtime, memory, tools, storage, and model loop.
+Honeycrisp should not contain Beale-specific references. Beale owns the Electron workbench, process lifecycle, user safety controls, workspace selection, and renderer UX. Honeycrisp owns the general research runtime, durable knowledge contract, tools, storage, model loop, and workspace database path. Beale stores its operational tables in that same database.
 
 ## Product Shape
 
@@ -41,7 +41,7 @@ The Beale-to-Honeycrisp boundary should prefer a small structured protocol that 
 
 - Start, stop, pause, resume, and steer a run.
 - Stream JSONL or equivalent structured events.
-- Surface model messages, tool calls, tool results, memory updates, storage artifact references, findings, and notifications.
+- Surface model messages, tool calls, tool results, durable knowledge updates, storage artifact references, findings, and notifications.
 - Expose host configuration and readiness errors before starting a run.
 - Preserve artifact paths and durable memory ids without assuming Beale owns Honeycrisp storage internals.
 
@@ -67,6 +67,7 @@ Session heat is a good candidate for a built-in MCP-style capability: the host c
 - [x] Prototype a Honeycrisp process adapter behind Beale's existing run engine boundary.
 - [x] Launch the default Honeycrisp CLI through a plain Node runtime from Electron.
 - [x] Add bidirectional host control: process-tree pause/resume plus JSONL steering delivered to the active Honeycrisp Pi agent loop.
-- [x] Reframe Beale's no-session workspace overview around Honeycrisp memory events, derived records, storage directories, retrieval index state, and workspace tracking.
+- [x] Reframe Beale's no-session workspace overview around durable knowledge, artifact storage, retrieval index state, and workspace tracking.
+- [x] Unify Beale and Honeycrisp persistence in the Honeycrisp-owned workspace database and replace event-derived memory views with the durable knowledge graph.
 - [ ] Replace capture-after-exit import with live JSONL event streaming when Honeycrisp exposes it.
 - [ ] Promote high-confidence Honeycrisp hypotheses/evidence into Beale hypothesis and evidence tables instead of trace-only rows.

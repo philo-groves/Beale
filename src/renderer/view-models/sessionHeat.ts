@@ -35,23 +35,14 @@ export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
 export function sessionHeatForHoneycrispMemory(memory: HoneycrispMemorySummary | null | undefined): SessionHeat {
   if (!memory || memory.status === 'missing' || memory.status === 'error') return 'none';
   let score = 0;
-  if (memory.records.evidence.length > 0) score = Math.max(score, 1);
-  if (memory.records.hypotheses.length > 0 || memory.records.semanticClaims.length > 0) score = Math.max(score, 1);
-  if (memory.records.procedures.length > 0 || memory.records.prospectiveChecks.length > 0) score = Math.max(score, 1);
+  if (memory.nodes.length > 0) score = 1;
 
-  for (const finding of memory.records.findings) {
-    const status = stateClass(finding.status);
-    if (isIgnoredHeatState(status) || status === 'rejected' || status === 'tombstoned' || status === 'superseded') continue;
-    if (status === 'verified') score = Math.max(score, 3);
-    else if (status === 'supported') score = Math.max(score, 2);
-    else score = Math.max(score, 1);
-  }
-
-  for (const attempt of memory.proof.attempts) {
-    const result = stateClass(attempt.result ?? attempt.status);
-    if (result === 'pass') score = Math.max(score, 3);
-    else if (result === 'fail' || result === 'inconclusive' || result === 'blocked') score = Math.max(score, 2);
-    else score = Math.max(score, 1);
+  for (const node of memory.nodes) {
+    const status = stateClass(node.status);
+    if (isIgnoredHeatState(status) || status === 'rejected' || status === 'stale') continue;
+    if (node.type === 'finding' && status === 'confirmed') score = Math.max(score, 3);
+    else if ((node.type === 'finding' || node.type === 'chain' || node.type === 'primitive') && status === 'suspected') score = Math.max(score, 2);
+    else if (node.type === 'finding' || node.type === 'hypothesis') score = Math.max(score, 1);
   }
 
   if (score >= 3) return 'high';

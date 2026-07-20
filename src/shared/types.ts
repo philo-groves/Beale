@@ -454,82 +454,49 @@ export interface ProjectSemanticSummary {
 export type HoneycrispMemoryStatus = 'missing' | 'empty' | 'ready' | 'error';
 
 export interface HoneycrispMemoryDirectorySummary {
-  name: 'events' | 'episodes' | 'claims' | 'procedures' | 'hypotheses' | 'prospective' | 'artifacts' | 'scratch';
+  name: 'artifacts';
   path: string;
   purpose: string;
   exists: boolean;
   entryCount: number;
 }
 
-export type HoneycrispMemorySource = 'none' | 'honeycrisp_cli' | 'honeycrisp_sqlite';
+export type HoneycrispMemorySource = 'none' | 'honeycrisp_sqlite';
 
-export interface HoneycrispMemoryRecordSummary {
+export interface HoneycrispMemoryEvidenceRefSummary {
   id: string;
-  kind: string;
-  status: string;
+  kind: 'code' | 'artifact' | 'command' | 'url' | 'human_note' | string;
+  pathBase: string | null;
+  path: string | null;
+  locator: Record<string, unknown>;
   summary: string;
-  confidence: number | null;
-  goalId: string | null;
-  subGoalId: string | null;
-  sourceEventIds: string[];
-  tags: string[];
-  updatedAt: string | null;
+  createdAt: string;
+}
+
+export interface HoneycrispMemoryNodeSummary {
+  id: string;
+  type: string;
   title: string;
-  detail: string;
-  domainLabels: string[];
-  domainMetadata: Record<string, unknown>;
-  raw: Record<string, unknown>;
-}
-
-export interface HoneycrispMemoryRecordGroups {
-  evidence: HoneycrispMemoryRecordSummary[];
-  episodes: HoneycrispMemoryRecordSummary[];
-  semanticClaims: HoneycrispMemoryRecordSummary[];
-  hypotheses: HoneycrispMemoryRecordSummary[];
-  findings: HoneycrispMemoryRecordSummary[];
-  beliefs: HoneycrispMemoryRecordSummary[];
-  procedures: HoneycrispMemoryRecordSummary[];
-  prospectiveChecks: HoneycrispMemoryRecordSummary[];
-  working: HoneycrispMemoryRecordSummary[];
-}
-
-export interface HoneycrispProofObligationSummary {
-  id: string;
-  status: string;
-  subjectKind: string;
-  subjectId: string;
-  question: string;
-  requiredResult: string | null;
-  findingRecordIds: string[];
-  hypothesisRecordIds: string[];
-  evidenceRefIds: string[];
-  updatedAt: string | null;
-  raw: Record<string, unknown>;
-}
-
-export interface HoneycrispProofAttemptSummary {
-  id: string;
-  obligationId: string;
-  status: string;
-  result: string | null;
-  methodKind: string;
-  methodName: string;
   summary: string;
-  verifier: string | null;
-  evidenceRefIds: string[];
-  sourceEventIds: string[];
-  updatedAt: string | null;
-  raw: Record<string, unknown>;
+  body: string;
+  status: string;
+  confidence: number;
+  assetIds: string[];
+  tags: string[];
+  attributes: Record<string, unknown>;
+  evidenceRefs: HoneycrispMemoryEvidenceRefSummary[];
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
 }
 
-export interface HoneycrispProofSummary {
-  obligationCount: number;
-  attemptCount: number;
-  obligationStatusCounts: Record<string, number>;
-  attemptStatusCounts: Record<string, number>;
-  resultCounts: Record<string, number>;
-  obligations: HoneycrispProofObligationSummary[];
-  attempts: HoneycrispProofAttemptSummary[];
+export interface HoneycrispMemoryEdgeSummary {
+  fromId: string;
+  toId: string;
+  relation: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HoneycrispMemorySummary {
@@ -539,18 +506,15 @@ export interface HoneycrispMemorySummary {
   storageRoot: string;
   artifactDirectoryPath: string;
   databaseSizeBytes: number;
-  eventCount: number;
-  recordCount: number;
-  claimGraphEdgeCount: number;
-  artifactRefCount: number;
+  nodeCount: number;
+  edgeCount: number;
+  evidenceRefCount: number;
   storageArtifactCount: number;
-  latestEventAt: string | null;
-  latestRecordUpdatedAt: string | null;
-  eventKindCounts: Record<string, number>;
-  recordKindCounts: Record<string, number>;
-  recordStatusCounts: Record<string, number>;
-  records: HoneycrispMemoryRecordGroups;
-  proof: HoneycrispProofSummary;
+  latestNodeUpdatedAt: string | null;
+  nodeTypeCounts: Record<string, number>;
+  nodeStatusCounts: Record<string, number>;
+  nodes: HoneycrispMemoryNodeSummary[];
+  edges: HoneycrispMemoryEdgeSummary[];
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
 }

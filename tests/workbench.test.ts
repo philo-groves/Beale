@@ -49,7 +49,7 @@ describe('Beale workbench skeleton', () => {
 
     const snapshot = service.createWorkspace(dir);
     expect(snapshot.workspace.workspacePath).toBe(dir);
-    expect(snapshot.workspace.databasePath).toBe(join(dir, '.beale', 'beale.sqlite'));
+    expect(snapshot.workspace.databasePath).toBe(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     expect(snapshot.activeScope.version).toBe(1);
     expect(snapshot.activeScope.workspaceName).toBe('Untitled Workspace');
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
@@ -58,9 +58,9 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.projectSemantic).toMatchObject({ enabled: false, status: 'disabled', remoteEmbeddingEnabled: false });
     expect(snapshot.projectGraph).toMatchObject({ status: 'disabled', nodeCount: 0, edgeCount: 0 });
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
-    expect(existsSync(join(dir, '.beale', 'beale.sqlite'))).toBe(true);
+    expect(existsSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'))).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
-    const schema = new DatabaseSync(join(dir, '.beale', 'beale.sqlite'));
+    const schema = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     const benchmarkTables = schema
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('benchmark_runs', 'benchmark_task_results') ORDER BY name")
       .all();
@@ -94,7 +94,7 @@ describe('Beale workbench skeleton', () => {
     expect(runId).toBeTruthy();
     service.close();
 
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), join(dir, '.beale', 'artifacts'));
+    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), join(dir, '.beale', 'artifacts'));
     db.createHypothesis({
       runId: String(runId),
       state: 'needs_evidence',
@@ -130,39 +130,21 @@ describe('Beale workbench skeleton', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
-    const eventsPath = join(dir, '.honeycrisp', 'memory', 'events');
-    mkdirSync(eventsPath, { recursive: true });
+    const artifactsPath = join(dir, '.honeycrisp', 'memory', 'artifacts');
+    mkdirSync(artifactsPath, { recursive: true });
 
-    expect(service.resolveHoneycrispMemoryDirectoryPath('events')).toBe(eventsPath);
-    expect(() => service.resolveHoneycrispMemoryDirectoryPath('claims')).toThrow(/does not exist/);
+    expect(service.resolveHoneycrispMemoryDirectoryPath('artifacts')).toBe(artifactsPath);
     expect(() => service.resolveHoneycrispMemoryDirectoryPath('unknown' as never)).toThrow(/Unknown Honeycrisp memory directory/);
     service.close();
   });
 
-  it('reads the latest compiled Honeycrisp context from the SQLite event log', () => {
+  it('reads the latest compiled Honeycrisp context from operational trace data', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
     const snapshot = service.startRun(runInput('adaptive_portfolio'), 'complete');
     const runId = snapshot.runs[0]?.run.id ?? '';
     const memoryPath = join(dir, '.honeycrisp', 'memory', 'memory.sqlite');
-    mkdirSync(dirname(memoryPath), { recursive: true });
-    const memory = new DatabaseSync(memoryPath);
-    memory.exec(`
-      CREATE TABLE memory_events (
-        sequence INTEGER PRIMARY KEY,
-        event_id TEXT NOT NULL UNIQUE,
-        timestamp TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        goal_id TEXT,
-        loop_id TEXT,
-        sub_goal_id TEXT,
-        payload_json TEXT NOT NULL,
-        payload_hash TEXT NOT NULL,
-        artifact_refs_json TEXT NOT NULL DEFAULT '[]',
-        schema_version INTEGER NOT NULL
-      )
-    `);
     const payload = {
       activeSubGoalId: 'subgoal_latest',
       openQuestions: ['Where does parser input cross a trust boundary?'],
@@ -172,27 +154,22 @@ describe('Beale workbench skeleton', () => {
       skippedToolActions: [],
       storage: { databasePath: memoryPath }
     };
-    memory
-      .prepare(
-        `INSERT INTO memory_events (
-          sequence, event_id, timestamp, kind, goal_id, loop_id, sub_goal_id,
-          payload_json, payload_hash, artifact_refs_json, schema_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        7,
-        'evt_context_fixture',
-        '2026-06-25T12:00:00.000Z',
-        'context.compiled',
-        'goal_fixture',
-        'loop_fixture',
-        'subgoal_latest',
-        JSON.stringify(payload),
-        'hash_fixture',
-        '[]',
-        1
-      );
-    memory.close();
+    const db = new WorkspaceDatabase(memoryPath, join(dir, '.beale', 'artifacts'));
+    db.initialize();
+    db.appendTraceEvent({
+      runId,
+      type: 'model_message',
+      source: 'system',
+      summary: 'Honeycrisp context.compiled',
+      payload: {
+        honeycrispEventId: 'evt_context_fixture',
+        honeycrispKind: 'context.compiled',
+        honeycrispSequence: 7,
+        honeycrispTimestamp: '2026-06-25T12:00:00.000Z',
+        payload: { ...payload, goalId: 'goal_fixture', loopId: 'loop_fixture', subGoalId: 'subgoal_latest', payloadHash: 'hash_fixture', schemaVersion: 1 }
+      }
+    });
+    db.close();
 
     const context = service.getAgentContext(runId);
 
@@ -237,7 +214,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
     expect(snapshot.activeScope.scopeOwner).toBe('');
     expect(snapshot.activeScope.expiresAt).toBeNull();
-    expect(existsSync(join(workspace, '.beale', 'beale.sqlite'))).toBe(true);
+    expect(existsSync(join(workspace, '.honeycrisp', 'memory', 'memory.sqlite'))).toBe(true);
 
     const registered = service.getWorkspaceRegistryState();
     expect(registered.registryPath).toBe(join(registryDir, 'workspace-registry.sqlite'));
@@ -1773,78 +1750,6 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('forwards general Honeycrisp steering actions to the Honeycrisp memory CLI', () => {
-    const dir = tempWorkspace();
-    const logPath = join(dir, 'honeycrisp-steering-calls.jsonl');
-    const fakeHoneycrisp = join(dir, 'fake-honeycrisp-memory.mjs');
-    writeFileSync(
-      fakeHoneycrisp,
-      [
-        "import { appendFileSync } from 'node:fs';",
-        `const logPath = ${JSON.stringify(logPath)};`,
-        "const args = process.argv.slice(2);",
-        "appendFileSync(logPath, JSON.stringify(args) + '\\n');",
-        "const memoryIndex = args.indexOf('memory');",
-        "const command = args[memoryIndex + 1] || 'unknown';",
-        "const eventKind = command === 'request-proof' ? 'proof.requested' : command === 'mark-artifact' ? 'artifact.updated' : command === 'promote-hypothesis' ? 'finding.updated' : command === 'supersede-record' ? 'memory.decision' : 'finding.reviewed';",
-        "const subjectId = args[memoryIndex + 3] || 'mem_fixture';",
-        "const output = { action: command, event: { id: 'evt_fixture_' + command.replaceAll('-', '_'), kind: eventKind }, records: [], record: { id: subjectId, kind: 'finding', status: 'confirmed', summary: 'fixture record' }, agentState: { memory: {}, proof: {}, storage: {} } };",
-        "if (command === 'request-proof') output.obligation = { id: 'proof_obl_fixture', status: 'open', question: 'fixture proof' };",
-        "console.log(JSON.stringify(output));"
-      ].join('\n'),
-      'utf8'
-    );
-    chmodSync(fakeHoneycrisp, 0o700);
-    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
-    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
-
-    const artifactRoot = join(dir, '.beale', 'artifacts');
-    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
-    db.initialize();
-    const context = db.createRun({
-      scopeVersionId: db.getActiveScope().id,
-      title: 'Honeycrisp steering run',
-      promptMarkdown: '# Honeycrisp steering run',
-      mode: 'open_discovery',
-      model: 'gpt-5.5',
-      reasoningEffort: 'xhigh',
-      attemptStrategy: 'single_path',
-      networkProfile: 'offline',
-      sandboxProfile: 'host',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
-    });
-    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared Honeycrisp steering fixture.');
-    db.updateRunStatus(context.run.id, 'completed', 'Prepared Honeycrisp steering fixture.');
-    db.close();
-
-    const service = new WorkspaceService();
-    service.openWorkspace(dir);
-    service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: 'mem_hypothesis_fixture' });
-    service.steerRun({ type: 'merge_hypotheses', runId: context.run.id, sourceHypothesisId: 'mem_hypothesis_old', targetHypothesisId: 'mem_hypothesis_fixture' });
-    service.steerRun({ type: 'request_reproduction', runId: context.run.id, hypothesisId: 'mem_hypothesis_fixture', note: 'secret=forwardsecret12345' });
-    service.steerRun({ type: 'mark_needs_more_evidence', runId: context.run.id, findingId: 'mem_finding_fixture' });
-    service.steerRun({ type: 'mark_artifact_sensitive', runId: context.run.id, artifactId: 'artifact_fixture' });
-
-    const calls = readFileSync(logPath, 'utf8')
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as string[]);
-    expect(calls).toHaveLength(5);
-    expect(calls[0]).toEqual(expect.arrayContaining(['memory', 'promote-hypothesis', 'mem_hypothesis_fixture']));
-    expect(calls[1]).toEqual(expect.arrayContaining(['memory', 'supersede-record', 'mem_hypothesis_old', '--superseded-by', 'mem_hypothesis_fixture']));
-    expect(calls[2]).toEqual(expect.arrayContaining(['memory', 'request-proof', 'memory_record', 'mem_hypothesis_fixture', '--method-kind', 'empirical_reproduction']));
-    expect(calls[2]).not.toContain('forwardsecret12345');
-    expect(calls[3]).toEqual(expect.arrayContaining(['memory', 'review-record', 'mem_finding_fixture', '--finding-status', 'needs_evidence']));
-    expect(calls[4]).toEqual(expect.arrayContaining(['memory', 'mark-artifact', 'artifact_fixture', '--mark', 'sensitive']));
-
-    const detail = service.getRunDetail(context.run.id);
-    expect(detail.traceEvents.filter((event) => event.summary.startsWith('Honeycrisp memory steering forwarded:'))).toHaveLength(5);
-    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp memory steering forwarded: request_reproduction.')).toBe(true);
-    expect(JSON.stringify(detail.traceEvents.at(-1)?.payload)).not.toContain('forwardsecret12345');
-    service.close();
-  });
-
   it('supports discovery steering, verifier contracts, priority scoring, finding states, and evidence export', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_logic_bug'));
@@ -2009,7 +1914,7 @@ describe('Beale workbench skeleton', () => {
     const dir = tempWorkspace();
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
     db.initialize();
     const context = db.createRun({
       scopeVersionId: db.getActiveScope().id,
@@ -2055,7 +1960,7 @@ describe('Beale workbench skeleton', () => {
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
     mkdirSync(targetDir, { recursive: true });
     writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
     db.initialize();
     db.saveScope({
       workspaceName: 'Verifier Workspace',
@@ -2218,7 +2123,7 @@ describe('Beale workbench skeleton', () => {
 
     const listing = execFileSync('tar', ['-tzf', String(backup?.absolutePath)], { encoding: 'utf8' });
     expect(listing).toContain('./manifest.json');
-    expect(listing).toContain('./workspace/.beale/beale.sqlite');
+    expect(listing).toContain('./workspace/.honeycrisp/memory/memory.sqlite');
     service.close();
   });
 });

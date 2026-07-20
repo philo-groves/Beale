@@ -44,7 +44,7 @@ Checkouts are separated by requested ref so one workspace selecting a tag or bra
 
 ## Workspace-Local References
 
-The workspace database remains authoritative for whether a global checkout belongs in that workspace's context. Materialization adds an in-scope source asset containing:
+The Honeycrisp-owned workspace database remains authoritative for whether a global checkout belongs in that workspace's context. Materialization adds an in-scope source asset containing:
 
 - The absolute checkout path.
 - The canonical repository URL.
@@ -58,7 +58,7 @@ Repository materialization does not search for or reuse managed checkouts inside
 
 ## Guidance Boundary
 
-Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Evidence and finding state still live in Beale's data model, but the research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
+Beale no longer writes or selects the `beale-skeptical-triage` Honeycrisp skill. User-selected Honeycrisp skills and explicit runtime arguments remain available. Durable evidence pointers, hypotheses, and findings live in Honeycrisp's small knowledge graph; operational workbench rows share the same SQLite file without becoming a second memory model. The research agent decides how to investigate, challenge, and promote a candidate based on the objective and available evidence.
 
 ## Pre-Alpha Schema
 

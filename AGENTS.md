@@ -29,7 +29,7 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 - Keep terminology consistent:
   - Product name: `Beale`
   - Workspace metadata directory: `.beale/`
-  - Workspace database: `.beale/beale.sqlite`
+  - Workspace database: `.honeycrisp/memory/memory.sqlite` (Honeycrisp-owned and shared with Beale)
   - Workspace registry: user-global metadata for known Beale workspaces
   - Authorized scope: the recorded authorization boundary within a workspace
   - First release focus: authorized open-ended vulnerability discovery

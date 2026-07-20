@@ -54,7 +54,7 @@ Examples:
 - Shell history.
 - SSH private keys.
 - `.env` files outside active scope.
-- Raw `.beale/beale.sqlite`.
+- Raw `.honeycrisp/memory/memory.sqlite`.
 - Raw `.beale/logs` unless explicitly exported.
 
 This is not a complete security boundary against a compromised host process, but it reduces accidental leakage and blocks routine agent/tool access.

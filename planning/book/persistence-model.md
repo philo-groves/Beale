@@ -4,7 +4,7 @@ Status: accepted initial direction, 2026-04-26.
 
 ## Decision
 
-Beale should use local embedded SQLite databases for authoritative persistent state.
+Beale and Honeycrisp should use one local embedded SQLite database for authoritative workspace state. Honeycrisp owns the database contract so headless and desktop operation are compatible without synchronization or import steps.
 
 Each Beale workspace directory gets its own research database. Beale should not use one global database for all research contexts.
 
@@ -35,8 +35,11 @@ Per-workspace databases also reduce accidental cross-scope lookup. A researcher 
 Proposed local workspace layout:
 
 ```text
+.honeycrisp/
+  memory/
+    memory.sqlite
+    artifacts/
 .beale/
-  beale.sqlite
   artifacts/
     sha256/
       ab/
@@ -49,7 +52,7 @@ The exact directory names can change during implementation, but the isolation pr
 
 ## Authoritative State
 
-SQLite is the source of truth for structured state:
+`.honeycrisp/memory/memory.sqlite` is the source of truth for structured state. Operational tables include:
 
 - Targets.
 - Runs.
@@ -64,6 +67,8 @@ SQLite is the source of truth for structured state:
 - Tool calls.
 - Artifact metadata.
 - Search indexes.
+
+Durable knowledge is a separate logical layer in the same database. It contains concise typed nodes, normalized asset and tag links, directed relationships, revisions, and evidence references. Run events, transcripts, goals, and bulk outputs are operational data and must not be promoted automatically into durable knowledge.
 
 Large binary payloads should not be stored directly in normal relational tables. They should live as files in the workspace artifact store and be referenced by content hash and metadata from SQLite.
 

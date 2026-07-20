@@ -7368,6 +7368,7 @@ export class WorkspaceDatabase {
 
   private createSchema(): void {
     this.db.exec(SCHEMA_SQL);
+    this.db.exec(MEMORY_GRAPH_SCHEMA_SQL);
     this.db.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
     this.db.exec(PROJECT_GRAPH_SCHEMA_SQL);
     this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
@@ -10146,6 +10147,61 @@ export class WorkspaceDatabase {
     return 'fixture';
   }
 }
+
+const MEMORY_GRAPH_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS honeycrisp_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS memory_nodes (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  title_norm TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft',
+  confidence REAL NOT NULL DEFAULT 0.5,
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(type, title_norm)
+);
+CREATE TABLE IF NOT EXISTS memory_node_assets (
+  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL,
+  PRIMARY KEY(node_id, asset_id)
+);
+CREATE TABLE IF NOT EXISTS memory_node_tags (
+  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  PRIMARY KEY(node_id, tag)
+);
+CREATE TABLE IF NOT EXISTS memory_edges (
+  from_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  to_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  relation TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(from_id, to_id, relation)
+);
+CREATE TABLE IF NOT EXISTS memory_evidence_refs (
+  id TEXT PRIMARY KEY,
+  node_id TEXT NOT NULL REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  path_base TEXT,
+  path TEXT,
+  locator_json TEXT NOT NULL DEFAULT '{}',
+  summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_nodes_type_status_idx ON memory_nodes(type, status);
+CREATE INDEX IF NOT EXISTS memory_nodes_updated_at_idx ON memory_nodes(updated_at);
+CREATE INDEX IF NOT EXISTS memory_node_assets_asset_idx ON memory_node_assets(asset_id, node_id);
+CREATE INDEX IF NOT EXISTS memory_node_tags_tag_idx ON memory_node_tags(tag, node_id);
+CREATE INDEX IF NOT EXISTS memory_edges_to_idx ON memory_edges(to_id, relation);
+CREATE INDEX IF NOT EXISTS memory_evidence_node_idx ON memory_evidence_refs(node_id);
+INSERT OR REPLACE INTO honeycrisp_meta(key, value) VALUES ('schema_version', '1');
+`;
 
 const NOTIFICATIONS_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notifications (

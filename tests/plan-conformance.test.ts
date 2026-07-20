@@ -130,7 +130,7 @@ describe('plan conformance', () => {
     const dir = tempDir('beale-plan-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
     db.initialize();
 
     const context = db.createRun({
@@ -146,7 +146,7 @@ describe('plan conformance', () => {
       budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
     });
 
-    expect(db.getDatabasePath()).toBe(join(dir, '.beale', 'beale.sqlite'));
+    expect(db.getDatabasePath()).toBe(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     expect(db.getArtifactRoot()).toBe(artifactRoot);
     expect(context.vmContext.backend).toBe('host');
     expect(context.vmContext.metadata).toMatchObject({ executor: 'host', targetExecution: true, executionPosture: 'host_process' });

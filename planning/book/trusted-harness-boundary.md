@@ -74,9 +74,9 @@ Typical host-default execution flow:
 
 Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle between steps 2 and 9.
 
-Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, writes its own durable `.honeycrisp/` memory under the active workspace root, and returns Beale-imported trace/capture data through host-controlled files and process streams. It must not receive `.beale/beale.sqlite`, OpenAI host credentials, or arbitrary unscoped filesystem roots as guest-like authority.
+Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, owns the shared workspace database at `.honeycrisp/memory/memory.sqlite`, and returns live events and captures through host-controlled process streams. It must not receive OpenAI host credentials or arbitrary unscoped filesystem roots as guest-like authority.
 
-Beale may render a read-only Honeycrisp memory summary by counting `.honeycrisp/memory/memory.sqlite` events, records, claim edges, artifact references, and storage-directory entries. Beale should not mutate Honeycrisp memory tables or treat Beale's retrieval and graph indexes as the durable memory source.
+Beale reads the durable knowledge graph directly from the shared database and may add operational workbench tables to that database. Honeycrisp's graph schema and model-facing graph tools remain the canonical durable-memory contract. Beale's project indexes are retrieval aids, not a parallel durable-memory source.
 
 ## Prohibited Defaults
 
@@ -84,7 +84,7 @@ Beale should not:
 
 - Run the model client inside the guest.
 - Store OAuth/API credentials inside the guest.
-- Mount `.beale/beale.sqlite` inside the guest.
+- Mount the workspace database inside the guest.
 - Mount the full host workspace read-write inside the guest.
 - Expose host-control sockets to the guest.
 - Let the guest directly write authoritative artifacts.

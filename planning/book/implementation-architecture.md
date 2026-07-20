@@ -84,7 +84,7 @@ Responsibilities:
 
 - Open and create workspace directories.
 - Initialize `.beale/`.
-- Create or migrate `beale.sqlite`.
+- Create the Honeycrisp-owned workspace SQLite database.
 - Resolve workspace-local paths.
 - Prevent accidental cross-workspace lookups.
 - Provide narrow import operations for scoped files, repos, binaries, archives, and documents.
