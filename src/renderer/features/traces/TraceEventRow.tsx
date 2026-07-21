@@ -30,7 +30,7 @@ import {
 } from '../../view-models/traceContent';
 import { traceDisplayEventIds, type TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
-import { codeBlockLineRows, highlightPythonCode, renderTraceProseText, type CodeBlockLineNumberMode } from './traceMarkup';
+import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
 import { traceCategoryBadgeLabel, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
 
 interface TraceEventRowProps {
@@ -270,7 +270,6 @@ function CodeBrowserTracePreviewRow({
           label="Excerpt"
           meta={`${preview.excerptLineCount} line${preview.excerptLineCount === 1 ? '' : 's'}`}
           onToggleExpanded={onToggleExpanded}
-          lineNumberMode="source-prefix"
           text={excerptLines.join('\n')}
           truncated={expanded ? preview.excerptSourceTruncated : preview.excerptTruncated}
         />
@@ -403,7 +402,6 @@ function TraceCodePreview({
   expandable = false,
   label,
   language,
-  lineNumberMode = 'generated',
   meta,
   onToggleExpanded,
   searchHighlightQuery = '',
@@ -414,15 +412,13 @@ function TraceCodePreview({
   expandable?: boolean;
   label: string;
   language?: 'python';
-  lineNumberMode?: CodeBlockLineNumberMode;
   meta: string;
   onToggleExpanded?: () => void;
   searchHighlightQuery?: string;
   text: string;
   truncated: boolean;
 }): JSX.Element {
-  const rows = codeBlockLineRows(text.split('\n'), lineNumberMode);
-  const codeText = rows.codeLines.join('\n');
+  const codeText = text;
   return (
     <div className={`main-trace-python-block ${expandable ? 'has-expand-toggle' : ''}`}>
       <div className="main-trace-python-heading">
@@ -430,11 +426,6 @@ function TraceCodePreview({
         <span>{meta}</span>
       </div>
       <pre className={truncated ? 'is-truncated' : undefined}>
-        <span className="code-line-gutter" aria-hidden="true">
-          {rows.lineNumbers.map((lineNumber, index) => (
-            <span data-line={lineNumber} key={`${lineNumber}-${index}`} />
-          ))}
-        </span>
         <code className={language === 'python' ? 'syntax-code language-python' : undefined}>
           {language === 'python' ? highlightPythonCode(codeText) : searchHighlightQuery ? renderSearchHighlightedText(codeText, searchHighlightQuery) : codeText}
         </code>

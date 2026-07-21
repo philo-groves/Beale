@@ -4630,9 +4630,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   max-width: 100%;
   max-height: none;
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(2.5ch, auto) minmax(0, 1fr);
-  align-items: stretch;
+  display: block;
   overflow-x: auto;
   overflow-y: hidden;
   border: 0;
