@@ -9,6 +9,7 @@ import {
   formatReasoningTraceText,
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
+  honeycrispMemorySearchResults,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
@@ -275,6 +276,34 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(shellRun)).toBe('make test');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
+  });
+
+  it('builds a bounded title list for Honeycrisp memory search results', () => {
+    const memorySearch = honeycrispToolObservation(
+      'memory.search',
+      { query: 'ZFTP control connection' },
+      Array.from({ length: 7 }, (_, index) => ({
+        id: `trajectory_${index}`,
+        title: `Research trajectory ${index + 1}`
+      }))
+    );
+
+    expect(honeycrispMemorySearchResults(memorySearch)).toEqual({
+      titles: ['Research trajectory 1', 'Research trajectory 2', 'Research trajectory 3', 'Research trajectory 4', 'Research trajectory 5'],
+      allTitles: [
+        'Research trajectory 1',
+        'Research trajectory 2',
+        'Research trajectory 3',
+        'Research trajectory 4',
+        'Research trajectory 5',
+        'Research trajectory 6',
+        'Research trajectory 7'
+      ],
+      resultCount: 7,
+      truncated: true
+    });
+    expect(honeycrispMemorySearchResults(honeycrispToolObservation('memory.search', { query: 'none' }, []))).toBeNull();
+    expect(honeycrispMemorySearchResults(honeycrispToolRequest('memory.search', { query: 'ZFTP' }))).toBeNull();
   });
 
   it('shows only remote commands for direct and sshpass-wrapped SSH shell traces', () => {

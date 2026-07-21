@@ -10,6 +10,7 @@ import {
   evidenceTracePreview,
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
+  honeycrispMemorySearchResults,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
@@ -24,6 +25,7 @@ import {
   verifierTracePreview,
   type CodeBrowserTracePreview,
   type DuplicateBlockedTraceDetail,
+  type HoneycrispMemorySearchResultsPreview,
   type HoneycrispShellTraceOutput,
   type PythonToolCallPreview,
   type ReasoningTraceSummarySegment,
@@ -81,6 +83,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const shellToolTrace = honeycrispToolNameValue === 'shell.run';
   const memoryCorrectionTrace = honeycrispToolNameValue === 'memory.correct';
   const memoryGetTrace = honeycrispToolNameValue === 'memory.get';
+  const memorySearchTrace = honeycrispToolNameValue === 'memory.search';
   const memoryCorrectionSummary = memoryCorrectionTrace ? honeycrispMemoryCorrectionSummary(event) : '';
   const memoryGetSummary = memoryGetTrace ? honeycrispMemoryGetSummary(event, detailForEvent) : '';
   const memorySummary = memoryCorrectionSummary || memoryGetSummary;
@@ -89,6 +92,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
   const toolObservationSubtext = honeycrispToolObservation ? toolTraceSubtext : '';
   const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
+  const memorySearchResults = useMemo(() => honeycrispMemorySearchResults(event), [event]);
   const shellTraceOutput = useMemo(() => honeycrispShellTraceOutput(event), [event]);
   const structuredContextContent = pythonPreview ? (
     <PythonTracePreview preview={pythonPreview} />
@@ -142,11 +146,26 @@ export const TraceEventRow = memo(function TraceEventRow({
       onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
     />
   ) : null;
+  const memorySearchResultsContent = memorySearchResults ? (
+    <MemorySearchResults
+      results={memorySearchResults}
+      expanded={limitedOutputExpanded}
+      hasSearchHighlight={hasSearchHighlight}
+      searchHighlightQuery={searchHighlightQuery}
+      onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
+    />
+  ) : null;
   const contextContent = honeycrispToolObservation ? (
     <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace ? 'is-memory-summary' : ''}`}>
       {toolSubtextContent}
       {memorySummaryContent}
-      {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : shellOutputContent ?? structuredContextContent}
+      {emptyMemorySearchObservation ? (
+        <span className="main-trace-tool-empty-memory">No memories were found</span>
+      ) : memorySearchTrace ? (
+        memorySearchResultsContent
+      ) : (
+        shellOutputContent ?? structuredContextContent
+      )}
     </div>
   ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace) ? (
     memoryCorrectionTrace || memoryGetTrace ? (
@@ -204,6 +223,34 @@ export const TraceEventRow = memo(function TraceEventRow({
     </div>
   );
 }, traceEventRowPropsEqual);
+
+function MemorySearchResults({
+  results,
+  expanded,
+  hasSearchHighlight,
+  searchHighlightQuery,
+  onToggleExpanded
+}: {
+  results: HoneycrispMemorySearchResultsPreview;
+  expanded: boolean;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+  onToggleExpanded: () => void;
+}): JSX.Element {
+  const titles = expanded ? results.allTitles : results.titles;
+  return (
+    <TraceCodePreview
+      expanded={expanded}
+      expandable={results.allTitles.length > results.titles.length}
+      label="Results"
+      meta={`${results.resultCount} result${results.resultCount === 1 ? '' : 's'}`}
+      onToggleExpanded={onToggleExpanded}
+      searchHighlightQuery={hasSearchHighlight ? searchHighlightQuery : ''}
+      text={titles.map((title) => `- ${title}`).join('\n')}
+      truncated={!expanded && results.truncated}
+    />
+  );
+}
 
 function ShellTraceOutput({
   output,

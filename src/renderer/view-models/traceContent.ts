@@ -302,6 +302,38 @@ export function isEmptyHoneycrispMemorySearchObservation(event: TraceEventRecord
   return Boolean(payload && Array.isArray(payload.result) && payload.result.length === 0);
 }
 
+export interface HoneycrispMemorySearchResultsPreview {
+  titles: string[];
+  allTitles: string[];
+  resultCount: number;
+  truncated: boolean;
+}
+
+export function honeycrispMemorySearchResults(
+  event: TraceEventRecord,
+  maxResults = DEFAULT_TRACE_PREVIEW_LINE_LIMIT
+): HoneycrispMemorySearchResultsPreview | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'memory.search' || isHoneycrispToolObservationError(event)) return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload?.result;
+  if (!Array.isArray(result) || result.length === 0) return null;
+
+  const allTitles = result.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const title = stringRecordValue(item as Record<string, unknown>, 'title')?.trim();
+    return title ? [title] : [];
+  });
+  if (allTitles.length === 0) return null;
+
+  const titles = allTitles.slice(0, Math.max(0, maxResults));
+  return {
+    titles,
+    allTitles,
+    resultCount: allTitles.length,
+    truncated: titles.length < allTitles.length
+  };
+}
+
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
   return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
 }
