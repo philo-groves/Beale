@@ -150,8 +150,8 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     if (!utility) return '';
     const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
     const sshCommand = sshRemoteCommand(utility, args);
-    if (sshCommand !== null) return truncateText(sshCommand, 180);
-    return truncateText([utility, ...args.map(shellArgumentPreview)].join(' '), 180);
+    if (sshCommand !== null) return sshCommand;
+    return [utility, ...args.map(shellArgumentPreview)].join(' ');
   }
   if (toolName !== 'memory.get') return '';
 
@@ -170,6 +170,47 @@ export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string 
   if (!utility) return null;
   const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
   return sshInvocationArguments(utility, args) ? 'SSH' : null;
+}
+
+export interface HoneycrispShellTraceStreamPreview {
+  lines: string[];
+  lineCount: number;
+  truncated: boolean;
+}
+
+export interface HoneycrispShellTraceOutput {
+  stdout: HoneycrispShellTraceStreamPreview | null;
+  stderr: string;
+  stderrTruncated: boolean;
+}
+
+export function honeycrispShellTraceOutput(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): HoneycrispShellTraceOutput | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'shell.run') return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload ? tracePayloadRecord(payload, 'result') : null;
+  if (!result) return null;
+
+  const stdout = shellOutputPreview(result.stdout, result.stdoutTruncated === true, maxLines);
+  const stderr = shellOutputText(result.stderr);
+  if (!stdout && !stderr) return null;
+  return { stdout, stderr, stderrTruncated: result.stderrTruncated === true };
+}
+
+function shellOutputText(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/\r\n?/g, '\n') : '';
+}
+
+function shellOutputPreview(value: unknown, sourceTruncated: boolean, maxLines: number): HoneycrispShellTraceStreamPreview | null {
+  const normalized = shellOutputText(value);
+  if (!normalized) return null;
+  const lines = normalized.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const visibleLines = lines.slice(0, Math.max(0, maxLines));
+  return {
+    lines: visibleLines,
+    lineCount: lines.length,
+    truncated: sourceTruncated || visibleLines.length < lines.length
+  };
 }
 
 function sshRemoteCommand(utility: string, args: string[]): string | null {
@@ -893,7 +934,7 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     tracePayloadPrimitive(event.payload, 'toolName') ??
     (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
     honeycrispToolNameFromSummary(summary);
-  const label = toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
+  const label = toolName === 'shell.run' ? 'Shell' : toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
   return action === 'Requested' ? `${label} Requested` : label;
 }
 

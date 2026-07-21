@@ -7,6 +7,7 @@ import {
   evidenceTracePreview,
   findingForTraceEvent,
   formatReasoningTraceText,
+  honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
   hypothesisForTraceEvent,
@@ -37,6 +38,12 @@ describe('renderer trace content view models', () => {
       )
     ).toBe('File Read');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: 12 results' }), 'tools')).toBe('Tool');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: shell.run', payload: { payload: { toolName: 'shell.run' } } }), 'tools')
+    ).toBe('Shell Requested');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: shell.run', payload: { payload: { toolName: 'shell.run' } } }), 'tools')
+    ).toBe('Shell');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'Honeycrisp context.compiled: 53k tokens' }), 'agent_output')).toBe('Honeycrisp Context Compiled');
     expect(
       traceEventSummary(
@@ -235,6 +242,9 @@ describe('renderer trace content view models', () => {
     expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Trajectory · ${memoryId}`);
     expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
     expect(traceEventDetailText(shellRun, 'non_standard')).toBe('rg -n "zftp data" Src/Modules');
+
+    const longShellCommand = honeycrispToolRequest('shell.run', { utility: 'printf', args: ['line one\nline two', 'x'.repeat(180)] });
+    expect(honeycrispToolTraceSubtext(longShellCommand)).toBe(`printf "line one\\nline two" ${'x'.repeat(180)}`);
   });
 
   it('preserves request subtext on Honeycrisp observations and identifies empty memory searches', () => {
@@ -271,6 +281,37 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(sshpass)).toBe('cd /tmp && make test');
     expect(honeycrispToolTraceSubtextPill(sshpass)).toBe('SSH');
     expect(honeycrispToolTraceSubtextPill(honeycrispToolRequest('shell.run', { utility: 'rg', args: ['needle'] }))).toBeNull();
+  });
+
+  it('extracts separate stdout and stderr streams from Honeycrisp shell observations', () => {
+    const shellRun = honeycrispToolObservation(
+      'shell.run',
+      { utility: 'make', args: ['test'] },
+      {
+        exitCode: 1,
+        stdout: 'building\r\nfinished\n',
+        stderr: 'test failed\r\nline two\n',
+        stdoutTruncated: false,
+        stderrTruncated: true
+      }
+    );
+
+    expect(honeycrispShellTraceOutput(shellRun)).toEqual({
+      stdout: { lines: ['building', 'finished'], lineCount: 2, truncated: false },
+      stderr: 'test failed\nline two\n',
+      stderrTruncated: true
+    });
+    expect(
+      honeycrispShellTraceOutput(
+        honeycrispToolObservation('shell.run', { utility: 'printf', args: [] }, { stdout: 'one\ntwo\nthree\nfour\nfive\nsix\n', stderr: '' })
+      )
+    ).toEqual({
+      stdout: { lines: ['one', 'two', 'three', 'four', 'five'], lineCount: 6, truncated: true },
+      stderr: '',
+      stderrTruncated: false
+    });
+    expect(honeycrispShellTraceOutput(honeycrispToolRequest('shell.run', { utility: 'make', args: ['test'] }))).toBeNull();
+    expect(honeycrispShellTraceOutput(honeycrispToolObservation('memory.search', { query: 'test' }, []))).toBeNull();
   });
 
   it('builds python previews and prose decisions for trace rows', () => {

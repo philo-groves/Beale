@@ -4022,14 +4022,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .main-trace-badges span {
   max-width: 112px;
   overflow: hidden;
-  border: 1px solid #2d2d2d;
+  border: 0;
   border-radius: 999px;
-  background: #101010;
-  color: #9f9f9f;
+  background: #222222;
+  color: #aaaaaa;
   padding: 3px 6px;
   font-size: 0.65rem;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
+  letter-spacing: 0.02em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -4176,9 +4177,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trace-inline-code {
   display: inline;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 0;
   border-radius: 4px;
-  background: #111111;
+  outline: 0;
+  background: #181818;
   color: #d8d8d8;
   padding: 0 4px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -4420,19 +4422,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 7px;
 }
 
-.main-trace-tool-subtext-pill {
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 999px;
-  background: #222222;
-  color: #aaaaaa;
-  padding: 3px 6px;
-  font-size: 0.65rem;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
-
 .main-trace-tool-subtext {
   flex: 1 1 auto;
   min-width: 0;
@@ -4449,6 +4438,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.main-trace-tool-subtext.is-multiline {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-wrap;
 }
 
 .main-trace-tool-empty-memory {
@@ -4481,6 +4477,27 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.main-trace-shell-output {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.main-trace-shell-output-truncated {
+  display: block;
+  color: #777777;
+  padding: 6px 0 0;
+  font-family: inherit;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.main-trace-tool-error-detail .main-trace-shell-output-truncated {
+  color: #d7777e;
+  padding: 6px 0 0;
 }
 
 .main-trace-python-preview {

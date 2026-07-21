@@ -8,6 +8,7 @@ import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
+  honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
   isEmptyHoneycrispMemorySearchObservation,
@@ -21,6 +22,7 @@ import {
   verifierTracePreview,
   type CodeBrowserTracePreview,
   type DuplicateBlockedTraceDetail,
+  type HoneycrispShellTraceOutput,
   type PythonToolCallPreview,
   type ReasoningTraceSummarySegment,
   type TraceStructuredPreview
@@ -72,11 +74,14 @@ export const TraceEventRow = memo(function TraceEventRow({
   const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
   const honeycrispToolRequest = honeycrispToolEventKind(event) === 'tool.requested';
   const honeycrispToolObservation = honeycrispToolEventKind(event) === 'tool.observed';
-  const fileReadObservation = honeycrispToolObservation && honeycrispToolName(event) === 'file.read';
+  const honeycrispToolNameValue = honeycrispToolName(event);
+  const shellToolTrace = honeycrispToolNameValue === 'shell.run';
+  const fileReadObservation = honeycrispToolObservation && honeycrispToolNameValue === 'file.read';
   const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
   const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
   const toolObservationSubtext = honeycrispToolObservation ? toolTraceSubtext : '';
   const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
+  const shellTraceOutput = useMemo(() => honeycrispShellTraceOutput(event), [event]);
   const structuredContextContent = pythonPreview ? (
     <PythonTracePreview preview={pythonPreview} />
   ) : verifierPreview ? (
@@ -105,22 +110,27 @@ export const TraceEventRow = memo(function TraceEventRow({
       <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
     )
   ) : null;
-  const toolSubtextContent = toolTraceSubtext || toolTraceSubtextPill ? (
+  const toolSubtextContent = toolTraceSubtext ? (
     <span className="main-trace-tool-subtext-row">
-      {toolTraceSubtextPill ? <span className="main-trace-tool-subtext-pill">{toolTraceSubtextPill}</span> : null}
-      {toolTraceSubtext ? (
-        <code className="main-trace-tool-subtext">
-          {hasSearchHighlight ? renderSearchHighlightedText(toolTraceSubtext, searchHighlightQuery) : toolTraceSubtext}
-        </code>
-      ) : null}
+      <code className={`main-trace-tool-subtext ${shellToolTrace ? 'is-multiline' : ''}`}>
+        {hasSearchHighlight ? renderSearchHighlightedText(toolTraceSubtext, searchHighlightQuery) : toolTraceSubtext}
+      </code>
     </span>
+  ) : null;
+  const shellOutputContent = shellTraceOutput ? (
+    <ShellTraceOutput
+      output={shellTraceOutput}
+      fallbackError={toolObservationError && hasDetail && !shellTraceOutput.stderr ? detailText : ''}
+      hasSearchHighlight={hasSearchHighlight}
+      searchHighlightQuery={searchHighlightQuery}
+    />
   ) : null;
   const contextContent = honeycrispToolObservation ? (
     <div className="main-trace-tool-observation-detail">
       {toolSubtextContent}
-      {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : structuredContextContent}
+      {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : shellOutputContent ?? structuredContextContent}
     </div>
-  ) : honeycrispToolRequest && toolTraceSubtextPill ? (
+  ) : honeycrispToolRequest && shellToolTrace ? (
     toolSubtextContent
   ) : (
     structuredContextContent ?? fallbackContextContent
@@ -151,6 +161,7 @@ export const TraceEventRow = memo(function TraceEventRow({
           </div>
           <div className="main-trace-flags">
             <div className="main-trace-badges">
+              {toolTraceSubtextPill ? <span>{toolTraceSubtextPill}</span> : null}
               <span>{traceCategoryBadgeLabel(category)}</span>
               {!event.modelVisible ? <span>Hidden</span> : null}
             </div>
@@ -163,6 +174,40 @@ export const TraceEventRow = memo(function TraceEventRow({
     </button>
   );
 }, traceEventRowPropsEqual);
+
+function ShellTraceOutput({
+  output,
+  fallbackError,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  output: HoneycrispShellTraceOutput;
+  fallbackError: string;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  return (
+    <div className="main-trace-shell-output">
+      {output.stdout ? (
+        <TraceCodePreview
+          label="stdout"
+          meta={`${output.stdout.lineCount} line${output.stdout.lineCount === 1 ? '' : 's'}`}
+          truncated={output.stdout.truncated}
+          text={output.stdout.lines.join('\n')}
+          searchHighlightQuery={hasSearchHighlight ? searchHighlightQuery : ''}
+        />
+      ) : null}
+      {output.stderr ? (
+        <span className="main-trace-tool-error-detail">
+          {hasSearchHighlight ? renderSearchHighlightedText(output.stderr, searchHighlightQuery) : output.stderr}
+          {output.stderrTruncated ? <span className="main-trace-shell-output-truncated">stderr truncated by Honeycrisp</span> : null}
+        </span>
+      ) : fallbackError ? (
+        <span className="main-trace-tool-error-detail">{hasSearchHighlight ? renderSearchHighlightedText(fallbackError, searchHighlightQuery) : fallbackError}</span>
+      ) : null}
+    </div>
+  );
+}
 
 function CodeBrowserTracePreviewRow({
   preview,
@@ -181,7 +226,7 @@ function CodeBrowserTracePreviewRow({
     <div className={`main-trace-code-browser-preview ${plainTitle ? 'title-plain' : ''}`}>
       <StructuredTracePreview preview={preview} hideTitle={hideTitle} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
       {preview.excerptLines.length > 0 ? (
-        <PythonTraceBlock
+        <TraceCodePreview
           label="Excerpt"
           meta={`${preview.excerptLineCount} line${preview.excerptLineCount === 1 ? '' : 's'}`}
           lineNumberMode="source-prefix"
@@ -297,7 +342,7 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
     <div className="main-trace-python-preview">
       {preview.task ? <p>{preview.task}</p> : null}
       {preview.scriptLines.length > 0 ? (
-        <PythonTraceBlock
+        <TraceCodePreview
           label="Code"
           meta={`${preview.scriptLineCount} line${preview.scriptLineCount === 1 ? '' : 's'}`}
           truncated={preview.truncated}
@@ -306,17 +351,18 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
         />
       ) : null}
       {preview.outputLines.length > 0 ? (
-        <PythonTraceBlock label="Output" meta={`Exit ${preview.exitCode ?? '?'}`} truncated={preview.outputTruncated} text={preview.outputLines.join('\n')} />
+        <TraceCodePreview label="Output" meta={`Exit ${preview.exitCode ?? '?'}`} truncated={preview.outputTruncated} text={preview.outputLines.join('\n')} />
       ) : null}
     </div>
   );
 }
 
-function PythonTraceBlock({
+function TraceCodePreview({
   label,
   language,
   lineNumberMode = 'generated',
   meta,
+  searchHighlightQuery = '',
   text,
   truncated
 }: {
@@ -324,6 +370,7 @@ function PythonTraceBlock({
   language?: 'python';
   lineNumberMode?: CodeBlockLineNumberMode;
   meta: string;
+  searchHighlightQuery?: string;
   text: string;
   truncated: boolean;
 }): JSX.Element {
@@ -341,7 +388,9 @@ function PythonTraceBlock({
             <span data-line={lineNumber} key={`${lineNumber}-${index}`} />
           ))}
         </span>
-        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>{language === 'python' ? highlightPythonCode(codeText) : codeText}</code>
+        <code className={language === 'python' ? 'syntax-code language-python' : undefined}>
+          {language === 'python' ? highlightPythonCode(codeText) : searchHighlightQuery ? renderSearchHighlightedText(codeText, searchHighlightQuery) : codeText}
+        </code>
       </pre>
     </div>
   );
