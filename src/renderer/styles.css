@@ -876,13 +876,6 @@ code {
   -webkit-app-region: no-drag;
 }
 
-.app-header-title-separator {
-  width: 1px;
-  height: 16px;
-  flex: 0 0 auto;
-  background: #343434;
-}
-
 .app-header-session-title {
   min-width: 0;
   min-height: 24px;
@@ -890,6 +883,7 @@ code {
   flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   overflow: hidden;
   border-color: transparent;
   background: transparent;
@@ -1483,7 +1477,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   -webkit-app-region: no-drag;
 }
 
-.app-header-view-controls {
+.session-content-control-group {
   min-width: 0;
   flex: 0 0 auto;
   display: inline-flex;
@@ -1602,6 +1596,30 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .workspace-page > * {
   position: relative;
   z-index: 1;
+}
+
+.session-content-workspace {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.session-content-view-controls {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 4;
+}
+
+.session-content-workspace.view-list .main-trace-list {
+  padding-top: 46px;
+}
+
+.session-content-workspace.view-context .context-session-scroll {
+  padding-top: 56px;
 }
 
 .main-session-grid {
@@ -7808,7 +7826,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     right: 12px;
   }
 
-  .app-header-title-separator,
   .app-header-session-title {
     display: none;
   }

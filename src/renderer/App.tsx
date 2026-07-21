@@ -449,17 +449,13 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         events={visibleSessionTraceEvents}
         profilingEnabled={profilingState?.enabled ?? false}
-        sessionView={sessionMainView}
-        selectedSubagentPath={selectedSubagentPath}
         visibleTraceCategories={visibleTraceCategories}
-        onBackToMain={() => setSelectedSubagentPath(null)}
         onOpenSessionSummary={setSessionSummaryDetail}
         onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
         onAddWorkspace={() => {
           addWorkspace();
         }}
-        onSessionViewChange={setSessionMainView}
         onToggleSidebar={toggleSidebar}
       />
       <WorkspaceSidebar
@@ -508,9 +504,11 @@ export function App(): JSX.Element {
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
+            onBackToMain={() => setSelectedSubagentPath(null)}
             onSelectTraceEvent={selectTraceEvent}
             onSelectSubagent={setSelectedSubagentPath}
             onSessionAction={handleSessionAction}
+            onSessionViewChange={setSessionMainView}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>

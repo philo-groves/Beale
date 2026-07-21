@@ -24,7 +24,7 @@ export function SessionViewControls({
   const options = SESSION_MAIN_VIEW_ORDER.map((view) => ({ view, ...optionByView[view] }));
 
   return (
-    <div className="app-header-view-controls">
+    <div className="session-content-control-group">
       <div className="session-view-toggle" role="group" aria-label="Session view">
         {options.map((option) => (
           <button

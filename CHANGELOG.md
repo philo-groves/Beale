@@ -8,6 +8,7 @@
 - Memory Correction traces now show type, id, and status metadata above their multiline payload summary.
 - Memory Get traces now show the returned memory summary beneath their type and id metadata.
 - Memory Search traces now show bounded, collapsible result-title lists beneath their query metadata.
+- Session content-view controls now float at the upper-left of the trace list or context dashboard instead of occupying the main header.
 - Shell traces now show full multiline commands, bounded stdout previews using the file-read treatment, and full captured stderr messages using the standard error treatment.
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.

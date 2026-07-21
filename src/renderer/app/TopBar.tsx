@@ -4,7 +4,6 @@ import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
 import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, TraceEventRecord, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import type { TraceCategoryId } from '../traceClassification';
-import type { SessionMainView } from '../features/sessions/sessionViews';
 import { AppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
@@ -18,15 +17,11 @@ export const TopBar = memo(function TopBar({
   activeRunDetail,
   events,
   profilingEnabled,
-  sessionView,
-  selectedSubagentPath,
   visibleTraceCategories,
-  onBackToMain,
   onOpenSessionSummary,
   onOpenWorkspaceInfo,
   onOpenProfiling,
   onAddWorkspace,
-  onSessionViewChange,
   onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
@@ -36,15 +31,11 @@ export const TopBar = memo(function TopBar({
   activeRunDetail: RunDetail | null;
   events: TraceEventRecord[];
   profilingEnabled: boolean;
-  sessionView: SessionMainView;
-  selectedSubagentPath: string | null;
   visibleTraceCategories: TraceCategoryId[];
-  onBackToMain: () => void;
   onOpenSessionSummary: (detail: RunDetail) => void;
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenProfiling: () => void;
   onAddWorkspace: () => void;
-  onSessionViewChange: (view: SessionMainView) => void;
   onToggleSidebar: () => void;
 }): JSX.Element {
   useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, workspaceName, run: activeRunDetail?.run.id ?? 'none' }));
@@ -254,13 +245,9 @@ export const TopBar = memo(function TopBar({
         activeWorkspace={activeWorkspace}
         detail={activeRunDetail}
         events={events}
-        sessionView={sessionView}
-        selectedSubagentPath={selectedSubagentPath}
         visibleTraceCategories={visibleTraceCategories}
-        onBackToMain={onBackToMain}
         onOpenWorkspaceInfo={onOpenWorkspaceInfo}
         onOpenSessionSummary={onOpenSessionSummary}
-        onSessionViewChange={onSessionViewChange}
       />
       {profilingEnabled || !isMac ? (
         <div className="window-controls" aria-label="Window controls">
