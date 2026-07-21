@@ -311,6 +311,7 @@ Rules:
 - Apply a concurrency limit independently to each requested utility across Honeycrisp processes using the same Beale harness state.
 - Treat a limit of `0` as disabled and reject the request before process spawn. `sudo` is disabled by default.
 - Bound runtime and captured stdout/stderr, report exit status and truncation, and remove credential-like environment variables from the child environment.
+- Never use `$HOME` in model-generated commands, scripts, paths, or assignments. Reject `$HOME`, `$home`, and `$CODEX_HOME` references or assignments before spawn, and omit home-directory variables from the child environment.
 - Reject direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations when their resolved targets are protected core directories, parents of protected directories, or active `.beale` / `.honeycrisp` workspace state.
 - Keep generated files and command output as candidate research material until the memory model or a later durable artifact flow records the useful result.
 

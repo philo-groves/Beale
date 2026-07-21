@@ -101,6 +101,7 @@
 
 ### Security
 
+- Prohibited `$HOME` use in the Honeycrisp system prompt, rejected HOME-family references and assignments in shell inputs, and removed home-directory variables from spawned utility environments.
 - Added Honeycrisp pre-spawn folder deletion guards for direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations targeting filesystem roots, the current user directory, system directories, or active Beale/Honeycrisp workspace state.
 
 ### Removed
