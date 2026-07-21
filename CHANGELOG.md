@@ -10,6 +10,7 @@
 - Memory Search traces now show bounded, collapsible result-title lists beneath their query metadata.
 - Session content-view controls now float without an outline at the upper-right of the session content area instead of occupying the main header.
 - The main trace side panel now uses trace-scale typography, full-width two-line memory titles, and type-colored labels instead of colored card edges.
+- The memory catalog now orders entries chronologically, follows new entries at the bottom, and shows status and updated time without confidence percentages.
 - Shell traces now show full multiline commands, bounded stdout previews using the file-read treatment, and full captured stderr messages using the standard error treatment.
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.

@@ -133,7 +133,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
           {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
           {filteredNodes.length > 0 ? (
-            <MainSideScrollRegion listClassName="memory-catalog-list" updateKey={updateKey}>
+            <MainSideScrollRegion listClassName="memory-catalog-list" stickToEnd updateKey={updateKey}>
               {filteredNodes.map((node) => (
                 <MemoryCatalogItem
                   expanded={expandedNodeId === node.id}
@@ -192,9 +192,12 @@ function MemoryCatalogItem({
       <button type="button" className="memory-catalog-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={onToggle}>
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
-            <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+            <span className="memory-catalog-item-labels">
+              <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+              <span className="memory-catalog-status">{traceLabel(node.status)}</span>
+            </span>
             <span className="memory-catalog-item-trailing">
-              <span>{traceLabel(node.status)} · {formatConfidence(node.confidence)}</span>
+              <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
               <ChevronDown size={14} aria-hidden="true" />
             </span>
           </span>
@@ -209,7 +212,6 @@ function MemoryCatalogItem({
           <span>rev {node.revision}</span>
           <span>{node.evidenceRefs.length} refs</span>
           <span>{relationships.length} links</span>
-          <time dateTime={node.updatedAt}>{formatSessionDateTime(node.updatedAt)}</time>
         </div>
         {node.subjectName || node.workspaceName ? (
           <dl className="memory-catalog-scope">
@@ -265,8 +267,4 @@ function ChipGroup({ label, values }: { label: string; values: string[] }): JSX.
       <div>{values.map((value) => <span key={value}>{value}</span>)}</div>
     </div>
   );
-}
-
-function formatConfidence(confidence: number): string {
-  return `${Math.round(Math.max(0, Math.min(1, confidence)) * 100)}%`;
 }

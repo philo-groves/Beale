@@ -11,11 +11,13 @@ export interface MemoryCatalogFilters {
 
 export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], filters: MemoryCatalogFilters): HoneycrispMemoryNodeSummary[] {
   const query = filters.query.trim().toLocaleLowerCase();
-  return nodes.filter((node) => {
-    if (!memoryNodeMatchesScope(node, filters)) return false;
-    if (filters.type !== 'all' && node.type !== filters.type) return false;
-    return !query || memoryNodeSearchText(node).includes(query);
-  });
+  return nodes
+    .filter((node) => {
+      if (!memoryNodeMatchesScope(node, filters)) return false;
+      if (filters.type !== 'all' && node.type !== filters.type) return false;
+      return !query || memoryNodeSearchText(node).includes(query);
+    })
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id));
 }
 
 function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: MemoryCatalogFilters): boolean {

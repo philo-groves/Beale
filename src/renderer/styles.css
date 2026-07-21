@@ -3028,12 +3028,30 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
 }
 
+.memory-catalog-item-labels {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
 .memory-catalog-type {
   min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.memory-catalog-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .memory-catalog-item-heading strong {
@@ -3058,6 +3076,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: var(--muted);
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.memory-catalog-item-trailing time {
+  font-variant-numeric: tabular-nums;
 }
 
 .memory-catalog-item-trailing svg {
@@ -3114,10 +3136,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-radius: 6px;
   background: #191919;
   padding: 2px 6px;
-}
-
-.memory-catalog-meta time {
-  margin-left: auto;
 }
 
 .memory-catalog-scope {
