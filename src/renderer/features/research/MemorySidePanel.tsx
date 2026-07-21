@@ -76,7 +76,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         >
           <Database size={15} />
           <span>Memory</span>
-          <strong>{filteredNodes.length === nodes.length ? nodes.length : `${filteredNodes.length}/${nodes.length}`}</strong>
         </button>
         <button
           type="button"
@@ -87,7 +86,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         >
           <GitFork size={15} />
           <span>Subagents</span>
-          <strong>{subagents.length}</strong>
         </button>
       </header>
 

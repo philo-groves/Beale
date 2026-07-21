@@ -1492,9 +1492,9 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  border: 1px solid #2b2b2b;
+  border: 0;
   border-radius: 8px;
-  background: #121212;
+  background: var(--panel);
   padding: 2px;
 }
 
@@ -1535,11 +1535,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 6px;
   border: 1px solid #2b2b2b;
   border-radius: 8px;
-  background: #121212;
+  background: var(--panel);
   color: var(--muted-strong);
   padding: 0 9px;
-  font-size: 0.72rem;
-  font-weight: 760;
+  font-size: 1rem;
+  font-weight: 400;
 }
 
 .back-to-main-button:hover {
@@ -1610,12 +1610,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .session-content-view-controls {
   position: absolute;
   top: 10px;
-  left: 12px;
+  right: 12px;
   z-index: 4;
-}
-
-.session-content-workspace.view-list .main-trace-list {
-  padding-top: 46px;
 }
 
 .session-content-workspace.view-context .context-session-scroll {
@@ -2425,29 +2421,29 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .research-side-tabs {
   min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   gap: 4px;
   border: 0;
-  border-radius: 9px;
-  background: #111111;
-  padding: 3px;
+  background: transparent;
+  padding: 0;
 }
 
 .research-side-tabs button {
-  min-width: 0;
+  min-width: auto;
   height: 30px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   border: 0;
   border-radius: 6px;
-  background: transparent;
+  background: var(--panel);
   color: var(--muted);
-  padding: 0 7px;
-  font-size: 0.85rem;
-  font-weight: 820;
+  padding: 0 9px;
+  font-size: 1rem;
+  font-weight: 400;
 }
 
 .research-side-tabs button:hover,
@@ -2462,25 +2458,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .research-side-tabs button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.research-side-tabs button strong {
-  min-width: 18px;
-  border-radius: 999px;
-  background: #151515;
-  color: var(--muted-strong);
-  padding: 2px 5px;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.research-side-tabs button.active strong {
-  background: #2b2b2b;
-  color: var(--text);
 }
 
 .memory-catalog-header {
@@ -2521,9 +2499,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 7px;
   border: 0;
   border-radius: 8px;
-  background: #111111;
+  background: var(--panel);
   color: var(--muted);
   padding: 0 9px;
+  font-size: 1rem;
 }
 
 .memory-catalog-search:focus-within {
@@ -2559,19 +2538,19 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   height: 26px;
   border: 0;
   border-radius: 7px;
-  background: #111111;
+  background: var(--panel);
   color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 800;
+  font-size: 1rem;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .memory-tier-filter button:hover,
 .memory-tier-filter button.selected {
   color: var(--text);
-  background: #181818;
+  background: #202020;
 }
 
 .memory-type-filter {
@@ -2581,9 +2560,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 1rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.memory-type-filter > span {
+  font-size: 0.78rem;
 }
 
 .memory-type-filter select {
@@ -2592,10 +2575,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   height: 28px;
   border: 0;
   border-radius: 7px;
-  background: #111111;
+  background: var(--panel);
   color: var(--muted-strong);
   padding: 0 8px;
-  font-size: 0.85rem;
+  font-size: 1rem;
 }
 
 .memory-catalog-empty {
@@ -2626,7 +2609,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 6px;
   border: 0;
   border-radius: 9px;
-  background: #111111;
+  background: var(--panel);
   color: var(--muted-strong);
   padding: 10px;
   text-align: left;
@@ -2988,7 +2971,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   border: 0;
   border-radius: 8px;
-  background: #111111;
+  background: var(--panel);
   overflow: hidden;
   transition: background 140ms ease;
 }
@@ -3209,7 +3192,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   gap: 3px;
   border-radius: 7px;
-  background: #1a1a1a;
+  background: var(--panel);
   padding: 7px 8px;
 }
 
