@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Trace detail modals now open from the trace icon only, leaving trace content selectable and copyable while preserving row hover feedback.
 - Memory Correction traces now show type, id, and status metadata above their multiline payload summary.
 - Shell traces now show full multiline commands, bounded stdout previews using the file-read treatment, and full captured stderr messages using the standard error treatment.
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
@@ -11,6 +12,7 @@
 
 ### Added
 
+- Added inline expand/collapse controls for truncated file-read excerpts and Shell stdout previews.
 - Added Settings > Shell Options with user-global default and per-utility concurrency limits; a limit of `0` disables the utility and `sudo` is disabled by default.
 - Added Honeycrisp's argv-based `shell.run` research tool with harness-wide cross-process utility leases, bounded runtime/output, and credential-like environment filtering.
 - Added concise memory-use guidance for Honeycrisp research sessions: search prior knowledge early, record sources, sinks, invariants, mitigations, bugs, and trajectories deliberately, require static support for primitives, and require an independently reviewed realistic proof-of-vulnerability before confirming a chain.

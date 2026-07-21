@@ -188,7 +188,9 @@ export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string 
 
 export interface HoneycrispShellTraceStreamPreview {
   lines: string[];
+  allLines: string[];
   lineCount: number;
+  sourceTruncated: boolean;
   truncated: boolean;
 }
 
@@ -222,7 +224,9 @@ function shellOutputPreview(value: unknown, sourceTruncated: boolean, maxLines: 
   const visibleLines = lines.slice(0, Math.max(0, maxLines));
   return {
     lines: visibleLines,
+    allLines: lines,
     lineCount: lines.length,
+    sourceTruncated,
     truncated: sourceTruncated || visibleLines.length < lines.length
   };
 }
@@ -323,7 +327,9 @@ export interface CodeBrowserTracePreview {
   description: string;
   facts: string[];
   excerptLines: string[];
+  excerptAllLines: string[];
   excerptLineCount: number;
+  excerptSourceTruncated: boolean;
   excerptTruncated: boolean;
 }
 
@@ -470,7 +476,9 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
       description: symbol ? `Symbol ${symbol}` : 'Source read prepared.',
       facts: [rangePart(args), policyPart(event.payload)].filter((part): part is string => Boolean(part)),
       excerptLines: [],
+      excerptAllLines: [],
       excerptLineCount: 0,
+      excerptSourceTruncated: false,
       excerptTruncated: false
     };
   }
@@ -502,7 +510,9 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
       traceBooleanPart('truncated', tracePayloadPrimitive(event.payload, 'truncated'))
     ].filter((part): part is string => Boolean(part)),
     excerptLines: visibleExcerptLines,
+    excerptAllLines: excerptLines,
     excerptLineCount: boundedLineCount,
+    excerptSourceTruncated: tracePayloadPrimitive(event.payload, 'truncated') === 'true',
     excerptTruncated: excerptLines.length > visibleExcerptLines.length || tracePayloadPrimitive(event.payload, 'truncated') === 'true'
   };
 }
@@ -575,7 +585,9 @@ function honeycrispFileReadPreview(event: TraceEventRecord, maxLines: number): C
       traceBooleanPart('truncated', truncated ? 'true' : null)
     ].filter((part): part is string => Boolean(part)),
     excerptLines: visibleExcerptLines,
+    excerptAllLines: allExcerptLines,
     excerptLineCount: allExcerptLines.length,
+    excerptSourceTruncated: truncated,
     excerptTruncated: allExcerptLines.length > visibleExcerptLines.length || truncated
   };
 }

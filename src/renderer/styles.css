@@ -2859,21 +2859,15 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-trace-turn-state {
-  border: 1px solid #303030;
+  border: 0;
   border-radius: 999px;
-  background: #111111;
+  background: #222222;
+  color: #aaaaaa;
   padding: 3px 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
   line-height: 1;
-}
-
-.main-trace-turn-state.state-active {
-  border-color: rgba(120, 217, 131, 0.45);
-  color: var(--green);
-}
-
-.main-trace-turn-state.state-review {
-  border-color: rgba(223, 181, 95, 0.45);
-  color: var(--amber);
+  letter-spacing: 0.02em;
 }
 
 .app-shell:not(.session-heat-none) .main-trace-turn-header:first-of-type {
@@ -3736,7 +3730,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   width: 12px;
 }
 
-.main-trace-event:hover:not(:disabled),
+.main-trace-event:hover,
 .main-trace-event.selected {
   border-color: transparent;
   background: #141414;
@@ -3769,6 +3763,34 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   align-items: start;
   justify-items: center;
   padding-top: 4px;
+}
+
+.main-trace-marker-button {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+}
+
+.main-trace-marker-button:hover:not(:disabled),
+.main-trace-marker-button:active:not(:disabled) {
+  border: 0;
+  background: transparent;
+}
+
+.main-trace-marker-button:focus-visible {
+  outline: 0;
+}
+
+.main-trace-marker-button:focus-visible > span {
+  box-shadow: 0 0 0 2px #555555;
 }
 
 .main-trace-marker::before {
@@ -4545,6 +4567,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .main-trace-python-block {
+  position: relative;
   min-width: 0;
   display: grid;
   gap: 4px;
@@ -4575,6 +4598,32 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   color: #747474;
 }
 
+.main-trace-output-toggle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  min-height: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--panel-input);
+  color: #aaaaaa;
+  padding: 5px 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.main-trace-python-block.has-expand-toggle code {
+  padding-bottom: 30px;
+}
+
+.main-trace-output-toggle:hover:not(:disabled) {
+  border: 0;
+  background: #171717;
+}
+
 .main-trace-python-block pre {
   width: 100%;
   min-width: 0;
@@ -4584,7 +4633,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   grid-template-columns: minmax(2.5ch, auto) minmax(0, 1fr);
   align-items: stretch;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 0;
   border-radius: 6px;
   background: #080808;
@@ -4613,14 +4663,44 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .main-trace-python-block code {
   display: block;
-  min-width: 0;
-  overflow: hidden;
+  width: max-content;
+  min-width: 100%;
+  overflow: visible;
   border: 0;
   background: transparent;
   color: inherit;
   padding: 7px 9px;
   font: inherit;
   text-overflow: clip;
+}
+
+.main-trace-python-block pre {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.main-trace-python-block pre::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.main-trace-python-block pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.main-trace-python-block pre::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+.main-trace-python-block pre:hover {
+  scrollbar-color: var(--inset-scrollbar-thumb) transparent;
+}
+
+.main-trace-python-block pre:hover::-webkit-scrollbar-thumb {
+  background-color: var(--inset-scrollbar-thumb);
 }
 
 .syntax-code {

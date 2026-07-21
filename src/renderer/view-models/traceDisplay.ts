@@ -253,7 +253,7 @@ export function groupRenderedTraceEntries<TEvent extends TraceEventRecord>(entri
 export function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): TraceGroupStatusLabel {
   if (group.failureCount > 0) return { kind: 'review', label: `${group.failureCount} ${group.failureCount === 1 ? 'Error' : 'Errors'}` };
   if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
-  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Complete' };
+  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Turn Complete' };
   return { kind: 'events', label: 'Events' };
 }
 

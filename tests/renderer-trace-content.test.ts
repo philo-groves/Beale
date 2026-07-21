@@ -310,7 +310,7 @@ describe('renderer trace content view models', () => {
     );
 
     expect(honeycrispShellTraceOutput(shellRun)).toEqual({
-      stdout: { lines: ['building', 'finished'], lineCount: 2, truncated: false },
+      stdout: { lines: ['building', 'finished'], allLines: ['building', 'finished'], lineCount: 2, sourceTruncated: false, truncated: false },
       stderr: 'test failed\nline two\n',
       stderrTruncated: true
     });
@@ -319,7 +319,13 @@ describe('renderer trace content view models', () => {
         honeycrispToolObservation('shell.run', { utility: 'printf', args: [] }, { stdout: 'one\ntwo\nthree\nfour\nfive\nsix\n', stderr: '' })
       )
     ).toEqual({
-      stdout: { lines: ['one', 'two', 'three', 'four', 'five'], lineCount: 6, truncated: true },
+      stdout: {
+        lines: ['one', 'two', 'three', 'four', 'five'],
+        allLines: ['one', 'two', 'three', 'four', 'five', 'six'],
+        lineCount: 6,
+        sourceTruncated: false,
+        truncated: true
+      },
       stderr: '',
       stderrTruncated: false
     });
@@ -470,7 +476,9 @@ describe('renderer trace content view models', () => {
       description: '',
       facts: ['lines 10-21', '12 lines', 'symbol decode', 'truncated yes'],
       excerptLines: ['10: public void decode() {', '11:   parse(input);', '12: }', '13:', '14: // extra'],
+      excerptAllLines: ['10: public void decode() {', '11:   parse(input);', '12: }', '13:', '14: // extra', '15: audit();'],
       excerptLineCount: 12,
+      excerptSourceTruncated: true,
       excerptTruncated: true
     });
     expect(
@@ -522,7 +530,9 @@ describe('renderer trace content view models', () => {
       description: '',
       facts: ['128 bytes', 'utf8', 'truncated yes'],
       excerptLines: ['parse one', 'parse two', 'parse three', 'parse four', 'parse five'],
+      excerptAllLines: ['parse one', 'parse two', 'parse three', 'parse four', 'parse five', 'parse six'],
       excerptLineCount: 6,
+      excerptSourceTruncated: true,
       excerptTruncated: true
     });
   });

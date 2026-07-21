@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { traceLabel } from '../../lib/formatting';
@@ -50,6 +50,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   selected,
   onSelect
 }: TraceEventRowProps): JSX.Element {
+  const [limitedOutputExpanded, setLimitedOutputExpanded] = useState(false);
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const detailForEvent = traceEventNeedsRunDetail(event) ? detail : null;
   const category = useMemo(() => traceCategoryForEvent(event), [event]);
@@ -94,10 +95,12 @@ export const TraceEventRow = memo(function TraceEventRow({
   ) : codeBrowserPreview ? (
     <CodeBrowserTracePreviewRow
       preview={codeBrowserPreview}
+      expanded={limitedOutputExpanded}
       hideTitle={honeycrispToolObservation && toolObservationSubtext === codeBrowserPreview.title}
       plainTitle={fileReadObservation}
       hasSearchHighlight={hasSearchHighlight}
       searchHighlightQuery={searchHighlightQuery}
+      onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
     />
   ) : duplicateBlockedDetail ? (
     <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
@@ -128,9 +131,11 @@ export const TraceEventRow = memo(function TraceEventRow({
   const shellOutputContent = shellTraceOutput ? (
     <ShellTraceOutput
       output={shellTraceOutput}
+      expanded={limitedOutputExpanded}
       fallbackError={toolObservationError && hasDetail && !shellTraceOutput.stderr ? detailText : ''}
       hasSearchHighlight={hasSearchHighlight}
       searchHighlightQuery={searchHighlightQuery}
+      onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
     />
   ) : null;
   const contextContent = honeycrispToolObservation ? (
@@ -152,8 +157,7 @@ export const TraceEventRow = memo(function TraceEventRow({
     structuredContextContent ?? fallbackContextContent
   );
   return (
-    <button
-      type="button"
+    <div
       className={`main-trace-event source-${event.source} type-${event.type} category-${category} ${toolClassName} ${eventKindClass} ${markerToneClass} ${
         outcome ? `outcome-${outcome}` : ''
       } ${
@@ -163,11 +167,17 @@ export const TraceEventRow = memo(function TraceEventRow({
       }`}
       data-trace-event-id={event.id}
       data-trace-event-ids={traceDisplayEventIds(event).join(' ')}
-      aria-pressed={selected}
-      onClick={() => onSelect(event)}
     >
-      <div className="main-trace-marker" aria-hidden="true">
-        <span>{icon}</span>
+      <div className="main-trace-marker">
+        <button
+          type="button"
+          className="main-trace-marker-button"
+          aria-label={`Open trace details: ${displaySummary}`}
+          aria-pressed={selected}
+          onClick={() => onSelect(event)}
+        >
+          <span aria-hidden="true">{icon}</span>
+        </button>
       </div>
       <div className="main-trace-event-body">
         <div className="main-trace-line">
@@ -187,29 +197,36 @@ export const TraceEventRow = memo(function TraceEventRow({
           <div className="main-trace-context">{contextContent}</div>
         )}
       </div>
-    </button>
+    </div>
   );
 }, traceEventRowPropsEqual);
 
 function ShellTraceOutput({
   output,
+  expanded,
   fallbackError,
   hasSearchHighlight,
-  searchHighlightQuery
+  searchHighlightQuery,
+  onToggleExpanded
 }: {
   output: HoneycrispShellTraceOutput;
+  expanded: boolean;
   fallbackError: string;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
+  onToggleExpanded: () => void;
 }): JSX.Element {
   return (
     <div className="main-trace-shell-output">
       {output.stdout ? (
         <TraceCodePreview
+          expanded={expanded}
+          expandable={output.stdout.allLines.length > output.stdout.lines.length}
           label="stdout"
           meta={`${output.stdout.lineCount} line${output.stdout.lineCount === 1 ? '' : 's'}`}
-          truncated={output.stdout.truncated}
-          text={output.stdout.lines.join('\n')}
+          onToggleExpanded={onToggleExpanded}
+          truncated={expanded ? output.stdout.sourceTruncated : output.stdout.truncated}
+          text={(expanded ? output.stdout.allLines : output.stdout.lines).join('\n')}
           searchHighlightQuery={hasSearchHighlight ? searchHighlightQuery : ''}
         />
       ) : null}
@@ -227,27 +244,35 @@ function ShellTraceOutput({
 
 function CodeBrowserTracePreviewRow({
   preview,
+  expanded,
   hideTitle,
   plainTitle,
   hasSearchHighlight,
-  searchHighlightQuery
+  searchHighlightQuery,
+  onToggleExpanded
 }: {
   preview: CodeBrowserTracePreview;
+  expanded: boolean;
   hideTitle: boolean;
   plainTitle: boolean;
   hasSearchHighlight: boolean;
   searchHighlightQuery: string;
+  onToggleExpanded: () => void;
 }): JSX.Element {
+  const excerptLines = expanded ? preview.excerptAllLines : preview.excerptLines;
   return (
     <div className={`main-trace-code-browser-preview ${plainTitle ? 'title-plain' : ''}`}>
       <StructuredTracePreview preview={preview} hideTitle={hideTitle} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-      {preview.excerptLines.length > 0 ? (
+      {excerptLines.length > 0 ? (
         <TraceCodePreview
+          expanded={expanded}
+          expandable={preview.excerptAllLines.length > preview.excerptLines.length}
           label="Excerpt"
           meta={`${preview.excerptLineCount} line${preview.excerptLineCount === 1 ? '' : 's'}`}
+          onToggleExpanded={onToggleExpanded}
           lineNumberMode="source-prefix"
-          text={preview.excerptLines.join('\n')}
-          truncated={preview.excerptTruncated}
+          text={excerptLines.join('\n')}
+          truncated={expanded ? preview.excerptSourceTruncated : preview.excerptTruncated}
         />
       ) : null}
     </div>
@@ -374,18 +399,24 @@ function PythonTracePreview({ preview }: { preview: PythonToolCallPreview }): JS
 }
 
 function TraceCodePreview({
+  expanded = false,
+  expandable = false,
   label,
   language,
   lineNumberMode = 'generated',
   meta,
+  onToggleExpanded,
   searchHighlightQuery = '',
   text,
   truncated
 }: {
+  expanded?: boolean;
+  expandable?: boolean;
   label: string;
   language?: 'python';
   lineNumberMode?: CodeBlockLineNumberMode;
   meta: string;
+  onToggleExpanded?: () => void;
   searchHighlightQuery?: string;
   text: string;
   truncated: boolean;
@@ -393,7 +424,7 @@ function TraceCodePreview({
   const rows = codeBlockLineRows(text.split('\n'), lineNumberMode);
   const codeText = rows.codeLines.join('\n');
   return (
-    <div className="main-trace-python-block">
+    <div className={`main-trace-python-block ${expandable ? 'has-expand-toggle' : ''}`}>
       <div className="main-trace-python-heading">
         <span>{label}</span>
         <span>{meta}</span>
@@ -408,6 +439,11 @@ function TraceCodePreview({
           {language === 'python' ? highlightPythonCode(codeText) : searchHighlightQuery ? renderSearchHighlightedText(codeText, searchHighlightQuery) : codeText}
         </code>
       </pre>
+      {expandable && onToggleExpanded ? (
+        <button type="button" className="main-trace-output-toggle" aria-expanded={expanded} onClick={onToggleExpanded}>
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      ) : null}
     </div>
   );
 }
