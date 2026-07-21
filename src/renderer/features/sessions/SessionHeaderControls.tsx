@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, Braces, Clock, FileText, GitFork, List } from 'lucide-react';
+import { Braces, Clock, FileText, GitFork, List } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import type { TraceCategoryId } from '../../traceClassification';
 import { sessionHeaderTiming } from '../../view-models/sessionHeader';
@@ -8,13 +8,9 @@ import { SESSION_MAIN_VIEW_ORDER, type SessionMainView } from './sessionViews';
 
 export function SessionViewControls({
   sessionView,
-  selectedSubagentPath,
-  onBackToMain,
   onSessionViewChange
 }: {
   sessionView: SessionMainView;
-  selectedSubagentPath: string | null;
-  onBackToMain: () => void;
   onSessionViewChange: (view: SessionMainView) => void;
 }): JSX.Element {
   const optionByView: Record<SessionMainView, { label: string; icon: JSX.Element }> = {
@@ -40,12 +36,6 @@ export function SessionViewControls({
           </button>
         ))}
       </div>
-      {selectedSubagentPath ? (
-        <button type="button" className="back-to-main-button" title="Return to the full session trace" onClick={onBackToMain}>
-          <ArrowLeft size={14} />
-          <span>Back to Main</span>
-        </button>
-      ) : null}
     </div>
   );
 }

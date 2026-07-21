@@ -1,16 +1,18 @@
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import type { ResearchMomentum, ResearchMomentumState } from '../features/momentum/types';
-import { stateClass, traceLabel } from '../lib/formatting';
+import { traceLabel } from '../lib/formatting';
 import {
+  honeycrispToolName,
   traceCategoryForEvent,
   traceEventOutcome,
   tracePayloadPrimitive
 } from '../traceClassification';
-import { isIgnoredHeatState, type SessionHeat } from './sessionHeat';
+import type { SessionHeat } from './sessionHeat';
 import { traceEventSummary, trimTraceLabelPeriod } from './traceContent';
 
 const RESEARCH_MOMENTUM_WINDOW_MS = 90_000;
 const RESEARCH_MOMENTUM_RECENT_LIMIT = 18;
+const MEMORY_GRAPH_MUTATION_TOOLS = new Set(['memory.save', 'memory.correct', 'memory.link']);
 
 export function researchMomentumForDetail(detail: RunDetail | null, heat: SessionHeat): ResearchMomentum {
   if (!detail) return momentumState('idle', 'No research session is selected.');
@@ -105,16 +107,15 @@ function momentumStuckReason(recent: TraceEventRecord[], failureEvents: TraceEve
 
 function hasMomentumHotLead(detail: RunDetail, heat: SessionHeat, recent: TraceEventRecord[]): boolean {
   if (heat !== 'high' && heat !== 'critical') return false;
-  const recentProgress = recent.some((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'evidence');
+  const recentProgress = recent.some((event) => isMomentumVerifyingEvent(event) || isMemoryGraphMutationEvent(event));
   if (recentProgress) return true;
 
-  return (
-    detail.findings.some((finding) => !isIgnoredHeatState(finding.state) && isMomentumRecentIso(finding.updatedAt)) ||
-    detail.hypotheses.some((hypothesis) => {
-      const state = stateClass(hypothesis.state);
-      return (state === 'reproduced' || state === 'promoted' || state === 'verified') && isMomentumRecentIso(hypothesis.updatedAt);
-    })
-  );
+  return detail.honeycrispMemory?.nodes.some((node) =>
+    node.sessionId === detail.run.id &&
+    node.type === 'chain' &&
+    (node.status === 'suspected' || node.status === 'confirmed') &&
+    isMomentumRecentIso(node.updatedAt)
+  ) ?? false;
 }
 
 function isMomentumVerifyingEvent(event: TraceEventRecord): boolean {
@@ -128,9 +129,13 @@ function isMomentumVerifyingEvent(event: TraceEventRecord): boolean {
 }
 
 function isMomentumBuildingEvent(event: TraceEventRecord): boolean {
-  const category = traceCategoryForEvent(event);
-  if (category === 'hypotheses' || category === 'evidence') return true;
-  return /\b(hypothesis|finding|artifact|experiment|prepare|construct|build|created|promote|chain)\b/.test(momentumEventText(event));
+  if (isMemoryGraphMutationEvent(event)) return true;
+  return /\b(primitive|chain|source|sink|invariant|mitigation|trajectory|memory link|memory correction)\b/.test(momentumEventText(event));
+}
+
+function isMemoryGraphMutationEvent(event: TraceEventRecord): boolean {
+  const toolName = honeycrispToolName(event);
+  return toolName !== null && MEMORY_GRAPH_MUTATION_TOOLS.has(toolName);
 }
 
 function isMomentumExploringEvent(event: TraceEventRecord): boolean {

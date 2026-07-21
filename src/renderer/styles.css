@@ -1533,24 +1533,30 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid #2b2b2b;
+  border: 0;
   border-radius: 8px;
-  background: var(--panel);
-  color: var(--muted-strong);
+  background: #292929;
+  color: var(--text);
   padding: 0 9px;
   font-size: 1rem;
   font-weight: 400;
 }
 
 .back-to-main-button:hover {
-  border-color: var(--line-strong);
-  background: #1b1b1b;
+  background: #333333;
   color: var(--text);
 }
 
 .back-to-main-button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
   outline-offset: 2px;
+}
+
+.trace-back-to-main-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
 }
 
 .session-header-metric {

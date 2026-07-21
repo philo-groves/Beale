@@ -76,8 +76,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       <div className="session-content-view-controls">
         <SessionViewControls
           sessionView={sessionView}
-          selectedSubagentPath={selectedSubagentPath}
-          onBackToMain={onBackToMain}
           onSessionViewChange={onSessionViewChange}
         />
       </div>
@@ -91,12 +89,14 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
             events={events}
             selectedRunId={selectedRunId}
             traceScopeKey={selectedSubagentPath ?? 'main'}
+            showBackToMain={selectedSubagentPath !== null}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={searchHighlightQuery}
             traceFilterCount={traceFilterCount}
             totalTraceFilterCount={totalTraceFilterCount}
             visibleTraceCategories={visibleTraceCategories}
             onOpenTraceFilters={onOpenTraceFilters}
+            onBackToMain={onBackToMain}
             onSelectTraceEvent={onSelectTraceEvent}
             onSessionAction={onSessionAction}
             onSteerInstruction={onSteerInstruction}

@@ -1,113 +1,81 @@
 import { describe, expect, it } from 'vitest';
-import type { FindingRecord, HoneycrispMemorySummary, HypothesisRecord, RunDetail } from '@shared/types';
-import { sessionHeatForDetail, sessionHeatForFinding, sessionHeatForHoneycrispMemory, sessionHeatForHypothesis } from '../src/renderer/view-models/sessionHeat';
+import type { HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, RunDetail } from '@shared/types';
+import { sessionHeatForDetail, sessionHeatForHoneycrispMemory } from '../src/renderer/view-models/sessionHeat';
 
 describe('renderer session heat view models', () => {
-  it('returns none for missing or ignored research records', () => {
+  it('uses none when no session is selected or no triggering memory exists in the session', () => {
     expect(sessionHeatForDetail(null)).toBe('none');
-    expect(sessionHeatForDetail(runDetail({ findings: [findingRecord({ state: 'duplicate', priorityScore: 64 })] }))).toBe('none');
+    expect(sessionHeatForDetail(runDetail())).toBe('none');
+    expect(sessionHeatForDetail(runDetail({
+      nodes: [memoryNode({ type: 'source', status: 'confirmed' })]
+    }))).toBe('none');
   });
 
-  it('uses verified finding evidence to preserve critical heat', () => {
-    const finding = findingRecord({
-      title: 'Remote code execution',
-      impactMarkdown: 'RCE enables code execution.',
-      priorityScore: 64,
-      verifiedByVerifierRunId: 'verifier_run_test'
-    });
-
-    expect(sessionHeatForFinding(finding, null)).toBe('critical');
-    expect(sessionHeatForDetail(runDetail({ findings: [finding] }))).toBe('critical');
+  it.each([
+    ['primitive', 'suspected', 'low'],
+    ['primitive', 'confirmed', 'medium'],
+    ['chain', 'suspected', 'high'],
+    ['chain', 'confirmed', 'critical']
+  ] as const)('maps a %s in %s state to %s heat', (type, status, expected) => {
+    expect(sessionHeatForDetail(runDetail({ nodes: [memoryNode({ type, status })] }))).toBe(expected);
   });
 
-  it('treats reportable findings as critical heat', () => {
-    const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
+  it('ignores triggering memories from other sessions', () => {
+    const memory = honeycrispMemory([
+      memoryNode({ sessionId: 'run_older', type: 'chain', status: 'confirmed' }),
+      memoryNode({ sessionId: 'run_current', type: 'primitive', status: 'suspected' })
+    ]);
 
-    expect(sessionHeatForFinding(finding, null)).toBe('critical');
+    expect(sessionHeatForHoneycrispMemory(memory, 'run_current')).toBe('low');
   });
 
-  it('caps hypothesis-only leads below confirmed finding severity', () => {
-    const hypothesis = hypothesisRecord({
-      impact: 'critical compromise',
-      attackerReachability: 'remote attacker',
-      evidenceConfidence: 'hypothesis only',
-      priorityScore: 64
-    });
+  it('downgrades when a triggering memory is rejected', () => {
+    const suspectedChain = memoryNode({ id: 'chain_test', type: 'chain', status: 'suspected' });
+    const confirmedPrimitive = memoryNode({ id: 'primitive_test', type: 'primitive', status: 'confirmed' });
+    expect(sessionHeatForDetail(runDetail({ nodes: [suspectedChain, confirmedPrimitive] }))).toBe('high');
 
-    expect(sessionHeatForHypothesis(hypothesis)).toBe('low');
-  });
-
-  it('computes general research intensity from Honeycrisp memory state', () => {
-    const memory = honeycrispMemory({
-      primitiveStatus: 'confirmed'
-    });
-
-    expect(sessionHeatForHoneycrispMemory(memory)).toBe('high');
-    expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory }))).toBe('high');
-  });
-
-  it('lets Beale vulnerability-specific rows boost Honeycrisp general heat', () => {
-    const memory = honeycrispMemory({ primitiveStatus: 'suspected' });
-    const finding = findingRecord({ state: 'reportable', priorityScore: 10, verifiedByVerifierRunId: 'verifier_run_test' });
-
-    expect(sessionHeatForDetail(runDetail({ honeycrispMemory: memory, findings: [finding] }))).toBe('critical');
+    const rejectedChain = { ...suspectedChain, status: 'rejected', revision: 2 };
+    expect(sessionHeatForDetail(runDetail({ nodes: [rejectedChain, confirmedPrimitive] }))).toBe('medium');
   });
 });
 
-function runDetail(input: { findings?: FindingRecord[]; honeycrispMemory?: HoneycrispMemorySummary; hypotheses?: HypothesisRecord[] } = {}): RunDetail {
+function runDetail(input: { nodes?: HoneycrispMemoryNodeSummary[] } = {}): RunDetail {
   return {
-    findings: input.findings ?? [],
-    hypotheses: input.hypotheses ?? [],
-    evidence: [],
-    honeycrispMemory: input.honeycrispMemory
+    run: { id: 'run_current' },
+    honeycrispMemory: honeycrispMemory(input.nodes ?? [])
   } as unknown as RunDetail;
 }
 
-function findingRecord(input: Partial<FindingRecord> = {}): FindingRecord {
+function honeycrispMemory(nodes: HoneycrispMemoryNodeSummary[]): HoneycrispMemorySummary {
   return {
-    id: 'finding_test',
-    hypothesisId: null,
-    title: 'Finding',
-    state: 'verified',
-    priorityScore: 42,
-    summaryMarkdown: '',
-    impactMarkdown: '',
-    verifiedByVerifierRunId: null,
-    ...input
-  } as unknown as FindingRecord;
-}
-
-function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisRecord {
-  return {
-    id: 'hypothesis_test',
-    state: 'needs_evidence',
-    priorityScore: 12,
-    impact: 'static lead',
-    attackerReachability: 'unknown',
-    evidenceConfidence: 'hypothesis only',
-    ...input
-  } as unknown as HypothesisRecord;
-}
-
-function honeycrispMemory(input: { primitiveStatus: string }): HoneycrispMemorySummary {
-  return {
-    status: 'ready',
+    status: nodes.length > 0 ? 'ready' : 'empty',
     source: 'honeycrisp_sqlite',
-    nodes: [{
-      id: 'primitive_test',
-      type: 'primitive',
-      title: 'General primitive',
-      summary: 'General primitive',
-      body: '',
-      status: input.primitiveStatus,
-      confidence: 0.9,
-      assetIds: [],
-      tags: [],
-      attributes: {},
-      evidenceRefs: [{ id: 'evidence_test', kind: 'code', pathBase: 'repository', path: 'src/parser.ts', locator: {}, summary: 'Evidence', createdAt: '2026-01-01T00:00:00.000Z' }],
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-      revision: 1
-    }]
-  } as unknown as HoneycrispMemorySummary;
+    nodes
+  } as HoneycrispMemorySummary;
+}
+
+function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): HoneycrispMemoryNodeSummary {
+  return {
+    id: 'memory_test',
+    tier: 'workspace',
+    sessionId: 'run_current',
+    workspaceId: 'workspace_zsh',
+    workspaceName: 'Zsh',
+    subjectId: 'subject_apple',
+    subjectName: 'Apple',
+    type: 'primitive',
+    title: 'Memory title',
+    summary: 'Memory summary',
+    body: '',
+    status: 'suspected',
+    confidence: 0.8,
+    assetIds: [],
+    tags: [],
+    attributes: {},
+    evidenceRefs: [],
+    createdAt: '2026-07-21T12:00:00.000Z',
+    updatedAt: '2026-07-21T12:00:00.000Z',
+    revision: 1,
+    ...overrides
+  };
 }

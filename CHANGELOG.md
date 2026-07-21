@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Session heat now derives only from current-session Honeycrisp primitive and chain memories: suspected/confirmed primitives map to low/medium, suspected/confirmed chains map to high/critical, and rejected memories immediately stop contributing. Background pulse momentum now recognizes Honeycrisp graph mutations and recent session chains instead of legacy Beale hypothesis/finding records.
+- Subagent trace navigation now places Back to Main at the upper-right of the transcript instead of over the session sidebar.
 - Trace detail modals now open from the trace icon only, leaving trace content selectable and copyable while preserving row hover feedback.
 - Memory Correction traces now show type, id, and status metadata above their multiline payload summary.
 - Memory Get traces now show the returned memory summary beneath their type and id metadata.

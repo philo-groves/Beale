@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
 import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -40,11 +40,13 @@ export const TraceView = memo(function TraceView({
   events,
   selectedRunId,
   traceScopeKey,
+  showBackToMain,
   selectedTraceEventId,
   searchHighlightQuery,
   traceFilterCount,
   totalTraceFilterCount,
   visibleTraceCategories,
+  onBackToMain,
   onOpenTraceFilters,
   onSelectTraceEvent,
   onSessionAction,
@@ -55,11 +57,13 @@ export const TraceView = memo(function TraceView({
   events: TraceDisplayEvent[];
   selectedRunId: string | null;
   traceScopeKey: string;
+  showBackToMain: boolean;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   visibleTraceCategories: TraceCategoryId[];
+  onBackToMain: () => void;
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
@@ -452,6 +456,17 @@ export const TraceView = memo(function TraceView({
 
   return (
     <section className="main-trace-view" aria-label="Agent trace">
+      {showBackToMain ? (
+        <button
+          type="button"
+          className="back-to-main-button trace-back-to-main-button"
+          title="Return to the full session trace"
+          onClick={onBackToMain}
+        >
+          <ArrowLeft size={14} />
+          <span>Back to Main</span>
+        </button>
+      ) : null}
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
