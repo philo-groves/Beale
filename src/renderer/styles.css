@@ -2419,6 +2419,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.memory-catalog > .main-side-scroll {
+  width: calc(100% + 8px);
+}
+
 .research-side-tabs {
   min-width: 0;
   display: grid;
@@ -2442,7 +2446,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: transparent;
   color: var(--muted);
   padding: 0 7px;
-  font-size: 0.68rem;
+  font-size: 0.85rem;
   font-weight: 820;
 }
 
@@ -2469,7 +2473,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #151515;
   color: var(--muted-strong);
   padding: 2px 5px;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -2557,7 +2561,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   border-radius: 7px;
   background: #111111;
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2577,7 +2581,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -2591,14 +2595,14 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #111111;
   color: var(--muted-strong);
   padding: 0 8px;
-  font-size: 0.7rem;
+  font-size: 0.85rem;
 }
 
 .memory-catalog-empty {
   min-width: 0;
   align-self: start;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 1rem;
   line-height: 1.45;
   padding: 6px 2px;
 }
@@ -2654,8 +2658,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 820;
+  font-size: 1rem;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2663,7 +2667,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .subagent-catalog-heading time {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2671,7 +2675,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: -webkit-box;
   overflow: hidden;
   color: var(--muted-strong);
-  font-size: 0.72rem;
+  font-size: 1rem;
   line-height: 1.38;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -2683,7 +2687,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: #1d1d1d;
   color: var(--muted);
   padding: 2px 6px;
-  font-size: 0.58rem;
+  font-size: 0.72rem;
   font-weight: 850;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -2982,59 +2986,69 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 
 .memory-catalog-item {
   min-width: 0;
-  border-left: 2px solid #555555;
+  border: 0;
   border-radius: 8px;
   background: #111111;
   overflow: hidden;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease;
 }
 
 .memory-catalog-item:hover,
 .memory-catalog-item.expanded {
-  border-left-color: var(--muted-strong);
   background: #151515;
 }
 
-.memory-catalog-item.type-primitive,
-.memory-catalog-item.type-bug {
-  border-left-color: var(--red);
+.memory-catalog-item.type-primitive .memory-catalog-type,
+.memory-catalog-item.type-bug .memory-catalog-type {
+  color: var(--red);
 }
 
-.memory-catalog-item.type-invariant,
-.memory-catalog-item.type-mitigation {
-  border-left-color: var(--green);
+.memory-catalog-item.type-invariant .memory-catalog-type,
+.memory-catalog-item.type-mitigation .memory-catalog-type {
+  color: var(--green);
 }
 
-.memory-catalog-item.type-source,
-.memory-catalog-item.type-sink,
-.memory-catalog-item.type-asset {
-  border-left-color: var(--amber);
+.memory-catalog-item.type-source .memory-catalog-type,
+.memory-catalog-item.type-sink .memory-catalog-type,
+.memory-catalog-item.type-asset .memory-catalog-type {
+  color: var(--amber);
 }
 
 .memory-catalog-toggle {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  justify-content: stretch;
+  justify-items: stretch;
   border: 0;
   background: transparent;
   color: inherit;
   padding: 9px 9px 9px 10px;
   text-align: left;
+  white-space: normal;
 }
 
 .memory-catalog-item-heading {
   min-width: 0;
+  width: 100%;
   display: grid;
-  gap: 4px;
+  gap: 5px;
+}
+
+.memory-catalog-item-meta-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .memory-catalog-type {
   min-width: 0;
   color: var(--muted);
-  font-size: 0.61rem;
+  font-size: 0.75rem;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -3045,9 +3059,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 0.8rem;
-  font-weight: 650;
-  line-height: 1.32;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -3058,7 +3073,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -3083,7 +3098,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .memory-catalog-body {
   margin: 9px 0 0;
   overflow-wrap: anywhere;
-  font-size: 0.75rem;
+  font-size: 1rem;
   line-height: 1.42;
 }
 
@@ -3104,7 +3119,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 6px;
   margin-top: 9px;
   color: var(--muted);
-  font-size: 0.61rem;
+  font-size: 0.75rem;
 }
 
 .memory-catalog-meta span,
@@ -3134,7 +3149,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr);
   gap: 7px;
-  font-size: 0.67rem;
+  font-size: 0.82rem;
 }
 
 .memory-catalog-scope dt {
@@ -3160,7 +3175,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .memory-catalog-subsection h4 {
   margin: 0;
   color: var(--muted);
-  font-size: 0.61rem;
+  font-size: 0.75rem;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -3171,7 +3186,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   flex-wrap: wrap;
   gap: 5px;
   color: var(--muted-strong);
-  font-size: 0.63rem;
+  font-size: 0.8rem;
 }
 
 .memory-catalog-subsection {
@@ -3201,7 +3216,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .memory-reference-list article > span,
 .memory-relationship-list article > span {
   color: var(--muted);
-  font-size: 0.59rem;
+  font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -3209,7 +3224,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 .memory-reference-list article > strong,
 .memory-relationship-list article > strong {
   color: var(--muted-strong);
-  font-size: 0.69rem;
+  font-size: 0.9rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -3219,13 +3234,13 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: transparent;
   padding: 0;
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.8rem;
 }
 
 .memory-relationship-list p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.65rem;
+  font-size: 0.85rem;
   line-height: 1.35;
 }
 

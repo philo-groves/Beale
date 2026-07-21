@@ -193,12 +193,14 @@ function MemoryCatalogItem({
     <article className={`memory-catalog-item type-${stateClass(node.type)} ${expanded ? 'expanded' : ''}`}>
       <button type="button" className="memory-catalog-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={onToggle}>
         <span className="memory-catalog-item-heading">
-          <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+          <span className="memory-catalog-item-meta-line">
+            <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+            <span className="memory-catalog-item-trailing">
+              <span>{traceLabel(node.status)} · {formatConfidence(node.confidence)}</span>
+              <ChevronDown size={14} aria-hidden="true" />
+            </span>
+          </span>
           <strong>{node.title}</strong>
-        </span>
-        <span className="memory-catalog-item-trailing">
-          <span>{traceLabel(node.status)} · {formatConfidence(node.confidence)}</span>
-          <ChevronDown size={14} aria-hidden="true" />
         </span>
       </button>
       <div id={contentId} className="memory-catalog-content" hidden={!expanded}>
