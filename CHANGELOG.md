@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.
 
 ### Added

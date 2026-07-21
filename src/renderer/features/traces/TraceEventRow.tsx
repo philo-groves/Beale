@@ -100,7 +100,7 @@ export const TraceEventRow = memo(function TraceEventRow({
   ) : null;
   const fallbackContextContent = hasDetail ? (
     proseDetail ? (
-      <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</span>
+      <div className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : renderTraceProseText(detailText, category)}</div>
     ) : (
       <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
     )
@@ -204,9 +204,9 @@ function DuplicateBlockedTracePreview({
 }): JSX.Element {
   return (
     <span className="main-trace-duplicate-detail">
-      <span className="main-trace-prose main-trace-duplicate-title">
+      <div className="main-trace-prose main-trace-duplicate-title">
         {hasSearchHighlight ? renderSearchHighlightedText(detail.title, searchHighlightQuery) : renderTraceProseText(detail.title, 'agent_output')}
-      </span>
+      </div>
       {detail.attributes ? <code className="main-trace-duplicate-attributes">{hasSearchHighlight ? renderSearchHighlightedText(detail.attributes, searchHighlightQuery) : detail.attributes}</code> : null}
     </span>
   );
@@ -230,9 +230,9 @@ function ReasoningTraceContinuation({
   return (
     <span className={`main-trace-reasoning-detail ${firstDescription ? 'has-leading-description' : 'title-only'}`}>
       {firstDescription ? (
-        <span className="main-trace-prose main-trace-reasoning-description">
+        <div className="main-trace-prose main-trace-reasoning-description">
           {hasSearchHighlight ? renderSearchHighlightedText(firstDescription, searchHighlightQuery) : renderTraceProseText(firstDescription, 'agent_output')}
-        </span>
+        </div>
       ) : null}
       {remaining.map((summary, index) => {
         const heading = reasoningSummaryHeading(summary);
@@ -246,9 +246,9 @@ function ReasoningTraceContinuation({
               <span className="main-trace-source-label">{sourceLabel}</span>
             </span>
             {description ? (
-              <span className="main-trace-prose main-trace-reasoning-description">
+              <div className="main-trace-prose main-trace-reasoning-description">
                 {hasSearchHighlight ? renderSearchHighlightedText(description, searchHighlightQuery) : renderTraceProseText(description, 'agent_output')}
-              </span>
+              </div>
             ) : null}
           </span>
         );
@@ -279,7 +279,7 @@ function StructuredTracePreview({
     <span className="main-trace-structured-preview">
       {!hideTitle ? <strong>{hasSearchHighlight ? renderSearchHighlightedText(preview.title, searchHighlightQuery) : preview.title}</strong> : null}
       {preview.description ? (
-        <span className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(preview.description, searchHighlightQuery) : renderTraceProseText(preview.description, 'agent_output')}</span>
+        <div className="main-trace-prose">{hasSearchHighlight ? renderSearchHighlightedText(preview.description, searchHighlightQuery) : renderTraceProseText(preview.description, 'agent_output')}</div>
       ) : null}
       {preview.facts.length > 0 ? (
         <span className="main-trace-structured-facts">

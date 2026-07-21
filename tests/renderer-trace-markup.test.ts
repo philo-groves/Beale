@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { codeBlockLineRows } from '../src/renderer/features/traces/traceMarkup';
+import { createElement, Fragment } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { codeBlockLineRows, renderTraceProseText } from '../src/renderer/features/traces/traceMarkup';
 
 describe('renderer trace markup helpers', () => {
   it('builds generated code block line numbers without changing code text', () => {
@@ -14,5 +16,19 @@ describe('renderer trace markup helpers', () => {
       codeLines: ['export function tool() {', '  return true;', '  continued string'],
       lineNumbers: ['650', '651', '']
     });
+  });
+
+  it('renders multiline agent Markdown with fenced language highlighting', () => {
+    const markdown = ['First line', 'second line', '', '- one', '- two', '', '```sh', 'if test -f file; then', '  echo found', 'fi', '```', '', '```c', 'int main(void) {', '  return 0;', '}', '```', '', '```text', 'plain  text', '  keeps spacing', '```'].join('\n');
+    const html = renderToStaticMarkup(createElement(Fragment, null, renderTraceProseText(markdown, 'agent_output')));
+
+    expect(html).toMatch(/First line<br\/?>\s*second line/);
+    expect(html).toContain('<ul>');
+    expect(html).toContain('main-trace-markdown-code-language">sh</span>');
+    expect(html).toContain('class="hljs language-sh"');
+    expect(html).toContain('main-trace-markdown-code-language">c</span>');
+    expect(html).toContain('class="hljs language-c"');
+    expect(html).toContain('class="language-text"');
+    expect(html).toContain('plain  text\n  keeps spacing');
   });
 });
