@@ -84,6 +84,8 @@ const TRACE_SUMMARY_VERBS = new Set([
   'verified'
 ]);
 const DEFAULT_TRACE_PREVIEW_LINE_LIMIT = 5;
+const SSH_OPTIONS_WITH_ARGUMENTS = new Set(['-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-P', '-p', '-R', '-S', '-W', '-w']);
+const SSHPASS_OPTIONS_WITH_ARGUMENTS = new Set(['-d', '-f', '-p', '-P']);
 
 export function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
   return trimTraceLabelPeriod(rawTraceEventSummary(event, category));
@@ -147,6 +149,8 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     const utility = stringRecordValue(inputs, 'utility');
     if (!utility) return '';
     const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+    const sshCommand = sshRemoteCommand(utility, args);
+    if (sshCommand !== null) return truncateText(sshCommand, 180);
     return truncateText([utility, ...args.map(shellArgumentPreview)].join(' '), 180);
   }
   if (toolName !== 'memory.get') return '';
@@ -155,6 +159,62 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   if (!memoryId) return '';
   const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
   return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string | null {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload || honeycrispToolName(event) !== 'shell.run') return null;
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return null;
+  const utility = stringRecordValue(inputs, 'utility');
+  if (!utility) return null;
+  const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+  return sshInvocationArguments(utility, args) ? 'SSH' : null;
+}
+
+function sshRemoteCommand(utility: string, args: string[]): string | null {
+  const sshArgs = sshInvocationArguments(utility, args);
+  if (!sshArgs) return null;
+
+  let index = 0;
+  while (index < sshArgs.length) {
+    const argument = sshArgs[index];
+    if (argument === '--') {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith('-') || argument === '-') break;
+    if (SSH_OPTIONS_WITH_ARGUMENTS.has(argument)) index += 2;
+    else index += 1;
+  }
+
+  if (index >= sshArgs.length) return '';
+  const remoteCommand = sshArgs.slice(index + 1).join(' ').trim();
+  return remoteCommand;
+}
+
+function sshInvocationArguments(utility: string, args: string[]): string[] | null {
+  const utilityName = executableName(utility);
+  if (utilityName === 'ssh') return args;
+  if (utilityName !== 'sshpass') return null;
+
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index];
+    if (argument === '--') {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith('-') || argument === '-') break;
+    if (SSHPASS_OPTIONS_WITH_ARGUMENTS.has(argument)) index += 2;
+    else index += 1;
+  }
+  if (index >= args.length || executableName(args[index]) !== 'ssh') return null;
+  return args.slice(index + 1);
+}
+
+function executableName(command: string): string {
+  return command.split('/').pop() ?? command;
 }
 
 function shellArgumentPreview(value: string): string {

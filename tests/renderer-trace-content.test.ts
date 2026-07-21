@@ -8,6 +8,7 @@ import {
   findingForTraceEvent,
   formatReasoningTraceText,
   honeycrispToolTraceSubtext,
+  honeycrispToolTraceSubtextPill,
   hypothesisForTraceEvent,
   isHoneycrispToolObservationError,
   isEmptyHoneycrispMemorySearchObservation,
@@ -249,6 +250,27 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(shellRun)).toBe('make test');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
+  });
+
+  it('shows only remote commands for direct and sshpass-wrapped SSH shell traces', () => {
+    const directSsh = honeycrispToolRequest('shell.run', {
+      utility: 'ssh',
+      args: ['-o', 'StrictHostKeyChecking=accept-new', '-p', '2222', 'admin@192.168.64.47', 'sw_vers; csrutil status']
+    });
+    const sshpass = honeycrispToolObservation(
+      'shell.run',
+      {
+        utility: 'sshpass',
+        args: ['-p', 'secret', 'ssh', '-o', 'UserKnownHostsFile=/tmp/known_hosts', 'admin@192.168.64.47', "cd /tmp && make test"]
+      },
+      { exitCode: 0 }
+    );
+
+    expect(honeycrispToolTraceSubtext(directSsh)).toBe('sw_vers; csrutil status');
+    expect(honeycrispToolTraceSubtextPill(directSsh)).toBe('SSH');
+    expect(honeycrispToolTraceSubtext(sshpass)).toBe('cd /tmp && make test');
+    expect(honeycrispToolTraceSubtextPill(sshpass)).toBe('SSH');
+    expect(honeycrispToolTraceSubtextPill(honeycrispToolRequest('shell.run', { utility: 'rg', args: ['needle'] }))).toBeNull();
   });
 
   it('builds python previews and prose decisions for trace rows', () => {

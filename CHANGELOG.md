@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.
+
 ### Added
 
 - Added Settings > Shell Options with user-global default and per-utility concurrency limits; a limit of `0` disables the utility and `sudo` is disabled by default.

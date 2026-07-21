@@ -9,6 +9,7 @@ import {
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
   honeycrispToolTraceSubtext,
+  honeycrispToolTraceSubtextPill,
   isEmptyHoneycrispMemorySearchObservation,
   isHoneycrispToolObservationError,
   isProseTraceEvent,
@@ -69,9 +70,12 @@ export const TraceEventRow = memo(function TraceEventRow({
   const proseDetail = useMemo(() => isProseTraceEvent(event, category, detailForEvent), [category, detailForEvent, event]);
   const eventKindClass = proseDetail ? '' : 'trace-compact-sublabel';
   const pythonPreview = useMemo(() => pythonTracePreview(event, detailForEvent), [detailForEvent, event]);
+  const honeycrispToolRequest = honeycrispToolEventKind(event) === 'tool.requested';
   const honeycrispToolObservation = honeycrispToolEventKind(event) === 'tool.observed';
   const fileReadObservation = honeycrispToolObservation && honeycrispToolName(event) === 'file.read';
-  const toolObservationSubtext = honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
+  const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
+  const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
+  const toolObservationSubtext = honeycrispToolObservation ? toolTraceSubtext : '';
   const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
   const structuredContextContent = pythonPreview ? (
     <PythonTracePreview preview={pythonPreview} />
@@ -101,15 +105,23 @@ export const TraceEventRow = memo(function TraceEventRow({
       <code>{hasSearchHighlight ? renderSearchHighlightedText(detailText, searchHighlightQuery) : detailText}</code>
     )
   ) : null;
-  const contextContent = honeycrispToolObservation ? (
-    <div className="main-trace-tool-observation-detail">
-      {toolObservationSubtext ? (
+  const toolSubtextContent = toolTraceSubtext || toolTraceSubtextPill ? (
+    <span className="main-trace-tool-subtext-row">
+      {toolTraceSubtextPill ? <span className="main-trace-tool-subtext-pill">{toolTraceSubtextPill}</span> : null}
+      {toolTraceSubtext ? (
         <code className="main-trace-tool-subtext">
-          {hasSearchHighlight ? renderSearchHighlightedText(toolObservationSubtext, searchHighlightQuery) : toolObservationSubtext}
+          {hasSearchHighlight ? renderSearchHighlightedText(toolTraceSubtext, searchHighlightQuery) : toolTraceSubtext}
         </code>
       ) : null}
+    </span>
+  ) : null;
+  const contextContent = honeycrispToolObservation ? (
+    <div className="main-trace-tool-observation-detail">
+      {toolSubtextContent}
       {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : structuredContextContent}
     </div>
+  ) : honeycrispToolRequest && toolTraceSubtextPill ? (
+    toolSubtextContent
   ) : (
     structuredContextContent ?? fallbackContextContent
   );
