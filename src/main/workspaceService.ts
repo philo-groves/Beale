@@ -77,6 +77,7 @@ import type {
   ProjectGraphSummary,
   ProjectSemanticSummary,
   ResearchPromptGenerationUpdate,
+  ShellOptions,
   WorkspacePolicyReview,
   WorkspaceRecoveryReport,
   WorkspaceSnapshot,
@@ -354,6 +355,14 @@ export class WorkspaceService {
     return settings;
   }
 
+  public getShellOptions(): ShellOptions {
+    return this.getWorkspaceRegistry().getShellOptions();
+  }
+
+  public setShellOptions(options: ShellOptions): ShellOptions {
+    return this.getWorkspaceRegistry().setShellOptions(options);
+  }
+
   public getProfilingState(): ProfilingState {
     return this.profiling.applyPreference(this.getWorkspaceRegistry().getProfilingEnabled());
   }
@@ -391,7 +400,10 @@ export class WorkspaceService {
     if (!runtime) {
       throw new Error('No Beale workspace is open');
     }
-    return normalizeHoneycrispToolingSummary(invokeHoneycrispToolsList(runtime.workspacePath), runtime.workspacePath);
+    return normalizeHoneycrispToolingSummary(
+      invokeHoneycrispToolsList(runtime.workspacePath, this.getWorkspaceRegistry().getShellOptionsPath()),
+      runtime.workspacePath
+    );
   }
 
   public updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): HoneycrispToolingSummary {
@@ -400,7 +412,10 @@ export class WorkspaceService {
       throw new Error('No Beale workspace is open');
     }
     invokeHoneycrispToolsConfig(runtime.workspacePath, honeycrispToolingConfigUpdateArgs(update));
-    return normalizeHoneycrispToolingSummary(invokeHoneycrispToolsList(runtime.workspacePath), runtime.workspacePath);
+    return normalizeHoneycrispToolingSummary(
+      invokeHoneycrispToolsList(runtime.workspacePath, this.getWorkspaceRegistry().getShellOptionsPath()),
+      runtime.workspacePath
+    );
   }
 
   public inspectWorkspaceDirectory(path: string): WorkspaceDirectorySelection {
@@ -1805,7 +1820,8 @@ export class WorkspaceService {
         db,
         workspacePath,
         () => this.emitRuntimeChange(workspacePath),
-        (scopeOwner) => this.honeycrispMemoryPeers(workspacePath, scopeOwner)
+        (scopeOwner) => this.honeycrispMemoryPeers(workspacePath, scopeOwner),
+        this.getWorkspaceRegistry().getShellOptionsPath()
       )
     };
   }

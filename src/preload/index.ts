@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   DeveloperSettings,
+  ShellOptions,
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneScopeLookupResult,
@@ -49,6 +50,12 @@ const api: BealeApi = {
   },
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
+  },
+  getShellOptions(): Promise<ShellOptions> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getShellOptions);
+  },
+  setShellOptions(options: ShellOptions): Promise<ShellOptions> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setShellOptions, options);
   },
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneScope, identifier);

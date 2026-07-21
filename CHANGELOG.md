@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added Settings > Shell Options with user-global default and per-utility concurrency limits; a limit of `0` disables the utility and `sudo` is disabled by default.
+- Added Honeycrisp's argv-based `shell.run` research tool with harness-wide cross-process utility leases, bounded runtime/output, and credential-like environment filtering.
 - Added concise memory-use guidance for Honeycrisp research sessions: search prior knowledge early, record sources, sinks, invariants, mitigations, bugs, and trajectories deliberately, require static support for primitives, and require an independently reviewed realistic proof-of-vulnerability before confirming a chain.
 - Added component-scoped, transactional SQLite migrations for the shared Honeycrisp database and user-global workspace registry, including in-place baseline adoption for existing data.
 - Added Memory and Subagents tabs to the session sidebar, including child summaries with latest activity, agent-scoped trace navigation, and a Back to Main control.
@@ -97,8 +99,13 @@
 - Added a transient Spawn agent-output sheet that slides up on newly completed session output with markdown rendering and background blur.
 - Added cumulative session token usage beside the footer context meter.
 
+### Security
+
+- Added Honeycrisp pre-spawn folder deletion guards for direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations targeting filesystem roots, the current user directory, system directories, or active Beale/Honeycrisp workspace state.
+
 ### Removed
 
+- Removed separate repository-search, file-read, code-intelligence, analysis, synthesis, storage, experiment, and MCP tools from Beale-launched research sessions, along with the inactive Skills and MCP sidebar controls; durable memory tools and `shell.run` remain.
 - Removed the redundant Honeycrisp `finding` memory type; migrations convert existing nodes and their identifiers to trajectories while preserving graph references. Beale's verifier-backed operational findings remain unchanged.
 
 - Removed the retired Honeycrisp `evidenceExtracted` and `claimsProposed` tool-observation fields and Beale's repository-search fallback; structured tool results are now the sole source of observation data.

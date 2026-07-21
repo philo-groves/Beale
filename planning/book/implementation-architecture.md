@@ -164,37 +164,22 @@ The adapter should be replaceable internally, but v1 should optimize the OpenAI 
 
 Responsibilities:
 
-- Expose the first model-facing tools:
-  - `search`
-  - `code_browser`
-  - `python`
-  - `debugger`
-  - `artifact`
-  - `evidence`
-  - `hypothesis`
-  - `finding`
-  - `verifier`
+- Expose Honeycrisp's durable memory tools and the single `shell.run` research tool.
 - Validate tool inputs.
-- Attach policy metadata.
-- Select host, database, artifact, or VM execution path.
-- Normalize outputs into structured trace events, model summaries, and artifacts.
+- Apply user-global per-utility concurrency and disable policy before host process spawn.
+- Normalize bounded process outputs into structured trace events and model summaries.
 
-The tool router should make structured tools the normal path and guest shell the fallback.
+The tool router should keep the active model-facing surface small. Shell utility policy is enforced mechanically by Honeycrisp and must not be represented as a model instruction.
 
 ## Executor Manager
 
 Responsibilities:
 
-- Select executor backend.
-- Create execution contexts.
-- Restore snapshots.
-- Import target material.
-- Execute host or guest commands and structured tool backends.
-- Export artifacts.
-- Revert, preserve, or destroy guests.
-- Record VM lifecycle and contamination state.
+- Launch Honeycrisp and its brokered shell utilities with the current user's host privileges.
+- Preserve pause, resume, stop, steering, trace, and process lifecycle state.
+- Record process execution and termination state without claiming Beale-managed isolation.
 
-Initial implementation should support host execution, a fake executor for UI/run-engine development, and one real VM backend for alpha.
+Users launch Beale and Honeycrisp inside their own VM or container when operating-system isolation is required. The fixture executor remains test-only.
 
 ## Verifier Service
 

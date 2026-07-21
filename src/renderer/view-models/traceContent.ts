@@ -143,12 +143,22 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   if (!inputs) return '';
   if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
+  if (toolName === 'shell.run') {
+    const utility = stringRecordValue(inputs, 'utility');
+    if (!utility) return '';
+    const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+    return truncateText([utility, ...args.map(shellArgumentPreview)].join(' '), 180);
+  }
   if (toolName !== 'memory.get') return '';
 
   const memoryId = stringRecordValue(inputs, 'id');
   if (!memoryId) return '';
   const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
   return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+function shellArgumentPreview(value: string): string {
+  return /\s/u.test(value) ? JSON.stringify(value) : value;
 }
 
 export function isEmptyHoneycrispMemorySearchObservation(event: TraceEventRecord): boolean {

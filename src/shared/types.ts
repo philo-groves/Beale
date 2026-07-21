@@ -687,6 +687,11 @@ export interface DeveloperSettings {
   developerModeEnabled: boolean;
 }
 
+export interface ShellOptions {
+  defaultConcurrency: number;
+  utilities: Record<string, number>;
+}
+
 export interface WorkspaceOnboardingDefaults {
   workspacePath: string;
   workspaceName: string;
@@ -1305,6 +1310,8 @@ export interface BealeApi {
   getWorkspaceRegistry(): Promise<WorkspaceRegistryState>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
+  getShellOptions(): Promise<ShellOptions>;
+  setShellOptions(options: ShellOptions): Promise<ShellOptions>;
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
   skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null>;

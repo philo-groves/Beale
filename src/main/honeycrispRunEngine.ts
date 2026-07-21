@@ -186,7 +186,8 @@ export class HoneycrispRunEngine {
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
     private readonly onChange: () => void = () => undefined,
-    private readonly memoryPeers: (scopeOwner: string) => HoneycrispMemoryPeerContext[] = () => []
+    private readonly memoryPeers: (scopeOwner: string) => HoneycrispMemoryPeerContext[] = () => [],
+    private readonly shellOptionsPath?: string
   ) {}
 
   public startRun(input: StartRunInput): HoneycrispRunHandle {
@@ -330,7 +331,7 @@ export class HoneycrispRunEngine {
     );
     const args = [
       ...invocation.prefixArgs,
-      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath)
+      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath, this.shellOptionsPath)
     ];
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -1143,7 +1144,13 @@ function numberPayload(payload: Record<string, unknown>, key: string): number | 
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function honeycrispRunArgs(input: StartRunInput, workspacePath: string, capturePath: string, workspaceContextPath: string): string[] {
+function honeycrispRunArgs(
+  input: StartRunInput,
+  workspacePath: string,
+  capturePath: string,
+  workspaceContextPath: string,
+  shellOptionsPath?: string
+): string[] {
   const args = [
     '--workspace-root',
     workspacePath,
@@ -1176,7 +1183,7 @@ function honeycrispRunArgs(input: StartRunInput, workspacePath: string, captureP
     args.push('--effort', input.reasoningEffort.trim());
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
-  args.push(...bealeHoneycrispRuntimeArgs());
+  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath));
   return args;
 }
 
@@ -1275,7 +1282,7 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
   };
 }
 
-export function invokeHoneycrispToolsList(workspacePath: string): Record<string, unknown> {
+export function invokeHoneycrispToolsList(workspacePath: string, shellOptionsPath?: string): Record<string, unknown> {
   const invocation = resolveHoneycrispInvocation();
   const fullArgs = [
     ...invocation.prefixArgs,
@@ -1283,7 +1290,7 @@ export function invokeHoneycrispToolsList(workspacePath: string): Record<string,
     'list',
     '--workspace-root',
     workspacePath,
-    ...bealeHoneycrispRuntimeArgs(),
+    ...bealeHoneycrispRuntimeArgs(shellOptionsPath),
     '--json'
   ];
   const result = spawnSync(invocation.command, fullArgs, {
@@ -1578,8 +1585,28 @@ function additionalHoneycrispRuntimeArgs(): string[] {
   return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
 }
 
-function bealeHoneycrispRuntimeArgs(): string[] {
-  return additionalHoneycrispRuntimeArgs();
+function bealeHoneycrispRuntimeArgs(shellOptionsPath?: string): string[] {
+  return [
+    ...additionalHoneycrispRuntimeArgs(),
+    '--no-default-tool-config',
+    '--tool-family',
+    'shell',
+    '--disable-tool-family',
+    'repository-search',
+    '--disable-tool-family',
+    'file-read',
+    '--disable-tool-family',
+    'code',
+    '--disable-tool-family',
+    'analysis',
+    '--disable-tool-family',
+    'synthesis',
+    '--disable-tool-family',
+    'storage',
+    '--disable-tool-family',
+    'experiment',
+    ...(shellOptionsPath ? ['--shell-options', shellOptionsPath] : [])
+  ];
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {

@@ -849,6 +849,13 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('beale-skeptical-triage');
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--repo-root');
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--file-read-root');
+    const launchArgs = (launchEvent?.payload as { args?: string[] } | undefined)?.args ?? [];
+    expect(launchArgs).toContain('--shell-options');
+    expect(launchArgs).toContain('shell');
+    expect(launchArgs).toContain('--no-default-tool-config');
+    expect(launchArgs).toContain('repository-search');
+    expect(launchArgs).toContain('file-read');
+    expect(launchArgs).toContain('code');
     expect(existsSync(join(workspace, '.beale', 'honeycrisp-skills', 'beale-skeptical-triage', 'SKILL.md'))).toBe(false);
     const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as {
@@ -1200,13 +1207,8 @@ describe('Beale workbench skeleton', () => {
       .map((line) => JSON.parse(line) as string[]);
 
     expect(calls[0]).toEqual(['tools', 'config', 'add', 'skill-dir', '/skills/new', '--workspace-root', workspace, '--json']);
-    expect(calls[1]).toEqual([
-      'tools',
-      'list',
-      '--workspace-root',
-      workspace,
-      '--json'
-    ]);
+    expect(calls[1]?.slice(0, 4)).toEqual(['tools', 'list', '--workspace-root', workspace]);
+    expect(calls[1]).toEqual(expect.arrayContaining(['--tool-family', 'shell', '--shell-options', '--no-default-tool-config', '--json']));
     expect(summary.config.preference.skillDirs).toEqual(['/skills/new']);
     service.close();
   });
@@ -1258,14 +1260,27 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
     expect(service.getDeveloperSettings()).toEqual({ developerModeEnabled: false });
+    expect(service.getShellOptions()).toEqual({ defaultConcurrency: 4, utilities: { sudo: 0 } });
     expect(service.getProfilingState().enabled).toBe(false);
 
     expect(service.setDeveloperModeEnabled(true)).toEqual({ developerModeEnabled: true });
+    expect(service.setShellOptions({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } })).toEqual({
+      defaultConcurrency: 3,
+      utilities: { sudo: 0, clang: 2 }
+    });
+    const shellOptionsFile = JSON.parse(readFileSync(join(registryDir, 'shell-options.json'), 'utf8')) as Record<string, unknown>;
+    expect(shellOptionsFile).toMatchObject({
+      schemaVersion: 1,
+      defaultConcurrency: 3,
+      utilities: { sudo: 0, clang: 2 },
+      leaseDirectory: join(registryDir, 'shell-leases')
+    });
     expect(service.getProfilingState().enabled).toBe(true);
     service.close();
 
     const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
     expect(reopened.getDeveloperSettings()).toEqual({ developerModeEnabled: true });
+    expect(reopened.getShellOptions()).toEqual({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } });
     expect(reopened.getProfilingState().enabled).toBe(true);
     expect(reopened.setDeveloperModeEnabled(false)).toEqual({ developerModeEnabled: false });
     expect(reopened.getProfilingState().enabled).toBe(false);

@@ -4,6 +4,8 @@ export const IPC_CHANNELS = {
   getWorkspaceRegistry: 'beale:get-workspace-registry',
   getDeveloperSettings: 'beale:get-developer-settings',
   setDeveloperModeEnabled: 'beale:set-developer-mode-enabled',
+  getShellOptions: 'beale:get-shell-options',
+  setShellOptions: 'beale:set-shell-options',
   lookupHackerOneScope: 'beale:lookup-hackerone-scope',
   createScopedWorkspace: 'beale:create-scoped-workspace',
   workspaceOnboardingUpdated: 'beale:workspace-onboarding-updated',

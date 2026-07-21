@@ -6,54 +6,35 @@ Status: accepted initial direction, 2026-04-26.
 
 Honeycrisp additionally provides `spawn_agent`, `send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and `wait_agent`. These coordinate model sessions; they are not research actions and do not create evidence or findings by themselves. They inherit the current authorized scope and tool policy. See [Subagent Orchestration](subagent-orchestration.md).
 
-Honeycrisp's current tool schemas are the capability contract presented to the model. Code-intelligence `maxBytes` fields advertise the configured runtime maximum. `memory.save` reserves bugs for confirmed historical flaw precedents with affected assets and precedent evidence, describes primitives as flaws established during current research, trajectories as reusable research sequences, and chains as reviewed end-to-end reachability and impact. The durable-memory validator enforces historical bug requirements and requires `attributes.impact` and `attributes.reachability` when saving a `chain`. `memory.correct` can reclassify a node while preserving its evidence and relationships. The system prompt additionally requires a realistic proof-of-vulnerability and independent review-subagent approval before a chain is confirmed.
+Honeycrisp's current tool schemas are the capability contract presented to the model. `shell.run` advertises its bounded argv contract, while `memory.save` reserves bugs for confirmed historical flaw precedents with affected assets and precedent evidence, describes primitives as flaws established during current research, trajectories as reusable research sequences, and chains as reviewed end-to-end reachability and impact. The durable-memory validator enforces historical bug requirements and requires `attributes.impact` and `attributes.reachability` when saving a `chain`. `memory.correct` can reclassify a node while preserving its evidence and relationships. The system prompt additionally requires a realistic proof-of-vulnerability and independent review-subagent approval before a chain is confirmed.
 
 ## Decision
 
-Beale's first model-facing structured research tool set should be minimal:
+Beale-launched research sessions use Honeycrisp's memory tools plus `shell.run`. Subagent collaboration tools remain available as coordination primitives rather than target-facing research tools.
 
-- `search`
-- `code_browser`
-- `resource_lookup`
-- `program_lookup`
-- `python`
-- `debugger`
-- `artifact`
-- `evidence`
-- `hypothesis`
-- `finding`
-- `verifier`
+## Current Pre-Alpha Surface
 
-Beale also exposes one setup tool:
+Beale-launched Honeycrisp sessions expose the durable memory tools and one general research tool: `shell.run`. The earlier collection of separate search, file-read, code-intelligence, experiment, synthesis, storage, MCP, and Beale-owned research-state tools is not included in the active session surface.
 
-- `source`
+`shell.run` accepts an executable name and argv rather than a raw command string. This keeps the model-facing contract small and lets Honeycrisp apply harness-wide utility policy before spawning a process. Repository search, file inspection, builds, tests, debuggers, and proof work use ordinary utilities through that boundary.
 
-Shell remains available as an escape hatch, but the harness should guide the model toward structured tools when they produce better traces, safer execution, or clearer evidence.
+This is host execution with the current user's privileges. Utility policy is a process-broker control, not operating-system isolation. Users should launch Beale and Honeycrisp inside their own VM or container when isolation is required.
 
-Workspace setup is separate from the research evidence tool set. Cloning in-scope repositories, importing local target material, and copying material into a VM should use narrow Beale-managed workspace/import operations where possible.
+Workspace setup is separate from the research tool set. Beale materializes known source repositories in the user-global repository store and passes workspace-local source references to Honeycrisp.
 
 ## Rationale
 
 Tool bloat causes inefficiency. It increases prompt/tool-selection overhead, makes traces harder to review, and can push the model into shallow tool hopping instead of focused investigation.
 
-The v1 tool set should cover Beale's first-release scope without exposing every possible analysis tool directly to the model.
+The current tool set deliberately leans on the model's ability to choose ordinary host utilities without teaching it a large custom vocabulary.
 
-The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, workspace database exposure, verified-finding promotion, and the New Research Session warning when the selected sandbox is host execution.
+The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, workspace database exposure, and the New Research Session warning that execution uses the current user's host privileges.
 
-The operating rule:
+The operating rule is simple: use `shell.run` for target-facing research work and the memory tools for durable research knowledge. The recorded authorized scope remains context for model decisions; Beale does not add repeated permission prompts for ordinary in-scope repository work.
 
-- `source` materializes scoped repositories into the workspace.
-- `search` finds where to look.
-- `code_browser` explains what is there.
-- `resource_lookup` retrieves Beale run-state resources by id or query.
-- `program_lookup` retrieves bounded public program policy/scope metadata without ad hoc program-site JavaScript scraping.
-- `python` creates and mutates inputs.
-- `debugger` observes runtime truth.
-- `artifact` preserves evidence.
-- `evidence` links observations into reusable evidence records.
-- `hypothesis` records candidate vulnerability theories.
-- `finding` records promoted vulnerability findings.
-- `verifier` decides whether evidence is strong enough.
+## Retired Structured-Tool Design Reference
+
+The sections below describe the earlier wrapper-heavy direction. They are retained as design reference for capabilities that may later justify a dedicated trust boundary, but these tools are not exposed in the current Beale-launched session surface.
 
 ## Tool: `source`
 
@@ -320,17 +301,20 @@ These capabilities may exist internally, as profiles, or as later additions, but
 
 ## Shell
 
-Shell remains available because vulnerability research needs flexibility.
+Shell is the only active general research tool because vulnerability research needs flexibility and the selected model does not need a custom wrapper for every common utility.
 
 Rules:
 
-- Prefer structured tools when they cover the task.
-- Use shell inside the active sandbox for target setup, uncommon tooling, package commands, and one-off operations.
-- Shell runs on the host in default sessions and inside the selected sandbox when sandbox-backed execution is selected.
-- Shell output should be summarized and artifact-backed when it becomes evidence.
-- Shell is not a replacement for `artifact` or `verifier`.
+- Submit one executable name plus an argv array; Honeycrisp does not interpolate a shell command string.
+- Resolve relative working directories from the research workspace while allowing explicit host paths under the user's chosen execution posture.
+- Reload user-global Shell Options for every invocation.
+- Apply a concurrency limit independently to each requested utility across Honeycrisp processes using the same Beale harness state.
+- Treat a limit of `0` as disabled and reject the request before process spawn. `sudo` is disabled by default.
+- Bound runtime and captured stdout/stderr, report exit status and truncation, and remove credential-like environment variables from the child environment.
+- Reject direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations when their resolved targets are protected core directories, parents of protected directories, or active `.beale` / `.honeycrisp` workspace state.
+- Keep generated files and command output as candidate research material until the memory model or a later durable artifact flow records the useful result.
 
-Host shell is not the setup primitive. Host-side cloning, import, and read-only preparation should flow through Beale-managed workspace operations with scope checks and trace events.
+These controls apply to the executable requested through the broker. They do not turn unrestricted host process execution into a sandbox or claim to mediate every descendant process.
 
 ## Interactive Programs
 
@@ -442,4 +426,4 @@ Store structured results in the trace, summarize large or noisy output for model
 
 ## Planning Consequence
 
-The v1 harness should optimize these six tools deeply instead of adding many shallow tools. Each tool needs a clear schema, trace representation, policy metadata, error model, and artifact behavior.
+The pre-alpha harness should refine `shell.run` and memory use before adding more model-facing tools. Additional structured tools should be introduced only when a concrete workflow cannot be expressed reliably through the shell boundary or when a stronger mechanical trust boundary is required.

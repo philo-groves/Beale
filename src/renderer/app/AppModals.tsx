@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import type {
   DeveloperSettings,
+  ShellOptions,
   FindingRecord,
   HypothesisRecord,
   NotificationRecord,
@@ -24,7 +25,6 @@ import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal'
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
-import { HoneycrispToolingModal, type HoneycrispToolingModalKind } from '../features/tools/HoneycrispToolingModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
@@ -36,6 +36,7 @@ export function AppModals({
   activeWorkspaceName,
   busy,
   developerSettings,
+  shellOptions,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
@@ -58,7 +59,6 @@ export function AppModals({
   snapshot,
   traceDetailOpen,
   traceFilterOpen,
-  toolingModal,
   visibleTraceCategories,
   onCancelNewResearch,
   onCancelWorkspaceOnboarding,
@@ -72,7 +72,6 @@ export function AppModals({
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
-  onCloseTooling,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
@@ -81,6 +80,7 @@ export function AppModals({
   onRefreshOpenAi,
   onFlushProfilingReport,
   onSetDeveloperModeEnabled,
+  onSaveShellOptions,
   onStartOpenAiOAuth,
   onStartedNewResearch,
   onSteerNotification,
@@ -94,6 +94,7 @@ export function AppModals({
   activeWorkspaceName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
+  shellOptions: ShellOptions | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -116,7 +117,6 @@ export function AppModals({
   snapshot: WorkspaceSnapshot | null;
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
-  toolingModal: HoneycrispToolingModalKind | null;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
   onCancelWorkspaceOnboarding: () => void;
@@ -130,7 +130,6 @@ export function AppModals({
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
-  onCloseTooling: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
@@ -139,6 +138,7 @@ export function AppModals({
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+  onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
@@ -175,6 +175,7 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
+          shellOptions={shellOptions}
           workspaceName={activeWorkspaceName}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
@@ -182,6 +183,7 @@ export function AppModals({
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
+          onSaveShellOptions={onSaveShellOptions}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
         />
@@ -210,7 +212,6 @@ export function AppModals({
           onOpenResult={onOpenSearchResult}
         />
       ) : null}
-      {toolingModal ? <HoneycrispToolingModal kind={toolingModal} onClose={onCloseTooling} /> : null}
       {activeNotification ? (
         <NotificationDetailModal
           notification={activeNotification}

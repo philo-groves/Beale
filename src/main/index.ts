@@ -15,6 +15,7 @@ import type {
   ResearchPromptGenerationInput,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
+  ShellOptions,
   StartRunInput,
   SteeringAction,
   WorkspaceSnapshot,
@@ -382,6 +383,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () => timedMainIpc('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryState()));
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
+  ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
+  ipcMain.handle(IPC_CHANNELS.setShellOptions, (_event, options: ShellOptions) => workspaceService.setShellOptions(options));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneScope, (_event, identifier: string) => workspaceService.lookupHackerOneScope(identifier));
   ipcMain.handle(IPC_CHANNELS.createScopedWorkspace, (event, input: WorkspaceOnboardingInput) =>
     workspaceService.createScopedWorkspace(input, (update) => event.sender.send(IPC_CHANNELS.workspaceOnboardingUpdated, update))

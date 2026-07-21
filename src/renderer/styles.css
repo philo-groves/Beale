@@ -5901,8 +5901,75 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .general-settings-page,
-.developer-settings-page {
+.developer-settings-page,
+.shell-options-page {
   gap: 12px;
+}
+
+.shell-options-card {
+  gap: 10px;
+}
+
+.shell-option-default,
+.shell-utility-row,
+.shell-utility-add {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell-option-default {
+  grid-template-columns: minmax(0, 1fr) 82px;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 9px 10px;
+}
+
+.shell-option-default span {
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+}
+
+.shell-option-default input,
+.shell-utility-row input {
+  width: 82px;
+}
+
+.shell-utility-list {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.shell-utility-row {
+  grid-template-columns: minmax(0, 1fr) 82px 32px;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 7px 8px 7px 10px;
+}
+
+.shell-utility-row code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.shell-utility-row button {
+  width: 32px;
+  min-width: 32px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.shell-utility-add {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.shell-utility-add button {
+  white-space: nowrap;
 }
 
 .provider-card {

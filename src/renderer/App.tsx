@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   DeveloperSettings,
+  ShellOptions,
   HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
@@ -67,13 +68,13 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
+  const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [toolingModal, setToolingModal] = useState<'skills' | 'mcpServers' | null>(null);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
   const [profilingOpen, setProfilingOpen] = useState(false);
@@ -129,6 +130,13 @@ export function App(): JSX.Element {
     window.beale
       .getDeveloperSettings()
       .then(setDeveloperSettings)
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
+  }, [handleError]);
+
+  useEffect(() => {
+    window.beale
+      .getShellOptions()
+      .then(setShellOptions)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
@@ -269,6 +277,18 @@ export function App(): JSX.Element {
     },
     [refreshProfilingState]
   );
+
+  const saveShellOptions = useCallback(async (options: ShellOptions): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setShellOptions(await window.beale.setShellOptions(options));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   const startOpenAiOAuth = useCallback(async () => {
     setBusy(true);
@@ -464,9 +484,7 @@ export function App(): JSX.Element {
         onResizePointerDown={beginSidebarResize}
         onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
         onShowMoreSessions={setSessionHistoryWorkspaceId}
-        onShowMcpServers={() => setToolingModal('mcpServers')}
         onSearch={openSearch}
-        onShowSkills={() => setToolingModal('skills')}
         onStartNewResearch={startNewResearch}
       />
 
@@ -515,6 +533,7 @@ export function App(): JSX.Element {
         activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
         developerSettings={developerSettings}
+        shellOptions={shellOptions}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
@@ -537,7 +556,6 @@ export function App(): JSX.Element {
         snapshot={snapshot}
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
-        toolingModal={toolingModal}
         visibleTraceCategories={visibleTraceCategories}
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
@@ -551,7 +569,6 @@ export function App(): JSX.Element {
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
-        onCloseTooling={() => setToolingModal(null)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneScope}
@@ -563,6 +580,7 @@ export function App(): JSX.Element {
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
+        onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}

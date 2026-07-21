@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, ListChecks, MoreVertical, Play, RefreshCw, Search, Server, Terminal } from 'lucide-react';
+import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
 import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
@@ -23,9 +23,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown,
   onSetOpenWorkspaceMenuId,
   onShowMoreSessions,
-  onShowMcpServers,
   onSearch,
-  onShowSkills,
   onStartNewResearch
 }: {
   busy: boolean;
@@ -43,9 +41,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onShowMoreSessions: (registryWorkspaceId: string) => void;
-  onShowMcpServers: () => void;
   onSearch: () => void;
-  onShowSkills: () => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.workspaces', () => ({
@@ -65,14 +61,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
           <Search size={15} />
           <span>Search</span>
-        </button>
-        <button type="button" className="sidebar-utility-button" title="Skills" disabled={!snapshot} onClick={onShowSkills}>
-          <ListChecks size={15} />
-          <span>Skills</span>
-        </button>
-        <button type="button" className="sidebar-utility-button" title="MCP Servers" disabled={!snapshot} onClick={onShowMcpServers}>
-          <Server size={15} />
-          <span>MCP Servers</span>
         </button>
       </div>
       <div className="sidebar-section workspace-list">

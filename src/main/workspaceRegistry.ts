@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   DeveloperSettings,
+  ShellOptions,
   WorkspaceDirectorySelection,
   WorkspaceOnboardingDefaults,
   WorkspaceRegistryEntry,
@@ -26,6 +27,12 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
   backendKind: null,
   updatedAt: null
 };
+const DEFAULT_SHELL_OPTIONS: ShellOptions = {
+  defaultConcurrency: 4,
+  utilities: { sudo: 0 }
+};
+const MAX_SHELL_UTILITY_CONCURRENCY = 64;
+const SHELL_UTILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
 
 function defaultWorkspaceRegistryDirectory(): string {
   return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
@@ -34,13 +41,18 @@ function defaultWorkspaceRegistryDirectory(): string {
 export class WorkspaceRegistry {
   private readonly db: DatabaseSync;
   public readonly registryPath: string;
+  private readonly shellOptionsPath: string;
+  private readonly shellLeaseDirectory: string;
 
   public constructor(registryDirectory = defaultWorkspaceRegistryDirectory()) {
     mkdirSync(registryDirectory, { recursive: true });
     this.registryPath = join(registryDirectory, 'workspace-registry.sqlite');
+    this.shellOptionsPath = join(registryDirectory, 'shell-options.json');
+    this.shellLeaseDirectory = join(registryDirectory, 'shell-leases');
     this.db = new DatabaseSync(this.registryPath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initialize();
+    this.writeShellOptionsFile(this.getShellOptions());
   }
 
   public close(): void {
@@ -81,6 +93,28 @@ export class WorkspaceRegistry {
   public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
     this.setMeta('developer_mode_enabled', enabled ? '1' : '0');
     return this.getDeveloperSettings();
+  }
+
+  public getShellOptions(): ShellOptions {
+    const stored = this.getMeta('shell_options_json');
+    if (!stored) return copyShellOptions(DEFAULT_SHELL_OPTIONS);
+    try {
+      return normalizeShellOptions(JSON.parse(stored) as unknown);
+    } catch {
+      return copyShellOptions(DEFAULT_SHELL_OPTIONS);
+    }
+  }
+
+  public setShellOptions(options: ShellOptions): ShellOptions {
+    const normalized = normalizeShellOptions(options);
+    this.setMeta('shell_options_json', JSON.stringify(normalized));
+    this.writeShellOptionsFile(normalized);
+    return copyShellOptions(normalized);
+  }
+
+  public getShellOptionsPath(): string {
+    this.writeShellOptionsFile(this.getShellOptions());
+    return this.shellOptionsPath;
   }
 
   public inspectDirectory(path: string): WorkspaceDirectorySelection {
@@ -206,6 +240,17 @@ export class WorkspaceRegistry {
       DELETE FROM registry_meta WHERE key = 'schema_version';
     `)
     }]);
+  }
+
+  private writeShellOptionsFile(options: ShellOptions): void {
+    mkdirSync(this.shellLeaseDirectory, { recursive: true });
+    const temporaryPath = `${this.shellOptionsPath}.${randomUUID()}.tmp`;
+    writeFileSync(
+      temporaryPath,
+      `${JSON.stringify({ schemaVersion: 1, ...options, leaseDirectory: this.shellLeaseDirectory }, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+    renameSync(temporaryPath, this.shellOptionsPath);
   }
 
   private listWorkspaces(): WorkspaceRegistryEntry[] {
@@ -454,6 +499,40 @@ function nullableText(row: SqlRow, key: string): string | null {
 function numberValue(row: SqlRow, key: string): number {
   const value = row[key];
   return typeof value === 'number' ? value : Number(value ?? 0);
+}
+
+function normalizeShellOptions(value: unknown): ShellOptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Shell Options must be an object.');
+  }
+  const input = value as Record<string, unknown>;
+  const defaultConcurrency = normalizeShellConcurrency(input.defaultConcurrency, 'default concurrency');
+  if (!input.utilities || typeof input.utilities !== 'object' || Array.isArray(input.utilities)) {
+    throw new Error('Shell Options utilities must be an object.');
+  }
+  const utilities: Record<string, number> = {};
+  for (const [rawUtility, rawConcurrency] of Object.entries(input.utilities as Record<string, unknown>)) {
+    const utility = rawUtility.trim();
+    if (!SHELL_UTILITY_PATTERN.test(utility)) {
+      throw new Error(`Invalid shell utility name: ${rawUtility}`);
+    }
+    utilities[utility] = normalizeShellConcurrency(rawConcurrency, utility);
+  }
+  return { defaultConcurrency, utilities };
+}
+
+function normalizeShellConcurrency(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_SHELL_UTILITY_CONCURRENCY) {
+    throw new Error(`Shell utility ${label} concurrency must be an integer from 0 through ${MAX_SHELL_UTILITY_CONCURRENCY}.`);
+  }
+  return value;
+}
+
+function copyShellOptions(options: ShellOptions): ShellOptions {
+  return {
+    defaultConcurrency: options.defaultConcurrency,
+    utilities: { ...options.utilities }
+  };
 }
 
 
