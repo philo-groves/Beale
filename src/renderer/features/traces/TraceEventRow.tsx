@@ -8,6 +8,7 @@ import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
+  honeycrispMemoryCorrectionSummary,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
@@ -76,6 +77,8 @@ export const TraceEventRow = memo(function TraceEventRow({
   const honeycrispToolObservation = honeycrispToolEventKind(event) === 'tool.observed';
   const honeycrispToolNameValue = honeycrispToolName(event);
   const shellToolTrace = honeycrispToolNameValue === 'shell.run';
+  const memoryCorrectionTrace = honeycrispToolNameValue === 'memory.correct';
+  const memoryCorrectionSummary = memoryCorrectionTrace ? honeycrispMemoryCorrectionSummary(event) : '';
   const fileReadObservation = honeycrispToolObservation && honeycrispToolNameValue === 'file.read';
   const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
   const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
@@ -117,6 +120,11 @@ export const TraceEventRow = memo(function TraceEventRow({
       </code>
     </span>
   ) : null;
+  const memoryCorrectionContent = memoryCorrectionSummary ? (
+    <span className="main-trace-memory-correction-summary">
+      {hasSearchHighlight ? renderSearchHighlightedText(memoryCorrectionSummary, searchHighlightQuery) : memoryCorrectionSummary}
+    </span>
+  ) : null;
   const shellOutputContent = shellTraceOutput ? (
     <ShellTraceOutput
       output={shellTraceOutput}
@@ -126,12 +134,20 @@ export const TraceEventRow = memo(function TraceEventRow({
     />
   ) : null;
   const contextContent = honeycrispToolObservation ? (
-    <div className="main-trace-tool-observation-detail">
+    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace ? 'is-memory-correction' : ''}`}>
       {toolSubtextContent}
+      {memoryCorrectionContent}
       {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : shellOutputContent ?? structuredContextContent}
     </div>
-  ) : honeycrispToolRequest && shellToolTrace ? (
-    toolSubtextContent
+  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace) ? (
+    memoryCorrectionTrace ? (
+      <span className="main-trace-tool-observation-detail is-memory-correction">
+        {toolSubtextContent}
+        {memoryCorrectionContent}
+      </span>
+    ) : (
+      toolSubtextContent
+    )
   ) : (
     structuredContextContent ?? fallbackContextContent
   );

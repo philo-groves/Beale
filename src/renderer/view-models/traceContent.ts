@@ -144,6 +144,13 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   const inputs = tracePayloadRecord(payload, 'normalizedInputs');
   if (!inputs) return '';
   if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'memory.correct') {
+    const memoryId = stringRecordValue(inputs, 'id');
+    if (!memoryId) return '';
+    const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
+    const status = stringRecordValue(inputs, 'status');
+    return [memoryType ? traceLabel(memoryType) : null, memoryId, status ? traceLabel(status) : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
   if (toolName === 'shell.run') {
     const utility = stringRecordValue(inputs, 'utility');
@@ -159,6 +166,13 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   if (!memoryId) return '';
   const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
   return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+export function honeycrispMemoryCorrectionSummary(event: TraceEventRecord): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload || honeycrispToolName(event) !== 'memory.correct') return '';
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  return inputs ? stringRecordValue(inputs, 'summary') ?? '' : '';
 }
 
 export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string | null {
@@ -934,7 +948,7 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     tracePayloadPrimitive(event.payload, 'toolName') ??
     (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
     honeycrispToolNameFromSummary(summary);
-  const label = toolName === 'shell.run' ? 'Shell' : toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
+  const label = toolName === 'shell.run' ? 'Shell' : toolName === 'memory.correct' ? 'Memory Correction' : toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
   return action === 'Requested' ? `${label} Requested` : label;
 }
 

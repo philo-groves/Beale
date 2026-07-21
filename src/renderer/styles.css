@@ -4414,6 +4414,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 6px;
 }
 
+.main-trace-tool-observation-detail.is-memory-correction {
+  gap: 2px;
+}
+
 .main-trace-tool-subtext-row {
   min-width: 0;
   width: 100%;
@@ -4444,6 +4448,18 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   overflow: visible;
   overflow-wrap: anywhere;
   text-overflow: clip;
+  white-space: pre-wrap;
+}
+
+.main-trace-memory-correction-summary {
+  min-width: 0;
+  display: block;
+  overflow: visible;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
