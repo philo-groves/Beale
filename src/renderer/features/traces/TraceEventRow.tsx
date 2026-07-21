@@ -9,6 +9,7 @@ import {
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
   honeycrispMemoryCorrectionSummary,
+  honeycrispMemoryGetSummary,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
@@ -79,7 +80,10 @@ export const TraceEventRow = memo(function TraceEventRow({
   const honeycrispToolNameValue = honeycrispToolName(event);
   const shellToolTrace = honeycrispToolNameValue === 'shell.run';
   const memoryCorrectionTrace = honeycrispToolNameValue === 'memory.correct';
+  const memoryGetTrace = honeycrispToolNameValue === 'memory.get';
   const memoryCorrectionSummary = memoryCorrectionTrace ? honeycrispMemoryCorrectionSummary(event) : '';
+  const memoryGetSummary = memoryGetTrace ? honeycrispMemoryGetSummary(event, detailForEvent) : '';
+  const memorySummary = memoryCorrectionSummary || memoryGetSummary;
   const fileReadObservation = honeycrispToolObservation && honeycrispToolNameValue === 'file.read';
   const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
   const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
@@ -123,9 +127,9 @@ export const TraceEventRow = memo(function TraceEventRow({
       </code>
     </span>
   ) : null;
-  const memoryCorrectionContent = memoryCorrectionSummary ? (
-    <span className="main-trace-memory-correction-summary">
-      {hasSearchHighlight ? renderSearchHighlightedText(memoryCorrectionSummary, searchHighlightQuery) : memoryCorrectionSummary}
+  const memorySummaryContent = memorySummary ? (
+    <span className="main-trace-memory-summary">
+      {hasSearchHighlight ? renderSearchHighlightedText(memorySummary, searchHighlightQuery) : memorySummary}
     </span>
   ) : null;
   const shellOutputContent = shellTraceOutput ? (
@@ -139,16 +143,16 @@ export const TraceEventRow = memo(function TraceEventRow({
     />
   ) : null;
   const contextContent = honeycrispToolObservation ? (
-    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace ? 'is-memory-correction' : ''}`}>
+    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace ? 'is-memory-summary' : ''}`}>
       {toolSubtextContent}
-      {memoryCorrectionContent}
+      {memorySummaryContent}
       {emptyMemorySearchObservation ? <span className="main-trace-tool-empty-memory">No memories were found</span> : shellOutputContent ?? structuredContextContent}
     </div>
-  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace) ? (
-    memoryCorrectionTrace ? (
-      <span className="main-trace-tool-observation-detail is-memory-correction">
+  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace) ? (
+    memoryCorrectionTrace || memoryGetTrace ? (
+      <span className="main-trace-tool-observation-detail is-memory-summary">
         {toolSubtextContent}
-        {memoryCorrectionContent}
+        {memorySummaryContent}
       </span>
     ) : (
       toolSubtextContent

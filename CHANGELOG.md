@@ -6,6 +6,7 @@
 
 - Trace detail modals now open from the trace icon only, leaving trace content selectable and copyable while preserving row hover feedback.
 - Memory Correction traces now show type, id, and status metadata above their multiline payload summary.
+- Memory Get traces now show the returned memory summary beneath their type and id metadata.
 - Shell traces now show full multiline commands, bounded stdout previews using the file-read treatment, and full captured stderr messages using the standard error treatment.
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.

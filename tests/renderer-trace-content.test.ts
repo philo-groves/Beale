@@ -8,6 +8,7 @@ import {
   findingForTraceEvent,
   formatReasoningTraceText,
   honeycrispMemoryCorrectionSummary,
+  honeycrispMemoryGetSummary,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
@@ -260,13 +261,14 @@ describe('renderer trace content view models', () => {
   it('preserves request subtext on Honeycrisp observations and identifies empty memory searches', () => {
     const memoryId = 'trajectory_0123456789abcdefabcd';
     const memorySearch = honeycrispToolObservation('memory.search', { query: 'ZFTP length boundary' }, []);
-    const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'trajectory' });
+    const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'trajectory', summary: 'A reusable research trajectory.' });
     const fileRead = honeycrispToolObservation('file.read', { path: '/repo/Src/Modules/zftp.c' }, { text: 'source' });
     const memoryCorrect = honeycrispToolObservation('memory.correct', { id: memoryId, status: 'suspected', summary: 'Updated memory summary.' }, { id: memoryId });
     const shellRun = honeycrispToolObservation('shell.run', { utility: 'make', args: ['test'] }, { exitCode: 0 });
 
     expect(honeycrispToolTraceSubtext(memorySearch)).toBe('ZFTP length boundary');
     expect(honeycrispToolTraceSubtext(memoryGet)).toBe(`Trajectory · ${memoryId}`);
+    expect(honeycrispMemoryGetSummary(memoryGet)).toBe('A reusable research trajectory.');
     expect(honeycrispToolTraceSubtext(fileRead)).toBe('');
     expect(honeycrispToolTraceSubtext(memoryCorrect)).toBe(`Trajectory · ${memoryId} · Suspected`);
     expect(honeycrispMemoryCorrectionSummary(memoryCorrect)).toBe('Updated memory summary.');

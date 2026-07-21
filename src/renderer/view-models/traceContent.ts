@@ -175,6 +175,22 @@ export function honeycrispMemoryCorrectionSummary(event: TraceEventRecord): stri
   return inputs ? stringRecordValue(inputs, 'summary') ?? '' : '';
 }
 
+export function honeycrispMemoryGetSummary(event: TraceEventRecord, detail: RunDetail | null = null): string {
+  if (honeycrispToolName(event) !== 'memory.get') return '';
+  const currentPayload = honeycrispEventToolPayload(event);
+  const currentResult = currentPayload ? tracePayloadRecord(currentPayload, 'result') : null;
+  const currentSummary = currentResult ? stringRecordValue(currentResult, 'summary') : null;
+  if (currentSummary) return currentSummary;
+
+  const pairingKey = honeycrispToolPairingKey(event);
+  const observation = pairingKey
+    ? detail?.traceEvents.find((candidate) => honeycrispToolEventKind(candidate) === 'tool.observed' && honeycrispToolPairingKey(candidate) === pairingKey)
+    : null;
+  const observationPayload = observation ? honeycrispEventToolPayload(observation) : null;
+  const result = observationPayload ? tracePayloadRecord(observationPayload, 'result') : null;
+  return result ? stringRecordValue(result, 'summary') ?? '' : '';
+}
+
 export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string | null {
   const payload = honeycrispEventToolPayload(event);
   if (!payload || honeycrispToolName(event) !== 'shell.run') return null;
