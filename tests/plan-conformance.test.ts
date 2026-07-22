@@ -126,7 +126,7 @@ describe('plan conformance', () => {
     });
   });
 
-  it('creates workspace-local SQLite state and host execution records without exposing secrets', () => {
+  it('creates shared SQLite state and host execution records without exposing secrets', () => {
     const dir = tempDir('beale-plan-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });

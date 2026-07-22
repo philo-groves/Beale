@@ -49,7 +49,7 @@ The renderer should not directly access:
 - OAuth credentials.
 - OS credential stores.
 - Hypervisor control sockets.
-- Raw workspace database files.
+- The raw global database file.
 - Unredacted secrets.
 - Host filesystem outside selected workspace operations.
 

@@ -508,6 +508,8 @@ export interface HoneycrispMemoryEdgeSummary {
 export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
+  contextWorkspaceId: string;
+  contextSubjectId: string | null;
   databasePath: string;
   storageRoot: string;
   artifactDirectoryPath: string;

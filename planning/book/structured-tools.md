@@ -28,7 +28,7 @@ Tool bloat causes inefficiency. It increases prompt/tool-selection overhead, mak
 
 The current tool set deliberately leans on the model's ability to choose ordinary host utilities without teaching it a large custom vocabulary.
 
-The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, workspace database exposure, and the New Research Session warning that execution uses the current user's host privileges.
+The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, global database exposure, and the New Research Session warning that execution uses the current user's host privileges.
 
 The operating rule is simple: use `shell.run` for target-facing research work and the memory tools for durable research knowledge. The recorded authorized scope remains context for model decisions; Beale does not add repeated permission prompts for ordinary in-scope repository work.
 

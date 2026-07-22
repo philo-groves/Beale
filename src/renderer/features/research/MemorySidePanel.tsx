@@ -33,9 +33,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
-  const currentSessionNode = nodes.find((node) => node.sessionId === runId);
-  const workspaceId = currentSessionNode?.workspaceId ?? nodes[0]?.workspaceId ?? null;
-  const subjectId = currentSessionNode?.subjectId ?? nodes.find((node) => node.workspaceId === workspaceId && node.subjectId)?.subjectId ?? null;
+  const workspaceId = memory?.contextWorkspaceId ?? null;
+  const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events), [events]);
   const activeSubagents = useMemo(() => activeSubagentCount(subagents), [subagents]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);

@@ -38,7 +38,7 @@ OpenAI OAuth credentials should use OS credential storage where practical:
 
 Program test credentials should live in a scoped credential store rather than free-form notes.
 
-The workspace database should store credential references and metadata, not plaintext high-value credentials by default.
+The global database should store credential references and metadata, not plaintext high-value credentials by default.
 
 If a plaintext or file-based fallback exists, Beale should make the weaker protection visible to the user.
 
@@ -54,7 +54,7 @@ Examples:
 - Shell history.
 - SSH private keys.
 - `.env` files outside active scope.
-- Raw `.honeycrisp/memory/memory.sqlite`.
+- Raw `~/.honeycrisp/memory.sqlite`.
 - Raw `.beale/logs` unless explicitly exported.
 
 This is not a complete security boundary against a compromised host process, but it reduces accidental leakage and blocks routine agent/tool access.
@@ -69,7 +69,7 @@ Rules:
 - No host SSH agent forwarding into the VM by default.
 - No OS keychain or credential-manager access from the VM.
 - No broad home-directory mounts.
-- No direct workspace database mount.
+- No direct global database mount.
 - Program credentials enter the VM only through explicit scoped injection.
 - Credential injection is recorded in the trace.
 - VM is reverted or destroyed after credential use when practical.

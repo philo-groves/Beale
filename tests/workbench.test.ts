@@ -57,13 +57,13 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.stringify(env)).not.toContain('access_token');
   });
 
-  it('initializes and reopens a workspace-local SQLite database', () => {
+  it('initializes and reopens the global SQLite database for a workspace', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
 
     const snapshot = service.createWorkspace(dir);
     expect(snapshot.workspace.workspacePath).toBe(dir);
-    expect(snapshot.workspace.databasePath).toBe(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    expect(snapshot.workspace.databasePath).toBe(globalDatabasePath());
     expect(snapshot.activeScope.version).toBe(1);
     expect(snapshot.activeScope.workspaceName).toBe('Untitled Workspace');
     expect(snapshot.openAi.credentialsHostOnly).toBe(true);
@@ -72,7 +72,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.projectSemantic).toMatchObject({ enabled: false, status: 'disabled', remoteEmbeddingEnabled: false });
     expect(snapshot.projectGraph).toMatchObject({ status: 'disabled', nodeCount: 0, edgeCount: 0 });
     expect(service.refreshOpenAiStatus().openAi.readiness).toBe('not_configured');
-    expect(existsSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'))).toBe(true);
+    expect(existsSync(globalDatabasePath())).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
     expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry'").get()).toEqual({
@@ -81,7 +81,7 @@ describe('Beale workbench skeleton', () => {
     });
     expect(registry.prepare("SELECT value FROM registry_meta WHERE key = 'schema_version'").get()).toBeUndefined();
     registry.close();
-    const schema = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    const schema = new DatabaseSync(globalDatabasePath());
     const benchmarkTables = schema
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('benchmark_runs', 'benchmark_task_results') ORDER BY name")
       .all();
@@ -104,7 +104,7 @@ describe('Beale workbench skeleton', () => {
     const workspaceId = snapshot.workspace.workspaceId;
     service.close();
 
-    const preMigrationDatabase = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    const preMigrationDatabase = new DatabaseSync(globalDatabasePath());
     preMigrationDatabase.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench'").run();
     preMigrationDatabase.prepare("INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES ('schema_version', '1', ?)").run(new Date().toISOString());
     preMigrationDatabase.close();
@@ -114,7 +114,7 @@ describe('Beale workbench skeleton', () => {
     expect(reopened.activeScope.version).toBe(1);
     service.close();
 
-    const migratedDatabase = new DatabaseSync(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
+    const migratedDatabase = new DatabaseSync(globalDatabasePath());
     expect(migratedDatabase.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_workbench'").get()).toEqual({
       version: 1,
       name: 'workspace_schema_baseline'
@@ -132,7 +132,7 @@ describe('Beale workbench skeleton', () => {
     const attemptId = service.getRunDetail(runId).attempts.at(-1)?.id ?? '';
     service.close();
 
-    const databasePath = join(workspace, '.honeycrisp', 'memory', 'memory.sqlite');
+    const databasePath = globalDatabasePath();
     const legacyDatabase = new DatabaseSync(databasePath);
     const now = new Date().toISOString();
     legacyDatabase
@@ -147,7 +147,7 @@ describe('Beale workbench skeleton', () => {
     legacyDatabase
       .prepare("UPDATE attempts SET status = 'completed', short_state = 'Incorrect legacy completion.' WHERE id = ?")
       .run(attemptId);
-    legacyDatabase.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 2").run();
+    legacyDatabase.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 2").run();
     legacyDatabase.close();
 
     const reopened = new WorkspaceService();
@@ -171,6 +171,54 @@ describe('Beale workbench skeleton', () => {
     migratedDatabase.close();
   });
 
+  it('keeps operational records scoped while workspaces share the global database', () => {
+    const databasePath = globalDatabasePath();
+    const firstWorkspace = tempWorkspace();
+    const secondWorkspace = tempWorkspace();
+    const first = new WorkspaceDatabase(databasePath, join(firstWorkspace, '.beale', 'artifacts'), { workspacePath: firstWorkspace });
+    first.initialize();
+    first.saveScope({
+      workspaceName: 'Zsh',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    const firstRun = first.createRun({
+      scopeVersionId: first.getActiveScope().id,
+      title: 'Zsh session',
+      promptMarkdown: 'Inspect Zsh.',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'single_path',
+      networkProfile: 'offline',
+      sandboxProfile: 'host',
+      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 }
+    });
+
+    const second = new WorkspaceDatabase(databasePath, join(secondWorkspace, '.beale', 'artifacts'), { workspacePath: secondWorkspace });
+    second.initialize();
+    second.saveScope({
+      workspaceName: 'mDNSResponder',
+      scopeOwner: 'Apple',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+
+    expect(second.getActiveScope().workspaceName).toBe('mDNSResponder');
+    expect(second.listRunRows()).toEqual([]);
+    expect(second.getRun(firstRun.run.id)).toBeNull();
+    expect(first.listRunRows().map((row) => row.run.id)).toEqual([firstRun.run.id]);
+    second.close();
+    first.close();
+  });
+
   it('keeps disabled context graph state inert for workspace snapshots', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
@@ -180,7 +228,7 @@ describe('Beale workbench skeleton', () => {
     expect(runId).toBeTruthy();
     service.close();
 
-    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), join(dir, '.beale', 'artifacts'));
+    const db = new WorkspaceDatabase(globalDatabasePath(), join(dir, '.beale', 'artifacts'), { workspacePath: dir });
     db.createHypothesis({
       runId: String(runId),
       state: 'needs_evidence',
@@ -216,8 +264,7 @@ describe('Beale workbench skeleton', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
-    const artifactsPath = join(dir, '.honeycrisp', 'memory', 'artifacts');
-    mkdirSync(artifactsPath, { recursive: true });
+    const artifactsPath = join(dirname(globalDatabasePath()), 'artifacts');
 
     expect(service.resolveHoneycrispMemoryDirectoryPath('artifacts')).toBe(artifactsPath);
     expect(() => service.resolveHoneycrispMemoryDirectoryPath('unknown' as never)).toThrow(/Unknown Honeycrisp memory directory/);
@@ -247,7 +294,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
     expect(snapshot.activeScope.scopeOwner).toBe('');
     expect(snapshot.activeScope.expiresAt).toBeNull();
-    expect(existsSync(join(workspace, '.honeycrisp', 'memory', 'memory.sqlite'))).toBe(true);
+    expect(existsSync(join(registryDir, 'honeycrisp', 'memory.sqlite'))).toBe(true);
 
     const registered = service.getWorkspaceRegistryState();
     expect(registered.registryPath).toBe(join(registryDir, 'workspace-registry.sqlite'));
@@ -878,7 +925,7 @@ describe('Beale workbench skeleton', () => {
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string; contentRoots?: string[] }>;
       projectNotes?: string[];
-      memoryTierContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string; peers?: unknown[] };
+      memoryTierContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string };
     };
     expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
     expect(workspaceContext.authorization).toMatchObject({
@@ -891,7 +938,6 @@ describe('Beale workbench skeleton', () => {
       sessionId: runId,
       workspaceName: 'ZSH Fixture',
       subjectName: 'Apple Security Bounty',
-      peers: []
     });
     expect(workspaceContext.memoryTierContext?.workspaceId).toBeTruthy();
     expect(workspaceContext.memoryTierContext?.subjectId).toMatch(/^subject_/);
@@ -923,7 +969,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('shares subject-tier memory context with registered workspaces for the same owner', async () => {
+  it('uses the global database instead of peer database references for same-subject workspaces', async () => {
     const zshWorkspace = tempWorkspace();
     const mdnsWorkspace = tempWorkspace();
     const fakeHoneycrisp = join(mdnsWorkspace, 'fake-subject-peer-honeycrisp.mjs');
@@ -979,15 +1025,9 @@ describe('Beale workbench skeleton', () => {
     const launch = runDetail.traceEvents.find((event) => event.summary === 'Honeycrisp host process launched.');
     const contextPath = (launch?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const context = JSON.parse(readFileSync(contextPath, 'utf8')) as {
-      memoryTierContext?: { peers?: Array<{ databasePath: string; workspaceId: string; workspaceName: string; subjectName: string }> };
+      memoryTierContext?: { workspaceId?: string; subjectName?: string };
     };
-    expect(context.memoryTierContext?.peers).toEqual([
-      expect.objectContaining({
-        databasePath: join(zshWorkspace, '.honeycrisp', 'memory', 'memory.sqlite'),
-        workspaceName: 'Zsh',
-        subjectName: 'Apple'
-      })
-    ]);
+    expect(context.memoryTierContext).toMatchObject({ workspaceId: expect.any(String), subjectName: 'Apple' });
     service.close();
   });
 
@@ -2382,7 +2422,7 @@ describe('Beale workbench skeleton', () => {
     const dir = tempWorkspace();
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(globalDatabasePath(), artifactRoot, { workspacePath: dir });
     db.initialize();
     const context = db.createRun({
       scopeVersionId: db.getActiveScope().id,
@@ -2428,7 +2468,7 @@ describe('Beale workbench skeleton', () => {
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
     mkdirSync(targetDir, { recursive: true });
     writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
-    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(globalDatabasePath(), artifactRoot, { workspacePath: dir });
     db.initialize();
     db.saveScope({
       workspaceName: 'Verifier Workspace',
@@ -2591,7 +2631,8 @@ describe('Beale workbench skeleton', () => {
 
     const listing = execFileSync('tar', ['-tzf', String(backup?.absolutePath)], { encoding: 'utf8' });
     expect(listing).toContain('./manifest.json');
-    expect(listing).toContain('./workspace/.honeycrisp/memory/memory.sqlite');
+    expect(listing).not.toContain('memory.sqlite');
+    expect(backup?.manifest).toMatchObject({ databasePath: globalDatabasePath(), databaseIncluded: false });
     service.close();
   });
 });
@@ -2606,6 +2647,12 @@ function tempWorkspace(): string {
   const dir = mkdtempSync(join(tmpdir(), 'beale-test-'));
   createdDirs.push(dir);
   return dir;
+}
+
+function globalDatabasePath(): string {
+  const registryDirectory = process.env.BEALE_WORKSPACE_REGISTRY_DIR;
+  if (!registryDirectory) throw new Error('BEALE_WORKSPACE_REGISTRY_DIR is required for isolated workbench tests.');
+  return join(registryDirectory, 'honeycrisp', 'memory.sqlite');
 }
 
 function hackerOneWorkspaceResponse(): Response {

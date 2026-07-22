@@ -22,15 +22,14 @@ Each Honeycrisp run receives:
 - The bounded list of in-scope and out-of-scope assets.
 - Only materialized source paths referenced by the active scope.
 - Memory identity containing the current session id, stable workspace id and label, and optional normalized scope owner or subject.
-- Registered peer memory database references only for workspaces whose normalized owner or subject exactly matches the active workspace.
 
 Credential reference values are not copied into model-facing workspace notes. They remain host-held references.
 
-The workspace directory is still passed to Honeycrisp as its persistence root. It is not automatically listed as a source path or known repository.
+The workspace directory is passed to Honeycrisp as research context and the default working directory. It is not automatically listed as a source path or known repository.
 
-Honeycrisp storage paths and its former directory taxonomy are not model-facing workspace context. The agent receives the memory tier identity and the `memory.*` tools; the unified SQLite database and artifact directory remain runtime implementation details.
+Honeycrisp storage paths are not model-facing workspace context. The agent receives the memory tier identity and the `memory.*` tools; the global SQLite database and artifact directory remain runtime implementation details.
 
-Honeycrisp projects the operational workspace context before the first model turn. The projection keeps authorization, repository and source references, project notes, and current session/workspace/subject identity. It removes the workspace persistence root, the peer workspace registry, and all local or peer memory database paths. Relevant subject-tier nodes identify their origin workspace when selected.
+Honeycrisp projects the operational workspace context before the first model turn. The projection keeps authorization, repository and source references, project notes, and current session/workspace/subject identity. It removes storage paths and internal workspace registry details. Relevant subject-tier nodes identify their origin workspace when selected.
 
 Honeycrisp treats structured recorded-scope metadata as sufficient scope for ordinary in-scope research. Prompt wording does not need to repeat a labeled `Scope:` section, and the controller should ask for clarification only when the workspace has no recorded scope or a material boundary is genuinely ambiguous.
 
@@ -53,7 +52,7 @@ Checkouts are separated by requested ref so one workspace selecting a tag or bra
 
 ## Workspace-Local References
 
-The Honeycrisp-owned workspace database remains authoritative for whether a global checkout belongs in that workspace's context. Materialization adds an in-scope source asset containing:
+The Honeycrisp-owned global database remains authoritative for whether a global checkout belongs in that workspace's context. Materialization adds an in-scope source asset containing:
 
 - The absolute checkout path.
 - The canonical repository URL.
@@ -61,7 +60,7 @@ The Honeycrisp-owned workspace database remains authoritative for whether a glob
 - `sourceStorage: user_global`.
 - A source-reference schema version.
 
-Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Findings, traces, artifacts, indexes, and session/workspace-tier memories remain workspace-local. Subject-tier graph nodes may be retrieved from explicitly listed same-subject peer databases; this does not expose peer operational tables or artifact contents.
+Global storage does not imply global model visibility. A checkout is exposed to a run only when the active workspace scope references its path. Findings, traces, artifacts, indexes, and session/workspace-tier memories remain scoped to their workspace. Subject-tier graph nodes may be retrieved for the same subject; this does not expose other workspaces' operational tables or artifact contents.
 
 Some managed checkouts contain a project directory below the ref-specific checkout root. Beale records bounded immediate child content roots when they contain common source or build markers. Honeycrisp includes those roots in model context and file-read hints while retaining the referenced checkout root as the authorization boundary.
 
@@ -73,7 +72,7 @@ Honeycrisp keeps the existing `memory.search`, `memory.get`, `memory.save`, `mem
 - Workspace memory is the default and remains available to later sessions in that workspace.
 - Subject memory is intended for reusable system-boundary, invariant, mitigation, procedure, and interaction knowledge that can benefit other authorized workspaces for the same subject.
 
-Subject identity comes from the operator-recorded scope owner or subject. Beale compares normalized exact values and passes concrete peer database paths; Honeycrisp does not discover or scan unrelated workspaces.
+Subject identity comes from the operator-recorded scope owner or subject. Honeycrisp compares the stored normalized identity inside the global database and does not expose unrelated workspaces.
 
 At session start, Honeycrisp selects a small memory view from the same graph used by `memory.search` and the other memory tools. Current-session nodes are prioritized; request-relevant and recent workspace nodes retain continuity; subject nodes are included only when the request matches them or a selected node links to them. The bounded entries preserve stable ids, tier and scope identity, type, status, confidence, concise body content, asset and tag labels, evidence references, relationships, timestamps, and revisions. The model can use the unchanged memory tools for details or updates.
 

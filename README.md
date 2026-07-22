@@ -41,7 +41,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Key Concepts
 
-- **Workspaces**: Local authorized research contexts with a Honeycrisp-owned SQLite database, Beale artifacts, and references to relevant source material
+- **Workspaces**: Local authorized research contexts with explicit ownership in Honeycrisp's global SQLite database, Beale artifacts, and references to relevant source material
 - **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
 - **Trace & Memory**: Timeline of model and tool activity beside a searchable, tiered catalog of durable research knowledge
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
@@ -51,10 +51,10 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Architecture (High-Level)
 
-- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and desktop access to the Honeycrisp-owned workspace database
+- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and workspace-scoped access to the Honeycrisp-owned global database
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
 - **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
-- **Agent Integration**: Honeycrisp launches as the research engine; Beale and headless Honeycrisp use the same workspace database and Beale displays traces, durable knowledge, context, and artifacts
+- **Agent Integration**: Honeycrisp launches as the research engine; Beale and headless Honeycrisp use the same global database and Beale displays workspace-scoped traces, durable knowledge, context, and artifacts
 
 ---
 
@@ -62,7 +62,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - Electron + Vite + TypeScript foundation
 - User-global registry of local Beale workspaces
-- Unified Honeycrisp-owned SQLite persistence at `.honeycrisp/memory/memory.sqlite`
+- Unified Honeycrisp-owned SQLite persistence at `~/.honeycrisp/memory.sqlite`
 - Honeycrisp-backed research session execution
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Session transcripts persisted separately from trace metadata
@@ -75,9 +75,9 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp's `.honeycrisp/memory/memory.sqlite` is the single workspace database for both headless and Beale-driven research. Operational session data and the durable knowledge graph share that database, but remain conceptually separate. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, goals, and bulk outputs are not memory. Nodes are tiered as session, workspace, or owner/subject knowledge. Beale supplies same-subject peer database references explicitly, allowing concise subject knowledge to cross related workspaces without exposing peer traces, artifacts, or operational findings. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
+Honeycrisp's `~/.honeycrisp/memory.sqlite` is the single database for both headless and Beale-driven research across workspaces. Operational session data and the durable knowledge graph share that database but retain explicit workspace ownership. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, and bulk outputs are not memory. Nodes are tiered as session, workspace, or owner/subject knowledge, and only subject-tier knowledge crosses matching workspaces. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
 
-Beale is pre-alpha and uses one current schema without compatibility migrations. Workspaces created with earlier schemas should be recreated rather than opened with the current build.
+Beale is pre-alpha and uses append-only component-scoped migrations. The global-database migration adopts the existing workspace database without deleting the source.
 
 The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
 

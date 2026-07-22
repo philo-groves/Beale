@@ -30,21 +30,12 @@ interface HoneycrispWorkspaceContextFile {
   projectNotes: string[];
 }
 
-export interface HoneycrispMemoryPeerContext {
-  databasePath: string;
-  workspaceId: string;
-  workspaceName: string;
-  subjectId: string;
-  subjectName: string;
-}
-
 interface HoneycrispMemoryTierContext {
   sessionId: string;
   workspaceId: string;
   workspaceName: string;
   subjectId?: string;
   subjectName?: string;
-  peers: HoneycrispMemoryPeerContext[];
 }
 
 interface HoneycrispWorkspaceAuthorizationContext {
@@ -198,7 +189,6 @@ export class HoneycrispRunEngine {
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
     private readonly onChange: () => void = () => undefined,
-    private readonly memoryPeers: (scopeOwner: string) => HoneycrispMemoryPeerContext[] = () => [],
     private readonly shellOptionsPath?: string
   ) {}
 
@@ -338,7 +328,6 @@ export class HoneycrispRunEngine {
       workspaceContextPath,
       context.run.id,
       this.db.getWorkspaceId(),
-      this.memoryPeers(scope.scopeOwner),
       input.networkProfile
     );
     const args = [
@@ -365,7 +354,10 @@ export class HoneycrispRunEngine {
 
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
-      env: honeycrispProcessEnvironment(),
+      env: honeycrispProcessEnvironment({
+        databasePath: this.db.getDatabasePath(),
+        artifactDirectoryPath: join(dirname(this.db.getDatabasePath()), 'artifacts')
+      }),
       detached: process.platform !== 'win32',
       windowsHide: true
     });
@@ -1128,8 +1120,14 @@ export class HoneycrispRunEngine {
   }
 }
 
-export function honeycrispProcessEnvironment(): NodeJS.ProcessEnv {
+export function honeycrispProcessEnvironment(
+  storage: { databasePath: string; artifactDirectoryPath: string } | null = null
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' };
+  if (storage) {
+    env.HONEYCRISP_DATABASE_PATH = storage.databasePath;
+    env.HONEYCRISP_ARTIFACT_DIRECTORY = storage.artifactDirectoryPath;
+  }
   if (env.HONEYCRISP_CODEX_AUTH_FILE?.trim()) return env;
 
   const configured = process.env.BEALE_OPENAI_CODEX_AUTH_FILE?.trim();
@@ -1459,10 +1457,9 @@ function writeHoneycrispWorkspaceContext(
   contextPath: string,
   sessionId: string,
   workspaceId: string,
-  peers: HoneycrispMemoryPeerContext[],
   networkProfile: string
 ): HoneycrispWorkspaceContextFile {
-  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, peers, networkProfile);
+  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, networkProfile);
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
   return context;
@@ -1473,7 +1470,6 @@ function honeycrispWorkspaceContext(
   workspacePath: string,
   sessionId: string,
   workspaceId: string,
-  peers: HoneycrispMemoryPeerContext[],
   networkProfile: string
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
@@ -1513,7 +1509,6 @@ function honeycrispWorkspaceContext(
             subjectName: scope.scopeOwner.trim()
           }
         : {}),
-      peers
     },
     ...(isRecordedWorkspaceScope(scope)
       ? {

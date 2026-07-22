@@ -62,7 +62,7 @@ Required workflow aids:
 
 Typical host-default execution flow:
 
-1. Beale host loads the workspace database.
+1. Beale host opens the global database with the active workspace identity.
 2. The user starts a session after the host-execution warning.
 3. Beale resolves scoped target material on the host.
 4. The model requests a tool call.
@@ -74,7 +74,7 @@ Typical host-default execution flow:
 
 Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle between steps 2 and 9.
 
-Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, owns the shared workspace database at `.honeycrisp/memory/memory.sqlite`, and returns live events and captures through host-controlled process streams. It must not receive OpenAI host credentials or arbitrary unscoped filesystem roots as guest-like authority.
+Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, owns the shared global database at `~/.honeycrisp/memory.sqlite`, and returns live events and captures through host-controlled process streams. It must not receive OpenAI host credentials or arbitrary unscoped filesystem roots as guest-like authority.
 
 Beale reads the durable knowledge graph directly from the shared database and may add operational workbench tables to that database. Honeycrisp's graph schema and model-facing graph tools remain the canonical durable-memory contract. Beale's project indexes are retrieval aids, not a parallel durable-memory source.
 
@@ -84,7 +84,7 @@ Beale should not:
 
 - Run the model client inside the guest.
 - Store OAuth/API credentials inside the guest.
-- Mount the workspace database inside the guest.
+- Mount the global database inside a guest.
 - Mount the full host workspace read-write inside the guest.
 - Expose host-control sockets to the guest.
 - Let the guest directly write authoritative artifacts.

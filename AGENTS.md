@@ -29,7 +29,7 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 - Keep terminology consistent:
   - Product name: `Beale`
   - Workspace metadata directory: `.beale/`
-  - Workspace database: `.honeycrisp/memory/memory.sqlite` (Honeycrisp-owned and shared with Beale)
+  - Global database: `~/.honeycrisp/memory.sqlite` (Honeycrisp-owned and shared with Beale; records retain workspace ownership)
   - Workspace registry: user-global metadata for known Beale workspaces
   - Authorized scope: the recorded authorization boundary within a workspace
   - First release focus: authorized open-ended vulnerability discovery
@@ -53,7 +53,7 @@ Preserve these invariants in docs and implementation:
 - Beale is the trusted host harness.
 - Target code, build scripts, generated PoCs, tests, fuzzing, debugging, and closed-source executables run with the user's chosen host privileges. Beale must not pretend to provide isolation it does not manage.
 - OpenAI OAuth credentials stay on the host.
-- The workspace database and credential material must not be exposed through model-visible tool results.
+- The global database and credential material must not be exposed through model-visible tool results.
 - Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
 - Findings require tool, artifact, or verifier-backed evidence.
 - User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.

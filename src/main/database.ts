@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
@@ -3406,6 +3406,10 @@ function rowOrUndefined(value: unknown): SqlRow | undefined {
   return value ? (value as SqlRow) : undefined;
 }
 
+function tableHasColumn(database: DatabaseSync, table: string, column: string): boolean {
+  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>).some((row) => row.name === column);
+}
+
 function rows(value: unknown[]): SqlRow[] {
   return value as SqlRow[];
 }
@@ -3454,6 +3458,10 @@ function memorySubjectId(subjectName: string): string {
   return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
 }
 
+function workspaceIdForPath(workspacePath: string): string {
+  return `workspace_${createHash('sha256').update(resolve(workspacePath)).digest('hex').slice(0, 20)}`;
+}
+
 function jsonFromScopeDraft(draft: WorkspaceScopeDraft): Record<string, unknown> {
   const inScope = draft.assets.filter((asset) => asset.direction === 'in_scope').map((asset) => asset.value);
   const outOfScope = draft.assets.filter((asset) => asset.direction === 'out_of_scope').map((asset) => asset.value);
@@ -3467,13 +3475,18 @@ function jsonFromScopeDraft(draft: WorkspaceScopeDraft): Record<string, unknown>
 
 export class WorkspaceDatabase {
   private readonly db: DatabaseSync;
+  private workspaceId = '';
 
   public constructor(
     private readonly databasePath: string,
-    private readonly artifactRoot: string
+    private readonly artifactRoot: string,
+    private readonly workspaceIdentity: { workspacePath: string; workspaceId?: string } = {
+      workspacePath: dirname(databasePath)
+    }
   ) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    if (databasePath !== ':memory:') chmodSync(databasePath, 0o600);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA busy_timeout = 5000;');
   }
@@ -3481,6 +3494,7 @@ export class WorkspaceDatabase {
   public initialize(): void {
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.createSchema();
+    this.ensureWorkspaceIdentity();
     this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
@@ -3497,7 +3511,7 @@ export class WorkspaceDatabase {
   }
 
   public getWorkspaceId(): string {
-    return this.getMetaValue('workspace_id') ?? '';
+    return this.workspaceId;
   }
 
   public getDatabasePath(): string {
@@ -3524,22 +3538,44 @@ export class WorkspaceDatabase {
 
   public recoverInterruptedState(reason = 'workspace_open'): WorkspaceRecoveryReport {
     const recoveredAt = nowIso();
-    const interruptedRunRows = rows(this.db.prepare("SELECT id FROM runs WHERE status IN ('queued', 'active')").all());
-    const interruptedAttemptRows = rows(this.db.prepare("SELECT id, run_id, vm_context_id FROM attempts WHERE status IN ('queued', 'active')").all());
-    const interruptedModelRows = rows(this.db.prepare("SELECT id, metadata_json, status FROM model_sessions WHERE status IN ('active', 'running')").all());
-    const interruptedToolRows = rows(this.db.prepare("SELECT id, result_json FROM tool_calls WHERE status = 'running'").all());
-    const interruptedVerifierRows = rows(this.db.prepare("SELECT id, result_json, status FROM verifier_runs WHERE status IN ('queued', 'running')").all());
+    const interruptedRunRows = rows(
+      this.db
+        .prepare("SELECT r.id FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND r.status IN ('queued', 'active')")
+        .all(this.workspaceId)
+    );
+    const interruptedAttemptRows = rows(
+      this.db
+        .prepare("SELECT a.id, a.run_id, a.vm_context_id FROM attempts a JOIN runs r ON r.id = a.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND a.status IN ('queued', 'active')")
+        .all(this.workspaceId)
+    );
+    const interruptedModelRows = rows(
+      this.db
+        .prepare("SELECT m.id, m.metadata_json, m.status FROM model_sessions m JOIN runs r ON r.id = m.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND m.status IN ('active', 'running')")
+        .all(this.workspaceId)
+    );
+    const interruptedToolRows = rows(
+      this.db
+        .prepare("SELECT t.id, t.result_json FROM tool_calls t JOIN runs r ON r.id = t.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND t.status = 'running'")
+        .all(this.workspaceId)
+    );
+    const interruptedVerifierRows = rows(
+      this.db
+        .prepare("SELECT v.id, v.result_json, v.status FROM verifier_runs v JOIN runs r ON r.id = v.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND v.status IN ('queued', 'running')")
+        .all(this.workspaceId)
+    );
     const interruptedVmRows = rows(
       this.db
         .prepare(
           `SELECT DISTINCT v.* FROM vm_contexts v
            JOIN attempts a ON a.vm_context_id = v.id
            JOIN runs r ON r.id = a.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
            WHERE v.destroyed_at IS NULL
+             AND s.workspace_id = ?
              AND v.state NOT IN ('destroyed', 'preserved', 'recovery_pending')
              AND (r.status IN ('queued', 'active') OR a.status IN ('queued', 'active'))`
         )
-        .all()
+        .all(this.workspaceId)
     );
     const report: WorkspaceRecoveryReport = {
       recoveredAt,
@@ -3654,8 +3690,8 @@ export class WorkspaceDatabase {
   public getActiveScope(): WorkspaceScopeVersion {
     const row = rowOrUndefined(
       this.db
-        .prepare('SELECT * FROM scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1')
-        .get('active')
+        .prepare('SELECT * FROM scope_versions WHERE workspace_id = ? AND status = ? ORDER BY version DESC LIMIT 1')
+        .get(this.workspaceId, 'active')
     );
     if (!row) {
       throw new Error('Workspace has no active scope version');
@@ -3664,7 +3700,7 @@ export class WorkspaceDatabase {
   }
 
   public getScopeVersion(scopeVersionId: string): WorkspaceScopeVersion {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM scope_versions WHERE id = ?').get(scopeVersionId));
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM scope_versions WHERE id = ? AND workspace_id = ?').get(scopeVersionId, this.workspaceId));
     if (!row) {
       throw new Error(`Workspace scope version not found: ${scopeVersionId}`);
     }
@@ -3685,16 +3721,17 @@ export class WorkspaceDatabase {
     const nextVersion = numberValue(versionRow ?? { version: 0 }, 'version') + 1;
 
     this.transaction(() => {
-      this.db.prepare('UPDATE scope_versions SET status = ? WHERE status = ?').run('archived', 'active');
+      this.db.prepare('UPDATE scope_versions SET status = ? WHERE workspace_id = ? AND status = ?').run('archived', this.workspaceId, 'active');
       this.db
         .prepare(
           `INSERT INTO scope_versions (
-            id, version, status, workspace_name, scope_owner, description_markdown,
+            id, workspace_id, version, status, workspace_name, scope_owner, description_markdown,
             network_policy_json, rules_markdown, active_from, expires_at, created_at, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
+          this.workspaceId,
           nextVersion,
           'active',
           draft.workspaceName.trim() || 'Untitled Workspace',
@@ -4084,7 +4121,17 @@ export class WorkspaceDatabase {
   }
 
   public listNotifications(status: NotificationStatus = 'unread'): NotificationRecord[] {
-    return rows(this.db.prepare('SELECT * FROM notifications WHERE status = ? ORDER BY created_at ASC').all(status)).map((row) => this.mapNotification(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT n.* FROM notifications n
+           JOIN runs r ON r.id = n.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? AND n.status = ?
+           ORDER BY n.created_at ASC`
+        )
+        .all(this.workspaceId, status)
+    ).map((row) => this.mapNotification(row));
   }
 
   public markNotificationOpened(notificationId: string): NotificationRecord | null {
@@ -5098,7 +5145,11 @@ export class WorkspaceDatabase {
   }
 
   public listRunRows(): RunRow[] {
-    const runRows = rows(this.db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all());
+    const runRows = rows(
+      this.db
+        .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? ORDER BY r.created_at DESC')
+        .all(this.workspaceId)
+    );
     const attemptCounts = new Map(
       rows(this.db.prepare('SELECT run_id, COUNT(*) AS count FROM attempts GROUP BY run_id').all()).map((row) => [text(row, 'run_id'), numberValue(row, 'count')])
     );
@@ -5268,7 +5319,17 @@ export class WorkspaceDatabase {
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 24;
     const conditions = terms.map(() => "LOWER(tm.content_markdown) LIKE ? ESCAPE '\\'").join(' AND ');
     const parameters = terms.map((term) => `%${escapeLike(term.toLowerCase())}%`);
-    const countRow = rowOrUndefined(this.db.prepare(`SELECT COUNT(*) AS total_matches FROM transcript_messages tm WHERE ${conditions}`).get(...parameters));
+    const countRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS total_matches
+           FROM transcript_messages tm
+           JOIN runs r ON r.id = tm.run_id
+           JOIN scope_versions p ON p.id = r.scope_version_id
+           WHERE p.workspace_id = ? AND ${conditions}`
+        )
+        .get(this.workspaceId, ...parameters)
+    );
     const resultRows = this.db
       .prepare(
         `SELECT
@@ -5284,11 +5345,11 @@ export class WorkspaceDatabase {
          FROM transcript_messages tm
          JOIN runs r ON r.id = tm.run_id
          JOIN scope_versions p ON p.id = r.scope_version_id
-         WHERE ${conditions}
+         WHERE p.workspace_id = ? AND ${conditions}
          ORDER BY tm.created_at DESC, tm.rowid DESC
          LIMIT ?`
       )
-      .all(...parameters, limit);
+      .all(this.workspaceId, ...parameters, limit);
 
     const results = rows(resultRows).map((row) => ({
       registryWorkspaceId: context.registryWorkspaceId,
@@ -5350,9 +5411,11 @@ export class WorkspaceDatabase {
 
   private scopeVersionLineagePredicate(column: string): string {
     return `${column} IN (
-      SELECT id
-      FROM scope_versions
-      WHERE version <= (SELECT version FROM scope_versions WHERE id = ?)
+      SELECT prior.id
+      FROM scope_versions prior
+      JOIN scope_versions target ON target.id = ?
+      WHERE prior.workspace_id = target.workspace_id
+        AND prior.version <= target.version
     )`;
   }
 
@@ -6866,9 +6929,10 @@ export class WorkspaceDatabase {
 
   public rebuildProjectSearchIndex(options: { includeInventory?: boolean } = {}): void {
     this.transaction(() => {
-      this.db.prepare('DELETE FROM project_search_fts').run();
-      this.db.prepare('DELETE FROM project_search_documents').run();
-      const scopeRows = rows(this.db.prepare('SELECT id FROM scope_versions ORDER BY version ASC').all());
+      const workspaceDocumentIds = `SELECT id FROM project_search_documents WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)`;
+      this.db.prepare(`DELETE FROM project_search_fts WHERE document_id IN (${workspaceDocumentIds})`).run(this.workspaceId);
+      this.db.prepare(`DELETE FROM project_search_documents WHERE id IN (${workspaceDocumentIds})`).run(this.workspaceId);
+      const scopeRows = rows(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? ORDER BY version ASC').all(this.workspaceId));
       for (const scopeRow of scopeRows) {
         const scope = this.getScopeVersion(text(scopeRow, 'id'));
         for (const asset of scope.assets) {
@@ -6885,15 +6949,16 @@ export class WorkspaceDatabase {
           });
         }
       }
-      for (const row of rows(this.db.prepare('SELECT * FROM runs ORDER BY created_at ASC').all())) this.indexRunSearchDocument(this.mapRun(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM transcript_messages ORDER BY created_at ASC, rowid ASC').all())) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM trace_events WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexTraceSearchDocument(this.mapTraceEvent(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all())) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all())) this.indexFindingSearchDocument(this.mapFinding(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM evidence ORDER BY created_at ASC').all())) this.indexEvidenceSearchDocument(this.mapEvidence(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM artifacts WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexArtifactSearchDocument(this.mapArtifact(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM verifier_contracts ORDER BY created_at ASC').all())) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM verifier_runs ORDER BY started_at ASC, rowid ASC').all())) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
+      const workspaceRunIds = `SELECT r.id FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ?`;
+      for (const row of rows(this.db.prepare(`SELECT * FROM runs WHERE id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexRunSearchDocument(this.mapRun(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM transcript_messages WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC, rowid ASC`).all(this.workspaceId))) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM trace_events WHERE model_visible = 1 AND run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexTraceSearchDocument(this.mapTraceEvent(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM hypotheses WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM findings WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexFindingSearchDocument(this.mapFinding(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexEvidenceSearchDocument(this.mapEvidence(row));
+      for (const row of rows(this.db.prepare(`SELECT DISTINCT a.* FROM artifacts a JOIN trace_events t ON t.artifact_id = a.id WHERE a.model_visible = 1 AND t.run_id IN (${workspaceRunIds}) ORDER BY a.created_at ASC`).all(this.workspaceId))) this.indexArtifactSearchDocument(this.mapArtifact(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (${workspaceRunIds}) ORDER BY started_at ASC, rowid ASC`).all(this.workspaceId))) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
     });
 
     void options;
@@ -7314,12 +7379,30 @@ export class WorkspaceDatabase {
 
   public listWorkspaceHypothesesForRun(runId: string): HypothesisRecord[] {
     if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all()).map((row) => this.mapHypothesis(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT h.* FROM hypotheses h
+           JOIN runs r ON r.id = h.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? ORDER BY h.created_at ASC`
+        )
+        .all(this.workspaceId)
+    ).map((row) => this.mapHypothesis(row));
   }
 
   public listWorkspaceFindingsForRun(runId: string): FindingRecord[] {
     if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all()).map((row) => this.mapFinding(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT f.* FROM findings f
+           JOIN runs r ON r.id = f.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? ORDER BY f.created_at ASC`
+        )
+        .all(this.workspaceId)
+    ).map((row) => this.mapFinding(row));
   }
 
   private listWorkspaceFindingCandidates(runId: string): ClaimCandidate[] {
@@ -7328,7 +7411,11 @@ export class WorkspaceDatabase {
   }
 
   public getRun(runId: string): RunRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM runs WHERE id = ?').get(runId));
+    const row = rowOrUndefined(
+      this.db
+        .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE r.id = ? AND s.workspace_id = ?')
+        .get(runId, this.workspaceId)
+    );
     return row ? this.mapRun(row) : null;
   }
 
@@ -7446,6 +7533,41 @@ export class WorkspaceDatabase {
             )
             .run(migratedAt);
         }
+      },
+      {
+        version: 3,
+        name: 'global_workspace_ownership',
+        up: (database) => {
+          database.exec(`
+            CREATE TABLE IF NOT EXISTS workspaces (
+              id TEXT PRIMARY KEY,
+              workspace_path TEXT NOT NULL UNIQUE,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+          `);
+          if (!tableHasColumn(database, 'scope_versions', 'workspace_id')) {
+            database.exec('ALTER TABLE scope_versions ADD COLUMN workspace_id TEXT;');
+          }
+          const legacyWorkspace = rowOrUndefined(database.prepare("SELECT value FROM workspace_meta WHERE key = 'workspace_id'").get());
+          const legacyWorkspaceId = legacyWorkspace ? text(legacyWorkspace, 'value') : '';
+          if (legacyWorkspaceId) {
+            const now = nowIso();
+            database
+              .prepare('INSERT OR IGNORE INTO workspaces (id, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?)')
+              .run(legacyWorkspaceId, `legacy:${legacyWorkspaceId}`, now, now);
+            database.prepare('UPDATE scope_versions SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ?').run(legacyWorkspaceId, '');
+            const legacyMeta = rows(database.prepare("SELECT key, value, updated_at FROM workspace_meta WHERE key NOT LIKE 'workspace_%:%'").all());
+            for (const row of legacyMeta) {
+              const key = text(row, 'key');
+              database
+                .prepare('INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
+                .run(`${legacyWorkspaceId}:${key}`, text(row, 'value'), text(row, 'updated_at'));
+              database.prepare('DELETE FROM workspace_meta WHERE key = ?').run(key);
+            }
+          }
+          database.exec('CREATE INDEX IF NOT EXISTS idx_scope_versions_workspace_status ON scope_versions(workspace_id, status, version);');
+        }
       }
     ]);
   }
@@ -7505,17 +7627,37 @@ export class WorkspaceDatabase {
     }
   }
 
+  private ensureWorkspaceIdentity(): void {
+    const workspacePath = resolve(this.workspaceIdentity.workspacePath);
+    const existingByPath = rowOrUndefined(this.db.prepare('SELECT id FROM workspaces WHERE workspace_path = ?').get(workspacePath));
+    if (existingByPath) {
+      this.workspaceId = text(existingByPath, 'id');
+      return;
+    }
+
+    const requestedWorkspaceId = this.workspaceIdentity.workspaceId?.trim();
+    const legacy = requestedWorkspaceId
+      ? rowOrUndefined(this.db.prepare('SELECT id FROM workspaces WHERE id = ?').get(requestedWorkspaceId))
+      : rowOrUndefined(this.db.prepare("SELECT id FROM workspaces WHERE workspace_path LIKE 'legacy:%' ORDER BY created_at LIMIT 1").get());
+    const workspaceId = requestedWorkspaceId || (legacy ? text(legacy, 'id') : workspaceIdForPath(workspacePath));
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO workspaces (id, workspace_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET workspace_path = excluded.workspace_path, updated_at = excluded.updated_at`
+      )
+      .run(workspaceId, workspacePath, now, now);
+    this.workspaceId = workspaceId;
+  }
+
   private ensureWorkspaceMeta(): void {
     const createdAt = nowIso();
-    const workspaceId = `workspace_${randomUUID()}`;
-    this.db
-      .prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
-      .run('workspace_id', workspaceId, createdAt);
-    this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run('created_at', createdAt, createdAt);
+    this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run(this.metaKey('created_at'), createdAt, createdAt);
   }
 
   private ensureDefaultScope(): void {
-    const row = rowOrUndefined(this.db.prepare('SELECT id FROM scope_versions WHERE status = ? LIMIT 1').get('active'));
+    const row = rowOrUndefined(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? AND status = ? LIMIT 1').get(this.workspaceId, 'active'));
     if (row) return;
     this.saveScope({
       workspaceName: 'Untitled Workspace',
@@ -7531,7 +7673,11 @@ export class WorkspaceDatabase {
   private ensureProjectSearchIndexSeeded(): void {
     const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get());
     if (!table) return;
-    const row = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_search_documents').get());
+    const row = rowOrUndefined(
+      this.db
+        .prepare('SELECT COUNT(*) AS count FROM project_search_documents WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)')
+        .get(this.workspaceId)
+    );
     if ((row ? numberValue(row, 'count') : 0) > 0) return;
     this.rebuildProjectSearchIndex({ includeInventory: true });
   }
@@ -7539,19 +7685,27 @@ export class WorkspaceDatabase {
   private ensureProjectStructureIndexSeeded(): void {
     const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get());
     if (!table) return;
-    const sourceRow = rowOrUndefined(this.db.prepare("SELECT COUNT(*) AS count FROM project_inventory_items WHERE resource_kind IN ('source', 'text')").get());
+    const sourceRow = rowOrUndefined(
+      this.db
+        .prepare("SELECT COUNT(*) AS count FROM project_inventory_items WHERE resource_kind IN ('source', 'text') AND scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)")
+        .get(this.workspaceId)
+    );
     if (!sourceRow || numberValue(sourceRow, 'count') === 0) return;
-    const structureRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_structure_entities').get());
+    const structureRow = rowOrUndefined(
+      this.db
+        .prepare('SELECT COUNT(*) AS count FROM project_structure_entities WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)')
+        .get(this.workspaceId)
+    );
     if (structureRow && numberValue(structureRow, 'count') > 0) return;
     if (this.getMetaValue('project_structure_index_seeded_v12') === 'true') return;
-    for (const row of rows(this.db.prepare('SELECT id FROM scope_versions ORDER BY version ASC').all())) {
+    for (const row of rows(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? ORDER BY version ASC').all(this.workspaceId))) {
       this.refreshProjectInventory(text(row, 'id'));
     }
     this.setMetaValue('project_structure_index_seeded_v12', 'true');
   }
 
   private getMetaValue(key: string): string | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(key));
+    const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(this.metaKey(key)));
     return row ? text(row, 'value') : null;
   }
 
@@ -7562,11 +7716,16 @@ export class WorkspaceDatabase {
          VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
       )
-      .run(key, value, updatedAt);
+      .run(this.metaKey(key), value, updatedAt);
   }
 
   private deleteMetaValue(key: string): void {
-    this.db.prepare('DELETE FROM workspace_meta WHERE key = ?').run(key);
+    this.db.prepare('DELETE FROM workspace_meta WHERE key = ?').run(this.metaKey(key));
+  }
+
+  private metaKey(key: string): string {
+    if (!this.workspaceId) throw new Error('Workspace identity is not initialized.');
+    return `${this.workspaceId}:${key}`;
   }
 
   private getProjectSemanticJobState(scopeVersionId: string): ProjectSemanticJobState | null {
@@ -10218,6 +10377,15 @@ export class WorkspaceDatabase {
   }
 }
 
+export function checkpointDatabaseFile(databasePath: string): void {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec('PRAGMA wal_checkpoint(FULL);');
+  } finally {
+    database.close();
+  }
+}
+
 const NOTIFICATIONS_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
@@ -10524,6 +10692,13 @@ CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_label ON project_grap
 `;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY,
+  workspace_path TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -10532,6 +10707,7 @@ CREATE TABLE IF NOT EXISTS workspace_meta (
 
 CREATE TABLE IF NOT EXISTS scope_versions (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT REFERENCES workspaces(id),
   version INTEGER NOT NULL UNIQUE,
   status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
   workspace_name TEXT NOT NULL,
@@ -10544,6 +10720,8 @@ CREATE TABLE IF NOT EXISTS scope_versions (
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_scope_versions_workspace_status ON scope_versions(workspace_id, status, version);
 
 CREATE TABLE IF NOT EXISTS scope_assets (
   id TEXT PRIMARY KEY,

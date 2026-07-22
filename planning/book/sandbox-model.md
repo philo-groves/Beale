@@ -78,7 +78,7 @@ Snapshots should be identified by backend, image version, toolchain version, tar
 
 - Never resume a contaminated working snapshot as a clean base.
 - Never let guest state become authoritative storage.
-- Never mount the workspace database inside the guest.
+- Never mount the global database inside a guest.
 - Export artifacts only through explicit Beale-controlled channels.
 - Record every snapshot restore, clone, export, revert, and destroy event in the trace.
 - Mark snapshots that have executed untrusted binaries as contaminated.

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Moved Honeycrisp and Beale persistence to the user-global `~/.honeycrisp/memory.sqlite`, with explicit workspace ownership for operational scope records and in-database session/workspace/subject memory visibility. The existing Zsh database was adopted non-destructively and its source remains intact.
+- Workspace backup archives no longer embed the shared global database; their manifest records the external database path and that it is excluded.
 - Session header statistics now use rendered multiline hover tooltips that remain visible below Electron's draggable title bar.
 - Honeycrisp model usage now carries Pi prompt-cache reads, writes, and hit rate through live turns and captures; Beale shows the session cache hit rate and moves context/token usage from the footer into the header before turn, event, and duration metrics.
 - Honeycrisp response guidance now asks agents to write as sharp, curious research collaborators using concise, technically precise, cohesive prose, without narrating routine memory updates.
@@ -25,6 +27,7 @@
 
 ### Added
 
+- Added Beale workbench migration 3 (`global_workspace_ownership`) and a global workspace identity table so multiple workspaces can safely share operational schema and migration history.
 - Added a draggable, keyboard-accessible divider between the session trace and Memory/Subagents sidebar, with bounded responsive sizing and a persisted width preference.
 - Formalized Honeycrisp `hypothesis` memory as a testable unproven proposition with suspected/rejected lifecycle guidance and required reclassification to a primitive or chain when proven; `evidence` and `finding` remain excluded as memory node types.
 - Added inline expand/collapse controls for truncated file-read excerpts and Shell stdout previews.
@@ -35,7 +38,7 @@
 - Added Memory and Subagents tabs to the session sidebar, including child summaries with latest activity, agent-scoped trace navigation, and a Back to Main control.
 - Added Codex-style Honeycrisp subagent orchestration with bounded concurrency, optional conversation inheritance, child model/effort selection, inter-agent messaging and follow-ups, interruption, waiting, agent-aware Beale traces, and captured child run metadata.
 - Added requested/observed trace pairs for all Honeycrisp collaboration tools, with caller attribution, concise targets and status metadata, task/message content, wait outcomes, and bounded agent-list results.
-- Added tiered Honeycrisp memory for session-local, workspace-reusable, and same-subject reusable knowledge. Beale supplies explicit peer database references only for registered workspaces with the same normalized scope owner or subject.
+- Added tiered Honeycrisp memory for session-local, workspace-reusable, and same-subject reusable knowledge within the shared global database.
 - Added run-start repository acquisition for explicit GitHub and GitLab repository URLs. Beale materializes source in the user-global repository store and records workspace-local source references before Honeycrisp starts.
 - Added structured recorded-scope authorization context to the Beale-to-Honeycrisp handoff so authorized workspace research does not depend on prompt-section wording.
 
@@ -163,7 +166,7 @@
 - Removed the secondary content header, moved session view controls and statistics into the main application header, and moved session configuration pills into the Session Summary dialog.
 - Renamed the model trace category and summaries from Thought to Reasoning to reflect Pi's provider-generated reasoning-summary stream without implying access to hidden chain-of-thought.
 
-- Changed Honeycrisp session context to use bounded tiered graph memory with evidence and relationship anchors, hide internal workspace and peer storage paths, and rely on native tool definitions instead of duplicate storage and tool-policy prompt sections. Beale's Context view now distinguishes injected memory from the full workspace memory catalog and lists the tools actually available to the model; diagnostic flow captures are no longer model-visible artifacts.
+- Changed Honeycrisp session context to use bounded tiered graph memory with evidence and relationship anchors, hide internal storage paths, and rely on native tool definitions instead of duplicate storage and tool-policy prompt sections. Beale's Context view now distinguishes injected memory from the full workspace memory catalog and lists the tools actually available to the model; diagnostic flow captures are no longer model-visible artifacts.
 - Changed the lower-left footer cluster so Settings appears first and token usage appears whenever a session is selected, regardless of run status.
 - Honeycrisp sessions keep model tools available unless an explicit tool-call limit is configured, enforce their wall-clock session limit, and present compact turn/tool progress instead of raw agent lifecycle streams.
 - Active-session controls now expose Pause and Stop; continuing an inactive session extends it in place.
@@ -174,7 +177,6 @@
 - Changed Honeycrisp session import to schema-v2 `request` and `agent` captures produced by Pi's native agent loop. Context views now show the request, workspace context, selected skills, and available tools without controller decisions or generated subgoals.
 - Changed Honeycrisp scope handling to treat a recorded Beale workspace scope as sufficient authorization for in-scope research, avoiding repeated authorization questions while retaining explicit scope boundaries and network-profile enforcement.
 
-- Unified Beale and Honeycrisp workspace persistence in `.honeycrisp/memory/memory.sqlite`, making desktop and future headless operation schema-compatible without data copying.
 - Changed durable memory to explicit model-managed reusable knowledge; run events, transcripts, goals, and bulk artifacts are no longer automatically promoted into memory.
 
 - Renamed renderer, IPC, registry, shared-type, profiling, and SQLite vocabulary from programs to workspaces and authorized scopes; the fresh schema now uses `workspaces`, `scope_versions`, `workspace_name`, `scope_owner`, and `registry_workspace_id`.

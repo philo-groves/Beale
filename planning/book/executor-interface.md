@@ -166,7 +166,7 @@ Rules:
 
 - Imports are explicit trace events.
 - Imports should be read-only where practical.
-- The host workspace database is never imported.
+- The host global database is never imported.
 - Host credential stores are never imported.
 - Broad host directory mounts are prohibited.
 
@@ -251,7 +251,7 @@ Recommended order:
 
 - No hidden target execution on host.
 - No OpenAI credentials in guests.
-- No raw workspace database in guests.
+- No raw global database in guests.
 - No broad host filesystem mounts.
 - No guest direct writes to authoritative artifact storage.
 - No contaminated context reused as clean.

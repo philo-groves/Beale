@@ -58,7 +58,7 @@ The primary session detail surface combines:
 - A trace of model, tool, system, and user-steering events.
 - Immediate steering that extends the current Honeycrisp session.
 - Run controls such as pause, resume, and stop.
-- A permanent memory catalog backed by Honeycrisp's workspace database.
+- A permanent workspace-filtered memory catalog backed by Honeycrisp's global database.
 
 Model claims remain visually distinct from tool results and referenced files or outputs.
 

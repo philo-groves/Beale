@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type {
   HoneycrispMemoryDirectorySummary,
@@ -9,18 +9,21 @@ import type {
   HoneycrispMemorySummary
 } from '@shared/types';
 
-const MEMORY_DATABASE_RELATIVE_PATH = join('.honeycrisp', 'memory', 'memory.sqlite');
-const MEMORY_STORAGE_RELATIVE_PATH = join('.honeycrisp', 'memory');
-const MEMORY_ARTIFACT_RELATIVE_PATH = join('.honeycrisp', 'memory', 'artifacts');
 const ARTIFACT_MANIFEST_FILENAME = 'manifest.json';
 
 type SqlRow = Record<string, unknown>;
 
-export function getHoneycrispMemorySummary(workspacePath: string): HoneycrispMemorySummary {
-  const databasePath = join(workspacePath, MEMORY_DATABASE_RELATIVE_PATH);
-  const storageRoot = join(workspacePath, MEMORY_STORAGE_RELATIVE_PATH);
-  const artifactDirectoryPath = join(workspacePath, MEMORY_ARTIFACT_RELATIVE_PATH);
-  const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath);
+export interface HoneycrispMemorySummaryOptions {
+  databasePath: string;
+  artifactDirectoryPath: string;
+  workspaceId: string;
+  subjectId: string | null;
+}
+
+export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptions): HoneycrispMemorySummary {
+  const { databasePath, artifactDirectoryPath, workspaceId, subjectId } = options;
+  const storageRoot = dirname(databasePath);
+  const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, subjectId);
   if (!existsSync(databasePath)) return base;
 
   let database: DatabaseSync | null = null;
@@ -58,10 +61,18 @@ export function getHoneycrispMemorySummary(workspacePath: string): HoneycrispMem
   }
 }
 
-function emptySummary(databasePath: string, storageRoot: string, artifactDirectoryPath: string): HoneycrispMemorySummary {
+function emptySummary(
+  databasePath: string,
+  storageRoot: string,
+  artifactDirectoryPath: string,
+  contextWorkspaceId: string,
+  contextSubjectId: string | null
+): HoneycrispMemorySummary {
   return {
     status: 'missing',
     source: 'none',
+    contextWorkspaceId,
+    contextSubjectId,
     databasePath,
     storageRoot,
     artifactDirectoryPath,
@@ -135,12 +146,7 @@ function readEvidence(database: DatabaseSync): Map<string, HoneycrispMemoryEvide
 }
 
 function readEdges(database: DatabaseSync): HoneycrispMemoryEdgeSummary[] {
-  const rows = [
-    ...(database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[]),
-    ...(tableExists(database, 'memory_federated_edges')
-      ? (database.prepare('SELECT * FROM memory_federated_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[])
-      : [])
-  ];
+  const rows = database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[];
   return rows.map((row) => ({
     fromId: requiredString(row.from_id),
     toId: requiredString(row.to_id),

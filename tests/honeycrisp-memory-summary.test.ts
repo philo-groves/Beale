@@ -14,10 +14,16 @@ afterEach(() => {
 describe('Honeycrisp memory summary', () => {
   it('reports missing knowledge before the workspace database is initialized', () => {
     const workspace = tempWorkspace();
-    const summary = getHoneycrispMemorySummary(workspace);
+    const databasePath = join(workspace, 'memory.sqlite');
+    const summary = getHoneycrispMemorySummary({
+      databasePath,
+      artifactDirectoryPath: join(workspace, 'artifacts'),
+      workspaceId: 'workspace_zsh',
+      subjectId: 'subject_apple'
+    });
 
     expect(summary.status).toBe('missing');
-    expect(summary.databasePath).toBe(join(workspace, '.honeycrisp', 'memory', 'memory.sqlite'));
+    expect(summary.databasePath).toBe(databasePath);
     expect(summary.nodeCount).toBe(0);
     expect(summary.edgeCount).toBe(0);
     expect(summary.directories).toEqual([
@@ -27,8 +33,8 @@ describe('Honeycrisp memory summary', () => {
 
   it('reads durable nodes, relationships, evidence references, and artifacts directly from the shared database', () => {
     const workspace = tempWorkspace();
-    const memoryRoot = join(workspace, '.honeycrisp', 'memory');
-    const artifactRoot = join(memoryRoot, 'artifacts');
+    const memoryRoot = workspace;
+    const artifactRoot = join(workspace, 'artifacts');
     mkdirSync(artifactRoot, { recursive: true });
     writeFileSync(join(artifactRoot, 'manifest.json'), JSON.stringify({ schemaVersion: 1, artifacts: [{ id: 'artifact_one' }] }));
 
@@ -49,7 +55,12 @@ describe('Honeycrisp memory summary', () => {
     db.prepare('INSERT INTO memory_evidence_refs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('evidence_one', 'trajectory_one', 'code', 'repository', 'src/parser.ts', '{"line":42}', 'State write', '2026-06-25T10:02:30.000Z');
     db.close();
 
-    const summary = getHoneycrispMemorySummary(workspace);
+    const summary = getHoneycrispMemorySummary({
+      databasePath: join(memoryRoot, 'memory.sqlite'),
+      artifactDirectoryPath: artifactRoot,
+      workspaceId: 'workspace_zsh',
+      subjectId: 'subject_apple'
+    });
 
     expect(summary).toMatchObject({
       status: 'ready',

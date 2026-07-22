@@ -24,9 +24,10 @@ The first schema should be explicit and queryable. It should avoid opaque docume
 
 ## Database Rules
 
-- One SQLite database per workspace.
-- No global cross-workspace database.
-- Same-subject durable-memory federation uses an explicit allowlist of peer workspace databases; it does not merge databases or expose operational tables.
+- One user-global SQLite database at `~/.honeycrisp/memory.sqlite`.
+- Store explicit workspace ownership for scope and operational records.
+- Scope normal Beale operational queries to the active workspace.
+- Apply same-subject durable-memory visibility inside the shared database without exposing another workspace's operational tables to the agent.
 - Enable foreign keys.
 - Use WAL mode for normal app operation.
 - Store timestamps as UTC ISO-8601 text or integer epoch milliseconds consistently.
@@ -59,7 +60,7 @@ The exact generator can be ULID, UUIDv7, or another sortable unique ID. The impo
 
 Purpose:
 
-- Store workspace-local identity and settings metadata. Schema versions live only in `schema_migrations`.
+- Store namespaced per-workspace settings metadata. Schema versions live only in `schema_migrations`.
 
 Fields:
 
@@ -69,8 +70,22 @@ Fields:
 
 Required keys:
 
-- `workspace_id`
 - `created_at`
+
+Keys are prefixed by stable workspace id in the current schema.
+
+### `workspaces`
+
+Purpose:
+
+- Map stable workspace ids to their current local paths inside the global database.
+
+Fields:
+
+- `id`
+- `workspace_path`
+- `created_at`
+- `updated_at`
 
 ### `scope_versions`
 
@@ -81,6 +96,7 @@ Purpose:
 Fields:
 
 - `id`
+- `workspace_id`
 - `version`
 - `status`
 - `workspace_name`

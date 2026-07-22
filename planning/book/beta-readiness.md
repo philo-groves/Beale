@@ -66,7 +66,7 @@ Beta requirement:
 
 - Search should either open a scoped search modal for the current program or be hidden.
 - Schedules is hidden until the scheduled-session UI is ready.
-- Cross-workspace search is not a first-release default because workspace databases are intentionally isolated.
+- Cross-workspace operational search is not a first-release default even though records share one database; normal queries remain workspace-scoped.
 
 ### Export and Disclosure Controls
 
@@ -198,7 +198,7 @@ It should explain:
 - Current working areas include the Electron workbench, OpenAI run engine, local persistence, trace UI, hypotheses/findings, profiling, and Firecracker setup on WSL/Linux.
 - Incomplete areas include desktop menus, search, schedules, complete export/disclosure flows, complete run controls, full verifier/artifact controls, and cross-platform VM backends.
 - Use against targets requires explicit authorization.
-- OpenAI credentials and workspace databases remain local.
+- OpenAI credentials and the global database remain local.
 - Live tests require user-provided credentials and are opt-in.
 
 ## Beta Exit Criteria For Visible Controls

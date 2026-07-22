@@ -35,7 +35,7 @@ Purpose:
 Includes:
 
 - Open or create a workspace directory.
-- Initialize `.honeycrisp/memory/memory.sqlite`.
+- Initialize `~/.honeycrisp/memory.sqlite`.
 - Edit and persist authorized scope.
 - Start a run from a markdown prompt.
 - Persist runs, attempts, trace events, artifacts, hypotheses, findings, and verifier placeholders.

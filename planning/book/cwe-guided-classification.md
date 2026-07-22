@@ -246,7 +246,7 @@ CWE-guided classification must preserve Beale's existing security model:
 - `verified` and `reportable` require a passing real verifier.
 - Program scope and active network policy remain authoritative.
 - CWE labels must not cause out-of-scope testing.
-- The workspace database remains host-owned and is never mounted into the guest.
+- The global database remains host-owned and is never mounted into a guest.
 
 ## Planning Consequence
 

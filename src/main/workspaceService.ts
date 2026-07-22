@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { priorityFactorLabels, scorePriority, type PriorityFactors } from './discoveryScoring';
 import { FixtureRunEngine } from './fixtureRunEngine';
-import { WorkspaceDatabase } from './database';
+import { checkpointDatabaseFile, WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
@@ -34,6 +34,7 @@ import type {
   GeneratedResearchPrompt,
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispMemorySummary,
   HoneycrispToolingConfigSummary,
   HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
@@ -82,7 +83,7 @@ import type {
   WorkspaceSummary
 } from '@shared/types';
 
-const WORKSPACE_DATABASE_RELATIVE_PATH = join('.honeycrisp', 'memory', 'memory.sqlite');
+const LEGACY_WORKSPACE_DATABASE_RELATIVE_PATH = join('.honeycrisp', 'memory', 'memory.sqlite');
 
 const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
@@ -273,6 +274,8 @@ function hostExecutionStatus(): ExecutorStatus {
 
 export interface WorkspaceServiceOptions {
   workspaceRegistryDirectory?: string;
+  honeycrispDatabasePath?: string;
+  honeycrispArtifactDirectory?: string;
   repositoryStoreDirectory?: string;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
@@ -383,7 +386,7 @@ export class WorkspaceService {
     if (!runtime) {
       throw new Error('No Beale workspace is open');
     }
-    const directory = getHoneycrispMemorySummary(runtime.workspacePath).directories.find((candidate) => candidate.name === name);
+    const directory = this.memorySummaryForRuntime(runtime).directories.find((candidate) => candidate.name === name);
     if (!directory) {
       throw new Error(`Unknown Honeycrisp memory directory: ${String(name)}`);
     }
@@ -1032,7 +1035,7 @@ export class WorkspaceService {
   public getRunDetail(runId: string): RunDetail {
     const runtime = this.getForegroundRuntime();
     const detail = this.requireDb().getRunDetail(runId);
-    return runtime ? attachHoneycrispMemory(detail, runtime.workspacePath) : detail;
+    return runtime ? attachHoneycrispMemory(detail, this.memorySummaryForRuntime(runtime)) : detail;
   }
 
   public getRunDetailVersion(runId: string): RunDetailVersion {
@@ -1042,7 +1045,7 @@ export class WorkspaceService {
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
     const runtime = this.getForegroundRuntime();
     const update = this.requireDb().getRunDetailUpdate(runId, cursor);
-    return runtime ? attachHoneycrispMemory(update, runtime.workspacePath) : update;
+    return runtime ? attachHoneycrispMemory(update, this.memorySummaryForRuntime(runtime)) : update;
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {
@@ -1082,7 +1085,10 @@ export class WorkspaceService {
       }
 
       const bealeDir = join(resolvedPath, '.beale');
-      const db = new WorkspaceDatabase(join(resolvedPath, WORKSPACE_DATABASE_RELATIVE_PATH), join(bealeDir, 'artifacts'));
+      const db = new WorkspaceDatabase(this.globalHoneycrispDatabasePath(), join(bealeDir, 'artifacts'), {
+        workspacePath: resolvedPath,
+        workspaceId: workspace.workspaceId
+      });
       try {
         db.initialize();
         const response = db.searchTranscriptMessages({ ...input, limit }, searchWorkspaceContext(resolvedPath, workspace));
@@ -1796,7 +1802,14 @@ export class WorkspaceService {
   }
 
   private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string): WorkspaceRuntime {
-    const db = new WorkspaceDatabase(join(workspacePath, WORKSPACE_DATABASE_RELATIVE_PATH), artifactRoot);
+    const registryWorkspace = this.getWorkspaceRegistry().getWorkspaceByPath(workspacePath);
+    const databasePath = this.globalHoneycrispDatabasePath();
+    mkdirSync(this.globalHoneycrispArtifactDirectory(), { recursive: true });
+    this.adoptLegacyWorkspaceDatabase(workspacePath, databasePath);
+    const db = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath,
+      ...(registryWorkspace?.workspaceId ? { workspaceId: registryWorkspace.workspaceId } : {})
+    });
     db.initialize();
     const openedAt = new Date().toISOString();
     return {
@@ -1809,32 +1822,30 @@ export class WorkspaceService {
         db,
         workspacePath,
         () => this.emitRuntimeChange(workspacePath),
-        (scopeOwner) => this.honeycrispMemoryPeers(workspacePath, scopeOwner),
         this.getWorkspaceRegistry().getShellOptionsPath()
       )
     };
   }
 
-  private honeycrispMemoryPeers(workspacePath: string, scopeOwner: string) {
-    const subjectName = scopeOwner.trim();
-    if (!subjectName) return [];
-    const subjectId = memorySubjectId(subjectName);
-    const normalizedSubject = subjectName.replace(/\s+/g, ' ').toLowerCase();
-    return this.getWorkspaceRegistry()
-      .getState()
-      .workspaces.filter(
-        (workspace) =>
-          resolve(workspace.workspacePath) !== resolve(workspacePath) &&
-          workspace.scopeOwner.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedSubject &&
-          existsSync(join(workspace.workspacePath, WORKSPACE_DATABASE_RELATIVE_PATH))
-      )
-      .map((workspace) => ({
-        databasePath: join(workspace.workspacePath, WORKSPACE_DATABASE_RELATIVE_PATH),
-        workspaceId: workspace.workspaceId,
-        workspaceName: workspace.workspaceName,
-        subjectId,
-        subjectName
-      }));
+  private globalHoneycrispDatabasePath(): string {
+    if (this.options.honeycrispDatabasePath) return resolve(this.options.honeycrispDatabasePath);
+    const registryDirectory = this.options.workspaceRegistryDirectory ?? process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim();
+    if (registryDirectory) return resolve(registryDirectory, 'honeycrisp', 'memory.sqlite');
+    return join(homedir(), '.honeycrisp', 'memory.sqlite');
+  }
+
+  private globalHoneycrispArtifactDirectory(): string {
+    if (this.options.honeycrispArtifactDirectory) return resolve(this.options.honeycrispArtifactDirectory);
+    return join(dirname(this.globalHoneycrispDatabasePath()), 'artifacts');
+  }
+
+  private adoptLegacyWorkspaceDatabase(workspacePath: string, databasePath: string): void {
+    if (existsSync(databasePath)) return;
+    const legacyDatabasePath = join(workspacePath, LEGACY_WORKSPACE_DATABASE_RELATIVE_PATH);
+    if (!existsSync(legacyDatabasePath)) return;
+    mkdirSync(dirname(databasePath), { recursive: true });
+    checkpointDatabaseFile(legacyDatabasePath);
+    copyFileSync(legacyDatabasePath, databasePath);
   }
 
   private getForegroundRuntime(): WorkspaceRuntime | null {
@@ -2002,7 +2013,7 @@ export class WorkspaceService {
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => hostExecutionStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
-      honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => getHoneycrispMemorySummary(runtime.workspacePath)),
+      honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => this.memorySummaryForRuntime(runtime, activeScope)),
       projectGraph: inactiveProjectGraphSummary(activeScope.id),
       projectSemantic: inactiveProjectSemanticSummary(activeScope.id),
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
@@ -2024,6 +2035,15 @@ export class WorkspaceService {
       lastWorkspaceBackup: runtime.db.getLastWorkspaceBackup(),
       hostEnvironment: getHostEnvironment()
     };
+  }
+
+  private memorySummaryForRuntime(runtime: WorkspaceRuntime, scope = runtime.db.getActiveScope()): HoneycrispMemorySummary {
+    return getHoneycrispMemorySummary({
+      databasePath: runtime.db.getDatabasePath(),
+      artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(),
+      workspaceId: runtime.db.getWorkspaceId(),
+      subjectId: scope.scopeOwner.trim() ? memorySubjectId(scope.scopeOwner) : null
+    });
   }
 
   private emitChange(options: EmitChangeOptions = {}): void {
@@ -2161,7 +2181,8 @@ export class WorkspaceService {
         includesSensitiveData: true,
         redactionApplied: false,
         userReviewRequired: true,
-        databasePath: '.honeycrisp/memory/memory.sqlite',
+        databasePath: db.getDatabasePath(),
+        databaseIncluded: false,
         excludedTransientPaths: ['.beale/exports/*-workspace-backup-*.tar.gz']
       };
       writeFileSync(join(stageRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -2207,7 +2228,7 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
     targetStates: {
       baseline: { vmContextId, label: 'current scoped target state' }
     },
-    setupStepsMarkdown: 'Prepare the scoped target for host-process verifier execution. Do not expose host credentials or the workspace database.',
+    setupStepsMarkdown: 'Prepare the scoped target for host-process verifier execution. Do not expose host credentials or the global database.',
     triggerStepsMarkdown: note || `Develop and run the smallest trigger that can confirm or falsify: ${hypothesis.title}.`,
     expectedObservations: {
       hypothesisId: hypothesis.id,
@@ -2233,10 +2254,10 @@ function createReproductionContract(db: WorkspaceDatabase, runId: string, hypoth
   });
 }
 
-function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T, workspacePath: string): T {
+function attachHoneycrispMemory<T extends RunDetail | RunDetailUpdate>(detail: T, memory: HoneycrispMemorySummary): T {
   return {
     ...detail,
-    honeycrispMemory: getHoneycrispMemorySummary(workspacePath)
+    honeycrispMemory: memory
   };
 }
 
@@ -3568,7 +3589,7 @@ function sanitizeFileSegment(value: string): string {
 
 function isExistingWorkspace(path: string): boolean {
   try {
-    return statSync(path).isDirectory() && existsSync(join(path, WORKSPACE_DATABASE_RELATIVE_PATH));
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }
