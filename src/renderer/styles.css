@@ -991,7 +991,7 @@ code {
   min-height: 0;
   background: transparent;
   color: var(--text);
-  padding: 0 12px 38px;
+  padding: 0 12px 52px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -7110,15 +7110,13 @@ body.is-resizing-research-side .main-session-grid {
 
 .status-bar {
   min-width: 0;
-  max-width: calc(var(--sidebar-width) - 16px);
-  height: 30px;
+  width: calc(var(--sidebar-width) - 24px);
+  height: 32px;
   position: absolute;
-  left: 8px;
-  bottom: 1px;
+  left: 12px;
+  bottom: 8px;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display: grid;
   background: transparent;
   padding: 0;
   transition:
@@ -7158,20 +7156,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .status-settings-button {
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted-strong);
-  padding: 0;
-}
-
-.status-settings-button:hover:not(:disabled) {
-  border-color: transparent;
-  background: #181818;
-  color: var(--text);
+  width: 100%;
 }
 
 .notification-stack {

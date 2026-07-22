@@ -9,8 +9,9 @@ export const StatusBar = memo(function StatusBar({
 }): JSX.Element {
   return (
     <footer className="status-bar" aria-label="Application settings">
-      <button type="button" className="status-settings-button" title="Settings" aria-label="Settings" onClick={onOpenSettings}>
-        <Settings size={14} />
+      <button type="button" className="sidebar-utility-button status-settings-button" title="Settings" aria-label="Settings" onClick={onOpenSettings}>
+        <Settings size={15} />
+        <span>Settings</span>
       </button>
     </footer>
   );
