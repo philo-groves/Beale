@@ -7144,8 +7144,9 @@ body.is-resizing-research-side .main-session-grid {
   align-items: center;
   gap: 8px;
   height: auto;
-  color: var(--muted);
-  font-size: inherit;
+  color: #b0b0b0;
+  font-size: 0.8rem;
+  font-weight: 750;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -7153,7 +7154,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .session-token-usage,
 .session-cache-hit-rate {
-  color: var(--muted);
+  color: #b0b0b0;
 }
 
 .status-settings-button {
