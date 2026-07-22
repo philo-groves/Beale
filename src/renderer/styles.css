@@ -732,7 +732,7 @@ code {
   background: transparent;
   color: var(--muted-strong);
   padding: 0 8px;
-  font-size: 0.88rem;
+  font-size: 0.94rem;
   -webkit-app-region: no-drag;
 }
 
@@ -890,8 +890,8 @@ code {
   background: transparent;
   color: #9f9f9f;
   padding: 3px 6px 1px;
-  font-size: 0.82rem;
-  font-weight: 750;
+  font-size: 0.94rem;
+  font-weight: 400;
   line-height: 1;
   -webkit-app-region: no-drag;
 }
@@ -1472,7 +1472,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 8px;
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 400;
   text-transform: none;
   white-space: nowrap;
   -webkit-app-region: no-drag;
@@ -1516,8 +1516,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 4px;
   padding-left: 3px;
   color: #b0b0b0;
-  font-size: 0.8rem;
-  font-weight: 750;
+  font-size: 0.94rem;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -7145,8 +7145,8 @@ body.is-resizing-research-side .main-session-grid {
   gap: 8px;
   height: auto;
   color: #b0b0b0;
-  font-size: 0.8rem;
-  font-weight: 750;
+  font-size: 0.94rem;
+  font-weight: 400;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
