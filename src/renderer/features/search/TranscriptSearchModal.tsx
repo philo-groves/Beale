@@ -11,13 +11,13 @@ const SEARCH_RESULT_PAGE_SIZE = 25;
 const MIN_SEARCH_CHARS = 2;
 
 export function TranscriptSearchModal({
-  activeProgramName,
+  activeWorkspaceName,
   workspaceOpen,
   selectedRunId,
   onClose,
   onOpenResult
 }: {
-  activeProgramName: string;
+  activeWorkspaceName: string;
   workspaceOpen: boolean;
   selectedRunId: string | null;
   onClose: () => void;
@@ -25,7 +25,7 @@ export function TranscriptSearchModal({
 }): JSX.Element {
   const [query, setQuery] = useState('');
   const [searchResponse, setSearchResponse] = useState<SessionTranscriptSearchResponse>(emptySearchResponse());
-  const [currentProgramOnly, setCurrentProgramOnly] = useState(true);
+  const [currentWorkspaceOnly, setCurrentWorkspaceOnly] = useState(true);
   const [searchLimit, setSearchLimit] = useState(SEARCH_RESULT_PAGE_SIZE);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function TranscriptSearchModal({
     setSearching(true);
     const timer = window.setTimeout(() => {
       window.beale
-        .searchSessionTranscripts({ query: trimmed, limit: searchLimit, currentProgramOnly })
+        .searchSessionTranscripts({ query: trimmed, limit: searchLimit, currentWorkspaceOnly })
         .then((nextResponse) => {
           if (requestRef.current === requestId) {
             setSearchResponse(nextResponse);
@@ -71,7 +71,7 @@ export function TranscriptSearchModal({
     }, SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [currentProgramOnly, query, searchLimit, workspaceOpen]);
+  }, [currentWorkspaceOnly, query, searchLimit, workspaceOpen]);
 
   const trimmed = query.trim();
   const groupedResults = groupSearchResults(searchResponse);
@@ -81,7 +81,7 @@ export function TranscriptSearchModal({
     searching,
     error,
     totalTranscriptMatches: searchResponse.totalTranscriptMatches,
-    programCount: searchResponse.programCount
+    workspaceCount: searchResponse.workspaceCount
   });
   const showMoreResults = (): void => {
     setSearchLimit((currentLimit) => currentLimit + SEARCH_RESULT_PAGE_SIZE);
@@ -108,22 +108,22 @@ export function TranscriptSearchModal({
         <label className="transcript-search-scope">
           <input
             type="checkbox"
-            checked={currentProgramOnly}
+            checked={currentWorkspaceOnly}
             disabled={!workspaceOpen}
             onChange={(event) => {
-              setCurrentProgramOnly(event.target.checked);
+              setCurrentWorkspaceOnly(event.target.checked);
               setSearchLimit(SEARCH_RESULT_PAGE_SIZE);
               setSearchResponse(emptySearchResponse());
             }}
           />
-          <span>Only show results for {activeProgramName}</span>
+          <span>Only show results for {activeWorkspaceName}</span>
         </label>
         <div className="transcript-search-status">{statusText}</div>
         <div className="transcript-search-results" aria-live="polite">
           {groupedResults.map((group) => (
-            <section className="transcript-search-result-group" key={group.key} aria-label={`${group.programName} search results`}>
+            <section className="transcript-search-result-group" key={group.key} aria-label={`${group.workspaceName} search results`}>
               <div className="transcript-search-group-heading">
-                <h3>{group.programName}</h3>
+                <h3>{group.workspaceName}</h3>
                 <span>{group.totalTranscriptMatches} {group.totalTranscriptMatches === 1 ? 'RESULT' : 'RESULTS'}</span>
               </div>
               <div className="transcript-search-result-list">
@@ -157,19 +157,19 @@ export function TranscriptSearchModal({
 
 function groupSearchResults(
   response: SessionTranscriptSearchResponse
-): Array<{ key: string; programName: string; totalTranscriptMatches: number; results: SessionTranscriptSearchResult[] }> {
-  const groups = new Map<string, { key: string; programName: string; totalTranscriptMatches: number; results: SessionTranscriptSearchResult[] }>();
-  for (const program of response.programs) {
-    const key = searchProgramKey(program.programId, program.workspacePath);
+): Array<{ key: string; workspaceName: string; totalTranscriptMatches: number; results: SessionTranscriptSearchResult[] }> {
+  const groups = new Map<string, { key: string; workspaceName: string; totalTranscriptMatches: number; results: SessionTranscriptSearchResult[] }>();
+  for (const workspace of response.workspaces) {
+    const key = searchWorkspaceKey(workspace.registryWorkspaceId);
     groups.set(key, {
       key,
-      programName: program.programName || 'Unknown Program',
-      totalTranscriptMatches: program.totalTranscriptMatches,
+      workspaceName: workspace.workspaceName || 'Unknown Workspace',
+      totalTranscriptMatches: workspace.totalTranscriptMatches,
       results: []
     });
   }
   for (const result of response.results) {
-    const key = searchProgramKey(result.programId, result.workspacePath);
+    const key = searchWorkspaceKey(result.registryWorkspaceId);
     const existing = groups.get(key);
     if (existing) {
       existing.results.push(result);
@@ -177,7 +177,7 @@ function groupSearchResults(
     }
     groups.set(key, {
       key,
-      programName: result.programName || 'Unknown Program',
+      workspaceName: result.workspaceName || 'Unknown Workspace',
       totalTranscriptMatches: 1,
       results: [result]
     });
@@ -185,16 +185,16 @@ function groupSearchResults(
   return [...groups.values()].filter((group) => group.results.length > 0);
 }
 
-function searchProgramKey(programId: string | null, workspacePath: string): string {
-  return programId ?? workspacePath;
+function searchWorkspaceKey(registryWorkspaceId: string): string {
+  return registryWorkspaceId;
 }
 
 function emptySearchResponse(): SessionTranscriptSearchResponse {
   return {
     results: [],
     totalTranscriptMatches: 0,
-    programCount: 0,
-    programs: []
+    workspaceCount: 0,
+    workspaces: []
   };
 }
 
@@ -204,19 +204,19 @@ function searchStatusText({
   searching,
   error,
   totalTranscriptMatches,
-  programCount
+  workspaceCount
 }: {
   workspaceOpen: boolean;
   query: string;
   searching: boolean;
   error: string | null;
   totalTranscriptMatches: number;
-  programCount: number;
+  workspaceCount: number;
 }): string {
-  if (!workspaceOpen) return 'Open a research program to search its session transcripts.';
+  if (!workspaceOpen) return 'Open a research workspace to search its session transcripts.';
   if (error) return error;
   if (query.length < MIN_SEARCH_CHARS) return 'Type two or more characters to search transcripts.';
   if (searching) return 'Searching transcripts...';
   if (!totalTranscriptMatches) return 'No transcript matches.';
-  return `${totalTranscriptMatches} transcript match${totalTranscriptMatches === 1 ? '' : 'es'} in ${programCount} program${programCount === 1 ? '' : 's'}`;
+  return `${totalTranscriptMatches} transcript match${totalTranscriptMatches === 1 ? '' : 'es'} in ${workspaceCount} workspace${workspaceCount === 1 ? '' : 's'}`;
 }

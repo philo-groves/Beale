@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { environmentActivityForDetail } from '../src/renderer/view-models/environmentDisplay';
 import { researchMomentumForDetail } from '../src/renderer/view-models/researchMomentum';
 
 describe('renderer research momentum view model', () => {
@@ -53,27 +52,62 @@ describe('renderer research momentum view model', () => {
     expect(momentum.reason).toBe('Repeated source availability blockers detected.');
   });
 
-  it('uses host/guest activity from the latest trace event', () => {
-    expect(environmentActivityForDetail(null)).toEqual({ host: false, guest: false });
-    expect(
-      environmentActivityForDetail(
-        runDetail({
-          traceEvents: [
-            traceEvent({
-              source: 'executor',
-              type: 'tool_result',
-              summary: 'Guest python operation finished with success.'
-            })
-          ]
-        })
-      )
-    ).toEqual({ host: false, guest: true });
+  it('treats Honeycrisp memory graph mutations as building activity', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-21T12:00:00.000Z'));
+
+    const momentum = researchMomentumForDetail(
+      runDetail({
+        traceEvents: [traceEvent({
+          id: 'trace_memory_correct',
+          source: 'tool',
+          type: 'tool_result',
+          summary: 'Honeycrisp tool.observed: memory.correct',
+          payload: {
+            honeycrispKind: 'tool.observed',
+            payload: { toolName: 'memory.correct' }
+          },
+          createdAt: '2026-07-21T11:59:30.000Z'
+        })]
+      }),
+      'medium'
+    );
+
+    expect(momentum.state).toBe('building');
+    expect(momentum.supportingTraceEventIds).toEqual(['trace_memory_correct']);
+  });
+
+  it('uses a recent current-session chain memory for hot momentum', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-21T12:00:00.000Z'));
+
+    const detail = runDetail({
+      traceEvents: [traceEvent({
+        id: 'trace_agent',
+        summary: 'Continuing analysis.',
+        createdAt: '2026-07-21T11:59:30.000Z'
+      })]
+    });
+    detail.honeycrispMemory = {
+      status: 'ready',
+      nodes: [{
+        sessionId: 'run_test',
+        type: 'chain',
+        status: 'confirmed',
+        updatedAt: '2026-07-21T11:59:45.000Z'
+      }]
+    } as RunDetail['honeycrispMemory'];
+
+    const momentum = researchMomentumForDetail(detail, 'critical');
+
+    expect(momentum.state).toBe('hot');
   });
 });
 
 function runDetail(input: { traceEvents?: TraceEventRecord[]; status?: string } = {}): RunDetail {
   return {
     run: {
+      id: 'run_test',
       status: input.status ?? 'active'
     },
     traceEvents: input.traceEvents ?? [],

@@ -1,6 +1,10 @@
 import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
 import { traceLabel, truncateText } from '../lib/formatting';
 import {
+  honeycrispToolEventKind,
+  honeycrispToolName,
+  honeycrispToolPairingKey,
+  honeycrispToolPayload as honeycrispEventToolPayload,
   isToolCallNamed,
   stringRecordValue,
   toolNameFromSummary,
@@ -9,6 +13,22 @@ import {
   tracePayloadRecord
 } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
+
+const COLLABORATION_TOOL_LABELS: Readonly<Record<string, string>> = {
+  spawn_agent: 'Spawn Agent',
+  send_message: 'Send Message',
+  followup_task: 'Follow-up Task',
+  interrupt_agent: 'Interrupt Agent',
+  list_agents: 'List Agents',
+  wait_agent: 'Wait for Agent Activity'
+};
+
+const RUNBOOK_TOOL_LABELS: Readonly<Record<string, string>> = {
+  'runbook.list': 'Runbook List',
+  'runbook.get': 'Runbook Get',
+  'runbook.create': 'Runbook Creation',
+  'runbook.append': 'Runbook Update'
+};
 
 const TRACE_SUMMARY_VERBS = new Set([
   'accept',
@@ -80,6 +100,8 @@ const TRACE_SUMMARY_VERBS = new Set([
   'verified'
 ]);
 const DEFAULT_TRACE_PREVIEW_LINE_LIMIT = 5;
+const SSH_OPTIONS_WITH_ARGUMENTS = new Set(['-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-P', '-p', '-R', '-S', '-W', '-w']);
+const SSHPASS_OPTIONS_WITH_ARGUMENTS = new Set(['-d', '-f', '-p', '-P']);
 
 export function traceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
   return trimTraceLabelPeriod(rawTraceEventSummary(event, category));
@@ -120,7 +142,298 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
     return isReasoningTraceEvent(event, category) ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
   }
 
-  return tracePayloadDetailText(event, category);
+  return tracePayloadDetailText(event, category, detail);
+}
+
+export function isHoneycrispToolObservationError(event: TraceEventRecord): boolean {
+  if (honeycrispToolEventKind(event) !== 'tool.observed') return false;
+  const payload = tracePayloadRecord(event.payload, 'payload');
+  if (!payload) return false;
+  const status = stringRecordValue(payload, 'status');
+  return Boolean(tracePayloadRecord(payload, 'error') || stringRecordValue(payload, 'error') || status === 'error' || status === 'blocked');
+}
+
+export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunDetail | null = null): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload) return '';
+  const toolName = honeycrispToolName(event);
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return '';
+  if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'memory.correct') {
+    const memoryId = stringRecordValue(inputs, 'id');
+    if (!memoryId) return '';
+    const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
+    const status = stringRecordValue(inputs, 'status');
+    return [memoryType ? traceLabel(memoryType) : null, memoryId, status ? traceLabel(status) : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'runbook.list') return stringRecordValue(inputs, 'query') ?? 'All workspace runbooks';
+  if (toolName === 'runbook.get') return stringRecordValue(inputs, 'id') ?? '';
+  if (toolName === 'runbook.create') {
+    const result = tracePayloadRecord(payload, 'result');
+    const title = (result ? stringRecordValue(result, 'title') : null) ?? stringRecordValue(inputs, 'title');
+    const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
+    const revision = result ? numberRecordValue(result, 'revision') : null;
+    return [title, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'runbook.append') {
+    const result = tracePayloadRecord(payload, 'result');
+    const id = stringRecordValue(inputs, 'id');
+    const title = result ? stringRecordValue(result, 'title') : null;
+    const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
+    const revision = result ? numberRecordValue(result, 'revision') : numberRecordValue(inputs, 'expectedRevision');
+    return [title ?? id, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
+  if (toolName === 'shell.run') {
+    const utility = stringRecordValue(inputs, 'utility');
+    if (!utility) return '';
+    const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+    const sshCommand = sshRemoteCommand(utility, args);
+    if (sshCommand !== null) return sshCommand;
+    return [utility, ...args.map(shellArgumentPreview)].join(' ');
+  }
+  if (toolName === 'spawn_agent') {
+    const result = tracePayloadRecord(payload, 'result');
+    const taskName = (result ? stringRecordValue(result, 'task_name') : null) ?? stringRecordValue(inputs, 'task_name');
+    const forkTurns = (result ? stringRecordValue(result, 'fork_turns') : null) ?? stringRecordValue(inputs, 'fork_turns') ?? 'all';
+    const model = (result ? stringRecordValue(result, 'model') : null) ?? stringRecordValue(inputs, 'model');
+    const effort = (result ? stringRecordValue(result, 'reasoning_effort') : null) ?? stringRecordValue(inputs, 'reasoning_effort');
+    return [taskName, inheritanceLabel(forkTurns), model, effort ? `${traceLabel(effort)} effort` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'send_message' || toolName === 'followup_task') {
+    const result = tracePayloadRecord(payload, 'result');
+    const target = (result ? stringRecordValue(result, 'target') : null) ?? stringRecordValue(inputs, 'target');
+    const triggeredTurn = result?.triggered_turn === true;
+    return [target, toolName === 'followup_task' && result ? (triggeredTurn ? 'Turn started' : 'Queued') : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'interrupt_agent') {
+    const result = tracePayloadRecord(payload, 'result');
+    const target = (result ? stringRecordValue(result, 'target') : null) ?? stringRecordValue(inputs, 'target');
+    const previousStatus = result ? stringRecordValue(result, 'previous_status') : null;
+    return [target, previousStatus ? `Was ${traceLabel(previousStatus)}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'list_agents') {
+    const prefix = stringRecordValue(inputs, 'path_prefix');
+    const result = tracePayloadRecord(payload, 'result');
+    const agents = result ? tracePayloadArray(result, 'agents') : null;
+    const count = agents?.length;
+    return [prefix ? `Under ${prefix}` : 'All agents', count === undefined ? null : `${count} agent${count === 1 ? '' : 's'}`].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'wait_agent') {
+    const timeoutMs = numberRecordValue(inputs, 'timeout_ms') ?? 30_000;
+    return `${formatDurationMilliseconds(timeoutMs)} timeout`;
+  }
+  if (toolName !== 'memory.get') return '';
+
+  const memoryId = stringRecordValue(inputs, 'id');
+  if (!memoryId) return '';
+  const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
+  return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+export function honeycrispCollaborationTraceSummary(event: TraceEventRecord): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload) return '';
+  const toolName = honeycrispToolName(event);
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return '';
+  if (toolName === 'spawn_agent' || toolName === 'send_message' || toolName === 'followup_task') {
+    return stringRecordValue(inputs, 'message') ?? '';
+  }
+  if (toolName !== 'wait_agent' || honeycrispToolEventKind(event) !== 'tool.observed') return '';
+  const result = tracePayloadRecord(payload, 'result');
+  return result ? stringRecordValue(result, 'message') ?? '' : '';
+}
+
+export interface HoneycrispAgentListPreview {
+  rows: string[];
+  allRows: string[];
+  count: number;
+}
+
+export function honeycrispAgentListResults(event: TraceEventRecord, maxRows = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): HoneycrispAgentListPreview | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'list_agents') return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload ? tracePayloadRecord(payload, 'result') : null;
+  const agents = result ? tracePayloadArray(result, 'agents') : null;
+  if (!agents) return null;
+  const allRows = agents.flatMap((value) => {
+    if (!isRecord(value)) return [];
+    const path = stringRecordValue(value, 'path');
+    if (!path) return [];
+    const status = stringRecordValue(value, 'status');
+    const model = stringRecordValue(value, 'model');
+    const effort = stringRecordValue(value, 'reasoning_effort');
+    return [[path, status ? traceLabel(status) : null, model, effort ? `${traceLabel(effort)} effort` : null].filter((part): part is string => Boolean(part)).join(' · ')];
+  });
+  return { rows: allRows.slice(0, maxRows), allRows, count: allRows.length };
+}
+
+export function honeycrispMemoryCorrectionSummary(event: TraceEventRecord): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload || honeycrispToolName(event) !== 'memory.correct') return '';
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  return inputs ? stringRecordValue(inputs, 'summary') ?? '' : '';
+}
+
+export function honeycrispMemoryGetSummary(event: TraceEventRecord, detail: RunDetail | null = null): string {
+  if (honeycrispToolName(event) !== 'memory.get') return '';
+  const currentPayload = honeycrispEventToolPayload(event);
+  const currentResult = currentPayload ? tracePayloadRecord(currentPayload, 'result') : null;
+  const currentSummary = currentResult ? stringRecordValue(currentResult, 'summary') : null;
+  if (currentSummary) return currentSummary;
+
+  const pairingKey = honeycrispToolPairingKey(event);
+  const observation = pairingKey
+    ? detail?.traceEvents.find((candidate) => honeycrispToolEventKind(candidate) === 'tool.observed' && honeycrispToolPairingKey(candidate) === pairingKey)
+    : null;
+  const observationPayload = observation ? honeycrispEventToolPayload(observation) : null;
+  const result = observationPayload ? tracePayloadRecord(observationPayload, 'result') : null;
+  return result ? stringRecordValue(result, 'summary') ?? '' : '';
+}
+
+export function honeycrispToolTraceSubtextPill(event: TraceEventRecord): string | null {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload || honeycrispToolName(event) !== 'shell.run') return null;
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return null;
+  const utility = stringRecordValue(inputs, 'utility');
+  if (!utility) return null;
+  const args = tracePayloadArray(inputs, 'args')?.filter((value): value is string => typeof value === 'string') ?? [];
+  return sshInvocationArguments(utility, args) ? 'SSH' : null;
+}
+
+export interface HoneycrispShellTraceStreamPreview {
+  lines: string[];
+  allLines: string[];
+  lineCount: number;
+  sourceTruncated: boolean;
+  truncated: boolean;
+}
+
+export interface HoneycrispShellTraceOutput {
+  stdout: HoneycrispShellTraceStreamPreview | null;
+  stderr: string;
+  stderrTruncated: boolean;
+}
+
+export function honeycrispShellTraceOutput(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): HoneycrispShellTraceOutput | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'shell.run') return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload ? tracePayloadRecord(payload, 'result') : null;
+  if (!result) return null;
+
+  const stdout = shellOutputPreview(result.stdout, result.stdoutTruncated === true, maxLines);
+  const stderr = shellOutputText(result.stderr);
+  if (!stdout && !stderr) return null;
+  return { stdout, stderr, stderrTruncated: result.stderrTruncated === true };
+}
+
+function shellOutputText(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/\r\n?/g, '\n') : '';
+}
+
+function shellOutputPreview(value: unknown, sourceTruncated: boolean, maxLines: number): HoneycrispShellTraceStreamPreview | null {
+  const normalized = shellOutputText(value);
+  if (!normalized) return null;
+  const lines = normalized.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const visibleLines = lines.slice(0, Math.max(0, maxLines));
+  return {
+    lines: visibleLines,
+    allLines: lines,
+    lineCount: lines.length,
+    sourceTruncated,
+    truncated: sourceTruncated || visibleLines.length < lines.length
+  };
+}
+
+function sshRemoteCommand(utility: string, args: string[]): string | null {
+  const sshArgs = sshInvocationArguments(utility, args);
+  if (!sshArgs) return null;
+
+  let index = 0;
+  while (index < sshArgs.length) {
+    const argument = sshArgs[index];
+    if (argument === '--') {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith('-') || argument === '-') break;
+    if (SSH_OPTIONS_WITH_ARGUMENTS.has(argument)) index += 2;
+    else index += 1;
+  }
+
+  if (index >= sshArgs.length) return '';
+  const remoteCommand = sshArgs.slice(index + 1).join(' ').trim();
+  return remoteCommand;
+}
+
+function sshInvocationArguments(utility: string, args: string[]): string[] | null {
+  const utilityName = executableName(utility);
+  if (utilityName === 'ssh') return args;
+  if (utilityName !== 'sshpass') return null;
+
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index];
+    if (argument === '--') {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith('-') || argument === '-') break;
+    if (SSHPASS_OPTIONS_WITH_ARGUMENTS.has(argument)) index += 2;
+    else index += 1;
+  }
+  if (index >= args.length || executableName(args[index]) !== 'ssh') return null;
+  return args.slice(index + 1);
+}
+
+function executableName(command: string): string {
+  return command.split('/').pop() ?? command;
+}
+
+function shellArgumentPreview(value: string): string {
+  return /\s/u.test(value) ? JSON.stringify(value) : value;
+}
+
+export function isEmptyHoneycrispMemorySearchObservation(event: TraceEventRecord): boolean {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'memory.search' || isHoneycrispToolObservationError(event)) return false;
+  const payload = honeycrispEventToolPayload(event);
+  return Boolean(payload && Array.isArray(payload.result) && payload.result.length === 0);
+}
+
+export interface HoneycrispMemorySearchResultsPreview {
+  titles: string[];
+  allTitles: string[];
+  resultCount: number;
+  truncated: boolean;
+}
+
+export function honeycrispMemorySearchResults(
+  event: TraceEventRecord,
+  maxResults = DEFAULT_TRACE_PREVIEW_LINE_LIMIT
+): HoneycrispMemorySearchResultsPreview | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'memory.search' || isHoneycrispToolObservationError(event)) return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload?.result;
+  if (!Array.isArray(result) || result.length === 0) return null;
+
+  const allTitles = result.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const title = stringRecordValue(item as Record<string, unknown>, 'title')?.trim();
+    return title ? [title] : [];
+  });
+  if (allTitles.length === 0) return null;
+
+  const titles = allTitles.slice(0, Math.max(0, maxResults));
+  return {
+    titles,
+    allTitles,
+    resultCount: allTitles.length,
+    truncated: titles.length < allTitles.length
+  };
 }
 
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
@@ -148,7 +461,7 @@ export interface DuplicateBlockedTraceDetail {
   title: string;
 }
 
-export interface ReasoningTraceThought {
+export interface ReasoningTraceSummarySegment {
   title: string | null;
   description: string;
 }
@@ -164,7 +477,9 @@ export interface CodeBrowserTracePreview {
   description: string;
   facts: string[];
   excerptLines: string[];
+  excerptAllLines: string[];
   excerptLineCount: number;
+  excerptSourceTruncated: boolean;
   excerptTruncated: boolean;
 }
 
@@ -193,16 +508,31 @@ export function isReasoningTraceEvent(event: TraceEventRecord, category: TraceCa
     tracePayloadPrimitive(event.payload, 'transcriptSource') === 'openai_reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'transcriptKind') === 'reasoning_summary' ||
     tracePayloadPrimitive(event.payload, 'claimStatus') === 'reasoning_summary' ||
-    event.summary === 'Thought.' ||
-    event.summary === 'Thought' ||
-    event.summary === 'OpenAI completed thought.'
+    event.summary === 'Reasoning.' ||
+    event.summary === 'Reasoning'
   );
 }
 
-export function reasoningTraceThoughtsForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceThought[] {
+export function reasoningTraceSummariesForEvent(event: TraceEventRecord, category: TraceCategoryId): ReasoningTraceSummarySegment[] {
   if (!isReasoningTraceEvent(event, category)) return [];
+  const summaryTexts = (tracePayloadArray(event.payload, 'reasoningSummaryTexts') ?? []).filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+  if (summaryTexts.length > 0) {
+    return uniqueReasoningSummarySegments(summaryTexts.flatMap((text) => reasoningTraceSummariesFromText(text)));
+  }
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
-  return text ? reasoningTraceThoughtsFromText(text) : [];
+  return text ? reasoningTraceSummariesFromText(text) : [];
+}
+
+function uniqueReasoningSummarySegments(segments: ReasoningTraceSummarySegment[]): ReasoningTraceSummarySegment[] {
+  const seen = new Set<string>();
+  return segments.filter((segment) => {
+    const key = `${segment.title ?? ''}\u0000${segment.description}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function pythonToolCallPreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): PythonToolCallPreview | null {
@@ -269,8 +599,8 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
     if (!args) return null;
     const kind = stringRecordValue(args, 'kind') ?? 'evidence';
     return {
-      title: `${traceLabel(kind)} evidence`,
-      description: stringRecordValue(args, 'summary') ?? 'Evidence request prepared.',
+      title: `${traceLabel(kind)} reference`,
+      description: stringRecordValue(args, 'summary') ?? 'Reference request prepared.',
       facts: evidenceReferenceFacts(args)
     };
   }
@@ -278,8 +608,8 @@ export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPr
   if (event.type !== 'artifact_created' || !tracePayloadPrimitive(event.payload, 'evidenceId')) return null;
   const kind = tracePayloadPrimitive(event.payload, 'kind') ?? 'evidence';
   return {
-    title: `${traceLabel(kind)} evidence`,
-    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Evidence recorded.',
+    title: `${traceLabel(kind)} reference`,
+    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Reference recorded.',
     facts: evidenceReferenceFacts(event.payload)
   };
 }
@@ -293,13 +623,18 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
     const symbol = stringRecordValue(args, 'symbol');
     return {
       title: path ? compactTracePath(path) : 'Code browser request',
-      description: symbol ? `Symbol ${symbol}` : 'Scoped source read prepared.',
+      description: symbol ? `Symbol ${symbol}` : 'Source read prepared.',
       facts: [rangePart(args), policyPart(event.payload)].filter((part): part is string => Boolean(part)),
       excerptLines: [],
+      excerptAllLines: [],
       excerptLineCount: 0,
+      excerptSourceTruncated: false,
       excerptTruncated: false
     };
   }
+
+  const honeycrispFileRead = honeycrispFileReadPreview(event, maxLines);
+  if (honeycrispFileRead) return honeycrispFileRead;
 
   if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
   const isCodeBrowserEvent = toolName === 'code_browser' || /^Code browser\b/i.test(event.summary);
@@ -325,7 +660,9 @@ export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFA
       traceBooleanPart('truncated', tracePayloadPrimitive(event.payload, 'truncated'))
     ].filter((part): part is string => Boolean(part)),
     excerptLines: visibleExcerptLines,
+    excerptAllLines: excerptLines,
     excerptLineCount: boundedLineCount,
+    excerptSourceTruncated: tracePayloadPrimitive(event.payload, 'truncated') === 'true',
     excerptTruncated: excerptLines.length > visibleExcerptLines.length || tracePayloadPrimitive(event.payload, 'truncated') === 'true'
   };
 }
@@ -343,6 +680,9 @@ export function searchTracePreview(event: TraceEventRecord): SearchTracePreview 
       facts: [target ? compactTracePath(target) : null, policyPart(event.payload)].filter((part): part is string => Boolean(part))
     };
   }
+
+  const honeycrispSearch = honeycrispRepositorySearchPreview(event);
+  if (honeycrispSearch) return honeycrispSearch;
 
   if (event.type !== 'tool_result') return null;
   const query = tracePayloadPrimitive(event.payload, 'query');
@@ -364,6 +704,64 @@ export function searchTracePreview(event: TraceEventRecord): SearchTracePreview 
       metadataMatches && metadataMatches > 0 ? `${metadataMatches} metadata` : null,
       semanticMatches && semanticMatches > 0 ? `${semanticMatches} semantic` : null,
       graphMatches && graphMatches > 0 ? `${graphMatches} graph` : null
+    ].filter((part): part is string => Boolean(part))
+  };
+}
+
+function honeycrispFileReadPreview(event: TraceEventRecord, maxLines: number): CodeBrowserTracePreview | null {
+  if (event.type !== 'tool_result' && event.type !== 'artifact_created') return null;
+  const toolPayload = honeycrispToolPayload(event, 'file.read');
+  if (!toolPayload) return null;
+  const result = tracePayloadRecord(toolPayload, 'result');
+  const inputs = tracePayloadRecord(toolPayload, 'normalizedInputs');
+  const sourcePath = stringRecordValue(result ?? {}, 'resolvedPath') ?? stringRecordValue(result ?? {}, 'requestedPath') ?? stringRecordValue(inputs ?? {}, 'path');
+  const text = typeof result?.text === 'string' ? result.text : '';
+  const allExcerptLines = splitHoneycrispExcerptLines(text);
+  const visibleExcerptLines = allExcerptLines.slice(0, maxLines);
+  const bytesRead = numberPayloadValue(result ?? {}, 'bytesRead');
+  const offset = numberPayloadValue(result ?? {}, 'offset');
+  const status = stringRecordValue(toolPayload, 'status');
+  const truncated = stringRecordValue(result ?? {}, 'truncated') === 'true';
+  const containsNulByte = stringRecordValue(result ?? {}, 'containsNulByte') === 'true';
+
+  return {
+    title: sourcePath ? compactTracePath(sourcePath) : 'File read result',
+    description: status && status !== 'complete' ? traceLabel(status) : '',
+    facts: [
+      bytesRead !== null ? `${bytesRead} byte${bytesRead === 1 ? '' : 's'}` : null,
+      offset && offset > 0 ? `offset ${offset}` : null,
+      stringRecordValue(result ?? {}, 'encoding') ?? null,
+      containsNulByte ? 'contains NUL' : null,
+      traceBooleanPart('truncated', truncated ? 'true' : null)
+    ].filter((part): part is string => Boolean(part)),
+    excerptLines: visibleExcerptLines,
+    excerptAllLines: allExcerptLines,
+    excerptLineCount: allExcerptLines.length,
+    excerptSourceTruncated: truncated,
+    excerptTruncated: allExcerptLines.length > visibleExcerptLines.length || truncated
+  };
+}
+
+function honeycrispRepositorySearchPreview(event: TraceEventRecord): SearchTracePreview | null {
+  if (event.type !== 'tool_result') return null;
+  const toolPayload = honeycrispToolPayload(event, 'repository.search');
+  if (!toolPayload) return null;
+  const result = tracePayloadRecord(toolPayload, 'result');
+  const inputs = tracePayloadRecord(toolPayload, 'normalizedInputs');
+  const query = stringRecordValue(result ?? {}, 'query') ?? stringRecordValue(inputs ?? {}, 'query');
+  const matches = tracePayloadArray(result ?? {}, 'matches');
+  const roots = tracePayloadArray(result ?? {}, 'roots');
+  const matchCount = matches?.length ?? 0;
+  const path = stringRecordValue(inputs ?? {}, 'path') ?? firstStringArrayValue(roots);
+  const status = stringRecordValue(toolPayload, 'status');
+
+  return {
+    title: query ? `Search ${truncateText(query, 64)}` : 'Repository search result',
+    description: status && status !== 'complete' ? traceLabel(status) : `${matchCount} match${matchCount === 1 ? '' : 'es'}`,
+    facts: [
+      roots ? `${roots.length} context root${roots.length === 1 ? '' : 's'}` : null,
+      path ? compactTracePath(path) : null,
+      stringRecordValue(inputs ?? {}, 'maxResults') ? `limit ${stringRecordValue(inputs ?? {}, 'maxResults')}` : null
     ].filter((part): part is string => Boolean(part))
   };
 }
@@ -399,6 +797,27 @@ function evidenceReferenceFacts(payload: Record<string, unknown>): string[] {
     tracePayloadPrimitive(payload, 'findingId') || stringRecordValue(payload, 'finding_id') ? 'Linked finding' : null,
     tracePayloadPrimitive(payload, 'hypothesisId') || stringRecordValue(payload, 'hypothesis_id') ? 'Linked hypothesis' : null
   ].filter((part): part is string => Boolean(part));
+}
+
+function honeycrispToolPayload(event: TraceEventRecord, expectedToolName: string): Record<string, unknown> | null {
+  const kind = tracePayloadPrimitive(event.payload, 'honeycrispKind');
+  if (kind !== 'tool.observed' && kind !== 'tool.requested') return null;
+  const payload = tracePayloadRecord(event.payload, 'payload');
+  if (!payload) return null;
+  return stringRecordValue(payload, 'toolName') === expectedToolName ? payload : null;
+}
+
+function splitHoneycrispExcerptLines(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+  return normalized ? normalized.split('\n') : [];
+}
+
+function firstStringArrayValue(values: unknown[] | null): string | null {
+  if (!values) return null;
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 function boundedLineCountFromSummary(summary: string): number | null {
@@ -489,22 +908,22 @@ function isPythonToolCallEvent(event: TraceEventRecord): boolean {
 }
 
 export function formatReasoningTraceText(text: string): string {
-  return reasoningTraceThoughtsFromText(text)
-    .map((thought) => {
-      if (!thought.title) return thought.description;
-      return thought.description ? `**${thought.title}**\n${thought.description}` : `**${thought.title}**`;
+  return reasoningTraceSummariesFromText(text)
+    .map((segment) => {
+      if (!segment.title) return segment.description;
+      return segment.description ? `**${segment.title}**\n${segment.description}` : `**${segment.title}**`;
     })
     .join('\n\n');
 }
 
-export function reasoningTraceThoughtsFromText(text: string): ReasoningTraceThought[] {
-  const thoughts: ReasoningTraceThought[] = [];
+export function reasoningTraceSummariesFromText(text: string): ReasoningTraceSummarySegment[] {
+  const summaries: ReasoningTraceSummarySegment[] = [];
   let currentTitle: string | null = null;
   let currentLines: string[] = [];
 
   const flushCurrent = (): void => {
     const description = currentLines.join(' ').trim();
-    if (currentTitle || description) thoughts.push({ title: currentTitle, description });
+    if (currentTitle || description) summaries.push({ title: currentTitle, description });
     currentTitle = null;
     currentLines = [];
   };
@@ -527,7 +946,7 @@ export function reasoningTraceThoughtsFromText(text: string): ReasoningTraceThou
   }
 
   flushCurrent();
-  return thoughts;
+  return summaries;
 }
 
 export function compactTracePath(value: string): string {
@@ -574,7 +993,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
     if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
     if (toolName === 'hypothesis') return /^OpenAI requested Beale tool: hypothesis\.$/i.test(summary) ? 'Queue Hypothesis' : 'Prepare Hypothesis';
     if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
-    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Evidence' : 'Prepare Evidence';
+    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Reference' : 'Prepare Reference';
     if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
     if (toolName === 'code_browser') return /^OpenAI requested Beale tool: code_browser\.$/i.test(summary) ? 'Queue Code Browser' : 'Prepare Code Browser';
     if (toolName === 'resource_lookup') return /^OpenAI requested Beale tool: resource_lookup\.$/i.test(summary) ? 'Queue Resource Lookup' : 'Prepare Resource Lookup';
@@ -586,8 +1005,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI response created.') return 'Turn Started';
   if (summary === 'OpenAI completed a model output item.') return 'Complete model output';
   if (summary === 'Report agent output.' || summary === 'Report agent output') return 'Agent Response';
-  if (summary === 'Thought.' || summary === 'Thought') return 'Thought';
-  if (summary === 'OpenAI completed thought.' || isLegacyThoughtSummary(summary)) return 'Thought';
+  if (summary === 'Reasoning.' || summary === 'Reasoning') return 'Reasoning';
   if (summary === 'OpenAI adapter prepared host-only model session.') return 'Prepare host-only model session';
   if (summary === 'OpenAI Responses run started from markdown prompt.') return 'Start run from prompt';
   if (summary === 'OpenAI run blocked because no host credential is configured.') return 'Block run: missing host credential';
@@ -599,6 +1017,9 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'OpenAI backend rejected previous_response_id; retrying with compacted Beale replay context.') return 'Retry with compacted replay';
   if (summary === 'OpenAI context window pressure triggered compacted retry.') return 'Compact context for retry';
   if (summary === 'OpenAI Responses run failed.') return 'Fail Responses run';
+  if (/^Honeycrisp tool\.requested(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Requested');
+  if (/^Honeycrisp tool\.observed(?::|$)/.test(summary)) return honeycrispToolTraceTitle(event, summary, 'Observed');
+  if (/^Honeycrisp context\.compiled(?::|$)/i.test(summary)) return 'Honeycrisp Context Compiled';
   if (summary === 'Context compacted for long-running session.') return 'Compact context for long-running session';
   if (summary === 'Workspace recovery paused interrupted run after app restart.') return 'Pause interrupted run after restart';
   if (summary === 'Run started from markdown prompt.') return 'Start run from prompt';
@@ -618,7 +1039,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match?.[1] === 'python') return 'Prepare Python';
   if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
   if (match?.[1] === 'finding') return 'Prepare Finding';
-  if (match?.[1] === 'evidence') return 'Prepare Evidence';
+  if (match?.[1] === 'evidence') return 'Prepare Reference';
   if (match?.[1] === 'verifier') return 'Prepare Verifier';
   if (match?.[1] === 'code_browser') return 'Prepare Code Browser';
   if (match?.[1] === 'resource_lookup') return 'Prepare Resource Lookup';
@@ -659,7 +1080,7 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
   if (match) return `Record portfolio branch: ${match[1]}`;
   match = summary.match(/^Evidence recorded: (.+)\.$/);
-  if (match) return 'Evidence Recorded';
+  if (match) return 'Reference Recorded';
   match = summary.match(/^Requested (.+)\.$/);
   if (match) return `Request ${match[1]}`;
   match = summary.match(/^Artifact recorded: (.+)\.$/);
@@ -683,8 +1104,45 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   return `${traceCategoryFallbackPrefix(category)}: ${summary}`;
 }
 
-function isLegacyThoughtSummary(summary: string): boolean {
-  return summary.startsWith('OpenAI completed reasoning') && summary.endsWith('summary.');
+function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, action: 'Requested' | 'Observed'): string {
+  const nestedPayload = tracePayloadRecord(event.payload, 'payload');
+  const toolName =
+    tracePayloadPrimitive(event.payload, 'toolName') ??
+    (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
+    honeycrispToolNameFromSummary(summary);
+  const collaborationLabel = toolName ? COLLABORATION_TOOL_LABELS[toolName] : undefined;
+  const runbookLabel = toolName ? RUNBOOK_TOOL_LABELS[toolName] : undefined;
+  const label = toolName === 'shell.run'
+    ? 'Shell'
+    : toolName === 'memory.correct'
+      ? 'Memory Correction'
+      : runbookLabel ?? collaborationLabel ?? (toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool');
+  return action === 'Requested' ? `${label} Requested` : label;
+}
+
+function honeycrispToolNameFromSummary(summary: string): string | null {
+  const match = summary.match(/^Honeycrisp tool\.(?:requested|observed):\s*([a-zA-Z][a-zA-Z0-9_.-]*?)\s*\.?$/);
+  return match?.[1] ?? null;
+}
+
+function inheritanceLabel(forkTurns: string): string {
+  if (forkTurns === 'all') return 'Full context';
+  if (forkTurns === 'none') return 'Fresh context';
+  return `Last ${forkTurns} turn${forkTurns === '1' ? '' : 's'}`;
+}
+
+function formatDurationMilliseconds(milliseconds: number): string {
+  if (milliseconds >= 1_000 && milliseconds % 1_000 === 0) return `${milliseconds / 1_000}s`;
+  return `${milliseconds}ms`;
+}
+
+function numberRecordValue(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function startsWithTraceVerb(summary: string): boolean {
@@ -692,7 +1150,10 @@ function startsWithTraceVerb(summary: string): boolean {
   return TRACE_SUMMARY_VERBS.has(firstWord);
 }
 
-function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId): string {
+function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null): string {
+  const honeycrispToolDetail = honeycrispToolTraceDetailText(event, detail);
+  if (honeycrispToolDetail !== null) return honeycrispToolDetail;
+
   const payload = event.payload;
   const parts =
     [
@@ -708,6 +1169,43 @@ function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategory
       fallbackPayloadParts(payload, category)
     ].find((candidate): candidate is string[] => Boolean(candidate && candidate.length > 0)) ?? [];
   return truncateText(formatTraceDetailParts(parts), 300);
+}
+
+function honeycrispToolTraceDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
+  const kind = honeycrispToolEventKind(event);
+  if (kind !== 'tool.requested' && kind !== 'tool.observed') return null;
+
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload) return '';
+  if (kind === 'tool.requested') return honeycrispToolTraceSubtext(event, detail);
+  const status = stringRecordValue(payload, 'status');
+  const error = tracePayloadRecord(payload, 'error');
+  const errorMessage = error ? stringRecordValue(error, 'message') : stringRecordValue(payload, 'error');
+  if (errorMessage) return errorMessage;
+  const subtext = honeycrispToolTraceSubtext(event, detail);
+  return subtext || (status && status !== 'complete' ? traceLabel(status) : '');
+}
+
+function memoryTypeForGetTrace(event: TraceEventRecord, memoryId: string, detail: RunDetail | null): string | null {
+  const catalogType = detail?.honeycrispMemory?.nodes.find((node) => node.id === memoryId)?.type;
+  if (catalogType) return catalogType;
+
+  const currentPayload = honeycrispEventToolPayload(event);
+  const currentResult = currentPayload ? tracePayloadRecord(currentPayload, 'result') : null;
+  const currentType = currentResult ? stringRecordValue(currentResult, 'type') : null;
+  if (currentType) return currentType;
+
+  const pairingKey = honeycrispToolPairingKey(event);
+  const observation = pairingKey
+    ? detail?.traceEvents.find((candidate) => honeycrispToolEventKind(candidate) === 'tool.observed' && honeycrispToolPairingKey(candidate) === pairingKey)
+    : null;
+  const observationPayload = observation ? honeycrispEventToolPayload(observation) : null;
+  const result = observationPayload ? tracePayloadRecord(observationPayload, 'result') : null;
+  const observedType = result ? stringRecordValue(result, 'type') : null;
+  if (observedType) return observedType;
+
+  const stableIdType = memoryId.match(/^([a-z][a-z0-9]*)_[a-f0-9]{12,}$/i)?.[1];
+  return stableIdType ?? null;
 }
 
 function detailPartsForToolCall(event: TraceEventRecord): string[] | null {

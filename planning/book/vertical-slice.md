@@ -14,7 +14,7 @@ A user should be able to:
 
 1. Open Beale.
 2. Create or open a workspace.
-3. Define program scope.
+3. Define the authorized scope.
 4. Start a research run from a markdown prompt.
 5. Watch a fake but realistic research run populate the tracker.
 6. Open run detail.
@@ -27,7 +27,7 @@ A user should be able to:
 This validates the hardest product shape early:
 
 - The app is workspace-centered, not chat-centered.
-- Program scope is visible before runs.
+- Authorized scope is visible before runs.
 - Runs and attempts are first-class.
 - Trace is the backbone.
 - Model claims and observations are visually distinct.
@@ -53,9 +53,9 @@ It avoids blocking on:
 - Initialize SQLite schema.
 - Show workspace in sidebar.
 
-### Program Scope
+### Authorized Scope
 
-- Edit program name and description.
+- Edit workspace name, description, and scope owner or subject.
 - Add in-scope domains, repositories, executables, local paths, and credential references.
 - Add explicit out-of-scope assets.
 - Choose default network profile.
@@ -66,8 +66,8 @@ It avoids blocking on:
 - Markdown prompt textarea.
 - Mode selector with `open_discovery` default.
 - Attempt strategy selector with `adaptive_portfolio` default.
-- Model display defaulting to `gpt-5.5`.
-- Reasoning display defaulting to `xhigh`.
+- Model display defaulting to `gpt-5.6-sol`.
+- Reasoning display defaulting to `high`.
 - Network and sandbox profile display.
 - Budget placeholders.
 
@@ -215,7 +215,7 @@ The fake run engine should include a few scenario fixtures:
 1. App shell and routing.
 2. Workspace open/create.
 3. SQLite initialization and migrations.
-4. Program scope editor.
+4. Authorized-scope editor.
 5. Run and attempt persistence.
 6. Fake run engine.
 7. Tracker.
@@ -229,4 +229,3 @@ The fake run engine should include a few scenario fixtures:
 The first slice is done when Beale feels like a real vulnerability research workbench using simulated research activity.
 
 It should be obvious where OpenAI, VM execution, structured tools, and benchmark mode will plug in next.
-

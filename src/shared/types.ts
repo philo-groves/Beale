@@ -40,13 +40,13 @@ export type TraceEventType =
   | 'finding_event'
   | 'network_event';
 
-export type FakeScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
+export type FixtureScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
 
-export type RunEngineKind = 'fake' | 'openai_responses' | 'executor_alpha';
+export type RunEngineKind = 'honeycrisp' | 'fixture';
 
 export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'codex_oauth_file' | 'api_key_env' | 'not_configured';
 
-export type OpenAiTransport = 'websocket' | 'sse_http';
+export type OpenAiTransport = 'websocket' | 'sse_http' | 'host_process';
 
 export type OpenAiAuthReadiness = 'oauth_ready' | 'development_fallback' | 'oauth_command_failed' | 'not_configured';
 
@@ -60,33 +60,16 @@ export interface OpenAiOnboardingStep {
   command: string | null;
 }
 
-export type ExecutorProviderKind = 'fake' | 'vmctl' | 'docker';
+export type ExecutorProviderKind = 'host';
 
 export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
 
-export type ExecutorBackendKind = 'firecracker' | 'hyperv' | 'tart' | 'docker' | 'custom_vmctl';
+export type ExecutorBackendKind = never;
 
 export interface VmPreference {
   enabled: boolean;
   backendKind: ExecutorBackendKind | null;
   updatedAt: string | null;
-}
-
-export interface VmPreferenceInput {
-  enabled: boolean;
-  backendKind?: ExecutorBackendKind | null;
-}
-
-export interface SandboxSetupInput {
-  backendKind: ExecutorBackendKind;
-}
-
-export interface SandboxSetupResult {
-  backendKind: ExecutorBackendKind;
-  ok: boolean;
-  label: string;
-  detail: string;
-  command: string;
 }
 
 export interface ExecutorBackendStatus {
@@ -134,9 +117,9 @@ export interface ScopeAsset extends ScopeAssetInput {
   createdAt: string;
 }
 
-export interface ProgramScopeDraft {
-  programName: string;
-  organizationName: string;
+export interface WorkspaceScopeDraft {
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -144,12 +127,12 @@ export interface ProgramScopeDraft {
   assets: ScopeAssetInput[];
 }
 
-export interface ProgramScopeVersion {
+export interface WorkspaceScopeVersion {
   id: string;
   version: number;
   status: 'active' | 'archived';
-  programName: string;
-  organizationName: string;
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -167,7 +150,7 @@ export interface WorkspaceSummary {
   databasePath: string;
   artifactRoot: string;
   openedAt: string;
-  fakeExecutorLabel: string;
+  executionPostureLabel: string;
   lastWorkspaceBackup: WorkspaceExportResult | null;
   hostEnvironment: HostEnvironment;
 }
@@ -233,12 +216,12 @@ export interface ProfilingState {
   reportCount: number;
 }
 
-export interface ProgramRegistryEntry {
+export interface WorkspaceRegistryEntry {
   id: string;
   workspacePath: string;
-  workspaceId: string | null;
-  programName: string;
-  organizationName: string;
+  workspaceId: string;
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -252,9 +235,9 @@ export interface ProgramRegistryEntry {
 
 export interface ResearchSessionSummary {
   id: string;
-  programId: string | null;
+  registryWorkspaceId: string;
   workspacePath: string;
-  workspaceId: string | null;
+  workspaceId: string;
   runId: string;
   title: string;
   status: RunStatus;
@@ -275,11 +258,11 @@ export interface ResearchSessionSummary {
 export interface SessionTranscriptSearchInput {
   query: string;
   limit?: number;
-  currentProgramOnly?: boolean;
+  currentWorkspaceOnly?: boolean;
 }
 
 export interface SessionTranscriptSearchResult {
-  programId: string | null;
+  registryWorkspaceId: string;
   workspacePath: string;
   runId: string;
   transcriptMessageId: string;
@@ -287,23 +270,23 @@ export interface SessionTranscriptSearchResult {
   role: TranscriptRole;
   source: string;
   sessionTitle: string;
-  programName: string;
+  workspaceName: string;
   contentPreview: string;
   createdAt: string;
 }
 
-export interface SessionTranscriptSearchProgramSummary {
-  programId: string | null;
+export interface SessionTranscriptSearchWorkspaceSummary {
+  registryWorkspaceId: string;
   workspacePath: string;
-  programName: string;
+  workspaceName: string;
   totalTranscriptMatches: number;
 }
 
 export interface SessionTranscriptSearchResponse {
   results: SessionTranscriptSearchResult[];
   totalTranscriptMatches: number;
-  programCount: number;
-  programs: SessionTranscriptSearchProgramSummary[];
+  workspaceCount: number;
+  workspaces: SessionTranscriptSearchWorkspaceSummary[];
 }
 
 export interface ProjectInventorySummary {
@@ -352,7 +335,7 @@ export interface ProjectGraphSummary {
   indexedAt: string | null;
 }
 
-export interface ProgramGraphVisualizationNode {
+export interface WorkspaceGraphVisualizationNode {
   id: string;
   nodeKind: string;
   entityType: string;
@@ -363,7 +346,7 @@ export interface ProgramGraphVisualizationNode {
   indexedAt: string;
 }
 
-export interface ProgramGraphVisualizationEdge {
+export interface WorkspaceGraphVisualizationEdge {
   id: string;
   sourceNodeId: string;
   targetNodeId: string;
@@ -372,7 +355,7 @@ export interface ProgramGraphVisualizationEdge {
   indexedAt: string;
 }
 
-export interface ProgramGraphVisualization {
+export interface WorkspaceGraphVisualization {
   scopeVersionId: string;
   status: string;
   nodeCount: number;
@@ -380,12 +363,12 @@ export interface ProgramGraphVisualization {
   sampledNodeCount: number;
   sampledEdgeCount: number;
   truncated: boolean;
-  nodes: ProgramGraphVisualizationNode[];
-  edges: ProgramGraphVisualizationEdge[];
+  nodes: WorkspaceGraphVisualizationNode[];
+  edges: WorkspaceGraphVisualizationEdge[];
   generatedAt: string;
 }
 
-export interface ProgramGraphProjectionNode extends ProgramGraphVisualizationNode {
+export interface WorkspaceGraphProjectionNode extends WorkspaceGraphVisualizationNode {
   clusterIds: string[];
   qualityFlags: string[];
   pathLabel: string;
@@ -393,7 +376,7 @@ export interface ProgramGraphProjectionNode extends ProgramGraphVisualizationNod
   sourceGroupLabel: string | null;
 }
 
-export interface ProgramGraphProjectionEdge {
+export interface WorkspaceGraphProjectionEdge {
   id: string;
   sourceNodeId: string;
   targetNodeId: string | null;
@@ -406,7 +389,7 @@ export interface ProgramGraphProjectionEdge {
   indexedAt: string;
 }
 
-export interface ProgramGraphProjectionCluster {
+export interface WorkspaceGraphProjectionCluster {
   id: string;
   kind: 'repository' | 'source_group' | 'entity_family' | 'relationship_family' | 'repeated_label' | 'quality';
   label: string;
@@ -416,7 +399,7 @@ export interface ProgramGraphProjectionCluster {
   parentId: string | null;
 }
 
-export interface ProgramGraphProjectionDiagnostics {
+export interface WorkspaceGraphProjectionDiagnostics {
   nodeCount: number;
   edgeCount: number;
   resolvedEdgeCount: number;
@@ -434,13 +417,13 @@ export interface ProgramGraphProjectionDiagnostics {
   qualityFlagCounts: Record<string, number>;
 }
 
-export interface ProgramGraphProjection {
+export interface WorkspaceGraphProjection {
   scopeVersionId: string;
   status: string;
-  nodes: ProgramGraphProjectionNode[];
-  edges: ProgramGraphProjectionEdge[];
-  clusters: ProgramGraphProjectionCluster[];
-  diagnostics: ProgramGraphProjectionDiagnostics;
+  nodes: WorkspaceGraphProjectionNode[];
+  edges: WorkspaceGraphProjectionEdge[];
+  clusters: WorkspaceGraphProjectionCluster[];
+  diagnostics: WorkspaceGraphProjectionDiagnostics;
   generatedAt: string;
 }
 
@@ -467,6 +450,189 @@ export interface ProjectSemanticSummary {
   progressProcessed: number | null;
   progressTotal: number | null;
 }
+
+export type HoneycrispMemoryStatus = 'missing' | 'empty' | 'ready' | 'error';
+
+export interface HoneycrispMemoryDirectorySummary {
+  name: 'artifacts';
+  path: string;
+  purpose: string;
+  exists: boolean;
+  entryCount: number;
+}
+
+export type HoneycrispMemorySource = 'none' | 'honeycrisp_sqlite';
+
+export interface HoneycrispMemoryEvidenceRefSummary {
+  id: string;
+  kind: 'code' | 'artifact' | 'command' | 'url' | 'human_note' | string;
+  pathBase: string | null;
+  path: string | null;
+  locator: Record<string, unknown>;
+  summary: string;
+  createdAt: string;
+}
+
+export interface HoneycrispMemoryNodeSummary {
+  id: string;
+  tier: 'session' | 'workspace' | 'subject';
+  sessionId: string | null;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId: string | null;
+  subjectName: string | null;
+  type: string;
+  title: string;
+  summary: string;
+  body: string;
+  status: string;
+  confidence: number;
+  assetIds: string[];
+  tags: string[];
+  attributes: Record<string, unknown>;
+  evidenceRefs: HoneycrispMemoryEvidenceRefSummary[];
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+}
+
+export interface HoneycrispMemoryEdgeSummary {
+  fromId: string;
+  toId: string;
+  relation: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HoneycrispRunbookSummary {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId: string | null;
+  subjectName: string | null;
+  sessionId: string | null;
+  title: string;
+  purpose: string;
+  status: 'draft' | 'active' | 'completed' | 'archived';
+  artifactId: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HoneycrispMemorySummary {
+  status: HoneycrispMemoryStatus;
+  source: HoneycrispMemorySource;
+  contextWorkspaceId: string;
+  contextSubjectId: string | null;
+  databasePath: string;
+  storageRoot: string;
+  artifactDirectoryPath: string;
+  databaseSizeBytes: number;
+  nodeCount: number;
+  edgeCount: number;
+  evidenceRefCount: number;
+  storageArtifactCount: number;
+  runbookCount: number;
+  latestNodeUpdatedAt: string | null;
+  nodeTypeCounts: Record<string, number>;
+  nodeStatusCounts: Record<string, number>;
+  nodeTierCounts: Record<string, number>;
+  nodes: HoneycrispMemoryNodeSummary[];
+  edges: HoneycrispMemoryEdgeSummary[];
+  runbooks: HoneycrispRunbookSummary[];
+  directories: HoneycrispMemoryDirectorySummary[];
+  lastError: string | null;
+}
+
+export interface HoneycrispToolingToolSummary {
+  name: string;
+  transportName: string | null;
+  actionClasses: string[];
+  sideEffects: string[];
+  requiredPermissions: string[];
+  metadata: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingSkillSummary {
+  id: string;
+  version: string | null;
+  description: string;
+  domainTags: string[];
+  source: Record<string, unknown> | null;
+  selected: boolean;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingMcpCapabilitySummary {
+  name: string;
+  transportName: string | null;
+  actionClasses: string[];
+  sideEffects: string[];
+  requiredPermissions: string[];
+  metadata: Record<string, unknown>;
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingMcpSummary {
+  status: string;
+  configPath: string | null;
+  configuredServers: string[];
+  allowedServers: string[];
+  timeoutMs: number | null;
+  discoveredCapabilities: HoneycrispToolingMcpCapabilitySummary[];
+  deniedCapabilities: Record<string, unknown>[];
+  resourceTemplates: Record<string, unknown>[];
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingConfigSummary {
+  configPath: string;
+  exists: boolean;
+  loaded: boolean;
+  defaultDisabled: boolean;
+  preference: {
+    skillDirs: string[];
+    selectedSkillIds: string[];
+    mcpConfigPath: string | null;
+    allowedMcpServers: string[];
+    mcpTimeoutMs: number | null;
+    raw: Record<string, unknown>;
+  };
+  raw: Record<string, unknown>;
+}
+
+export interface HoneycrispToolingSummary {
+  source: 'honeycrisp_cli';
+  workspaceRoot: string;
+  config: HoneycrispToolingConfigSummary;
+  tools: HoneycrispToolingToolSummary[];
+  toolFamilies: {
+    enabled: string[];
+    requested: string[];
+    disabled: string[];
+  };
+  skills: {
+    loaded: HoneycrispToolingSkillSummary[];
+    selectedIds: string[];
+  };
+  mcp: HoneycrispToolingMcpSummary;
+  raw: Record<string, unknown>;
+}
+
+export type HoneycrispToolingConfigUpdate =
+  | { type: 'add_skill_dir'; path: string }
+  | { type: 'remove_skill_dir'; path: string }
+  | { type: 'select_skill'; id: string }
+  | { type: 'deselect_skill'; id: string }
+  | { type: 'set_mcp_config_path'; path: string }
+  | { type: 'clear_mcp_config_path' }
+  | { type: 'allow_mcp_server'; name: string }
+  | { type: 'disallow_mcp_server'; name: string }
+  | { type: 'set_mcp_timeout_ms'; timeoutMs: number }
+  | { type: 'clear_mcp_timeout_ms' };
 
 export interface ProjectSemanticSearchResult {
   chunkId: string;
@@ -505,93 +671,26 @@ export interface ProjectSearchResult {
   updatedAt: string;
 }
 
-export interface ProgramRegistryState {
+export interface WorkspaceRegistryState {
   registryPath: string;
   vmPreference: VmPreference;
-  programs: ProgramRegistryEntry[];
+  workspaces: WorkspaceRegistryEntry[];
   researchSessions: ResearchSessionSummary[];
-}
-
-export interface CyberGymBenchmarkSettings {
-  sourceRootPath: string;
-  selectedBenchmark: string;
-  cachePath: string;
-  outputPath: string;
-  submitServerUrl: string;
-  pocDbPath: string;
-  verifyApiKey: string;
 }
 
 export interface DeveloperSettings {
   developerModeEnabled: boolean;
-  cyberGym: CyberGymBenchmarkSettings;
 }
 
-export interface CyberGymSettingsInput {
-  sourceRootPath?: string;
-  selectedBenchmark?: string;
-  cachePath?: string;
-  outputPath?: string;
-  submitServerUrl?: string;
-  pocDbPath?: string;
-  verifyApiKey?: string;
+export interface ShellOptions {
+  defaultConcurrency: number;
+  utilities: Record<string, number>;
 }
 
-export interface CyberGymStorageActionResult {
-  ok: boolean;
-  action: 'prepare_storage' | 'clear_cache';
-  detail: string;
-  affectedPaths: string[];
-}
-
-export interface CyberGymScenarioSummary {
-  id: string;
-  title: string;
-  projectName: string;
-  source: string;
-  difficulty: string;
-  levelMaterials: Record<string, string[]>;
-  description: string;
-  tags: string[];
-  searchText: string;
-  local: boolean;
-}
-
-export interface CyberGymScenarioList {
-  scenarios: CyberGymScenarioSummary[];
-  source: 'project_tasks_json' | 'fallback_subset';
-  sourcePath: string | null;
-  lastRefreshedAt: string | null;
-  totalCount: number;
-  loadedAt: string;
-}
-
-export type CyberGymLevel = 0 | 1 | 2 | 3;
-
-export interface CyberGymScenarioRunInput {
-  scenario: CyberGymScenarioSummary;
-  level: CyberGymLevel;
-  settings: StartRunInput;
-}
-
-export interface CyberGymScenarioRunStartResult {
-  runId: string;
+export interface WorkspaceOnboardingDefaults {
   workspacePath: string;
-  taskDirectory: string;
-  outputDirectory: string;
-  outputPath: string;
-  resultPath: string;
-  eventLogPath: string;
-  level: string;
-  copiedMaterials: string[];
-  missingMaterials: string[];
-  cleanupScheduled: boolean;
-}
-
-export interface ProgramOnboardingDefaults {
-  workspacePath: string;
-  programName: string;
-  organizationName: string;
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -599,12 +698,12 @@ export interface ProgramOnboardingDefaults {
   assets: ScopeAssetInput[];
 }
 
-export interface ProgramOnboardingInput extends Omit<ProgramOnboardingDefaults, 'assets'> {
+export interface WorkspaceOnboardingInput extends Omit<WorkspaceOnboardingDefaults, 'assets'> {
   assets?: ScopeAssetInput[];
   onboardingRequestId?: string;
 }
 
-export type ProgramOnboardingRepositoryStage =
+export type WorkspaceOnboardingRepositoryStage =
   | 'queued'
   | 'cloning'
   | 'clone_skipped'
@@ -614,34 +713,34 @@ export type ProgramOnboardingRepositoryStage =
   | 'index_skipped'
   | 'indexed';
 
-export interface ProgramOnboardingRepositoryProgress {
+export interface WorkspaceOnboardingRepositoryProgress {
   repositoryUrl: string;
   label: string;
-  stage: ProgramOnboardingRepositoryStage;
+  stage: WorkspaceOnboardingRepositoryStage;
   message: string;
   localPath: string | null;
   error: string | null;
   updatedAt: string;
 }
 
-export interface ProgramOnboardingProgressUpdate {
+export interface WorkspaceOnboardingProgressUpdate {
   requestId: string;
   workspacePath: string;
   phase: 'creating' | 'repositories' | 'complete';
-  repositories: ProgramOnboardingRepositoryProgress[];
+  repositories: WorkspaceOnboardingRepositoryProgress[];
 }
 
-export interface ProgramOnboardingSkipInput {
+export interface WorkspaceOnboardingSkipInput {
   requestId: string;
   repositoryUrl: string;
   stage: 'clone' | 'index';
 }
 
-export interface HackerOneProgramLookupResult {
+export interface HackerOneScopeLookupResult {
   handle: string;
   sourceUrl: string;
-  programName: string;
-  organizationName: string;
+  workspaceName: string;
+  scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
   networkProfile: string;
@@ -650,12 +749,12 @@ export interface HackerOneProgramLookupResult {
   importedScopeCount: number;
 }
 
-export interface ProgramDirectorySelection {
+export interface WorkspaceDirectorySelection {
   canceled: boolean;
   path: string | null;
-  knownProgram: ProgramRegistryEntry | null;
+  knownWorkspace: WorkspaceRegistryEntry | null;
   requiresOnboarding: boolean;
-  defaults: ProgramOnboardingDefaults | null;
+  defaults: WorkspaceOnboardingDefaults | null;
 }
 
 export interface WorkspaceRecoveryReport {
@@ -667,7 +766,6 @@ export interface WorkspaceRecoveryReport {
   interruptedToolCalls: number;
   interruptedVerifierRuns: number;
   interruptedVmContexts: number;
-  interruptedBenchmarkRuns: number;
   notes: string[];
 }
 
@@ -723,8 +821,63 @@ export interface OpenAiOAuthStartResult {
   instructions: string | null;
 }
 
+export type ResearchProviderId = 'anthropic' | 'xai';
+
+export type ResearchModelProviderId = 'openai-codex' | ResearchProviderId;
+
+export type ResearchModelEffortLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface ResearchProviderModel {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  effortLevels: ResearchModelEffortLevel[];
+  contextWindow: number;
+  maxTokens: number;
+}
+
+export interface ResearchProviderModelCatalog {
+  providerId: ResearchModelProviderId;
+  providerName: string;
+  models: ResearchProviderModel[];
+}
+
+export interface ResearchModelSelection {
+  provider: ResearchModelProviderId;
+  model: string;
+  reasoningEffort: ResearchModelEffortLevel;
+}
+
+export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
+
+export interface ResearchProviderStatus {
+  id: ResearchProviderId;
+  name: string;
+  configured: boolean;
+  readiness: ResearchProviderReadiness;
+  authMethods: ('api_key' | 'oauth')[];
+  credentialType: 'api_key' | 'oauth' | null;
+  source: string | null;
+  defaultModel: string | null;
+  credentialsHostOnly: boolean;
+  loginInProgress: boolean;
+  statusDetail: string;
+  apiKeyEnvironmentVariable: 'ANTHROPIC_API_KEY' | 'XAI_API_KEY';
+}
+
+export interface ResearchProviderOAuthStartResult {
+  providerId: ResearchProviderId;
+  started: boolean;
+  command: string;
+  detail: string;
+  verificationUri: string | null;
+  userCode: string | null;
+  instructions: string | null;
+}
+
 export interface StartRunInput {
   runEngine: RunEngineKind;
+  provider?: string;
   promptMarkdown: string;
   mode: string;
   attemptStrategy: string;
@@ -739,7 +892,7 @@ export interface StartRunInput {
     maxAttempts: number;
     maxCostUsd: number;
   };
-  fakeScenario: FakeScenario;
+  fixtureScenario?: FixtureScenario;
 }
 
 export interface GeneratedResearchPrompt {
@@ -1103,6 +1256,7 @@ export interface RunDetail {
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
+  honeycrispMemory?: HoneycrispMemorySummary;
 }
 
 export interface RunDetailVersion {
@@ -1134,129 +1288,7 @@ export interface RunDetailUpdate {
   contextCompactions: ContextCompactionRecord[];
   policyEvents: ApprovalRecord[];
   exports: ExportRecord[];
-}
-
-export type BenchmarkSuiteKind = 'smoke' | 'tool_competency' | 'safety_policy' | 'cybergym_compat';
-
-export type BenchmarkTaskMode = 'discovery' | 'reproduction' | 'patch_validation' | 'variant_analysis' | 'benchmark' | 'safety';
-
-export type BenchmarkResultStatus = 'pass' | 'fail' | 'inconclusive';
-
-export interface BenchmarkSuiteSummary {
-  suiteKind: BenchmarkSuiteKind;
-  suiteId: string;
-  title: string;
-  taskCount: number;
-  benchmarkVersion: string;
-}
-
-export interface BenchmarkRunInput {
-  suiteKind: BenchmarkSuiteKind;
-  model?: string;
-  reasoningEffort?: string;
-  harnessName?: string;
-  harnessVersion?: string;
-  promptVersion?: string;
-  toolsetVersion?: string;
-  verifierVersion?: string;
-  sandboxBackend?: string;
-  sandboxImageVersion?: string;
-  attemptStrategy?: string;
-  attemptCount?: number;
-  failureTaskIds?: string[];
-  dockerImage?: string;
-}
-
-export interface BenchmarkHarnessIdentity {
-  model: string;
-  reasoningEffort: string;
-  harnessName: string;
-  harnessVersion: string;
-  promptVersion: string;
-  toolsetVersion: string;
-  verifierVersion: string;
-  sandboxBackend: string;
-  sandboxImageVersion: string;
-  networkProfile: string;
-  attemptStrategy: string;
-  attemptCount: number;
-  taskSubsetId: string;
-  taskIds: string[];
-  benchmarkVersion: string;
-  date: string;
-  cost: Record<string, unknown>;
-  tokens: Record<string, unknown>;
-  wallTimeMs: number;
-  passCount: number;
-  totalCount: number;
-  passRate: number;
-  smallSampleWarning: string | null;
-}
-
-export interface BenchmarkRunRecord {
-  id: string;
-  suiteKind: BenchmarkSuiteKind;
-  suiteId: string;
-  status: 'running' | 'completed' | 'failed';
-  identity: BenchmarkHarnessIdentity;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-  startedAt: string;
-  endedAt: string | null;
-}
-
-export interface BenchmarkTaskResultRecord {
-  id: string;
-  benchmarkRunId: string;
-  taskId: string;
-  suiteKind: BenchmarkSuiteKind;
-  mode: BenchmarkTaskMode;
-  status: BenchmarkResultStatus;
-  score: number;
-  runId: string | null;
-  isolationPassed: boolean;
-  metrics: Record<string, unknown>;
-  graderReport: Record<string, unknown>;
-  agentOutput: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface BenchmarkComparison {
-  baselineRunId: string;
-  candidateRunId: string;
-  suiteKind: BenchmarkSuiteKind;
-  taskSubsetId: string;
-  model: string;
-  reasoningEffort: string;
-  baselineHarness: string;
-  candidateHarness: string;
-  baselinePassRate: number;
-  candidatePassRate: number;
-  passRateDelta: number;
-  baselinePassCount: number;
-  candidatePassCount: number;
-  totalCount: number;
-  wallTimeDeltaMs: number;
-  costDeltaUsd: number;
-  compatible: boolean;
-  warning: string | null;
-}
-
-export interface BenchmarkOverview {
-  suites: BenchmarkSuiteSummary[];
-  latestRun: BenchmarkRunRecord | null;
-  latestResults: BenchmarkTaskResultRecord[];
-  recentResults: BenchmarkTaskResultRecord[];
-  recentRuns: BenchmarkRunRecord[];
-  comparisons: BenchmarkComparison[];
-  isolationSummary: {
-    dockerizedAgentHarness: boolean;
-    hostSideModelProxy: boolean;
-    hostSideGrader: boolean;
-    graderFilesMounted: boolean;
-    groundTruthMounted: boolean;
-    normalVmArchitectureChanged: boolean;
-  };
+  honeycrispMemory?: HoneycrispMemorySummary;
 }
 
 export interface WorkspaceSnapshot {
@@ -1264,14 +1296,14 @@ export interface WorkspaceSnapshot {
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
   vmPreference: VmPreference;
-  activeScope: ProgramScopeVersion;
+  activeScope: WorkspaceScopeVersion;
+  honeycrispMemory: HoneycrispMemorySummary;
   projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
   notifications: NotificationRecord[];
-  benchmark: BenchmarkOverview;
 }
 
 export type WorkspacePickerMode = 'open' | 'create';
@@ -1291,9 +1323,9 @@ export interface PriorityFactorInput {
 
 export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
-  | { type: 'resume'; runId: string; note?: string }
+  | { type: 'resume'; runId: string; instruction?: string; modelSelection?: ResearchModelSelection; note?: string }
   | { type: 'stop'; runId: string; note?: string }
-  | { type: 'steer'; runId: string; instruction: string }
+  | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'fork'; runId: string; instruction: string }
   | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
   | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }
@@ -1324,45 +1356,40 @@ export type SteeringAction =
 
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
-  selectProgramDirectory(): Promise<ProgramDirectorySelection>;
-  getProgramRegistry(): Promise<ProgramRegistryState>;
+  selectWorkspaceDirectory(): Promise<WorkspaceDirectorySelection>;
+  getWorkspaceRegistry(): Promise<WorkspaceRegistryState>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
-  updateCyberGymSettings(input: CyberGymSettingsInput): Promise<DeveloperSettings>;
-  prepareCyberGymStorage(): Promise<CyberGymStorageActionResult>;
-  clearCyberGymCache(): Promise<CyberGymStorageActionResult>;
-  getCyberGymScenarios(): Promise<CyberGymScenarioList>;
-  openCyberGymProgram(): Promise<WorkspaceSnapshot>;
-  startCyberGymScenarioRun(input: CyberGymScenarioRunInput): Promise<CyberGymScenarioRunStartResult>;
-  lookupHackerOneProgram(identifier: string): Promise<HackerOneProgramLookupResult>;
-  createProgram(input: ProgramOnboardingInput): Promise<WorkspaceSnapshot>;
-  skipProgramOnboardingRepository(input: ProgramOnboardingSkipInput): Promise<ProgramOnboardingProgressUpdate | null>;
-  onProgramOnboardingUpdate(listener: (update: ProgramOnboardingProgressUpdate) => void): () => void;
-  openProgram(programId: string): Promise<WorkspaceSnapshot>;
-  removeProgram(programId: string): Promise<WorkspaceSnapshot | null>;
+  getShellOptions(): Promise<ShellOptions>;
+  setShellOptions(options: ShellOptions): Promise<ShellOptions>;
+  lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
+  createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;
+  skipWorkspaceOnboardingRepository(input: WorkspaceOnboardingSkipInput): Promise<WorkspaceOnboardingProgressUpdate | null>;
+  onWorkspaceOnboardingUpdate(listener: (update: WorkspaceOnboardingProgressUpdate) => void): () => void;
+  openRegisteredWorkspace(registryWorkspaceId: string): Promise<WorkspaceSnapshot>;
+  removeRegisteredWorkspace(registryWorkspaceId: string): Promise<WorkspaceSnapshot | null>;
   openWorkspace(path: string): Promise<WorkspaceSnapshot>;
   createWorkspace(path: string): Promise<WorkspaceSnapshot>;
   getSnapshot(): Promise<WorkspaceSnapshot | null>;
   getHostEnvironment(): Promise<HostEnvironment>;
-  getExecutorStatus(): Promise<ExecutorStatus>;
-  setVmPreference(input: VmPreferenceInput): Promise<ProgramRegistryState>;
-  setupSandbox(input: SandboxSetupInput): Promise<SandboxSetupResult>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
+  getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
+  getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
+  startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
-  setProjectSemanticIndexEnabled(enabled: boolean): Promise<WorkspaceSnapshot>;
-  refreshProjectSemanticIndex(): Promise<WorkspaceSnapshot>;
-  getProgramGraphVisualization(): Promise<ProgramGraphVisualization>;
-  getProgramGraphProjection(): Promise<ProgramGraphProjection>;
+  openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
+  openHoneycrispRunbook(runbookId: string): Promise<void>;
+  getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
+  updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
-  saveProgramScope(scope: ProgramScopeDraft): Promise<WorkspaceSnapshot>;
+  saveScope(scope: WorkspaceScopeDraft): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
-  runBenchmarkSuite(input: BenchmarkRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
@@ -1380,5 +1407,5 @@ export interface BealeApi {
   getWindowChromeState(): Promise<WindowChromeState>;
   onWindowChromeState(listener: (state: WindowChromeState) => void): () => void;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
-  onProgramRegistry(listener: (state: ProgramRegistryState) => void): () => void;
+  onWorkspaceRegistry(listener: (state: WorkspaceRegistryState) => void): () => void;
 }

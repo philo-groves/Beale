@@ -16,7 +16,14 @@ import {
 } from 'lucide-react';
 import type { TraceEventRecord } from '@shared/types';
 import { formatSessionTime, traceLabel } from '../../lib/formatting';
-import { traceEventOutcome, tracePayloadPrimitive } from '../../traceClassification';
+import {
+  honeycrispToolEventKind,
+  honeycrispToolPayload,
+  stringRecordValue,
+  traceEventOutcome,
+  tracePayloadPrimitive,
+  tracePayloadRecord
+} from '../../traceClassification';
 import type { TraceCategoryId } from '../../traceClassification';
 
 export interface TraceCategoryOption {
@@ -27,16 +34,16 @@ export interface TraceCategoryOption {
 
 export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'agent_output', label: 'Agent Output', description: 'Model messages, status updates, and researcher-facing agent responses.' },
-  { id: 'reasoning', label: 'Thought', description: 'Agent thought summaries, intent, and concise rationale without hidden chain-of-thought.' },
+  { id: 'reasoning', label: 'Reasoning', description: 'Provider-generated summaries of reasoning, intent, and concise rationale. Hidden chain-of-thought is not exposed.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
-  { id: 'vm_execution', label: 'Sandbox / Execution', description: 'Sandbox lifecycle, imports, commands, cleanup, and target execution.' },
+  { id: 'vm_execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
   { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
-  { id: 'evidence', label: 'Evidence / Artifacts', description: 'Artifacts, evidence promotion, finding records, and exportable observations.' },
+  { id: 'evidence', label: 'References / Artifacts', description: 'Referenced outputs, artifacts, finding records, and exportable observations.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
   { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
   { id: 'failure_recovery', label: 'Error', description: 'Errors, retries, cleanup issues, recovery notes, and blocked operations.' },
-  { id: 'non_standard', label: 'Non-standard', description: 'Verbose model lifecycle events hidden from the default trace view.' },
+  { id: 'non_standard', label: 'Non-standard', description: 'Verbose lifecycle and host-only traces hidden from the default trace view.' },
   { id: 'events', label: 'Events', description: 'Run lifecycle, user steering, notes, and uncategorized system events.' }
 ];
 
@@ -52,12 +59,13 @@ export function traceCategoryLabel(category: TraceCategoryId): string {
 }
 
 export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
-  if (category === 'evidence') return 'Evidence';
-  if (category === 'reasoning') return 'Agent Output';
+  if (category === 'evidence') return 'References';
+  if (category === 'reasoning') return 'Reasoning';
   return traceCategoryLabel(category);
 }
 
 export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
+  if (honeycrispToolEventKind(event)) return traceCategoryIcon('tools');
   const outcome = traceEventOutcome(event);
   if (isVerifierFailureResult(event)) return <XCircle size={13} />;
   if (outcome === 'success') return <CheckCircle2 size={13} />;
@@ -66,6 +74,8 @@ export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryI
 }
 
 export function traceEventMarkerToneClass(event: TraceEventRecord): string {
+  const toolObservationOutcome = honeycrispToolObservationOutcome(event);
+  if (toolObservationOutcome) return `marker-tool-observation-${toolObservationOutcome}`;
   return isVerifierFailureResult(event) ? 'marker-verifier-failure' : '';
 }
 
@@ -101,6 +111,20 @@ function isVerifierFailureResult(event: TraceEventRecord): boolean {
   return /\bwith fail(?:ed|ure)?\b/i.test(event.summary);
 }
 
+function honeycrispToolObservationOutcome(event: TraceEventRecord): 'success' | 'failure' | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed') return null;
+  const payload = honeycrispToolPayload(event);
+  const status = normalizeToolStatus(payload ? stringRecordValue(payload, 'status') : null);
+  const error = payload ? tracePayloadRecord(payload, 'error') ?? stringRecordValue(payload, 'error') : null;
+  if (error || status === 'error' || status === 'blocked' || status === 'failure' || status === 'failed') return 'failure';
+  if (status === 'complete' || status === 'completed' || status === 'success' || status === 'ok') return 'success';
+  return traceEventOutcome(event) === 'failure' ? 'failure' : 'success';
+}
+
 function normalizeVerifierStatus(value: string | null): string | null {
+  return value ? value.toLowerCase().replace(/[\s-]+/g, '_') : null;
+}
+
+function normalizeToolStatus(value: string | null): string | null {
   return value ? value.toLowerCase().replace(/[\s-]+/g, '_') : null;
 }

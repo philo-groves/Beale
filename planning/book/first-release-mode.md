@@ -6,11 +6,11 @@ Status: accepted initial direction, 2026-04-26.
 
 Beale's first release should optimize for open-ended discovery.
 
-Targeted reproduction and patch validation remain essential, but they are supporting workflows inside the larger discovery loop. They are how Beale turns hypotheses into evidence and validated fixes, not the primary product frame.
+Targeted reproduction and patch validation remain essential, but they are supporting workflows inside the larger discovery loop. They are how the agent turns promising memory into reproducible observations and validated fixes, not the primary product frame.
 
 ## Rationale
 
-The product is an authorized vulnerability research workbench. Most real vulnerability research programs start from broad, open-ended investigation:
+The product is an authorized vulnerability research workbench. Most real research efforts start from broad, open-ended investigation:
 
 - Map the target's architecture, exposed interfaces, privileges, trust boundaries, and data flows.
 - Identify high-risk components and security-sensitive code paths.
@@ -27,10 +27,10 @@ The first release should make open-ended research credible by giving users:
 
 - A target setup flow that records authorization, scope, environment, and network policy.
 - A threat model and attack-surface workspace.
-- A hypothesis board with states, evidence links, and affected components.
+- A list-only catalog of typed, tiered memory with status, confidence, references, affected assets, and relationships.
 - Structured tools for code search, code nav, execution, debugging, and artifact capture.
 - A trace timeline that separates model claims from real tool observations.
-- A verifier workflow for promoting hypotheses into reproduced findings.
+- Agent-directed reproduction and validation with durable referenced results.
 - Patch validation as a follow-on workflow after reproduction.
 
 ## Supporting Modes
@@ -49,7 +49,7 @@ Prioritizing open-ended discovery increases the first-release scope:
 - Verification is harder because there is no fixed ground truth for unknown issues.
 - Stopping criteria are ambiguous.
 - False positives become a product risk, not just an evaluation artifact.
-- The GUI must support maps, hypotheses, evidence review, and steering, not only task logs.
+- The GUI must support durable memory review and steering, not only task logs.
 - The harness needs coverage-oriented behavior so it does not stop after the first plausible issue.
 - Safety and authorization boundaries need to be first-class from day one.
 
@@ -59,8 +59,8 @@ The first release should constrain open-ended discovery without abandoning it:
 
 - Require explicit authorization and scope before target work starts.
 - Start with local or user-provided targets, not arbitrary live scanning.
-- Treat unverified findings as hypotheses until tool-backed evidence exists.
-- Promote findings only through verifier-backed reproduction.
+- Keep uncertain records explicitly tentative until reproducible tool observations support stronger status and confidence.
+- Preserve concise references to the files, commands, and artifacts that support durable conclusions.
 - Use benchmark tasks only as regression tests for the same discovery primitives.
 - Include reproduction and patch validation because they provide objective quality gates.
 

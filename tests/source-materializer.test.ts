@@ -1,11 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
+import type { WorkspaceScopeVersion, ScopeAsset } from '@shared/types';
 import {
-  findScopedExistingSourceCheckout,
   materializeGitRepository,
   materializeGitRepositoryAsync,
   normalizeSourceRepositoryUrl,
@@ -37,25 +36,6 @@ describe('source materializer', () => {
     expect(normalizeSourceRepositoryUrl('git@gitlab.com:gitlab-org/gitlab.git')).toBe('https://gitlab.com/gitlab-org/gitlab');
   });
 
-  it('reuses a matching in-workspace GitLab checkout instead of cloning', () => {
-    const workspace = tempDir();
-    const checkout = join(workspace, 'gitlab');
-    mkdirSync(join(workspace, '.beale'), { recursive: true });
-    mkdirSync(checkout, { recursive: true });
-    execFileSync('git', ['init'], { cwd: checkout, stdio: 'ignore' });
-    execFileSync('git', ['remote', 'add', 'origin', 'https://gitlab.com/gitlab-org/gitlab.git'], { cwd: checkout, stdio: 'ignore' });
-    const scope = scopeWithAssets([sourceAsset('repo_gitlab', 'https://gitlab.com/gitlab-org/gitlab')]);
-    const candidate = sourceRepositoryCandidates(scope)[0];
-
-    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), '');
-    const discovered = findScopedExistingSourceCheckout(scope, join(workspace, '.beale', 'beale.sqlite'), join(checkout, 'app/controllers/jwt_controller.rb'));
-
-    expect(materialized.cloned).toBe(false);
-    expect(materialized.localPath).toBe(checkout);
-    expect(discovered?.candidate.sourceAssetId).toBe('repo_gitlab');
-    expect(discovered?.localPath).toBe(checkout);
-  });
-
   it('runs clone materialization without blocking the event loop', async () => {
     const workspace = tempDir();
     mkdirSync(join(workspace, '.beale'), { recursive: true });
@@ -82,7 +62,9 @@ describe('source materializer', () => {
     const candidate = sourceRepositoryCandidates(scope)[0];
     let timerFired = false;
 
-    const materializedPromise = materializeGitRepositoryAsync(candidate, join(workspace, '.beale', 'beale.sqlite'), '');
+    const materializedPromise = materializeGitRepositoryAsync(candidate, '', {
+      repositoryStoreDirectory: join(workspace, 'beale-home', 'repositories')
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     timerFired = true;
     const materialized = await materializedPromise;
@@ -95,7 +77,9 @@ describe('source materializer', () => {
   it('fetches and checks out requested refs in managed existing checkouts', () => {
     const workspace = tempDir();
     mkdirSync(join(workspace, '.beale'), { recursive: true });
-    const managedCheckout = join(workspace, 'targets', 'repositories', 'github.com_Netflix_zuul');
+    const repositoryStore = join(workspace, 'beale-home', 'repositories');
+    const refDigest = createHash('sha256').update('feature-ref').digest('hex').slice(0, 12);
+    const managedCheckout = join(repositoryStore, 'github.com_Netflix_zuul', `feature-ref-${refDigest}`);
     mkdirSync(join(managedCheckout, '.git'), { recursive: true });
     const stateFile = join(workspace, 'git-head.txt');
     writeFileSync(stateFile, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
@@ -120,56 +104,44 @@ describe('source materializer', () => {
     const scope = scopeWithAssets([sourceAsset('repo_zuul', 'https://github.com/Netflix/zuul')]);
     const candidate = sourceRepositoryCandidates(scope)[0];
 
-    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'feature-ref');
+    const materialized = materializeGitRepository(candidate, 'feature-ref', {
+      repositoryStoreDirectory: repositoryStore
+    });
 
     expect(materialized.localPath).toBe(managedCheckout);
     expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
     expect(materialized.requestedRefMatchesHead).toBe(true);
   });
 
-  it('checks out requested refs in matching workspace checkouts and detaches resolved commits', () => {
-    const workspace = tempDir();
-    const checkout = join(workspace, 'skills');
-    mkdirSync(join(workspace, '.beale'), { recursive: true });
-    mkdirSync(join(checkout, '.git'), { recursive: true });
-    const stateFile = join(workspace, 'git-head.txt');
-    const logFile = join(workspace, 'git-log.jsonl');
-    writeFileSync(stateFile, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    const fakeGit = join(workspace, 'fake-git-workspace-ref.mjs');
+  it('reuses one user-global checkout across materializations', async () => {
+    const repositoryStore = join(tempDir(), 'repositories');
+    const fakeGit = join(tempDir(), 'fake-git-global.mjs');
     writeFileSync(
       fakeGit,
       [
         '#!/usr/bin/env node',
-        "import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';",
+        "import { mkdirSync } from 'node:fs';",
         'const args = process.argv.slice(2);',
-        `const stateFile = ${JSON.stringify(stateFile)};`,
-        `const logFile = ${JSON.stringify(logFile)};`,
-        'appendFileSync(logFile, JSON.stringify(args) + "\\n");',
-        'const command = args.find((arg) => ["rev-parse", "fetch", "checkout", "remote", "config"].includes(arg));',
-        'if (command === "remote") { process.stdout.write("https://github.com/vercel-labs/skills.git\\n"); process.exit(0); }',
-        'if (command === "config") { process.stdout.write("remote.origin.url https://github.com/vercel-labs/skills.git\\n"); process.exit(0); }',
-        'if (command === "rev-parse" && args.at(-1) === "HEAD") { process.stdout.write(`${readFileSync(stateFile, "utf8").trim()}\\n`); process.exit(0); }',
-        'if (command === "rev-parse" && args.at(-1) === "v1.5.3^{commit}") { process.stdout.write("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n"); process.exit(0); }',
-        'if (command === "rev-parse") { process.stdout.write("main\\n"); process.exit(0); }',
-        'if (command === "fetch") process.exit(0);',
-        'if (command === "checkout") { writeFileSync(stateFile, args.at(-1)); process.exit(0); }',
+        "if (args.includes('clone')) { mkdirSync(`${args.at(-1)}/.git`, { recursive: true }); process.exit(0); }",
+        "if (args.includes('rev-parse') && args.at(-1) === 'HEAD') { process.stdout.write('0123456789abcdef0123456789abcdef01234567\\n'); process.exit(0); }",
         'process.exit(1);'
       ].join('\n')
     );
     chmodSync(fakeGit, 0o700);
     process.env.BEALE_GIT_COMMAND = fakeGit;
-    const scope = scopeWithAssets([sourceAsset('repo_skills', 'https://github.com/vercel-labs/skills')]);
-    const candidate = sourceRepositoryCandidates(scope)[0];
+    const candidate = sourceRepositoryCandidates(scopeWithAssets([sourceAsset('repo_zuul', 'https://github.com/Netflix/zuul')]))[0];
 
-    const materialized = materializeGitRepository(candidate, join(workspace, '.beale', 'beale.sqlite'), 'v1.5.3');
-    const log = readFileSync(logFile, 'utf8');
+    const first = await materializeGitRepositoryAsync(candidate, '', {
+      repositoryStoreDirectory: repositoryStore
+    });
+    const second = await materializeGitRepositoryAsync(candidate, '', {
+      repositoryStoreDirectory: repositoryStore
+    });
 
-    expect(materialized.localPath).toBe(checkout);
-    expect(materialized.cloned).toBe(false);
-    expect(materialized.requestedRefHead).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
-    expect(materialized.requestedRefMatchesHead).toBe(true);
-    expect(log).toContain('"fetch"');
-    expect(log).toContain('"checkout","--detach","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"');
+    expect(first.cloned).toBe(true);
+    expect(second.cloned).toBe(false);
+    expect(second.localPath).toBe(first.localPath);
+    expect(first.localPath).toBe(join(repositoryStore, 'github.com_Netflix_zuul', 'default'));
   });
 });
 
@@ -192,13 +164,13 @@ function sourceAsset(id: string, value: string): ScopeAsset {
   };
 }
 
-function scopeWithAssets(assets: ScopeAsset[]): ProgramScopeVersion {
+function scopeWithAssets(assets: ScopeAsset[]): WorkspaceScopeVersion {
   return {
     id: 'scope_1',
     version: 1,
     status: 'active',
-    programName: 'GitLab',
-    organizationName: 'GitLab',
+    workspaceName: 'GitLab',
+    scopeOwner: 'GitLab',
     descriptionMarkdown: '',
     rulesMarkdown: '',
     networkProfile: 'elevated',

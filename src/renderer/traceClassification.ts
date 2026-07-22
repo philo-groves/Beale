@@ -15,6 +15,7 @@ export type TraceCategoryId =
   | 'events';
 
 export type TraceEventOutcome = 'success' | 'failure' | null;
+export type HoneycrispToolEventKind = 'tool.requested' | 'tool.observed';
 
 const SUCCESS_STATUSES = new Set(['success', 'completed', 'complete', 'pass', 'passed', 'ok']);
 const FAILURE_STATUSES = new Set(['failure', 'failed', 'timeout', 'timed_out', 'policy_blocked', 'executor_error', 'error', 'blocked']);
@@ -23,7 +24,7 @@ const FAILURE_SUMMARY_PATTERN = /\b(failed|failure|timeout|timed out|blocked|err
 const RECOVERY_SUMMARY_PATTERN = /\b(retry|retried|recover|recovered|recovery|fallback)\b/i;
 
 export function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId {
-  if (isNonStandardLifecycleEvent(event)) return 'non_standard';
+  if (honeycrispToolEventKind(event) === 'tool.requested' || isNonStandardLifecycleEvent(event)) return 'non_standard';
 
   const transcriptRole = tracePayloadPrimitive(event.payload, 'transcriptRole');
   const transcriptSource = tracePayloadPrimitive(event.payload, 'transcriptSource');
@@ -84,6 +85,34 @@ export function stringRecordValue(record: Record<string, unknown>, key: string):
   return null;
 }
 
+export function honeycrispToolEventKind(event: TraceEventRecord): HoneycrispToolEventKind | null {
+  const explicitKind = tracePayloadPrimitive(event.payload, 'honeycrispKind');
+  if (explicitKind === 'tool.requested' || explicitKind === 'tool.observed') return explicitKind;
+  if (event.summary.startsWith('Honeycrisp tool.requested')) return 'tool.requested';
+  if (event.summary.startsWith('Honeycrisp tool.observed')) return 'tool.observed';
+  return null;
+}
+
+export function honeycrispToolPayload(event: TraceEventRecord): Record<string, unknown> | null {
+  return honeycrispToolEventKind(event) ? tracePayloadRecord(event.payload, 'payload') : null;
+}
+
+export function honeycrispToolName(event: TraceEventRecord): string | null {
+  const payload = honeycrispToolPayload(event);
+  return tracePayloadPrimitive(event.payload, 'toolName') ?? (payload ? stringRecordValue(payload, 'toolName') : null);
+}
+
+export function honeycrispToolPairingKey(event: TraceEventRecord): string | null {
+  const payload = honeycrispToolPayload(event);
+  if (!payload) return null;
+  const actionId = stringRecordValue(payload, 'toolActionId');
+  const toolName = honeycrispToolName(event);
+  const actionKey = actionId ? `action:${actionId}` : toolName ? `tool:${toolName}` : null;
+  if (!actionKey) return null;
+  const agentIdentity = tracePayloadPrimitive(event.payload, 'agentPath') ?? tracePayloadPrimitive(event.payload, 'agentId') ?? '/root';
+  return `${event.attemptId ?? ''}\u0000${agentIdentity}\u0000${actionKey}`;
+}
+
 export function toolNameFromSummary(summary: string): string | null {
   const requested = summary.match(/OpenAI requested Beale tool: ([^.]+)\./);
   if (requested) return requested[1];
@@ -101,7 +130,7 @@ export function isToolCallNamed(event: TraceEventRecord, toolName: string): bool
 }
 
 function traceToolName(event: TraceEventRecord): string | null {
-  return tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
+  return honeycrispToolName(event) ?? tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
 }
 
 function isPolicyScopeEvent(event: TraceEventRecord): boolean {
@@ -151,7 +180,7 @@ function isCodeNavigationEvent(event: TraceEventRecord, toolName: string | null)
 }
 
 function modelEventLooksLikeReasoning(event: TraceEventRecord): boolean {
-  return /\b(plan|planned|prepared|objective|rationale|reason|strategy|hypothesis|intent|thought)\b/i.test(event.summary);
+  return /\b(plan|planned|prepared|objective|rationale|reason|reasoning|strategy|hypothesis|intent)\b/i.test(event.summary);
 }
 
 function normalizeStatus(status: string | null): string | null {

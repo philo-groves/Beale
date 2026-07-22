@@ -1,23 +1,24 @@
 import type { StartRunInput } from '@shared/types';
+import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../../shared/modelDefaults';
 
 export const UNBOUNDED_MINUTES = 999_999;
 export const UNBOUNDED_ATTEMPTS = 999_999;
 
 export const defaultRunInput: StartRunInput = {
-  runEngine: 'openai_responses',
+  runEngine: 'honeycrisp',
+  provider: 'openai-codex',
   promptMarkdown: '',
   mode: 'dynamic',
   attemptStrategy: 'adaptive_portfolio',
-  model: 'gpt-5.5',
-  reasoningEffort: 'xhigh',
+  model: DEFAULT_RESEARCH_MODEL,
+  reasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
   networkProfile: 'elevated',
-  sandboxProfile: 'host_research_only',
+  sandboxProfile: 'host',
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,
     maxAttempts: 1,
     maxCostUsd: 0
-  },
-  fakeScenario: 'adaptive_portfolio'
+  }
 };
 
 export function budgetNumber(value: unknown, fallback: number): number {

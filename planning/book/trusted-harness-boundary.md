@@ -21,6 +21,7 @@ The sandbox is a tool the harness controls. The sandbox is not where the harness
 | Tool policy and approvals | yes | no |
 | Trace/audit log authority | yes | no direct write |
 | Target source or binary | scoped copy/reference | yes |
+| Honeycrisp agent process | yes | no |
 | Build/test/debug/fuzz execution | default | sandbox sessions |
 | Temporary execution state | default | sandbox sessions |
 | Verifier promotion decision | yes | no |
@@ -61,7 +62,7 @@ Required workflow aids:
 
 Typical host-default execution flow:
 
-1. Beale host loads the workspace database.
+1. Beale host opens the global database with the active workspace identity.
 2. The user starts a session after the host-execution warning.
 3. Beale resolves scoped target material on the host.
 4. The model requests a tool call.
@@ -73,13 +74,17 @@ Typical host-default execution flow:
 
 Sandbox-backed sessions insert the clone/import/execute/export/revert lifecycle between steps 2 and 9.
 
+Honeycrisp-backed sessions use a host subprocess boundary for the agent runtime. The Honeycrisp process receives the user prompt and scoped local roots, owns the shared global database at `~/.honeycrisp/memory.sqlite`, and returns live events and captures through host-controlled process streams. It must not receive OpenAI host credentials or arbitrary unscoped filesystem roots as guest-like authority.
+
+Beale reads the durable knowledge graph directly from the shared database and may add operational workbench tables to that database. Honeycrisp's graph schema and model-facing graph tools remain the canonical durable-memory contract. Beale's project indexes are retrieval aids, not a parallel durable-memory source.
+
 ## Prohibited Defaults
 
 Beale should not:
 
 - Run the model client inside the guest.
 - Store OAuth/API credentials inside the guest.
-- Mount `.beale/beale.sqlite` inside the guest.
+- Mount the global database inside a guest.
 - Mount the full host workspace read-write inside the guest.
 - Expose host-control sockets to the guest.
 - Let the guest directly write authoritative artifacts.

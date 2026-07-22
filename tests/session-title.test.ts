@@ -9,7 +9,7 @@ describe('session title generation', () => {
     expect(title).toBe('Zuul Open Source Library Netflix');
   });
 
-  it('uses No Title Yet for legacy long titles', () => {
+  it('uses No Title Yet for overlong stored titles', () => {
     expect(displaySessionTitle("Let's perform deep vulnerability analysis on the Zuul open source library by Netflix")).toBe(SESSION_TITLE_FALLBACK);
   });
 

@@ -211,8 +211,8 @@ Implementation note, 2026-04-30:
 - Footer/status rendering moved out of `src/renderer/App.tsx` into `src/renderer/app/StatusBar.tsx`.
 - Top bar and window control rendering moved into `src/renderer/app/TopBar.tsx`.
 - App background pulse rendering moved into `src/renderer/app/AppBackgroundPulses.tsx`.
-- Program/sidebar rendering moved into `src/renderer/features/programs/ProgramSidebar.tsx`.
-- Momentum snake/context rendering moved into `src/renderer/features/momentum/`.
+- Workspace/sidebar rendering moved into `src/renderer/features/workspaces/WorkspaceSidebar.tsx`.
+- Compact context and session-token rendering lives in `src/renderer/features/momentum/`; the earlier snake and strawberry visualization was removed.
 - Shared modal rendering moved into `src/renderer/app/Modal.tsx`.
 - Notification stack/detail rendering moved into `src/renderer/features/notifications/Notifications.tsx`.
 - Original research prompt modal rendering moved into `src/renderer/features/sessions/ResearchPromptModal.tsx`.
@@ -231,9 +231,9 @@ Implementation note, 2026-04-30:
 - Virtualized trace view and steering footer rendering moved into `src/renderer/features/traces/TraceView.tsx`.
 - Settings modal rendering, OpenAI provider status, and local VM enablement controls moved into `src/renderer/features/settings/SettingsModal.tsx`.
 - Shared status pill rendering moved into `src/renderer/app/StatusPill.tsx`.
-- Program information/session history modals moved into `src/renderer/features/programs/ProgramModals.tsx`.
-- Program onboarding modal rendering moved into `src/renderer/features/programs/ProgramOnboardingModal.tsx`.
-- Program onboarding template defaults and form conversion moved into `src/renderer/view-models/programOnboarding.ts`.
+- Workspace information/session history modals moved into `src/renderer/features/workspaces/WorkspaceModals.tsx`.
+- Workspace onboarding modal rendering moved into `src/renderer/features/workspaces/WorkspaceOnboardingModal.tsx`.
+- Workspace onboarding template defaults and form conversion moved into `src/renderer/view-models/workspaceOnboarding.ts`.
 - New research session modal rendering moved into `src/renderer/features/sessions/StartRunForm.tsx`.
 - Shared run-setting defaults, unbounded budget constants, and request-id helpers moved into `src/renderer/view-models/runSettings.ts`.
 - Unreachable legacy run tracker, run detail, inspector, hardening, and benchmark panels were removed from `src/renderer/App.tsx` instead of moved.
@@ -246,7 +246,7 @@ Implementation note, 2026-04-30:
 - Research item provenance helpers moved into `src/renderer/view-models/researchItems.ts`.
 - Session heat helpers moved into `src/renderer/view-models/sessionHeat.ts`.
 - Shared label, date, duration, priority, percent, state class, and truncation helpers moved into `src/renderer/lib/formatting.ts`.
-- Host and VM footer display helpers moved into `src/renderer/view-models/environmentDisplay.ts`.
+- The footer-only host and VM display helpers were removed with the persistent device label.
 - Run detail selection, incremental update merge, cursor, and instrumentation summary helpers moved into `src/renderer/view-models/runDetailUpdates.ts`.
 - Inset scrollbar activation moved into `src/renderer/hooks/useInsetScrollbarActivation.ts`.
 - Resizable sidebar state and width clamping moved into `src/renderer/hooks/useResizableSidebar.ts`.
@@ -254,9 +254,9 @@ Implementation note, 2026-04-30:
 - App shell class, selected run detail/status, VM preference, and window platform derivation moved into `src/renderer/view-models/appShell.ts`.
 - Active run-detail polling, version checks, and incremental update application moved into `src/renderer/hooks/useRunDetailPolling.ts`.
 - Trace selection state moved into `src/renderer/hooks/useTraceSelection.ts`, with selected event/finding/hypothesis context in `src/renderer/view-models/traceSelection.ts`.
-- Program menu, program information modal, and session history modal state moved into `src/renderer/hooks/useProgramOverlayState.ts`.
+- Workspace menu, workspace information modal, and session history modal state moved into `src/renderer/hooks/useWorkspaceOverlayState.ts`.
 - App modal rendering moved into `src/renderer/app/AppModals.tsx`.
 - Workspace bootstrap, live snapshot subscriptions, and selected-run preservation moved into `src/renderer/hooks/useWorkspaceRuntime.ts`.
-- Program action handlers moved into `src/renderer/hooks/useProgramActions.ts`.
-- HackerOne lookup-to-form mapping moved into `src/renderer/view-models/programOnboarding.ts`.
+- Workspace action handlers moved into `src/renderer/hooks/useWorkspaceActions.ts`.
+- HackerOne lookup-to-form mapping moved into `src/renderer/view-models/workspaceOnboarding.ts`.
 - Direct renderer view-model and helper tests now cover context meter formatting, host/VM footer label behavior, host/guest activity, app shell class/platform/preference derivation, fixed program/session ownership, program lookup/session history, sidebar age formatting, sidebar width clamping, program onboarding templates, HackerOne lookup form application, run-setting defaults, research momentum states, run detail update merging, notification preview text, shared renderer formatting, session header display, trace turn detection, trace timeline grouping/status labels, transcript-to-trace synthesis, trace selection context, trace content labels/details, trace visual labels, research item provenance, evidence sidebar ordering, and session heat scoring.

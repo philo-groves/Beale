@@ -1,5 +1,13 @@
 import type { RunDetail, RunStatus, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
-import { stringRecordValue, traceCategoryForEvent, traceEventOutcome } from '../traceClassification';
+import {
+  honeycrispToolEventKind,
+  honeycrispToolPairingKey,
+  stringRecordValue,
+  traceCategoryForEvent,
+  traceEventOutcome,
+  tracePayloadArray,
+  tracePayloadPrimitive
+} from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
 export interface TraceDisplayEvent extends TraceEventRecord {
@@ -45,6 +53,8 @@ export function traceTurnNumber(event: TraceEventRecord): number | null {
 export function latestTraceTurnNumber(events: TraceEventRecord[]): number | null {
   let latest: number | null = null;
   for (const event of events) {
+    const agentPath = traceAgentPath(event);
+    if (agentPath && agentPath !== '/root') continue;
     latest = traceTurnNumber(event) ?? latest;
   }
   return latest;
@@ -52,10 +62,15 @@ export function latestTraceTurnNumber(events: TraceEventRecord[]): number | null
 
 export function latestTraceGroupKey(events: TraceEventRecord[]): string {
   let key = 'setup';
+  let identity = 'setup';
   for (const event of events) {
     const turnNumber = traceTurnNumber(event);
     if (turnNumber !== null) {
-      key = `turn-${turnNumber}-${event.sequence}`;
+      const nextIdentity = traceTurnIdentity(event, turnNumber);
+      if (nextIdentity !== identity) {
+        identity = nextIdentity;
+        key = traceTurnGroupKey(event, turnNumber);
+      }
     }
   }
   return key;
@@ -63,17 +78,28 @@ export function latestTraceGroupKey(events: TraceEventRecord[]): string {
 
 export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(events: TEvent[], visibleCategories: TraceCategoryId[]): TraceTimelineEntry<TEvent>[] {
   const entries: TraceTimelineEntry<TEvent>[] = [];
+  const pendingToolRequestEventIds = pendingHoneycrispToolRequestEventIds(events);
   let group = createTraceTimelineGroup('setup', 'Setup', events[0]?.createdAt ?? '');
+  let identity = 'setup';
 
   for (const event of events) {
     const turnNumber = traceTurnNumber(event);
     if (turnNumber !== null) {
-      group = createTraceTimelineGroup(`turn-${turnNumber}-${event.sequence}`, `Turn ${turnNumber}`, event.createdAt);
+      const nextIdentity = traceTurnIdentity(event, turnNumber);
+      if (nextIdentity !== identity) {
+        identity = nextIdentity;
+        const agentPath = traceAgentPath(event);
+        group = createTraceTimelineGroup(
+          traceTurnGroupKey(event, turnNumber),
+          agentPath && agentPath !== '/root' ? `${agentPath} · Turn ${turnNumber}` : `Turn ${turnNumber}`,
+          event.createdAt
+        );
+      }
     }
 
     group.updatedAt = event.createdAt;
     const category = traceCategoryForEvent(event);
-    if (!visibleCategories.includes(category)) continue;
+    if (!traceEventVisibleInTimeline(event, category, visibleCategories, pendingToolRequestEventIds.has(event.id))) continue;
 
     group.visibleCount += 1;
     if (category === 'tools' || category === 'code_navigation' || category === 'vm_execution' || category === 'verifier') {
@@ -89,6 +115,126 @@ export function buildTraceTimelineEntries<TEvent extends TraceEventRecord>(event
   }
 
   return entries;
+}
+
+export function traceEventVisibleInTimeline(
+  event: TraceEventRecord,
+  category: TraceCategoryId,
+  visibleCategories: TraceCategoryId[],
+  pendingToolRequest = false
+): boolean {
+  if (pendingToolRequest && honeycrispToolEventKind(event) === 'tool.requested') return true;
+  if (!visibleCategories.includes(category)) return false;
+  return event.modelVisible || visibleCategories.includes('non_standard');
+}
+
+export function pendingHoneycrispToolRequestEventIds(events: readonly TraceEventRecord[]): Set<string> {
+  const pendingByKey = new Map<string, string[]>();
+
+  for (const event of events) {
+    const kind = honeycrispToolEventKind(event);
+    const pairingKey = honeycrispToolPairingKey(event);
+    if (!kind || !pairingKey) continue;
+    if (kind === 'tool.requested') {
+      pendingByKey.set(pairingKey, [...(pendingByKey.get(pairingKey) ?? []), event.id]);
+      continue;
+    }
+    const pending = pendingByKey.get(pairingKey);
+    if (!pending?.length) continue;
+    pending.shift();
+    if (pending.length === 0) pendingByKey.delete(pairingKey);
+  }
+
+  return new Set([...pendingByKey.values()].flat());
+}
+
+export function coalesceConsecutiveReasoningEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): TraceTimelineEntry<TEvent>[] {
+  const coalesced: TraceTimelineEntry<TEvent>[] = [];
+
+  for (const entry of entries) {
+    const previous = coalesced.at(-1);
+    if (
+      previous &&
+      previous.group === entry.group &&
+      previous.event.modelVisible === entry.event.modelVisible &&
+      traceCategoryForEvent(previous.event) === 'reasoning' &&
+      traceCategoryForEvent(entry.event) === 'reasoning'
+    ) {
+      previous.event = mergeReasoningEvents(previous.event, entry.event);
+      continue;
+    }
+    coalesced.push({ ...entry });
+  }
+
+  return coalesced;
+}
+
+export function traceDisplayEventIds(event: TraceEventRecord): string[] {
+  const coalescedIds = stringArrayPayload(event.payload, 'coalescedTraceEventIds');
+  return coalescedIds.length > 0 ? coalescedIds : [event.id];
+}
+
+export function traceDisplayEventContainsId(event: TraceEventRecord, eventId: string | null): boolean {
+  return Boolean(eventId && traceDisplayEventIds(event).includes(eventId));
+}
+
+function mergeReasoningEvents<TEvent extends TraceEventRecord>(previous: TEvent, next: TEvent): TEvent {
+  const reasoningSummaryTexts = [...reasoningSummaryTextsForMerge(previous), ...reasoningSummaryTextsForMerge(next)];
+  const transcriptMessageIds = uniqueStrings([
+    ...stringArrayPayload(previous.payload, 'transcriptMessageIds'),
+    previous.payload.transcriptMessageId,
+    ...stringArrayPayload(next.payload, 'transcriptMessageIds'),
+    next.payload.transcriptMessageId
+  ]);
+  const linkedTraceEventIds = uniqueStrings([
+    ...stringArrayPayload(previous.payload, 'linkedTraceEventIds'),
+    previous.payload.linkedTraceEventId,
+    ...stringArrayPayload(next.payload, 'linkedTraceEventIds'),
+    next.payload.linkedTraceEventId
+  ]);
+
+  return {
+    ...previous,
+    payload: {
+      ...previous.payload,
+      text: reasoningSummaryTexts.join('\n\n'),
+      reasoningSummaryTexts,
+      coalescedTraceEventIds: uniqueStrings([...traceDisplayEventIds(previous), ...traceDisplayEventIds(next)]),
+      ...(transcriptMessageIds.length > 0 ? { transcriptMessageIds } : {}),
+      ...(linkedTraceEventIds.length > 0 ? { linkedTraceEventIds } : {})
+    },
+    modelVisible: previous.modelVisible && next.modelVisible
+  } as TEvent;
+}
+
+function reasoningSummaryTextsForMerge(event: TraceEventRecord): string[] {
+  const existing = stringArrayPayload(event.payload, 'reasoningSummaryTexts');
+  if (existing.length > 0) return existing;
+  const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
+  return text ? [text] : [];
+}
+
+function stringArrayPayload(payload: Record<string, unknown>, key: string): string[] {
+  return (tracePayloadArray(payload, key) ?? []).filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+}
+
+function traceAgentPath(event: TraceEventRecord): string | null {
+  return stringRecordValue(event.payload, 'agentPath');
+}
+
+function traceTurnIdentity(event: TraceEventRecord, turnNumber: number): string {
+  return `${traceAgentPath(event) ?? '/root'}\u0000${turnNumber}`;
+}
+
+function traceTurnGroupKey(event: TraceEventRecord, turnNumber: number): string {
+  const agentPath = traceAgentPath(event);
+  if (!agentPath || agentPath === '/root') return `turn-${turnNumber}-${event.sequence}`;
+  const slug = agentPath.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-');
+  return `agent-${slug}-turn-${turnNumber}-${event.sequence}`;
 }
 
 export function groupRenderedTraceEntries<TEvent extends TraceEventRecord>(entries: TraceTimelineEntry<TEvent>[]): RenderedTraceGroup<TEvent>[] {
@@ -107,7 +253,7 @@ export function groupRenderedTraceEntries<TEvent extends TraceEventRecord>(entri
 export function traceGroupStatusLabel(group: TraceTimelineGroup, latest: boolean, runStatus: RunStatus): TraceGroupStatusLabel {
   if (group.failureCount > 0) return { kind: 'review', label: `${group.failureCount} ${group.failureCount === 1 ? 'Error' : 'Errors'}` };
   if (latest && runStatus === 'active') return { kind: 'active', label: 'Active' };
-  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Complete' };
+  if (group.toolCount > 0 || group.modelCount > 0) return { kind: 'complete', label: 'Turn Complete' };
   return { kind: 'events', label: 'Events' };
 }
 
@@ -166,13 +312,14 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
   const type: TraceEventRecord['type'] = message.role === 'user' ? 'user_note' : 'model_message';
   const summary =
     message.source === 'openai_reasoning_summary'
-      ? 'Thought.'
+      ? 'Reasoning.'
       : message.role === 'assistant'
         ? 'Report agent output.'
         : message.role === 'user'
           ? 'Ask agent.'
           : 'Record system message.';
   const linkedTurn = linkedTraceEvent?.payload.turn;
+  const linkedAgentPath = linkedTraceEvent ? traceAgentPath(linkedTraceEvent) : null;
   const payload: Record<string, unknown> = {
     text: message.contentMarkdown,
     transcriptMessageId: message.id,
@@ -180,6 +327,7 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
     transcriptSource: message.source,
     ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
     ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
+    ...(linkedAgentPath ? { agentPath: linkedAgentPath } : {}),
     metadata: message.metadata
   };
 

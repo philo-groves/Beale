@@ -1,12 +1,28 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, GitFork, Play, RefreshCw, SlidersHorizontal, Square } from 'lucide-react';
-import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
+import { ArrowLeft, ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
+import type {
+  ResearchModelEffortLevel,
+  ResearchModelProviderId,
+  ResearchModelSelection,
+  ResearchProviderModel,
+  ResearchProviderModelCatalog,
+  RunDetail,
+  RunStatus,
+  SteeringAction
+} from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
 import { traceLabel } from '../../lib/formatting';
 import type { TraceCategoryId } from '../../traceClassification';
-import { buildTraceTimelineEntries, groupRenderedTraceEntries, latestTraceGroupKey, type TraceDisplayEvent } from '../../view-models/traceDisplay';
+import {
+  buildTraceTimelineEntries,
+  coalesceConsecutiveReasoningEntries,
+  groupRenderedTraceEntries,
+  latestTraceGroupKey,
+  traceDisplayEventIds,
+  type TraceDisplayEvent
+} from '../../view-models/traceDisplay';
 import { TraceTurnGroup } from './TraceTurnGroup';
 
 interface TraceScrollAnchor {
@@ -20,23 +36,29 @@ interface TraceScrollAnchorOptions {
 }
 
 const TRACE_RENDER_WINDOW_SIZE = 50;
-const TRACE_ESTIMATED_EVENT_HEIGHT = 58;
+const TRACE_ESTIMATED_EVENT_HEIGHT = 68;
 const TRACE_AUTO_FOLLOW_THRESHOLD = TRACE_ESTIMATED_EVENT_HEIGHT * 2;
 const TRACE_WINDOW_SLIDE_STEP = 12;
 const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
+const STEER_ACTION_ROW_HEIGHT = 39;
+const STEER_COMPOSER_ROW_GAP = 4;
 
 export const TraceView = memo(function TraceView({
   busy,
   detail,
   events,
+  providerModelCatalog,
   selectedRunId,
+  traceScopeKey,
+  showBackToMain,
   selectedTraceEventId,
   searchHighlightQuery,
   traceFilterCount,
   totalTraceFilterCount,
   visibleTraceCategories,
+  onBackToMain,
   onOpenTraceFilters,
   onSelectTraceEvent,
   onSessionAction,
@@ -45,28 +67,32 @@ export const TraceView = memo(function TraceView({
   busy: boolean;
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
   selectedRunId: string | null;
+  traceScopeKey: string;
+  showBackToMain: boolean;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   visibleTraceCategories: TraceCategoryId[];
+  onBackToMain: () => void;
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const loading = !detail;
   const traceFilterKey = visibleTraceCategories.join('|');
   const timelineEntries = useMemo(
     () =>
-      devInstrumentation.time('trace.buildTimelineEntries', () => buildTraceTimelineEntries(events, visibleTraceCategories), {
+      devInstrumentation.time('trace.buildTimelineEntries', () => coalesceConsecutiveReasoningEntries(buildTraceTimelineEntries(events, visibleTraceCategories)), {
         events: events.length,
         categories: visibleTraceCategories.length
       }),
     [events, traceFilterKey]
   );
-  const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceFilterKey}`;
+  const tracePresentationKey = `${selectedRunId ?? 'none'}:${traceScopeKey}:${traceFilterKey}`;
   const timelineEntryIds = useMemo(() => timelineEntries.map((entry) => entry.event.id), [timelineEntries]);
   const timelineEntryKey = useMemo(() => timelineEntryIds.join('|'), [timelineEntryIds]);
   const [revealedTraceEntryIds, setRevealedTraceEntryIds] = useState<Set<string>>(() => new Set(timelineEntryIds));
@@ -74,7 +100,10 @@ export const TraceView = memo(function TraceView({
   const [traceRevealQueueVersion, setTraceRevealQueueVersion] = useState(0);
   const presentedTimelineEntries = useMemo(() => timelineEntries.filter((entry) => revealedTraceEntryIds.has(entry.event.id)), [revealedTraceEntryIds, timelineEntries]);
   const presentedEvents = useMemo(() => presentedTimelineEntries.map((entry) => entry.event), [presentedTimelineEntries]);
-  const presentedEntryIndexById = useMemo(() => new Map(presentedTimelineEntries.map((entry, index) => [entry.event.id, index])), [presentedTimelineEntries]);
+  const presentedEntryIndexById = useMemo(
+    () => new Map(presentedTimelineEntries.flatMap((entry, index) => traceDisplayEventIds(entry.event).map((eventId) => [eventId, index] as const))),
+    [presentedTimelineEntries]
+  );
   const latestPresentedEventId = presentedEvents.at(-1)?.id ?? '';
   const maxWindowStart = Math.max(0, presentedTimelineEntries.length - TRACE_RENDER_WINDOW_SIZE);
   const [traceWindowStart, setTraceWindowStart] = useState(maxWindowStart);
@@ -326,7 +355,7 @@ export const TraceView = memo(function TraceView({
     if (pendingSelectedTraceCenterRef.current !== selectedTraceEventId) return undefined;
     const traceList = traceListRef.current;
     if (!traceList) return undefined;
-    const selectedNode = traceEventNodes(traceList).find((node) => node.dataset.traceEventId === selectedTraceEventId);
+    const selectedNode = traceEventNodes(traceList).find((node) => traceNodeContainsEventId(node, selectedTraceEventId));
     if (!selectedNode) return undefined;
 
     traceFollowLatestRef.current = false;
@@ -361,7 +390,7 @@ export const TraceView = memo(function TraceView({
   useEffect(() => {
     traceFollowLatestRef.current = true;
     setTraceWindowStart(0);
-  }, [selectedRunId, traceFilterKey]);
+  }, [selectedRunId, traceFilterKey, traceScopeKey]);
 
   useEffect(() => {
     setTraceWindowStart((current) => Math.min(current, maxWindowStart));
@@ -440,6 +469,17 @@ export const TraceView = memo(function TraceView({
 
   return (
     <section className="main-trace-view" aria-label="Agent trace">
+      {showBackToMain ? (
+        <button
+          type="button"
+          className="back-to-main-button trace-back-to-main-button"
+          title="Return to the full session trace"
+          onClick={onBackToMain}
+        >
+          <ArrowLeft size={14} />
+          <span>Back to Main</span>
+        </button>
+      ) : null}
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
       {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
       {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
@@ -468,7 +508,7 @@ export const TraceView = memo(function TraceView({
       <MainSteerArea
         busy={busy}
         detail={detail}
-        modelLabel={detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
+        providerModelCatalog={providerModelCatalog}
         runId={detail?.run.id ?? null}
         traceFilterCount={traceFilterCount}
         totalTraceFilterCount={totalTraceFilterCount}
@@ -483,7 +523,7 @@ export const TraceView = memo(function TraceView({
 const MainSteerArea = memo(function MainSteerArea({
   runId,
   detail,
-  modelLabel,
+  providerModelCatalog,
   busy,
   traceFilterCount,
   totalTraceFilterCount,
@@ -493,15 +533,17 @@ const MainSteerArea = memo(function MainSteerArea({
 }: {
   runId: string | null;
   detail: RunDetail | null;
-  modelLabel: string;
+  providerModelCatalog: ResearchProviderModelCatalog[];
   busy: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
+  const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
   const footerRef = useRef<HTMLElement | null>(null);
   const controlRowRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -512,6 +554,27 @@ const MainSteerArea = memo(function MainSteerArea({
   const status = detail?.run.status ?? null;
   const inProgress = status === 'active' || status === 'queued';
   const controlsDisabled = busy || !runId;
+  const providerId = runModelProvider(detail, providerModelCatalog);
+  const providerCatalog = providerModelCatalog.find((catalog) => catalog.providerId === providerId) ?? null;
+  const modelOptions = providerCatalog?.models.length
+    ? providerCatalog.models
+    : detail ? [fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort))] : [];
+  const selectedModel = modelOptions.find((model) => model.id === selectedModelId) ?? modelOptions[0] ?? null;
+  const modelSelection: ResearchModelSelection = {
+    provider: providerId,
+    model: selectedModel?.id ?? detail?.run.model ?? '',
+    reasoningEffort: selectedEffort
+  };
+
+  useEffect(() => {
+    if (!detail) return;
+    const nextModel = providerModelCatalog
+      .find((catalog) => catalog.providerId === runModelProvider(detail, providerModelCatalog))
+      ?.models.find((model) => model.id === detail.run.model);
+    const nextEffort = preferredResearchEffort(nextModel?.effortLevels ?? [researchEffort(detail.run.reasoningEffort)], researchEffort(detail.run.reasoningEffort));
+    setSelectedModelId(nextModel?.id ?? detail.run.model);
+    setSelectedEffort(nextEffort);
+  }, [detail?.run.id, detail?.run.model, detail?.run.reasoningEffort, providerModelCatalog]);
 
   const resizeTextarea = useCallback((): void => {
     const textarea = textareaRef.current;
@@ -530,7 +593,8 @@ const MainSteerArea = memo(function MainSteerArea({
     const controlHeight = controlRow?.offsetHeight ?? 0;
     const controlMarginTop = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginTop) || 0 : 0;
     const controlMarginBottom = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginBottom) || 0 : 0;
-    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom + nextHeight;
+    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom
+      + nextHeight + STEER_ACTION_ROW_HEIGHT + STEER_COMPOSER_ROW_GAP;
 
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
@@ -544,7 +608,7 @@ const MainSteerArea = memo(function MainSteerArea({
     pasteCaretRef.current = null;
     textareaRef.current?.focus({ preventScroll: true });
     textareaRef.current?.setSelectionRange(pasteCaret, pasteCaret);
-  }, [instruction, modelLabel, resizeTextarea, status]);
+  }, [instruction, resizeTextarea, status]);
 
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
@@ -588,38 +652,40 @@ const MainSteerArea = memo(function MainSteerArea({
 
   const submit = (): void => {
     if (disabled || !runId) return;
-    onSteerInstruction(runId, trimmedInstruction);
+    onSteerInstruction(runId, trimmedInstruction, modelSelection);
     setInstruction('');
   };
 
-  const forkSession = (): void => {
+  const pauseSession = (): void => {
     if (controlsDisabled || !runId) return;
-    onSessionAction({
-      type: 'fork',
-      runId,
-      instruction: trimmedInstruction || 'Fork from the current session state and continue independent vulnerability research.'
-    });
-    setInstruction('');
+    onSessionAction({ type: 'pause', runId, note: 'Pause requested from session controls.' });
   };
 
-  const restartSession = (): void => {
+  const stopSession = (): void => {
     if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'restart_from_snapshot', runId, note: 'Restart requested from session controls.' });
-  };
-
-  const abortSession = (): void => {
-    if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'stop', runId, note: 'Abort requested from session controls.' });
+    onSessionAction({ type: 'stop', runId, note: 'Stop requested from session controls.' });
   };
 
   const continueSession = (): void => {
     if (controlsDisabled || !runId) return;
-    if (trimmedInstruction) {
-      onSessionAction({ type: 'steer', runId, instruction: trimmedInstruction });
+    if (status === 'paused') {
+      onSessionAction({
+        type: 'resume',
+        runId,
+        modelSelection,
+        ...(trimmedInstruction ? { instruction: trimmedInstruction } : {}),
+        note: 'Continue requested from session controls.'
+      });
       setInstruction('');
       return;
     }
-    onSessionAction({ type: 'resume', runId, note: 'Continue requested from session controls.' });
+    onSessionAction({
+      type: 'steer',
+      runId,
+      instruction: trimmedInstruction || 'Continue the current research session.',
+      modelSelection
+    });
+    setInstruction('');
   };
 
   return (
@@ -627,23 +693,29 @@ const MainSteerArea = memo(function MainSteerArea({
       <div className="main-steer-control-row" ref={controlRowRef}>
         <span className="main-steer-status">{sessionControlStatusLabel(status)}</span>
         <div className="main-session-controls" aria-label="Session controls">
+          <button
+            type="button"
+            className="main-session-control-button primary"
+            title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            onClick={onOpenTraceFilters}
+          >
+            <SlidersHorizontal size={12} />
+            <span>Filters</span>
+          </button>
           {inProgress ? (
             <>
-              <button type="button" className="main-session-control-button" title="Fork this session" disabled={controlsDisabled} onClick={forkSession}>
-                <GitFork size={12} />
-                <span>Fork</span>
+              <button type="button" className="main-session-control-button" title="Pause this session" disabled={controlsDisabled || status !== 'active'} onClick={pauseSession}>
+                <Pause size={12} />
+                <span>Pause</span>
               </button>
-              <button type="button" className="main-session-control-button" title="Restart from snapshot" disabled={controlsDisabled} onClick={restartSession}>
-                <RefreshCw size={12} />
-                <span>Restart</span>
-              </button>
-              <button type="button" className="main-session-control-button danger" title="Abort this session" disabled={controlsDisabled} onClick={abortSession}>
+              <button type="button" className="main-session-control-button danger" title="Stop this session" disabled={controlsDisabled} onClick={stopSession}>
                 <Square size={11} />
-                <span>Abort</span>
+                <span>Stop</span>
               </button>
             </>
           ) : (
-            <button type="button" className="main-session-control-button primary" title="Continue this session" disabled={controlsDisabled} onClick={continueSession}>
+            <button type="button" className="main-session-control-button primary" title={status === 'paused' ? 'Resume this session' : 'Continue this session'} disabled={controlsDisabled} onClick={continueSession}>
               <Play size={12} />
               <span>Continue</span>
             </button>
@@ -664,18 +736,31 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
-        <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
-          {modelLabel}
-        </button>
-        <button
-          type="button"
-          className="main-steer-filter"
-          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          onClick={onOpenTraceFilters}
+        <select
+          className="main-steer-model-picker"
+          value={selectedModel?.id ?? ''}
+          title="Model for the next agent turn"
+          aria-label="Model for the next agent turn"
+          disabled={!selectedModel || controlsDisabled}
+          onChange={(event) => {
+            const model = modelOptions.find((candidate) => candidate.id === event.target.value);
+            if (!model) return;
+            setSelectedModelId(model.id);
+            setSelectedEffort((current) => preferredResearchEffort(model.effortLevels, current));
+          }}
         >
-          <SlidersHorizontal size={14} />
-        </button>
+          {modelOptions.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
+        </select>
+        <select
+          className="main-steer-effort-picker"
+          value={selectedEffort}
+          title="Reasoning effort for the next agent turn"
+          aria-label="Reasoning effort for the next agent turn"
+          disabled={!selectedModel || controlsDisabled}
+          onChange={(event) => setSelectedEffort(event.target.value as ResearchModelEffortLevel)}
+        >
+          {(selectedModel?.effortLevels ?? []).map((effort) => <option value={effort} key={effort}>{researchEffortLabel(effort)}</option>)}
+        </select>
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />
         </button>
@@ -683,6 +768,39 @@ const MainSteerArea = memo(function MainSteerArea({
     </footer>
   );
 });
+
+function runModelProvider(detail: RunDetail | null, catalogs: ResearchProviderModelCatalog[]): ResearchModelProviderId {
+  const stored = detail?.run.budget.modelProvider;
+  if (stored === 'openai-codex' || stored === 'anthropic' || stored === 'xai') return stored;
+  const matchingCatalog = catalogs.find((catalog) => catalog.models.some((model) => model.id === detail?.run.model));
+  return matchingCatalog?.providerId ?? 'openai-codex';
+}
+
+function researchEffort(value: string | undefined): ResearchModelEffortLevel {
+  if (
+    value === 'minimal' || value === 'low' || value === 'medium' || value === 'high'
+    || value === 'xhigh' || value === 'max'
+  ) return value;
+  return 'off';
+}
+
+function preferredResearchEffort(
+  levels: ResearchModelEffortLevel[],
+  current: ResearchModelEffortLevel
+): ResearchModelEffortLevel {
+  if (levels.includes(current)) return current;
+  if (levels.includes('high')) return 'high';
+  return levels[0] ?? 'off';
+}
+
+function fallbackResearchModel(model: string, effort: ResearchModelEffortLevel): ResearchProviderModel {
+  return { id: model, name: model, reasoning: effort !== 'off', effortLevels: [effort], contextWindow: 0, maxTokens: 0 };
+}
+
+function researchEffortLabel(effort: ResearchModelEffortLevel): string {
+  if (effort === 'xhigh') return 'XHigh';
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
+}
 
 function sessionControlStatusLabel(status: RunStatus | null): string {
   if (!status) return 'NO SESSION SELECTED';
@@ -692,6 +810,11 @@ function sessionControlStatusLabel(status: RunStatus | null): string {
 
 function traceEventNodes(list: HTMLDivElement): HTMLElement[] {
   return Array.from(list.querySelectorAll<HTMLElement>('[data-trace-event-id]'));
+}
+
+function traceNodeContainsEventId(node: HTMLElement, eventId: string): boolean {
+  if (node.dataset.traceEventId === eventId) return true;
+  return (node.dataset.traceEventIds ?? '').split(' ').includes(eventId);
 }
 
 function captureTraceScrollAnchor(list: HTMLDivElement, options: TraceScrollAnchorOptions = {}): TraceScrollAnchor | null {

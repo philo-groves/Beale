@@ -122,10 +122,9 @@ Possible UI treatments:
 
 - A concise session status phrase near the session header or inspector.
 - A small activity chip or tooltip that explains the derived state.
-- A footer momentum line that behaves like a taut string: flat for idle/waiting, barely vibrating for exploring, stronger string motion for building, rapid vibration for verifying, overdriven motion for hot leads, and jagged motion for stuck sessions.
-- Subtle animation on host/guest tags during active host or guest work.
 - A trace rail treatment for verifying or hot momentum.
 - A quiet "stuck" signal in the trace or inspector when repeated failures are detected.
+- Subtle workbench background treatment that does not consume dedicated footer space.
 
 Suggested labels:
 
@@ -200,8 +199,6 @@ Momentum motion should be calmer than severity heat.
 Allowed:
 
 - Short slide-in trace events.
-- A thin footer line whose string-like waveform and speed reflect the current momentum state.
-- Host or guest activity shimmer while commands are actually running.
 - Low-amplitude edge or rail motion while verifying.
 - A single settle transition when a state changes.
 
@@ -212,7 +209,7 @@ Avoid:
 - Mascot-style emotional reactions.
 - Motion based only on model prose.
 
-Beale should honor `prefers-reduced-motion`. Momentum labels and tooltips should remain available when motion is disabled.
+Beale should honor `prefers-reduced-motion`. Momentum labels and explanations should remain available when motion is disabled. The footer is reserved for compact context usage, cumulative session tokens, and Settings; it does not visualize momentum or host-device state.
 
 ## Implementation Shape
 

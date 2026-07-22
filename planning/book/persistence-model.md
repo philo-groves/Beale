@@ -1,12 +1,14 @@
 # Persistence Model
 
-Status: accepted initial direction, 2026-04-26.
+Status: revised global-database direction, 2026-07-21.
 
 ## Decision
 
-Beale should use local embedded SQLite databases for authoritative persistent state.
+Beale and Honeycrisp use one user-global embedded SQLite database at `~/.honeycrisp/memory.sqlite`. Honeycrisp owns the database contract so headless and desktop operation are compatible without synchronization, peer-database discovery, or import steps between active workspaces.
 
-Each Beale workspace directory gets its own database. Beale should not use one global database for all targets or programs.
+Every workspace, scope, run, and durable-memory record retains explicit workspace ownership. Beale database connections carry a current workspace identity and scope operational queries to it. Durable memory applies its session, workspace, and subject visibility rules inside the shared database.
+
+Repository checkout storage is separate from SQLite: source code may be stored once in a user-global Beale repository store and referenced by multiple workspace records. The reference is workspace-scoped, and a global checkout is not globally visible to agents.
 
 Remote persistence, remote sync, and hosted storage are not first-release goals and should not be planned as an expected future path.
 
@@ -20,21 +22,25 @@ Authorized vulnerability research data is sensitive:
 - Crash inputs and corpora.
 - Potential zero-days.
 - Exploitability notes.
-- Private program scope and authorization details.
+- Private scope and authorization details.
 - Disclosure drafts.
 - Tool traces that may contain secrets or proprietary data.
 
 Keeping persistence local reduces unnecessary exposure and makes the security model easier to reason about.
 
-Per-workspace databases also reduce accidental cross-program lookup. A researcher working on multiple authorized programs on the same machine should not accidentally retrieve hypotheses, traces, artifacts, or findings from another program.
+One database reduces path coordination and makes the same record set available to headless Honeycrisp and Beale. Cross-scope isolation remains mandatory: operational queries are workspace-scoped, session memory is session-scoped, workspace memory is workspace-scoped, and only subject-tier memory crosses workspaces with the same normalized owner or subject.
 
 ## Storage Layout
 
-Proposed local workspace layout:
+Local storage layout:
 
 ```text
+~/.honeycrisp/
+  memory.sqlite
+  artifacts/
+
+<workspace>/
 .beale/
-  beale.sqlite
   artifacts/
     sha256/
       ab/
@@ -43,11 +49,11 @@ Proposed local workspace layout:
   logs/
 ```
 
-The exact directory names can change during implementation, but the isolation principle should not.
+The legacy workspace-local `.honeycrisp/memory/memory.sqlite` is retained only as an untouched migration source after its records are adopted globally.
 
 ## Authoritative State
 
-SQLite is the source of truth for structured state:
+`~/.honeycrisp/memory.sqlite` is the source of truth for structured state. Operational tables include:
 
 - Targets.
 - Runs.
@@ -62,6 +68,16 @@ SQLite is the source of truth for structured state:
 - Tool calls.
 - Artifact metadata.
 - Search indexes.
+
+Durable knowledge is a separate logical layer in the same database. It contains concise typed nodes, normalized asset and tag links, directed relationships, revisions, and evidence references. Each node records its origin session, workspace, and optional scope owner or subject, plus a visibility tier:
+
+- `session`: visible only to the originating research session.
+- `workspace`: reusable across sessions in the originating workspace.
+- `subject`: reusable across workspaces with the same normalized owner or subject.
+
+Runbooks are a first-class artifact family rather than memory nodes. Their workspace-owned metadata and optimistic revision live in SQLite; their ordered markdown/code cells and bounded recorded outputs live as Jupyter `nbformat 4` files under `~/.honeycrisp/artifacts/runbooks/<workspace-id>/`. A runbook never bypasses the normal Honeycrisp tool boundary: commands recorded in a notebook are executed separately through `shell.run`.
+
+Subject visibility reads only durable graph tables. Run events, transcripts, bulk outputs, operational findings, and artifact contents remain partitioned by their originating workspace and must not be promoted automatically into durable knowledge.
 
 Large binary payloads should not be stored directly in normal relational tables. They should live as files in the workspace artifact store and be referenced by content hash and metadata from SQLite.
 
@@ -85,9 +101,10 @@ Required:
 
 - Structured search over entity fields, states, timestamps, paths, symbols, CVEs, CWEs, components, tool names, artifact hashes, and run IDs.
 - SQLite full-text search over notes, summaries, hypotheses, findings, reports, and selected tool-output summaries.
-- Per-program local semantic search over scoped workspace data, with per-program disable controls.
+- Per-workspace local semantic search over scoped data, with per-workspace disable controls.
+- Tier-aware durable-memory search over the current session/workspace and matching subject records.
 
-Semantic search must stay workspace-local and should never query across independent Beale workspaces.
+Semantic and operational search must remain workspace-scoped unless a user explicitly selects a cross-workspace view. Subject-tier memory visibility is not unrestricted global semantic search.
 
 ## Trace Model
 
@@ -112,7 +129,7 @@ Beale should support explicit local export/import later, but export is not the s
 
 Useful exports:
 
-- A complete workspace archive for backup.
+- A workspace file archive plus a separately designed global-database backup/export.
 - A finding disclosure package.
 - A benchmark/regression run bundle.
 - A redacted report package.
@@ -123,10 +140,10 @@ Exports must be user-initiated and should make included data clear before writin
 
 - Remote-hosted project database.
 - Cloud sync.
-- Cross-workspace global search.
+- Unscoped cross-workspace operational search.
 - Shared multi-user backend.
 - Background upload of traces, artifacts, or findings.
 
 ## Planning Consequence
 
-The storage schema should assume local-first isolation. Every entity belongs to one workspace database, and cross-program research correlation must be explicit import/export work rather than an accidental default.
+The storage schema assumes one local global database with explicit ownership. Every operational entity belongs to a workspace, and Beale must scope its queries to the current workspace. Cross-workspace durable-memory correlation is allowed only through the explicit subject tier; broader correlation requires an explicit user-selected view.

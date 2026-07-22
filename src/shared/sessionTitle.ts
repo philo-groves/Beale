@@ -54,8 +54,6 @@ const TITLE_STOP_WORDS = new Set([
   'with'
 ]);
 
-const LEGACY_TITLE_FALLBACKS = new Set(['Open discovery run', 'OpenAI discovery run', 'VM executor alpha run', 'Untitled research', 'Untitled run']);
-
 export function generateSessionTitle(promptMarkdown: string): string {
   const text = promptTitleText(promptMarkdown);
   if (!text) return SESSION_TITLE_FALLBACK;
@@ -78,7 +76,7 @@ export function displaySessionTitle(title: string | null | undefined, promptMark
 
 export function isGeneratedSessionTitle(title: string): boolean {
   const normalized = normalizeTitle(title);
-  if (!normalized || LEGACY_TITLE_FALLBACKS.has(normalized)) return false;
+  if (!normalized) return false;
   return titleWords(normalized).length <= SESSION_TITLE_MAX_WORDS;
 }
 

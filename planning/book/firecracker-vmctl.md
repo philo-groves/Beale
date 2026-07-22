@@ -103,7 +103,7 @@ Benchmark execution remains `offline`. Benchmark isolation is handled by the Doc
 - A production Firecracker jailer profile.
 - A general host shell.
 - Docker as the normal sandbox boundary.
-- Passing OpenAI credentials or `.beale/beale.sqlite` into the guest.
+- Passing OpenAI credentials or the global database into the guest.
 
 ## Alignment
 

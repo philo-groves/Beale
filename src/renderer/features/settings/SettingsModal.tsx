@@ -1,78 +1,59 @@
-import { useEffect, useState, type JSX } from 'react';
-import { Bug, DatabaseZap, FolderPlus, KeyRound, RefreshCw, Save, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import type { JSX } from 'react';
+import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
+import { Bug, KeyRound, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import type {
-  CyberGymBenchmarkSettings,
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
-  ExecutorBackendKind,
-  ExecutorBackendStatus,
-  ExecutorStatus,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
-  ProjectSemanticSummary,
-  SandboxSetupInput,
-  SandboxSetupResult,
-  VmPreference,
-  VmPreferenceInput
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
+  ShellOptions
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
-import { formatSessionDateTime, stateClass } from '../../lib/formatting';
-import { findBackendByKind } from '../../view-models/environmentDisplay';
+import { stateClass } from '../../lib/formatting';
 
-export type SettingsSection = 'general' | 'sandboxes' | 'providers' | 'benchmarking' | 'developer';
+export type SettingsSection = 'general' | 'providers' | 'shell' | 'developer';
 
 export function SettingsModal({
   section,
   developerSettings,
-  executor,
-  projectSemantic,
-  programName,
-  vmPreference,
+  shellOptions,
+  workspaceName,
   openAiStatus,
   openAiOAuthResult,
+  researchProviderOAuthResults,
+  researchProviderStatuses,
   busy,
   onChangeSection,
-  onClearCyberGymCache,
   onClose,
-  onPrepareCyberGymStorage,
-  onSetVmPreference,
-  onRefreshProjectSemanticIndex,
   onSetDeveloperModeEnabled,
-  onSetProjectSemanticIndexEnabled,
-  onSetupSandbox,
+  onSaveShellOptions,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
-  onUpdateCyberGymSettings
+  onStartResearchProviderOAuth
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
-  executor: ExecutorStatus | null;
-  projectSemantic: ProjectSemanticSummary | null;
-  programName: string | null;
-  vmPreference: VmPreference;
+  shellOptions: ShellOptions | null;
+  workspaceName: string | null;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
   onClose: () => void;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
-  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
-  onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
+  onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
-  const developerModeEnabled = developerSettings?.developerModeEnabled ?? false;
-  const sections: SettingsSection[] = developerModeEnabled
-    ? ['general', 'sandboxes', 'providers', 'benchmarking', 'developer']
-    : ['general', 'sandboxes', 'providers', 'developer'];
-  const activeSection = section === 'benchmarking' && !developerModeEnabled ? 'developer' : section;
+  const sections: SettingsSection[] = ['general', 'providers', 'shell', 'developer'];
+  const activeSection = sections.includes(section) ? section : 'general';
 
   return (
     <Modal
@@ -95,25 +76,20 @@ export function SettingsModal({
         </nav>
         <section className="settings-view">
           {activeSection === 'general' ? (
-            <GeneralSettingsView
-              busy={busy}
-              projectSemantic={projectSemantic}
-              programName={programName}
-              onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
-              onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
-            />
-          ) : activeSection === 'sandboxes' ? (
-            <SandboxSettingsView busy={busy} executor={executor} vmPreference={vmPreference} onSetupSandbox={onSetupSandbox} onSetVmPreference={onSetVmPreference} />
+            <GeneralSettingsView workspaceName={workspaceName} />
           ) : activeSection === 'providers' ? (
-            <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
-          ) : activeSection === 'benchmarking' ? (
-            <BenchmarkingSettingsView
+            <ProvidersSettingsView
               busy={busy}
-              developerSettings={developerSettings}
-              onClearCyberGymCache={onClearCyberGymCache}
-              onPrepareCyberGymStorage={onPrepareCyberGymStorage}
-              onUpdateCyberGymSettings={onUpdateCyberGymSettings}
+              openAiOAuthResult={openAiOAuthResult}
+              openAiStatus={openAiStatus}
+              researchProviderOAuthResults={researchProviderOAuthResults}
+              researchProviderStatuses={researchProviderStatuses}
+              onRefreshOpenAi={onRefreshOpenAi}
+              onStartOpenAiOAuth={onStartOpenAiOAuth}
+              onStartResearchProviderOAuth={onStartResearchProviderOAuth}
             />
+          ) : activeSection === 'shell' ? (
+            <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
           ) : (
             <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
           )}
@@ -123,73 +99,130 @@ export function SettingsModal({
   );
 }
 
-function GeneralSettingsView({
-  projectSemantic,
-  programName,
+function ShellOptionsView({
+  options,
   busy,
-  onRefreshProjectSemanticIndex,
-  onSetProjectSemanticIndexEnabled
+  onSave
 }: {
-  projectSemantic: ProjectSemanticSummary | null;
-  programName: string | null;
+  options: ShellOptions | null;
   busy: boolean;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
+  onSave: (options: ShellOptions) => Promise<void>;
 }): JSX.Element {
+  const [draft, setDraft] = useState<ShellOptions>(options ?? { defaultConcurrency: 4, utilities: { sudo: 0 } });
+  const [newUtility, setNewUtility] = useState('');
+  useEffect(() => {
+    if (options) setDraft({ defaultConcurrency: options.defaultConcurrency, utilities: { ...options.utilities } });
+  }, [options]);
+  const utilities = useMemo(
+    () => Object.entries(draft.utilities).sort(([left], [right]) => (left === 'sudo' ? -1 : right === 'sudo' ? 1 : left.localeCompare(right))),
+    [draft.utilities]
+  );
+  const addUtility = (): void => {
+    const utility = newUtility.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u.test(utility) || utility in draft.utilities) return;
+    setDraft((current) => ({ ...current, utilities: { ...current.utilities, [utility]: current.defaultConcurrency } }));
+    setNewUtility('');
+  };
+  const setConcurrency = (utility: string, concurrency: number): void => {
+    setDraft((current) => ({ ...current, utilities: { ...current.utilities, [utility]: boundedConcurrency(concurrency) } }));
+  };
+  const removeUtility = (utility: string): void => {
+    setDraft((current) => {
+      const utilities = { ...current.utilities };
+      delete utilities[utility];
+      return { ...current, utilities };
+    });
+  };
+
+  return (
+    <div className="settings-page shell-options-page">
+      <div className="settings-page-header">
+        <h3>Shell Options</h3>
+        <button type="button" className="primary-button" disabled={busy || !options} onClick={() => void onSave(draft)}>
+          Save Changes
+        </button>
+      </div>
+      <section className="provider-card shell-options-card">
+        <div className="provider-heading">
+          <div className="status-icon"><Terminal size={18} /></div>
+          <div>
+            <h4>Utility Concurrency</h4>
+            <p>Limits apply harness-wide to each executable. A limit of 0 disables that utility before Honeycrisp starts it.</p>
+          </div>
+        </div>
+        <label className="shell-option-default">
+          <span>Default per utility</span>
+          <input
+            type="number"
+            min={0}
+            max={64}
+            step={1}
+            value={draft.defaultConcurrency}
+            disabled={busy}
+            onChange={(event) => setDraft((current) => ({ ...current, defaultConcurrency: boundedConcurrency(event.target.valueAsNumber) }))}
+          />
+        </label>
+        <div className="shell-utility-list">
+          {utilities.map(([utility, concurrency]) => (
+            <div className="shell-utility-row" key={utility}>
+              <code>{utility}</code>
+              <input
+                aria-label={`${utility} concurrency`}
+                type="number"
+                min={0}
+                max={64}
+                step={1}
+                value={concurrency}
+                disabled={busy}
+                onChange={(event) => setConcurrency(utility, event.target.valueAsNumber)}
+              />
+              <button type="button" title={`Remove ${utility} override`} disabled={busy} onClick={() => removeUtility(utility)}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="shell-utility-add">
+          <input
+            value={newUtility}
+            disabled={busy}
+            placeholder="Utility name"
+            aria-label="Utility name"
+            onChange={(event) => setNewUtility(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                addUtility();
+              }
+            }}
+          />
+          <button type="button" disabled={busy || !newUtility.trim()} onClick={addUtility}>
+            <Plus size={14} /> Add Override
+          </button>
+        </div>
+        <p className="provider-detail">Commands run with the current user's host privileges. Utility limits are process-broker controls, not operating-system isolation.</p>
+      </section>
+    </div>
+  );
+}
+
+function boundedConcurrency(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(64, Math.trunc(value)));
+}
+
+function GeneralSettingsView({ workspaceName }: { workspaceName: string | null }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
       <div className="settings-page-header">
         <h3>General</h3>
       </div>
-      <section className={`provider-card semantic-index-card readiness-${stateClass(projectSemantic?.status ?? 'disabled')}`}>
+      <section className="provider-card readiness-enabled">
         <div className="provider-heading">
-          <div className="status-icon">
-            <DatabaseZap size={18} />
-          </div>
           <div>
-            <h4>Program Understanding</h4>
-            <p>{semanticHeading(projectSemantic, programName)}</p>
+            <h4>{workspaceName || 'Current Workspace'}</h4>
+            <p>Honeycrisp runs with the current user's host privileges. Launch Beale and Honeycrisp inside your own VM or container when you want operating-system isolation.</p>
           </div>
-          <StatusPill status={projectSemantic?.status ?? 'disabled'} />
-        </div>
-
-        <div className="provider-grid semantic-provider-grid">
-          <div>
-            <span>Chunks</span>
-            <strong>{projectSemantic ? projectSemantic.chunkCount.toLocaleString() : '0'}</strong>
-          </div>
-          <div>
-            <span>Sources</span>
-            <strong>{semanticSourceLabel(projectSemantic)}</strong>
-          </div>
-          <div>
-            <span>Size</span>
-            <strong>{formatSemanticBytes(projectSemantic?.indexSizeBytes ?? 0)}</strong>
-          </div>
-          <div>
-            <span>Build</span>
-            <strong>{formatSemanticDuration(projectSemantic?.lastRefreshDurationMs ?? null)}</strong>
-          </div>
-        </div>
-
-        <p className="provider-detail">{semanticDetail(projectSemantic)}</p>
-
-        <div className="semantic-namespace-list" aria-label="Semantic index namespaces">
-          {semanticNamespaceRows(projectSemantic).map(([namespace, count]) => (
-            <div key={namespace}>
-              <span>{namespaceLabel(namespace)}</span>
-              <strong>{count.toLocaleString()}</strong>
-            </div>
-          ))}
-        </div>
-
-        <div className="provider-actions semantic-index-actions">
-          <button type="button" disabled={busy || !projectSemantic} onClick={() => void onSetProjectSemanticIndexEnabled(!(projectSemantic?.enabled ?? false))}>
-            {projectSemantic?.enabled ? 'Disable' : 'Enable'}
-          </button>
-          <button type="button" disabled={busy || !projectSemantic?.enabled} onClick={() => void onRefreshProjectSemanticIndex()}>
-            Rebuild
-          </button>
         </div>
       </section>
     </div>
@@ -218,7 +251,7 @@ function DeveloperSettingsView({
           </div>
           <div>
             <h4>Developer Mode</h4>
-            <p>Enables Beale diagnostics and benchmark configuration. Debug profiling starts automatically while this mode is on.</p>
+            <p>Enables Beale diagnostics. Debug profiling starts automatically while this mode is on.</p>
           </div>
           <label className="settings-switch">
             <input
@@ -235,408 +268,24 @@ function DeveloperSettingsView({
   );
 }
 
-function BenchmarkingSettingsView({
-  developerSettings,
-  busy,
-  onClearCyberGymCache,
-  onPrepareCyberGymStorage,
-  onUpdateCyberGymSettings
-}: {
-  developerSettings: DeveloperSettings | null;
-  busy: boolean;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
-}): JSX.Element {
-  const settings = developerSettings?.cyberGym ?? emptyCyberGymSettings();
-  const [draft, setDraft] = useState<CyberGymBenchmarkSettings>(settings);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(settings);
-  }, [
-    settings.sourceRootPath,
-    settings.selectedBenchmark,
-    settings.cachePath,
-    settings.outputPath,
-    settings.submitServerUrl,
-    settings.pocDbPath,
-    settings.verifyApiKey
-  ]);
-
-  const dirty =
-    draft.sourceRootPath !== settings.sourceRootPath ||
-    draft.selectedBenchmark !== settings.selectedBenchmark ||
-    draft.cachePath !== settings.cachePath ||
-    draft.outputPath !== settings.outputPath ||
-    draft.submitServerUrl !== settings.submitServerUrl ||
-    draft.pocDbPath !== settings.pocDbPath ||
-    draft.verifyApiKey !== settings.verifyApiKey;
-
-  const save = async (): Promise<void> => {
-    await onUpdateCyberGymSettings(draft);
-    setActionMessage('CyberGym settings saved.');
-  };
-
-  const prepareStorage = async (): Promise<void> => {
-    const result = await onPrepareCyberGymStorage();
-    setActionMessage(result.detail);
-  };
-
-  const clearCache = async (): Promise<void> => {
-    const result = await onClearCyberGymCache();
-    setActionMessage(result.detail);
-  };
-
-  return (
-    <div className="settings-page benchmarking-settings-page">
-      <div className="settings-page-header">
-        <h3>Benchmarking</h3>
-      </div>
-      <section className="provider-card benchmarking-settings-card">
-        <div className="provider-heading">
-          <div className="status-icon">
-            <DatabaseZap size={18} />
-          </div>
-          <div>
-            <h4>CyberGym</h4>
-            <p>CyberGym can be very large. Beale stores paths now and will use the selected benchmark for runner execution.</p>
-          </div>
-          <StatusPill status="developer" />
-        </div>
-
-        <div className="settings-field-grid">
-          <SettingsTextField
-            label="CyberGym Root"
-            value={draft.sourceRootPath}
-            placeholder="/path/to/cybergym"
-            onChange={(sourceRootPath) => setDraft((current) => ({ ...current, sourceRootPath }))}
-          />
-          <SettingsTextField
-            label="Selected Benchmark"
-            value={draft.selectedBenchmark}
-            placeholder="task id or relative path"
-            onChange={(selectedBenchmark) => setDraft((current) => ({ ...current, selectedBenchmark }))}
-          />
-          <SettingsTextField
-            label="Cache Path"
-            value={draft.cachePath}
-            placeholder="/path/to/cybergym-cache"
-            onChange={(cachePath) => setDraft((current) => ({ ...current, cachePath }))}
-          />
-          <SettingsTextField
-            label="Results Path"
-            value={draft.outputPath}
-            placeholder="/path/to/cybergym-results"
-            onChange={(outputPath) => setDraft((current) => ({ ...current, outputPath }))}
-          />
-          <SettingsTextField
-            label="Submit Server"
-            value={draft.submitServerUrl}
-            placeholder="http://127.0.0.1:8666"
-            onChange={(submitServerUrl) => setDraft((current) => ({ ...current, submitServerUrl }))}
-          />
-          <SettingsTextField
-            label="PoC DB Path"
-            value={draft.pocDbPath}
-            placeholder="/path/to/server_poc/poc.db"
-            onChange={(pocDbPath) => setDraft((current) => ({ ...current, pocDbPath }))}
-          />
-          <SettingsTextField
-            label="Verify API Key"
-            value={draft.verifyApiKey}
-            placeholder="cybergym-..."
-            type="password"
-            onChange={(verifyApiKey) => setDraft((current) => ({ ...current, verifyApiKey }))}
-          />
-        </div>
-
-        <div className="provider-actions benchmarking-actions">
-          <button className="primary-button" type="button" disabled={busy || !dirty} onClick={() => void save()}>
-            <Save size={15} />
-            Save
-          </button>
-          <button type="button" disabled={busy} onClick={() => void prepareStorage()}>
-            <FolderPlus size={15} />
-            Create Folders
-          </button>
-          <button type="button" disabled={busy} onClick={() => void clearCache()}>
-            <Trash2 size={15} />
-            Clear Cache
-          </button>
-        </div>
-        {actionMessage ? (
-          <p className="settings-action-message" role="status">
-            {actionMessage}
-          </p>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function SettingsTextField({
-  label,
-  value,
-  placeholder,
-  type = 'text',
-  onChange
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  type?: 'text' | 'password';
-  onChange: (value: string) => void;
-}): JSX.Element {
-  return (
-    <label className="settings-field">
-      <span>{label}</span>
-      <input type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
-}
-
-function emptyCyberGymSettings(): CyberGymBenchmarkSettings {
-  return {
-    sourceRootPath: '',
-    selectedBenchmark: '',
-    cachePath: '',
-    outputPath: '',
-    submitServerUrl: '',
-    pocDbPath: '',
-    verifyApiKey: ''
-  };
-}
-
-function SandboxSettingsView({
-  executor,
-  vmPreference,
-  busy,
-  onSetupSandbox,
-  onSetVmPreference
-}: {
-  executor: ExecutorStatus | null;
-  vmPreference: VmPreference;
-  busy: boolean;
-  onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
-  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
-}): JSX.Element {
-  const backends = sandboxBackendsForDisplay(executor);
-  const [selectedKind, setSelectedKind] = useState<ExecutorBackendKind | null>(vmPreference.backendKind ?? defaultSandboxBackendKind(backends));
-  const [setupState, setSetupState] = useState<{
-    backendKind: ExecutorBackendKind;
-    status: 'running' | 'ok' | 'error';
-    detail: string;
-  } | null>(null);
-  const displayKind = selectedKind ?? vmPreference.backendKind ?? defaultSandboxBackendKind(backends);
-  const selectedBackend = backends.find((backend) => backend.kind === displayKind) ?? null;
-  const active = Boolean(selectedBackend && vmPreference.enabled && vmPreference.backendKind === selectedBackend.kind);
-  const selection = selectedBackend ? sandboxSelectionStatus(selectedBackend, active) : { status: 'none', heading: 'No sandbox selected' };
-  const controller = executorControllerMetadata(executor);
-  const properties = selectedBackend ? sandboxPropertyRows(selectedBackend, executor, controller) : [];
-  const setupRunning = setupState?.status === 'running';
-
-  const setupDocker = async (): Promise<void> => {
-    setSetupState({
-      backendKind: 'docker',
-      status: 'running',
-      detail: 'Preparing the Docker sandbox image. This may take several minutes.'
-    });
-    try {
-      const result = await onSetupSandbox({ backendKind: 'docker' });
-      setSetupState({
-        backendKind: result.backendKind,
-        status: result.ok ? 'ok' : 'error',
-        detail: result.detail
-      });
-    } catch (caught) {
-      setSetupState({
-        backendKind: 'docker',
-        status: 'error',
-        detail: caught instanceof Error ? caught.message : 'Docker setup failed.'
-      });
-    }
-  };
-
-  return (
-    <div className="settings-page sandboxes-settings-page">
-      <div className="settings-page-header">
-        <h3>Sandboxes</h3>
-      </div>
-
-      <section className={`provider-card sandbox-settings-card readiness-${stateClass(selection.status)}`}>
-        <div className="sandbox-selector" role="tablist" aria-label="Sandbox backends">
-          {backends.map((backend) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={selectedBackend?.kind === backend.kind}
-              className={selectedBackend?.kind === backend.kind ? 'selected' : ''}
-              key={backend.kind}
-              onClick={() => setSelectedKind(backend.kind)}
-            >
-              <strong>{sandboxShortLabel(backend)}</strong>
-              <span>{sandboxSelectorDetail(backend)}</span>
-              <StatusPill status={backendStatusLabel(backend, vmPreference)} />
-            </button>
-          ))}
-        </div>
-
-        {selectedBackend ? (
-          <>
-            <div className="provider-heading sandbox-detail-heading">
-              <div className="status-icon">
-                <Server size={18} />
-              </div>
-              <div>
-                <h4>{selectedBackend.label}</h4>
-                <p>{selection.heading}</p>
-              </div>
-              <StatusPill status={backendStatusLabel(selectedBackend, vmPreference)} />
-            </div>
-
-            {selectedBackend.kind === 'docker' ? (
-              <div className="sandbox-backend-warning">
-                <ShieldAlert size={14} />
-                Docker is less secure than a virtual machine. Prefer Firecracker, Hyper-V, or Tart for high-risk target execution.
-              </div>
-            ) : null}
-
-            <div className="provider-grid vm-provider-grid">
-              <div>
-                <span>Provider</span>
-                <strong>{sandboxProviderLabel(selectedBackend.kind)}</strong>
-              </div>
-              <div>
-                <span>Execution</span>
-                <strong>{active ? 'selected sandbox' : 'not selected'}</strong>
-              </div>
-              <div>
-                <span>Network</span>
-                <strong>{sandboxNetworkProfiles(selectedBackend.kind, executor)}</strong>
-              </div>
-              <div>
-                <span>Availability</span>
-                <strong>{selectedBackend.available ? 'available' : selectedBackend.configured ? 'configured' : 'not configured'}</strong>
-              </div>
-            </div>
-
-            <p className="provider-detail">{sandboxStatusDetail(selectedBackend, active, Boolean(executor))}</p>
-            {selectedBackend.reason ? <p className="provider-detail muted">{selectedBackend.reason}</p> : null}
-            {setupState?.backendKind === selectedBackend.kind ? (
-              <p className={`sandbox-setup-message ${setupState.status}`} role="status">
-                {setupState.detail}
-              </p>
-            ) : null}
-
-            <div className="sandbox-property-list" aria-label={`${selectedBackend.label} properties`}>
-              {properties.map((property) => (
-                <div className="sandbox-property-row" key={`${property.label}-${property.setting ?? property.value}`}>
-                  <span>{property.label}</span>
-                  <strong>{property.value}</strong>
-                  {property.setting ? <code>{property.setting}</code> : null}
-                </div>
-              ))}
-            </div>
-
-            <div className="provider-actions sandbox-actions">
-              {selectedBackend.kind === 'docker' && !selectedBackend.available ? (
-                <button type="button" disabled={busy || setupRunning} onClick={() => void setupDocker()}>
-                  {setupRunning ? 'Setting Up Docker...' : 'Set Up Docker'}
-                </button>
-              ) : null}
-              {active ? (
-                <button type="button" disabled={busy} onClick={() => void onSetVmPreference({ enabled: false, backendKind: null })}>
-                  Disable
-                </button>
-              ) : (
-                <button className="primary-button" type="button" disabled={busy || !selectedBackend.available} onClick={() => void onSetVmPreference({ enabled: true, backendKind: selectedBackend.kind })}>
-                  Use Sandbox
-                </button>
-              )}
-              <div className="command-row">
-                <Terminal size={15} />
-                <code>{executorSandboxSetupCommand(executor, selectedBackend.kind)}</code>
-              </div>
-            </div>
-          </>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function semanticHeading(summary: ProjectSemanticSummary | null, programName: string | null): string {
-  const name = programName?.trim() || 'the active program';
-  if (!summary) return 'Open a program to manage program understanding indexes.';
-  if (!summary.enabled) return `Semantic search is off for ${name}.`;
-  if (summary.status === 'queued') return `Semantic indexing is queued for ${name}.`;
-  if (summary.status === 'indexing') return `Semantic indexing is running for ${name}.`;
-  if (summary.status === 'error') return `Semantic indexing failed for ${name}.`;
-  if (summary.status === 'canceled') return `Semantic indexing was canceled for ${name}.`;
-  if (summary.status === 'stale') return `Semantic search for ${name} needs rebuild.`;
-  if (summary.chunkCount === 0) return `Semantic search is on for ${name}, but no chunks are indexed yet.`;
-  return `Semantic search is on for ${name}.`;
-}
-
-function semanticDetail(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return 'Semantic indexing is scoped to a single program and stored locally under .beale/.';
-  const progress =
-    typeof summary.progressProcessed === 'number' && typeof summary.progressTotal === 'number'
-      ? ` ${summary.progressProcessed.toLocaleString()}/${summary.progressTotal.toLocaleString()} source documents processed.`
-      : '';
-  if (summary.status === 'queued') return `Queued ${summary.queuedAt ? formatSessionDateTime(summary.queuedAt) : 'now'}. Search will use exact and stale indexed results while the rebuild waits.${progress}`;
-  if (summary.status === 'indexing')
-    return `Started ${summary.startedAt ? formatSessionDateTime(summary.startedAt) : 'recently'}. Search remains available with exact and stale indexed results.${progress}`;
-  if (summary.status === 'error') return `Last error: ${summary.lastError || 'Semantic indexing failed. Search remains available without fresh semantic results.'}`;
-  if (summary.status === 'canceled') return `Canceled ${summary.finishedAt ? formatSessionDateTime(summary.finishedAt) : 'recently'}.`;
-  const indexed = summary.indexedAt ? formatSessionDateTime(summary.indexedAt) : 'never';
-  const model = `${summary.provider} / ${summary.model}`;
-  const remote = summary.remoteEmbeddingEnabled ? 'Remote embeddings are enabled.' : 'Remote embeddings are off; indexed material stays local.';
-  return `Last indexed ${indexed}. ${summary.embeddedChunkCount.toLocaleString()} embedded chunk${summary.embeddedChunkCount === 1 ? '' : 's'} using ${model}. ${remote}`;
-}
-
-function semanticSourceLabel(summary: ProjectSemanticSummary | null): string {
-  if (!summary) return '0/0';
-  return `${summary.indexedSourceDocumentCount.toLocaleString()}/${summary.sourceDocumentCount.toLocaleString()}`;
-}
-
-function formatSemanticBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
-}
-
-function formatSemanticDuration(durationMs: number | null): string {
-  if (durationMs === null) return 'never';
-  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))} ms`;
-  return `${Math.round((durationMs / 1000) * 10) / 10} s`;
-}
-
-function semanticNamespaceRows(summary: ProjectSemanticSummary | null): Array<[string, number]> {
-  const rows = Object.entries(summary?.namespaceCounts ?? {}).filter(([, count]) => count > 0);
-  return rows.length ? rows.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])) : [['none', 0]];
-}
-
-function namespaceLabel(namespace: string): string {
-  return namespace
-    .split('_')
-    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
-    .join(' ');
-}
-
 function ProvidersSettingsView({
   openAiStatus,
   openAiOAuthResult,
+  researchProviderOAuthResults,
+  researchProviderStatuses,
   busy,
   onRefreshOpenAi,
-  onStartOpenAiOAuth
+  onStartOpenAiOAuth,
+  onStartResearchProviderOAuth
 }: {
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
   const readiness = openAiStatus?.readiness ?? 'not_configured';
   const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
@@ -651,7 +300,7 @@ function ProvidersSettingsView({
     <div className="settings-page provider-settings-page">
       <div className="settings-page-header">
         <h3>Providers</h3>
-        <button type="button" title="Refresh OpenAI provider status" disabled={busy} onClick={refresh}>
+        <button type="button" title="Refresh provider status" disabled={busy} onClick={refresh}>
           <RefreshCw size={15} />
           Refresh
         </button>
@@ -662,7 +311,7 @@ function ProvidersSettingsView({
             <KeyRound size={18} />
           </div>
           <div>
-            <h4>OpenAI</h4>
+            <h4>OpenAI (Codex)</h4>
             <p>{openAiStatus?.label ?? 'Checking provider status'}</p>
           </div>
           <StatusPill status={readiness} />
@@ -679,7 +328,7 @@ function ProvidersSettingsView({
           </div>
           <div>
             <span>Model</span>
-            <strong>{openAiStatus?.defaultModel ?? 'gpt-5.5'}</strong>
+            <strong>{openAiStatus?.defaultModel ?? DEFAULT_RESEARCH_MODEL}</strong>
           </div>
           <div>
             <span>Boundary</span>
@@ -717,169 +366,124 @@ function ProvidersSettingsView({
           ) : null}
         </div>
       </section>
+      {researchProviderStatuses.map((provider) => (
+        <ResearchProviderCard
+          key={provider.id}
+          provider={provider}
+          result={researchProviderOAuthResults[provider.id] ?? null}
+          busy={busy}
+          onAuthenticate={() => void onStartResearchProviderOAuth(provider.id)}
+        />
+      ))}
     </div>
   );
 }
 
-function backendStatusLabel(backend: ExecutorBackendStatus, vmPreference: VmPreference): string {
-  if (vmPreference.enabled && vmPreference.backendKind === backend.kind) return backend.available ? 'enabled' : 'unavailable';
-  if (backend.available) return 'available';
-  if (backend.configured) return 'configured';
-  return 'not_configured';
-}
+function ResearchProviderCard({
+  provider,
+  result,
+  busy,
+  onAuthenticate
+}: {
+  provider: ResearchProviderStatus;
+  result: ResearchProviderOAuthStartResult | null;
+  busy: boolean;
+  onAuthenticate: () => void;
+}): JSX.Element {
+  const authenticateLabel = provider.loginInProgress
+    ? 'Authentication Running'
+    : provider.configured
+      ? 'Re-authenticate'
+      : 'Authenticate';
+  const authLabel = provider.credentialType === 'api_key'
+    ? 'API key'
+    : provider.credentialType === 'oauth'
+      ? 'OAuth'
+      : provider.configured
+        ? 'Host environment'
+        : 'Not configured';
 
-function sandboxSelectionStatus(backend: ExecutorBackendStatus, active: boolean): { status: string; heading: string } {
-  if (active && backend.available) return { status: 'enabled', heading: `${backend.label} is selected` };
-  if (active) return { status: 'unavailable', heading: `${backend.label} is selected but unavailable` };
-  if (backend.available) return { status: 'available', heading: `${backend.label} is available` };
-  if (backend.configured) return { status: 'configured', heading: `${backend.label} is configured but unavailable` };
-  return { status: 'not_configured', heading: `${backend.label} is not configured` };
-}
-
-function executorControllerMetadata(executor: ExecutorStatus | null): { autoDiscovered: boolean; command: string | null; configPath: string | null } {
-  const metadata = executor?.metadata;
-  const controller = metadata?.controller;
-  if (!controller || typeof controller !== 'object' || Array.isArray(controller)) {
-    return { autoDiscovered: false, command: null, configPath: null };
-  }
-  const record = controller as Record<string, unknown>;
-  return {
-    autoDiscovered: record.autoDiscovered === true,
-    command: typeof record.command === 'string' && record.command.trim() ? record.command : null,
-    configPath: typeof record.configPath === 'string' && record.configPath.trim() ? record.configPath : null
-  };
-}
-
-function sandboxStatusDetail(backend: ExecutorBackendStatus, active: boolean, hasLiveStatus: boolean): string {
-  if (!hasLiveStatus) return 'Open a program to check live availability. You can still review the setup knobs for this sandbox here.';
-  if (active && backend.available) return 'Beale can execute target code and verifier contracts inside this disposable sandbox.';
-  if (active) return backend.reason ?? 'The selected sandbox backend is not currently available.';
-  if (backend.available) return 'Select this sandbox to use it for target execution in new sandbox-backed sessions.';
-  return backend.reason ?? 'This sandbox backend is not currently available.';
-}
-
-function executorSandboxSetupCommand(executor: ExecutorStatus | null, backendKind: ExecutorBackendKind): string {
-  if (backendKind === 'docker') {
-    const setupCommand = metadataString(executor, 'setupCommand');
-    const image = metadataString(executor, 'image') ?? 'beale-sandbox-toolchain:local';
-    return executor?.available ? 'docker info' : setupCommand ?? `docker build -t ${image} docker/sandbox-toolchain`;
-  }
-  if (executor?.available) return 'npm run firecracker:doctor';
-  if (executor?.configured) return 'npm run firecracker:doctor';
-  const firecrackerRecommended = !executor || executor.backends.some((backend) => backend.kind === 'firecracker' && backend.recommended);
-  if (firecrackerRecommended) return 'npm run firecracker:init && npm run firecracker:doctor';
-  return 'Configure BEALE_VMCTL_COMMAND for a Beale vmctl-compatible sandbox controller.';
-}
-
-interface SandboxPropertyRow {
-  label: string;
-  value: string;
-  setting?: string;
-}
-
-function defaultSandboxBackendKind(backends: ExecutorBackendStatus[]): ExecutorBackendKind | null {
   return (
-    backends.find((backend) => backend.available && backend.recommended)?.kind ??
-    backends.find((backend) => backend.available)?.kind ??
-    backends.find((backend) => backend.recommended)?.kind ??
-    backends[0]?.kind ??
-    null
+    <section className={`provider-card readiness-${stateClass(provider.readiness)}`}>
+      <div className="provider-heading">
+        <div className="status-icon">
+          <KeyRound size={18} />
+        </div>
+        <div>
+          <h4>{provider.name}</h4>
+          <p>{provider.configured ? `${authLabel} ready` : provider.loginInProgress ? 'Waiting for provider sign-in' : 'Provider authentication required'}</p>
+        </div>
+        <StatusPill status={provider.readiness} />
+      </div>
+
+      <div className="provider-grid">
+        <div>
+          <span>Source</span>
+          <strong>{provider.source ?? 'not configured'}</strong>
+        </div>
+        <div>
+          <span>Authentication</span>
+          <strong>{authLabel}</strong>
+        </div>
+        <div>
+          <span>Model</span>
+          <strong>{provider.defaultModel ?? 'unavailable'}</strong>
+        </div>
+        <div>
+          <span>Boundary</span>
+          <strong>{provider.credentialsHostOnly ? 'host only' : 'review'}</strong>
+        </div>
+      </div>
+
+      <p className="provider-detail">{provider.statusDetail}</p>
+      <p className="provider-detail muted">
+        API-key authentication is also available through <code>{provider.apiKeyEnvironmentVariable}</code> in Beale's host environment.
+      </p>
+      {provider.id === 'anthropic' ? (
+        <p className="provider-detail provider-billing-note">Claude Pro/Max use from third-party harnesses is billed as API usage rather than drawing from plan limits.</p>
+      ) : null}
+
+      {result ? <ProviderOAuthResult result={result} /> : null}
+
+      <div className="provider-actions">
+        <button className="primary-button" type="button" disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable'} onClick={onAuthenticate}>
+          <KeyRound size={15} />
+          {authenticateLabel}
+        </button>
+        <div className="command-row">
+          <Terminal size={15} />
+          <code>honeycrisp auth login {provider.id}</code>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function sandboxBackendsForDisplay(executor: ExecutorStatus | null): ExecutorBackendStatus[] {
-  if (executor?.backends.length) return executor.backends;
-  return [
-    fallbackSandboxBackend('firecracker', 'Firecracker microVM', 'linux', 'Open a program to check Firecracker availability.'),
-    fallbackSandboxBackend('hyperv', 'Hyper-V local VM', 'win32', 'Open a program to check Hyper-V availability.'),
-    fallbackSandboxBackend('tart', 'Tart local VM', 'darwin', 'Open a program to check Tart availability.'),
-    fallbackSandboxBackend('docker', 'Docker container sandbox', 'any', 'Open a program to check Docker CLI and image availability.'),
-    fallbackSandboxBackend('custom_vmctl', 'Custom vmctl controller', 'any', 'Open a program to check the configured vmctl controller.')
-  ];
-}
-
-function fallbackSandboxBackend(
-  kind: ExecutorBackendKind,
-  label: string,
-  platform: ExecutorBackendStatus['platform'],
-  reason: string
-): ExecutorBackendStatus {
-  return {
-    kind,
-    label,
-    platform,
-    configured: false,
-    available: false,
-    recommended: false,
-    reason
-  };
-}
-
-function sandboxShortLabel(backend: ExecutorBackendStatus): string {
-  if (backend.kind === 'custom_vmctl') return 'Custom';
-  return backend.label.replace(/\s+(microVM|local VM|container sandbox|controller)$/i, '').trim();
-}
-
-function sandboxSelectorDetail(backend: ExecutorBackendStatus): string {
-  if (backend.available) return backend.recommended ? 'Available, preferred here' : 'Available';
-  if (backend.configured) return 'Configured';
-  return backend.platform === 'any' ? 'Not configured' : `${platformLabel(backend.platform)} only`;
-}
-
-function sandboxProviderLabel(kind: ExecutorBackendKind): string {
-  return kind === 'docker' ? 'docker' : 'vmctl';
-}
-
-function sandboxNetworkProfiles(kind: ExecutorBackendKind, executor: ExecutorStatus | null): string {
-  if (executor?.provider === sandboxProviderLabel(kind)) return executor.supportedNetworkProfiles.join(', ');
-  return kind === 'docker' ? 'offline, elevated' : 'offline, scoped, elevated';
-}
-
-function sandboxPropertyRows(backend: ExecutorBackendStatus, executor: ExecutorStatus | null, controller: ReturnType<typeof executorControllerMetadata>): SandboxPropertyRow[] {
-  if (backend.kind === 'docker') {
-    return [
-      { label: 'Docker Image', value: metadataString(executor, 'image') ?? 'beale-sandbox-toolchain:local', setting: 'BEALE_DOCKER_IMAGE' },
-      { label: 'Docker Command', value: metadataString(executor, 'dockerCommand') ?? 'docker', setting: 'BEALE_DOCKER_COMMAND' },
-      { label: 'Setup Mode', value: metadataString(executor, 'setupMode') ?? 'build local image' },
-      { label: 'Dockerfile', value: metadataString(executor, 'dockerfile') ?? 'docker/sandbox-toolchain/Dockerfile', setting: 'BEALE_DOCKERFILE' },
-      { label: 'State Directory', value: metadataString(executor, 'stateRoot') ?? 'system temp / beale-docker-sandboxes', setting: 'BEALE_DOCKER_STATE_DIR' },
-      { label: 'Execution Timeout', value: '120000 ms', setting: 'BEALE_DOCKER_TIMEOUT_MS' },
-      { label: 'Status Timeout', value: '1500 ms', setting: 'BEALE_DOCKER_STATUS_TIMEOUT_MS' }
-    ];
-  }
-
-  return [
-    { label: 'Backend Kind', value: backend.kind, setting: 'BEALE_VM_BACKEND' },
-    { label: 'Controller Command', value: controller.command ?? (backend.configured ? 'configured' : 'not configured'), setting: 'BEALE_VMCTL_COMMAND' },
-    { label: 'Controller Args', value: 'JSON array', setting: 'BEALE_VMCTL_ARGS_JSON' },
-    { label: 'Controller Config', value: controller.configPath ?? 'none' },
-    { label: 'Status', value: controller.autoDiscovered ? 'auto discovered' : backend.configured ? 'environment configured' : 'not configured' }
-  ];
-}
-
-function metadataString(executor: ExecutorStatus | null, key: string): string | null {
-  const value = executor?.metadata?.[key];
-  return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function platformLabel(platform: ExecutorBackendStatus['platform']): string {
-  if (platform === 'linux') return 'Linux';
-  if (platform === 'win32') return 'Windows';
-  if (platform === 'darwin') return 'macOS';
-  return 'Any host';
+function ProviderOAuthResult({ result }: { result: ResearchProviderOAuthStartResult }): JSX.Element {
+  return (
+    <div className="provider-oauth-result">
+      <strong>{result.detail}</strong>
+      {result.verificationUri ? <code>{result.verificationUri}</code> : null}
+      {result.userCode ? (
+        <div>
+          <span>Code</span>
+          <code>{result.userCode}</code>
+        </div>
+      ) : null}
+      {result.instructions && !result.verificationUri ? <pre>{result.instructions}</pre> : null}
+    </div>
+  );
 }
 
 function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
-    case 'general':
-      return 'General';
-    case 'sandboxes':
-      return 'Sandboxes';
     case 'providers':
       return 'Providers';
-    case 'benchmarking':
-      return 'Benchmarking';
     case 'developer':
       return 'Developer';
+    case 'shell':
+      return 'Shell Options';
+    default:
+      return 'General';
   }
 }

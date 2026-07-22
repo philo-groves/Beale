@@ -1,90 +1,129 @@
 import { memo } from 'react';
-import type { JSX } from 'react';
-import type { ProgramScopeVersion, ProjectGraphSummary, ProjectSemanticSummary, RunDetail, SteeringAction } from '@shared/types';
-import { ProgramUnderstandingView } from '../programs/ProgramUnderstandingView';
-import type { ProgramMainView } from '../programs/programViews';
-import { ResearchSidePanel } from '../research/ResearchSidePanel';
+import type { CSSProperties, JSX } from 'react';
+import type { HoneycrispMemorySummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
+import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
+import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import { SpawnSessionView } from './SpawnSessionView';
-import type { SessionMainView } from './sessionViews';
+import {
+  MIN_RESEARCH_SIDE_PANEL_WIDTH,
+  useResizableResearchSidePanel
+} from '../../hooks/useResizableResearchSidePanel';
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
-  graph,
-  programView,
-  researchPanelCollapsed,
+  allEvents,
+  providerModelCatalog,
+  honeycrispMemory,
   runCount,
   scope,
   selectedRunId,
+  selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
-  semantic,
-  sessionView,
   visibleTraceCategories,
   busy,
   traceFilterCount,
   totalTraceFilterCount,
-  onExpandResearchPanel,
   onOpenTraceFilters,
+  onOpenHoneycrispMemoryDirectory,
+  onOpenHoneycrispRunbook,
+  onBackToMain,
   onSelectTraceEvent,
+  onSelectSubagent,
   onSessionAction,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
-  graph: ProjectGraphSummary | null;
-  programView: ProgramMainView;
-  researchPanelCollapsed: boolean;
+  allEvents: TraceDisplayEvent[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
+  honeycrispMemory: HoneycrispMemorySummary | null;
   runCount: number;
-  scope: ProgramScopeVersion | null;
+  scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
+  selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
-  semantic: ProjectSemanticSummary | null;
-  sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
-  onExpandResearchPanel: () => void;
   onOpenTraceFilters: () => void;
+  onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
+  onOpenHoneycrispRunbook: (runbookId: string) => void;
+  onBackToMain: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onSelectSubagent: (path: string) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
-  if (!selectedRunId) return <ProgramUnderstandingView graph={graph} programView={programView} runCount={runCount} scope={scope} semantic={semantic} />;
+  const {
+    containerRef,
+    panelWidth,
+    maximumPanelWidth,
+    beginResize,
+    handleResizeKeyDown
+  } = useResizableResearchSidePanel(selectedRunId !== null);
 
-  if (sessionView === 'spawn') {
-    return <SpawnSessionView detail={detail} events={events} selectedTraceEventId={selectedTraceEventId} onSelectTraceEvent={onSelectTraceEvent} />;
+  if (!selectedRunId) {
+    return (
+      <WorkspaceUnderstandingView
+        busy={busy}
+        honeycrispMemory={honeycrispMemory}
+        runCount={runCount}
+        scope={scope}
+        onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
+      />
+    );
   }
 
   return (
-    <div className={`main-session-grid ${researchPanelCollapsed ? 'research-collapsed' : ''}`}>
+    <div
+      ref={containerRef}
+      className="main-session-grid"
+      style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
+    >
       <TraceView
         busy={busy}
         detail={detail}
         events={events}
+        providerModelCatalog={providerModelCatalog}
         selectedRunId={selectedRunId}
+        traceScopeKey={selectedSubagentPath ?? 'main'}
+        showBackToMain={selectedSubagentPath !== null}
         selectedTraceEventId={selectedTraceEventId}
         searchHighlightQuery={searchHighlightQuery}
         traceFilterCount={traceFilterCount}
         totalTraceFilterCount={totalTraceFilterCount}
         visibleTraceCategories={visibleTraceCategories}
         onOpenTraceFilters={onOpenTraceFilters}
+        onBackToMain={onBackToMain}
         onSelectTraceEvent={onSelectTraceEvent}
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
+      <div
+        className="research-side-resize-handle"
+        role="separator"
+        aria-label="Resize Memory, Runbooks, and Subagents sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
+        aria-valuemax={maximumPanelWidth}
+        aria-valuenow={panelWidth}
+        tabIndex={0}
+        onKeyDown={handleResizeKeyDown}
+        onPointerDown={beginResize}
+      />
       <ResearchSidePanel
-        collapsed={researchPanelCollapsed}
-        detail={detail}
-        events={events}
-        selectedTraceEventId={selectedTraceEventId}
-        onExpand={onExpandResearchPanel}
-        onSelectTraceEvent={onSelectTraceEvent}
+        events={allEvents}
+        memory={detail?.honeycrispMemory ?? null}
+        runId={selectedRunId}
+        selectedSubagentPath={selectedSubagentPath}
+        onSelectSubagent={onSelectSubagent}
+        onOpenRunbook={onOpenHoneycrispRunbook}
       />
     </div>
   );

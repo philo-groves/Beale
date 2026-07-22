@@ -51,7 +51,7 @@ Beta requirement:
 - Minimum useful actions:
   - File: add/open research program, close window.
   - Edit: copy, paste, select all where focused controls support it.
-  - View: toggle sidebar, toggle inspector, open trace filters, reload.
+  - View: toggle sidebar, open trace filters, reload.
   - Window: minimize, maximize or restore, close.
 
 ### Sidebar Utility Buttons
@@ -66,7 +66,7 @@ Beta requirement:
 
 - Search should either open a scoped search modal for the current program or be hidden.
 - Schedules is hidden until the scheduled-session UI is ready.
-- Cross-workspace search is not a first-release default because workspace databases are intentionally isolated.
+- Cross-workspace operational search is not a first-release default even though records share one database; normal queries remain workspace-scoped.
 
 ### Export and Disclosure Controls
 
@@ -198,7 +198,7 @@ It should explain:
 - Current working areas include the Electron workbench, OpenAI run engine, local persistence, trace UI, hypotheses/findings, profiling, and Firecracker setup on WSL/Linux.
 - Incomplete areas include desktop menus, search, schedules, complete export/disclosure flows, complete run controls, full verifier/artifact controls, and cross-platform VM backends.
 - Use against targets requires explicit authorization.
-- OpenAI credentials and workspace databases remain local.
+- OpenAI credentials and the global database remain local.
 - Live tests require user-provided credentials and are opt-in.
 
 ## Beta Exit Criteria For Visible Controls
@@ -212,5 +212,5 @@ Before closed beta:
 - Export paths should include review before files leave the workspace.
 - Run control should support pause, resume, and stop with trace-preserving semantics.
 - Hypothesis/finding controls should support at least dismiss, reproduce, and duplicate review.
-- VM and host-execution state should be understandable from the footer and settings.
+- Execution state should be understandable from session context and settings without consuming persistent footer space.
 - README should clearly state the project status and authorized-use boundary.

@@ -1,6 +1,6 @@
 # OpenAI Integration
 
-Status: accepted initial direction, 2026-04-26.
+Status: accepted initial direction, expanded for Pi provider compatibility 2026-07-22.
 
 ## Decision
 
@@ -11,8 +11,8 @@ Default integration:
 - Authentication: OAuth with a ChatGPT/Codex account. API-key-only operation is not the first-release target.
 - Primary API surface: Responses API.
 - Primary transport: Responses API WebSocket transport where available, for efficient long-running agent interaction.
-- Default model: `gpt-5.5`.
-- Default reasoning effort: `xhigh`.
+- Default model: `gpt-5.6-sol`.
+- Default reasoning effort: `high`.
 - Orchestration: Beale-owned run, trace, sandbox, tool, hypothesis, and verifier model.
 
 Beale should still remain adapter-shaped internally, but the first implementation should not dilute itself into provider-neutral lowest-common-denominator design. The OpenAI/Codex user path is the product path for v1.
@@ -61,7 +61,7 @@ Source: https://developers.openai.com/codex/config-reference#configtoml
 
 Default:
 
-- `model`: `gpt-5.5`
+- `model`: `gpt-5.6-sol`
 - `reasoning.effort`: `xhigh`
 
 This is intentionally expensive and latency-tolerant because v1 is optimizing for difficult open-ended vulnerability research, not chat responsiveness.
@@ -120,7 +120,19 @@ The first implementation should be:
 2. OAuth-first.
 3. Responses API first.
 4. WebSocket-first for active runs.
-5. `gpt-5.5` + `xhigh` by default.
+5. `gpt-5.6-sol` + `high` by default.
 6. Beale-owned orchestration around OpenAI model/tool APIs.
 
 Other providers and non-OpenAI account modes can be supported later only if they do not weaken the v1 workbench design.
+
+## Pi Provider Compatibility
+
+Codex remains Beale's default provider and `gpt-5.6-sol` remains the default research model. Honeycrisp's Pi runtime also supports first-class Anthropic and xAI execution:
+
+- Anthropic uses the Pi provider id `anthropic`, with Claude Pro/Max OAuth or `ANTHROPIC_API_KEY`.
+- xAI uses the Pi provider id `xai`, with Grok/X subscription OAuth or `XAI_API_KEY`.
+- Provider OAuth credentials remain in Honeycrisp's host-only credential store; API keys are read only from the trusted host process environment.
+- Beale displays provider readiness and the installed Pi model catalog without placing credential values in renderer diagnostics, traces, workspace context, or the global database.
+- New Research selects an exact provider/model pair from that catalog and limits reasoning effort to the levels Pi reports for that model. Honeycrisp remains authoritative for catalog resolution and OAuth credential refresh.
+
+This is an additive compatibility surface around the Honeycrisp/Pi runtime, not a replacement for the OpenAI-specific Responses API adapter used by Beale-owned prompt generation and imports.

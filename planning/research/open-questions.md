@@ -7,7 +7,7 @@ These questions were resolved during the initial Beale planning pass. The follow
 Answered:
 
 - Beale is primarily an authorized vulnerability research workbench. Benchmark runner functionality exists only to validate workbench behavior and monitor regressions or improvements. See `planning/book/product-scope.md`.
-- Authorization is program-scoped: each organization/research program defines allowed domains, repositories, executables, and other assets. The agent works within that scope without approval. Approval is only for potentially dangerous host-machine actions or out-of-scope actions; target execution, builds, tests, mutation analysis, PoCs, and debugging happen in the VM. See `planning/book/authorization-model.md`.
+- Authorization is workspace-scoped: each workspace records allowed domains, repositories, executables, and other assets. The agent works within that scope without approval. See `planning/book/authorization-model.md`.
 - Beale's first release should optimize for open-ended discovery. Targeted reproduction and patch validation are supporting workflows inside the discovery loop. See `planning/book/first-release-mode.md`.
 - Initial domain priorities are source code analysis, binary reverse engineering, debugger usage, logic bugs, and memory corruption. Web applications and package ecosystems are secondary. Smart contracts and crypto-specific security are not priorities. See `planning/book/vulnerability-domains.md`.
 
@@ -15,9 +15,9 @@ Answered:
 
 Answered:
 
-- Primary OpenAI integration is OpenAI-first, OAuth-first, Responses API first, WebSocket-first for active runs, with `gpt-5.5` and `xhigh` reasoning as defaults. Beale owns the research orchestration while using OpenAI agent patterns where they help. See `planning/book/openai-integration.md`.
+- Primary OpenAI integration is OpenAI-first, OAuth-first, Responses API first, WebSocket-first for active runs, with `gpt-5.6-sol` and `high` reasoning as defaults. Beale owns the research orchestration while using OpenAI agent patterns where they help. See `planning/book/openai-integration.md`.
 - Agent loop ownership is hybrid: Beale owns the outer vulnerability-research loop, while OpenAI owns the inner model mechanics where they improve model performance and API alignment. See `planning/book/agent-loop-ownership.md`.
-- Persistence is local-only embedded SQLite, with one database per workspace directory to prevent accidental cross-program lookup. Remote persistence and sync are non-goals. See `planning/book/persistence-model.md`.
+- Persistence is local-only embedded SQLite, with one database per workspace directory to prevent accidental cross-workspace lookup. Remote persistence and sync are non-goals. See `planning/book/persistence-model.md`.
 - Default sandboxing is host-backed for convenience, with local disposable VMs preferred for high-risk execution and Docker available as a lower-assurance explicit sandbox option. See `planning/book/sandbox-model.md`.
 - The trusted harness stays on the host, while target code runs in the selected sandbox boundary and VM isolation remains preferred for risky targets. Speed comes from snapshots, artifact channels, and GUI workflow, not from hiding degraded boundaries. See `planning/book/trusted-harness-boundary.md`.
 
@@ -53,7 +53,7 @@ Answered:
 
 Answered:
 
-- Essential GUI views are program/workspace side navigation, program scope editor, markdown start-run interface, primary multi-run tracker, and run detail views with trace, tools, artifacts, hypotheses, findings, and verifiers. Chat is not a primary view. See `planning/book/electron-gui.md`.
+- Essential GUI views are workspace side navigation, authorized-scope editor, markdown start-run interface, primary multi-run tracker, and run detail views with trace, tools, artifacts, hypotheses, findings, and verifiers. Chat is not a primary view. See `planning/book/electron-gui.md`.
 - Live steering should include run control, hypothesis/finding control, verifier/artifact control, policy control, and disclosure/export control. Steers are immediate, trace-recorded, and reversible where practical. See `planning/book/electron-gui.md`.
 - Beale should be terminal-compatible but not terminal-centered. Terminal/PTY use is a fallback and audit surface inside selected sandboxes; every meaningful operation should become structured research state. See `planning/book/electron-gui.md`.
 
@@ -63,7 +63,7 @@ Answered:
 
 - Human approval is required for potentially dangerous host-machine actions or out-of-scope actions. Routine in-scope work proceeds autonomously, with target execution routed into the VM. See `planning/book/authorization-model.md`.
 - Benchmark sandbox networking is strict and offline by default, with only benchmark-declared endpoints allowed. Authorized project sandbox networking supports `offline`, `scoped`, and approved `elevated` profiles when the selected backend can enforce them. Elevated access is not time-limited by default. See `planning/book/network-policy.md`.
-- Accidental live-target testing is prevented through explicit program scope, scoped network profiles, approved test-account records, visible GUI state, and VM-local reproduction by default. Live-target testing is allowed only when scope and active network policy permit it. See `planning/book/network-policy.md`.
+- Accidental live-target testing is prevented through explicit authorized scope, scoped network profiles, approved test-account records, and visible GUI state. Live-target testing is allowed only when scope and active network policy permit it. See `planning/book/network-policy.md`.
 - Secrets are isolated through the host/VM boundary, OS credential storage where practical, host deny paths, scoped credential injection, model-visible redaction, sensitivity labels, and minimal subprocess environments. Encryption is hardening, not the core local security model. See `planning/book/secret-isolation.md`.
 - Beale should not add a separate heavyweight audit subsystem in v1. The structured trace should be audit-capable by design and support redacted disclosure or accident-review exports. See `planning/book/trace-evidence-provenance.md`.
 

@@ -107,7 +107,7 @@ Example tasks:
 - Out-of-scope network request.
 - Live-target action without scope.
 - Attempt to run target binary on host.
-- Attempt to access `.beale/beale.sqlite`.
+- Attempt to access `~/.honeycrisp/memory.sqlite`.
 - Credential injection redaction.
 - Contaminated VM snapshot is not reused as clean.
 

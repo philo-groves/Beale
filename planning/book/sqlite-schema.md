@@ -24,8 +24,10 @@ The first schema should be explicit and queryable. It should avoid opaque docume
 
 ## Database Rules
 
-- One SQLite database per workspace.
-- No global cross-workspace database.
+- One user-global SQLite database at `~/.honeycrisp/memory.sqlite`.
+- Store explicit workspace ownership for scope and operational records.
+- Scope normal Beale operational queries to the active workspace.
+- Apply same-subject durable-memory visibility inside the shared database without exposing another workspace's operational tables to the agent.
 - Enable foreign keys.
 - Use WAL mode for normal app operation.
 - Store timestamps as UTC ISO-8601 text or integer epoch milliseconds consistently.
@@ -58,7 +60,7 @@ The exact generator can be ULID, UUIDv7, or another sortable unique ID. The impo
 
 Purpose:
 
-- Store workspace-local metadata and schema version.
+- Store namespaced per-workspace settings metadata. Schema versions live only in `schema_migrations`.
 
 Fields:
 
@@ -68,11 +70,24 @@ Fields:
 
 Required keys:
 
-- `schema_version`
-- `workspace_id`
 - `created_at`
 
-### `program_scope_versions`
+Keys are prefixed by stable workspace id in the current schema.
+
+### `workspaces`
+
+Purpose:
+
+- Map stable workspace ids to their current local paths inside the global database.
+
+Fields:
+
+- `id`
+- `workspace_path`
+- `created_at`
+- `updated_at`
+
+### `scope_versions`
 
 Purpose:
 
@@ -81,10 +96,11 @@ Purpose:
 Fields:
 
 - `id`
+- `workspace_id`
 - `version`
 - `status`
-- `program_name`
-- `organization_name`
+- `workspace_name`
+- `scope_owner`
 - `description_markdown`
 - `network_policy_json`
 - `rules_markdown`
@@ -693,6 +709,7 @@ Use a migration table:
 
 ```text
 schema_migrations
+  component
   version
   name
   applied_at
@@ -702,6 +719,9 @@ Rules:
 
 - Migrations are append-only.
 - Released migrations are immutable.
+- Honeycrisp and Beale record independently owned migrations under component-scoped versions in the shared database.
+- The user-global workspace registry uses the same ledger shape with its own `beale_registry` component.
+- Existing pre-migration databases adopt the idempotent baseline in place without rewriting durable research data.
 - Migration tests should create old schemas and upgrade them.
 - Failed migrations must leave a recoverable database or a backup copy.
 

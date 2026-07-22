@@ -1,13 +1,50 @@
+import { Children, isValidElement } from 'react';
 import type { ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import type { Components, Options as ReactMarkdownOptions } from 'react-markdown';
+import rehypeHighlight from 'rehype-highlight';
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
 import { devInstrumentation } from '../../devInstrumentation';
 import type { TraceCategoryId } from '../../traceClassification';
 
 const TRACE_MARKUP_CACHE_MAX_ENTRIES = 320;
 const TRACE_MARKUP_CACHE_MAX_CHARS = 50_000;
-const proseMarkupCache = new Map<string, ReactNode[]>();
+const proseMarkupCache = new Map<string, ReactNode>();
 const inlineMarkupCache = new Map<string, ReactNode[]>();
 const pythonMarkupCache = new Map<string, ReactNode[]>();
 const jsonMarkupCache = new Map<string, ReactNode[]>();
+const TRACE_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['remarkPlugins']> = [remarkGfm, remarkBreaks];
+const TRACE_MARKDOWN_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
+  [rehypeHighlight, { detect: false, plainText: ['text', 'txt', 'plaintext'] }]
+];
+const TRACE_MARKDOWN_COMPONENTS: Components = {
+  a: ({ node: _node, children, ...props }) => (
+    <a {...props} rel="noreferrer" target="_blank" onClick={(event) => event.stopPropagation()}>
+      {children}
+    </a>
+  ),
+  code: ({ node: _node, className, children, ...props }) => {
+    const fenced = Boolean(className?.split(/\s+/).some((value) => value === 'hljs' || value.startsWith('language-')));
+    return (
+      <code {...props} className={fenced ? className : ['main-trace-inline-code', className].filter(Boolean).join(' ')}>
+        {children}
+      </code>
+    );
+  },
+  img: ({ node: _node, alt }) => <span className="main-trace-markdown-image-label">{alt ? `[Image: ${alt}]` : '[Image]'}</span>,
+  pre: ({ node: _node, children, ...props }) => {
+    const codeElement = Children.toArray(children).find((child) => isValidElement<{ className?: string }>(child));
+    const codeClassName = isValidElement<{ className?: string }>(codeElement) ? codeElement.props.className ?? '' : '';
+    const language = codeClassName.match(/(?:^|\s)language-([^\s]+)/)?.[1] ?? null;
+    return (
+      <div className="main-trace-markdown-code-block">
+        {language ? <span className="main-trace-markdown-code-language">{language}</span> : null}
+        <pre {...props}>{children}</pre>
+      </div>
+    );
+  }
+};
 
 export type CodeBlockLineNumberMode = 'generated' | 'source-prefix';
 
@@ -16,7 +53,7 @@ export interface CodeBlockLineRows {
   lineNumbers: string[];
 }
 
-export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode[] {
+export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode {
   const proseCategory = category === 'agent_output' || category === 'evidence' || category === 'failure_recovery' || category === 'hypotheses' || category === 'reasoning';
   const cache = proseCategory ? proseMarkupCache : inlineMarkupCache;
   return cachedMarkup(cache, `${category}\0${text}`, () =>
@@ -91,7 +128,7 @@ export function codeBlockLineRows(lines: string[], mode: CodeBlockLineNumberMode
   };
 }
 
-function cachedMarkup(cache: Map<string, ReactNode[]>, key: string, create: () => ReactNode[]): ReactNode[] {
+function cachedMarkup<T>(cache: Map<string, T>, key: string, create: () => T): T {
   if (key.length > TRACE_MARKUP_CACHE_MAX_CHARS) return create();
   const cached = cache.get(key);
   if (cached) {
@@ -111,115 +148,13 @@ function cachedMarkup(cache: Map<string, ReactNode[]>, key: string, create: () =
 }
 
 function renderMarkdownTraceText(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const lines = text.split('\n');
-
-  lines.forEach((line, lineIndex) => {
-    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
-    if (heading) {
-      nodes.push(
-        <strong className="main-trace-markdown-heading" key={`heading-${lineIndex}`}>
-          {renderMarkdownInlineText(heading[1] ?? '', `heading-${lineIndex}`)}
-        </strong>
-      );
-    } else {
-      nodes.push(...renderMarkdownInlineText(line, `line-${lineIndex}`));
-    }
-
-    if (lineIndex < lines.length - 1) nodes.push(<br key={`break-${lineIndex}`} />);
-  });
-
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function renderMarkdownInlineText(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let buffer = '';
-  let index = 0;
-  let tokenIndex = 0;
-
-  const flushBuffer = (): void => {
-    if (!buffer) return;
-    nodes.push(buffer);
-    buffer = '';
-  };
-
-  const pushToken = (className: string, content: string, wrapper: 'code' | 'em' | 'strong' | 'strong-em'): void => {
-    flushBuffer();
-    const key = `${keyPrefix}-${tokenIndex}`;
-    tokenIndex += 1;
-    if (wrapper === 'code') {
-      nodes.push(
-        <code className="main-trace-inline-code" key={key}>
-          {content}
-        </code>
-      );
-      return;
-    }
-    if (wrapper === 'strong-em') {
-      nodes.push(
-        <strong className={className} key={key}>
-          <em>{content}</em>
-        </strong>
-      );
-      return;
-    }
-    const Wrapper = wrapper;
-    nodes.push(
-      <Wrapper className={className} key={key}>
-        {content}
-      </Wrapper>
-    );
-  };
-
-  while (index < text.length) {
-    if (text[index] === '`') {
-      const tickMatch = text.slice(index).match(/^`+/);
-      const ticks = tickMatch?.[0] ?? '`';
-      const end = text.indexOf(ticks, index + ticks.length);
-      if (end > index + ticks.length) {
-        pushToken('main-trace-inline-code', text.slice(index + ticks.length, end), 'code');
-        index = end + ticks.length;
-        continue;
-      }
-    }
-
-    if (text.startsWith('***', index)) {
-      const end = text.indexOf('***', index + 3);
-      const content = end > index + 3 ? text.slice(index + 3, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-strong main-trace-markdown-em', content, 'strong-em');
-        index = end + 3;
-        continue;
-      }
-    }
-
-    if (text.startsWith('**', index)) {
-      const end = text.indexOf('**', index + 2);
-      const content = end > index + 2 ? text.slice(index + 2, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-strong', content, 'strong');
-        index = end + 2;
-        continue;
-      }
-    }
-
-    if (text[index] === '*' && text[index + 1] !== '*' && text[index + 1] !== ' ') {
-      const end = text.indexOf('*', index + 1);
-      const content = end > index + 1 ? text.slice(index + 1, end) : '';
-      if (content.trim()) {
-        pushToken('main-trace-markdown-em', content, 'em');
-        index = end + 1;
-        continue;
-      }
-    }
-
-    buffer += text[index];
-    index += 1;
-  }
-
-  flushBuffer();
-  return nodes.length > 0 ? nodes : [text];
+  return [
+    <div className="main-trace-markdown" key="markdown">
+      <ReactMarkdown components={TRACE_MARKDOWN_COMPONENTS} rehypePlugins={TRACE_MARKDOWN_REHYPE_PLUGINS} remarkPlugins={TRACE_MARKDOWN_REMARK_PLUGINS} skipHtml>
+        {text}
+      </ReactMarkdown>
+    </div>
+  ];
 }
 
 function highlightCode(code: string, pattern: RegExp, tokenKind: (token: string) => string): ReactNode[] {

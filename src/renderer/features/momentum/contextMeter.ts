@@ -2,7 +2,7 @@ import type { RunDetail } from '@shared/types';
 import { tracePayloadRecord } from '../../traceClassification';
 import type { ContextMeter } from './types';
 
-const DEFAULT_CONTEXT_TOKEN_LIMIT = 272_000;
+const DEFAULT_CONTEXT_TOKEN_LIMIT = 372_000;
 
 export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
   const tokenLimit = contextTokenLimitForDetail(detail);
@@ -10,12 +10,16 @@ export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
   const inputTokens = candidate?.tokens ?? null;
   const fraction = inputTokens === null ? 0 : Math.max(0, Math.min(1, inputTokens / tokenLimit));
   const totalSessionTokens = totalSessionTokensForDetail(detail);
+  const cacheUsage = cacheUsageForDetail(detail);
   return {
     fraction,
     inputTokens,
     tokenLimit,
     totalSessionTokens,
     totalSessionTokensLabel: formatCompactSessionTokenNumber(totalSessionTokens),
+    cacheReadTokens: cacheUsage.cacheReadTokens,
+    cachePromptTokens: cacheUsage.promptTokens,
+    cacheHitRate: cacheUsage.cacheHitRate,
     label: inputTokens === null ? `0/${formatCompactContextNumber(tokenLimit)}` : `${formatCompactContextNumber(inputTokens)}/${formatCompactContextNumber(tokenLimit)}`,
     source: candidate?.source ?? 'no context measured'
   };
@@ -28,6 +32,10 @@ export function visibleContextMeterLabel(contextMeter: ContextMeter): string {
 
 export function visibleSessionTokenUsageLabel(contextMeter: ContextMeter): string {
   return contextMeter.totalSessionTokensLabel;
+}
+
+export function visibleCacheHitRateLabel(contextMeter: ContextMeter): string {
+  return contextMeter.cacheHitRate === null ? '—' : `${Math.round(contextMeter.cacheHitRate * 100)}%`;
 }
 
 function contextTokenLimitForDetail(detail: RunDetail | null): number {
@@ -50,12 +58,16 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
 
   for (const event of detail.traceEvents) {
     const usage = tracePayloadRecord(event.payload, 'usage');
-    pushCandidate(numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens'), event.createdAt, 'reported input tokens');
+    pushCandidate(inputTokensFromUsage(usage), event.createdAt, usageContextSource(usage));
     pushCandidate(numberRecordValue(event.payload, 'serializedSizeBytes') ? Math.ceil((numberRecordValue(event.payload, 'serializedSizeBytes') ?? 0) / 4) : null, event.createdAt, 'serialized replay estimate');
   }
 
   for (const session of detail.modelSessions) {
-    pushCandidate(numberRecordValue(session.metadata, 'latestReportedInputTokens'), session.updatedAt, 'reported input tokens');
+    pushCandidate(
+      numberRecordValue(session.metadata, 'latestReportedInputTokens'),
+      session.updatedAt,
+      stringRecordValue(session.metadata, 'latestContextUsageSource') ?? 'reported input tokens'
+    );
     pushCandidate(estimatedTokensFromSerializedValue(session.metadata.manualConversationInput), session.updatedAt, 'manual replay estimate');
     pushCandidate(estimatedTokensFromSerializedValue(session.metadata.pendingInput), session.updatedAt, 'pending input estimate');
   }
@@ -70,20 +82,129 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
 
 function totalSessionTokensForDetail(detail: RunDetail | null): number {
   if (!detail) return 0;
-  return detail.traceEvents.reduce((total, event) => {
+  const reportedTurnTotal = detail.traceEvents.reduce((total, event) => {
+    if (event.type === 'artifact_created') return total;
     const usage = tracePayloadRecord(event.payload, 'usage');
     return total + (usageTotalTokens(usage) ?? 0);
   }, 0);
+  if (reportedTurnTotal > 0) return reportedTurnTotal;
+  return detail.traceEvents.reduce((total, event) => {
+    if (event.type !== 'artifact_created') return total;
+    return total + (usageTotalTokens(tracePayloadRecord(event.payload, 'usage')) ?? 0);
+  }, 0);
+}
+
+function cacheUsageForDetail(detail: RunDetail | null): { cacheReadTokens: number; promptTokens: number; cacheHitRate: number | null } {
+  if (!detail) return { cacheReadTokens: 0, promptTokens: 0, cacheHitRate: null };
+  const turnUsage = detail.traceEvents
+    .filter((event) => event.type !== 'artifact_created')
+    .map((event) => tracePayloadRecord(event.payload, 'usage'))
+    .filter(hasCacheTelemetry);
+  const aggregateUsage = detail.traceEvents
+    .filter((event) => event.type === 'artifact_created')
+    .map((event) => tracePayloadRecord(event.payload, 'usage'))
+    .filter(hasCacheTelemetry);
+  const usingTurnUsage = turnUsage.length > 0;
+  const usageRecords = usingTurnUsage ? turnUsage : aggregateUsage;
+  if (usageRecords.length === 0) return { cacheReadTokens: 0, promptTokens: 0, cacheHitRate: null };
+
+  let cacheReadTokens = 0;
+  let promptTokens = 0;
+  let latestReportedRate: number | null = null;
+  for (const usage of usageRecords) {
+    const cacheRead = cacheReadTokensFromUsage(usage) ?? 0;
+    const cacheWrite = cacheWriteTokensFromUsage(usage) ?? 0;
+    const reportedPrompt = usingTurnUsage
+      ? numberRecordValue(usage, 'prompt_tokens') ?? numberRecordValue(usage, 'promptTokens')
+      : numberRecordValue(usage, 'cache_prompt_tokens') ??
+        numberRecordValue(usage, 'cachePromptTokens') ??
+        numberRecordValue(usage, 'prompt_tokens') ??
+        numberRecordValue(usage, 'promptTokens');
+    const uncachedInput = uncachedInputTokensFromUsage(usage);
+    const prompt = reportedPrompt ?? (
+      uncachedInput !== null ? uncachedInput + cacheRead + cacheWrite : null
+    );
+    cacheReadTokens += cacheRead;
+    if (prompt !== null) promptTokens += prompt;
+    latestReportedRate = numberRecordValue(usage, 'cache_hit_rate') ?? numberRecordValue(usage, 'cacheHitRate') ?? latestReportedRate;
+  }
+
+  return {
+    cacheReadTokens,
+    promptTokens,
+    cacheHitRate: usingTurnUsage && promptTokens > 0
+      ? cacheReadTokens / promptTokens
+      : latestReportedRate ?? (promptTokens > 0 ? cacheReadTokens / promptTokens : null)
+  };
+}
+
+function hasCacheTelemetry(usage: Record<string, unknown> | null): usage is Record<string, unknown> {
+  return Boolean(usage && [
+    'cache_read_tokens',
+    'cached_tokens',
+    'cacheReadTokens',
+    'cacheRead',
+    'cache_write_tokens',
+    'cacheWriteTokens',
+    'cacheWrite',
+    'cache_hit_rate',
+    'cacheHitRate'
+  ].some((key) => key in usage));
+}
+
+function cacheReadTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  return (
+    numberRecordValue(usage, 'cache_read_tokens') ??
+    numberRecordValue(usage, 'cached_tokens') ??
+    numberRecordValue(usage, 'cacheReadTokens') ??
+    numberRecordValue(usage, 'cacheRead')
+  );
+}
+
+function cacheWriteTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  return (
+    numberRecordValue(usage, 'cache_write_tokens') ??
+    numberRecordValue(usage, 'cacheWriteTokens') ??
+    numberRecordValue(usage, 'cacheWrite')
+  );
 }
 
 function usageTotalTokens(usage: Record<string, unknown> | null): number | null {
   const totalTokens = numberRecordValue(usage, 'total_tokens') ?? numberRecordValue(usage, 'totalTokens');
   if (totalTokens !== null) return totalTokens;
+  if (booleanRecordValue(usage, 'estimated')) return null;
 
-  const inputTokens = numberRecordValue(usage, 'input_tokens') ?? numberRecordValue(usage, 'prompt_tokens');
-  const outputTokens = numberRecordValue(usage, 'output_tokens') ?? numberRecordValue(usage, 'completion_tokens');
+  const inputTokens = inputTokensFromUsage(usage);
+  const outputTokens =
+    numberRecordValue(usage, 'output_tokens') ??
+    numberRecordValue(usage, 'completion_tokens') ??
+    numberRecordValue(usage, 'outputTokens') ??
+    numberRecordValue(usage, 'completionTokens') ??
+    numberRecordValue(usage, 'output');
   if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
   return null;
+}
+
+function inputTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  const reportedPromptTokens = numberRecordValue(usage, 'prompt_tokens') ?? numberRecordValue(usage, 'promptTokens');
+  if (reportedPromptTokens !== null) return reportedPromptTokens;
+  const uncachedInput = uncachedInputTokensFromUsage(usage);
+  const cacheRead = cacheReadTokensFromUsage(usage);
+  const cacheWrite = cacheWriteTokensFromUsage(usage);
+  if (uncachedInput === null && cacheRead === null && cacheWrite === null) return null;
+  return (uncachedInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+}
+
+function uncachedInputTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  return (
+    numberRecordValue(usage, 'input_tokens') ??
+    numberRecordValue(usage, 'inputTokens') ??
+    numberRecordValue(usage, 'input')
+  );
+}
+
+function usageContextSource(usage: Record<string, unknown> | null): string {
+  return stringRecordValue(usage, 'source') ?? (booleanRecordValue(usage, 'estimated') ? 'estimated input tokens' : 'reported input tokens');
 }
 
 function numberRecordValue(record: Record<string, unknown> | null, key: string): number | null {
@@ -95,6 +216,17 @@ function numberRecordValue(record: Record<string, unknown> | null, key: string):
     return Number.isFinite(numeric) ? numeric : null;
   }
   return null;
+}
+
+function stringRecordValue(record: Record<string, unknown> | null, key: string): string | null {
+  if (!record) return null;
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function booleanRecordValue(record: Record<string, unknown> | null, key: string): boolean {
+  if (!record) return false;
+  return record[key] === true;
 }
 
 function estimatedTokensFromSerializedValue(value: unknown): number | null {

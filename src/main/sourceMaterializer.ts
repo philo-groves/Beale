@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import type { ProgramScopeVersion, ScopeAsset } from '@shared/types';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import type { WorkspaceScopeVersion, ScopeAsset } from '@shared/types';
 
 export interface SourceRepositoryCandidate {
   url: string;
@@ -34,7 +36,14 @@ const SOURCE_REPOSITORY_RE = /\b(?:https?:\/\/)?(?:github\.com|gitlab\.com)\/[A-
 const SSH_SOURCE_REPOSITORY_RE = /\bgit@(?:github\.com|gitlab\.com):[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?:\.git)?\b/gi;
 const SOURCE_REPOSITORY_HOSTS = new Set(['github.com', 'gitlab.com']);
 
-export function sourceRepositoryCandidates(scope: ProgramScopeVersion): SourceRepositoryCandidate[] {
+export function defaultSourceRepositoryStoreDirectory(registryDirectory?: string): string {
+  const explicit = process.env.BEALE_REPOSITORY_STORE_DIR?.trim();
+  if (explicit) return resolve(explicit);
+  const bealeHome = registryDirectory ?? process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() ?? join(homedir(), '.beale');
+  return resolve(bealeHome, 'repositories');
+}
+
+export function sourceRepositoryCandidates(scope: WorkspaceScopeVersion): SourceRepositoryCandidate[] {
   const candidates = new Map<string, SourceRepositoryCandidate>();
   for (const asset of scope.assets) {
     if (asset.direction !== 'in_scope') continue;
@@ -53,7 +62,7 @@ export function sourceRepositoryCandidates(scope: ProgramScopeVersion): SourceRe
   return [...candidates.values()].sort((left, right) => left.url.localeCompare(right.url));
 }
 
-export function selectSourceRepository(scope: ProgramScopeVersion, requested: string): SourceRepositorySelection {
+export function selectSourceRepository(scope: WorkspaceScopeVersion, requested: string): SourceRepositorySelection {
   const candidates = sourceRepositoryCandidates(scope);
   const requestedUrl = normalizeSourceRepositoryUrl(requested);
   if (requestedUrl) {
@@ -78,25 +87,16 @@ export function selectSourceRepository(scope: ProgramScopeVersion, requested: st
   return { candidate: ranked[0].candidate, candidates, reason: 'matched' };
 }
 
-export function materializeGitRepository(candidate: SourceRepositoryCandidate, databasePath: string, ref: string): MaterializedSourceRepository {
-  const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
-  const managedRoot = join(workspaceRoot, 'targets', 'repositories');
+export function materializeGitRepository(
+  candidate: SourceRepositoryCandidate,
+  ref: string,
+  options: { repositoryStoreDirectory?: string } = {}
+): MaterializedSourceRepository {
+  const managedRoot = resolve(options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory());
   const slug = repositorySlug(candidate.url);
-  const localPath = join(managedRoot, slug);
   const cleanRef = ref.trim();
-  mkdirSync(managedRoot, { recursive: true });
-
-  const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
-  if (existingCheckout) {
-    materializeRequestedRef(existingCheckout, cleanRef);
-    return {
-      repositoryUrl: candidate.url,
-      localPath: existingCheckout,
-      cloned: false,
-      ref: cleanRef || null,
-      ...gitCheckoutMetadata(existingCheckout, cleanRef)
-    };
-  }
+  const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
+  mkdirSync(dirname(localPath), { recursive: true });
 
   if (existsSync(join(localPath, '.git'))) {
     materializeRequestedRef(localPath, cleanRef);
@@ -113,7 +113,7 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
+  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
   rmSync(tempPath, { recursive: true, force: true });
   try {
     runGit(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath]);
@@ -137,28 +137,14 @@ export function materializeGitRepository(candidate: SourceRepositoryCandidate, d
 
 export async function materializeGitRepositoryAsync(
   candidate: SourceRepositoryCandidate,
-  databasePath: string,
   ref: string,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; repositoryStoreDirectory?: string } = {}
 ): Promise<MaterializedSourceRepository> {
-  const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
-  const managedRoot = join(workspaceRoot, 'targets', 'repositories');
+  const managedRoot = resolve(options.repositoryStoreDirectory ?? defaultSourceRepositoryStoreDirectory());
   const slug = repositorySlug(candidate.url);
-  const localPath = join(managedRoot, slug);
   const cleanRef = ref.trim();
-  mkdirSync(managedRoot, { recursive: true });
-
-  const existingCheckout = findExistingWorkspaceCheckout(candidate, workspaceRoot);
-  if (existingCheckout) {
-    await materializeRequestedRefAsync(existingCheckout, cleanRef, options);
-    return {
-      repositoryUrl: candidate.url,
-      localPath: existingCheckout,
-      cloned: false,
-      ref: cleanRef || null,
-      ...gitCheckoutMetadata(existingCheckout, cleanRef)
-    };
-  }
+  const localPath = join(managedRoot, slug, repositoryCheckoutKey(cleanRef));
+  mkdirSync(dirname(localPath), { recursive: true });
 
   if (existsSync(join(localPath, '.git'))) {
     await materializeRequestedRefAsync(localPath, cleanRef, options);
@@ -175,7 +161,7 @@ export async function materializeGitRepositoryAsync(
     throw new Error(`Managed source path already exists and is not a git checkout: ${stat.isDirectory() ? localPath : dirname(localPath)}`);
   }
 
-  const tempPath = join(managedRoot, `.${slug}.tmp-${process.pid}-${Date.now()}`);
+  const tempPath = join(dirname(localPath), `.${repositoryCheckoutKey(cleanRef)}.tmp-${process.pid}-${Date.now()}`);
   rmSync(tempPath, { recursive: true, force: true });
   try {
     await runGitAsync(['-c', 'protocol.ext.allow=never', '-c', 'core.hooksPath=/dev/null', 'clone', '--depth', '1', '--filter=blob:none', '--', candidate.url, tempPath], options.signal);
@@ -234,17 +220,6 @@ export function normalizeGitHubRepositoryUrl(value: string): string | null {
   return normalizeSourceRepositoryUrl(value);
 }
 
-export function findScopedExistingSourceCheckout(scope: ProgramScopeVersion, databasePath: string, pathHint: string): { candidate: SourceRepositoryCandidate; localPath: string; head: string | null } | null {
-  const workspaceRoot = workspaceRootFromDatabasePath(databasePath);
-  const resolvedPath = resolve(pathHint);
-  if (!isWithinPath(resolvedPath, workspaceRoot)) return null;
-  const gitRoot = findGitRootAtOrAbove(resolvedPath, workspaceRoot);
-  if (!gitRoot) return null;
-  const remoteUrls = gitRemoteUrls(gitRoot);
-  const candidate = sourceRepositoryCandidates(scope).find((item) => remoteUrls.some((remoteUrl) => sameRepositoryUrl(item.url, remoteUrl))) ?? null;
-  return candidate ? { candidate, localPath: gitRoot, head: gitHead(gitRoot) } : null;
-}
-
 function sourceCandidateScore(candidate: SourceRepositoryCandidate, query: string): number {
   const repoName = candidate.url.split('/').at(-1)?.toLowerCase() ?? '';
   const label = candidate.label.toLowerCase();
@@ -273,8 +248,11 @@ function repositorySlug(url: string): string {
     .slice(0, 120);
 }
 
-function workspaceRootFromDatabasePath(databasePath: string): string {
-  return dirname(dirname(databasePath));
+function repositoryCheckoutKey(ref: string): string {
+  if (!ref) return 'default';
+  const label = ref.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'ref';
+  const digest = createHash('sha256').update(ref).digest('hex').slice(0, 12);
+  return `${label}-${digest}`;
 }
 
 function gitHead(localPath: string): string | null {
@@ -333,68 +311,6 @@ function gitOutput(localPath: string, args: string[]): string | null {
   } catch {
     return null;
   }
-}
-
-function findExistingWorkspaceCheckout(candidate: SourceRepositoryCandidate, workspaceRoot: string): string | null {
-  for (const path of existingCheckoutSearchPaths(candidate, workspaceRoot)) {
-    if (!existsSync(join(path, '.git'))) continue;
-    if (gitRemoteUrls(path).some((remoteUrl) => sameRepositoryUrl(candidate.url, remoteUrl))) {
-      return path;
-    }
-  }
-  return null;
-}
-
-function existingCheckoutSearchPaths(candidate: SourceRepositoryCandidate, workspaceRoot: string): string[] {
-  const paths = new Set<string>([workspaceRoot]);
-  const repoName = candidate.url.split('/').at(-1);
-  if (repoName) paths.add(join(workspaceRoot, repoName));
-  try {
-    for (const entry of readdirSync(workspaceRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name === '.beale' || entry.name === 'targets') continue;
-      paths.add(join(workspaceRoot, entry.name));
-    }
-  } catch {
-    // Fall through to explicit candidates.
-  }
-  return [...paths].map((path) => resolve(path)).filter((path) => isWithinPath(path, workspaceRoot));
-}
-
-function findGitRootAtOrAbove(pathHint: string, workspaceRoot: string): string | null {
-  let current = safeStat(pathHint)?.isDirectory() ? resolve(pathHint) : dirname(resolve(pathHint));
-  const root = resolve(workspaceRoot);
-  while (isWithinPath(current, root)) {
-    if (existsSync(join(current, '.git'))) return current;
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return null;
-}
-
-function gitRemoteUrls(localPath: string): string[] {
-  try {
-    const result = runGit(['-C', localPath, 'config', '--get-regexp', '^remote\\..*\\.url$']);
-    return result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim().split(/\s+/).slice(1).join(' '))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function safeStat(path: string) {
-  try {
-    return statSync(path);
-  } catch {
-    return null;
-  }
-}
-
-function isWithinPath(path: string, root: string): boolean {
-  const rel = relative(resolve(root), resolve(path));
-  return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/') && !/^[A-Za-z]:/.test(rel));
 }
 
 function runGit(args: string[]): { stdout: string; stderr: string } {

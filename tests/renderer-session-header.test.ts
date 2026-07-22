@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { runStatusClass, sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
+import { sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
-  it('formats status and session configuration pills', () => {
+  it('formats session configuration pills', () => {
     const detail = runDetail();
 
-    expect(runStatusClass('failed')).toBe('failed');
-    expect(runStatusClass('stopped')).toBe('paused');
     expect(sessionConfigPills(detail)).toEqual([
       { label: 'Dynamic', tooltip: 'Mode: Dynamic' },
       { label: 'Breadth First', tooltip: 'Strategy: Breadth First' },
@@ -50,6 +48,16 @@ describe('renderer session header view models', () => {
     expect(traceTurnNumber(traceEvent({ payload: {}, summary: 'Request for turn 4.' }))).toBe(4);
     expect(latestTraceTurnNumber(events)).toBe(7);
     expect(latestTraceGroupKey(events)).toBe('turn-7-2');
+  });
+
+  it('keeps child turns out of the root session turn count', () => {
+    const events = [
+      traceEvent({ id: 'root_turn', sequence: 1, payload: { turn: 2, agentPath: '/root' } }),
+      traceEvent({ id: 'child_turn', sequence: 2, payload: { turn: 8, agentPath: '/root/worker' } })
+    ];
+
+    expect(latestTraceTurnNumber(events)).toBe(2);
+    expect(latestTraceGroupKey(events)).toBe('agent-root-worker-turn-8-2');
   });
 });
 

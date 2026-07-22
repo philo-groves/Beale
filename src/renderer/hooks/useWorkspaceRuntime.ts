@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type {
   HostEnvironment,
   OpenAiAccountStatus,
-  ProgramRegistryState,
+  WorkspaceRegistryState,
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
@@ -16,20 +16,20 @@ import {
 
 export function useWorkspaceRuntime(onError: (message: string) => void): {
   snapshot: WorkspaceSnapshot | null;
-  programRegistry: ProgramRegistryState | null;
+  workspaceRegistry: WorkspaceRegistryState | null;
   hostEnvironment: HostEnvironment | null;
   windowChromeState: WindowChromeState;
   openAiStatus: OpenAiAccountStatus | null;
   selectedRunId: string | null;
-  setProgramRegistry: Dispatch<SetStateAction<ProgramRegistryState | null>>;
+  setWorkspaceRegistry: Dispatch<SetStateAction<WorkspaceRegistryState | null>>;
   setOpenAiStatus: Dispatch<SetStateAction<OpenAiAccountStatus | null>>;
   setSelectedRunId: Dispatch<SetStateAction<string | null>>;
   applySnapshot: (next: WorkspaceSnapshot | null) => void;
   loadSnapshot: () => Promise<void>;
-  loadProgramRegistry: () => Promise<void>;
+  loadWorkspaceRegistry: () => Promise<void>;
 } {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [programRegistry, setProgramRegistry] = useState<ProgramRegistryState | null>(null);
+  const [workspaceRegistry, setWorkspaceRegistry] = useState<WorkspaceRegistryState | null>(null);
   const [hostEnvironment, setHostEnvironment] = useState<HostEnvironment | null>(null);
   const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
@@ -49,10 +49,10 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
     applySnapshot(next);
   }, [applySnapshot]);
 
-  const loadProgramRegistry = useCallback(async () => {
-    const next = await devInstrumentation.timeAsync('ipc.getProgramRegistry', () => window.beale.getProgramRegistry());
-    devInstrumentation.recordPayload('ipc.programRegistry.apply', next, programRegistryMetricDetail(next));
-    setProgramRegistry(next);
+  const loadWorkspaceRegistry = useCallback(async () => {
+    const next = await devInstrumentation.timeAsync('ipc.getWorkspaceRegistry', () => window.beale.getWorkspaceRegistry());
+    devInstrumentation.recordPayload('ipc.workspaceRegistry.apply', next, workspaceRegistryMetricDetail(next));
+    setWorkspaceRegistry(next);
   }, []);
 
   useEffect(() => {
@@ -69,10 +69,10 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       .catch((caught: unknown) => onError(errorMessage(caught)));
 
     devInstrumentation
-      .timeAsync('ipc.getProgramRegistry.initial', () => window.beale.getProgramRegistry())
+      .timeAsync('ipc.getWorkspaceRegistry.initial', () => window.beale.getWorkspaceRegistry())
       .then((initial) => {
-        devInstrumentation.recordPayload('ipc.programRegistry.initial', initial, programRegistryMetricDetail(initial));
-        setProgramRegistry(initial);
+        devInstrumentation.recordPayload('ipc.workspaceRegistry.initial', initial, workspaceRegistryMetricDetail(initial));
+        setWorkspaceRegistry(initial);
       })
       .catch((caught: unknown) => onError(errorMessage(caught)));
 
@@ -93,40 +93,40 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       startTransition(() => applySnapshot(next));
       recordNextFrameTiming('ipc.snapshot.event.apply.nextFrameLatency', applyStartedAt, detail);
     });
-    const unsubscribeProgramRegistry = window.beale.onProgramRegistry((next) => {
+    const unsubscribeWorkspaceRegistry = window.beale.onWorkspaceRegistry((next) => {
       const applyStartedAt = performance.now();
-      const detail = programRegistryMetricDetail(next);
-      devInstrumentation.recordPayload('ipc.programRegistry.event', next, detail);
-      startTransition(() => setProgramRegistry(next));
-      recordNextFrameTiming('ipc.programRegistry.event.apply.nextFrameLatency', applyStartedAt, detail);
+      const detail = workspaceRegistryMetricDetail(next);
+      devInstrumentation.recordPayload('ipc.workspaceRegistry.event', next, detail);
+      startTransition(() => setWorkspaceRegistry(next));
+      recordNextFrameTiming('ipc.workspaceRegistry.event.apply.nextFrameLatency', applyStartedAt, detail);
     });
     const unsubscribeWindowChromeState = window.beale.onWindowChromeState(setWindowChromeState);
     return () => {
       unsubscribeSnapshot();
-      unsubscribeProgramRegistry();
+      unsubscribeWorkspaceRegistry();
       unsubscribeWindowChromeState();
     };
   }, [applySnapshot, onError]);
 
   return {
     snapshot,
-    programRegistry,
+    workspaceRegistry,
     hostEnvironment,
     windowChromeState,
     openAiStatus,
     selectedRunId,
-    setProgramRegistry,
+    setWorkspaceRegistry,
     setOpenAiStatus,
     setSelectedRunId,
     applySnapshot,
     loadSnapshot,
-    loadProgramRegistry
+    loadWorkspaceRegistry
   };
 }
 
-function programRegistryMetricDetail(registry: ProgramRegistryState | null): Record<string, number> {
+function workspaceRegistryMetricDetail(registry: WorkspaceRegistryState | null): Record<string, number> {
   return {
-    programs: registry?.programs.length ?? 0,
+    workspaces: registry?.workspaces.length ?? 0,
     sessions: registry?.researchSessions.length ?? 0
   };
 }

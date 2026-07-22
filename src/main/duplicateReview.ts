@@ -291,7 +291,7 @@ function newClaimReview(): DuplicateReview {
     relationship: 'none',
     score: 0,
     matchedFields: [],
-    rationale: 'No matching prior program record was found.',
+    rationale: 'No matching prior workspace record was found.',
     recommendedNextAction: 'Create the claim and continue gathering evidence.'
   };
 }

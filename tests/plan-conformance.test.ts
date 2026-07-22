@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
-import { bealeToolDefinitions } from '../src/main/openaiTools';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { IPC_CHANNELS } from '../src/shared/ipc';
 import type { ScopeAssetKind, StartRunInput } from '../src/shared/types';
 
 const ROOT = process.cwd();
@@ -22,13 +22,23 @@ const OPENAI_ENV_NAMES = [
   'OPENAI_BASE_URL'
 ];
 
+beforeEach(() => {
+  process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempDir('beale-test-registry-');
+});
+
 afterEach(() => {
+  delete process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   for (const dir of createdDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe('plan conformance', () => {
+  it('keeps every host API on a distinct IPC channel', () => {
+    const channels = Object.values(IPC_CHANNELS);
+    expect(new Set(channels).size).toBe(channels.length);
+  });
+
   it('keeps planning documents linked from the book summary', () => {
     const summaryPath = join(ROOT, 'planning/book/SUMMARY.md');
     const summary = readFileSync(summaryPath, 'utf8');
@@ -58,45 +68,36 @@ describe('plan conformance', () => {
   });
 
   it('keeps authoritative SQL mutation inside the persistence service', () => {
-    const persistenceFiles = new Set(['src/main/database.ts', 'src/main/programRegistry.ts']);
+    const persistenceFiles = new Set(['src/main/database.ts', 'src/main/databaseMigrations.ts', 'src/main/workspaceRegistry.ts']);
     const files = filesUnder('src').filter(isSourceFile).filter((path) => !persistenceFiles.has(normalizePath(path)));
     const forbiddenSql = [/\bINSERT INTO\b/i, /\bCREATE TABLE\b/i, /\bDELETE FROM\b/i, /\bALTER TABLE\b/i, /\bUPDATE\s+[a-z_]+\s+SET\b/i, /\bPRAGMA\b/i];
 
     expect(findPatternHits(files, forbiddenSql)).toEqual([]);
   });
 
-  it('keeps host subprocess use limited to auth, sandbox, VM controller, benchmark, and source setup boundaries', () => {
+  it('keeps host subprocess use limited to auth, host tools, source setup, and Honeycrisp host-agent boundaries', () => {
     const files = filesUnder('src/main').filter(isSourceFile);
     const hits = findPatternHits(files, [/node:child_process|spawnSync\(|\bspawn\(|\bexecFile\(|\bfork\(/]).filter(
       (hit) =>
         ![
           'src/main/openaiAuth.ts',
+          'src/main/researchProviderAuth.ts',
           'src/main/hostToolExecutor.ts',
-          'src/main/vmctlExecutor.ts',
-          'src/main/dockerExecutor.ts',
-          'src/main/benchmarkDockerRunner.ts',
-          'src/main/sourceMaterializer.ts'
+          'src/main/sourceMaterializer.ts',
+          'src/main/honeycrispRunEngine.ts',
+          'src/main/honeycrispMemorySummary.ts'
         ].includes(normalizePath(hit.path))
     );
 
     expect(hits).toEqual([]);
   });
 
-  it('keeps the first model-facing tool surface to one setup tool plus the planned structured research tools', () => {
-    expect(bealeToolDefinitions().map((tool) => tool.name)).toEqual([
-      'source',
-      'search',
-      'code_browser',
-      'resource_lookup',
-      'program_lookup',
-      'python',
-      'debugger',
-      'artifact',
-      'evidence',
-      'hypothesis',
-      'finding',
-      'verifier'
-    ]);
+  it('keeps removed Beale agent runtime layers out of the main source tree', () => {
+    const files = filesUnder('src/main').map(normalizePath);
+    expect(files).not.toContain('src/main/openaiRunEngine.ts');
+    expect(files).not.toContain('src/main/openaiContext.ts');
+    expect(files).not.toContain('src/main/openaiTools.ts');
+    expect(files).not.toContain('src/main/fakeRunEngine.ts');
   });
 
   it('keeps the OpenAI adapter aligned with the planned defaults and host-only credential state', () => {
@@ -104,15 +105,15 @@ describe('plan conformance', () => {
       const auth = new OpenAiAuthService();
       const status = auth.getStatus();
       expect(status.credentialsHostOnly).toBe(true);
-      expect(status.defaultModel).toBe('gpt-5.5');
-      expect(status.defaultReasoningEffort).toBe('xhigh');
+      expect(status.defaultModel).toBe('gpt-5.6-sol');
+      expect(status.defaultReasoningEffort).toBe('high');
 
       const adapter = new OpenAiResponsesAdapter(auth, async () => new Response('', { status: 500 }), 'https://api.openai.test/v1', null);
       const request = adapter.buildRequest({
         model: status.defaultModel,
         instructions: 'Plan conformance smoke request.',
         input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Return ok.' }] }],
-        tools: bealeToolDefinitions(),
+        tools: [],
         reasoning: { effort: status.defaultReasoningEffort },
         text: { verbosity: 'low' },
         metadata: { beale_plan_check: 'true' }
@@ -122,15 +123,15 @@ describe('plan conformance', () => {
       expect(request.stream).toBe(true);
       expect(request.tool_choice).toBe('auto');
       expect(request.parallel_tool_calls).toBe(true);
-      expect(request.reasoning).toEqual({ effort: 'xhigh' });
+      expect(request.reasoning).toEqual({ effort: 'high' });
     });
   });
 
-  it('creates workspace-local SQLite state and fake VM contexts without mounting host authority', () => {
+  it('creates shared SQLite state and host execution records without exposing secrets', () => {
     const dir = tempDir('beale-plan-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    const db = new WorkspaceDatabase(join(dir, '.beale', 'beale.sqlite'), artifactRoot);
+    const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
     db.initialize();
 
     const context = db.createRun({
@@ -142,24 +143,24 @@ describe('plan conformance', () => {
       reasoningEffort: 'xhigh',
       attemptStrategy: 'adaptive_portfolio',
       networkProfile: 'offline',
-      sandboxProfile: 'local_disposable_vm',
-      budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fake' }
+      sandboxProfile: 'host',
+      budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
     });
 
-    expect(db.getDatabasePath()).toBe(join(dir, '.beale', 'beale.sqlite'));
+    expect(db.getDatabasePath()).toBe(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'));
     expect(db.getArtifactRoot()).toBe(artifactRoot);
-    expect(context.vmContext.backend).toBe('fake_vm');
-    expect(context.vmContext.metadata.targetExecution).toBe(false);
+    expect(context.vmContext.backend).toBe('host');
+    expect(context.vmContext.metadata).toMatchObject({ executor: 'host', targetExecution: true, executionPosture: 'host_process' });
     expect(JSON.stringify(context.vmContext.metadata)).not.toMatch(/beale\.sqlite|OPENAI|api[_-]?key|access[_-]?token|credential/i);
     db.close();
   });
 
-  it('keeps fake run evidence provenance distinct from model claims', () => {
+  it('keeps fixture run evidence provenance distinct from model claims', () => {
     const service = new WorkspaceService();
     service.createWorkspace(tempDir('beale-plan-workspace-'));
-    service.saveProgramScope({
-      programName: 'Plan Program',
-      organizationName: 'Example Org',
+    service.saveScope({
+      workspaceName: 'Plan Workspace',
+      scopeOwner: 'Example Org',
       descriptionMarkdown: 'Plan conformance scope.',
       rulesMarkdown: 'Stay inside local fixtures.',
       networkProfile: 'offline',
@@ -167,7 +168,7 @@ describe('plan conformance', () => {
       assets: [asset('in_scope', 'path', '/targets/plan-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
     });
 
-    const snapshot = startRunForTest(service, { ...runInput(), fakeScenario: 'verified_finding' });
+    const snapshot = startRunForTest(service, { ...runInput(), fixtureScenario: 'verified_finding' });
     const detail = service.getRunDetail(snapshot.runs[0].run.id);
     const modelMessages = detail.traceEvents.filter((event) => event.source === 'model' && event.type === 'model_message');
     const observations = detail.traceEvents.filter((event) => ['tool', 'verifier'].includes(event.source) && ['tool_result', 'artifact_created', 'verifier_result'].includes(event.type));
@@ -254,19 +255,19 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 
 function runInput(): StartRunInput {
   return {
-    runEngine: 'fake',
-    promptMarkdown: '# Plan conformance\nExercise the fake workbench path.',
+    runEngine: 'fixture',
+    promptMarkdown: '# Plan conformance\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'adaptive_portfolio',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     networkProfile: 'offline',
-    sandboxProfile: 'local_disposable_vm',
+    sandboxProfile: 'host',
     budget: {
       maxMinutes: 30,
       maxAttempts: 2,
       maxCostUsd: 0
     },
-    fakeScenario: 'adaptive_portfolio'
+    fixtureScenario: 'adaptive_portfolio'
   };
 }

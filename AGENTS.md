@@ -29,10 +29,11 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 - Keep terminology consistent:
   - Product name: `Beale`
   - Workspace metadata directory: `.beale/`
-  - Workspace database: `.beale/beale.sqlite`
+  - Global database: `~/.honeycrisp/memory.sqlite` (Honeycrisp-owned and shared with Beale; records retain workspace ownership)
+  - Workspace registry: user-global metadata for known Beale workspaces
+  - Authorized scope: the recorded authorization boundary within a workspace
   - First release focus: authorized open-ended vulnerability discovery
-  - Preferred sandbox boundary: local disposable VM; host and Docker sandboxes are supported degraded options when explicitly selected
-  - Benchmark isolation: Dockerized agent harness with host-side grader and host-side model/auth proxy
+  - Execution posture: Beale and Honeycrisp run with the current user's host privileges; users should launch them inside their own VM/container when OS isolation is required
 - If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
 
 ## CHANGELOG.md Management
@@ -50,13 +51,13 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 Preserve these invariants in docs and implementation:
 
 - Beale is the trusted host harness.
-- Target code, build scripts, generated PoCs, tests, fuzzing, debugging, and closed-source executables should prefer disposable guest VMs; host and Docker sandboxes are allowed only when explicitly selected and visibly recorded.
+- Target code, build scripts, generated PoCs, tests, fuzzing, debugging, and closed-source executables run with the user's chosen host privileges. Beale must not pretend to provide isolation it does not manage.
 - OpenAI OAuth credentials stay on the host.
-- The workspace database is never mounted into the guest.
-- Guest exports are candidate artifacts until accepted by the host.
+- The global database and credential material must not be exposed through model-visible tool results.
+- Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
 - Findings require tool, artifact, or verifier-backed evidence.
 - User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.
-- Live-target testing is allowed only when the recorded program scope and active network profile permit it.
+- Live-target testing is allowed only when the recorded authorized scope and active network profile permit it.
 
 ## Implementation Rules
 
@@ -64,7 +65,7 @@ Preserve these invariants in docs and implementation:
 - Prefer the first vertical slice in `planning/book/vertical-slice.md` before broader feature work.
 - Keep the first implementation narrow:
   - Workspace open/create.
-  - Program scope.
+  - Authorized scope.
   - SQLite persistence.
   - Run tracker.
   - Run detail.
@@ -80,7 +81,7 @@ Preserve these invariants in docs and implementation:
 - Prefer typed boundaries between renderer, host service, model adapter, persistence, and executor layers.
 - Use structured parsers/APIs instead of ad hoc string parsing when practical.
 - Keep host-safe setup as narrow workspace/import operations, not general host shell execution.
-- Keep target execution tools inside the selected sandbox boundary; prefer VM-backed execution for risky target code.
+- Keep target execution posture explicit. Recommend an externally launched VM/container for risky target code, but do not add Beale-managed permission gates or sandbox locks.
 
 ## Commands
 
@@ -88,10 +89,3 @@ Preserve these invariants in docs and implementation:
 - Do not invent checks before the project has a package manifest.
 - Once scripts exist, run the project-specific typecheck/lint command after code changes.
 - Documentation-only changes do not require code checks.
-
-## Git Rules
-
-- Do not commit unless explicitly asked.
-- If this directory becomes a git repository, stage only files changed in the current task.
-- Never use `git add .` or `git add -A`.
-- Never use destructive git commands such as `git reset --hard`, `git checkout .`, or `git clean -fd` unless explicitly requested.

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord, TranscriptMessageRecord } from '@shared/types';
 import { traceCategoryForEvent, type TraceCategoryId } from '../src/renderer/traceClassification';
-import { buildTraceDisplayEvents, buildTraceTimelineEntries, groupRenderedTraceEntries, traceGroupStatusLabel, type TraceTimelineGroup } from '../src/renderer/view-models/traceDisplay';
+import {
+  buildTraceDisplayEvents,
+  buildTraceTimelineEntries,
+  coalesceConsecutiveReasoningEntries,
+  groupRenderedTraceEntries,
+  pendingHoneycrispToolRequestEventIds,
+  traceDisplayEventContainsId,
+  traceGroupStatusLabel,
+  type TraceTimelineGroup
+} from '../src/renderer/view-models/traceDisplay';
 
 const ALL_CATEGORIES: TraceCategoryId[] = [
   'agent_output',
@@ -81,6 +90,60 @@ describe('renderer trace display view models', () => {
     expect(entries[0].group).toMatchObject({ key: 'turn-2-2', visibleCount: 1, toolCount: 1, modelCount: 0 });
   });
 
+  it('hides host-only traces unless the non-standard filter is enabled', () => {
+    const events = [
+      traceEvent({ id: 'trace_visible', sequence: 1, modelVisible: true }),
+      traceEvent({ id: 'trace_host_only', sequence: 2, modelVisible: false })
+    ];
+
+    expect(buildTraceTimelineEntries(events, ['events']).map((entry) => entry.event.id)).toEqual(['trace_visible']);
+    expect(buildTraceTimelineEntries(events, ['events', 'non_standard']).map((entry) => entry.event.id)).toEqual([
+      'trace_visible',
+      'trace_host_only'
+    ]);
+  });
+
+  it('temporarily shows pending Honeycrisp tool requests and hides them after matching observations', () => {
+    const searchRequest = honeycrispToolEvent('tool.requested', 'action_search', 'memory.search', 1);
+    const readRequest = honeycrispToolEvent('tool.requested', 'action_read', 'file.read', 2);
+    const searchObservation = honeycrispToolEvent('tool.observed', 'action_search', 'memory.search', 3);
+    const pendingEvents = [searchRequest, readRequest];
+    const completedEvents = [...pendingEvents, searchObservation];
+
+    expect(traceCategoryForEvent(searchRequest)).toBe('non_standard');
+    expect([...pendingHoneycrispToolRequestEventIds(pendingEvents)]).toEqual(['trace_tool_1', 'trace_tool_2']);
+    expect(buildTraceTimelineEntries(pendingEvents, ['tools']).map((entry) => entry.event.id)).toEqual(['trace_tool_1', 'trace_tool_2']);
+    expect([...pendingHoneycrispToolRequestEventIds(completedEvents)]).toEqual(['trace_tool_2']);
+    expect(buildTraceTimelineEntries(completedEvents, ['tools']).map((entry) => entry.event.id)).toEqual(['trace_tool_2', 'trace_tool_3']);
+    expect(buildTraceTimelineEntries(completedEvents, ['tools', 'non_standard']).map((entry) => entry.event.id)).toEqual([
+      'trace_tool_1',
+      'trace_tool_2',
+      'trace_tool_3'
+    ]);
+  });
+
+  it('coalesces only uninterrupted reasoning summaries within the same turn', () => {
+    const entries = buildTraceTimelineEntries(
+      [
+        traceEvent({ id: 'reasoning_one', sequence: 1, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Inspecting parser**' } }),
+        traceEvent({ id: 'reasoning_two', sequence: 2, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Checking bounds**' } }),
+        traceEvent({ id: 'tool_interrupt', sequence: 3, source: 'tool', type: 'tool_result', payload: { turn: 1 }, summary: 'Search returned output.' }),
+        traceEvent({ id: 'reasoning_three', sequence: 4, payload: { turn: 1, transcriptSource: 'openai_reasoning_summary', text: '**Reviewing result**' } }),
+        traceEvent({ id: 'reasoning_next_turn', sequence: 5, payload: { turn: 2, transcriptSource: 'openai_reasoning_summary', text: '**Starting next turn**' } })
+      ],
+      ALL_CATEGORIES
+    );
+
+    const coalesced = coalesceConsecutiveReasoningEntries(entries);
+
+    expect(coalesced.map((entry) => entry.event.id)).toEqual(['reasoning_one', 'tool_interrupt', 'reasoning_three', 'reasoning_next_turn']);
+    expect(coalesced[0].event.payload).toMatchObject({
+      reasoningSummaryTexts: ['**Inspecting parser**', '**Checking bounds**'],
+      coalescedTraceEventIds: ['reasoning_one', 'reasoning_two']
+    });
+    expect(traceDisplayEventContainsId(coalesced[0].event, 'reasoning_two')).toBe(true);
+  });
+
   it('groups rendered consecutive entries by shared timeline group', () => {
     const entries = buildTraceTimelineEntries(
       [
@@ -99,10 +162,29 @@ describe('renderer trace display view models', () => {
     expect(groups[1].entries.map((entry) => entry.event.id)).toEqual(['trace_turn', 'trace_tool']);
   });
 
+  it('keeps root and subagent turns in distinct agent-aware groups', () => {
+    const entries = buildTraceTimelineEntries(
+      [
+        traceEvent({ id: 'root_thought', sequence: 1, payload: { turn: 1, agentPath: '/root' } }),
+        traceEvent({ id: 'root_same_turn', sequence: 2, payload: { turn: 1, agentPath: '/root' } }),
+        traceEvent({ id: 'child_turn', sequence: 3, payload: { turn: 1, agentPath: '/root/parser_review' } }),
+        traceEvent({ id: 'root_return', sequence: 4, payload: { turn: 2, agentPath: '/root' } })
+      ],
+      ALL_CATEGORIES
+    );
+
+    expect(entries.map((entry) => [entry.event.id, entry.group.key, entry.group.label])).toEqual([
+      ['root_thought', 'turn-1-1', 'Turn 1'],
+      ['root_same_turn', 'turn-1-1', 'Turn 1'],
+      ['child_turn', 'agent-root-parser_review-turn-1-3', '/root/parser_review · Turn 1'],
+      ['root_return', 'turn-2-4', 'Turn 2']
+    ]);
+  });
+
   it('labels trace group status from errors, active latest state, completed activity, and passive events', () => {
     expect(traceGroupStatusLabel(group({ failureCount: 2 }), true, 'active')).toEqual({ kind: 'review', label: '2 Errors' });
     expect(traceGroupStatusLabel(group(), true, 'active')).toEqual({ kind: 'active', label: 'Active' });
-    expect(traceGroupStatusLabel(group({ modelCount: 1 }), false, 'completed')).toEqual({ kind: 'complete', label: 'Complete' });
+    expect(traceGroupStatusLabel(group({ modelCount: 1 }), false, 'completed')).toEqual({ kind: 'complete', label: 'Turn Complete' });
     expect(traceGroupStatusLabel(group(), false, 'completed')).toEqual({ kind: 'events', label: 'Events' });
   });
 
@@ -139,7 +221,7 @@ describe('renderer trace display view models', () => {
       modelVisible: true,
       sequence: 20.01,
       source: 'model',
-      summary: 'Thought.',
+      summary: 'Reasoning.',
       transcriptMessageId: 'message_reasoning',
       vmContextId: 'vm_test',
       payload: {
@@ -205,6 +287,21 @@ function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {
     approvalId: null,
     ...input
   };
+}
+
+function honeycrispToolEvent(kind: 'tool.requested' | 'tool.observed', toolActionId: string, toolName: string, sequence: number): TraceEventRecord {
+  return traceEvent({
+    id: `trace_tool_${sequence}`,
+    sequence,
+    source: kind === 'tool.requested' ? 'model' : 'tool',
+    type: kind === 'tool.requested' ? 'tool_call' : 'tool_result',
+    summary: `Honeycrisp ${kind}: ${toolName}`,
+    payload: {
+      agentPath: '/root',
+      honeycrispKind: kind,
+      payload: { toolActionId, toolName, normalizedInputs: {} }
+    }
+  });
 }
 
 function runDetail(input: { traceEvents?: TraceEventRecord[]; transcriptMessages?: TranscriptMessageRecord[] } = {}): RunDetail {

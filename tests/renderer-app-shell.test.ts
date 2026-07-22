@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { HostEnvironment, ProgramRegistryState, RunDetail, VmPreference, WorkspaceSnapshot } from '@shared/types';
+import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import {
   activeRunDetailForSelection,
   appShellClassName,
-  DEFAULT_VM_PREFERENCE,
   selectedRunStatus,
-  vmPreferenceForState,
   windowControlPlatformForState
 } from '../src/renderer/view-models/appShell';
 
@@ -29,22 +27,15 @@ describe('renderer app shell view model', () => {
         sessionActive: true,
         platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
-        sidebarCollapsed: true,
-        inspectorOpen: true
+        sidebarCollapsed: true
       })
-    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed inspector-open');
+    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed');
   });
 
-  it('resolves VM preference and window control platform fallbacks', () => {
-    const snapshotPreference: VmPreference = { enabled: true, backendKind: 'firecracker', updatedAt: '2026-04-30T00:00:00.000Z' };
-    const registryPreference: VmPreference = { enabled: false, backendKind: 'tart', updatedAt: '2026-04-30T00:01:00.000Z' };
-    const snapshot = workspaceSnapshot('run_test', 'completed', snapshotPreference, 'win32');
-    const registry = { vmPreference: registryPreference } as unknown as ProgramRegistryState;
+  it('resolves window control platform fallbacks', () => {
+    const snapshot = workspaceSnapshot('run_test', 'completed', 'win32');
     const host = { platform: 'darwin' } as HostEnvironment;
 
-    expect(vmPreferenceForState(registry, snapshot)).toBe(registryPreference);
-    expect(vmPreferenceForState(null, snapshot)).toBe(snapshotPreference);
-    expect(vmPreferenceForState(null, null)).toEqual(DEFAULT_VM_PREFERENCE);
     expect(windowControlPlatformForState(snapshot, host)).toBe('win32');
     expect(windowControlPlatformForState(null, host)).toBe('darwin');
     expect(windowControlPlatformForState(null, null)).toBe('linux');
@@ -54,15 +45,13 @@ describe('renderer app shell view model', () => {
 function workspaceSnapshot(
   runId: string,
   status: string,
-  vmPreference: VmPreference = DEFAULT_VM_PREFERENCE,
   platform: HostEnvironment['platform'] = 'linux'
 ): WorkspaceSnapshot {
   return {
     workspace: {
       hostEnvironment: { platform }
     },
-    runs: [{ run: { id: runId, status } }],
-    vmPreference
+    runs: [{ run: { id: runId, status } }]
   } as unknown as WorkspaceSnapshot;
 }
 

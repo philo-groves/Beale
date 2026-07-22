@@ -1,32 +1,30 @@
 import type { JSX } from 'react';
 import type {
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
-  ExecutorStatus,
+  ShellOptions,
   FindingRecord,
   HypothesisRecord,
   NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderModelCatalog,
+  ResearchProviderStatus,
   ProfilingReport,
   ProfilingState,
-  ProgramOnboardingProgressUpdate,
-  ProgramRegistryEntry,
+  WorkspaceOnboardingProgressUpdate,
+  WorkspaceRegistryEntry,
   ResearchSessionSummary,
   RunDetail,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchResult,
-  VmPreference,
-  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { ProgramInformationModal, ProgramSessionHistoryModal } from '../features/programs/ProgramModals';
-import { ProgramOnboardingModal } from '../features/programs/ProgramOnboardingModal';
-import { ResearchPromptModal } from '../features/sessions/ResearchPromptModal';
+import { WorkspaceInformationModal, WorkspaceSessionHistoryModal } from '../features/workspaces/WorkspaceModals';
+import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
+import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
@@ -34,31 +32,34 @@ import { SettingsModal, type SettingsSection } from '../features/settings/Settin
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
-import type { ProgramOnboardingFormState, ProgramTemplateKind } from '../view-models/programOnboarding';
+import type { WorkspaceOnboardingFormState, WorkspaceTemplateKind } from '../view-models/workspaceOnboarding';
 
 export function AppModals({
   activeNotification,
   activeRunDetail,
-  activeProgramName,
+  activeWorkspaceName,
   busy,
   developerSettings,
-  executor,
+  shellOptions,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
+  researchProviderOAuthResults,
+  researchProviderModelCatalog,
+  researchProviderStatuses,
   profilingOpen,
   profilingState,
   lastProfilingReport,
-  programDraft,
-  programOnboardingProgress,
-  programInfo,
-  researchPromptDetail,
+  workspaceDraft,
+  workspaceOnboardingProgress,
+  workspaceInfo,
+  sessionSummaryDetail,
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
   selectedTraceFinding,
   selectedTraceHypothesis,
-  sessionHistoryProgram,
+  sessionHistoryWorkspace,
   sessionHistorySessions,
   settingsOpen,
   settingsSection,
@@ -66,17 +67,15 @@ export function AppModals({
   traceDetailOpen,
   traceFilterOpen,
   visibleTraceCategories,
-  vmPreference,
   onCancelNewResearch,
-  onCancelProgramOnboarding,
-  onClearCyberGymCache,
-  onChangeProgramDraft,
+  onCancelWorkspaceOnboarding,
+  onChangeWorkspaceDraft,
   onChangeSettingsSection,
   onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
-  onCloseProgramInfo,
-  onCloseResearchPrompt,
+  onCloseWorkspaceInfo,
+  onCloseSessionSummary,
   onCloseSearch,
   onCloseSessionHistory,
   onCloseSettings,
@@ -84,46 +83,45 @@ export function AppModals({
   onCloseTraceFilters,
   onLookupHackerOne,
   onOpenSessionHistorySession,
-  onPrepareCyberGymStorage,
-  onProgramTemplate,
+  onWorkspaceTemplate,
   onRefreshOpenAi,
   onFlushProfilingReport,
-  onRefreshProjectSemanticIndex,
-  onSetProjectSemanticIndexEnabled,
   onSetDeveloperModeEnabled,
-  onSetupSandbox,
-  onSetVmPreference,
+  onSaveShellOptions,
   onStartOpenAiOAuth,
+  onStartResearchProviderOAuth,
   onStartedNewResearch,
   onSteerNotification,
-  onSubmitProgramOnboarding,
-  onSkipProgramOnboardingRepository,
+  onSubmitWorkspaceOnboarding,
+  onSkipWorkspaceOnboardingRepository,
   onOpenSearchResult,
-  onUpdateCyberGymSettings,
   runAction
 }: {
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
-  activeProgramName: string;
+  activeWorkspaceName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
-  executor: ExecutorStatus | null;
+  shellOptions: ShellOptions | null;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderModelCatalog: ResearchProviderModelCatalog[];
+  researchProviderStatuses: ResearchProviderStatus[];
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
-  programDraft: ProgramOnboardingFormState | null;
-  programOnboardingProgress: ProgramOnboardingProgressUpdate | null;
-  programInfo: ProgramRegistryEntry | null;
-  researchPromptDetail: RunDetail | null;
+  workspaceDraft: WorkspaceOnboardingFormState | null;
+  workspaceOnboardingProgress: WorkspaceOnboardingProgressUpdate | null;
+  workspaceInfo: WorkspaceRegistryEntry | null;
+  sessionSummaryDetail: RunDetail | null;
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
   selectedTraceFinding: FindingRecord | null;
   selectedTraceHypothesis: HypothesisRecord | null;
-  sessionHistoryProgram: ProgramRegistryEntry | null;
+  sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
   sessionHistorySessions: ResearchSessionSummary[];
   settingsOpen: boolean;
   settingsSection: SettingsSection;
@@ -131,61 +129,57 @@ export function AppModals({
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
-  vmPreference: VmPreference;
   onCancelNewResearch: () => void;
-  onCancelProgramOnboarding: () => void;
-  onClearCyberGymCache: () => Promise<CyberGymStorageActionResult>;
-  onChangeProgramDraft: (next: ProgramOnboardingFormState) => void;
+  onCancelWorkspaceOnboarding: () => void;
+  onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
-  onCloseProgramInfo: () => void;
-  onCloseResearchPrompt: () => void;
+  onCloseWorkspaceInfo: () => void;
+  onCloseSessionSummary: () => void;
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
   onCloseSettings: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
-  onOpenSessionHistorySession: (program: ProgramRegistryEntry, session: ResearchSessionSummary) => void;
-  onPrepareCyberGymStorage: () => Promise<CyberGymStorageActionResult>;
-  onProgramTemplate: (templateKind: ProgramTemplateKind) => void;
+  onOpenSessionHistorySession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
+  onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
-  onRefreshProjectSemanticIndex: () => Promise<void>;
-  onSetProjectSemanticIndexEnabled: (enabled: boolean) => Promise<void>;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSetupSandbox: (input: SandboxSetupInput) => Promise<SandboxSetupResult>;
-  onSetVmPreference: (input: VmPreferenceInput) => Promise<void>;
+  onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
-  onSubmitProgramOnboarding: () => void;
-  onSkipProgramOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
+  onSubmitWorkspaceOnboarding: () => void;
+  onSkipWorkspaceOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
   onOpenSearchResult: (result: SessionTranscriptSearchResult, query: string) => void;
-  onUpdateCyberGymSettings: (input: CyberGymSettingsInput) => Promise<void>;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
 }): JSX.Element {
   return (
     <>
-      {programDraft ? (
-        <ProgramOnboardingModal
+      {workspaceDraft ? (
+        <WorkspaceOnboardingModal
           busy={busy}
-          form={programDraft}
-          progress={programOnboardingProgress}
-          onCancel={onCancelProgramOnboarding}
-          onChange={onChangeProgramDraft}
+          form={workspaceDraft}
+          progress={workspaceOnboardingProgress}
+          onCancel={onCancelWorkspaceOnboarding}
+          onChange={onChangeWorkspaceDraft}
           onLookupHackerOne={onLookupHackerOne}
-          onSkipRepository={onSkipProgramOnboardingRepository}
-          onTemplate={onProgramTemplate}
-          onSubmit={onSubmitProgramOnboarding}
+          onSkipRepository={onSkipWorkspaceOnboardingRepository}
+          onTemplate={onWorkspaceTemplate}
+          onSubmit={onSubmitWorkspaceOnboarding}
         />
       ) : null}
       {newResearchOpen && snapshot ? (
         <StartRunForm
           snapshot={snapshot}
-          vmPreference={vmPreference}
+          openAiStatus={openAiStatus}
+          researchProviderStatuses={researchProviderStatuses}
+          providerModelCatalog={researchProviderModelCatalog}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}
@@ -196,25 +190,20 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
-          executor={executor}
-          projectSemantic={snapshot?.projectSemantic ?? null}
-          programName={activeProgramName}
-          vmPreference={vmPreference}
+          shellOptions={shellOptions}
+          workspaceName={activeWorkspaceName}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
+          researchProviderOAuthResults={researchProviderOAuthResults}
+          researchProviderStatuses={researchProviderStatuses}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
-          onClearCyberGymCache={onClearCyberGymCache}
           onClose={onCloseSettings}
-          onPrepareCyberGymStorage={onPrepareCyberGymStorage}
-          onSetVmPreference={onSetVmPreference}
-          onRefreshProjectSemanticIndex={onRefreshProjectSemanticIndex}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
-          onSetProjectSemanticIndexEnabled={onSetProjectSemanticIndexEnabled}
-          onSetupSandbox={onSetupSandbox}
+          onSaveShellOptions={onSaveShellOptions}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
-          onUpdateCyberGymSettings={onUpdateCyberGymSettings}
+          onStartResearchProviderOAuth={onStartResearchProviderOAuth}
         />
       ) : null}
       {profilingOpen ? (
@@ -234,7 +223,7 @@ export function AppModals({
       ) : null}
       {searchOpen ? (
         <TranscriptSearchModal
-          activeProgramName={activeProgramName}
+          activeWorkspaceName={activeWorkspaceName}
           workspaceOpen={Boolean(snapshot)}
           selectedRunId={selectedRunId}
           onClose={onCloseSearch}
@@ -249,7 +238,7 @@ export function AppModals({
           onSteer={(instruction) => onSteerNotification(activeNotification, instruction)}
         />
       ) : null}
-      {researchPromptDetail ? <ResearchPromptModal detail={researchPromptDetail} onClose={onCloseResearchPrompt} /> : null}
+      {sessionSummaryDetail ? <SessionSummaryModal detail={sessionSummaryDetail} onClose={onCloseSessionSummary} /> : null}
       {traceDetailOpen && selectedTraceEvent ? (
         <TraceDetailModal
           detail={activeRunDetail}
@@ -259,14 +248,14 @@ export function AppModals({
           onClose={onCloseTraceDetail}
         />
       ) : null}
-      {programInfo ? <ProgramInformationModal program={programInfo} onClose={onCloseProgramInfo} /> : null}
-      {sessionHistoryProgram ? (
-        <ProgramSessionHistoryModal
-          program={sessionHistoryProgram}
+      {workspaceInfo ? <WorkspaceInformationModal workspace={workspaceInfo} onClose={onCloseWorkspaceInfo} /> : null}
+      {sessionHistoryWorkspace ? (
+        <WorkspaceSessionHistoryModal
+          workspace={sessionHistoryWorkspace}
           sessions={sessionHistorySessions}
           selectedRunId={selectedRunId}
           onClose={onCloseSessionHistory}
-          onOpenSession={(session) => onOpenSessionHistorySession(sessionHistoryProgram, session)}
+          onOpenSession={(session) => onOpenSessionHistorySession(sessionHistoryWorkspace, session)}
         />
       ) : null}
     </>

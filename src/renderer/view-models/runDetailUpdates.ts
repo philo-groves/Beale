@@ -12,7 +12,7 @@ export function snapshotMetricDetail(snapshot: WorkspaceSnapshot | null): DevMet
     active: Boolean(snapshot),
     runs: snapshot?.runs.length ?? 0,
     notifications: snapshot?.notifications.length ?? 0,
-    programs: snapshot?.workspace ? 1 : 0
+    workspaces: snapshot?.workspace ? 1 : 0
   };
 }
 
@@ -64,7 +64,8 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     modelSessions: update.modelSessions,
     contextCompactions: update.contextCompactions,
     policyEvents: update.policyEvents,
-    exports: update.exports
+    exports: update.exports,
+    honeycrispMemory: update.honeycrispMemory ?? current.honeycrispMemory
   };
 }
 

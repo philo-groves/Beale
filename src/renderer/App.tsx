@@ -3,22 +3,20 @@ import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
-  CyberGymScenarioList,
-  CyberGymScenarioRunStartResult,
-  CyberGymScenarioSummary,
-  CyberGymSettingsInput,
-  CyberGymStorageActionResult,
   DeveloperSettings,
-  ExecutorStatus,
+  ShellOptions,
+  HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
-  ProgramOnboardingProgressUpdate,
+  ResearchModelSelection,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderModelCatalog,
+  ResearchProviderStatus,
+  WorkspaceOnboardingProgressUpdate,
   RunDetail,
-  SandboxSetupInput,
-  SandboxSetupResult,
   SessionTranscriptSearchResult,
   SteeringAction,
-  VmPreferenceInput,
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
@@ -26,19 +24,14 @@ import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { StatusBar } from './app/StatusBar';
 import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
-import { ProgramSidebar } from './features/programs/ProgramSidebar';
-import type { ProgramMainView } from './features/programs/programViews';
-import { EvidenceSidebar } from './features/research/EvidenceSidebar';
+import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
-import { SessionHeader } from './features/sessions/SessionHeader';
-import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
-import { CyberGymBenchmarkWorkspace } from './features/settings/CyberGymBenchmarkWorkspace';
-import { DEFAULT_CYBERGYM_MAIN_VIEW, type CyberGymMainView } from './features/settings/cyberGymViews';
+import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
-import { useProgramActions, type ProgramActionOptions } from './hooks/useProgramActions';
-import { useProgramOverlayState } from './hooks/useProgramOverlayState';
+import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
+import { useWorkspaceOverlayState } from './hooks/useWorkspaceOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
@@ -47,23 +40,17 @@ import { useTraceSelection } from './hooks/useTraceSelection';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
-import { environmentActivityForDetail } from './view-models/environmentDisplay';
 import {
   activeRunDetailForSelection,
   appShellClassName,
   selectedRunStatus,
-  vmPreferenceForState,
   windowControlPlatformForState
 } from './view-models/appShell';
-import type { ProgramOnboardingFormState } from './view-models/programOnboarding';
+import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
 import { researchMomentumForDetail } from './view-models/researchMomentum';
-import { semanticIndexAlertBody, semanticIndexRunningKey, shouldSuppressSemanticIndexInfoAlert } from './view-models/semanticIndexAlerts';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-
-const SEMANTIC_INDEX_ALERT_DELAY_MS = 10_000;
-const CYBERGYM_PROGRAM_NAME = 'CyberGym';
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -71,28 +58,28 @@ export function App(): JSX.Element {
   const handleError = useCallback((message: string) => setError(message), []);
   const {
     snapshot,
-    programRegistry,
+    workspaceRegistry,
     hostEnvironment,
     windowChromeState,
     openAiStatus,
     selectedRunId,
-    setProgramRegistry,
+    setWorkspaceRegistry,
     setOpenAiStatus,
     setSelectedRunId,
     applySnapshot,
     loadSnapshot,
-    loadProgramRegistry
+    loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
+  const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
+  const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
+  const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
-  const [standaloneExecutorStatus, setStandaloneExecutorStatus] = useState<ExecutorStatus | null>(null);
-  const [cyberGymScenarioList, setCyberGymScenarioList] = useState<CyberGymScenarioList | null>(null);
-  const [cyberGymWorkspaceOpen, setCyberGymWorkspaceOpen] = useState(false);
-  const [programDraft, setProgramDraft] = useState<ProgramOnboardingFormState | null>(null);
-  const [programOnboardingProgress, setProgramOnboardingProgress] = useState<ProgramOnboardingProgressUpdate | null>(null);
+  const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
+  const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
@@ -101,25 +88,20 @@ export function App(): JSX.Element {
   const [traceFilterOpen, setTraceFilterOpen] = useState(false);
   const [activeNotification, setActiveNotification] = useState<NotificationRecord | null>(null);
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
-  const [researchPromptDetail, setResearchPromptDetail] = useState<RunDetail | null>(null);
+  const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
-  const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
-  const [programMainView, setProgramMainView] = useState<ProgramMainView>('understanding');
-  const [cyberGymMainView, setCyberGymMainView] = useState<CyberGymMainView>(DEFAULT_CYBERGYM_MAIN_VIEW);
+  const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const semanticIndexAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const semanticIndexRunningAlertKeyRef = useRef<string | null>(null);
-  const semanticIndexErrorAlertKeyRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
-    openProgramMenuId,
-    setOpenProgramMenuId,
-    programInfo,
-    setProgramInfo,
-    setSessionHistoryProgramId,
-    sessionHistoryProgram,
+    openRegisteredWorkspaceMenuId,
+    setOpenWorkspaceMenuId,
+    workspaceInfo,
+    setWorkspaceInfo,
+    setSessionHistoryWorkspaceId,
+    sessionHistoryWorkspace,
     sessionHistorySessions
-  } = useProgramOverlayState(programRegistry);
+  } = useWorkspaceOverlayState(workspaceRegistry);
   const {
     profilingState,
     lastProfilingReport,
@@ -136,8 +118,8 @@ export function App(): JSX.Element {
 
   useDevRenderProbe('app.shell', () => ({
     selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
-    programs: programRegistry?.programs.length ?? 0,
-    sessions: programRegistry?.researchSessions.length ?? 0,
+    workspaces: workspaceRegistry?.workspaces.length ?? 0,
+    sessions: workspaceRegistry?.researchSessions.length ?? 0,
     traceEvents: runDetail?.traceEvents.length ?? 0,
     transcripts: runDetail?.transcriptMessages.length ?? 0
   }));
@@ -146,7 +128,7 @@ export function App(): JSX.Element {
   useInsetScrollbarActivation();
 
   useEffect(() => {
-    setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
+    setSelectedSubagentPath(null);
   }, [selectedRunId]);
 
   useEffect(() => {
@@ -156,27 +138,12 @@ export function App(): JSX.Element {
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
-  const refreshExecutorStatus = useCallback(async (): Promise<void> => {
-    try {
-      setStandaloneExecutorStatus(await window.beale.getExecutorStatus());
-    } catch (caught) {
-      handleError(errorMessage(caught));
-    }
+  useEffect(() => {
+    window.beale
+      .getShellOptions()
+      .then(setShellOptions)
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
-
-  useEffect(() => {
-    void refreshExecutorStatus();
-  }, [refreshExecutorStatus, snapshot?.executor]);
-
-  useEffect(() => {
-    if (developerSettings && !developerSettings.developerModeEnabled) {
-      setCyberGymWorkspaceOpen(false);
-    }
-  }, [developerSettings]);
-
-  useEffect(() => {
-    if (!selectedRunId) setProgramMainView('understanding');
-  }, [selectedRunId, snapshot?.activeScope.id]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -186,14 +153,14 @@ export function App(): JSX.Element {
         const next = await action();
         if (next) applySnapshot(next);
         await loadSnapshot();
-        await loadProgramRegistry();
+        await loadWorkspaceRegistry();
       } catch (caught) {
         setError(errorMessage(caught));
       } finally {
         setBusy(false);
       }
     },
-    [applySnapshot, loadProgramRegistry, loadSnapshot]
+    [applySnapshot, loadWorkspaceRegistry, loadSnapshot]
   );
 
   const openNotification = useCallback(
@@ -223,24 +190,24 @@ export function App(): JSX.Element {
     setWorkspaceAlerts((current) => current.filter((alert) => alert.id !== alertId));
   }, []);
 
-  const closeProgramOnboarding = useCallback((): void => {
-    setProgramDraft(null);
-    setProgramOnboardingProgress(null);
+  const closeWorkspaceOnboarding = useCallback((): void => {
+    setWorkspaceDraft(null);
+    setWorkspaceOnboardingProgress(null);
   }, []);
 
-  const skipProgramOnboardingRepository = useCallback(
+  const skipWorkspaceOnboardingRepository = useCallback(
     async (repositoryUrl: string, stage: 'clone' | 'index'): Promise<void> => {
-      if (!programOnboardingProgress) return;
-      const update = await window.beale.skipProgramOnboardingRepository({
-        requestId: programOnboardingProgress.requestId,
+      if (!workspaceOnboardingProgress) return;
+      const update = await window.beale.skipWorkspaceOnboardingRepository({
+        requestId: workspaceOnboardingProgress.requestId,
         repositoryUrl,
         stage
       });
       if (update) {
-        setProgramOnboardingProgress(update);
+        setWorkspaceOnboardingProgress(update);
       }
     },
-    [programOnboardingProgress]
+    [workspaceOnboardingProgress]
   );
 
   const openWorkspaceAlert = useCallback(
@@ -254,8 +221,8 @@ export function App(): JSX.Element {
     [dismissWorkspaceAlert]
   );
 
-  const runProgramAction = useCallback(
-    async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: ProgramActionOptions = {}) => {
+  const runWorkspaceAction = useCallback(
+    async (action: () => Promise<void>, { markBusy = true, reloadRegistry = true }: WorkspaceActionOptions = {}) => {
       if (markBusy) {
         setBusy(true);
       }
@@ -263,7 +230,7 @@ export function App(): JSX.Element {
       try {
         await action();
         if (reloadRegistry) {
-          await loadProgramRegistry();
+          await loadWorkspaceRegistry();
         }
       } catch (caught) {
         setError(errorMessage(caught));
@@ -273,52 +240,22 @@ export function App(): JSX.Element {
         }
       }
     },
-    [loadProgramRegistry]
+    [loadWorkspaceRegistry]
   );
 
-  const updateVmPreference = useCallback(
-    async (input: VmPreferenceInput) => {
-      await runProgramAction(async () => {
-        setProgramRegistry(await window.beale.setVmPreference(input));
-        await loadSnapshot();
-        await refreshExecutorStatus();
-      });
-    },
-    [loadSnapshot, refreshExecutorStatus, runProgramAction]
-  );
-
-  const setupSandbox = useCallback(
-    async (input: SandboxSetupInput): Promise<SandboxSetupResult> => {
-      setBusy(true);
-      setError(null);
-      try {
-        const result = await window.beale.setupSandbox(input);
-        await loadSnapshot();
-        await refreshExecutorStatus();
-        if (!result.ok) {
-          setError(result.detail);
-        }
-        return result;
-      } catch (caught) {
-        setError(errorMessage(caught));
-        throw caught;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [loadSnapshot, refreshExecutorStatus]
-  );
-
-  const setProjectSemanticIndexEnabled = useCallback(
-    async (enabled: boolean) => {
-      await runAction(() => window.beale.setProjectSemanticIndexEnabled(enabled));
+  const openHoneycrispMemoryDirectory = useCallback(
+    async (name: HoneycrispMemoryDirectorySummary['name']) => {
+      await runAction(() => window.beale.openHoneycrispMemoryDirectory(name));
     },
     [runAction]
   );
 
-  const refreshProjectSemanticIndex = useCallback(async () => {
-    await runAction(() => window.beale.refreshProjectSemanticIndex());
-  }, [runAction]);
+  const openHoneycrispRunbook = useCallback(
+    async (runbookId: string) => {
+      await runAction(() => window.beale.openHoneycrispRunbook(runbookId));
+    },
+    [runAction]
+  );
 
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
@@ -330,12 +267,45 @@ export function App(): JSX.Element {
       } else {
         setOpenAiStatus(await window.beale.getOpenAiStatus());
       }
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
   }, [applySnapshot, snapshot]);
+
+  const loadResearchProviderStatuses = useCallback(async (): Promise<void> => {
+    try {
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const loadResearchProviderModelCatalog = useCallback(async (): Promise<void> => {
+    try {
+      setResearchProviderModelCatalog(await window.beale.getResearchProviderModelCatalog());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
+    void loadResearchProviderStatuses();
+  }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    if (!newResearchOpen && !selectedRunId) return;
+    void loadResearchProviderModelCatalog();
+  }, [loadResearchProviderModelCatalog, newResearchOpen, selectedRunId]);
+
+  useEffect(() => {
+    if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
+    const timer = window.setInterval(() => void loadResearchProviderStatuses(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [loadResearchProviderStatuses, researchProviderStatuses, settingsOpen]);
 
   const setDeveloperModeEnabled = useCallback(
     async (enabled: boolean): Promise<void> => {
@@ -353,79 +323,13 @@ export function App(): JSX.Element {
     [refreshProfilingState]
   );
 
-  const updateCyberGymSettings = useCallback(async (input: CyberGymSettingsInput): Promise<void> => {
+  const saveShellOptions = useCallback(async (options: ShellOptions): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
-      setDeveloperSettings(await window.beale.updateCyberGymSettings(input));
+      setShellOptions(await window.beale.setShellOptions(options));
     } catch (caught) {
       setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const refreshCyberGymScenarios = useCallback(async (): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      setCyberGymScenarioList(await window.beale.getCyberGymScenarios());
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const openCyberGymWorkspace = useCallback((): void => {
-    setBusy(true);
-    setError(null);
-    void (async () => {
-      try {
-        clearRunDetail();
-        setInspectorOpen(false);
-        setSelectedRunId(null);
-        setCyberGymMainView(DEFAULT_CYBERGYM_MAIN_VIEW);
-        applySnapshot(await window.beale.openCyberGymProgram());
-        setCyberGymWorkspaceOpen(true);
-        setCyberGymScenarioList(await window.beale.getCyberGymScenarios());
-        await loadProgramRegistry();
-      } catch (caught) {
-        setError(errorMessage(caught));
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, [applySnapshot, clearRunDetail, loadProgramRegistry, setSelectedRunId]);
-
-  const selectCyberGymScenario = useCallback(
-    async (scenario: CyberGymScenarioSummary): Promise<void> => {
-      await updateCyberGymSettings({ selectedBenchmark: scenario.id });
-    },
-    [updateCyberGymSettings]
-  );
-
-  const prepareCyberGymStorage = useCallback(async (): Promise<CyberGymStorageActionResult> => {
-    setBusy(true);
-    setError(null);
-    try {
-      return await window.beale.prepareCyberGymStorage();
-    } catch (caught) {
-      setError(errorMessage(caught));
-      throw caught;
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const clearCyberGymCache = useCallback(async (): Promise<CyberGymStorageActionResult> => {
-    setBusy(true);
-    setError(null);
-    try {
-      return await window.beale.clearCyberGymCache();
-    } catch (caught) {
-      setError(errorMessage(caught));
-      throw caught;
     } finally {
       setBusy(false);
     }
@@ -445,25 +349,39 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const startResearchProviderOAuth = useCallback(async (providerId: ResearchProviderId) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.beale.startResearchProviderOAuth(providerId);
+      setResearchProviderOAuthResults((current) => ({ ...current, [providerId]: result }));
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const {
-    addProgram,
-    openRegisteredProgram,
+    addWorkspace,
+    openRegisteredWorkspace,
     openResearchSession,
-    removeRegisteredProgram,
-    submitProgramOnboarding,
+    removeRegisteredWorkspace,
+    submitWorkspaceOnboarding,
     applyOnboardingTemplate,
-    lookupHackerOneProgram
-  } = useProgramActions({
+    lookupHackerOneScope
+  } = useWorkspaceActions({
     snapshot,
-    programDraft,
-    runProgramAction,
+    workspaceDraft,
+    runWorkspaceAction,
     applySnapshot,
     clearRunDetail,
     setSelectedRunId,
-    setProgramDraft,
-    setProgramOnboardingProgress,
-    setProgramInfo,
-    setOpenProgramMenuId
+    setWorkspaceDraft,
+    setWorkspaceOnboardingProgress,
+    setWorkspaceInfo,
+    setOpenWorkspaceMenuId
   });
 
   const handleSessionAction = useCallback(
@@ -474,25 +392,36 @@ export function App(): JSX.Element {
   );
 
   const handleSteerInstruction = useCallback(
-    (runId: string, instruction: string): void => handleSessionAction({ type: 'steer', runId, instruction }),
+    (runId: string, instruction: string, modelSelection: ResearchModelSelection): void => {
+      handleSessionAction({ type: 'steer', runId, instruction, modelSelection });
+    },
     [handleSessionAction]
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
-  const activeProgramEntry = useMemo(() => {
-    if (!snapshot || !programRegistry) return null;
+  const activeWorkspaceEntry = useMemo(() => {
+    if (!snapshot || !workspaceRegistry) return null;
     return (
-      programRegistry.programs.find(
-        (program) =>
-          (snapshot.workspace.workspaceId.length > 0 && program.workspaceId === snapshot.workspace.workspaceId) ||
-          program.workspacePath === snapshot.workspace.workspacePath
+      workspaceRegistry.workspaces.find(
+        (workspace) =>
+          (snapshot.workspace.workspaceId.length > 0 && workspace.workspaceId === snapshot.workspace.workspaceId) ||
+          workspace.workspacePath === snapshot.workspace.workspacePath
       ) ?? null
     );
-  }, [programRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
+  }, [workspaceRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
   );
+  const visibleSessionTraceEvents = useMemo(
+    () => traceEventsForSubagent(activeTraceEvents, selectedSubagentPath),
+    [activeTraceEvents, selectedSubagentPath]
+  );
+  const activeSubagents = useMemo(() => subagentSummaries(activeTraceEvents), [activeTraceEvents]);
+  useEffect(() => {
+    if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
+    setSelectedSubagentPath(null);
+  }, [activeSubagents, selectedSubagentPath]);
   const {
     selectedTraceEventId,
     traceDetailOpen,
@@ -504,12 +433,11 @@ export function App(): JSX.Element {
     closeTraceDetail
   } = useTraceSelection({
     detail: activeRunDetail,
-    events: activeTraceEvents,
+    events: visibleSessionTraceEvents,
     selectedRunId
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
-  const environmentActivity = useMemo(() => environmentActivityForDetail(activeRunDetail), [activeRunDetail]);
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = appShellClassName({
     sessionHeat,
@@ -517,25 +445,10 @@ export function App(): JSX.Element {
     sessionActive: activeRunDetail?.run.status === 'active',
     platform: windowControlPlatform,
     windowChromeState,
-    sidebarCollapsed,
-    inspectorOpen
+    sidebarCollapsed
   });
-  const vmPreference = vmPreferenceForState(programRegistry, snapshot);
-  const effectiveExecutor = snapshot?.executor ?? standaloneExecutorStatus;
-  const cyberGymProgramActive = snapshot?.activeScope.programName === CYBERGYM_PROGRAM_NAME && snapshot.activeScope.organizationName === CYBERGYM_PROGRAM_NAME;
-  const cyberGymActive = cyberGymWorkspaceOpen || cyberGymProgramActive;
-  const showCyberGymWorkspace = cyberGymProgramActive && !selectedRunId;
-  const cyberGymProgramName = CYBERGYM_PROGRAM_NAME;
-  const currentProgramName = cyberGymActive ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'No Program Selected';
-  const configureVm = useCallback(() => {
-    setSettingsSection('sandboxes');
-    setSettingsOpen(true);
-  }, []);
+  const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const openSettings = useCallback(() => setSettingsOpen(true), []);
-  const openBenchmarkingSettings = useCallback(() => {
-    setSettingsSection('benchmarking');
-    setSettingsOpen(true);
-  }, []);
   const openProfiling = useCallback(() => {
     flushProfilingReport();
     setProfilingOpen(true);
@@ -543,21 +456,11 @@ export function App(): JSX.Element {
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
   const startNewResearch = useCallback(() => {
-    setCyberGymWorkspaceOpen(false);
     setNewResearchOpen(true);
   }, []);
-  const openCyberGymStartedRun = useCallback(
-    (result: CyberGymScenarioRunStartResult): void => {
-      clearRunDetail();
-      setCyberGymWorkspaceOpen(false);
-      setSelectedRunId(result.runId);
-    },
-    [clearRunDetail, setSelectedRunId]
-  );
   const handleResearchStarted = useCallback(
     (runId: string): void => {
       clearRunDetail();
-      setCyberGymWorkspaceOpen(false);
       setSelectedRunId(runId);
       setNewResearchOpen(false);
     },
@@ -566,15 +469,14 @@ export function App(): JSX.Element {
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
-      setCyberGymWorkspaceOpen(false);
       setPendingSearchTarget(result);
       setTraceSearchHighlightQuery(query);
-      const targetProgram = programRegistry?.programs.find((program) => program.id === result.programId || program.workspacePath === result.workspacePath) ?? null;
-      const activeProgram = snapshot?.workspace.workspacePath === result.workspacePath;
-      if (targetProgram && !activeProgram) {
-        void runProgramAction(async () => {
+      const targetWorkspace = workspaceRegistry?.workspaces.find((workspace) => workspace.id === result.registryWorkspaceId) ?? null;
+      const activeWorkspace = snapshot?.workspace.workspacePath === result.workspacePath;
+      if (targetWorkspace && !activeWorkspace) {
+        void runWorkspaceAction(async () => {
           clearRunDetail();
-          applySnapshot(await window.beale.openProgram(targetProgram.id));
+          applySnapshot(await window.beale.openRegisteredWorkspace(targetWorkspace.id));
           setSelectedRunId(result.runId);
         }, { markBusy: false, reloadRegistry: false });
         setSearchOpen(false);
@@ -586,134 +488,16 @@ export function App(): JSX.Element {
       setSelectedRunId(result.runId);
       setSearchOpen(false);
     },
-    [applySnapshot, clearRunDetail, programRegistry, runProgramAction, selectedRunId, setSelectedRunId, snapshot]
+    [applySnapshot, clearRunDetail, workspaceRegistry, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
   );
-  const toggleInspector = useCallback(() => setInspectorOpen((current) => !current), []);
-  const closeInspector = useCallback(() => setInspectorOpen(false), []);
-
-  useEffect(() => {
-    if (!showCyberGymWorkspace || cyberGymScenarioList) return;
-    void refreshCyberGymScenarios();
-  }, [cyberGymScenarioList, refreshCyberGymScenarios, showCyberGymWorkspace]);
-
   useEffect(() => {
     if (!pendingSearchTarget || activeRunDetail?.run.id !== pendingSearchTarget.runId) return;
     const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
     if (!targetEvent) return;
+    setSelectedSubagentPath(null);
     focusTraceEvent(targetEvent);
     setPendingSearchTarget(null);
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
-
-  useEffect(() => {
-    const summary = snapshot?.projectSemantic ?? null;
-    const status = summary?.status ?? 'disabled';
-    const programName = snapshot?.activeScope.programName ?? 'the active program';
-    if (semanticIndexAlertTimerRef.current) {
-      clearTimeout(semanticIndexAlertTimerRef.current);
-      semanticIndexAlertTimerRef.current = null;
-    }
-
-    if (!summary || status === 'disabled' || status === 'ready' || status === 'empty' || status === 'stale' || status === 'canceled') {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-')));
-      return;
-    }
-
-    if (status === 'error') {
-      const errorKey = `${summary.scopeVersionId}:${summary.finishedAt ?? ''}:${summary.lastError ?? ''}`;
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      if (semanticIndexErrorAlertKeyRef.current !== errorKey) {
-        semanticIndexErrorAlertKeyRef.current = errorKey;
-        setWorkspaceAlerts((current) => [
-          ...current.filter((alert) => !alert.id.startsWith('semantic-index-error:')),
-          {
-            id: `semantic-index-error:${errorKey}`,
-            severity: 'error',
-            title: 'Project understanding failed',
-            bodyMarkdown: `Semantic indexing failed for ${programName}. ${summary.lastError || 'Open Settings > General for details.'}`
-          }
-        ]);
-      }
-      return;
-    }
-
-    if (
-      shouldSuppressSemanticIndexInfoAlert(summary) ||
-      (programOnboardingProgress && programOnboardingProgress.phase !== 'complete' && programOnboardingProgress.workspacePath === snapshot?.workspace.workspacePath)
-    ) {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      return;
-    }
-
-    if (status === 'queued' || status === 'indexing') {
-      const runningKey = semanticIndexRunningKey(summary);
-      if (semanticIndexRunningAlertKeyRef.current === runningKey) return;
-      semanticIndexAlertTimerRef.current = setTimeout(() => {
-        semanticIndexRunningAlertKeyRef.current = runningKey;
-        setWorkspaceAlerts((current) => {
-          const alertId = `semantic-index-running:${runningKey}`;
-          if (current.some((alert) => alert.id === alertId)) return current;
-          return [
-            ...current.filter((alert) => !alert.id.startsWith('semantic-index-running:')),
-            {
-              id: alertId,
-              severity: 'info',
-              title: 'Project understanding indexing',
-              bodyMarkdown: semanticIndexAlertBody(summary, programName)
-            }
-          ];
-        });
-      }, SEMANTIC_INDEX_ALERT_DELAY_MS);
-    }
-
-    return () => {
-      if (semanticIndexAlertTimerRef.current) {
-        clearTimeout(semanticIndexAlertTimerRef.current);
-        semanticIndexAlertTimerRef.current = null;
-      }
-    };
-  }, [
-    snapshot?.activeScope.programName,
-    snapshot?.projectSemantic?.finishedAt,
-    snapshot?.projectSemantic?.lastError,
-    snapshot?.projectSemantic?.jobReason,
-    snapshot?.projectSemantic?.queuedAt,
-    snapshot?.projectSemantic?.scopeVersionId,
-    snapshot?.projectSemantic?.startedAt,
-    snapshot?.projectSemantic?.status,
-    snapshot?.workspace.workspacePath,
-    programOnboardingProgress?.phase,
-    programOnboardingProgress?.workspacePath
-  ]);
-
-  useEffect(() => {
-    const summary = snapshot?.projectSemantic ?? null;
-    if (!summary || (summary.status !== 'queued' && summary.status !== 'indexing')) return;
-    if (shouldSuppressSemanticIndexInfoAlert(summary)) {
-      setWorkspaceAlerts((current) => current.filter((alert) => !alert.id.startsWith('semantic-index-running:')));
-      return;
-    }
-    const alertId = `semantic-index-running:${semanticIndexRunningKey(summary)}`;
-    const bodyMarkdown = semanticIndexAlertBody(summary, snapshot?.activeScope.programName ?? 'the active program');
-    setWorkspaceAlerts((current) => {
-      let changed = false;
-      const next = current.map((alert) => {
-        if (alert.id !== alertId || alert.bodyMarkdown === bodyMarkdown) return alert;
-        changed = true;
-        return { ...alert, bodyMarkdown };
-      });
-      return changed ? next : current;
-    });
-  }, [
-    snapshot?.activeScope.programName,
-    snapshot?.projectSemantic?.jobReason,
-    snapshot?.projectSemantic?.progressProcessed,
-    snapshot?.projectSemantic?.progressTotal,
-    snapshot?.projectSemantic?.queuedAt,
-    snapshot?.projectSemantic?.scopeVersionId,
-    snapshot?.projectSemantic?.startedAt,
-    snapshot?.projectSemantic?.status,
-    snapshot?.runs
-  ]);
 
   return (
     <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
@@ -721,129 +505,77 @@ export function App(): JSX.Element {
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         platform={windowControlPlatform}
-        programName={currentProgramName}
-        activeProgram={cyberGymActive ? null : activeProgramEntry}
+        workspaceName={currentWorkspaceName}
+        activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
+        events={visibleSessionTraceEvents}
         profilingEnabled={profilingState?.enabled ?? false}
-        onOpenResearchPrompt={setResearchPromptDetail}
-        onOpenProgramInfo={setProgramInfo}
+        visibleTraceCategories={visibleTraceCategories}
+        onOpenSessionSummary={setSessionSummaryDetail}
+        onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
-        onAddProgram={() => {
-          setCyberGymWorkspaceOpen(false);
-          addProgram();
+        onAddWorkspace={() => {
+          addWorkspace();
         }}
         onToggleSidebar={toggleSidebar}
       />
-      <ProgramSidebar
+      <WorkspaceSidebar
         busy={busy}
-        cyberGymActive={cyberGymActive}
         collapsed={sidebarCollapsed}
-        developerModeEnabled={developerSettings?.developerModeEnabled ?? false}
         error={error}
-        openProgramMenuId={openProgramMenuId}
-        programRegistry={programRegistry}
+        openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
+        workspaceRegistry={workspaceRegistry}
         selectedRunId={selectedRunId}
         snapshot={snapshot}
-        onAddProgram={() => {
-          setCyberGymWorkspaceOpen(false);
-          addProgram();
+        onAddWorkspace={() => {
+          addWorkspace();
         }}
-        onOpenBenchmarkingSettings={openBenchmarkingSettings}
-        onOpenCyberGymWorkspace={openCyberGymWorkspace}
-        onOpenProgram={(program) => {
-          setCyberGymWorkspaceOpen(false);
-          openRegisteredProgram(program);
+        onOpenWorkspace={(workspace) => {
+          openRegisteredWorkspace(workspace);
         }}
-        onOpenProgramInfo={setProgramInfo}
-        onOpenResearchSession={(program, session) => {
-          setCyberGymWorkspaceOpen(false);
-          openResearchSession(program, session);
+        onOpenWorkspaceInfo={setWorkspaceInfo}
+        onOpenResearchSession={(workspace, session) => {
+          openResearchSession(workspace, session);
         }}
-        onRemoveProgram={removeRegisteredProgram}
+        onRemoveWorkspace={removeRegisteredWorkspace}
         onResizePointerDown={beginSidebarResize}
-        onSetOpenProgramMenuId={setOpenProgramMenuId}
-        onShowMoreSessions={setSessionHistoryProgramId}
+        onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
+        onShowMoreSessions={setSessionHistoryWorkspaceId}
         onSearch={openSearch}
         onStartNewResearch={startNewResearch}
       />
 
       <main className="workbench" data-session-heat={sessionHeat}>
-        <SessionHeader
-          detail={activeRunDetail}
-          cyberGymView={showCyberGymWorkspace ? cyberGymMainView : null}
-          events={activeTraceEvents}
-          programGraphStatus={!selectedRunId && snapshot && !showCyberGymWorkspace ? snapshot.projectGraph.status : null}
-          programSemanticStatus={!selectedRunId && snapshot && !showCyberGymWorkspace ? snapshot.projectSemantic.status : null}
-          programView={!selectedRunId && snapshot && !showCyberGymWorkspace ? programMainView : null}
-          sessionView={sessionMainView}
-          visibleTraceCategories={visibleTraceCategories}
-          onCyberGymViewChange={setCyberGymMainView}
-          onProgramViewChange={setProgramMainView}
-          onSessionViewChange={setSessionMainView}
-        />
         <div className="workspace-page">
-          {showCyberGymWorkspace ? (
-            <CyberGymBenchmarkWorkspace
-              benchmark={snapshot?.benchmark ?? null}
-              busy={busy}
-              executor={effectiveExecutor}
-              scenarioList={cyberGymScenarioList}
-              selectedScenarioId={developerSettings?.cyberGym.selectedBenchmark ?? ''}
-              openAiStatus={snapshot?.openAi ?? openAiStatus}
-              snapshot={snapshot}
-              vmPreference={vmPreference}
-              view={cyberGymMainView}
-              onRefreshScenarios={() => void refreshCyberGymScenarios()}
-              onOpenStartedRun={openCyberGymStartedRun}
-              onSelectScenario={(scenario) => void selectCyberGymScenario(scenario)}
-              runAction={runAction}
-            />
-          ) : (
-            <MainSessionWorkspace
-              detail={activeRunDetail}
-              events={activeTraceEvents}
-              graph={selectedRunId ? null : snapshot?.projectGraph ?? null}
-              programView={programMainView}
-              researchPanelCollapsed={inspectorOpen}
-              runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
-              scope={selectedRunId ? null : snapshot?.activeScope ?? null}
-              selectedRunId={selectedRunId}
-              selectedTraceEventId={selectedTraceEventId}
-              searchHighlightQuery={traceSearchHighlightQuery}
-              semantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
-              sessionView={sessionMainView}
-              visibleTraceCategories={visibleTraceCategories}
-              busy={busy}
-              traceFilterCount={visibleTraceCategories.length}
-              totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
-              onExpandResearchPanel={closeInspector}
-              onOpenTraceFilters={openTraceFilters}
-              onSelectTraceEvent={selectTraceEvent}
-              onSessionAction={handleSessionAction}
-              onSteerInstruction={handleSteerInstruction}
-            />
-          )}
+          <MainSessionWorkspace
+            detail={activeRunDetail}
+            events={visibleSessionTraceEvents}
+            allEvents={activeTraceEvents}
+            providerModelCatalog={researchProviderModelCatalog}
+            honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
+            runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
+            scope={selectedRunId ? null : snapshot?.activeScope ?? null}
+            selectedRunId={selectedRunId}
+            selectedSubagentPath={selectedSubagentPath}
+            selectedTraceEventId={selectedTraceEventId}
+            searchHighlightQuery={traceSearchHighlightQuery}
+            visibleTraceCategories={visibleTraceCategories}
+            busy={busy}
+            traceFilterCount={visibleTraceCategories.length}
+            totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
+            onOpenTraceFilters={openTraceFilters}
+            onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
+            onOpenHoneycrispRunbook={openHoneycrispRunbook}
+            onBackToMain={() => setSelectedSubagentPath(null)}
+            onSelectTraceEvent={selectTraceEvent}
+            onSelectSubagent={setSelectedSubagentPath}
+            onSessionAction={handleSessionAction}
+            onSteerInstruction={handleSteerInstruction}
+          />
         </div>
       </main>
-      <aside className="inspector-sidebar" aria-label="Evidence" aria-hidden={!inspectorOpen} inert={!inspectorOpen}>
-        <EvidenceSidebar
-          detail={activeRunDetail}
-          events={activeTraceEvents}
-          onSelectTraceEvent={selectTraceEvent}
-        />
-      </aside>
       <StatusBar
-        hostEnvironment={snapshot?.workspace.hostEnvironment ?? hostEnvironment}
-        executor={effectiveExecutor}
-        vmPreference={vmPreference}
-        activity={environmentActivity}
-        detail={activeRunDetail}
-        momentum={researchMomentum}
-        notificationCount={(snapshot?.notifications.length ?? 0) + workspaceAlerts.length}
-        inspectorOpen={inspectorOpen}
-        onConfigureVm={configureVm}
         onOpenSettings={openSettings}
-        onToggleInspector={toggleInspector}
       />
       <NotificationStack
         notifications={snapshot?.notifications ?? []}
@@ -856,26 +588,29 @@ export function App(): JSX.Element {
       <AppModals
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
-        activeProgramName={cyberGymActive ? cyberGymProgramName : snapshot?.activeScope.programName ?? 'current program'}
+        activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
         developerSettings={developerSettings}
-        executor={effectiveExecutor}
+        shellOptions={shellOptions}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
+        researchProviderOAuthResults={researchProviderOAuthResults}
+        researchProviderModelCatalog={researchProviderModelCatalog}
+        researchProviderStatuses={researchProviderStatuses}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
-        programDraft={programDraft}
-        programOnboardingProgress={programOnboardingProgress}
-        programInfo={programInfo}
-        researchPromptDetail={researchPromptDetail}
+        workspaceDraft={workspaceDraft}
+        workspaceOnboardingProgress={workspaceOnboardingProgress}
+        workspaceInfo={workspaceInfo}
+        sessionSummaryDetail={sessionSummaryDetail}
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
         selectedTraceFinding={selectedTraceFinding}
         selectedTraceHypothesis={selectedTraceHypothesis}
-        sessionHistoryProgram={sessionHistoryProgram}
+        sessionHistoryWorkspace={sessionHistoryWorkspace}
         sessionHistorySessions={sessionHistorySessions}
         settingsOpen={settingsOpen}
         settingsSection={settingsSection}
@@ -883,47 +618,40 @@ export function App(): JSX.Element {
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
         visibleTraceCategories={visibleTraceCategories}
-        vmPreference={vmPreference}
         onCancelNewResearch={() => setNewResearchOpen(false)}
-        onCancelProgramOnboarding={closeProgramOnboarding}
-        onChangeProgramDraft={setProgramDraft}
+        onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
+        onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
-        onCloseProgramInfo={() => setProgramInfo(null)}
-        onCloseResearchPrompt={() => setResearchPromptDetail(null)}
+        onCloseWorkspaceInfo={() => setWorkspaceInfo(null)}
+        onCloseSessionSummary={() => setSessionSummaryDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
-        onCloseSessionHistory={() => setSessionHistoryProgramId(null)}
+        onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
         onCloseSettings={() => setSettingsOpen(false)}
-        onClearCyberGymCache={clearCyberGymCache}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
-        onLookupHackerOne={lookupHackerOneProgram}
-        onOpenSessionHistorySession={(program, session) => {
-          setCyberGymWorkspaceOpen(false);
-          openResearchSession(program, session);
-          setSessionHistoryProgramId(null);
+        onLookupHackerOne={lookupHackerOneScope}
+        onOpenSessionHistorySession={(workspace, session) => {
+          openResearchSession(workspace, session);
+          setSessionHistoryWorkspaceId(null);
         }}
-        onProgramTemplate={applyOnboardingTemplate}
+        onWorkspaceTemplate={applyOnboardingTemplate}
         onRefreshOpenAi={refreshOpenAiProvider}
-        onPrepareCyberGymStorage={prepareCyberGymStorage}
         onFlushProfilingReport={flushProfilingReport}
-        onRefreshProjectSemanticIndex={refreshProjectSemanticIndex}
-        onSetProjectSemanticIndexEnabled={setProjectSemanticIndexEnabled}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
-        onSetupSandbox={setupSandbox}
-        onSetVmPreference={updateVmPreference}
+        onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}
-        onUpdateCyberGymSettings={updateCyberGymSettings}
+        onStartResearchProviderOAuth={startResearchProviderOAuth}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));
           setActiveNotification(null);
         }}
-        onSubmitProgramOnboarding={submitProgramOnboarding}
-        onSkipProgramOnboardingRepository={skipProgramOnboardingRepository}
+        onSubmitWorkspaceOnboarding={submitWorkspaceOnboarding}
+        onSkipWorkspaceOnboardingRepository={skipWorkspaceOnboardingRepository}
         runAction={runAction}
       />
     </div>

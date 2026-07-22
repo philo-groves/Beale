@@ -35,8 +35,8 @@ Purpose:
 Includes:
 
 - Open or create a workspace directory.
-- Initialize `.beale/beale.sqlite`.
-- Edit and persist program scope.
+- Initialize `~/.honeycrisp/memory.sqlite`.
+- Edit and persist authorized scope.
 - Start a run from a markdown prompt.
 - Persist runs, attempts, trace events, artifacts, hypotheses, findings, and verifier placeholders.
 - Render the primary run tracker.
@@ -60,7 +60,7 @@ Includes:
 - OAuth-first account flow.
 - OpenAI Responses API adapter.
 - WebSocket transport where available.
-- `gpt-5.5` with `xhigh` default.
+- `gpt-5.6-sol` with `high` reasoning by default.
 - Beale-owned run engine and trace schema.
 - Tool-call protocol mapping.
 - Context packing and replay policy.
@@ -199,7 +199,7 @@ Exit criteria:
 
 The first release is credible when Beale can support authorized open-ended discovery on local targets with:
 
-- Program scope.
+- Authorized scope.
 - Local persistence.
 - OpenAI run engine.
 - VM execution.

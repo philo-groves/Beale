@@ -1,147 +1,112 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { Play, ShieldAlert, Sparkles, X } from 'lucide-react';
-import type { ExecutorStatus, StartRunInput, VmPreference, WorkspaceSnapshot } from '@shared/types';
+import { Play, ShieldAlert } from 'lucide-react';
+import type {
+  OpenAiAccountStatus,
+  ResearchModelEffortLevel,
+  ResearchModelProviderId,
+  ResearchProviderModel,
+  ResearchProviderModelCatalog,
+  ResearchProviderStatus,
+  StartRunInput,
+  WorkspaceSnapshot
+} from '@shared/types';
 import { Modal } from '../../app/Modal';
-import { userFacingErrorMessage } from '../../lib/errors';
 import { networkProfileLabel } from '../../lib/formatting';
-import { findBackendByKind } from '../../view-models/environmentDisplay';
 import {
-  clientRequestId,
   defaultRunInput,
   optionalPositiveInteger,
   UNBOUNDED_MINUTES
 } from '../../view-models/runSettings';
 
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
-const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 
 type StartRunFieldUpdater = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]) => void;
 type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number) => void;
+interface SessionProviderOption {
+  id: ResearchModelProviderId;
+  label: string;
+  configured: boolean;
+  models: ResearchProviderModel[];
+}
 
 export function StartRunForm({
   snapshot,
-  vmPreference,
+  openAiStatus,
+  researchProviderStatuses,
+  providerModelCatalog,
   busy,
   runAction,
   onCancel,
   onStarted
 }: {
   snapshot: WorkspaceSnapshot;
-  vmPreference: VmPreference;
+  openAiStatus: OpenAiAccountStatus | null;
+  researchProviderStatuses: ResearchProviderStatus[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
-  const sandboxProfile = preferredSandboxProfile(snapshot.executor, vmPreference);
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
     networkProfile: 'elevated',
-    sandboxProfile
+    sandboxProfile: 'host'
   }));
-  const [generatingPrompt, setGeneratingPrompt] = useState(false);
-  const [autoStartAfterGeneration, setAutoStartAfterGeneration] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
   const [startingRun, setStartingRun] = useState(false);
-  const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
-  const inputRef = useRef(input);
-  const autoStartAfterGenerationRef = useRef(false);
-  const generationRequestIdRef = useRef<string | null>(null);
-  const mountedRef = useRef(true);
-  const promptStreamAutoScrollRef = useRef(false);
-  const pendingPromptMarkdownRef = useRef<string | null>(null);
-  const promptStreamFlushTimerRef = useRef<number | null>(null);
-
-  const flushPendingPromptStream = (): void => {
-    const promptMarkdown = pendingPromptMarkdownRef.current;
-    pendingPromptMarkdownRef.current = null;
-    if (promptStreamFlushTimerRef.current !== null) {
-      window.clearTimeout(promptStreamFlushTimerRef.current);
-      promptStreamFlushTimerRef.current = null;
-    }
-    if (promptMarkdown === null || !mountedRef.current) return;
-    promptStreamAutoScrollRef.current = true;
-    setInput((current) => {
-      if (current.promptMarkdown === promptMarkdown) return current;
-      const next = { ...current, promptMarkdown };
-      inputRef.current = next;
-      return next;
-    });
-  };
-
-  const clearPendingPromptStream = (): void => {
-    pendingPromptMarkdownRef.current = null;
-    if (promptStreamFlushTimerRef.current !== null) {
-      window.clearTimeout(promptStreamFlushTimerRef.current);
-      promptStreamFlushTimerRef.current = null;
-    }
-  };
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>('openai-codex');
+  const providerOptions = useMemo<SessionProviderOption[]>(
+    () => providerModelCatalog.map((catalog) => ({
+      id: catalog.providerId,
+      label: providerLabel(catalog.providerId, catalog.providerName),
+      configured: catalog.providerId === 'openai-codex'
+        ? openAiStatus?.configured ?? false
+        : researchProviderStatuses.find((provider) => provider.id === catalog.providerId)?.configured ?? false,
+      models: catalog.models
+    })),
+    [openAiStatus, providerModelCatalog, researchProviderStatuses]
+  );
+  const selectedProvider = providerOptions.find((provider) => provider.id === selectedProviderId) ?? null;
+  const selectedModel = selectedProvider?.models.find((model) => model.id === input.model) ?? null;
 
   useEffect(() => {
     setInput((current) => {
-      const next = { ...current, networkProfile: 'elevated', sandboxProfile };
-      inputRef.current = next;
-      return next;
+      return { ...current, networkProfile: 'elevated', sandboxProfile: 'host' };
     });
-  }, [sandboxProfile, snapshot.activeScope.id]);
+  }, [snapshot.activeScope.id]);
 
   useEffect(() => {
-    inputRef.current = input;
-  }, [input]);
-
-  useEffect(() => {
-    const unsubscribe = window.beale.onResearchPromptGenerationUpdate((update) => {
-      if (!mountedRef.current || generationRequestIdRef.current !== update.requestId) return;
-      pendingPromptMarkdownRef.current = update.promptMarkdown;
-      if (promptStreamFlushTimerRef.current !== null) return;
-      promptStreamFlushTimerRef.current = window.setTimeout(flushPendingPromptStream, PROMPT_STREAM_RENDER_INTERVAL_MS);
-    });
-    return () => {
-      unsubscribe();
-      mountedRef.current = false;
-      clearPendingPromptStream();
-      const requestId = generationRequestIdRef.current;
-      if (requestId) {
-        void window.beale.cancelResearchPromptGeneration(requestId);
+    if (!selectedProvider) return;
+    setInput((current) => {
+      const preferredModelId = providerDefaultModel(selectedProvider.id, openAiStatus, researchProviderStatuses);
+      const model = selectedProvider.models.find((candidate) => candidate.id === current.model)
+        ?? selectedProvider.models.find((candidate) => candidate.id === preferredModelId)
+        ?? selectedProvider.models[0];
+      if (!model) return current;
+      const effort = inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)));
+      if (current.provider === selectedProvider.id && current.model === model.id && current.reasoningEffort === effort) {
+        return current;
       }
-    };
-  }, []);
+      return { ...current, provider: selectedProvider.id, model: model.id, reasoningEffort: effort };
+    });
+  }, [openAiStatus, researchProviderStatuses, selectedProvider]);
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
-    if (key === 'promptMarkdown') promptStreamAutoScrollRef.current = false;
     setInput((current) => {
-      const next = { ...current, [key]: value };
-      inputRef.current = next;
-      return next;
+      return { ...current, [key]: value };
     });
-    if (key === 'promptMarkdown') setGenerateError(null);
   };
-
-  useLayoutEffect(() => {
-    if (!generatingPrompt || !promptStreamAutoScrollRef.current) return;
-    const promptBox = promptBoxRef.current;
-    if (!promptBox) return;
-    promptBox.scrollTop = promptBox.scrollHeight;
-  }, [generatingPrompt, input.promptMarkdown]);
 
   const updateBudget = (key: keyof StartRunInput['budget'], value: number): void => {
     setInput((current) => {
-      const next = { ...current, budget: { ...current.budget, [key]: value } };
-      inputRef.current = next;
-      return next;
+      return { ...current, budget: { ...current.budget, [key]: value } };
     });
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
-  const openAiBlocked = input.runEngine === 'openai_responses' && !snapshot.openAi.configured;
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
-  const canStart = hasPromptDraft && !openAiBlocked;
-  const promptGenerationLabel = hasPromptDraft ? 'Refine' : 'Generate';
-
-  const updateAutoStartAfterGeneration = (checked: boolean): void => {
-    autoStartAfterGenerationRef.current = checked;
-    setAutoStartAfterGeneration(checked);
-  };
+  const selectedEffort = effortLevelFromInput(input.reasoningEffort);
+  const canStart = hasPromptDraft && Boolean(selectedModel?.effortLevels.includes(selectedEffort));
 
   const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
@@ -158,69 +123,35 @@ export function StartRunForm({
     startWithInput(input);
   };
 
-  const cancelGeneratePrompt = (): void => {
-    const requestId = generationRequestIdRef.current;
-    if (!requestId) return;
-    generationRequestIdRef.current = null;
-    setGeneratingPrompt(false);
-    updateAutoStartAfterGeneration(false);
-    clearPendingPromptStream();
-    void window.beale.cancelResearchPromptGeneration(requestId);
+  const selectProvider = (providerId: ResearchModelProviderId): void => {
+    setSelectedProviderId(providerId);
+    const provider = providerOptions.find((candidate) => candidate.id === providerId);
+    const preferredModelId = providerDefaultModel(providerId, openAiStatus, researchProviderStatuses);
+    const model = provider?.models.find((candidate) => candidate.id === preferredModelId) ?? provider?.models[0];
+    if (!model) return;
+    setInput((current) => ({
+      ...current,
+      provider: providerId,
+      model: model.id,
+      reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
+    }));
   };
 
-  const generatePrompt = (): void => {
-    if (generatingPrompt) {
-      cancelGeneratePrompt();
-      return;
-    }
-    const requestId = clientRequestId('research_prompt');
-    const draftPromptMarkdown = input.promptMarkdown;
-    const operation = draftPromptMarkdown.trim().length > 0 ? 'refine' : 'generate';
-    generationRequestIdRef.current = requestId;
-    promptStreamAutoScrollRef.current = true;
-    updateAutoStartAfterGeneration(false);
-    setGeneratingPrompt(true);
-    setGenerateError(null);
-    void window.beale
-      .generateResearchPrompt({
-        requestId,
-        operation,
-        draftPromptMarkdown: operation === 'refine' ? draftPromptMarkdown : null,
-        mode: input.mode,
-        attemptStrategy: input.attemptStrategy,
-        model: input.model,
-        reasoningEffort: input.reasoningEffort,
-        networkProfile: input.networkProfile,
-        sandboxProfile: input.sandboxProfile,
-        targetAssetId: input.targetAssetId ?? null,
-        targetPath: input.targetPath ?? null
-      })
-      .then((generated) => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        clearPendingPromptStream();
-        const nextInput = { ...inputRef.current, promptMarkdown: generated.promptMarkdown };
-        inputRef.current = nextInput;
-        setInput(nextInput);
-        if (autoStartAfterGenerationRef.current && nextInput.promptMarkdown.trim().length > 0 && !(nextInput.runEngine === 'openai_responses' && !snapshot.openAi.configured)) {
-          startWithInput(nextInput);
-        }
-      })
-      .catch((caught: unknown) => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        const message = userFacingErrorMessage(caught);
-        if (!/canceled/i.test(message)) {
-          setGenerateError(message);
-        }
-      })
-      .finally(() => {
-        if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
-        generationRequestIdRef.current = null;
-        setGeneratingPrompt(false);
-      });
+  const selectModel = (modelId: string): void => {
+    const model = selectedProvider?.models.find((candidate) => candidate.id === modelId);
+    if (!model) return;
+    setInput((current) => ({
+      ...current,
+      model: model.id,
+      reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
+    }));
+  };
+
+  const selectEffort = (effort: ResearchModelEffortLevel): void => {
+    update('reasoningEffort', inputValueForEffort(effort));
   };
 
   const closeModal = (): void => {
-    cancelGeneratePrompt();
     onCancel();
   };
 
@@ -231,29 +162,10 @@ export function StartRunForm({
       onClose={closeModal}
       footer={
         <>
-          <div className="modal-footer-leading generate-prompt-footer">
-            <button type="button" className="generate-prompt-button" disabled={!generatingPrompt && (busy || openAiBlocked)} onClick={generatePrompt}>
-              {generatingPrompt ? <X size={16} /> : <Sparkles size={16} />}
-              {generatingPrompt ? 'Cancel' : promptGenerationLabel}
-            </button>
-            {generatingPrompt ? (
-              <div className="generate-prompt-status-stack">
-                <span className="generate-prompt-status">Generating plan, thinking may take several minutes...</span>
-                <label className="generate-prompt-auto-start">
-                  <input
-                    type="checkbox"
-                    checked={autoStartAfterGeneration}
-                    onChange={(event) => updateAutoStartAfterGeneration(event.target.checked)}
-                  />
-                  <span>Auto-start after generation</span>
-                </label>
-              </div>
-            ) : null}
-          </div>
           <button type="button" disabled={busy} onClick={closeModal}>
             Nevermind
           </button>
-          <button className="primary-button" type="button" disabled={busy || startingRun || generatingPrompt || !canStart} onClick={start}>
+          <button className="primary-button" type="button" disabled={busy || startingRun || !canStart} onClick={start}>
             <Play size={16} />
             Start
           </button>
@@ -261,54 +173,18 @@ export function StartRunForm({
       }
     >
       <div className="start-run-modal-body">
-        {input.runEngine === 'openai_responses' && snapshot.openAi.readiness !== 'oauth_ready' ? (
-          <div className="policy-line">
-            <ShieldAlert size={15} />
-            {snapshot.openAi.userAction ?? snapshot.openAi.statusDetail}
-          </div>
-        ) : null}
-        {input.sandboxProfile === 'host_research_only' ? (
-          <div className="policy-line host-sandbox-warning">
-            <ShieldAlert size={15} />
-            Commands and executables will run on this host machine. A disposable sandbox is recommended, and a virtual machine is preferred for high-risk target execution.
-          </div>
-        ) : null}
-        {generateError ? (
-          <div className="generate-prompt-error-box" role="alert">
-            <ShieldAlert size={15} />
-            <div>
-              <strong>Could not generate plan</strong>
-              <p>{generateError}</p>
-            </div>
-          </div>
-        ) : null}
+        <div className="policy-line host-sandbox-warning">
+          <ShieldAlert size={15} />
+          Honeycrisp runs with this user's host privileges. Launch Beale and Honeycrisp inside your own VM or container when you want OS isolation.
+        </div>
         <textarea
-          ref={promptBoxRef}
           className="prompt-box"
           rows={6}
-          placeholder="Enter a prompt or press Generate."
+          placeholder="Describe the research objective, constraints, and desired outcome."
           value={input.promptMarkdown}
           onChange={(event) => update('promptMarkdown', event.target.value)}
         />
         <div className="start-grid">
-          <label>
-            Mode
-            <select value={input.mode} onChange={(event) => update('mode', event.target.value)}>
-              <option value="dynamic">Dynamic</option>
-              <option value="open_discovery">Open Discovery</option>
-              <option value="targeted_reproduction">Targeted Reproduction</option>
-              <option value="patch_validation">Patch Validation</option>
-              <option value="variant_analysis">Variant Analysis</option>
-            </select>
-          </label>
-          <label>
-            Strategy
-            <select value={input.attemptStrategy} onChange={(event) => update('attemptStrategy', event.target.value)}>
-              <option value="adaptive_portfolio">Adaptive Portfolio</option>
-              <option value="single_path">Single Path</option>
-              <option value="reproduction_first">Reproduction First</option>
-            </select>
-          </label>
           <label>
             Network
             <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
@@ -322,7 +198,17 @@ export function StartRunForm({
         </div>
         <details className="advanced-run-options">
           <summary>Session Settings</summary>
-          <SessionSettingsFields input={input} minuteLimitValue={minuteLimitValue} onUpdate={update} onUpdateBudget={updateBudget} />
+          <SessionSettingsFields
+            minuteLimitValue={minuteLimitValue}
+            providerOptions={providerOptions}
+            selectedProviderId={selectedProviderId}
+            selectedModel={selectedModel}
+            selectedEffort={selectedEffort}
+            onSelectProvider={selectProvider}
+            onSelectModel={selectModel}
+            onSelectEffort={selectEffort}
+            onUpdateBudget={updateBudget}
+          />
         </details>
       </div>
     </Modal>
@@ -330,14 +216,24 @@ export function StartRunForm({
 }
 
 export function SessionSettingsFields({
-  input,
   minuteLimitValue,
-  onUpdate,
+  providerOptions,
+  selectedProviderId,
+  selectedModel,
+  selectedEffort,
+  onSelectProvider,
+  onSelectModel,
+  onSelectEffort,
   onUpdateBudget
 }: {
-  input: StartRunInput;
   minuteLimitValue: string;
-  onUpdate: StartRunFieldUpdater;
+  providerOptions: SessionProviderOption[];
+  selectedProviderId: ResearchModelProviderId;
+  selectedModel: ResearchProviderModel | null;
+  selectedEffort: ResearchModelEffortLevel;
+  onSelectProvider: (providerId: ResearchModelProviderId) => void;
+  onSelectModel: (modelId: string) => void;
+  onSelectEffort: (effort: ResearchModelEffortLevel) => void;
   onUpdateBudget: StartRunBudgetUpdater;
 }): JSX.Element {
   return (
@@ -353,28 +249,71 @@ export function SessionSettingsFields({
         />
       </label>
       <label>
-        Max Research Branches
-        <input
-          type="number"
-          min={1}
-          value={1}
-          disabled
-          onChange={() => undefined}
-        />
+        Provider
+        <select value={selectedProviderId} disabled={providerOptions.length === 0} onChange={(event) => onSelectProvider(event.target.value as ResearchModelProviderId)}>
+          {providerOptions.length === 0 ? <option>Loading Pi catalog…</option> : null}
+          {providerOptions.map((provider) => (
+            <option value={provider.id} disabled={provider.models.length === 0} key={provider.id}>
+              {provider.label}{provider.configured ? '' : ' — Not configured'}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         Model
-        <input value={input.model} onChange={(event) => onUpdate('model', event.target.value)} />
+        <select value={selectedModel?.id ?? ''} disabled={!selectedModel} onChange={(event) => onSelectModel(event.target.value)}>
+          {(providerOptions.find((provider) => provider.id === selectedProviderId)?.models ?? []).map((model) => (
+            <option value={model.id} key={model.id}>{modelOptionLabel(model)}</option>
+          ))}
+        </select>
       </label>
       <label>
         Reasoning
-        <input value={input.reasoningEffort} onChange={(event) => onUpdate('reasoningEffort', event.target.value)} />
+        <select value={selectedEffort} disabled={!selectedModel} onChange={(event) => onSelectEffort(event.target.value as ResearchModelEffortLevel)}>
+          {(selectedModel?.effortLevels ?? []).map((effort) => (
+            <option value={effort} key={effort}>{effortLabel(effort)}</option>
+          ))}
+        </select>
       </label>
     </div>
   );
 }
 
-export function preferredSandboxProfile(executor: ExecutorStatus | null, vmPreference: VmPreference): string {
-  const selectedBackend = findBackendByKind(executor, vmPreference.backendKind);
-  return vmPreference.enabled && selectedBackend?.available && executor?.available === true ? 'local_disposable_vm' : 'host_research_only';
+function providerLabel(providerId: ResearchModelProviderId, fallback: string): string {
+  if (providerId === 'openai-codex') return 'OpenAI (Codex)';
+  if (providerId === 'anthropic') return 'Anthropic (Claude)';
+  if (providerId === 'xai') return 'xAI (Grok/X)';
+  return fallback;
+}
+
+function providerDefaultModel(
+  providerId: ResearchModelProviderId,
+  openAiStatus: OpenAiAccountStatus | null,
+  statuses: ResearchProviderStatus[]
+): string | null {
+  if (providerId === 'openai-codex') return openAiStatus?.defaultModel ?? defaultRunInput.model;
+  return statuses.find((provider) => provider.id === providerId)?.defaultModel ?? null;
+}
+
+function modelOptionLabel(model: ResearchProviderModel): string {
+  return model.name === model.id ? model.name : `${model.name} — ${model.id}`;
+}
+
+function effortLevelFromInput(value: string): ResearchModelEffortLevel {
+  return value.trim() ? value as ResearchModelEffortLevel : 'off';
+}
+
+function inputValueForEffort(value: ResearchModelEffortLevel): string {
+  return value === 'off' ? '' : value;
+}
+
+function preferredEffort(levels: ResearchModelEffortLevel[], current: ResearchModelEffortLevel): ResearchModelEffortLevel {
+  if (levels.includes(current)) return current;
+  if (levels.includes('high')) return 'high';
+  return levels[0] ?? 'off';
+}
+
+function effortLabel(effort: ResearchModelEffortLevel): string {
+  if (effort === 'xhigh') return 'XHigh';
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
 }

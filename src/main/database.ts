@@ -1,20 +1,15 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
+import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   ApprovalRecord,
   ArtifactRecord,
   AttemptRecord,
   AttemptStatus,
-  BenchmarkHarnessIdentity,
-  BenchmarkResultStatus,
-  BenchmarkRunRecord,
-  BenchmarkSuiteKind,
-  BenchmarkTaskMode,
-  BenchmarkTaskResultRecord,
   ContextCompactionRecord,
   EvidenceRecord,
   ExportRecord,
@@ -27,15 +22,16 @@ import type {
   OpenAiTransport,
   ProjectInventoryRefreshReport,
   ProjectInventorySummary,
-  ProgramGraphProjection,
-  ProgramGraphVisualization,
+  WorkspaceGraphProjection,
+  WorkspaceGraphVisualization,
   ProjectGraphSummary,
   ProjectSearchResult,
   ProjectSemanticSearchResult,
   ProjectSemanticSummary,
   ProjectStructureSummary,
-  ProgramScopeDraft,
-  ProgramScopeVersion,
+  ResearchModelSelection,
+  WorkspaceScopeDraft,
+  WorkspaceScopeVersion,
   RunDetail,
   RunDetailUpdate,
   RunDetailUpdateCursor,
@@ -303,32 +299,6 @@ export interface CreateExportInput {
   status?: ExportRecord['status'];
 }
 
-export interface CreateBenchmarkRunInput {
-  suiteKind: BenchmarkSuiteKind;
-  suiteId: string;
-  identity: BenchmarkHarnessIdentity;
-  metadata?: Record<string, unknown>;
-}
-
-export interface FinishBenchmarkRunInput {
-  status: 'completed' | 'failed';
-  identity: BenchmarkHarnessIdentity;
-}
-
-export interface CreateBenchmarkTaskResultInput {
-  benchmarkRunId: string;
-  taskId: string;
-  suiteKind: BenchmarkSuiteKind;
-  mode: BenchmarkTaskMode;
-  status: BenchmarkResultStatus;
-  score: number;
-  runId?: string | null;
-  isolationPassed: boolean;
-  metrics?: Record<string, unknown>;
-  graderReport?: Record<string, unknown>;
-  agentOutput?: Record<string, unknown>;
-}
-
 interface ProjectSearchDocumentInput {
   scopeVersionId: string;
   runId?: string | null;
@@ -565,7 +535,6 @@ export interface CreatedRunContext {
   vmContext: VmContextRecord;
 }
 
-const SCHEMA_VERSION = 19;
 const PROJECT_INVENTORY_MAX_FILES = 10_000;
 const PROJECT_INVENTORY_FRESHNESS_MAX_ITEMS = 10_000;
 const PROJECT_INVENTORY_HASH_MAX_BYTES = 1024 * 1024;
@@ -1032,8 +1001,8 @@ function emptyTranscriptSearchResponse(): SessionTranscriptSearchResponse {
   return {
     results: [],
     totalTranscriptMatches: 0,
-    programCount: 0,
-    programs: []
+    workspaceCount: 0,
+    workspaces: []
   };
 }
 
@@ -3438,6 +3407,10 @@ function rowOrUndefined(value: unknown): SqlRow | undefined {
   return value ? (value as SqlRow) : undefined;
 }
 
+function tableHasColumn(database: DatabaseSync, table: string, column: string): boolean {
+  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>).some((row) => row.name === column);
+}
+
 function rows(value: unknown[]): SqlRow[] {
   return value as SqlRow[];
 }
@@ -3481,7 +3454,16 @@ function normalizeWeaknessMappingSource(value: unknown): WeaknessMappingSource {
   return 'model';
 }
 
-function jsonFromScopeDraft(draft: ProgramScopeDraft): Record<string, unknown> {
+function memorySubjectId(subjectName: string): string {
+  const normalized = subjectName.trim().replace(/\s+/g, ' ').toLowerCase();
+  return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
+}
+
+function workspaceIdForPath(workspacePath: string): string {
+  return `workspace_${createHash('sha256').update(resolve(workspacePath)).digest('hex').slice(0, 20)}`;
+}
+
+function jsonFromScopeDraft(draft: WorkspaceScopeDraft): Record<string, unknown> {
   const inScope = draft.assets.filter((asset) => asset.direction === 'in_scope').map((asset) => asset.value);
   const outOfScope = draft.assets.filter((asset) => asset.direction === 'out_of_scope').map((asset) => asset.value);
   return {
@@ -3494,20 +3476,26 @@ function jsonFromScopeDraft(draft: ProgramScopeDraft): Record<string, unknown> {
 
 export class WorkspaceDatabase {
   private readonly db: DatabaseSync;
+  private workspaceId = '';
 
   public constructor(
     private readonly databasePath: string,
-    private readonly artifactRoot: string
+    private readonly artifactRoot: string,
+    private readonly workspaceIdentity: { workspacePath: string; workspaceId?: string } = {
+      workspacePath: dirname(databasePath)
+    }
   ) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    if (databasePath !== ':memory:') chmodSync(databasePath, 0o600);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA busy_timeout = 5000;');
   }
 
   public initialize(): void {
     this.db.exec('PRAGMA journal_mode = WAL;');
-    this.applyMigrations();
+    this.createSchema();
+    this.ensureWorkspaceIdentity();
     this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
@@ -3524,7 +3512,7 @@ export class WorkspaceDatabase {
   }
 
   public getWorkspaceId(): string {
-    return this.getMetaValue('workspace_id') ?? '';
+    return this.workspaceId;
   }
 
   public getDatabasePath(): string {
@@ -3533,6 +3521,15 @@ export class WorkspaceDatabase {
 
   public getArtifactRoot(): string {
     return this.artifactRoot;
+  }
+
+  public getHoneycrispRunbookRelativePath(runbookId: string): string | null {
+    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'honeycrisp_runbooks'").get());
+    if (!table) return null;
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT relative_path FROM honeycrisp_runbooks WHERE id = ? AND workspace_id = ?').get(runbookId, this.workspaceId)
+    );
+    return row ? text(row, 'relative_path') : null;
   }
 
   public getLastWorkspaceBackup(): WorkspaceExportResult | null {
@@ -3551,25 +3548,45 @@ export class WorkspaceDatabase {
 
   public recoverInterruptedState(reason = 'workspace_open'): WorkspaceRecoveryReport {
     const recoveredAt = nowIso();
-    const interruptedRunRows = rows(this.db.prepare("SELECT id FROM runs WHERE status IN ('queued', 'active')").all());
-    const interruptedAttemptRows = rows(this.db.prepare("SELECT id, run_id, vm_context_id FROM attempts WHERE status IN ('queued', 'active')").all());
-    const interruptedModelRows = rows(this.db.prepare("SELECT id, metadata_json, status FROM model_sessions WHERE status IN ('active', 'running')").all());
-    const interruptedToolRows = rows(this.db.prepare("SELECT id, result_json FROM tool_calls WHERE status = 'running'").all());
-    const interruptedVerifierRows = rows(this.db.prepare("SELECT id, result_json, status FROM verifier_runs WHERE status IN ('queued', 'running')").all());
+    const interruptedRunRows = rows(
+      this.db
+        .prepare("SELECT r.id FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND r.status IN ('queued', 'active')")
+        .all(this.workspaceId)
+    );
+    const interruptedAttemptRows = rows(
+      this.db
+        .prepare("SELECT a.id, a.run_id, a.vm_context_id FROM attempts a JOIN runs r ON r.id = a.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND a.status IN ('queued', 'active')")
+        .all(this.workspaceId)
+    );
+    const interruptedModelRows = rows(
+      this.db
+        .prepare("SELECT m.id, m.metadata_json, m.status FROM model_sessions m JOIN runs r ON r.id = m.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND m.status IN ('active', 'running')")
+        .all(this.workspaceId)
+    );
+    const interruptedToolRows = rows(
+      this.db
+        .prepare("SELECT t.id, t.result_json FROM tool_calls t JOIN runs r ON r.id = t.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND t.status = 'running'")
+        .all(this.workspaceId)
+    );
+    const interruptedVerifierRows = rows(
+      this.db
+        .prepare("SELECT v.id, v.result_json, v.status FROM verifier_runs v JOIN runs r ON r.id = v.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND v.status IN ('queued', 'running')")
+        .all(this.workspaceId)
+    );
     const interruptedVmRows = rows(
       this.db
         .prepare(
           `SELECT DISTINCT v.* FROM vm_contexts v
            JOIN attempts a ON a.vm_context_id = v.id
            JOIN runs r ON r.id = a.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
            WHERE v.destroyed_at IS NULL
+             AND s.workspace_id = ?
              AND v.state NOT IN ('destroyed', 'preserved', 'recovery_pending')
              AND (r.status IN ('queued', 'active') OR a.status IN ('queued', 'active'))`
         )
-        .all()
+        .all(this.workspaceId)
     );
-    const interruptedBenchmarkRows = rows(this.db.prepare("SELECT id, metadata_json FROM benchmark_runs WHERE status = 'running'").all());
-
     const report: WorkspaceRecoveryReport = {
       recoveredAt,
       reason,
@@ -3579,7 +3596,6 @@ export class WorkspaceDatabase {
       interruptedToolCalls: interruptedToolRows.length,
       interruptedVerifierRuns: interruptedVerifierRows.length,
       interruptedVmContexts: interruptedVmRows.length,
-      interruptedBenchmarkRuns: interruptedBenchmarkRows.length,
       notes: []
     };
 
@@ -3589,8 +3605,7 @@ export class WorkspaceDatabase {
       report.interruptedModelSessions +
       report.interruptedToolCalls +
       report.interruptedVerifierRuns +
-      report.interruptedVmContexts +
-      report.interruptedBenchmarkRuns;
+      report.interruptedVmContexts;
     if (total === 0) {
       report.notes.push('No interrupted authoritative state found.');
       this.setMetaValue('last_recovery_json', JSON.stringify(report), recoveredAt);
@@ -3601,10 +3616,6 @@ export class WorkspaceDatabase {
     if (report.interruptedVmContexts > 0) {
       report.notes.push('VM contexts that were not known destroyed were marked recovery_pending for user review.');
     }
-    if (report.interruptedBenchmarkRuns > 0) {
-      report.notes.push('Running benchmark records were marked failed because Docker agent state cannot be resumed safely.');
-    }
-
     this.transaction(() => {
       for (const row of interruptedRunRows) {
         this.db
@@ -3661,18 +3672,6 @@ export class WorkspaceDatabase {
         };
         this.db.prepare('UPDATE vm_contexts SET state = ?, metadata_json = ? WHERE id = ?').run('recovery_pending', toJson(metadata), text(row, 'id'));
       }
-      for (const row of interruptedBenchmarkRows) {
-        const metadata = {
-          ...parseJson(row.metadata_json),
-          interruptedByRecovery: true,
-          recoveredAt,
-          reason
-        };
-        this.db
-          .prepare('UPDATE benchmark_runs SET status = ?, metadata_json = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
-          .run('failed', toJson(metadata), recoveredAt, text(row, 'id'));
-      }
-
       for (const row of interruptedRunRows) {
         const runId = text(row, 'id');
         const attempt = interruptedAttemptRows.find((attemptRow) => text(attemptRow, 'run_id') === runId);
@@ -3698,11 +3697,11 @@ export class WorkspaceDatabase {
     return report;
   }
 
-  public getActiveScope(): ProgramScopeVersion {
+  public getActiveScope(): WorkspaceScopeVersion {
     const row = rowOrUndefined(
       this.db
-        .prepare('SELECT * FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1')
-        .get('active')
+        .prepare('SELECT * FROM scope_versions WHERE workspace_id = ? AND status = ? ORDER BY version DESC LIMIT 1')
+        .get(this.workspaceId, 'active')
     );
     if (!row) {
       throw new Error('Workspace has no active scope version');
@@ -3710,17 +3709,15 @@ export class WorkspaceDatabase {
     return this.mapScope(row);
   }
 
-  public getScopeVersion(scopeVersionId: string): ProgramScopeVersion {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM program_scope_versions WHERE id = ?').get(scopeVersionId));
+  public getScopeVersion(scopeVersionId: string): WorkspaceScopeVersion {
+    const row = rowOrUndefined(this.db.prepare('SELECT * FROM scope_versions WHERE id = ? AND workspace_id = ?').get(scopeVersionId, this.workspaceId));
     if (!row) {
-      throw new Error(`Program scope version not found: ${scopeVersionId}`);
+      throw new Error(`Workspace scope version not found: ${scopeVersionId}`);
     }
     return this.mapScope(row);
   }
 
-  public saveProgramScope(draft: ProgramScopeDraft, options: { refreshInventory?: boolean } = {}): ProgramScopeVersion {
-    const previousActiveScope = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? ORDER BY version DESC LIMIT 1').get('active'));
-    const semanticEnabledForPreviousScope = previousActiveScope ? this.getProjectSemanticIndexEnabled(text(previousActiveScope, 'id')) : true;
+  public saveScope(draft: WorkspaceScopeDraft, options: { refreshInventory?: boolean } = {}): WorkspaceScopeVersion {
     const cleanedAssets = draft.assets
       .map((asset) => ({
         ...asset,
@@ -3730,24 +3727,25 @@ export class WorkspaceDatabase {
       .filter((asset) => asset.value.length > 0);
     const createdAt = nowIso();
     const id = createId('scope');
-    const versionRow = rowOrUndefined(this.db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM program_scope_versions').get());
+    const versionRow = rowOrUndefined(this.db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM scope_versions').get());
     const nextVersion = numberValue(versionRow ?? { version: 0 }, 'version') + 1;
 
     this.transaction(() => {
-      this.db.prepare('UPDATE program_scope_versions SET status = ? WHERE status = ?').run('archived', 'active');
+      this.db.prepare('UPDATE scope_versions SET status = ? WHERE workspace_id = ? AND status = ?').run('archived', this.workspaceId, 'active');
       this.db
         .prepare(
-          `INSERT INTO program_scope_versions (
-            id, version, status, program_name, organization_name, description_markdown,
+          `INSERT INTO scope_versions (
+            id, workspace_id, version, status, workspace_name, scope_owner, description_markdown,
             network_policy_json, rules_markdown, active_from, expires_at, created_at, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
+          this.workspaceId,
           nextVersion,
           'active',
-          draft.programName.trim() || 'Untitled Program',
-          draft.organizationName.trim(),
+          draft.workspaceName.trim() || 'Untitled Workspace',
+          draft.scopeOwner.trim(),
           draft.descriptionMarkdown.trim(),
           toJson(jsonFromScopeDraft({ ...draft, assets: cleanedAssets })),
           draft.rulesMarkdown.trim(),
@@ -3760,11 +3758,11 @@ export class WorkspaceDatabase {
       for (const asset of cleanedAssets) {
         this.insertScopeAsset(id, asset, createdAt);
       }
-      this.setMetaValue(projectSemanticEnabledMetaKey(id), semanticEnabledForPreviousScope ? '1' : '0', createdAt);
+      this.setMetaValue(projectSemanticEnabledMetaKey(id), '0', createdAt);
     });
 
     const scope = this.getActiveScope();
-    if (options.refreshInventory !== false) {
+    if (options.refreshInventory === true) {
       this.refreshProjectInventory(scope.id);
     }
     return scope;
@@ -3790,15 +3788,15 @@ export class WorkspaceDatabase {
         )
         .run(
           vmContextId,
-          input.vmBackend ?? 'fake_vm',
-          input.vmImageId ?? 'fake-beale-toolchain',
-          input.vmSnapshotId ?? 'clean-snapshot-simulated',
-          input.vmState ?? 'working',
+          input.vmBackend ?? 'host',
+          input.vmImageId ?? 'host-machine',
+          input.vmSnapshotId ?? 'none',
+          input.vmState ?? 'host_active',
           input.networkProfile,
           input.scopeVersionId,
           createdAt,
           null,
-          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
+          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
         );
 
       this.db
@@ -3824,7 +3822,7 @@ export class WorkspaceDatabase {
           target.targetAssetId,
           target.targetPath,
           toJson(input.budget),
-          'Starting simulated research run.',
+          'Starting host-process research run.',
           createdAt,
           createdAt,
           null
@@ -3842,12 +3840,12 @@ export class WorkspaceDatabase {
           runId,
           null,
           'active',
-          'Initializing simulated research plan.',
+          'Initializing host-process research plan.',
           randomUUID(),
           'initial_portfolio',
           vmContextId,
-          toJson({ simulatedUsd: 0, label: 'simulated $0.00' }),
-          toJson({ promptTokens: 0, completionTokens: 0, simulated: true }),
+          toJson({ label: '$0.00' }),
+          toJson({ promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
           null
         );
@@ -3983,15 +3981,15 @@ export class WorkspaceDatabase {
         )
         .run(
           vmContextId,
-          input.vmBackend ?? 'fake_vm',
-          input.vmImageId ?? 'fake-beale-toolchain',
-          input.vmSnapshotId ?? 'clean-snapshot-simulated',
+          input.vmBackend ?? 'host',
+          input.vmImageId ?? 'host-machine',
+          input.vmSnapshotId ?? 'none',
           vmState,
           run.networkProfile,
           run.scopeVersionId,
           createdAt,
           vmState === 'destroyed' ? createdAt : null,
-          toJson(input.vmMetadata ?? { executor: 'simulated', targetExecution: false })
+          toJson(input.vmMetadata ?? { executor: 'host', targetExecution: true, executionPosture: 'host_process' })
         );
       this.db
         .prepare(
@@ -4009,8 +4007,8 @@ export class WorkspaceDatabase {
           randomUUID(),
           input.strategyRole,
           vmContextId,
-          toJson(input.cost ?? { simulatedUsd: 0, label: 'simulated $0.00' }),
-          toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, simulated: true }),
+          toJson(input.cost ?? { label: '$0.00' }),
+          toJson(input.tokenUsage ?? { promptTokens: 0, completionTokens: 0, source: 'not_reported' }),
           createdAt,
           input.status === 'completed' || input.status === 'failed' || input.status === 'stopped' ? createdAt : null
         );
@@ -4021,7 +4019,7 @@ export class WorkspaceDatabase {
   }
 
   public updateModelSessionByRun(runId: string, patch: { previousResponseId?: string | null; status?: string; metadata?: Record<string, unknown> }): void {
-    const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC LIMIT 1').get(runId));
+    const existing = rowOrUndefined(this.db.prepare('SELECT * FROM model_sessions WHERE run_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(runId));
     if (!existing) return;
     const nextPreviousResponseId = Object.prototype.hasOwnProperty.call(patch, 'previousResponseId')
       ? patch.previousResponseId ?? null
@@ -4133,7 +4131,17 @@ export class WorkspaceDatabase {
   }
 
   public listNotifications(status: NotificationStatus = 'unread'): NotificationRecord[] {
-    return rows(this.db.prepare('SELECT * FROM notifications WHERE status = ? ORDER BY created_at ASC').all(status)).map((row) => this.mapNotification(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT n.* FROM notifications n
+           JOIN runs r ON r.id = n.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? AND n.status = ?
+           ORDER BY n.created_at ASC`
+        )
+        .all(this.workspaceId, status)
+    ).map((row) => this.mapNotification(row));
   }
 
   public markNotificationOpened(notificationId: string): NotificationRecord | null {
@@ -4215,6 +4223,22 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
+  }
+
+  public updateRunModelSelection(runId: string, selection: ResearchModelSelection): RunRecord {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const model = selection.model.trim();
+    if (!model) throw new Error('Research model cannot be empty.');
+    const nextBudget = { ...run.budget, modelProvider: selection.provider };
+    const reasoningEffort = selection.reasoningEffort === 'off' ? '' : selection.reasoningEffort;
+    this.db
+      .prepare('UPDATE runs SET model = ?, reasoning_effort = ?, budget_json = ? WHERE id = ?')
+      .run(model, reasoningEffort, toJson(nextBudget), runId);
+    const updated = this.getRun(runId);
+    if (!updated) throw new Error(`Run not found after model selection update: ${runId}`);
+    this.indexRunSearchDocument(updated);
+    return updated;
   }
 
   public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {
@@ -4865,16 +4889,15 @@ export class WorkspaceDatabase {
 
   public markPostSourceIndexingDeferred(scopeVersionId: string, reason: string): void {
     const markedAt = nowIso();
-    this.queueProjectSemanticIndex(scopeVersionId, reason);
     this.setMetaValue(
       `project_indexing_deferred:${scopeVersionId}`,
       JSON.stringify({
         reason,
         markedAt,
         inventory: 'deferred',
-        structure: 'deferred',
-        graph: 'deferred',
-        semantic: this.getProjectSemanticIndexEnabled(scopeVersionId) ? 'queued' : 'disabled'
+        structure: 'external',
+        graph: 'disabled',
+        semantic: 'disabled'
       }),
       markedAt
     );
@@ -5120,114 +5143,6 @@ export class WorkspaceDatabase {
     return exportRecord;
   }
 
-  public createBenchmarkRun(input: CreateBenchmarkRunInput): BenchmarkRunRecord {
-    const id = createId('bench_run');
-    const createdAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO benchmark_runs (
-          id, suite_kind, suite_id, status, model, reasoning_effort, harness_name,
-          harness_version, prompt_version, toolset_version, verifier_version,
-          sandbox_backend, sandbox_image_version, network_profile, attempt_strategy,
-          attempt_count, task_subset_id, task_ids_json, benchmark_version, cost_json,
-          tokens_json, wall_time_ms, pass_count, total_count, metadata_json,
-          created_at, started_at, ended_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.suiteKind,
-        input.suiteId,
-        'running',
-        input.identity.model,
-        input.identity.reasoningEffort,
-        input.identity.harnessName,
-        input.identity.harnessVersion,
-        input.identity.promptVersion,
-        input.identity.toolsetVersion,
-        input.identity.verifierVersion,
-        input.identity.sandboxBackend,
-        input.identity.sandboxImageVersion,
-        input.identity.networkProfile,
-        input.identity.attemptStrategy,
-        input.identity.attemptCount,
-        input.identity.taskSubsetId,
-        toJson(input.identity.taskIds),
-        input.identity.benchmarkVersion,
-        toJson(input.identity.cost),
-        toJson(input.identity.tokens),
-        input.identity.wallTimeMs,
-        input.identity.passCount,
-        input.identity.totalCount,
-        toJson(input.metadata),
-        createdAt,
-        createdAt,
-        null
-      );
-    const run = this.getBenchmarkRun(id);
-    if (!run) throw new Error('Failed to create benchmark run');
-    return run;
-  }
-
-  public finishBenchmarkRun(benchmarkRunId: string, input: FinishBenchmarkRunInput): BenchmarkRunRecord {
-    const endedAt = nowIso();
-    this.db
-      .prepare(
-        `UPDATE benchmark_runs
-         SET status = ?,
-             cost_json = ?,
-             tokens_json = ?,
-             wall_time_ms = ?,
-             pass_count = ?,
-             total_count = ?,
-             ended_at = ?
-         WHERE id = ?`
-      )
-      .run(
-        input.status,
-        toJson(input.identity.cost),
-        toJson(input.identity.tokens),
-        input.identity.wallTimeMs,
-        input.identity.passCount,
-        input.identity.totalCount,
-        endedAt,
-        benchmarkRunId
-      );
-    const run = this.getBenchmarkRun(benchmarkRunId);
-    if (!run) throw new Error(`Benchmark run not found: ${benchmarkRunId}`);
-    return run;
-  }
-
-  public createBenchmarkTaskResult(input: CreateBenchmarkTaskResultInput): BenchmarkTaskResultRecord {
-    const id = createId('bench_result');
-    const createdAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO benchmark_task_results (
-          id, benchmark_run_id, task_id, suite_kind, mode, status, score, run_id,
-          isolation_passed, metrics_json, grader_report_json, agent_output_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.benchmarkRunId,
-        input.taskId,
-        input.suiteKind,
-        input.mode,
-        input.status,
-        input.score,
-        input.runId ?? null,
-        input.isolationPassed ? 1 : 0,
-        toJson(input.metrics),
-        toJson(input.graderReport),
-        toJson(input.agentOutput),
-        createdAt
-      );
-    const result = this.getBenchmarkTaskResult(id);
-    if (!result) throw new Error('Failed to create benchmark task result');
-    return result;
-  }
-
   public createApproval(input: CreateApprovalInput): ApprovalRecord {
     const id = createId('approval');
     const createdAt = nowIso();
@@ -5256,7 +5171,11 @@ export class WorkspaceDatabase {
   }
 
   public listRunRows(): RunRow[] {
-    const runRows = rows(this.db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all());
+    const runRows = rows(
+      this.db
+        .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? ORDER BY r.created_at DESC')
+        .all(this.workspaceId)
+    );
     const attemptCounts = new Map(
       rows(this.db.prepare('SELECT run_id, COUNT(*) AS count FROM attempts GROUP BY run_id').all()).map((row) => [text(row, 'run_id'), numberValue(row, 'count')])
     );
@@ -5364,29 +5283,9 @@ export class WorkspaceDatabase {
         verifierState: verifier ? text(verifier, 'status') : null,
         policyBlocker: policy ? text(policy, 'reason') : null,
         artifactCount: artifactCounts.get(run.id) ?? 0,
-        costLabel: 'simulated $0.00'
+        costLabel: '$0.00'
       };
     });
-  }
-
-  public listBenchmarkRuns(limit = 12): BenchmarkRunRecord[] {
-    return rows(this.db.prepare('SELECT * FROM benchmark_runs ORDER BY created_at DESC LIMIT ?').all(limit)).map((row) => this.mapBenchmarkRun(row));
-  }
-
-  public listBenchmarkTaskResults(benchmarkRunId: string): BenchmarkTaskResultRecord[] {
-    return rows(
-      this.db
-        .prepare('SELECT * FROM benchmark_task_results WHERE benchmark_run_id = ? ORDER BY created_at ASC')
-        .all(benchmarkRunId)
-    ).map((row) => this.mapBenchmarkTaskResult(row));
-  }
-
-  public listRecentBenchmarkTaskResults(limit = 80): BenchmarkTaskResultRecord[] {
-    return rows(
-      this.db
-        .prepare('SELECT * FROM benchmark_task_results ORDER BY created_at DESC LIMIT ?')
-        .all(limit)
-    ).map((row) => this.mapBenchmarkTaskResult(row));
   }
 
   public getRunDetail(runId: string): RunDetail {
@@ -5436,7 +5335,7 @@ export class WorkspaceDatabase {
 
   public searchTranscriptMessages(
     input: SessionTranscriptSearchInput,
-    context: { programId?: string | null; workspacePath?: string; programName?: string | null } = {}
+    context: { registryWorkspaceId: string; workspacePath: string; workspaceName: string }
   ): SessionTranscriptSearchResponse {
     const query = input.query.trim();
     if (!query) return emptyTranscriptSearchResponse();
@@ -5446,7 +5345,17 @@ export class WorkspaceDatabase {
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 24;
     const conditions = terms.map(() => "LOWER(tm.content_markdown) LIKE ? ESCAPE '\\'").join(' AND ');
     const parameters = terms.map((term) => `%${escapeLike(term.toLowerCase())}%`);
-    const countRow = rowOrUndefined(this.db.prepare(`SELECT COUNT(*) AS total_matches FROM transcript_messages tm WHERE ${conditions}`).get(...parameters));
+    const countRow = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS total_matches
+           FROM transcript_messages tm
+           JOIN runs r ON r.id = tm.run_id
+           JOIN scope_versions p ON p.id = r.scope_version_id
+           WHERE p.workspace_id = ? AND ${conditions}`
+        )
+        .get(this.workspaceId, ...parameters)
+    );
     const resultRows = this.db
       .prepare(
         `SELECT
@@ -5458,42 +5367,42 @@ export class WorkspaceDatabase {
            tm.content_markdown AS content_markdown,
            tm.created_at AS created_at,
            r.title AS session_title,
-           p.program_name AS program_name
+           p.workspace_name AS workspace_name
          FROM transcript_messages tm
          JOIN runs r ON r.id = tm.run_id
-         JOIN program_scope_versions p ON p.id = r.scope_version_id
-         WHERE ${conditions}
+         JOIN scope_versions p ON p.id = r.scope_version_id
+         WHERE p.workspace_id = ? AND ${conditions}
          ORDER BY tm.created_at DESC, tm.rowid DESC
          LIMIT ?`
       )
-      .all(...parameters, limit);
+      .all(this.workspaceId, ...parameters, limit);
 
     const results = rows(resultRows).map((row) => ({
-      programId: context.programId ?? null,
-      workspacePath: context.workspacePath ?? '',
+      registryWorkspaceId: context.registryWorkspaceId,
+      workspacePath: context.workspacePath,
       runId: text(row, 'run_id'),
       transcriptMessageId: text(row, 'transcript_message_id'),
       traceEventId: nullableText(row, 'trace_event_id'),
       role: text(row, 'role') as SessionTranscriptSearchResult['role'],
       source: text(row, 'source'),
       sessionTitle: text(row, 'session_title'),
-      programName: context.programName || text(row, 'program_name'),
+      workspaceName: context.workspaceName,
       contentPreview: transcriptSearchPreview(text(row, 'content_markdown'), terms),
       createdAt: text(row, 'created_at')
     }));
     const totalTranscriptMatches = countRow ? numberValue(countRow, 'total_matches') : results.length;
-    const programName = context.programName || results[0]?.programName || 'Unknown Program';
+    const workspaceName = context.workspaceName;
     return {
       results,
       totalTranscriptMatches,
-      programCount: totalTranscriptMatches > 0 ? 1 : 0,
-      programs:
+      workspaceCount: totalTranscriptMatches > 0 ? 1 : 0,
+      workspaces:
         totalTranscriptMatches > 0
           ? [
               {
-                programId: context.programId ?? null,
-                workspacePath: context.workspacePath ?? '',
-                programName,
+                registryWorkspaceId: context.registryWorkspaceId,
+                workspacePath: context.workspacePath,
+                workspaceName,
                 totalTranscriptMatches
               }
             ]
@@ -5528,9 +5437,11 @@ export class WorkspaceDatabase {
 
   private scopeVersionLineagePredicate(column: string): string {
     return `${column} IN (
-      SELECT id
-      FROM program_scope_versions
-      WHERE version <= (SELECT version FROM program_scope_versions WHERE id = ?)
+      SELECT prior.id
+      FROM scope_versions prior
+      JOIN scope_versions target ON target.id = ?
+      WHERE prior.workspace_id = target.workspace_id
+        AND prior.version <= target.version
     )`;
   }
 
@@ -5735,10 +5646,10 @@ export class WorkspaceDatabase {
     };
   }
 
-  public getProgramGraphVisualization(
+  public getWorkspaceGraphVisualization(
     scopeVersionId = this.getActiveScope().id,
     options: { nodeLimit?: number; edgeLimit?: number } = {}
-  ): ProgramGraphVisualization {
+  ): WorkspaceGraphVisualization {
     const summary = this.getProjectGraphSummary(scopeVersionId);
     const nodeLimit = Math.max(12, Math.min(120, Math.floor(options.nodeLimit ?? 64)));
     const edgeLimit = Math.max(12, Math.min(180, Math.floor(options.edgeLimit ?? 36)));
@@ -5889,7 +5800,7 @@ export class WorkspaceDatabase {
     };
   }
 
-  public getProgramGraphProjection(scopeVersionId = this.getActiveScope().id): ProgramGraphProjection {
+  public getWorkspaceGraphProjection(scopeVersionId = this.getActiveScope().id): WorkspaceGraphProjection {
     const summary = this.getProjectGraphSummary(scopeVersionId);
     const nodes = rows(
       this.db
@@ -5979,27 +5890,27 @@ export class WorkspaceDatabase {
     const labelCounts = new Map<string, number>();
     const genericLabelCounts = new Map<string, number>();
     const qualityFlagCounts = new Map<string, number>();
-    const clusterMap = new Map<string, ProgramGraphProjection['clusters'][number]>();
+    const clusterMap = new Map<string, WorkspaceGraphProjection['clusters'][number]>();
     const increment = (counts: Map<string, number>, key: string, amount = 1): void => {
       counts.set(key, (counts.get(key) ?? 0) + amount);
     };
     const ensureCluster = (
       id: string,
-      kind: ProgramGraphProjection['clusters'][number]['kind'],
+      kind: WorkspaceGraphProjection['clusters'][number]['kind'],
       label: string,
       parentId: string | null = null,
       qualityFlags: string[] = []
-    ): ProgramGraphProjection['clusters'][number] => {
+    ): WorkspaceGraphProjection['clusters'][number] => {
       const existing = clusterMap.get(id);
       if (existing) return existing;
       const cluster = { id, kind, label, nodeCount: 0, edgeCount: 0, qualityFlags, parentId };
       clusterMap.set(id, cluster);
       return cluster;
     };
-    const bumpNodeCluster = (id: string, kind: ProgramGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
+    const bumpNodeCluster = (id: string, kind: WorkspaceGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
       ensureCluster(id, kind, label, parentId, flags).nodeCount += 1;
     };
-    const bumpEdgeCluster = (id: string, kind: ProgramGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
+    const bumpEdgeCluster = (id: string, kind: WorkspaceGraphProjection['clusters'][number]['kind'], label: string, parentId: string | null = null, flags: string[] = []): void => {
       ensureCluster(id, kind, label, parentId, flags).edgeCount += 1;
     };
     const noteQuality = (flag: string): string => {
@@ -6037,7 +5948,7 @@ export class WorkspaceDatabase {
     }
 
     const repeatedLabelCounts = new Map([...labelCounts.entries()].filter(([, count]) => count > 1));
-    const projectedNodes: ProgramGraphProjection['nodes'] = nodes.map((node) => {
+    const projectedNodes: WorkspaceGraphProjection['nodes'] = nodes.map((node) => {
       const qualityFlags: string[] = [];
       const normalizedLabel = normalizeProjectGraphLabel(node.label);
       const repeatedLabelCount = labelCounts.get(normalizedLabel || 'unknown') ?? 0;
@@ -6095,7 +6006,7 @@ export class WorkspaceDatabase {
       };
     });
 
-    const projectedEdges: ProgramGraphProjection['edges'] = edges.map((edge) => {
+    const projectedEdges: WorkspaceGraphProjection['edges'] = edges.map((edge) => {
       const qualityFlags: string[] = [];
       if (!edge.targetNodeId || !nodesById.has(edge.targetNodeId)) qualityFlags.push(noteQuality('unresolved_target'));
       if (edge.targetNodeId && edge.targetNodeId === edge.sourceNodeId) qualityFlags.push(noteQuality('self_relation'));
@@ -6156,11 +6067,8 @@ export class WorkspaceDatabase {
   }
 
   public refreshProjectGraph(scopeVersionId = this.getActiveScope().id, indexedAt = nowIso(), reason = 'manual_refresh'): ProjectGraphSummary {
-    const startedAt = Date.now();
-    this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
-    this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
-    this.rebuildProjectGraph(scopeVersionId, indexedAt);
-    this.recordProjectGraphStatus(scopeVersionId, { rebuildReason: reason, indexedAt, durationMs: Date.now() - startedAt, incrementBuildCount: true });
+    void indexedAt;
+    void reason;
     return this.getProjectGraphSummary(scopeVersionId);
   }
 
@@ -6173,8 +6081,7 @@ export class WorkspaceDatabase {
   }
 
   private ensureProjectGraphFresh(scopeVersionId: string): ProjectGraphSummary {
-    const summary = this.getProjectGraphSummary(scopeVersionId);
-    return summary.status === 'stale' || summary.status === 'empty' ? this.refreshProjectGraph(scopeVersionId, nowIso(), summary.status === 'empty' ? 'empty_graph' : summary.staleReasons.join(',')) : summary;
+    return this.getProjectGraphSummary(scopeVersionId);
   }
 
   private projectGraphExpectedNodeFamilyCounts(scopeVersionId: string): Record<string, number> {
@@ -6676,7 +6583,8 @@ export class WorkspaceDatabase {
   }
 
   public getProjectSemanticIndexEnabled(scopeVersionId = this.getActiveScope().id): boolean {
-    return this.getMetaValue(projectSemanticEnabledMetaKey(scopeVersionId)) !== '0';
+    void scopeVersionId;
+    return false;
   }
 
   public setProjectSemanticIndexEnabled(
@@ -7037,79 +6945,20 @@ export class WorkspaceDatabase {
   }
 
   public ensureProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventorySummary {
-    const summary = this.getProjectInventorySummary(scopeVersionId);
-    if (summary.itemCount === 0) return this.refreshProjectInventory(scopeVersionId);
-    return this.projectInventoryLooksStale(scopeVersionId) ? this.refreshProjectInventory(scopeVersionId) : summary;
+    return this.getProjectInventorySummary(scopeVersionId);
   }
 
   public refreshProjectInventory(scopeVersionId = this.getActiveScope().id): ProjectInventoryRefreshReport {
-    const scope = this.getScopeVersion(scopeVersionId);
-    const indexedAt = nowIso();
-    const state: ProjectInventoryScanState = { indexedAt, scannedFiles: 0, skippedCount: 0, truncated: false };
-    const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
-
-    this.transaction(() => {
-      this.db.prepare('DELETE FROM project_graph_edges WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_graph_nodes WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_structure_relations WHERE scope_version_id = ?').run(scopeVersionId);
-      this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
-      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('scope_asset', 'inventory_item', 'structure_entity')", [scopeVersionId]);
-
-      for (const asset of scope.assets) {
-        this.upsertProjectSearchDocument({
-          scopeVersionId,
-          entityType: 'scope_asset',
-          entityId: asset.id,
-          title: `${asset.direction} ${asset.kind}: ${asset.value}`,
-          body: [
-            asset.value,
-            asset.kind,
-            asset.direction,
-            asset.sensitivity,
-            JSON.stringify(asset.attributes),
-            scope.programName,
-            scope.organizationName,
-            scope.descriptionMarkdown,
-            scope.rulesMarkdown
-          ].join('\n'),
-          sourcePath: isAbsolute(asset.value) ? asset.value : null,
-          metadata: {
-            direction: asset.direction,
-            kind: asset.kind,
-            sensitivity: asset.sensitivity,
-            attributes: asset.attributes
-          },
-          createdAt: asset.createdAt,
-          updatedAt: indexedAt
-        });
-      }
-
-      for (const asset of localAssets) {
-        this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
-      }
-
-      this.resolveProjectStructureRelationTargets(scopeVersionId);
-      this.rebuildProjectGraph(scopeVersionId, indexedAt);
-    });
-
     const summary = this.getProjectInventorySummary(scopeVersionId);
-    const report: ProjectInventoryRefreshReport = {
-      ...summary,
-      rootCount: localAssets.length,
-      skippedCount: state.skippedCount,
-      truncated: state.truncated
-    };
-    this.setMetaValue(`project_inventory:${scopeVersionId}:last_report`, JSON.stringify(report), indexedAt);
-    this.clearProjectIndexingDeferredState(scopeVersionId);
-    return report;
+    return { ...summary, rootCount: 0, skippedCount: 0, truncated: false };
   }
 
   public rebuildProjectSearchIndex(options: { includeInventory?: boolean } = {}): void {
     this.transaction(() => {
-      this.db.prepare('DELETE FROM project_search_fts').run();
-      this.db.prepare('DELETE FROM project_search_documents').run();
-      const scopeRows = rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all());
+      const workspaceDocumentIds = `SELECT id FROM project_search_documents WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)`;
+      this.db.prepare(`DELETE FROM project_search_fts WHERE document_id IN (${workspaceDocumentIds})`).run(this.workspaceId);
+      this.db.prepare(`DELETE FROM project_search_documents WHERE id IN (${workspaceDocumentIds})`).run(this.workspaceId);
+      const scopeRows = rows(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? ORDER BY version ASC').all(this.workspaceId));
       for (const scopeRow of scopeRows) {
         const scope = this.getScopeVersion(text(scopeRow, 'id'));
         for (const asset of scope.assets) {
@@ -7118,7 +6967,7 @@ export class WorkspaceDatabase {
             entityType: 'scope_asset',
             entityId: asset.id,
             title: `${asset.direction} ${asset.kind}: ${asset.value}`,
-            body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.programName, scope.descriptionMarkdown, scope.rulesMarkdown].join('\n'),
+            body: [asset.value, asset.kind, asset.direction, asset.sensitivity, JSON.stringify(asset.attributes), scope.workspaceName, scope.descriptionMarkdown, scope.rulesMarkdown].join('\n'),
             sourcePath: isAbsolute(asset.value) ? asset.value : null,
             metadata: { direction: asset.direction, kind: asset.kind, sensitivity: asset.sensitivity, attributes: asset.attributes },
             createdAt: asset.createdAt,
@@ -7126,26 +6975,19 @@ export class WorkspaceDatabase {
           });
         }
       }
-      for (const row of rows(this.db.prepare('SELECT * FROM runs ORDER BY created_at ASC').all())) this.indexRunSearchDocument(this.mapRun(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM transcript_messages ORDER BY created_at ASC, rowid ASC').all())) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM trace_events WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexTraceSearchDocument(this.mapTraceEvent(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all())) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all())) this.indexFindingSearchDocument(this.mapFinding(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM evidence ORDER BY created_at ASC').all())) this.indexEvidenceSearchDocument(this.mapEvidence(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM artifacts WHERE model_visible = 1 ORDER BY created_at ASC').all())) this.indexArtifactSearchDocument(this.mapArtifact(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM verifier_contracts ORDER BY created_at ASC').all())) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
-      for (const row of rows(this.db.prepare('SELECT * FROM verifier_runs ORDER BY started_at ASC, rowid ASC').all())) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
+      const workspaceRunIds = `SELECT r.id FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ?`;
+      for (const row of rows(this.db.prepare(`SELECT * FROM runs WHERE id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexRunSearchDocument(this.mapRun(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM transcript_messages WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC, rowid ASC`).all(this.workspaceId))) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM trace_events WHERE model_visible = 1 AND run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexTraceSearchDocument(this.mapTraceEvent(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM hypotheses WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM findings WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexFindingSearchDocument(this.mapFinding(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexEvidenceSearchDocument(this.mapEvidence(row));
+      for (const row of rows(this.db.prepare(`SELECT DISTINCT a.* FROM artifacts a JOIN trace_events t ON t.artifact_id = a.id WHERE a.model_visible = 1 AND t.run_id IN (${workspaceRunIds}) ORDER BY a.created_at ASC`).all(this.workspaceId))) this.indexArtifactSearchDocument(this.mapArtifact(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
+      for (const row of rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (${workspaceRunIds}) ORDER BY started_at ASC, rowid ASC`).all(this.workspaceId))) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
     });
 
-    if (options.includeInventory) {
-      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
-        this.refreshProjectInventory(text(row, 'id'));
-      }
-    } else {
-      for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
-        this.refreshProjectGraph(text(row, 'id'));
-      }
-    }
+    void options;
   }
 
   public searchProjectDocumentsForRun(runId: string, query: string, limit = 20, options: { refreshInventory?: boolean; scopeVersionId?: string } = {}): ProjectSearchResult[] {
@@ -7475,7 +7317,7 @@ export class WorkspaceDatabase {
       });
       if (!verifierEvidence?.verifierRunId) continue;
 
-      const duplicateReview = reviewClaimDuplicate(findingClaimDraftFromHypothesis(hypothesis, verifierEvidence.summary), this.listProgramFindingCandidates(runId));
+      const duplicateReview = reviewClaimDuplicate(findingClaimDraftFromHypothesis(hypothesis, verifierEvidence.summary), this.listWorkspaceFindingCandidates(runId));
       if (duplicateReview.outcome === 'duplicate' && duplicateReview.matchedEntityKind === 'finding' && duplicateReview.matchedEntityId) {
         this.createEvidence({
           runId,
@@ -7501,7 +7343,7 @@ export class WorkspaceDatabase {
             hypothesisId: hypothesis.id,
             matchedFindingId: duplicateReview.matchedEntityId,
             duplicateReview: duplicateReviewPayload(duplicateReview),
-            reason: options.reason ?? 'reproduced_hypothesis_matched_existing_program_finding'
+            reason: options.reason ?? 'reproduced_hypothesis_matched_existing_scope_finding'
           },
           vmContextId: options.vmContextId ?? null,
           modelVisible: options.modelVisible ?? false
@@ -7561,23 +7403,45 @@ export class WorkspaceDatabase {
     return created;
   }
 
-  public listProgramHypothesesForRun(runId: string): HypothesisRecord[] {
+  public listWorkspaceHypothesesForRun(runId: string): HypothesisRecord[] {
     if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(this.db.prepare('SELECT * FROM hypotheses ORDER BY created_at ASC').all()).map((row) => this.mapHypothesis(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT h.* FROM hypotheses h
+           JOIN runs r ON r.id = h.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? ORDER BY h.created_at ASC`
+        )
+        .all(this.workspaceId)
+    ).map((row) => this.mapHypothesis(row));
   }
 
-  public listProgramFindingsForRun(runId: string): FindingRecord[] {
+  public listWorkspaceFindingsForRun(runId: string): FindingRecord[] {
     if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(this.db.prepare('SELECT * FROM findings ORDER BY created_at ASC').all()).map((row) => this.mapFinding(row));
+    return rows(
+      this.db
+        .prepare(
+          `SELECT f.* FROM findings f
+           JOIN runs r ON r.id = f.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ? ORDER BY f.created_at ASC`
+        )
+        .all(this.workspaceId)
+    ).map((row) => this.mapFinding(row));
   }
 
-  private listProgramFindingCandidates(runId: string): ClaimCandidate[] {
-    const hypothesesById = new Map(this.listProgramHypothesesForRun(runId).map((hypothesis) => [hypothesis.id, hypothesis]));
-    return this.listProgramFindingsForRun(runId).map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null));
+  private listWorkspaceFindingCandidates(runId: string): ClaimCandidate[] {
+    const hypothesesById = new Map(this.listWorkspaceHypothesesForRun(runId).map((hypothesis) => [hypothesis.id, hypothesis]));
+    return this.listWorkspaceFindingsForRun(runId).map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null));
   }
 
   public getRun(runId: string): RunRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM runs WHERE id = ?').get(runId));
+    const row = rowOrUndefined(
+      this.db
+        .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE r.id = ? AND s.workspace_id = ?')
+        .get(runId, this.workspaceId)
+    );
     return row ? this.mapRun(row) : null;
   }
 
@@ -7620,282 +7484,118 @@ export class WorkspaceDatabase {
     }
   }
 
-  private applyMigrations(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        applied_at TEXT NOT NULL
-      );
-    `);
+  private createSchema(): void {
+    applyDatabaseMigrations(this.db, 'beale_workbench', [
+      {
+        version: 1,
+        name: 'workspace_schema_baseline',
+        up: (database) => {
+          database.exec(SCHEMA_SQL);
+          database.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
+          database.exec(PROJECT_GRAPH_SCHEMA_SQL);
+          database.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
+          database.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
+          database.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
+          database.prepare("DELETE FROM workspace_meta WHERE key = 'schema_version'").run();
+        }
+      },
+      {
+        version: 2,
+        name: 'reconcile_errored_honeycrisp_run_status',
+        up: (database) => {
+          const migratedAt = nowIso();
+          const summary = 'Honeycrisp capture reported an agent error.';
+          const erroredLatestSessionIds = `
+            SELECT candidate.id
+            FROM model_sessions AS candidate
+            WHERE candidate.provider = 'honeycrisp'
+              AND candidate.transport = 'host_process'
+              AND candidate.status = 'completed'
+              AND CASE
+                WHEN json_valid(candidate.metadata_json)
+                THEN json_extract(candidate.metadata_json, '$.honeycrispAgentStatus')
+                ELSE NULL
+              END = 'error'
+              AND candidate.id = (
+                SELECT latest.id
+                FROM model_sessions AS latest
+                WHERE latest.run_id = candidate.run_id
+                ORDER BY latest.created_at DESC, latest.rowid DESC
+                LIMIT 1
+              )`;
+          const erroredRunIds = `
+            SELECT model_sessions.run_id
+            FROM model_sessions
+            WHERE model_sessions.id IN (${erroredLatestSessionIds})`;
 
-    const current = rowOrUndefined(this.db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get());
-    const currentVersion = numberValue(current ?? { version: 0 }, 'version');
-    if (currentVersion >= SCHEMA_VERSION) {
-      return;
-    }
-
-    this.transaction(() => {
-      if (currentVersion < 3) {
-        this.db.exec(SCHEMA_SQL);
-        this.insertMigration(3, 'initial_workbench_schema');
+          database
+            .prepare(
+              `UPDATE attempts
+               SET status = 'failed', short_state = ?, ended_at = COALESCE(ended_at, ?)
+               WHERE run_id IN (${erroredRunIds})
+                 AND status = 'completed'
+                 AND id = (
+                   SELECT latest.id
+                   FROM attempts AS latest
+                   WHERE latest.run_id = attempts.run_id
+                   ORDER BY latest.started_at DESC, latest.rowid DESC
+                   LIMIT 1
+                 )`
+            )
+            .run(summary, migratedAt);
+          database
+            .prepare(
+              `UPDATE runs
+               SET status = 'failed', summary = ?, ended_at = COALESCE(ended_at, ?)
+               WHERE id IN (${erroredRunIds})
+                 AND status = 'completed'`
+            )
+            .run(summary, migratedAt);
+          database
+            .prepare(
+              `UPDATE model_sessions
+               SET status = 'failed', updated_at = ?
+               WHERE id IN (${erroredLatestSessionIds})`
+            )
+            .run(migratedAt);
+        }
+      },
+      {
+        version: 3,
+        name: 'global_workspace_ownership',
+        up: (database) => {
+          database.exec(`
+            CREATE TABLE IF NOT EXISTS workspaces (
+              id TEXT PRIMARY KEY,
+              workspace_path TEXT NOT NULL UNIQUE,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+          `);
+          if (!tableHasColumn(database, 'scope_versions', 'workspace_id')) {
+            database.exec('ALTER TABLE scope_versions ADD COLUMN workspace_id TEXT;');
+          }
+          const legacyWorkspace = rowOrUndefined(database.prepare("SELECT value FROM workspace_meta WHERE key = 'workspace_id'").get());
+          const legacyWorkspaceId = legacyWorkspace ? text(legacyWorkspace, 'value') : '';
+          if (legacyWorkspaceId) {
+            const now = nowIso();
+            database
+              .prepare('INSERT OR IGNORE INTO workspaces (id, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?)')
+              .run(legacyWorkspaceId, `legacy:${legacyWorkspaceId}`, now, now);
+            database.prepare('UPDATE scope_versions SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ?').run(legacyWorkspaceId, '');
+            const legacyMeta = rows(database.prepare("SELECT key, value, updated_at FROM workspace_meta WHERE key NOT LIKE 'workspace_%:%'").all());
+            for (const row of legacyMeta) {
+              const key = text(row, 'key');
+              database
+                .prepare('INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
+                .run(`${legacyWorkspaceId}:${key}`, text(row, 'value'), text(row, 'updated_at'));
+              database.prepare('DELETE FROM workspace_meta WHERE key = ?').run(key);
+            }
+          }
+          database.exec('CREATE INDEX IF NOT EXISTS idx_scope_versions_workspace_status ON scope_versions(workspace_id, status, version);');
+        }
       }
-      if (currentVersion < 4) {
-        this.applyExportReviewMigration();
-        this.insertMigration(4, 'export_review_hardening');
-      }
-      if (currentVersion < 5) {
-        this.applyNotificationsMigration();
-        this.insertMigration(5, 'session_final_response_notifications');
-      }
-      if (currentVersion < 6) {
-        this.applyContextCompactionMigration();
-        this.insertMigration(6, 'context_compaction_checkpoints');
-      }
-      if (currentVersion < 7) {
-        this.applyTranscriptMessagesMigration();
-        this.insertMigration(7, 'session_transcript_messages');
-      }
-      if (currentVersion < 8) {
-        this.applyRunTargetMigration();
-        this.insertMigration(8, 'run_session_target');
-      }
-      if (currentVersion < 9) {
-        this.applyCweClassificationMigration();
-        this.insertMigration(9, 'cwe_guided_classification');
-      }
-      if (currentVersion < 10) {
-        this.applyPriorityScoreClampMigration();
-        this.insertMigration(10, 'host_derived_priority_scores');
-      }
-      if (currentVersion < 11) {
-        this.applyProjectUnderstandingIndexMigration();
-        this.insertMigration(11, 'project_understanding_inventory_search');
-      }
-      if (currentVersion < 12) {
-        this.applyProjectStructureIndexMigration();
-        this.insertMigration(12, 'project_understanding_structural_index');
-      }
-      if (currentVersion < 13) {
-        this.applyProjectSemanticIndexMigration();
-        this.insertMigration(13, 'project_understanding_semantic_index');
-      }
-      if (currentVersion < 14) {
-        this.applyProjectGraphIndexMigration();
-        this.insertMigration(14, 'project_understanding_relationship_graph');
-      }
-      if (currentVersion < 15) {
-        this.applyProjectGraphStatusMigration();
-        this.insertMigration(15, 'project_graph_operational_status');
-      }
-      if (currentVersion < 16) {
-        this.applyEvidenceSupersedenceMigration();
-        this.insertMigration(16, 'evidence_supersedence');
-      }
-      if (currentVersion < 17) {
-        this.applyRunFixtureSetupAndReportabilityMigration();
-        this.insertMigration(17, 'run_fixture_setup_and_reportability');
-      }
-      if (currentVersion < 18) {
-        this.applyFindingImpactAssessmentMigration();
-        this.insertMigration(18, 'finding_impact_assessment');
-      }
-      if (currentVersion < 19) {
-        this.applyProjectSearchPerformanceIndexesMigration();
-        this.insertMigration(19, 'project_search_performance_indexes');
-      }
-    });
-  }
-
-  private insertMigration(version: number, name: string): void {
-    this.db.prepare('INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(version, name, nowIso());
-  }
-
-  private applyExportReviewMigration(): void {
-    this.addColumnIfMissing('exports', 'status', "status TEXT NOT NULL DEFAULT 'pending_review'");
-    this.addColumnIfMissing('exports', 'review_decision', 'review_decision TEXT');
-    this.addColumnIfMissing('exports', 'review_note', 'review_note TEXT');
-    this.addColumnIfMissing('exports', 'reviewed_at', 'reviewed_at TEXT');
-  }
-
-  private applyNotificationsMigration(): void {
-    this.db.exec(NOTIFICATIONS_SCHEMA_SQL);
-  }
-
-  private applyContextCompactionMigration(): void {
-    this.db.exec(CONTEXT_COMPACTIONS_SCHEMA_SQL);
-  }
-
-  private applyTranscriptMessagesMigration(): void {
-    this.db.exec(TRANSCRIPT_MESSAGES_SCHEMA_SQL);
-    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
-    if (!runsTable) return;
-    const attemptsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'attempts'").get());
-
-    const runRows = rows(
-      this.db
-        .prepare(
-          `SELECT id, prompt_markdown, mode, model, reasoning_effort, network_profile, sandbox_profile, created_at
-           FROM runs
-           ORDER BY created_at ASC`
-        )
-        .all()
-    );
-
-    for (const row of runRows) {
-      const runId = text(row, 'id');
-      const promptMarkdown = text(row, 'prompt_markdown').trim();
-      if (!promptMarkdown) continue;
-
-      const existing = rowOrUndefined(
-        this.db.prepare("SELECT id FROM transcript_messages WHERE run_id = ? AND source = 'run_prompt' LIMIT 1").get(runId)
-      );
-      if (existing) continue;
-
-      const attempt = attemptsTable
-        ? rowOrUndefined(this.db.prepare('SELECT id FROM attempts WHERE run_id = ? ORDER BY started_at ASC, rowid ASC LIMIT 1').get(runId))
-        : null;
-      this.db
-        .prepare(
-          `INSERT INTO transcript_messages (
-            id, run_id, attempt_id, trace_event_id, role, content_markdown, source, metadata_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          createId('transcript'),
-          runId,
-          attempt ? text(attempt, 'id') : null,
-          null,
-          'user',
-          promptMarkdown,
-          'run_prompt',
-          toJson({
-            mode: text(row, 'mode'),
-            model: text(row, 'model'),
-            reasoningEffort: text(row, 'reasoning_effort'),
-            networkProfile: text(row, 'network_profile'),
-            sandboxProfile: text(row, 'sandbox_profile'),
-            backfilled: true
-          }),
-          text(row, 'created_at')
-        );
-    }
-  }
-
-  private applyRunTargetMigration(): void {
-    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
-    if (!runsTable) return;
-    this.addColumnIfMissing('runs', 'target_asset_id', 'target_asset_id TEXT REFERENCES scope_assets(id)');
-    this.addColumnIfMissing('runs', 'target_path', 'target_path TEXT');
-    const runRows = rows(
-      this.db
-        .prepare(
-          `SELECT id, scope_version_id, title, prompt_markdown, target_asset_id, target_path
-           FROM runs
-           ORDER BY created_at ASC`
-        )
-        .all()
-    );
-    for (const row of runRows) {
-      if (nullableText(row, 'target_asset_id') || nullableText(row, 'target_path')) continue;
-      const scope = this.getScopeVersion(text(row, 'scope_version_id'));
-      const target = selectRunTarget(scope.assets, {
-        title: text(row, 'title'),
-        promptMarkdown: text(row, 'prompt_markdown')
-      });
-      if (!target.targetAssetId && !target.targetPath) continue;
-      this.db.prepare('UPDATE runs SET target_asset_id = ?, target_path = ? WHERE id = ?').run(target.targetAssetId, target.targetPath, text(row, 'id'));
-    }
-  }
-
-  private applyCweClassificationMigration(): void {
-    this.db.exec(CWE_CLASSIFICATION_SCHEMA_SQL);
-  }
-
-  private applyPriorityScoreClampMigration(): void {
-    const clampSql = `MIN(${MAX_PRIORITY_SCORE}, MAX(0, ROUND(priority_score)))`;
-    if (rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'hypotheses'").get())) {
-      this.db.exec(`UPDATE hypotheses SET priority_score = ${clampSql};`);
-    }
-    if (rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'findings'").get())) {
-      this.db.exec(`UPDATE findings SET priority_score = ${clampSql};`);
-    }
-  }
-
-  private applyProjectUnderstandingIndexMigration(): void {
-    const runsTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runs'").get());
-    if (!runsTable) {
-      this.db.exec(SCHEMA_SQL);
-      return;
-    }
-    this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
-  }
-
-  private applyProjectStructureIndexMigration(): void {
-    const inventoryTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_inventory_items'").get());
-    if (!inventoryTable) {
-      this.db.exec(SCHEMA_SQL);
-      return;
-    }
-    this.db.exec(PROJECT_STRUCTURE_SCHEMA_SQL);
-  }
-
-  private applyProjectSemanticIndexMigration(): void {
-    const searchTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get());
-    if (!searchTable) {
-      this.db.exec(SCHEMA_SQL);
-      this.db.exec(PROJECT_UNDERSTANDING_SCHEMA_SQL);
-    }
-    this.db.exec(PROJECT_SEMANTIC_SCHEMA_SQL);
-  }
-
-  private applyProjectGraphIndexMigration(): void {
-    const structureTable = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get());
-    if (!structureTable) {
-      this.applyProjectStructureIndexMigration();
-    }
-    this.db.exec(PROJECT_GRAPH_SCHEMA_SQL);
-    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
-      const scopeVersionId = text(row, 'id');
-      const summary = this.getProjectInventorySummary(scopeVersionId);
-      if (summary.itemCount > 0) {
-        this.rebuildProjectGraph(scopeVersionId, summary.indexedAt ?? nowIso());
-      }
-    }
-  }
-
-  private applyProjectGraphStatusMigration(): void {
-    this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
-    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions').all())) {
-      this.recordProjectGraphStatus(text(row, 'id'), { rebuildReason: null, indexedAt: null, durationMs: null, incrementBuildCount: false });
-    }
-  }
-
-  private applyProjectSearchPerformanceIndexesMigration(): void {
-    this.db.exec(PROJECT_SEARCH_PERFORMANCE_INDEXES_SQL);
-  }
-
-  private applyEvidenceSupersedenceMigration(): void {
-    this.addColumnIfMissing('evidence', 'superseded_by_verifier_run_id', 'superseded_by_verifier_run_id TEXT');
-    this.addColumnIfMissing('evidence', 'superseded_at', 'superseded_at TEXT');
-    this.addColumnIfMissing('evidence', 'canonical', 'canonical INTEGER NOT NULL DEFAULT 1');
-    this.db.prepare('UPDATE evidence SET canonical = 1 WHERE canonical IS NULL').run();
-  }
-
-  private applyRunFixtureSetupAndReportabilityMigration(): void {
-    this.addColumnIfMissing('findings', 'reportability_json', "reportability_json TEXT NOT NULL DEFAULT '{}'");
-    this.db.exec(RUN_FIXTURE_SETUP_SCHEMA_SQL);
-  }
-
-  private applyFindingImpactAssessmentMigration(): void {
-    this.addColumnIfMissing('findings', 'impact_assessment_json', "impact_assessment_json TEXT NOT NULL DEFAULT '{}'");
-  }
-
-  private addColumnIfMissing(table: string, column: string, definition: string): void {
-    const columns = new Set(rows(this.db.prepare(`PRAGMA table_info(${table})`).all()).map((row) => text(row, 'name')));
-    if (!columns.has(column)) {
-      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
-    }
+    ]);
   }
 
   private ensureCweCatalog(): void {
@@ -7953,25 +7653,41 @@ export class WorkspaceDatabase {
     }
   }
 
+  private ensureWorkspaceIdentity(): void {
+    const workspacePath = resolve(this.workspaceIdentity.workspacePath);
+    const existingByPath = rowOrUndefined(this.db.prepare('SELECT id FROM workspaces WHERE workspace_path = ?').get(workspacePath));
+    if (existingByPath) {
+      this.workspaceId = text(existingByPath, 'id');
+      return;
+    }
+
+    const requestedWorkspaceId = this.workspaceIdentity.workspaceId?.trim();
+    const legacy = requestedWorkspaceId
+      ? rowOrUndefined(this.db.prepare('SELECT id FROM workspaces WHERE id = ?').get(requestedWorkspaceId))
+      : rowOrUndefined(this.db.prepare("SELECT id FROM workspaces WHERE workspace_path LIKE 'legacy:%' ORDER BY created_at LIMIT 1").get());
+    const workspaceId = requestedWorkspaceId || (legacy ? text(legacy, 'id') : workspaceIdForPath(workspacePath));
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO workspaces (id, workspace_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET workspace_path = excluded.workspace_path, updated_at = excluded.updated_at`
+      )
+      .run(workspaceId, workspacePath, now, now);
+    this.workspaceId = workspaceId;
+  }
+
   private ensureWorkspaceMeta(): void {
     const createdAt = nowIso();
-    const workspaceId = `workspace_${randomUUID()}`;
-    this.db
-      .prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
-      .run('schema_version', String(SCHEMA_VERSION), createdAt);
-    this.db
-      .prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
-      .run('workspace_id', workspaceId, createdAt);
-    this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run('created_at', createdAt, createdAt);
-    this.db.prepare('UPDATE workspace_meta SET value = ?, updated_at = ? WHERE key = ?').run(String(SCHEMA_VERSION), createdAt, 'schema_version');
+    this.db.prepare('INSERT OR IGNORE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)').run(this.metaKey('created_at'), createdAt, createdAt);
   }
 
   private ensureDefaultScope(): void {
-    const row = rowOrUndefined(this.db.prepare('SELECT id FROM program_scope_versions WHERE status = ? LIMIT 1').get('active'));
+    const row = rowOrUndefined(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? AND status = ? LIMIT 1').get(this.workspaceId, 'active'));
     if (row) return;
-    this.saveProgramScope({
-      programName: 'Untitled Program',
-      organizationName: '',
+    this.saveScope({
+      workspaceName: 'Untitled Workspace',
+      scopeOwner: '',
       descriptionMarkdown: '',
       rulesMarkdown: '',
       networkProfile: 'offline',
@@ -7983,7 +7699,11 @@ export class WorkspaceDatabase {
   private ensureProjectSearchIndexSeeded(): void {
     const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_search_documents'").get());
     if (!table) return;
-    const row = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_search_documents').get());
+    const row = rowOrUndefined(
+      this.db
+        .prepare('SELECT COUNT(*) AS count FROM project_search_documents WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)')
+        .get(this.workspaceId)
+    );
     if ((row ? numberValue(row, 'count') : 0) > 0) return;
     this.rebuildProjectSearchIndex({ includeInventory: true });
   }
@@ -7991,19 +7711,27 @@ export class WorkspaceDatabase {
   private ensureProjectStructureIndexSeeded(): void {
     const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'project_structure_entities'").get());
     if (!table) return;
-    const sourceRow = rowOrUndefined(this.db.prepare("SELECT COUNT(*) AS count FROM project_inventory_items WHERE resource_kind IN ('source', 'text')").get());
+    const sourceRow = rowOrUndefined(
+      this.db
+        .prepare("SELECT COUNT(*) AS count FROM project_inventory_items WHERE resource_kind IN ('source', 'text') AND scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)")
+        .get(this.workspaceId)
+    );
     if (!sourceRow || numberValue(sourceRow, 'count') === 0) return;
-    const structureRow = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS count FROM project_structure_entities').get());
+    const structureRow = rowOrUndefined(
+      this.db
+        .prepare('SELECT COUNT(*) AS count FROM project_structure_entities WHERE scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)')
+        .get(this.workspaceId)
+    );
     if (structureRow && numberValue(structureRow, 'count') > 0) return;
     if (this.getMetaValue('project_structure_index_seeded_v12') === 'true') return;
-    for (const row of rows(this.db.prepare('SELECT id FROM program_scope_versions ORDER BY version ASC').all())) {
+    for (const row of rows(this.db.prepare('SELECT id FROM scope_versions WHERE workspace_id = ? ORDER BY version ASC').all(this.workspaceId))) {
       this.refreshProjectInventory(text(row, 'id'));
     }
     this.setMetaValue('project_structure_index_seeded_v12', 'true');
   }
 
   private getMetaValue(key: string): string | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(key));
+    const row = rowOrUndefined(this.db.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(this.metaKey(key)));
     return row ? text(row, 'value') : null;
   }
 
@@ -8014,11 +7742,16 @@ export class WorkspaceDatabase {
          VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
       )
-      .run(key, value, updatedAt);
+      .run(this.metaKey(key), value, updatedAt);
   }
 
   private deleteMetaValue(key: string): void {
-    this.db.prepare('DELETE FROM workspace_meta WHERE key = ?').run(key);
+    this.db.prepare('DELETE FROM workspace_meta WHERE key = ?').run(this.metaKey(key));
+  }
+
+  private metaKey(key: string): string {
+    if (!this.workspaceId) throw new Error('Workspace identity is not initialized.');
+    return `${this.workspaceId}:${key}`;
   }
 
   private getProjectSemanticJobState(scopeVersionId: string): ProjectSemanticJobState | null {
@@ -8230,12 +7963,12 @@ export class WorkspaceDatabase {
       scopeVersionId,
       entityType: 'scope_version',
       entityId: scopeVersionId,
-      nodeKind: 'program_scope',
-      label: scope.programName,
+      nodeKind: 'authorized_scope',
+      label: scope.workspaceName,
       sourcePath: null,
       metadata: {
         version: scope.version,
-        organizationName: scope.organizationName,
+        scopeOwner: scope.scopeOwner,
         status: scope.status
       },
       indexedAt
@@ -8260,11 +7993,11 @@ export class WorkspaceDatabase {
       this.insertProjectGraphEdge({
         scopeVersionId,
         sourceNodeId: assetNodeId,
-        edgeKind: 'belongs_to_program',
+        edgeKind: 'belongs_to_scope',
         targetNodeId: scopeNodeId,
         targetEntityType: 'scope_version',
         targetEntityId: scopeVersionId,
-        targetLabel: scope.programName,
+        targetLabel: scope.workspaceName,
         metadata: { source: 'scope_asset' },
         indexedAt
       });
@@ -8297,11 +8030,11 @@ export class WorkspaceDatabase {
       this.insertProjectGraphEdge({
         scopeVersionId,
         sourceNodeId: inventoryNodeId,
-        edgeKind: 'belongs_to_program',
+        edgeKind: 'belongs_to_scope',
         targetNodeId: scopeNodeId,
         targetEntityType: 'scope_version',
         targetEntityId: scopeVersionId,
-        targetLabel: scope.programName,
+        targetLabel: scope.workspaceName,
         metadata: { source: 'inventory' },
         indexedAt
       });
@@ -8367,11 +8100,11 @@ export class WorkspaceDatabase {
       this.insertProjectGraphEdge({
         scopeVersionId,
         sourceNodeId: structureNodeId,
-        edgeKind: 'belongs_to_program',
+        edgeKind: 'belongs_to_scope',
         targetNodeId: scopeNodeId,
         targetEntityType: 'scope_version',
         targetEntityId: scopeVersionId,
-        targetLabel: scope.programName,
+        targetLabel: scope.workspaceName,
         metadata: { source: 'structure_entity' },
         indexedAt
       });
@@ -8424,11 +8157,11 @@ export class WorkspaceDatabase {
       this.insertProjectGraphEdge({
         scopeVersionId,
         sourceNodeId: runNodeId,
-        edgeKind: 'belongs_to_program',
+        edgeKind: 'belongs_to_scope',
         targetNodeId: scopeNodeId,
         targetEntityType: 'scope_version',
         targetEntityId: scopeVersionId,
-        targetLabel: scope.programName,
+        targetLabel: scope.workspaceName,
         metadata: { source: 'run' },
         indexedAt
       });
@@ -10320,30 +10053,20 @@ export class WorkspaceDatabase {
     return row ? this.mapContextCompaction(row) : null;
   }
 
-  private getBenchmarkRun(benchmarkRunId: string): BenchmarkRunRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM benchmark_runs WHERE id = ?').get(benchmarkRunId));
-    return row ? this.mapBenchmarkRun(row) : null;
-  }
-
-  private getBenchmarkTaskResult(resultId: string): BenchmarkTaskResultRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM benchmark_task_results WHERE id = ?').get(resultId));
-    return row ? this.mapBenchmarkTaskResult(row) : null;
-  }
-
   private getExportRecord(exportId: string): ExportRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM exports WHERE id = ?').get(exportId));
     return row ? this.mapExport(row) : null;
   }
 
-  private mapScope(row: SqlRow): ProgramScopeVersion {
+  private mapScope(row: SqlRow): WorkspaceScopeVersion {
     const id = text(row, 'id');
     const assetRows = rows(this.db.prepare('SELECT * FROM scope_assets WHERE scope_version_id = ? ORDER BY created_at ASC').all(id));
     return {
       id,
       version: numberValue(row, 'version'),
-      status: text(row, 'status') as ProgramScopeVersion['status'],
-      programName: text(row, 'program_name'),
-      organizationName: text(row, 'organization_name'),
+      status: text(row, 'status') as WorkspaceScopeVersion['status'],
+      workspaceName: text(row, 'workspace_name'),
+      scopeOwner: text(row, 'scope_owner'),
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
       networkProfile: text(row, 'network_policy_json') ? String(parseJson(row.network_policy_json).defaultProfile ?? 'offline') : 'offline',
@@ -10674,68 +10397,18 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapBenchmarkRun(row: SqlRow): BenchmarkRunRecord {
-    const passCount = numberValue(row, 'pass_count');
-    const totalCount = numberValue(row, 'total_count');
-    const identity: BenchmarkHarnessIdentity = {
-      model: text(row, 'model'),
-      reasoningEffort: text(row, 'reasoning_effort'),
-      harnessName: text(row, 'harness_name'),
-      harnessVersion: text(row, 'harness_version'),
-      promptVersion: text(row, 'prompt_version'),
-      toolsetVersion: text(row, 'toolset_version'),
-      verifierVersion: text(row, 'verifier_version'),
-      sandboxBackend: text(row, 'sandbox_backend'),
-      sandboxImageVersion: text(row, 'sandbox_image_version'),
-      networkProfile: text(row, 'network_profile'),
-      attemptStrategy: text(row, 'attempt_strategy'),
-      attemptCount: numberValue(row, 'attempt_count'),
-      taskSubsetId: text(row, 'task_subset_id'),
-      taskIds: parseStringArray(row.task_ids_json),
-      benchmarkVersion: text(row, 'benchmark_version'),
-      date: text(row, 'started_at'),
-      cost: parseJson(row.cost_json),
-      tokens: parseJson(row.tokens_json),
-      wallTimeMs: numberValue(row, 'wall_time_ms'),
-      passCount,
-      totalCount,
-      passRate: totalCount > 0 ? passCount / totalCount : 0,
-      smallSampleWarning: totalCount > 0 && totalCount < 25 ? `Small sample: ${passCount}/${totalCount}` : null
-    };
-    return {
-      id: text(row, 'id'),
-      suiteKind: text(row, 'suite_kind') as BenchmarkSuiteKind,
-      suiteId: text(row, 'suite_id'),
-      status: text(row, 'status') as BenchmarkRunRecord['status'],
-      identity,
-      metadata: parseJson(row.metadata_json),
-      createdAt: text(row, 'created_at'),
-      startedAt: text(row, 'started_at'),
-      endedAt: nullableText(row, 'ended_at')
-    };
-  }
-
-  private mapBenchmarkTaskResult(row: SqlRow): BenchmarkTaskResultRecord {
-    return {
-      id: text(row, 'id'),
-      benchmarkRunId: text(row, 'benchmark_run_id'),
-      taskId: text(row, 'task_id'),
-      suiteKind: text(row, 'suite_kind') as BenchmarkSuiteKind,
-      mode: text(row, 'mode') as BenchmarkTaskMode,
-      status: text(row, 'status') as BenchmarkResultStatus,
-      score: numberValue(row, 'score'),
-      runId: nullableText(row, 'run_id'),
-      isolationPassed: booleanValue(row, 'isolation_passed'),
-      metrics: parseJson(row.metrics_json),
-      graderReport: parseJson(row.grader_report_json),
-      agentOutput: parseJson(row.agent_output_json),
-      createdAt: text(row, 'created_at')
-    };
-  }
-
   private runEngineFromBudget(budget: Record<string, unknown>): RunEngineKind {
-    if (budget.runEngine === 'executor_alpha') return 'executor_alpha';
-    return budget.runEngine === 'openai_responses' ? 'openai_responses' : 'fake';
+    if (budget.runEngine === 'honeycrisp') return 'honeycrisp';
+    return 'fixture';
+  }
+}
+
+export function checkpointDatabaseFile(databasePath: string): void {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec('PRAGMA wal_checkpoint(FULL);');
+  } finally {
+    database.close();
   }
 }
 
@@ -10867,7 +10540,7 @@ CREATE INDEX IF NOT EXISTS idx_weakness_mappings_cwe ON weakness_mappings(cwe_id
 const PROJECT_UNDERSTANDING_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS project_inventory_items (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   asset_id TEXT NOT NULL REFERENCES scope_assets(id) ON DELETE CASCADE,
   item_kind TEXT NOT NULL,
   resource_kind TEXT NOT NULL,
@@ -10885,7 +10558,7 @@ CREATE TABLE IF NOT EXISTS project_inventory_items (
 
 CREATE TABLE IF NOT EXISTS project_search_documents (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
@@ -10918,7 +10591,7 @@ CREATE INDEX IF NOT EXISTS idx_project_search_updated ON project_search_document
 const PROJECT_STRUCTURE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS project_structure_entities (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   inventory_item_id TEXT NOT NULL REFERENCES project_inventory_items(id) ON DELETE CASCADE,
   asset_id TEXT NOT NULL REFERENCES scope_assets(id) ON DELETE CASCADE,
   entity_kind TEXT NOT NULL,
@@ -10936,7 +10609,7 @@ CREATE TABLE IF NOT EXISTS project_structure_entities (
 
 CREATE TABLE IF NOT EXISTS project_structure_relations (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   source_entity_id TEXT NOT NULL REFERENCES project_structure_entities(id) ON DELETE CASCADE,
   relation_kind TEXT NOT NULL,
   target_kind TEXT NOT NULL,
@@ -10957,7 +10630,7 @@ CREATE INDEX IF NOT EXISTS idx_project_structure_rel_target ON project_structure
 const PROJECT_GRAPH_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS project_graph_nodes (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   node_kind TEXT NOT NULL,
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
@@ -10970,7 +10643,7 @@ CREATE TABLE IF NOT EXISTS project_graph_nodes (
 
 CREATE TABLE IF NOT EXISTS project_graph_edges (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   source_node_id TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
   edge_kind TEXT NOT NULL,
   target_node_id TEXT REFERENCES project_graph_nodes(id) ON DELETE SET NULL,
@@ -10992,7 +10665,7 @@ CREATE INDEX IF NOT EXISTS idx_project_graph_edges_kind ON project_graph_edges(s
 
 const PROJECT_GRAPH_STATUS_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS project_graph_status (
-  scope_version_id TEXT PRIMARY KEY REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT PRIMARY KEY REFERENCES scope_versions(id) ON DELETE CASCADE,
   build_count INTEGER NOT NULL DEFAULT 0,
   last_rebuild_reason TEXT,
   stale_reasons_json TEXT NOT NULL DEFAULT '[]',
@@ -11010,7 +10683,7 @@ CREATE TABLE IF NOT EXISTS project_graph_status (
 const PROJECT_SEMANTIC_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS project_semantic_chunks (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
   source_document_id TEXT NOT NULL REFERENCES project_search_documents(id) ON DELETE CASCADE,
   namespace TEXT NOT NULL,
@@ -11045,18 +10718,26 @@ CREATE INDEX IF NOT EXISTS idx_project_graph_edges_variant_label ON project_grap
 `;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY,
+  workspace_path TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS workspace_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS program_scope_versions (
+CREATE TABLE IF NOT EXISTS scope_versions (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT REFERENCES workspaces(id),
   version INTEGER NOT NULL UNIQUE,
   status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
-  program_name TEXT NOT NULL,
-  organization_name TEXT NOT NULL,
+  workspace_name TEXT NOT NULL,
+  scope_owner TEXT NOT NULL,
   description_markdown TEXT NOT NULL,
   network_policy_json TEXT NOT NULL,
   rules_markdown TEXT NOT NULL,
@@ -11066,9 +10747,11 @@ CREATE TABLE IF NOT EXISTS program_scope_versions (
   created_by TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_scope_versions_workspace_status ON scope_versions(workspace_id, status, version);
+
 CREATE TABLE IF NOT EXISTS scope_assets (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id) ON DELETE CASCADE,
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id) ON DELETE CASCADE,
   direction TEXT NOT NULL CHECK (direction IN ('in_scope', 'out_of_scope')),
   kind TEXT NOT NULL,
   value TEXT NOT NULL,
@@ -11079,7 +10762,7 @@ CREATE TABLE IF NOT EXISTS scope_assets (
 
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id),
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
   mode TEXT NOT NULL,
   status TEXT NOT NULL,
   title TEXT NOT NULL,
@@ -11105,7 +10788,7 @@ CREATE TABLE IF NOT EXISTS vm_contexts (
   snapshot_id TEXT NOT NULL,
   state TEXT NOT NULL,
   network_profile TEXT NOT NULL,
-  scope_version_id TEXT NOT NULL REFERENCES program_scope_versions(id),
+  scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
   created_at TEXT NOT NULL,
   destroyed_at TEXT,
   metadata_json TEXT NOT NULL
@@ -11317,53 +11000,6 @@ CREATE TABLE IF NOT EXISTS exports (
   reviewed_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS benchmark_runs (
-  id TEXT PRIMARY KEY,
-  suite_kind TEXT NOT NULL,
-  suite_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  model TEXT NOT NULL,
-  reasoning_effort TEXT NOT NULL,
-  harness_name TEXT NOT NULL,
-  harness_version TEXT NOT NULL,
-  prompt_version TEXT NOT NULL,
-  toolset_version TEXT NOT NULL,
-  verifier_version TEXT NOT NULL,
-  sandbox_backend TEXT NOT NULL,
-  sandbox_image_version TEXT NOT NULL,
-  network_profile TEXT NOT NULL,
-  attempt_strategy TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL,
-  task_subset_id TEXT NOT NULL,
-  task_ids_json TEXT NOT NULL,
-  benchmark_version TEXT NOT NULL,
-  cost_json TEXT NOT NULL,
-  tokens_json TEXT NOT NULL,
-  wall_time_ms INTEGER NOT NULL,
-  pass_count INTEGER NOT NULL,
-  total_count INTEGER NOT NULL,
-  metadata_json TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  ended_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS benchmark_task_results (
-  id TEXT PRIMARY KEY,
-  benchmark_run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE,
-  task_id TEXT NOT NULL,
-  suite_kind TEXT NOT NULL,
-  mode TEXT NOT NULL,
-  status TEXT NOT NULL,
-  score REAL NOT NULL,
-  run_id TEXT REFERENCES runs(id),
-  isolation_passed INTEGER NOT NULL CHECK (isolation_passed IN (0, 1)),
-  metrics_json TEXT NOT NULL,
-  grader_report_json TEXT NOT NULL,
-  agent_output_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(entity_type, entity_id UNINDEXED, text);
 
 CREATE INDEX IF NOT EXISTS idx_scope_assets_kind_value ON scope_assets(kind, value);
@@ -11376,6 +11012,4 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);
 CREATE INDEX IF NOT EXISTS idx_hypotheses_run_state ON hypotheses(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_findings_run_state ON findings(run_id, state);
 CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
-CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_model ON benchmark_runs(suite_kind, model, reasoning_effort, task_subset_id);
-CREATE INDEX IF NOT EXISTS idx_benchmark_task_results_run ON benchmark_task_results(benchmark_run_id);
 `;
