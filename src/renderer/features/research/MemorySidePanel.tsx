@@ -68,27 +68,42 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   return (
     <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
-      <header className="research-side-tabs" role="tablist" aria-label="Session details">
-        <button
-          type="button"
-          className={activeView === 'memory' ? 'active' : ''}
-          role="tab"
-          aria-selected={activeView === 'memory'}
-          onClick={() => setActiveView('memory')}
-        >
-          <Database size={15} />
-          <span>{researchSideTabLabel('memory', activeMemories)}</span>
-        </button>
-        <button
-          type="button"
-          className={activeView === 'subagents' ? 'active' : ''}
-          role="tab"
-          aria-selected={activeView === 'subagents'}
-          onClick={() => setActiveView('subagents')}
-        >
-          <GitFork size={15} />
-          <span>{researchSideTabLabel('subagents', activeSubagents)}</span>
-        </button>
+      <header className="research-side-tabs">
+        <div className="research-side-tab-buttons" role="tablist" aria-label="Session details">
+          <button
+            type="button"
+            className={activeView === 'memory' ? 'active' : ''}
+            role="tab"
+            aria-selected={activeView === 'memory'}
+            onClick={() => setActiveView('memory')}
+          >
+            <Database size={15} />
+            <span>{researchSideTabLabel('memory', activeMemories)}</span>
+          </button>
+          <button
+            type="button"
+            className={activeView === 'subagents' ? 'active' : ''}
+            role="tab"
+            aria-selected={activeView === 'subagents'}
+            onClick={() => setActiveView('subagents')}
+          >
+            <GitFork size={15} />
+            <span>{researchSideTabLabel('subagents', activeSubagents)}</span>
+          </button>
+        </div>
+        {activeView === 'memory' ? (
+          <select
+            className="research-side-type-filter"
+            value={type}
+            aria-label="Memory type filter"
+            onChange={(event) => setType(event.target.value)}
+          >
+            <option value="all">All Types</option>
+            {nodeTypes.map((nodeType) => (
+              <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
+            ))}
+          </select>
+        ) : null}
       </header>
 
       {activeView === 'memory' ? (
@@ -104,29 +119,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
-            <div className="memory-catalog-filter-row">
-              <div className="memory-tier-filter" aria-label="Memory context filter">
-                {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
-                  <button
-                    type="button"
-                    className={scope === candidate ? 'selected' : ''}
-                    aria-pressed={scope === candidate}
-                    key={candidate}
-                    onClick={() => setScope(candidate)}
-                  >
-                    {traceLabel(candidate)}
-                  </button>
-                ))}
-              </div>
-              <label className="memory-type-filter">
-                <span>Type</span>
-                <select value={type} aria-label="Memory type filter" onChange={(event) => setType(event.target.value)}>
-                  <option value="all">All types</option>
-                  {nodeTypes.map((nodeType) => (
-                    <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
-                  ))}
-                </select>
-              </label>
+            <div className="memory-tier-filter" aria-label="Memory context filter">
+              {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
+                <button
+                  type="button"
+                  className={scope === candidate ? 'selected' : ''}
+                  aria-pressed={scope === candidate}
+                  key={candidate}
+                  onClick={() => setScope(candidate)}
+                >
+                  {traceLabel(candidate)}
+                </button>
+              ))}
             </div>
           </div>
 
