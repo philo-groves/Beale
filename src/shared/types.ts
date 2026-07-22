@@ -842,6 +842,12 @@ export interface ResearchProviderModelCatalog {
   models: ResearchProviderModel[];
 }
 
+export interface ResearchModelSelection {
+  provider: ResearchModelProviderId;
+  model: string;
+  reasoningEffort: ResearchModelEffortLevel;
+}
+
 export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
 
 export interface ResearchProviderStatus {
@@ -1317,9 +1323,9 @@ export interface PriorityFactorInput {
 
 export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
-  | { type: 'resume'; runId: string; instruction?: string; note?: string }
+  | { type: 'resume'; runId: string; instruction?: string; modelSelection?: ResearchModelSelection; note?: string }
   | { type: 'stop'; runId: string; note?: string }
-  | { type: 'steer'; runId: string; instruction: string }
+  | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
   | { type: 'fork'; runId: string; instruction: string }
   | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
   | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }

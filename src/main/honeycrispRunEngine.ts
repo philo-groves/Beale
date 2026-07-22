@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { RunRecord, TranscriptMessageRecord, WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
+import type { ResearchModelSelection, RunRecord, TranscriptMessageRecord, WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 import { redactForModelText } from './redaction';
 
@@ -495,10 +495,22 @@ export class HoneycrispRunEngine {
     return true;
   }
 
-  public steer(runId: string, instruction: string): boolean {
+  public steer(runId: string, instruction: string, modelSelection?: ResearchModelSelection): boolean {
     const active = this.activeRuns.get(runId);
     if (!active) return false;
-    this.sendControl(active, { schemaVersion: 1, type: 'steer', instruction });
+    this.sendControl(active, {
+      schemaVersion: 1,
+      type: 'steer',
+      instruction,
+      ...(modelSelection ? { modelSelection } : {})
+    });
+    return true;
+  }
+
+  public configure(runId: string, modelSelection: ResearchModelSelection): boolean {
+    const active = this.activeRuns.get(runId);
+    if (!active) return false;
+    this.sendControl(active, { schemaVersion: 1, type: 'configure', modelSelection });
     return true;
   }
 

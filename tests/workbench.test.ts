@@ -638,15 +638,22 @@ describe('Beale workbench skeleton', () => {
       expect(service.getRunDetail(runId).run.status).toBe('active');
       await waitForCondition(() => readFileSync(heartbeatPath, 'utf8') !== pausedHeartbeat);
 
-      service.steerRun({ type: 'steer', runId, instruction: 'Inspect the authorization boundary next.' });
+      service.steerRun({
+        type: 'steer',
+        runId,
+        instruction: 'Inspect the authorization boundary next.',
+        modelSelection: { provider: 'openai-codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }
+      });
       await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
 
       const controls = readFileSync(controlLogPath, 'utf8')
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { type: string; instruction?: string });
+        .map((line) => JSON.parse(line) as { type: string; instruction?: string; modelSelection?: Record<string, string> });
       expect(controls.map((control) => control.type)).toEqual(['pause', 'resume', 'steer']);
       expect(controls[2]?.instruction).toBe('Inspect the authorization boundary next.');
+      expect(controls[2]?.modelSelection).toEqual({ provider: 'openai-codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' });
+      expect(service.getRunDetail(runId).run).toMatchObject({ model: 'gpt-5.6-sol', reasoningEffort: 'high' });
       expect(
         service.getRunDetail(runId).traceEvents.find((event) => event.summary === 'User steering added to current run.')?.payload
       ).toMatchObject({ deliveredToHoneycrisp: true });

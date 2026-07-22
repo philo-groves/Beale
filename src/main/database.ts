@@ -29,6 +29,7 @@ import type {
   ProjectSemanticSearchResult,
   ProjectSemanticSummary,
   ProjectStructureSummary,
+  ResearchModelSelection,
   WorkspaceScopeDraft,
   WorkspaceScopeVersion,
   RunDetail,
@@ -4222,6 +4223,22 @@ export class WorkspaceDatabase {
     this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
+  }
+
+  public updateRunModelSelection(runId: string, selection: ResearchModelSelection): RunRecord {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const model = selection.model.trim();
+    if (!model) throw new Error('Research model cannot be empty.');
+    const nextBudget = { ...run.budget, modelProvider: selection.provider };
+    const reasoningEffort = selection.reasoningEffort === 'off' ? '' : selection.reasoningEffort;
+    this.db
+      .prepare('UPDATE runs SET model = ?, reasoning_effort = ?, budget_json = ? WHERE id = ?')
+      .run(model, reasoningEffort, toJson(nextBudget), runId);
+    const updated = this.getRun(runId);
+    if (!updated) throw new Error(`Run not found after model selection update: ${runId}`);
+    this.indexRunSearchDocument(updated);
+    return updated;
   }
 
   public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {

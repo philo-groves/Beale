@@ -1180,7 +1180,11 @@ export class WorkspaceService {
         if (run.status !== 'paused') {
           throw new Error(`Only paused runs can be resumed. Use steering to continue an inactive session.`);
         }
-        if (instruction && runEngine === 'honeycrisp' && !this.honeycrispEngine?.steer(action.runId, instruction)) {
+        if (action.modelSelection) db.updateRunModelSelection(action.runId, action.modelSelection);
+        if (instruction && runEngine === 'honeycrisp' && !this.honeycrispEngine?.steer(action.runId, instruction, action.modelSelection)) {
+          throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
+        }
+        if (!instruction && action.modelSelection && runEngine === 'honeycrisp' && !this.honeycrispEngine?.configure(action.runId, action.modelSelection)) {
           throw new Error(`Paused Honeycrisp process not found for run ${action.runId}.`);
         }
         if (runEngine === 'honeycrisp' && !this.honeycrispEngine?.resume(action.runId)) {
@@ -1221,7 +1225,8 @@ export class WorkspaceService {
         if (!instruction) {
           throw new Error('Steering instruction cannot be empty.');
         }
-        const deliveredToActiveHoneycrisp = runEngine === 'honeycrisp' && Boolean(this.honeycrispEngine?.steer(action.runId, instruction));
+        if (action.modelSelection) db.updateRunModelSelection(action.runId, action.modelSelection);
+        const deliveredToActiveHoneycrisp = runEngine === 'honeycrisp' && Boolean(this.honeycrispEngine?.steer(action.runId, instruction, action.modelSelection));
         if (runEngine === 'honeycrisp' && !deliveredToActiveHoneycrisp) {
           this.requireHoneycrispEngine().extendRun(action.runId, instruction);
           break;
@@ -1232,7 +1237,11 @@ export class WorkspaceService {
           type: 'user_note',
           source: 'user',
           summary: 'User steering added to current run.',
-          payload: { instruction: redactForModelText(instruction), deliveredToHoneycrisp: deliveredToActiveHoneycrisp }
+          payload: {
+            instruction: redactForModelText(instruction),
+            deliveredToHoneycrisp: deliveredToActiveHoneycrisp,
+            ...(action.modelSelection ? { modelSelection: action.modelSelection } : {})
+          }
         });
         db.createTranscriptMessage({
           runId: action.runId,

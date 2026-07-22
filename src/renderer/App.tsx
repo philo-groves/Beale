@@ -8,6 +8,7 @@ import type {
   HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
+  ResearchModelSelection,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
@@ -296,9 +297,9 @@ export function App(): JSX.Element {
   }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
-    if (!newResearchOpen) return;
+    if (!newResearchOpen && !selectedRunId) return;
     void loadResearchProviderModelCatalog();
-  }, [loadResearchProviderModelCatalog, newResearchOpen]);
+  }, [loadResearchProviderModelCatalog, newResearchOpen, selectedRunId]);
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
@@ -391,7 +392,9 @@ export function App(): JSX.Element {
   );
 
   const handleSteerInstruction = useCallback(
-    (runId: string, instruction: string): void => handleSessionAction({ type: 'steer', runId, instruction }),
+    (runId: string, instruction: string, modelSelection: ResearchModelSelection): void => {
+      handleSessionAction({ type: 'steer', runId, instruction, modelSelection });
+    },
     [handleSessionAction]
   );
 
@@ -548,6 +551,7 @@ export function App(): JSX.Element {
             detail={activeRunDetail}
             events={visibleSessionTraceEvents}
             allEvents={activeTraceEvents}
+            providerModelCatalog={researchProviderModelCatalog}
             honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { TraceView } from '../traces/TraceView';
@@ -15,6 +15,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
   allEvents,
+  providerModelCatalog,
   honeycrispMemory,
   runCount,
   scope,
@@ -38,6 +39,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   allEvents: TraceDisplayEvent[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   runCount: number;
   scope: WorkspaceScopeVersion | null;
@@ -56,7 +58,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const {
     containerRef,
@@ -88,6 +90,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         busy={busy}
         detail={detail}
         events={events}
+        providerModelCatalog={providerModelCatalog}
         selectedRunId={selectedRunId}
         traceScopeKey={selectedSubagentPath ?? 'main'}
         showBackToMain={selectedSubagentPath !== null}

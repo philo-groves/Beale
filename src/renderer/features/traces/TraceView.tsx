@@ -1,7 +1,16 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { ArrowLeft, ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
-import type { RunDetail, RunStatus, SteeringAction } from '@shared/types';
+import type {
+  ResearchModelEffortLevel,
+  ResearchModelProviderId,
+  ResearchModelSelection,
+  ResearchProviderModel,
+  ResearchProviderModelCatalog,
+  RunDetail,
+  RunStatus,
+  SteeringAction
+} from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
 import { traceLabel } from '../../lib/formatting';
@@ -38,6 +47,7 @@ export const TraceView = memo(function TraceView({
   busy,
   detail,
   events,
+  providerModelCatalog,
   selectedRunId,
   traceScopeKey,
   showBackToMain,
@@ -55,6 +65,7 @@ export const TraceView = memo(function TraceView({
   busy: boolean;
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
   selectedRunId: string | null;
   traceScopeKey: string;
   showBackToMain: boolean;
@@ -67,7 +78,7 @@ export const TraceView = memo(function TraceView({
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const loading = !detail;
   const traceFilterKey = visibleTraceCategories.join('|');
@@ -495,7 +506,7 @@ export const TraceView = memo(function TraceView({
       <MainSteerArea
         busy={busy}
         detail={detail}
-        modelLabel={detail ? `${detail.run.model} ${detail.run.reasoningEffort}` : 'No model'}
+        providerModelCatalog={providerModelCatalog}
         runId={detail?.run.id ?? null}
         traceFilterCount={traceFilterCount}
         totalTraceFilterCount={totalTraceFilterCount}
@@ -510,7 +521,7 @@ export const TraceView = memo(function TraceView({
 const MainSteerArea = memo(function MainSteerArea({
   runId,
   detail,
-  modelLabel,
+  providerModelCatalog,
   busy,
   traceFilterCount,
   totalTraceFilterCount,
@@ -520,15 +531,17 @@ const MainSteerArea = memo(function MainSteerArea({
 }: {
   runId: string | null;
   detail: RunDetail | null;
-  modelLabel: string;
+  providerModelCatalog: ResearchProviderModelCatalog[];
   busy: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSteerInstruction: (runId: string, instruction: string) => void;
+  onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
+  const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
   const footerRef = useRef<HTMLElement | null>(null);
   const controlRowRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -539,6 +552,27 @@ const MainSteerArea = memo(function MainSteerArea({
   const status = detail?.run.status ?? null;
   const inProgress = status === 'active' || status === 'queued';
   const controlsDisabled = busy || !runId;
+  const providerId = runModelProvider(detail, providerModelCatalog);
+  const providerCatalog = providerModelCatalog.find((catalog) => catalog.providerId === providerId) ?? null;
+  const modelOptions = providerCatalog?.models.length
+    ? providerCatalog.models
+    : detail ? [fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort))] : [];
+  const selectedModel = modelOptions.find((model) => model.id === selectedModelId) ?? modelOptions[0] ?? null;
+  const modelSelection: ResearchModelSelection = {
+    provider: providerId,
+    model: selectedModel?.id ?? detail?.run.model ?? '',
+    reasoningEffort: selectedEffort
+  };
+
+  useEffect(() => {
+    if (!detail) return;
+    const nextModel = providerModelCatalog
+      .find((catalog) => catalog.providerId === runModelProvider(detail, providerModelCatalog))
+      ?.models.find((model) => model.id === detail.run.model);
+    const nextEffort = preferredResearchEffort(nextModel?.effortLevels ?? [researchEffort(detail.run.reasoningEffort)], researchEffort(detail.run.reasoningEffort));
+    setSelectedModelId(nextModel?.id ?? detail.run.model);
+    setSelectedEffort(nextEffort);
+  }, [detail?.run.id, detail?.run.model, detail?.run.reasoningEffort, providerModelCatalog]);
 
   const resizeTextarea = useCallback((): void => {
     const textarea = textareaRef.current;
@@ -571,7 +605,7 @@ const MainSteerArea = memo(function MainSteerArea({
     pasteCaretRef.current = null;
     textareaRef.current?.focus({ preventScroll: true });
     textareaRef.current?.setSelectionRange(pasteCaret, pasteCaret);
-  }, [instruction, modelLabel, resizeTextarea, status]);
+  }, [instruction, resizeTextarea, status]);
 
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
@@ -615,7 +649,7 @@ const MainSteerArea = memo(function MainSteerArea({
 
   const submit = (): void => {
     if (disabled || !runId) return;
-    onSteerInstruction(runId, trimmedInstruction);
+    onSteerInstruction(runId, trimmedInstruction, modelSelection);
     setInstruction('');
   };
 
@@ -635,6 +669,7 @@ const MainSteerArea = memo(function MainSteerArea({
       onSessionAction({
         type: 'resume',
         runId,
+        modelSelection,
         ...(trimmedInstruction ? { instruction: trimmedInstruction } : {}),
         note: 'Continue requested from session controls.'
       });
@@ -644,7 +679,8 @@ const MainSteerArea = memo(function MainSteerArea({
     onSessionAction({
       type: 'steer',
       runId,
-      instruction: trimmedInstruction || 'Continue the current research session.'
+      instruction: trimmedInstruction || 'Continue the current research session.',
+      modelSelection
     });
     setInstruction('');
   };
@@ -687,9 +723,6 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
-        <button type="button" className="main-steer-model-picker" title="Session model and effort" aria-label="Session model and effort">
-          {modelLabel}
-        </button>
         <button
           type="button"
           className="main-steer-filter"
@@ -699,6 +732,31 @@ const MainSteerArea = memo(function MainSteerArea({
         >
           <SlidersHorizontal size={14} />
         </button>
+        <select
+          className="main-steer-model-picker"
+          value={selectedModel?.id ?? ''}
+          title="Model for the next agent turn"
+          aria-label="Model for the next agent turn"
+          disabled={!selectedModel || controlsDisabled}
+          onChange={(event) => {
+            const model = modelOptions.find((candidate) => candidate.id === event.target.value);
+            if (!model) return;
+            setSelectedModelId(model.id);
+            setSelectedEffort((current) => preferredResearchEffort(model.effortLevels, current));
+          }}
+        >
+          {modelOptions.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
+        </select>
+        <select
+          className="main-steer-effort-picker"
+          value={selectedEffort}
+          title="Reasoning effort for the next agent turn"
+          aria-label="Reasoning effort for the next agent turn"
+          disabled={!selectedModel || controlsDisabled}
+          onChange={(event) => setSelectedEffort(event.target.value as ResearchModelEffortLevel)}
+        >
+          {(selectedModel?.effortLevels ?? []).map((effort) => <option value={effort} key={effort}>{researchEffortLabel(effort)}</option>)}
+        </select>
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />
         </button>
@@ -706,6 +764,39 @@ const MainSteerArea = memo(function MainSteerArea({
     </footer>
   );
 });
+
+function runModelProvider(detail: RunDetail | null, catalogs: ResearchProviderModelCatalog[]): ResearchModelProviderId {
+  const stored = detail?.run.budget.modelProvider;
+  if (stored === 'openai-codex' || stored === 'anthropic' || stored === 'xai') return stored;
+  const matchingCatalog = catalogs.find((catalog) => catalog.models.some((model) => model.id === detail?.run.model));
+  return matchingCatalog?.providerId ?? 'openai-codex';
+}
+
+function researchEffort(value: string | undefined): ResearchModelEffortLevel {
+  if (
+    value === 'minimal' || value === 'low' || value === 'medium' || value === 'high'
+    || value === 'xhigh' || value === 'max'
+  ) return value;
+  return 'off';
+}
+
+function preferredResearchEffort(
+  levels: ResearchModelEffortLevel[],
+  current: ResearchModelEffortLevel
+): ResearchModelEffortLevel {
+  if (levels.includes(current)) return current;
+  if (levels.includes('high')) return 'high';
+  return levels[0] ?? 'off';
+}
+
+function fallbackResearchModel(model: string, effort: ResearchModelEffortLevel): ResearchProviderModel {
+  return { id: model, name: model, reasoning: effort !== 'off', effortLevels: [effort], contextWindow: 0, maxTokens: 0 };
+}
+
+function researchEffortLabel(effort: ResearchModelEffortLevel): string {
+  if (effort === 'xhigh') return 'XHigh';
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
+}
 
 function sessionControlStatusLabel(status: RunStatus | null): string {
   if (!status) return 'NO SESSION SELECTED';
