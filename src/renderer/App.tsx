@@ -21,7 +21,6 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
-import { DEFAULT_SESSION_MAIN_VIEW, type SessionMainView } from './features/sessions/sessionViews';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
@@ -83,7 +82,6 @@ export function App(): JSX.Element {
   const [workspaceAlerts, setWorkspaceAlerts] = useState<WorkspaceAlert[]>([]);
   const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
-  const [sessionMainView, setSessionMainView] = useState<SessionMainView>(DEFAULT_SESSION_MAIN_VIEW);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
@@ -122,7 +120,6 @@ export function App(): JSX.Element {
   useInsetScrollbarActivation();
 
   useEffect(() => {
-    setSessionMainView(DEFAULT_SESSION_MAIN_VIEW);
     setSelectedSubagentPath(null);
   }, [selectedRunId]);
 
@@ -497,7 +494,6 @@ export function App(): JSX.Element {
             selectedSubagentPath={selectedSubagentPath}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
-            sessionView={sessionMainView}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
             traceFilterCount={visibleTraceCategories.length}
@@ -508,7 +504,6 @@ export function App(): JSX.Element {
             onSelectTraceEvent={selectTraceEvent}
             onSelectSubagent={setSelectedSubagentPath}
             onSessionAction={handleSessionAction}
-            onSessionViewChange={setSessionMainView}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>

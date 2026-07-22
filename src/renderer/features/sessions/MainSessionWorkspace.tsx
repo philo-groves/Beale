@@ -6,9 +6,6 @@ import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
-import { ContextSessionView } from './ContextSessionView';
-import { SessionViewControls } from './SessionHeaderControls';
-import type { SessionMainView } from './sessionViews';
 import {
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
   useResizableResearchSidePanel
@@ -25,7 +22,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
-  sessionView,
   visibleTraceCategories,
   busy,
   traceFilterCount,
@@ -36,7 +32,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent,
   onSelectSubagent,
   onSessionAction,
-  onSessionViewChange,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
@@ -49,7 +44,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
-  sessionView: SessionMainView;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
   traceFilterCount: number;
@@ -60,7 +54,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSessionAction: (action: SteeringAction) => void;
-  onSessionViewChange: (view: SessionMainView) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
   const {
@@ -69,7 +62,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     maximumPanelWidth,
     beginResize,
     handleResizeKeyDown
-  } = useResizableResearchSidePanel(selectedRunId !== null && sessionView === 'list');
+  } = useResizableResearchSidePanel(selectedRunId !== null);
 
   if (!selectedRunId) {
     return (
@@ -84,60 +77,48 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   }
 
   return (
-    <div className={`session-content-workspace view-${sessionView}`}>
-      <div className="session-content-view-controls">
-        <SessionViewControls
-          sessionView={sessionView}
-          onSessionViewChange={onSessionViewChange}
-        />
-      </div>
-      {sessionView === 'context' ? (
-        <ContextSessionView honeycrispMemory={detail?.honeycrispMemory ?? null} selectedRunId={selectedRunId} />
-      ) : (
-        <div
-          ref={containerRef}
-          className="main-session-grid"
-          style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
-        >
-          <TraceView
-            busy={busy}
-            detail={detail}
-            events={events}
-            selectedRunId={selectedRunId}
-            traceScopeKey={selectedSubagentPath ?? 'main'}
-            showBackToMain={selectedSubagentPath !== null}
-            selectedTraceEventId={selectedTraceEventId}
-            searchHighlightQuery={searchHighlightQuery}
-            traceFilterCount={traceFilterCount}
-            totalTraceFilterCount={totalTraceFilterCount}
-            visibleTraceCategories={visibleTraceCategories}
-            onOpenTraceFilters={onOpenTraceFilters}
-            onBackToMain={onBackToMain}
-            onSelectTraceEvent={onSelectTraceEvent}
-            onSessionAction={onSessionAction}
-            onSteerInstruction={onSteerInstruction}
-          />
-          <div
-            className="research-side-resize-handle"
-            role="separator"
-            aria-label="Resize Memory and Subagents sidebar"
-            aria-orientation="vertical"
-            aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
-            aria-valuemax={maximumPanelWidth}
-            aria-valuenow={panelWidth}
-            tabIndex={0}
-            onKeyDown={handleResizeKeyDown}
-            onPointerDown={beginResize}
-          />
-          <ResearchSidePanel
-            events={allEvents}
-            memory={detail?.honeycrispMemory ?? null}
-            runId={selectedRunId}
-            selectedSubagentPath={selectedSubagentPath}
-            onSelectSubagent={onSelectSubagent}
-          />
-        </div>
-      )}
+    <div
+      ref={containerRef}
+      className="main-session-grid"
+      style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
+    >
+      <TraceView
+        busy={busy}
+        detail={detail}
+        events={events}
+        selectedRunId={selectedRunId}
+        traceScopeKey={selectedSubagentPath ?? 'main'}
+        showBackToMain={selectedSubagentPath !== null}
+        selectedTraceEventId={selectedTraceEventId}
+        searchHighlightQuery={searchHighlightQuery}
+        traceFilterCount={traceFilterCount}
+        totalTraceFilterCount={totalTraceFilterCount}
+        visibleTraceCategories={visibleTraceCategories}
+        onOpenTraceFilters={onOpenTraceFilters}
+        onBackToMain={onBackToMain}
+        onSelectTraceEvent={onSelectTraceEvent}
+        onSessionAction={onSessionAction}
+        onSteerInstruction={onSteerInstruction}
+      />
+      <div
+        className="research-side-resize-handle"
+        role="separator"
+        aria-label="Resize Memory and Subagents sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
+        aria-valuemax={maximumPanelWidth}
+        aria-valuenow={panelWidth}
+        tabIndex={0}
+        onKeyDown={handleResizeKeyDown}
+        onPointerDown={beginResize}
+      />
+      <ResearchSidePanel
+        events={allEvents}
+        memory={detail?.honeycrispMemory ?? null}
+        runId={selectedRunId}
+        selectedSubagentPath={selectedSubagentPath}
+        onSelectSubagent={onSelectSubagent}
+      />
     </div>
   );
 });

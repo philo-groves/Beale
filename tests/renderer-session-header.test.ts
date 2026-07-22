@@ -1,15 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { DEFAULT_SESSION_MAIN_VIEW, SESSION_MAIN_VIEW_ORDER } from '../src/renderer/features/sessions/sessionViews';
 import { sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
-  it('uses the list-only trace and memory view by default', () => {
-    expect(DEFAULT_SESSION_MAIN_VIEW).toBe('list');
-    expect([...SESSION_MAIN_VIEW_ORDER]).toEqual(['list', 'context']);
-  });
-
   it('formats session configuration pills', () => {
     const detail = runDetail();
 

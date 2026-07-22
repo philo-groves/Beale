@@ -129,6 +129,8 @@
 
 ### Removed
 
+- Removed the secondary session context/dashboard view, its view toggle, and its renderer-to-main context-inspection API; selected sessions now always show the trace with Memory/Subagents.
+
 - Removed separate repository-search, file-read, code-intelligence, analysis, synthesis, storage, experiment, and MCP tools from Beale-launched research sessions, along with the inactive Skills and MCP sidebar controls; durable memory tools and `shell.run` remain.
 - Removed the redundant Honeycrisp `finding` memory type; migrations convert existing nodes and their identifiers to trajectories while preserving graph references. Beale's verifier-backed operational findings remain unchanged.
 

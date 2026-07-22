@@ -12,7 +12,6 @@ import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type F
 import { OpenAiAuthService } from './openaiAuth';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
-import { readHoneycrispAgentContext } from './agentContextReader';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { ProfilingService } from './profilingService';
 import {
@@ -26,7 +25,6 @@ import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import type {
   AttemptRecord,
-  AgentContextState,
   ArtifactRecord,
   DeveloperSettings,
   EvidenceRecord,
@@ -1035,15 +1033,6 @@ export class WorkspaceService {
     const runtime = this.getForegroundRuntime();
     const detail = this.requireDb().getRunDetail(runId);
     return runtime ? attachHoneycrispMemory(detail, runtime.workspacePath) : detail;
-  }
-
-  public getAgentContext(runId: string): AgentContextState {
-    const runtime = this.getForegroundRuntime();
-    if (!runtime) {
-      throw new Error('No Beale workspace is open');
-    }
-    runtime.db.getRunDetail(runId);
-    return readHoneycrispAgentContext(runtime.workspacePath, runId);
   }
 
   public getRunDetailVersion(runId: string): RunDetailVersion {

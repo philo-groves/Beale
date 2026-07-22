@@ -4,7 +4,7 @@ import type { WorkspaceRegistryEntry, RunDetail, TraceEventRecord } from '@share
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
 import type { TraceCategoryId } from '../traceClassification';
-import { SessionMetrics } from '../features/sessions/SessionHeaderControls';
+import { SessionMetrics } from '../features/sessions/SessionMetrics';
 import { displayWorkspaceHeaderName } from '../view-models/appHeader';
 
 export const AppHeaderTitle = memo(function AppHeaderTitle({

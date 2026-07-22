@@ -139,9 +139,6 @@ const api: BealeApi = {
   getRunDetail(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetail, runId);
   },
-  getAgentContext(runId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getAgentContext, runId);
-  },
   getRunDetailVersion(runId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.getRunDetailVersion, runId);
   },

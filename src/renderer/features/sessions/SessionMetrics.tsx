@@ -1,44 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { Braces, Clock, FileText, GitFork, List } from 'lucide-react';
+import { Clock, FileText, GitFork } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import type { TraceCategoryId } from '../../traceClassification';
 import { sessionHeaderTiming } from '../../view-models/sessionHeader';
-import { SESSION_MAIN_VIEW_ORDER, type SessionMainView } from './sessionViews';
-
-export function SessionViewControls({
-  sessionView,
-  onSessionViewChange
-}: {
-  sessionView: SessionMainView;
-  onSessionViewChange: (view: SessionMainView) => void;
-}): JSX.Element {
-  const optionByView: Record<SessionMainView, { label: string; icon: JSX.Element }> = {
-    context: { label: 'Context view', icon: <Braces size={15} /> },
-    list: { label: 'Trace log', icon: <List size={15} /> }
-  };
-  const options = SESSION_MAIN_VIEW_ORDER.map((view) => ({ view, ...optionByView[view] }));
-
-  return (
-    <div className="session-content-control-group">
-      <div className="session-view-toggle" role="group" aria-label="Session view">
-        {options.map((option) => (
-          <button
-            type="button"
-            className={`session-view-button ${sessionView === option.view ? 'active' : ''}`}
-            title={option.label}
-            aria-label={option.label}
-            aria-pressed={sessionView === option.view}
-            key={option.view}
-            onClick={() => onSessionViewChange(option.view)}
-          >
-            {option.icon}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function SessionMetrics({
   detail,

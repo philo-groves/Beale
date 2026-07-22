@@ -614,31 +614,6 @@ export type HoneycrispToolingConfigUpdate =
   | { type: 'set_mcp_timeout_ms'; timeoutMs: number }
   | { type: 'clear_mcp_timeout_ms' };
 
-export type AgentContextStatus = 'missing' | 'empty' | 'ready' | 'error';
-
-export interface AgentContextEventRecord {
-  sequence: number;
-  eventId: string;
-  timestamp: string;
-  kind: 'context.compiled';
-  goalId: string | null;
-  loopId: string | null;
-  subGoalId: string | null;
-  payloadHash: string;
-  schemaVersion: number;
-  payload: Record<string, unknown>;
-}
-
-export interface AgentContextState {
-  runId: string;
-  source: 'honeycrisp_sqlite';
-  status: AgentContextStatus;
-  databasePath: string;
-  readAt: string;
-  event: AgentContextEventRecord | null;
-  lastError: string | null;
-}
-
 export interface ProjectSemanticSearchResult {
   chunkId: string;
   scopeVersionId: string;
@@ -1338,7 +1313,6 @@ export interface BealeApi {
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;
-  getAgentContext(runId: string): Promise<AgentContextState>;
   getRunDetailVersion(runId: string): Promise<RunDetailVersion>;
   getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): Promise<RunDetailUpdate>;
   searchSessionTranscripts(input: SessionTranscriptSearchInput): Promise<SessionTranscriptSearchResponse>;
