@@ -23,6 +23,13 @@ const COLLABORATION_TOOL_LABELS: Readonly<Record<string, string>> = {
   wait_agent: 'Wait for Agent Activity'
 };
 
+const RUNBOOK_TOOL_LABELS: Readonly<Record<string, string>> = {
+  'runbook.list': 'Runbook List',
+  'runbook.get': 'Runbook Get',
+  'runbook.create': 'Runbook Creation',
+  'runbook.append': 'Runbook Update'
+};
+
 const TRACE_SUMMARY_VERBS = new Set([
   'accept',
   'accepted',
@@ -159,6 +166,23 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
     const status = stringRecordValue(inputs, 'status');
     return [memoryType ? traceLabel(memoryType) : null, memoryId, status ? traceLabel(status) : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'runbook.list') return stringRecordValue(inputs, 'query') ?? 'All workspace runbooks';
+  if (toolName === 'runbook.get') return stringRecordValue(inputs, 'id') ?? '';
+  if (toolName === 'runbook.create') {
+    const result = tracePayloadRecord(payload, 'result');
+    const title = (result ? stringRecordValue(result, 'title') : null) ?? stringRecordValue(inputs, 'title');
+    const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
+    const revision = result ? numberRecordValue(result, 'revision') : null;
+    return [title, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'runbook.append') {
+    const result = tracePayloadRecord(payload, 'result');
+    const id = stringRecordValue(inputs, 'id');
+    const title = result ? stringRecordValue(result, 'title') : null;
+    const status = result ? stringRecordValue(result, 'status') : stringRecordValue(inputs, 'status');
+    const revision = result ? numberRecordValue(result, 'revision') : numberRecordValue(inputs, 'expectedRevision');
+    return [title ?? id, status ? traceLabel(status) : null, revision ? `rev ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
   if (toolName === 'file.read') return honeycrispToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
   if (toolName === 'shell.run') {
@@ -1087,11 +1111,12 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
     honeycrispToolNameFromSummary(summary);
   const collaborationLabel = toolName ? COLLABORATION_TOOL_LABELS[toolName] : undefined;
+  const runbookLabel = toolName ? RUNBOOK_TOOL_LABELS[toolName] : undefined;
   const label = toolName === 'shell.run'
     ? 'Shell'
     : toolName === 'memory.correct'
       ? 'Memory Correction'
-      : collaborationLabel ?? (toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool');
+      : runbookLabel ?? collaborationLabel ?? (toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool');
   return action === 'Requested' ? `${label} Requested` : label;
 }
 

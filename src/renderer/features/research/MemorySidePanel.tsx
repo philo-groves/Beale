@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { ChevronDown, Database, GitFork, Search } from 'lucide-react';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary } from '@shared/types';
+import { BookOpen, ChevronDown, Database, GitFork, Search } from 'lucide-react';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
@@ -9,30 +9,34 @@ import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, 
 import { activeSubagentCount, formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
-type MemoryScopeFilter = 'all' | 'session' | 'workspace' | 'subject';
-type ResearchSideView = 'memory' | 'subagents';
+type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
+type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
 
 export const ResearchSidePanel = memo(function ResearchSidePanel({
   events,
   memory,
   runId,
   selectedSubagentPath,
+  onOpenRunbook,
   onSelectSubagent
 }: {
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
   runId: string;
   selectedSubagentPath: string | null;
+  onOpenRunbook: (runbookId: string) => void;
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const [activeView, setActiveView] = useState<ResearchSideView>('memory');
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<MemoryScopeFilter>('all');
+  const [scope, setScope] = useState<MemoryLevelFilter>('session');
   const [type, setType] = useState('all');
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
+  const runbooks = memory?.runbooks ?? [];
+  const activeRunbooks = useMemo(() => runbooks.filter((runbook) => runbook.status !== 'archived').length, [runbooks]);
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events), [events]);
@@ -45,6 +49,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
+  const runbookUpdateKey = runbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
 
   useEffect(() => {
     setActiveView('memory');
@@ -81,6 +86,16 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </button>
           <button
             type="button"
+            className={activeView === 'runbooks' ? 'active' : ''}
+            role="tab"
+            aria-selected={activeView === 'runbooks'}
+            onClick={() => setActiveView('runbooks')}
+          >
+            <BookOpen size={15} />
+            <span>{researchSideTabLabel('runbooks', activeRunbooks)}</span>
+          </button>
+          <button
+            type="button"
             className={activeView === 'subagents' ? 'active' : ''}
             role="tab"
             aria-selected={activeView === 'subagents'}
@@ -90,19 +105,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <span>{researchSideTabLabel('subagents', activeSubagents)}</span>
           </button>
         </div>
-        {activeView === 'memory' ? (
-          <select
-            className="research-side-type-filter"
-            value={type}
-            aria-label="Memory type filter"
-            onChange={(event) => setType(event.target.value)}
-          >
-            <option value="all">All Types</option>
-            {nodeTypes.map((nodeType) => (
-              <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
-            ))}
-          </select>
-        ) : null}
       </header>
 
       {activeView === 'memory' ? (
@@ -113,24 +115,32 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <input
                 type="search"
                 value={query}
-                placeholder="Search memory"
-                aria-label="Search memory"
+                placeholder="Search"
+                aria-label="Search"
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
-            <div className="memory-tier-filter" aria-label="Memory context filter">
-              {(['all', 'session', 'workspace', 'subject'] as const).map((candidate) => (
-                <button
-                  type="button"
-                  className={scope === candidate ? 'selected' : ''}
-                  aria-pressed={scope === candidate}
-                  key={candidate}
-                  onClick={() => setScope(candidate)}
-                >
-                  {traceLabel(candidate)}
-                </button>
+            <select
+              className="memory-catalog-filter memory-catalog-type-filter"
+              value={type}
+              aria-label="Memory type filter"
+              onChange={(event) => setType(event.target.value)}
+            >
+              <option value="all">All Type</option>
+              {nodeTypes.map((nodeType) => (
+                <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
               ))}
-            </div>
+            </select>
+            <select
+              className="memory-catalog-filter memory-catalog-level-filter"
+              value={scope}
+              aria-label="Memory level filter"
+              onChange={(event) => setScope(event.target.value as MemoryLevelFilter)}
+            >
+              <option value="session">Session</option>
+              <option value="workspace">Workspace</option>
+              <option value="subject">Subject</option>
+            </select>
           </div>
 
           {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
@@ -152,6 +162,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             </MainSideScrollRegion>
           ) : null}
         </>
+      ) : activeView === 'runbooks' ? (
+        runbooks.length > 0 ? (
+          <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
+            {runbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} onOpen={() => onOpenRunbook(runbook.id)} />)}
+          </MainSideScrollRegion>
+        ) : (
+          <div className="memory-catalog-empty">No runbooks in this workspace.</div>
+        )
       ) : subagents.length > 0 ? (
         <MainSideScrollRegion listClassName="subagent-catalog-list" updateKey={subagents.map((agent) => `${agent.path}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}>
           {subagents.map((agent) => (
@@ -177,6 +195,40 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     </aside>
   );
 });
+
+function RunbookCatalogItem({ runbook, onOpen }: { runbook: HoneycrispRunbookSummary; onOpen: () => void }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = `runbook-record-${runbook.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  return (
+    <article className={`memory-catalog-item runbook-catalog-item ${expanded ? 'expanded' : ''}`}>
+      <button type="button" className="memory-catalog-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded((current) => !current)}>
+        <span className="memory-catalog-item-heading">
+          <span className="memory-catalog-item-meta-line">
+            <span className="memory-catalog-item-labels">
+              <span className="runbook-catalog-type">Runbook</span>
+              <span className="memory-catalog-status">{traceLabel(runbook.status)}</span>
+            </span>
+            <span className="memory-catalog-item-trailing">
+              <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+              <ChevronDown size={14} aria-hidden="true" />
+            </span>
+          </span>
+          <strong>{runbook.title}</strong>
+        </span>
+      </button>
+      <div id={contentId} className="memory-catalog-content" hidden={!expanded}>
+        <p className="memory-catalog-summary">{runbook.purpose}</p>
+        <div className="memory-catalog-meta">
+          <span>rev {runbook.revision}</span>
+          <span>{runbook.sessionId ? 'Session-linked' : 'Workspace'}</span>
+          <span>Jupyter</span>
+        </div>
+        <code>{runbook.artifactId}</code>
+        <button type="button" className="runbook-catalog-open" onClick={onOpen}>Open Notebook</button>
+      </div>
+    </article>
+  );
+}
 
 function MemoryCatalogItem({
   expanded,

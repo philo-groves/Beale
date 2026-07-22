@@ -31,7 +31,7 @@ export function WorkspaceUnderstandingView({
         <div className="workspace-understanding-summary-grid" aria-label="Workspace summary">
           <SummaryTile icon={<Database size={17} />} label="Durable Knowledge" value={`${formatCount(honeycrispMemory?.nodeCount ?? 0)} nodes`} detail={`${formatCount(honeycrispMemory?.edgeCount ?? 0)} relationships`} />
           <SummaryTile icon={<GitBranch size={17} />} label="Primitives" value={formatCount(primitives.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
-          <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
+          <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.runbookCount ?? 0)} runbooks · ${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
           <SummaryTile icon={<Network size={17} />} label="Workspace Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active workspace'} />
         </div>
 
@@ -43,6 +43,7 @@ export function WorkspaceUnderstandingView({
               <MetricCell label="Relationships" value={formatCount(honeycrispMemory?.edgeCount ?? 0)} />
               <MetricCell label="References" value={formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} />
               <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
+              <MetricCell label="Runbooks" value={formatCount(honeycrispMemory?.runbookCount ?? 0)} />
               <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
               <MetricCell label="Primitives" value={formatCount(primitives.length)} />
             </div>

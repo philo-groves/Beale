@@ -10,11 +10,11 @@ Honeycrisp's current tool schemas are the capability contract presented to the m
 
 ## Decision
 
-Beale-launched research sessions use Honeycrisp's memory tools plus `shell.run`. Subagent collaboration tools remain available as coordination primitives rather than target-facing research tools.
+Beale-launched research sessions use Honeycrisp's memory tools, the workspace runbook artifact family, and `shell.run`. Subagent collaboration tools remain available as coordination primitives rather than target-facing research tools.
 
 ## Current Pre-Alpha Surface
 
-Beale-launched Honeycrisp sessions expose the durable memory tools and one general research tool: `shell.run`. The earlier collection of separate search, file-read, code-intelligence, experiment, synthesis, storage, MCP, and Beale-owned research-state tools is not included in the active session surface.
+Beale-launched Honeycrisp sessions expose the durable memory tools, `runbook.list`, `runbook.get`, `runbook.create`, `runbook.append`, and one general research tool: `shell.run`. Runbooks preserve reusable procedures and proof sequences as revisioned Jupyter-format artifacts; they do not execute automatically. The earlier collection of separate search, file-read, code-intelligence, experiment, synthesis, generic storage, MCP, and Beale-owned research-state tools is not included in the active session surface.
 
 `shell.run` accepts an executable name and argv rather than a raw command string. This keeps the model-facing contract small and lets Honeycrisp apply harness-wide utility policy before spawning a process. Repository search, file inspection, builds, tests, debuggers, and proof work use ordinary utilities through that boundary.
 
@@ -30,7 +30,7 @@ The current tool set deliberately leans on the model's ability to choose ordinar
 
 The model should be highly autonomous inside recorded scope. Beale should enforce hard trust boundaries mechanically and quietly, rather than repeatedly warning the model away from normal in-scope research work. Friction belongs at live-target networking, credential boundaries, global database exposure, and the New Research Session warning that execution uses the current user's host privileges.
 
-The operating rule is simple: use `shell.run` for target-facing research work and the memory tools for durable research knowledge. The recorded authorized scope remains context for model decisions; Beale does not add repeated permission prompts for ordinary in-scope repository work.
+The operating rule is simple: use `shell.run` for target-facing research work, memory tools for concise durable research knowledge, and runbooks for reusable multi-step procedures with decisive bounded outputs. The recorded authorized scope remains context for model decisions; Beale does not add repeated permission prompts for ordinary in-scope repository work.
 
 ## Retired Structured-Tool Design Reference
 

@@ -396,6 +396,19 @@ export class WorkspaceService {
     return directory.path;
   }
 
+  public resolveHoneycrispRunbookPath(runbookId: string): string {
+    const relativePath = this.requireDb().getHoneycrispRunbookRelativePath(runbookId);
+    if (!relativePath) throw new Error(`Runbook not found in the active workspace: ${runbookId}`);
+    const artifactRoot = resolve(this.globalHoneycrispArtifactDirectory());
+    const path = resolve(artifactRoot, relativePath);
+    const child = relative(artifactRoot, path);
+    if (!child || child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
+      throw new Error(`Runbook path is outside Honeycrisp artifact storage: ${runbookId}`);
+    }
+    if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`Runbook artifact is missing: ${runbookId}`);
+    return path;
+  }
+
   public getHoneycrispToolingSummary(): HoneycrispToolingSummary {
     const runtime = this.getForegroundRuntime();
     if (!runtime) {

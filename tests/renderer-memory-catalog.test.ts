@@ -7,6 +7,9 @@ describe('renderer memory catalog', () => {
     expect(researchSideTabLabel('memory', 0)).toBe('0 Memories');
     expect(researchSideTabLabel('memory', 1)).toBe('1 Memory');
     expect(researchSideTabLabel('memory', 42)).toBe('42 Memories');
+    expect(researchSideTabLabel('runbooks', 0)).toBe('0 Runbooks');
+    expect(researchSideTabLabel('runbooks', 1)).toBe('1 Runbook');
+    expect(researchSideTabLabel('runbooks', 2)).toBe('2 Runbooks');
     expect(researchSideTabLabel('subagents', 0)).toBe('0 Subagents');
     expect(researchSideTabLabel('subagents', 1)).toBe('1 Subagent');
     expect(researchSideTabLabel('subagents', 2)).toBe('2 Subagents');

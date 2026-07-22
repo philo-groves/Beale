@@ -3522,6 +3522,15 @@ export class WorkspaceDatabase {
     return this.artifactRoot;
   }
 
+  public getHoneycrispRunbookRelativePath(runbookId: string): string | null {
+    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'honeycrisp_runbooks'").get());
+    if (!table) return null;
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT relative_path FROM honeycrisp_runbooks WHERE id = ? AND workspace_id = ?').get(runbookId, this.workspaceId)
+    );
+    return row ? text(row, 'relative_path') : null;
+  }
+
   public getLastWorkspaceBackup(): WorkspaceExportResult | null {
     const value = this.getMetaValue('last_workspace_backup_json');
     if (!value) return null;

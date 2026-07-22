@@ -6,6 +6,7 @@ import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryEvidenceRefSummary,
   HoneycrispMemoryNodeSummary,
+  HoneycrispRunbookSummary,
   HoneycrispMemorySummary
 } from '@shared/types';
 
@@ -33,6 +34,7 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
     const nodes = hasNodes ? readNodes(database) : [];
     const edges = tableExists(database, 'memory_edges') ? readEdges(database) : [];
     const evidenceRefCount = tableExists(database, 'memory_evidence_refs') ? countRows(database, 'memory_evidence_refs') : 0;
+    const runbooks = tableExists(database, 'honeycrisp_runbooks') ? readRunbooks(database, workspaceId) : [];
     return {
       ...base,
       source: 'honeycrisp_sqlite',
@@ -42,12 +44,14 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       edgeCount: edges.length,
       evidenceRefCount,
       storageArtifactCount: storageArtifactCount(artifactDirectoryPath),
+      runbookCount: runbooks.length,
       latestNodeUpdatedAt: hasNodes ? latestText(database, 'memory_nodes', 'updated_at') : null,
       nodeTypeCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'type') : {},
       nodeStatusCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'status') : {},
       nodeTierCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'tier') : {},
       nodes,
-      edges
+      edges,
+      runbooks
     };
   } catch (error) {
     return {
@@ -81,15 +85,37 @@ function emptySummary(
     edgeCount: 0,
     evidenceRefCount: 0,
     storageArtifactCount: 0,
+    runbookCount: 0,
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
     nodeTierCounts: {},
     nodes: [],
     edges: [],
+    runbooks: [],
     directories: [artifactDirectorySummary(artifactDirectoryPath)],
     lastError: null
   };
+}
+
+function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRunbookSummary[] {
+  return (database
+    .prepare('SELECT * FROM honeycrisp_runbooks WHERE workspace_id = ? ORDER BY updated_at ASC, id')
+    .all(workspaceId) as SqlRow[]).map((row) => ({
+    id: requiredString(row.id),
+    workspaceId: requiredString(row.workspace_id),
+    workspaceName: requiredString(row.workspace_name),
+    subjectId: optionalString(row.subject_id),
+    subjectName: optionalString(row.subject_name),
+    sessionId: optionalString(row.session_id),
+    title: requiredString(row.title),
+    purpose: requiredString(row.purpose),
+    status: requiredRunbookStatus(row.status),
+    artifactId: requiredString(row.artifact_id),
+    revision: requiredNumber(row.revision),
+    createdAt: requiredString(row.created_at),
+    updatedAt: requiredString(row.updated_at)
+  }));
 }
 
 function readNodes(database: DatabaseSync): HoneycrispMemoryNodeSummary[] {
@@ -233,4 +259,9 @@ function requiredNumber(value: unknown): number {
 function requiredMemoryTier(value: unknown): HoneycrispMemoryNodeSummary['tier'] {
   if (value === 'session' || value === 'workspace' || value === 'subject') return value;
   throw new Error('Expected a Honeycrisp memory tier.');
+}
+
+function requiredRunbookStatus(value: unknown): HoneycrispRunbookSummary['status'] {
+  if (value === 'draft' || value === 'active' || value === 'completed' || value === 'archived') return value;
+  throw new Error('Expected a Honeycrisp runbook status.');
 }

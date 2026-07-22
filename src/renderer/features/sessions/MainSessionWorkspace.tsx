@@ -28,6 +28,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount,
   onOpenTraceFilters,
   onOpenHoneycrispMemoryDirectory,
+  onOpenHoneycrispRunbook,
   onBackToMain,
   onSelectTraceEvent,
   onSelectSubagent,
@@ -50,6 +51,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
+  onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToMain: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
@@ -103,7 +105,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       <div
         className="research-side-resize-handle"
         role="separator"
-        aria-label="Resize Memory and Subagents sidebar"
+        aria-label="Resize Memory, Runbooks, and Subagents sidebar"
         aria-orientation="vertical"
         aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
         aria-valuemax={maximumPanelWidth}
@@ -118,6 +120,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         runId={selectedRunId}
         selectedSubagentPath={selectedSubagentPath}
         onSelectSubagent={onSelectSubagent}
+        onOpenRunbook={onOpenHoneycrispRunbook}
       />
     </div>
   );

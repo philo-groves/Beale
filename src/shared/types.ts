@@ -505,6 +505,22 @@ export interface HoneycrispMemoryEdgeSummary {
   updatedAt: string;
 }
 
+export interface HoneycrispRunbookSummary {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId: string | null;
+  subjectName: string | null;
+  sessionId: string | null;
+  title: string;
+  purpose: string;
+  status: 'draft' | 'active' | 'completed' | 'archived';
+  artifactId: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
@@ -518,12 +534,14 @@ export interface HoneycrispMemorySummary {
   edgeCount: number;
   evidenceRefCount: number;
   storageArtifactCount: number;
+  runbookCount: number;
   latestNodeUpdatedAt: string | null;
   nodeTypeCounts: Record<string, number>;
   nodeStatusCounts: Record<string, number>;
   nodeTierCounts: Record<string, number>;
   nodes: HoneycrispMemoryNodeSummary[];
   edges: HoneycrispMemoryEdgeSummary[];
+  runbooks: HoneycrispRunbookSummary[];
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
 }
@@ -1306,6 +1324,7 @@ export interface BealeApi {
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
+  openHoneycrispRunbook(runbookId: string): Promise<void>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;

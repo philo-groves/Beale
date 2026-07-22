@@ -45,6 +45,7 @@ describe('Honeycrisp memory summary', () => {
       CREATE TABLE memory_node_tags (node_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(node_id, tag));
       CREATE TABLE memory_edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(from_id, to_id, relation));
       CREATE TABLE memory_evidence_refs (id TEXT PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL, path_base TEXT, path TEXT, locator_json TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE honeycrisp_runbooks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, session_id TEXT, title TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, artifact_id TEXT NOT NULL, relative_path TEXT NOT NULL, content_hash TEXT NOT NULL, size_bytes INTEGER NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     `);
     const insertNode = db.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     insertNode.run('hypothesis_one', 'session', 'run_one', 'run_one', 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'hypothesis', 'Parser state confusion', 'parser state confusion', 'State may cross requests.', '', 'suspected', 0.6, '{}', '2026-06-25T10:00:00.000Z', '2026-06-25T10:01:00.000Z', 1);
@@ -53,6 +54,8 @@ describe('Honeycrisp memory summary', () => {
     db.prepare('INSERT INTO memory_node_tags VALUES (?, ?)').run('trajectory_one', 'parser');
     db.prepare('INSERT INTO memory_edges VALUES (?, ?, ?, ?, ?, ?)').run('hypothesis_one', 'trajectory_one', 'informed', 'Reusable route', '2026-06-25T10:03:00.000Z', '2026-06-25T10:03:00.000Z');
     db.prepare('INSERT INTO memory_evidence_refs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('evidence_one', 'trajectory_one', 'code', 'repository', 'src/parser.ts', '{"line":42}', 'State write', '2026-06-25T10:02:30.000Z');
+    db.prepare('INSERT INTO honeycrisp_runbooks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('runbook_one', 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'run_one', 'Parser reproduction', 'Repeat the parser-state proof.', 'active', 'runbook_one', 'runbooks/workspace_zsh/runbook_one.ipynb', 'sha256:abc', 420, 2, '2026-06-25T10:04:00.000Z', '2026-06-25T10:05:00.000Z');
+    db.prepare('INSERT INTO honeycrisp_runbooks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('runbook_other', 'workspace_mdns', 'mDNSResponder', 'subject_apple', 'Apple', 'run_two', 'Other workspace', 'Must remain scoped.', 'active', 'runbook_other', 'runbooks/workspace_mdns/runbook_other.ipynb', 'sha256:def', 420, 1, '2026-06-25T10:04:00.000Z', '2026-06-25T10:06:00.000Z');
     db.close();
 
     const summary = getHoneycrispMemorySummary({
@@ -69,6 +72,7 @@ describe('Honeycrisp memory summary', () => {
       edgeCount: 1,
       evidenceRefCount: 1,
       storageArtifactCount: 1,
+      runbookCount: 1,
       latestNodeUpdatedAt: '2026-06-25T10:03:00.000Z',
       nodeTypeCounts: { hypothesis: 1, trajectory: 1 },
       nodeStatusCounts: { confirmed: 1, suspected: 1 },
@@ -86,6 +90,9 @@ describe('Honeycrisp memory summary', () => {
       evidenceRefs: [expect.objectContaining({ pathBase: 'repository', path: 'src/parser.ts' })]
     });
     expect(summary.edges[0]).toMatchObject({ fromId: 'hypothesis_one', toId: 'trajectory_one', relation: 'informed' });
+    expect(summary.runbooks).toEqual([
+      expect.objectContaining({ id: 'runbook_one', title: 'Parser reproduction', status: 'active', revision: 2 })
+    ]);
   });
 });
 

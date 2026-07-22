@@ -45,7 +45,7 @@ The Beale-to-Honeycrisp boundary should prefer a small structured protocol that 
 
 - Start, stop, pause, resume, and steer a run.
 - Stream JSONL or equivalent structured events.
-- Surface model messages, tool calls, tool results, durable knowledge updates, storage artifact references, findings, and notifications.
+- Surface model messages, tool calls, tool results, durable knowledge updates, runbook revisions, storage artifact references, findings, and notifications.
 - Expose host configuration and readiness errors before starting a run.
 - Preserve artifact paths and durable memory ids without assuming Beale owns Honeycrisp storage internals.
 - Import schema-v4 captures as a research request, root session, and child sessions; do not reconstruct goal/subgoal state in Beale.
@@ -78,5 +78,6 @@ Session heat is a good candidate for a built-in MCP-style capability: the host c
 - [x] Supply tiered memory identity so Honeycrisp can distinguish session, workspace, and owner/subject knowledge inside the global database without expanding its tool set.
 - [x] Reframe Beale's no-session workspace overview around durable knowledge, artifact storage, retrieval index state, and workspace tracking.
 - [x] Unify Beale and Honeycrisp persistence in the Honeycrisp-owned global database and replace event-derived memory views with the durable knowledge graph.
+- [x] Add workspace-scoped, revisioned Jupyter-format runbooks as a core Honeycrisp artifact family with Beale sidebar and trace visibility.
 - [ ] Replace capture-after-exit import with live JSONL event streaming when Honeycrisp exposes it.
 - [ ] Promote high-confidence Honeycrisp hypotheses/evidence into Beale hypothesis and evidence tables instead of trace-only rows.

@@ -242,6 +242,13 @@ export function App(): JSX.Element {
     [runAction]
   );
 
+  const openHoneycrispRunbook = useCallback(
+    async (runbookId: string) => {
+      await runAction(() => window.beale.openHoneycrispRunbook(runbookId));
+    },
+    [runAction]
+  );
+
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -500,6 +507,7 @@ export function App(): JSX.Element {
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
+            onOpenHoneycrispRunbook={openHoneycrispRunbook}
             onBackToMain={() => setSelectedSubagentPath(null)}
             onSelectTraceEvent={selectTraceEvent}
             onSelectSubagent={setSelectedSubagentPath}

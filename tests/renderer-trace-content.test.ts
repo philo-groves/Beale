@@ -56,6 +56,12 @@ describe('renderer trace content view models', () => {
       traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: memory.correct', payload: { payload: { toolName: 'memory.correct' } } }), 'tools')
     ).toBe('Memory Correction');
     expect(
+      traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: runbook.create', payload: { payload: { toolName: 'runbook.create' } } }), 'tools')
+    ).toBe('Runbook Creation Requested');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: runbook.append', payload: { payload: { toolName: 'runbook.append' } } }), 'tools')
+    ).toBe('Runbook Update');
+    expect(
       traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: spawn_agent', payload: { payload: { toolName: 'spawn_agent' } } }), 'tools')
     ).toBe('Spawn Agent Requested');
     expect(
@@ -114,6 +120,13 @@ describe('renderer trace content view models', () => {
     ).toBe('Duplicate Blocked');
     expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
+  });
+
+  it('shows useful runbook tool metadata', () => {
+    expect(honeycrispToolTraceSubtext(honeycrispToolRequest('runbook.create', { title: 'VM crash triage', purpose: 'Repeatable proof' }))).toBe('VM crash triage');
+    expect(honeycrispToolTraceSubtext(honeycrispToolObservation('runbook.append', { id: 'runbook_one', expectedRevision: 2 }, {
+      id: 'runbook_one', title: 'VM crash triage', status: 'completed', revision: 3
+    }))).toBe('VM crash triage · Completed · rev 3');
   });
 
   it('formats reasoning summaries while preserving summary boundaries', () => {

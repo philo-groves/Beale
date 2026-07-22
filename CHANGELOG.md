@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Consolidated Memory sidebar filtering into one search, type, and level control row; memory level now defaults to Session and replaces the previous context pills.
 - Moved Honeycrisp and Beale persistence to the user-global `~/.honeycrisp/memory.sqlite`, with explicit workspace ownership for operational scope records and in-database session/workspace/subject memory visibility. The existing Zsh database was adopted non-destructively and its source remains intact.
 - Workspace backup archives no longer embed the shared global database; their manifest records the external database path and that it is excluded.
 - Session header statistics now use rendered multiline hover tooltips that remain visible below Electron's draggable title bar.
@@ -27,6 +28,7 @@
 
 ### Added
 
+- Added workspace-scoped Honeycrisp runbooks as revisioned Jupyter `nbformat 4` artifacts, with `runbook.list/get/create/append` tools, bounded recorded outputs, optimistic revision guards, dedicated traces, and a Beale Runbooks sidebar tab. Runbooks record procedures but execute only through `shell.run`.
 - Added Beale workbench migration 3 (`global_workspace_ownership`) and a global workspace identity table so multiple workspaces can safely share operational schema and migration history.
 - Added a draggable, keyboard-accessible divider between the session trace and Memory/Subagents sidebar, with bounded responsive sizing and a persisted width preference.
 - Formalized Honeycrisp `hypothesis` memory as a testable unproven proposition with suspected/rejected lifecycle guidance and required reclassification to a primitive or chain when proven; `evidence` and `finding` remain excluded as memory node types.

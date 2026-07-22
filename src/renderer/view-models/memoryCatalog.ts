@@ -9,8 +9,9 @@ export interface MemoryCatalogFilters {
   type: string;
 }
 
-export function researchSideTabLabel(view: 'memory' | 'subagents', count: number): string {
+export function researchSideTabLabel(view: 'memory' | 'runbooks' | 'subagents', count: number): string {
   if (view === 'memory') return `${count} ${count === 1 ? 'Memory' : 'Memories'}`;
+  if (view === 'runbooks') return `${count} ${count === 1 ? 'Runbook' : 'Runbooks'}`;
   return `${count} ${count === 1 ? 'Subagent' : 'Subagents'}`;
 }
 
