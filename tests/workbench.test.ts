@@ -421,6 +421,8 @@ describe('Beale workbench skeleton', () => {
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', eventType: 'text_end', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, responseId: 'child_response', itemId: 'text:0', text: 'Parser boundary inspected.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, usage: { input: 1000, output: 100, totalTokens: 1100 } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'context_compacted', reason: 'context_window_error', retry: true, agentId: 'root', agentPath: '/root', tokensBefore: 280000, tokensAfter: 120000 } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'model_retry', retry: 1, maxRetries: 2, errorMessage: 'Model stream produced no content for 180000ms.', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root' } }));",
         "console.log('fixture honeycrisp stdout');"
       ].join('\n')
     );
@@ -482,6 +484,17 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review turn 1 completed.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review completed.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
+    expect(detail.traceEvents.find((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.')?.payload).toMatchObject({
+      agentPath: '/root',
+      tokensBefore: 280000,
+      tokensAfter: 120000,
+      retry: true
+    });
+    expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp retried a silent model stream.')?.payload).toMatchObject({
+      agentPath: '/root/parser_review',
+      retry: 1,
+      maxRetries: 2
+    });
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(
       detail.traceEvents.filter((event) => (event.payload as { honeycrispEventId?: string }).honeycrispEventId === 'evt_tool_result')
@@ -648,6 +661,69 @@ describe('Beale workbench skeleton', () => {
       expect(
         service.getRunDetail(runId).traceEvents.find((event) => event.summary === 'User steering added to current run.')?.payload
       ).toMatchObject({ deliveredToHoneycrisp: true });
+    } finally {
+      service.close();
+    }
+  });
+
+  it('asks Honeycrisp to stop its agent tree before terminating the host process', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-stoppable-honeycrisp.mjs');
+    const controlLogPath = join(workspace, 'stop-controls.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync } from 'node:fs';",
+        'const [controlLogPath] = process.argv.slice(2);',
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', (chunk) => {",
+        '  buffer += chunk;',
+        "  let newlineIndex = buffer.indexOf('\\n');",
+        '  while (newlineIndex !== -1) {',
+        "    const line = buffer.slice(0, newlineIndex).replace(/\\r$/, '');",
+        '    buffer = buffer.slice(newlineIndex + 1);',
+        '    const message = JSON.parse(line);',
+        "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'stop') {",
+        "      const now = new Date().toISOString();",
+        "      console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'interrupted', agentId: 'agent_child', agentPath: '/root/reviewer', parentId: 'root', status: 'interrupted' } }));",
+        '      setImmediate(() => process.exit(0));',
+        '    }',
+        "    newlineIndex = buffer.indexOf('\\n');",
+        '  }',
+        '});',
+        'setInterval(() => undefined, 1000);'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('adaptive_portfolio'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Exercise graceful Honeycrisp cancellation.',
+        model: 'fixture-model',
+        reasoningEffort: 'minimal'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'active');
+      service.steerRun({ type: 'stop', runId });
+      await waitForCondition(
+        () => service.getRunDetail(runId).traceEvents.some((event) => event.summary === 'Honeycrisp host process was stopped by Beale.'),
+        5000
+      );
+
+      expect(JSON.parse(readFileSync(controlLogPath, 'utf8').trim())).toMatchObject({ schemaVersion: 1, type: 'stop' });
+      expect(
+        service.getRunDetail(runId).traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/reviewer was interrupted.')
+      ).toBe(true);
     } finally {
       service.close();
     }

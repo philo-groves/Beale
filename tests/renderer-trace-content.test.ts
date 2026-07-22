@@ -7,6 +7,8 @@ import {
   evidenceTracePreview,
   findingForTraceEvent,
   formatReasoningTraceText,
+  honeycrispAgentListResults,
+  honeycrispCollaborationTraceSummary,
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
   honeycrispMemorySearchResults,
@@ -53,6 +55,15 @@ describe('renderer trace content view models', () => {
     expect(
       traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: memory.correct', payload: { payload: { toolName: 'memory.correct' } } }), 'tools')
     ).toBe('Memory Correction');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: spawn_agent', payload: { payload: { toolName: 'spawn_agent' } } }), 'tools')
+    ).toBe('Spawn Agent Requested');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: followup_task', payload: { payload: { toolName: 'followup_task' } } }), 'tools')
+    ).toBe('Follow-up Task');
+    expect(
+      traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: wait_agent', payload: { payload: { toolName: 'wait_agent' } } }), 'tools')
+    ).toBe('Wait for Agent Activity');
     expect(traceEventSummary(traceEvent({ type: 'model_message', summary: 'Honeycrisp context.compiled: 53k tokens' }), 'agent_output')).toBe('Honeycrisp Context Compiled');
     expect(
       traceEventSummary(
@@ -276,6 +287,54 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(shellRun)).toBe('make test');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
+  });
+
+  it('renders collaboration tool targets, prompts, wait state, and bounded agent lists', () => {
+    const spawn = honeycrispToolObservation(
+      'spawn_agent',
+      { task_name: 'modules', message: 'Audit module entry points.\nPrioritize default loading.', fork_turns: '2', model: 'gpt-5.6-sol', reasoning_effort: 'high' },
+      { agent_id: 'agent_1', task_name: '/root/modules', model: 'gpt-5.6-sol', reasoning_effort: 'high', fork_turns: '2' }
+    );
+    const followup = honeycrispToolObservation(
+      'followup_task',
+      { target: 'modules', message: 'Check the remaining parser path.' },
+      { delivered: true, target: '/root/modules', triggered_turn: true }
+    );
+    const interrupt = honeycrispToolObservation('interrupt_agent', { target: 'modules' }, { target: '/root/modules', previous_status: 'running' });
+    const wait = honeycrispToolObservation('wait_agent', { timeout_ms: 5000 }, { message: 'Agent activity is ready.', timed_out: false });
+    const list = honeycrispToolObservation(
+      'list_agents',
+      {},
+      {
+        agents: Array.from({ length: 7 }, (_, index) => ({
+          id: `agent_${index}`,
+          path: `/root/worker_${index}`,
+          status: index === 0 ? 'running' : 'completed',
+          model: 'gpt-5.6-sol',
+          reasoning_effort: 'high'
+        }))
+      }
+    );
+
+    expect(honeycrispToolTraceSubtext(spawn)).toBe('/root/modules · Last 2 turns · gpt-5.6-sol · High effort');
+    expect(honeycrispCollaborationTraceSummary(spawn)).toBe('Audit module entry points.\nPrioritize default loading.');
+    expect(honeycrispToolTraceSubtext(followup)).toBe('/root/modules · Turn started');
+    expect(honeycrispCollaborationTraceSummary(followup)).toBe('Check the remaining parser path.');
+    expect(honeycrispToolTraceSubtext(interrupt)).toBe('/root/modules · Was Running');
+    expect(honeycrispToolTraceSubtext(wait)).toBe('5s timeout');
+    expect(honeycrispCollaborationTraceSummary(wait)).toBe('Agent activity is ready.');
+    expect(honeycrispToolTraceSubtext(list)).toBe('All agents · 7 agents');
+    expect(honeycrispAgentListResults(list)).toEqual({
+      rows: [
+        '/root/worker_0 · Running · gpt-5.6-sol · High effort',
+        '/root/worker_1 · Completed · gpt-5.6-sol · High effort',
+        '/root/worker_2 · Completed · gpt-5.6-sol · High effort',
+        '/root/worker_3 · Completed · gpt-5.6-sol · High effort',
+        '/root/worker_4 · Completed · gpt-5.6-sol · High effort'
+      ],
+      allRows: Array.from({ length: 7 }, (_, index) => `/root/worker_${index} · ${index === 0 ? 'Running' : 'Completed'} · gpt-5.6-sol · High effort`),
+      count: 7
+    });
   });
 
   it('builds a bounded title list for Honeycrisp memory search results', () => {

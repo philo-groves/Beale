@@ -8,6 +8,8 @@ import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
+  honeycrispAgentListResults,
+  honeycrispCollaborationTraceSummary,
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
   honeycrispMemorySearchResults,
@@ -25,6 +27,7 @@ import {
   verifierTracePreview,
   type CodeBrowserTracePreview,
   type DuplicateBlockedTraceDetail,
+  type HoneycrispAgentListPreview,
   type HoneycrispMemorySearchResultsPreview,
   type HoneycrispShellTraceOutput,
   type PythonToolCallPreview,
@@ -84,15 +87,18 @@ export const TraceEventRow = memo(function TraceEventRow({
   const memoryCorrectionTrace = honeycrispToolNameValue === 'memory.correct';
   const memoryGetTrace = honeycrispToolNameValue === 'memory.get';
   const memorySearchTrace = honeycrispToolNameValue === 'memory.search';
+  const collaborationToolTrace = isCollaborationToolName(honeycrispToolNameValue);
   const memoryCorrectionSummary = memoryCorrectionTrace ? honeycrispMemoryCorrectionSummary(event) : '';
   const memoryGetSummary = memoryGetTrace ? honeycrispMemoryGetSummary(event, detailForEvent) : '';
   const memorySummary = memoryCorrectionSummary || memoryGetSummary;
+  const collaborationSummary = collaborationToolTrace ? honeycrispCollaborationTraceSummary(event) : '';
   const fileReadObservation = honeycrispToolObservation && honeycrispToolNameValue === 'file.read';
   const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
   const toolTraceSubtextPill = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtextPill(event) : null;
   const toolObservationSubtext = honeycrispToolObservation ? toolTraceSubtext : '';
   const emptyMemorySearchObservation = honeycrispToolObservation && isEmptyHoneycrispMemorySearchObservation(event);
   const memorySearchResults = useMemo(() => honeycrispMemorySearchResults(event), [event]);
+  const agentListResults = useMemo(() => honeycrispAgentListResults(event), [event]);
   const shellTraceOutput = useMemo(() => honeycrispShellTraceOutput(event), [event]);
   const structuredContextContent = pythonPreview ? (
     <PythonTracePreview preview={pythonPreview} />
@@ -136,6 +142,11 @@ export const TraceEventRow = memo(function TraceEventRow({
       {hasSearchHighlight ? renderSearchHighlightedText(memorySummary, searchHighlightQuery) : memorySummary}
     </span>
   ) : null;
+  const collaborationSummaryContent = collaborationSummary ? (
+    <span className="main-trace-tool-summary">
+      {hasSearchHighlight ? renderSearchHighlightedText(collaborationSummary, searchHighlightQuery) : collaborationSummary}
+    </span>
+  ) : null;
   const shellOutputContent = shellTraceOutput ? (
     <ShellTraceOutput
       output={shellTraceOutput}
@@ -155,23 +166,36 @@ export const TraceEventRow = memo(function TraceEventRow({
       onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
     />
   ) : null;
+  const agentListResultsContent = agentListResults ? (
+    <AgentListResults
+      results={agentListResults}
+      expanded={limitedOutputExpanded}
+      hasSearchHighlight={hasSearchHighlight}
+      searchHighlightQuery={searchHighlightQuery}
+      onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
+    />
+  ) : null;
   const contextContent = honeycrispToolObservation ? (
-    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace ? 'is-memory-summary' : ''}`}>
+    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace || collaborationSummary ? 'is-natural-summary' : ''}`}>
       {toolSubtextContent}
       {memorySummaryContent}
+      {collaborationSummaryContent}
       {emptyMemorySearchObservation ? (
         <span className="main-trace-tool-empty-memory">No memories were found</span>
       ) : memorySearchTrace ? (
         memorySearchResultsContent
+      ) : honeycrispToolNameValue === 'list_agents' ? (
+        agentListResultsContent
       ) : (
         shellOutputContent ?? structuredContextContent
       )}
     </div>
-  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace) ? (
-    memoryCorrectionTrace || memoryGetTrace ? (
-      <span className="main-trace-tool-observation-detail is-memory-summary">
+  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace || collaborationToolTrace) ? (
+    memoryCorrectionTrace || memoryGetTrace || collaborationToolTrace ? (
+      <span className="main-trace-tool-observation-detail is-natural-summary">
         {toolSubtextContent}
         {memorySummaryContent}
+        {collaborationSummaryContent}
       </span>
     ) : (
       toolSubtextContent
@@ -223,6 +247,35 @@ export const TraceEventRow = memo(function TraceEventRow({
     </div>
   );
 }, traceEventRowPropsEqual);
+
+function AgentListResults({
+  results,
+  expanded,
+  hasSearchHighlight,
+  searchHighlightQuery,
+  onToggleExpanded
+}: {
+  results: HoneycrispAgentListPreview;
+  expanded: boolean;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+  onToggleExpanded: () => void;
+}): JSX.Element {
+  if (results.count === 0) return <span className="main-trace-tool-summary">No agents found</span>;
+  const rows = expanded ? results.allRows : results.rows;
+  return (
+    <TraceCodePreview
+      expanded={expanded}
+      expandable={results.allRows.length > results.rows.length}
+      label="Agents"
+      meta={`${results.count} agent${results.count === 1 ? '' : 's'}`}
+      onToggleExpanded={onToggleExpanded}
+      searchHighlightQuery={hasSearchHighlight ? searchHighlightQuery : ''}
+      text={rows.map((row) => `- ${row}`).join('\n')}
+      truncated={!expanded && results.allRows.length > results.rows.length}
+    />
+  );
+}
 
 function MemorySearchResults({
   results,
@@ -534,4 +587,13 @@ function traceEventNeedsRunDetail(event: TraceDisplayEvent): boolean {
 
 function isHoneycrispMemoryGetRequest(event: TraceDisplayEvent): boolean {
   return honeycrispToolEventKind(event) === 'tool.requested' && honeycrispToolName(event) === 'memory.get';
+}
+
+function isCollaborationToolName(toolName: string | null): boolean {
+  return toolName === 'spawn_agent'
+    || toolName === 'send_message'
+    || toolName === 'followup_task'
+    || toolName === 'interrupt_agent'
+    || toolName === 'list_agents'
+    || toolName === 'wait_agent';
 }

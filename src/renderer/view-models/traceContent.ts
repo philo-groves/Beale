@@ -14,6 +14,15 @@ import {
 } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
+const COLLABORATION_TOOL_LABELS: Readonly<Record<string, string>> = {
+  spawn_agent: 'Spawn Agent',
+  send_message: 'Send Message',
+  followup_task: 'Follow-up Task',
+  interrupt_agent: 'Interrupt Agent',
+  list_agents: 'List Agents',
+  wait_agent: 'Wait for Agent Activity'
+};
+
 const TRACE_SUMMARY_VERBS = new Set([
   'accept',
   'accepted',
@@ -160,12 +169,81 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     if (sshCommand !== null) return sshCommand;
     return [utility, ...args.map(shellArgumentPreview)].join(' ');
   }
+  if (toolName === 'spawn_agent') {
+    const result = tracePayloadRecord(payload, 'result');
+    const taskName = (result ? stringRecordValue(result, 'task_name') : null) ?? stringRecordValue(inputs, 'task_name');
+    const forkTurns = (result ? stringRecordValue(result, 'fork_turns') : null) ?? stringRecordValue(inputs, 'fork_turns') ?? 'all';
+    const model = (result ? stringRecordValue(result, 'model') : null) ?? stringRecordValue(inputs, 'model');
+    const effort = (result ? stringRecordValue(result, 'reasoning_effort') : null) ?? stringRecordValue(inputs, 'reasoning_effort');
+    return [taskName, inheritanceLabel(forkTurns), model, effort ? `${traceLabel(effort)} effort` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'send_message' || toolName === 'followup_task') {
+    const result = tracePayloadRecord(payload, 'result');
+    const target = (result ? stringRecordValue(result, 'target') : null) ?? stringRecordValue(inputs, 'target');
+    const triggeredTurn = result?.triggered_turn === true;
+    return [target, toolName === 'followup_task' && result ? (triggeredTurn ? 'Turn started' : 'Queued') : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'interrupt_agent') {
+    const result = tracePayloadRecord(payload, 'result');
+    const target = (result ? stringRecordValue(result, 'target') : null) ?? stringRecordValue(inputs, 'target');
+    const previousStatus = result ? stringRecordValue(result, 'previous_status') : null;
+    return [target, previousStatus ? `Was ${traceLabel(previousStatus)}` : null].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'list_agents') {
+    const prefix = stringRecordValue(inputs, 'path_prefix');
+    const result = tracePayloadRecord(payload, 'result');
+    const agents = result ? tracePayloadArray(result, 'agents') : null;
+    const count = agents?.length;
+    return [prefix ? `Under ${prefix}` : 'All agents', count === undefined ? null : `${count} agent${count === 1 ? '' : 's'}`].filter((value): value is string => Boolean(value)).join(' · ');
+  }
+  if (toolName === 'wait_agent') {
+    const timeoutMs = numberRecordValue(inputs, 'timeout_ms') ?? 30_000;
+    return `${formatDurationMilliseconds(timeoutMs)} timeout`;
+  }
   if (toolName !== 'memory.get') return '';
 
   const memoryId = stringRecordValue(inputs, 'id');
   if (!memoryId) return '';
   const memoryType = memoryTypeForGetTrace(event, memoryId, detail);
   return memoryType ? `${traceLabel(memoryType)} · ${memoryId}` : memoryId;
+}
+
+export function honeycrispCollaborationTraceSummary(event: TraceEventRecord): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload) return '';
+  const toolName = honeycrispToolName(event);
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  if (!inputs) return '';
+  if (toolName === 'spawn_agent' || toolName === 'send_message' || toolName === 'followup_task') {
+    return stringRecordValue(inputs, 'message') ?? '';
+  }
+  if (toolName !== 'wait_agent' || honeycrispToolEventKind(event) !== 'tool.observed') return '';
+  const result = tracePayloadRecord(payload, 'result');
+  return result ? stringRecordValue(result, 'message') ?? '' : '';
+}
+
+export interface HoneycrispAgentListPreview {
+  rows: string[];
+  allRows: string[];
+  count: number;
+}
+
+export function honeycrispAgentListResults(event: TraceEventRecord, maxRows = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): HoneycrispAgentListPreview | null {
+  if (honeycrispToolEventKind(event) !== 'tool.observed' || honeycrispToolName(event) !== 'list_agents') return null;
+  const payload = honeycrispEventToolPayload(event);
+  const result = payload ? tracePayloadRecord(payload, 'result') : null;
+  const agents = result ? tracePayloadArray(result, 'agents') : null;
+  if (!agents) return null;
+  const allRows = agents.flatMap((value) => {
+    if (!isRecord(value)) return [];
+    const path = stringRecordValue(value, 'path');
+    if (!path) return [];
+    const status = stringRecordValue(value, 'status');
+    const model = stringRecordValue(value, 'model');
+    const effort = stringRecordValue(value, 'reasoning_effort');
+    return [[path, status ? traceLabel(status) : null, model, effort ? `${traceLabel(effort)} effort` : null].filter((part): part is string => Boolean(part)).join(' · ')];
+  });
+  return { rows: allRows.slice(0, maxRows), allRows, count: allRows.length };
 }
 
 export function honeycrispMemoryCorrectionSummary(event: TraceEventRecord): string {
@@ -1008,13 +1086,38 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     tracePayloadPrimitive(event.payload, 'toolName') ??
     (nestedPayload ? stringRecordValue(nestedPayload, 'toolName') : null) ??
     honeycrispToolNameFromSummary(summary);
-  const label = toolName === 'shell.run' ? 'Shell' : toolName === 'memory.correct' ? 'Memory Correction' : toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool';
+  const collaborationLabel = toolName ? COLLABORATION_TOOL_LABELS[toolName] : undefined;
+  const label = toolName === 'shell.run'
+    ? 'Shell'
+    : toolName === 'memory.correct'
+      ? 'Memory Correction'
+      : collaborationLabel ?? (toolName ? traceLabel(toolName.replace(/[^a-zA-Z0-9]+/g, '_')) : 'Tool');
   return action === 'Requested' ? `${label} Requested` : label;
 }
 
 function honeycrispToolNameFromSummary(summary: string): string | null {
   const match = summary.match(/^Honeycrisp tool\.(?:requested|observed):\s*([a-zA-Z][a-zA-Z0-9_.-]*?)\s*\.?$/);
   return match?.[1] ?? null;
+}
+
+function inheritanceLabel(forkTurns: string): string {
+  if (forkTurns === 'all') return 'Full context';
+  if (forkTurns === 'none') return 'Fresh context';
+  return `Last ${forkTurns} turn${forkTurns === '1' ? '' : 's'}`;
+}
+
+function formatDurationMilliseconds(milliseconds: number): string {
+  if (milliseconds >= 1_000 && milliseconds % 1_000 === 0) return `${milliseconds / 1_000}s`;
+  return `${milliseconds}ms`;
+}
+
+function numberRecordValue(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function startsWithTraceVerb(summary: string): boolean {

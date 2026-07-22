@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Stopping a Honeycrisp session now cancels the root and all running subagents through the control stream before Beale falls back to process-group termination; model calls that produce no response events for three minutes are retried instead of holding the agent tree indefinitely.
+- Honeycrisp agent sessions now compact older bulky tool results before context exhaustion, retry once with forced compaction after a context-window rejection, cap collaboration waits at one minute, and return leaf/idle waits immediately so root and child sessions cannot silently stall on irrelevant `wait_agent` calls.
 - Session heat now derives only from current-session Honeycrisp primitive and chain memories: suspected/confirmed primitives map to low/medium, suspected/confirmed chains map to high/critical, and rejected memories immediately stop contributing. Background pulse momentum now recognizes Honeycrisp graph mutations and recent session chains instead of legacy Beale hypothesis/finding records.
 - Subagent trace navigation now places Back to Main at the upper-right of the transcript instead of over the session sidebar.
 - Trace detail modals now open from the trace icon only, leaving trace content selectable and copyable while preserving row hover feedback.
@@ -19,6 +21,7 @@
 
 ### Added
 
+- Formalized Honeycrisp `hypothesis` memory as a testable unproven proposition with suspected/rejected lifecycle guidance and required reclassification to a primitive or chain when proven; `evidence` and `finding` remain excluded as memory node types.
 - Added inline expand/collapse controls for truncated file-read excerpts and Shell stdout previews.
 - Added Settings > Shell Options with user-global default and per-utility concurrency limits; a limit of `0` disables the utility and `sudo` is disabled by default.
 - Added Honeycrisp's argv-based `shell.run` research tool with harness-wide cross-process utility leases, bounded runtime/output, and credential-like environment filtering.
@@ -26,6 +29,7 @@
 - Added component-scoped, transactional SQLite migrations for the shared Honeycrisp database and user-global workspace registry, including in-place baseline adoption for existing data.
 - Added Memory and Subagents tabs to the session sidebar, including child summaries with latest activity, agent-scoped trace navigation, and a Back to Main control.
 - Added Codex-style Honeycrisp subagent orchestration with bounded concurrency, optional conversation inheritance, child model/effort selection, inter-agent messaging and follow-ups, interruption, waiting, agent-aware Beale traces, and captured child run metadata.
+- Added requested/observed trace pairs for all Honeycrisp collaboration tools, with caller attribution, concise targets and status metadata, task/message content, wait outcomes, and bounded agent-list results.
 - Added tiered Honeycrisp memory for session-local, workspace-reusable, and same-subject reusable knowledge. Beale supplies explicit peer database references only for registered workspaces with the same normalized scope owner or subject.
 - Added run-start repository acquisition for explicit GitHub and GitLab repository URLs. Beale materializes source in the user-global repository store and records workspace-local source references before Honeycrisp starts.
 - Added structured recorded-scope authorization context to the Beale-to-Honeycrisp handoff so authorized workspace research does not depend on prompt-section wording.

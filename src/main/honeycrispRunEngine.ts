@@ -75,6 +75,7 @@ interface ActiveHoneycrispRun {
   stopped: boolean;
   stopReason: 'user' | 'time_limit' | null;
   budgetTimer: NodeJS.Timeout | null;
+  forceStopTimer: NodeJS.Timeout | null;
   liveHoneycrispEventIds: Set<string>;
   liveReasoningSummaries: Map<string, HoneycrispLiveReasoningSummaryState>;
 }
@@ -178,6 +179,7 @@ const HONEYCRISP_MIXED_USAGE_SOURCE = 'Honeycrisp reported total plus capture es
 const HONEYCRISP_EVENT_PREFIX = 'HONEYCRISP_EVENT ';
 const CONTINUATION_CONTEXT_MAX_CHARS = 32_000;
 const UNBOUNDED_RUN_MINUTES = 999_999;
+const HONEYCRISP_STOP_GRACE_MS = 1_500;
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -365,6 +367,7 @@ export class HoneycrispRunEngine {
       stopped: false,
       stopReason: null,
       budgetTimer: null,
+      forceStopTimer: null,
       liveHoneycrispEventIds: new Set(),
       liveReasoningSummaries: new Map()
     };
@@ -379,11 +382,13 @@ export class HoneycrispRunEngine {
     const completion = new Promise<void>((resolveCompletion) => {
       child.once('error', (error) => {
         this.clearTimeLimit(active);
+        this.clearForceStopTimer(active);
         this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
         resolveCompletion();
       });
       child.once('close', (code, signal) => {
         this.clearTimeLimit(active);
+        this.clearForceStopTimer(active);
         stdout.flush();
         stderr.flush();
         this.activeRuns.delete(context.run.id);
@@ -407,13 +412,25 @@ export class HoneycrispRunEngine {
   }
 
   private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit'): void {
+    if (active.stopped) return;
     active.stopped = true;
     active.stopReason = reason;
     this.clearTimeLimit(active);
     if (active.paused && process.platform !== 'win32') {
       signalHoneycrispProcess(active.child, 'SIGCONT');
     }
-    signalHoneycrispProcess(active.child, 'SIGTERM');
+    try {
+      this.sendControl(active, { schemaVersion: 1, type: 'stop' });
+    } catch {
+      signalHoneycrispProcess(active.child, 'SIGTERM');
+      return;
+    }
+    active.forceStopTimer = setTimeout(() => {
+      active.forceStopTimer = null;
+      if (this.activeRuns.get(active.context.run.id) !== active) return;
+      signalHoneycrispProcess(active.child, 'SIGTERM');
+    }, HONEYCRISP_STOP_GRACE_MS);
+    active.forceStopTimer.unref();
   }
 
   private armTimeLimit(active: ActiveHoneycrispRun, maxMinutes: number): void {
@@ -441,6 +458,12 @@ export class HoneycrispRunEngine {
     if (!active.budgetTimer) return;
     clearTimeout(active.budgetTimer);
     active.budgetTimer = null;
+  }
+
+  private clearForceStopTimer(active: ActiveHoneycrispRun): void {
+    if (!active.forceStopTimer) return;
+    clearTimeout(active.forceStopTimer);
+    active.forceStopTimer = null;
   }
 
   public pause(runId: string): boolean {
@@ -542,6 +565,14 @@ export class HoneycrispRunEngine {
         this.recordSubagentActivity(context, event);
         return;
       }
+      if (eventType === 'context_compacted') {
+        this.recordAgentContextCompaction(context, event);
+        return;
+      }
+      if (eventType === 'model_retry') {
+        this.recordAgentModelRetry(context, event);
+        return;
+      }
       if (eventType !== 'turn_completed') return;
       const turn = numberPayload(event.payload ?? {}, 'turn');
       const agentPath = stringPayload(event.payload ?? {}, 'agentPath');
@@ -601,6 +632,53 @@ export class HoneycrispRunEngine {
       });
       this.onChange();
     }
+  }
+
+  private recordAgentContextCompaction(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const payload = event.payload ?? {};
+    const reactive = payload.reason === 'context_window_error';
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary: reactive
+        ? 'OpenAI context window pressure triggered compacted retry.'
+        : 'Honeycrisp compacted agent context.',
+      payload: {
+        honeycrispLiveKind: event.kind,
+        honeycrispTimestamp: event.timestamp ?? null,
+        transcriptRole: 'system',
+        ...payload
+      },
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange();
+  }
+
+  private recordAgentModelRetry(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+    const payload = event.payload ?? {};
+    const errorMessage = stringPayload(payload, 'errorMessage') ?? 'Transient model error.';
+    const silentStream = errorMessage.includes('produced no content');
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary: silentStream
+        ? 'Honeycrisp retried a silent model stream.'
+        : 'Honeycrisp retried a transient model error.',
+      payload: {
+        honeycrispLiveKind: event.kind,
+        honeycrispTimestamp: event.timestamp ?? null,
+        transcriptRole: 'system',
+        ...payload
+      },
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange();
   }
 
   private recordSubagentActivity(context: CreatedRunContext, event: HoneycrispLiveEvent): void {

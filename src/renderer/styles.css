@@ -4476,7 +4476,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   gap: 6px;
 }
 
-.main-trace-tool-observation-detail.is-memory-summary {
+.main-trace-tool-observation-detail.is-natural-summary {
   gap: 2px;
 }
 
@@ -4513,7 +4513,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   white-space: pre-wrap;
 }
 
-.main-trace-memory-summary {
+.main-trace-memory-summary,
+.main-trace-tool-summary {
   min-width: 0;
   display: block;
   overflow: visible;

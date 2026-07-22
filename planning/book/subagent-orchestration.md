@@ -45,13 +45,19 @@ Full-history children use the parent's model and reasoning effort. Partial-histo
 
 `interrupt_agent` aborts an active child turn but preserves the child session for inspection or later follow-up. It cannot interrupt the root or the caller itself.
 
-`list_agents` returns the current tree with paths, status, model, effort, inheritance mode, result, and error state. `wait_agent` waits for mailbox or lifecycle activity; completion and failure notices are also injected into the parent's conversation.
+Stopping the root research session is different from interrupting one child: Beale sends a Honeycrisp stop control that aborts the root signal and every pending or running descendant. Each affected child is recorded as interrupted. Beale retains process-group termination as a short fallback when the Honeycrisp control stream is unavailable or does not close promptly.
+
+`list_agents` returns the current tree with paths, status, model, effort, inheritance mode, result, and error state. `wait_agent` waits for mailbox or descendant lifecycle activity for at most one minute; it returns immediately when the caller has no running descendants. Completion and failure notices are also injected into the parent's conversation. This prevents a leaf or completed tree from holding the session open on an irrelevant long wait.
+
+Root and child model contexts are bounded independently from the durable session trace. Honeycrisp keeps the task and recent turns, compacts older bulky tool results proactively, and retries once with forced compaction after a provider context-window rejection. Beale records the compaction event while the complete research-tool observations remain in Honeycrisp-owned session storage.
+
+Honeycrisp also bounds the time to the first model response event. A stream that produces no content for three minutes is aborted and retried through the normal transient-error path, preventing one silent provider call from leaving the root waiting forever on an apparently running child.
 
 ## Capture And Beale Presentation
 
 Honeycrisp flow captures store child identity, parent, path, status, model, reasoning effort, inheritance mode, timestamps, output, error, turn count, tool count, and model-call metadata under `agent.raw.subagents`.
 
-Beale records child lifecycle events, research-tool activity, and agent-aware model turns in the session trace. Child thoughts are keyed by agent path so concurrent response ids cannot overwrite root or sibling state. Root and child turns receive distinct list groups, and child token use contributes to total session use without replacing the root agent's latest context reading.
+Beale records child lifecycle events, research-tool activity, collaboration-tool activity, and agent-aware model turns in the session trace. Every `spawn_agent`, `send_message`, `followup_task`, `interrupt_agent`, `list_agents`, and `wait_agent` call emits a caller-attributed requested/observed pair through the same durable Honeycrisp event contract as research tools. Pending requests remain visible until their observation arrives; completed calls show targets, inheritance/model choices, task or message text, wait outcomes, interrupt state, or bounded agent-list results as appropriate. Child thoughts are keyed by agent path so concurrent response ids cannot overwrite root or sibling state. Root and child turns receive distinct list groups, and child token use contributes to total session use without replacing the root agent's latest context reading.
 
 The session sidebar defaults to Memory and provides a Subagents tab derived from persisted trace metadata. Each child row shows its canonical name, latest message preview, status, and compact time since activity. Selecting a child filters the existing trace list to that exact agent path; Back to Main restores the complete session trace. This presentation adds no separate subagent persistence model, so replayed and future headless sessions use the same Honeycrisp-owned session data.
 
