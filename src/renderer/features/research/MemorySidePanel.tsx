@@ -121,17 +121,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               />
             </label>
             <select
-              className="memory-catalog-filter memory-catalog-type-filter"
-              value={type}
-              aria-label="Memory type filter"
-              onChange={(event) => setType(event.target.value)}
-            >
-              <option value="all">All Type</option>
-              {nodeTypes.map((nodeType) => (
-                <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
-              ))}
-            </select>
-            <select
               className="memory-catalog-filter memory-catalog-level-filter"
               value={scope}
               aria-label="Memory level filter"
@@ -140,6 +129,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <option value="session">Session</option>
               <option value="workspace">Workspace</option>
               <option value="subject">Subject</option>
+            </select>
+            <select
+              className="memory-catalog-filter memory-catalog-type-filter"
+              value={type}
+              aria-label="Memory type filter"
+              onChange={(event) => setType(event.target.value)}
+            >
+              <option value="all">All Memories</option>
+              {nodeTypes.map((nodeType) => (
+                <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
+              ))}
             </select>
           </div>
 
