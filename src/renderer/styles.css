@@ -3425,7 +3425,7 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: 12px 27px minmax(0, 1fr);
+  grid-template-columns: 4px 27px minmax(0, 1fr);
   gap: 7px;
   align-items: stretch;
   justify-content: stretch;
@@ -3440,7 +3440,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .main-trace-event::before {
   content: "";
-  width: 12px;
+  width: 4px;
 }
 
 .main-trace-event:hover,
