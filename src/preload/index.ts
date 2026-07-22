@@ -18,6 +18,9 @@ import type {
   WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   StartRunInput,
@@ -97,6 +100,12 @@ const api: BealeApi = {
   },
   refreshOpenAiStatus() {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshOpenAiStatus);
+  },
+  getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderStatuses);
+  },
+  startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startResearchProviderOAuth, providerId);
   },
   getProfilingState(): Promise<ProfilingState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getProfilingState);

@@ -10,6 +10,7 @@ import { FixtureRunEngine } from './fixtureRunEngine';
 import { checkpointDatabaseFile, WorkspaceDatabase } from './database';
 import { OpenAiApiError, OpenAiResponsesAdapter, openAiApiErrorFromEvent, type FetchLike, type OpenAiStreamEvent } from './openaiAdapter';
 import { OpenAiAuthService } from './openaiAuth';
+import { ResearchProviderAuthService } from './researchProviderAuth';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
 import { WorkspaceRegistry } from './workspaceRegistry';
@@ -70,6 +71,9 @@ import type {
   HostEnvironment,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
   ProfilingMetricDetail,
   ProfilingReport,
   ProfilingState,
@@ -295,6 +299,7 @@ export class WorkspaceService {
   private fixtureEngine: FixtureRunEngine | null = null;
   private honeycrispEngine: HoneycrispRunEngine | null = null;
   private readonly openAiAuth = new OpenAiAuthService();
+  private readonly researchProviderAuth = new ResearchProviderAuthService();
   private readonly profiling = new ProfilingService();
   private workspaceRegistry: WorkspaceRegistry | null = null;
   private workspacePath: string | null = null;
@@ -804,6 +809,14 @@ export class WorkspaceService {
     const result = await this.openAiAuth.startOAuthLogin();
     this.emitChange();
     return result;
+  }
+
+  public getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
+    return this.researchProviderAuth.getStatuses();
+  }
+
+  public startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
+    return this.researchProviderAuth.startOAuthLogin(providerId);
   }
 
   public async generateResearchPrompt(input: ResearchPromptGenerationInput | null = null, onUpdate?: ResearchPromptGenerationUpdateHandler): Promise<GeneratedResearchPrompt> {
@@ -1767,6 +1780,7 @@ export class WorkspaceService {
     this.close();
     this.profiling.dispose();
     this.openAiAuth.dispose();
+    this.researchProviderAuth.dispose();
     this.workspaceRegistry?.close();
     this.workspaceRegistry = null;
   }

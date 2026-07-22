@@ -6642,6 +6642,7 @@ body.is-resizing-research-side .main-session-grid {
 .readiness-empty .status-icon,
 .readiness-queued .status-icon,
 .readiness-stale .status-icon,
+.readiness-unavailable .status-icon,
 .readiness-oauth_command_failed .status-icon,
 .readiness-oauth-command-failed .status-icon,
 .readiness-not_configured .status-icon,

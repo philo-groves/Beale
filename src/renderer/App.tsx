@@ -8,6 +8,9 @@ import type {
   HoneycrispMemoryDirectorySummary,
   NotificationRecord,
   OpenAiOAuthStartResult,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
   SessionTranscriptSearchResult,
@@ -66,6 +69,8 @@ export function App(): JSX.Element {
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
+  const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
+  const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -259,12 +264,32 @@ export function App(): JSX.Element {
       } else {
         setOpenAiStatus(await window.beale.getOpenAiStatus());
       }
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
   }, [applySnapshot, snapshot]);
+
+  const loadResearchProviderStatuses = useCallback(async (): Promise<void> => {
+    try {
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
+    void loadResearchProviderStatuses();
+  }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
+    const timer = window.setInterval(() => void loadResearchProviderStatuses(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [loadResearchProviderStatuses, researchProviderStatuses, settingsOpen]);
 
   const setDeveloperModeEnabled = useCallback(
     async (enabled: boolean): Promise<void> => {
@@ -301,6 +326,20 @@ export function App(): JSX.Element {
       const result = await window.beale.startOpenAiOAuth();
       setOpenAiOAuthResult(result);
       setOpenAiStatus(await window.beale.getOpenAiStatus());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const startResearchProviderOAuth = useCallback(async (providerId: ResearchProviderId) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.beale.startResearchProviderOAuth(providerId);
+      setResearchProviderOAuthResults((current) => ({ ...current, [providerId]: result }));
+      setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -537,6 +576,8 @@ export function App(): JSX.Element {
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
+        researchProviderOAuthResults={researchProviderOAuthResults}
+        researchProviderStatuses={researchProviderStatuses}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
@@ -582,6 +623,7 @@ export function App(): JSX.Element {
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
         onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}
+        onStartResearchProviderOAuth={startResearchProviderOAuth}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {

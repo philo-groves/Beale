@@ -345,6 +345,7 @@ describe('Beale workbench skeleton', () => {
         "if (!capturePath) throw new Error('missing --capture');",
         "if (!args.includes('--event-stream')) throw new Error('missing --event-stream');",
         "if (args[args.indexOf('--executor') + 1] !== 'agent') throw new Error('missing agent executor');",
+        "if (args[args.indexOf('--provider') + 1] !== 'xai') throw new Error('missing xAI provider');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
@@ -417,6 +418,7 @@ describe('Beale workbench skeleton', () => {
       ...runInput('adaptive_portfolio'),
       runEngine: 'honeycrisp',
       promptMarkdown: '# Honeycrisp fixture\nRun through the host adapter.',
+      provider: 'xai',
       model: 'fixture-model',
       reasoningEffort: 'minimal'
     });
@@ -430,6 +432,7 @@ describe('Beale workbench skeleton', () => {
     const detail = service.getRunDetail(runId ?? '');
     expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
     expect(detail.modelSessions[0]?.metadata).toMatchObject({
+      provider: 'xai',
       latestReportedInputTokens: 12345,
       latestReportedTotalTokens: 14123,
       latestContextUsageSource: 'Honeycrisp reported model usage',

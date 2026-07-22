@@ -821,8 +821,38 @@ export interface OpenAiOAuthStartResult {
   instructions: string | null;
 }
 
+export type ResearchProviderId = 'anthropic' | 'xai';
+
+export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
+
+export interface ResearchProviderStatus {
+  id: ResearchProviderId;
+  name: string;
+  configured: boolean;
+  readiness: ResearchProviderReadiness;
+  authMethods: ('api_key' | 'oauth')[];
+  credentialType: 'api_key' | 'oauth' | null;
+  source: string | null;
+  defaultModel: string | null;
+  credentialsHostOnly: boolean;
+  loginInProgress: boolean;
+  statusDetail: string;
+  apiKeyEnvironmentVariable: 'ANTHROPIC_API_KEY' | 'XAI_API_KEY';
+}
+
+export interface ResearchProviderOAuthStartResult {
+  providerId: ResearchProviderId;
+  started: boolean;
+  command: string;
+  detail: string;
+  verificationUri: string | null;
+  userCode: string | null;
+  instructions: string | null;
+}
+
 export interface StartRunInput {
   runEngine: RunEngineKind;
+  provider?: string;
   promptMarkdown: string;
   mode: string;
   attemptStrategy: string;
@@ -1320,6 +1350,8 @@ export interface BealeApi {
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
+  getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
+  startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;

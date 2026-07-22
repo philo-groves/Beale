@@ -6,6 +6,9 @@ import type {
   DeveloperSettings,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
   ShellOptions
 } from '@shared/types';
 import { Modal } from '../../app/Modal';
@@ -21,13 +24,16 @@ export function SettingsModal({
   workspaceName,
   openAiStatus,
   openAiOAuthResult,
+  researchProviderOAuthResults,
+  researchProviderStatuses,
   busy,
   onChangeSection,
   onClose,
   onSetDeveloperModeEnabled,
   onSaveShellOptions,
   onRefreshOpenAi,
-  onStartOpenAiOAuth
+  onStartOpenAiOAuth,
+  onStartResearchProviderOAuth
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
@@ -35,6 +41,8 @@ export function SettingsModal({
   workspaceName: string | null;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
@@ -42,6 +50,7 @@ export function SettingsModal({
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
   const sections: SettingsSection[] = ['general', 'providers', 'shell', 'developer'];
   const activeSection = sections.includes(section) ? section : 'general';
@@ -69,7 +78,16 @@ export function SettingsModal({
           {activeSection === 'general' ? (
             <GeneralSettingsView workspaceName={workspaceName} />
           ) : activeSection === 'providers' ? (
-            <ProvidersSettingsView busy={busy} openAiOAuthResult={openAiOAuthResult} openAiStatus={openAiStatus} onRefreshOpenAi={onRefreshOpenAi} onStartOpenAiOAuth={onStartOpenAiOAuth} />
+            <ProvidersSettingsView
+              busy={busy}
+              openAiOAuthResult={openAiOAuthResult}
+              openAiStatus={openAiStatus}
+              researchProviderOAuthResults={researchProviderOAuthResults}
+              researchProviderStatuses={researchProviderStatuses}
+              onRefreshOpenAi={onRefreshOpenAi}
+              onStartOpenAiOAuth={onStartOpenAiOAuth}
+              onStartResearchProviderOAuth={onStartResearchProviderOAuth}
+            />
           ) : activeSection === 'shell' ? (
             <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
           ) : (
@@ -253,15 +271,21 @@ function DeveloperSettingsView({
 function ProvidersSettingsView({
   openAiStatus,
   openAiOAuthResult,
+  researchProviderOAuthResults,
+  researchProviderStatuses,
   busy,
   onRefreshOpenAi,
-  onStartOpenAiOAuth
+  onStartOpenAiOAuth,
+  onStartResearchProviderOAuth
 }: {
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
   const readiness = openAiStatus?.readiness ?? 'not_configured';
   const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
@@ -276,7 +300,7 @@ function ProvidersSettingsView({
     <div className="settings-page provider-settings-page">
       <div className="settings-page-header">
         <h3>Providers</h3>
-        <button type="button" title="Refresh OpenAI provider status" disabled={busy} onClick={refresh}>
+        <button type="button" title="Refresh provider status" disabled={busy} onClick={refresh}>
           <RefreshCw size={15} />
           Refresh
         </button>
@@ -287,7 +311,7 @@ function ProvidersSettingsView({
             <KeyRound size={18} />
           </div>
           <div>
-            <h4>OpenAI</h4>
+            <h4>OpenAI (Codex)</h4>
             <p>{openAiStatus?.label ?? 'Checking provider status'}</p>
           </div>
           <StatusPill status={readiness} />
@@ -342,6 +366,111 @@ function ProvidersSettingsView({
           ) : null}
         </div>
       </section>
+      {researchProviderStatuses.map((provider) => (
+        <ResearchProviderCard
+          key={provider.id}
+          provider={provider}
+          result={researchProviderOAuthResults[provider.id] ?? null}
+          busy={busy}
+          onAuthenticate={() => void onStartResearchProviderOAuth(provider.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ResearchProviderCard({
+  provider,
+  result,
+  busy,
+  onAuthenticate
+}: {
+  provider: ResearchProviderStatus;
+  result: ResearchProviderOAuthStartResult | null;
+  busy: boolean;
+  onAuthenticate: () => void;
+}): JSX.Element {
+  const authenticateLabel = provider.loginInProgress
+    ? 'Authentication Running'
+    : provider.configured
+      ? 'Re-authenticate'
+      : 'Authenticate';
+  const authLabel = provider.credentialType === 'api_key'
+    ? 'API key'
+    : provider.credentialType === 'oauth'
+      ? 'OAuth'
+      : provider.configured
+        ? 'Host environment'
+        : 'Not configured';
+
+  return (
+    <section className={`provider-card readiness-${stateClass(provider.readiness)}`}>
+      <div className="provider-heading">
+        <div className="status-icon">
+          <KeyRound size={18} />
+        </div>
+        <div>
+          <h4>{provider.name}</h4>
+          <p>{provider.configured ? `${authLabel} ready` : provider.loginInProgress ? 'Waiting for provider sign-in' : 'Provider authentication required'}</p>
+        </div>
+        <StatusPill status={provider.readiness} />
+      </div>
+
+      <div className="provider-grid">
+        <div>
+          <span>Source</span>
+          <strong>{provider.source ?? 'not configured'}</strong>
+        </div>
+        <div>
+          <span>Authentication</span>
+          <strong>{authLabel}</strong>
+        </div>
+        <div>
+          <span>Model</span>
+          <strong>{provider.defaultModel ?? 'unavailable'}</strong>
+        </div>
+        <div>
+          <span>Boundary</span>
+          <strong>{provider.credentialsHostOnly ? 'host only' : 'review'}</strong>
+        </div>
+      </div>
+
+      <p className="provider-detail">{provider.statusDetail}</p>
+      <p className="provider-detail muted">
+        API-key authentication is also available through <code>{provider.apiKeyEnvironmentVariable}</code> in Beale's host environment.
+      </p>
+      {provider.id === 'anthropic' ? (
+        <p className="provider-detail provider-billing-note">Claude Pro/Max use from third-party harnesses is billed as API usage rather than drawing from plan limits.</p>
+      ) : null}
+
+      {result ? <ProviderOAuthResult result={result} /> : null}
+
+      <div className="provider-actions">
+        <button className="primary-button" type="button" disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable'} onClick={onAuthenticate}>
+          <KeyRound size={15} />
+          {authenticateLabel}
+        </button>
+        <div className="command-row">
+          <Terminal size={15} />
+          <code>honeycrisp auth login {provider.id}</code>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProviderOAuthResult({ result }: { result: ResearchProviderOAuthStartResult }): JSX.Element {
+  return (
+    <div className="provider-oauth-result">
+      <strong>{result.detail}</strong>
+      {result.verificationUri ? <code>{result.verificationUri}</code> : null}
+      {result.userCode ? (
+        <div>
+          <span>Code</span>
+          <code>{result.userCode}</code>
+        </div>
+      ) : null}
+      {result.instructions && !result.verificationUri ? <pre>{result.instructions}</pre> : null}
     </div>
   );
 }

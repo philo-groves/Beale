@@ -13,6 +13,7 @@ import type {
   WorkspaceOnboardingSkipInput,
   WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
+  ResearchProviderId,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
   ShellOptions,
@@ -401,6 +402,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getOpenAiStatus, () => workspaceService.getOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
+  ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
+  ipcMain.handle(IPC_CHANNELS.startResearchProviderOAuth, async (_event, providerId: ResearchProviderId) => {
+    const result = await workspaceService.startResearchProviderOAuth(providerId);
+    if (result.verificationUri) {
+      const url = new URL(result.verificationUri);
+      if (url.protocol !== 'https:') throw new Error('Provider authentication returned an untrusted URL.');
+      await shell.openExternal(url.href);
+    }
+    return result;
+  });
   ipcMain.handle(IPC_CHANNELS.getProfilingState, () => workspaceService.getProfilingState());
   ipcMain.handle(IPC_CHANNELS.setProfilingEnabled, (_event, enabled: boolean) => workspaceService.setProfilingEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.recordProfilingReport, (_event, report: ProfilingReport) => workspaceService.recordProfilingReport(report));

@@ -7,6 +7,9 @@ import type {
   NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchProviderId,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus,
   ProfilingReport,
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
@@ -40,6 +43,8 @@ export function AppModals({
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
+  researchProviderOAuthResults,
+  researchProviderStatuses,
   profilingOpen,
   profilingState,
   lastProfilingReport,
@@ -82,6 +87,7 @@ export function AppModals({
   onSetDeveloperModeEnabled,
   onSaveShellOptions,
   onStartOpenAiOAuth,
+  onStartResearchProviderOAuth,
   onStartedNewResearch,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
@@ -98,6 +104,8 @@ export function AppModals({
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
+  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderStatuses: ResearchProviderStatus[];
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
@@ -140,6 +148,7 @@ export function AppModals({
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
+  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
@@ -165,6 +174,8 @@ export function AppModals({
       {newResearchOpen && snapshot ? (
         <StartRunForm
           snapshot={snapshot}
+          openAiStatus={openAiStatus}
+          researchProviderStatuses={researchProviderStatuses}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}
@@ -179,6 +190,8 @@ export function AppModals({
           workspaceName={activeWorkspaceName}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
+          researchProviderOAuthResults={researchProviderOAuthResults}
+          researchProviderStatuses={researchProviderStatuses}
           busy={busy}
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
@@ -186,6 +199,7 @@ export function AppModals({
           onSaveShellOptions={onSaveShellOptions}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}
+          onStartResearchProviderOAuth={onStartResearchProviderOAuth}
         />
       ) : null}
       {profilingOpen ? (

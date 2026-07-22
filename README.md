@@ -69,7 +69,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - List-only Honeycrisp memory catalog with search, tier/type filters, inline details, references, and textual relationships
 - Workspace-scoped Jupyter-format runbooks with revisioned procedure cells, bounded recorded outputs, and dedicated Honeycrisp tools and Beale sidebar visibility
 - Steering for active sessions
-- OpenAI provider onboarding/status UI
+- Codex, Anthropic (Claude), and xAI (Grok/X) provider onboarding/status UI
 - Opt-in local profiling that writes structured JSONL reports
 - Planning documents and architecture notes in the `planning/` directory
 - No public releases yet
@@ -142,11 +142,11 @@ Beale does not create a managed execution sandbox. Honeycrisp runs with the curr
 
 ---
 
-## OpenAI Notes
+## Model Provider Notes
 
-Live model runs require OpenAI credentials with Responses API access.
+Codex remains the default. Honeycrisp's Pi runtime also supports Anthropic and xAI through subscription OAuth in Settings > Providers or through `ANTHROPIC_API_KEY` and `XAI_API_KEY` in Beale's host environment.
 
-OpenAI credentials stay in the host process and are not exposed to the renderer.
+Provider credentials stay in the trusted host runtime and are not copied into model-visible context, traces, or the global database.
 
 ---
 

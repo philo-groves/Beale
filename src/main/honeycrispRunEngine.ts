@@ -206,7 +206,7 @@ export class HoneycrispRunEngine {
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
-      budget: { ...input.budget, runEngine: 'honeycrisp' },
+      budget: { ...input.budget, runEngine: 'honeycrisp', modelProvider: input.provider?.trim() || null },
       vmBackend: 'host',
       vmImageId: 'host-machine',
       vmSnapshotId: 'none',
@@ -224,6 +224,7 @@ export class HoneycrispRunEngine {
       transport: 'host_process',
       status: 'active',
       metadata: {
+        provider: input.provider?.trim() || null,
         model: input.model,
         reasoningEffort: input.reasoningEffort
       }
@@ -236,6 +237,7 @@ export class HoneycrispRunEngine {
       summary: 'Honeycrisp research run started from markdown prompt.',
       payload: {
         runEngine: 'honeycrisp',
+        provider: input.provider?.trim() || null,
         sandboxProfile: input.sandboxProfile
       },
       vmContextId: context.vmContext.id
@@ -282,6 +284,7 @@ export class HoneycrispRunEngine {
       transport: 'host_process',
       status: 'active',
       metadata: {
+        provider: continuationInput.provider?.trim() || null,
         model: run.model,
         reasoningEffort: run.reasoningEffort,
         continuation: true,
@@ -1259,7 +1262,7 @@ function honeycrispRunArgs(
   if (configPath) {
     args.push('--config', configPath);
   }
-  const provider = process.env.BEALE_HONEYCRISP_PROVIDER?.trim();
+  const provider = process.env.BEALE_HONEYCRISP_PROVIDER?.trim() || input.provider?.trim();
   if (provider) {
     args.push('--provider', provider);
   }
@@ -1276,6 +1279,7 @@ function honeycrispRunArgs(
 
 function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunInput {
   return {
+    provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
     promptMarkdown,
     mode: run.mode,
     attemptStrategy: run.attemptStrategy,

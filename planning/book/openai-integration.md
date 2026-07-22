@@ -1,6 +1,6 @@
 # OpenAI Integration
 
-Status: accepted initial direction, 2026-04-26.
+Status: accepted initial direction, expanded for Pi provider compatibility 2026-07-22.
 
 ## Decision
 
@@ -124,3 +124,15 @@ The first implementation should be:
 6. Beale-owned orchestration around OpenAI model/tool APIs.
 
 Other providers and non-OpenAI account modes can be supported later only if they do not weaken the v1 workbench design.
+
+## Pi Provider Compatibility
+
+Codex remains Beale's default provider and `gpt-5.6-sol` remains the default research model. Honeycrisp's Pi runtime also supports first-class Anthropic and xAI execution:
+
+- Anthropic uses the Pi provider id `anthropic`, with Claude Pro/Max OAuth or `ANTHROPIC_API_KEY`.
+- xAI uses the Pi provider id `xai`, with Grok/X subscription OAuth or `XAI_API_KEY`.
+- Provider OAuth credentials remain in Honeycrisp's host-only credential store; API keys are read only from the trusted host process environment.
+- Beale displays provider readiness and Pi's current default model without placing credential values in renderer diagnostics, traces, workspace context, or the global database.
+- New Research selects a provider by applying that provider's current Pi model id. Honeycrisp remains authoritative for resolving the provider/model pair and refreshing OAuth credentials.
+
+This is an additive compatibility surface around the Honeycrisp/Pi runtime, not a replacement for the OpenAI-specific Responses API adapter used by Beale-owned prompt generation and imports.

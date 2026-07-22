@@ -81,6 +81,7 @@ describe('plan conformance', () => {
       (hit) =>
         ![
           'src/main/openaiAuth.ts',
+          'src/main/researchProviderAuth.ts',
           'src/main/hostToolExecutor.ts',
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { Play, ShieldAlert } from 'lucide-react';
-import type { StartRunInput, WorkspaceSnapshot } from '@shared/types';
+import type { OpenAiAccountStatus, ResearchProviderId, ResearchProviderStatus, StartRunInput, WorkspaceSnapshot } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { networkProfileLabel } from '../../lib/formatting';
 import {
@@ -14,15 +14,27 @@ const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 
 type StartRunFieldUpdater = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]) => void;
 type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number) => void;
+type SessionProviderId = 'openai-codex' | ResearchProviderId;
+
+interface SessionProviderOption {
+  id: SessionProviderId;
+  label: string;
+  defaultModel: string | null;
+  configured: boolean;
+}
 
 export function StartRunForm({
   snapshot,
+  openAiStatus,
+  researchProviderStatuses,
   busy,
   runAction,
   onCancel,
   onStarted
 }: {
   snapshot: WorkspaceSnapshot;
+  openAiStatus: OpenAiAccountStatus | null;
+  researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
@@ -34,6 +46,24 @@ export function StartRunForm({
     sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState<SessionProviderId>('openai-codex');
+  const providerOptions = useMemo<SessionProviderOption[]>(
+    () => [
+      {
+        id: 'openai-codex',
+        label: 'OpenAI (Codex)',
+        defaultModel: openAiStatus?.defaultModel ?? defaultRunInput.model,
+        configured: openAiStatus?.configured ?? false
+      },
+      ...researchProviderStatuses.map((provider) => ({
+        id: provider.id,
+        label: provider.name,
+        defaultModel: provider.defaultModel,
+        configured: provider.configured
+      }))
+    ],
+    [openAiStatus, researchProviderStatuses]
+  );
 
   useEffect(() => {
     setInput((current) => {
@@ -69,6 +99,13 @@ export function StartRunForm({
 
   const start = (): void => {
     startWithInput(input);
+  };
+
+  const selectProvider = (providerId: SessionProviderId): void => {
+    setSelectedProviderId(providerId);
+    update('provider', providerId);
+    const provider = providerOptions.find((candidate) => candidate.id === providerId);
+    if (provider?.defaultModel) update('model', provider.defaultModel);
   };
 
   const closeModal = (): void => {
@@ -118,7 +155,15 @@ export function StartRunForm({
         </div>
         <details className="advanced-run-options">
           <summary>Session Settings</summary>
-          <SessionSettingsFields input={input} minuteLimitValue={minuteLimitValue} onUpdate={update} onUpdateBudget={updateBudget} />
+          <SessionSettingsFields
+            input={input}
+            minuteLimitValue={minuteLimitValue}
+            providerOptions={providerOptions}
+            selectedProviderId={selectedProviderId}
+            onSelectProvider={selectProvider}
+            onUpdate={update}
+            onUpdateBudget={updateBudget}
+          />
         </details>
       </div>
     </Modal>
@@ -128,11 +173,17 @@ export function StartRunForm({
 export function SessionSettingsFields({
   input,
   minuteLimitValue,
+  providerOptions,
+  selectedProviderId,
+  onSelectProvider,
   onUpdate,
   onUpdateBudget
 }: {
   input: StartRunInput;
   minuteLimitValue: string;
+  providerOptions: SessionProviderOption[];
+  selectedProviderId: SessionProviderId;
+  onSelectProvider: (providerId: SessionProviderId) => void;
   onUpdate: StartRunFieldUpdater;
   onUpdateBudget: StartRunBudgetUpdater;
 }): JSX.Element {
@@ -147,6 +198,16 @@ export function SessionSettingsFields({
           value={minuteLimitValue}
           onChange={(event) => onUpdateBudget('maxMinutes', optionalPositiveInteger(event.target.value, UNBOUNDED_MINUTES))}
         />
+      </label>
+      <label>
+        Provider
+        <select value={selectedProviderId} onChange={(event) => onSelectProvider(event.target.value as SessionProviderId)}>
+          {providerOptions.map((provider) => (
+            <option value={provider.id} disabled={!provider.defaultModel} key={provider.id}>
+              {provider.label}{provider.configured ? '' : ' — Not configured'}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         Model

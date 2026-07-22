@@ -30,7 +30,7 @@ Beale can and must protect secrets from:
 
 ## Credential Storage
 
-OpenAI OAuth credentials should use OS credential storage where practical:
+Model-provider OAuth credentials should use OS credential storage where practical:
 
 - macOS Keychain.
 - Windows Credential Manager.
@@ -50,6 +50,7 @@ Examples:
 
 - Global Beale auth and config paths.
 - Codex/OpenAI auth paths.
+- Honeycrisp provider auth paths.
 - OS credential files.
 - Shell history.
 - SSH private keys.
@@ -123,7 +124,7 @@ Default visibility:
 
 ## Subprocess Environment Policy
 
-Host subprocesses should receive a minimal environment.
+Model-requested host subprocesses should receive a minimal environment.
 
 Defaults:
 
@@ -131,6 +132,8 @@ Defaults:
 - Do not inherit full host environment for model-requested commands.
 - Do not pass Beale/OpenAI auth material to subprocesses.
 - VM subprocesses receive only scoped variables for the current task.
+
+The trusted Honeycrisp model-runtime process is the narrow exception: it may read its host-only OAuth store and the selected provider's documented API-key environment variable. Those values must never be copied into model-visible context, traces, the global database, or model-requested shell environments.
 
 ## Prompt-Injection Resistance
 

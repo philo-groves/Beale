@@ -19,6 +19,8 @@ export const IPC_CHANNELS = {
   getOpenAiStatus: 'beale:get-openai-status',
   startOpenAiOAuth: 'beale:start-openai-oauth',
   refreshOpenAiStatus: 'beale:refresh-openai-status',
+  getResearchProviderStatuses: 'beale:get-research-provider-statuses',
+  startResearchProviderOAuth: 'beale:start-research-provider-oauth',
   getProfilingState: 'beale:get-profiling-state',
   setProfilingEnabled: 'beale:set-profiling-enabled',
   recordProfilingReport: 'beale:record-profiling-report',
