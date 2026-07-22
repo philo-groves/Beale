@@ -42,6 +42,8 @@ const TRACE_WINDOW_SLIDE_STEP = 12;
 const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
+const STEER_ACTION_ROW_HEIGHT = 39;
+const STEER_COMPOSER_ROW_GAP = 4;
 
 export const TraceView = memo(function TraceView({
   busy,
@@ -591,7 +593,8 @@ const MainSteerArea = memo(function MainSteerArea({
     const controlHeight = controlRow?.offsetHeight ?? 0;
     const controlMarginTop = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginTop) || 0 : 0;
     const controlMarginBottom = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginBottom) || 0 : 0;
-    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom + nextHeight;
+    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom
+      + nextHeight + STEER_ACTION_ROW_HEIGHT + STEER_COMPOSER_ROW_GAP;
 
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
@@ -690,6 +693,16 @@ const MainSteerArea = memo(function MainSteerArea({
       <div className="main-steer-control-row" ref={controlRowRef}>
         <span className="main-steer-status">{sessionControlStatusLabel(status)}</span>
         <div className="main-session-controls" aria-label="Session controls">
+          <button
+            type="button"
+            className="main-session-control-button primary"
+            title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            onClick={onOpenTraceFilters}
+          >
+            <SlidersHorizontal size={12} />
+            <span>Filters</span>
+          </button>
           {inProgress ? (
             <>
               <button type="button" className="main-session-control-button" title="Pause this session" disabled={controlsDisabled || status !== 'active'} onClick={pauseSession}>
@@ -723,15 +736,6 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
-        <button
-          type="button"
-          className="main-steer-filter"
-          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          onClick={onOpenTraceFilters}
-        >
-          <SlidersHorizontal size={14} />
-        </button>
         <select
           className="main-steer-model-picker"
           value={selectedModel?.id ?? ''}

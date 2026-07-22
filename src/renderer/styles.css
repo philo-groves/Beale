@@ -2354,7 +2354,10 @@ body.is-resizing-research-side .main-session-grid {
   height: 100%;
   position: relative;
   display: grid;
-  --trace-footer-min-height: 47px;
+  --trace-footer-input-min-height: 54px;
+  --trace-footer-actions-height: 39px;
+  --trace-footer-composer-row-gap: 4px;
+  --trace-footer-min-height: calc(var(--trace-footer-input-min-height) + var(--trace-footer-actions-height) + var(--trace-footer-composer-row-gap));
   --trace-footer-control-height: 30px;
   --trace-footer-control-inline-margin: 12px;
   --trace-footer-control-bottom-margin: 2px;
@@ -3262,7 +3265,7 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   overflow: hidden;
   color: #b6b6b6;
-  font-size: 0.66rem;
+  font-size: 0.7rem;
   font-weight: 760;
   line-height: 1;
   text-overflow: ellipsis;
@@ -3290,8 +3293,8 @@ body.is-resizing-research-side .main-session-grid {
   border-radius: 999px;
   background: #141414;
   color: #8f8f8f;
-  font-size: 0.62rem;
-  font-weight: 780;
+  font-size: 0.74rem;
+  font-weight: 760;
   line-height: 1;
   padding: 3px 8px;
 }
@@ -3303,6 +3306,8 @@ body.is-resizing-research-side .main-session-grid {
 
 .main-session-control-button svg {
   display: block;
+  width: 0.74rem;
+  height: 0.74rem;
 }
 
 .main-session-control-button span {
@@ -3335,8 +3340,10 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   min-height: var(--trace-footer-min-height);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(var(--trace-footer-input-min-height), auto) var(--trace-footer-actions-height);
   column-gap: 6px;
+  row-gap: var(--trace-footer-composer-row-gap);
   align-items: center;
   overflow: hidden;
   border-radius: var(--trace-footer-radius) var(--trace-footer-radius) var(--trace-footer-radius) 0;
@@ -3345,15 +3352,17 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .main-steer-input-row textarea {
-  height: var(--trace-footer-min-height);
-  min-height: var(--trace-footer-min-height);
+  grid-column: 1 / -1;
+  grid-row: 1;
+  height: var(--trace-footer-input-min-height);
+  min-height: var(--trace-footer-input-min-height);
   max-height: none;
   resize: none;
   overflow: hidden;
   border: 0;
   border-radius: 0;
   background: var(--panel-input);
-  padding: 16px 12px 15px;
+  padding: 10px 12px;
   line-height: 1.2;
 }
 
@@ -3366,8 +3375,9 @@ body.is-resizing-research-side .main-session-grid {
 
 .main-steer-model-picker,
 .main-steer-effort-picker,
-.main-steer-filter,
 .main-steer-send {
+  grid-row: 2;
+  align-self: start;
   min-height: 0;
   flex: 0 0 auto;
   border: 0;
@@ -3397,11 +3407,14 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .main-steer-model-picker {
+  grid-column: 1;
   width: auto;
   max-width: 190px;
+  margin-left: 8px;
 }
 
 .main-steer-effort-picker {
+  grid-column: 2;
   width: 88px;
 }
 
@@ -3412,6 +3425,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .main-steer-send {
+  grid-column: 4;
   width: 31px;
   height: 31px;
   display: inline-grid;
@@ -3420,21 +3434,12 @@ body.is-resizing-research-side .main-session-grid {
   background: #171717;
 }
 
-.main-steer-filter {
-  width: 31px;
-  height: 31px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-}
-
 .main-steer-model-picker:hover:not(:disabled),
 .main-steer-effort-picker:hover:not(:disabled) {
   background-color: #171717;
   color: var(--text);
 }
 
-.main-steer-filter:hover:not(:disabled),
 .main-steer-send:hover:not(:disabled) {
   background: #242424;
   color: var(--text);
