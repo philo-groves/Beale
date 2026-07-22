@@ -333,10 +333,10 @@ describe('Beale workbench skeleton', () => {
         "      stopReason: 'complete',",
         "      responseId: 'fixture-response',",
         '      usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 },',
-        '      modelCalls: [{ usage: { input_tokens: 12345, output_tokens: 678, total_tokens: 13023 } }],',
+        '      modelCalls: [{ usage: { input: 2345, output: 678, cacheRead: 10000, cacheWrite: 0, totalTokens: 13023, cacheHitRate: 0.8100445524503848 } }],',
         '      toolCallCount: 0,',
         '      plannedToolCallCount: 0,',
-        '      subagents: { maxThreads: 6, maxDepth: 1, agents: [{ id: \'agent_child\', path: \'/root/parser_review\', status: \'completed\', model: \'gpt-5.6-sol\', reasoningEffort: \'high\', modelCalls: [{ usage: { input_tokens: 1000, output_tokens: 100, total_tokens: 1100 } }] }] }',
+        '      subagents: { maxThreads: 6, maxDepth: 1, agents: [{ id: \'agent_child\', path: \'/root/parser_review\', status: \'completed\', model: \'gpt-5.6-sol\', reasoningEffort: \'high\', modelCalls: [{ usage: { input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 1100, cacheHitRate: 0 } }] }] }',
         '    }',
         '  },',
         "  storageManifest: { path: '/tmp/fixture-manifest.json', artifactCount: 0, artifacts: [] },",
@@ -396,7 +396,8 @@ describe('Beale workbench skeleton', () => {
       honeycrispSubagentMaxThreads: 6,
       honeycrispSubagentMaxDepth: 1
     });
-    expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.')?.payload).toMatchObject({
+    const captureTrace = detail.traceEvents.find((event) => event.summary === 'Honeycrisp flow capture preserved as a Beale artifact.');
+    expect(captureTrace?.payload).toMatchObject({
       request: {
         prompt: 'Fixture Honeycrisp research'
       },
@@ -406,13 +407,17 @@ describe('Beale workbench skeleton', () => {
         executorName: 'fixture-honeycrisp'
       },
       usage: {
-        input_tokens: 12345,
+        input_tokens: 2345,
+        prompt_tokens: 12345,
         output_tokens: 778,
         total_tokens: 14123,
+        cache_read_tokens: 10000,
+        cache_write_tokens: 0,
         source: 'Honeycrisp reported model usage',
         estimated: false
       }
     });
+    expect(Number((captureTrace?.payload.usage as Record<string, unknown>).cache_hit_rate)).toBeCloseTo(10_000 / 13_345);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp agent session: Fixture Honeycrisp research'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review started.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review turn 1 completed.')).toBe(true);

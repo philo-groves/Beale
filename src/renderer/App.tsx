@@ -509,7 +509,6 @@ export function App(): JSX.Element {
         </div>
       </main>
       <StatusBar
-        detail={activeRunDetail}
         onOpenSettings={openSettings}
       />
       <NotificationStack

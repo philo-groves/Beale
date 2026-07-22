@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Session header statistics now use rendered multiline hover tooltips that remain visible below Electron's draggable title bar.
+- Honeycrisp model usage now carries Pi prompt-cache reads, writes, and hit rate through live turns and captures; Beale shows the session cache hit rate and moves context/token usage from the footer into the header before turn, event, and duration metrics.
 - Honeycrisp response guidance now asks agents to write as sharp, curious research collaborators using concise, technically precise, cohesive prose, without narrating routine memory updates.
 - Stopping a Honeycrisp session now cancels the root and all running subagents through the control stream before Beale falls back to process-group termination; model calls that produce no response events for three minutes are retried instead of holding the agent tree indefinitely.
 - Honeycrisp agent sessions now compact older bulky tool results before context exhaustion, retry once with forced compaction after a context-window rejection, cap collaboration waits at one minute, and return leaf/idle waits immediately so root and child sessions cannot silently stall on irrelevant `wait_agent` calls.

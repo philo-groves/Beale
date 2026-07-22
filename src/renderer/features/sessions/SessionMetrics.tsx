@@ -4,6 +4,7 @@ import { Clock, FileText, GitFork } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import type { TraceCategoryId } from '../../traceClassification';
 import { sessionHeaderTiming } from '../../view-models/sessionHeader';
+import { SessionUsageStatus } from '../momentum/SessionUsageStatus';
 
 export function SessionMetrics({
   detail,
@@ -29,15 +30,28 @@ export function SessionMetrics({
 
   return (
     <div className="session-header-metrics" aria-label="Session statistics">
-      <span className="session-header-metric" title={timing.turnTooltip} aria-label={`Current model turn ${timing.latestTurn}`}>
+      <SessionUsageStatus detail={detail} />
+      <span
+        className="session-header-metric session-stat-tooltip"
+        data-tooltip={`Model turns\n${timing.latestTurn}\n${timing.turnTooltip}`}
+        aria-label={`Current model turn ${timing.latestTurn}`}
+      >
         <GitFork size={13} />
         <span>{timing.latestTurn}</span>
       </span>
-      <span className="session-header-metric" title="Total trace events recorded for this session." aria-label={`${timing.totalEventCount} total trace events`}>
+      <span
+        className="session-header-metric session-stat-tooltip"
+        data-tooltip={`Trace events\n${timing.totalEventCount.toLocaleString()} recorded this session`}
+        aria-label={`${timing.totalEventCount} total trace events`}
+      >
         <FileText size={13} />
         <span>{timing.eventMetric}</span>
       </span>
-      <span className="session-header-metric session-duration-metric" title={timing.durationTooltip} aria-label={`Session duration ${timing.durationLabel}`}>
+      <span
+        className="session-header-metric session-duration-metric session-stat-tooltip"
+        data-tooltip={`Session duration\n${timing.durationLabel}\n${timing.durationTooltip}`}
+        aria-label={`Session duration ${timing.durationLabel}`}
+      >
         <Clock size={13} />
         <span>{timing.durationLabel}</span>
       </span>

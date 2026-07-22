@@ -156,8 +156,13 @@ interface HoneycrispLiveReasoningSummaryState {
 
 interface HoneycrispContextUsageSummary {
   inputTokens: number;
+  promptTokens: number;
+  sessionPromptTokens: number;
   outputTokens: number | null;
   totalTokens: number | null;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cacheHitRate: number | null;
   source: string;
   estimated: boolean;
   reportedCallCount: number;
@@ -166,8 +171,13 @@ interface HoneycrispContextUsageSummary {
 
 interface NormalizedTokenUsage {
   inputTokens: number | null;
+  promptTokens: number | null;
+  sessionPromptTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cacheHitRate: number | null;
 }
 
 const DEFAULT_HONEYCRISP_TOOL_MAX_BYTES = 200_000;
@@ -603,8 +613,9 @@ export class HoneycrispRunEngine {
       if (reportedUsage && !subagent) {
         this.db.updateModelSessionByRun(context.run.id, {
           metadata: {
-            latestReportedInputTokens: reportedUsage.inputTokens,
+            latestReportedInputTokens: reportedUsage.promptTokens,
             latestReportedTotalTokens: reportedUsage.totalTokens,
+            latestCacheHitRate: reportedUsage.cacheHitRate,
             latestContextUsageSource: HONEYCRISP_REPORTED_USAGE_SOURCE,
             latestContextUsageEstimated: false,
             latestContextUsageReportedCallCount: turn ?? 1
@@ -1729,11 +1740,16 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
   const reported = summarizeReportedHoneycrispUsage(capture);
   const estimatedSerializedTokens = estimateSerializedTokens(captureText);
 
-  if (reported && reported.usage.inputTokens !== null) {
+  if (reported && reported.usage.promptTokens !== null) {
     return {
-      inputTokens: reported.usage.inputTokens,
+      inputTokens: reported.usage.inputTokens ?? reported.usage.promptTokens,
+      promptTokens: reported.usage.promptTokens,
+      sessionPromptTokens: reported.usage.sessionPromptTokens ?? reported.usage.promptTokens,
       outputTokens: reported.usage.outputTokens,
-      totalTokens: reported.usage.totalTokens ?? tokenTotalFromParts(reported.usage.inputTokens, reported.usage.outputTokens),
+      totalTokens: reported.usage.totalTokens ?? tokenTotalFromParts(reported.usage.promptTokens, reported.usage.outputTokens),
+      cacheReadTokens: reported.usage.cacheReadTokens,
+      cacheWriteTokens: reported.usage.cacheWriteTokens,
+      cacheHitRate: reported.usage.cacheHitRate,
       source: HONEYCRISP_REPORTED_USAGE_SOURCE,
       estimated: false,
       reportedCallCount: reported.callCount,
@@ -1744,8 +1760,13 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
   if (reported && reported.usage.totalTokens !== null && estimatedSerializedTokens !== null) {
     return {
       inputTokens: estimatedSerializedTokens,
+      promptTokens: estimatedSerializedTokens,
+      sessionPromptTokens: reported.usage.sessionPromptTokens ?? estimatedSerializedTokens,
       outputTokens: reported.usage.outputTokens,
       totalTokens: reported.usage.totalTokens,
+      cacheReadTokens: reported.usage.cacheReadTokens,
+      cacheWriteTokens: reported.usage.cacheWriteTokens,
+      cacheHitRate: reported.usage.cacheHitRate,
       source: HONEYCRISP_MIXED_USAGE_SOURCE,
       estimated: true,
       reportedCallCount: reported.callCount,
@@ -1756,8 +1777,13 @@ function summarizeHoneycrispContextUsage(capture: HoneycrispFlowCapture, capture
   if (estimatedSerializedTokens !== null) {
     return {
       inputTokens: estimatedSerializedTokens,
+      promptTokens: estimatedSerializedTokens,
+      sessionPromptTokens: estimatedSerializedTokens,
       outputTokens: null,
       totalTokens: null,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      cacheHitRate: null,
       source: HONEYCRISP_ESTIMATED_USAGE_SOURCE,
       estimated: true,
       reportedCallCount: 0,
@@ -1779,11 +1805,23 @@ function summarizeReportedHoneycrispUsage(
   let sawOutputTokens = false;
   let totalTokenTotal = 0;
   let sawTotalTokens = false;
+  let promptTokenTotal = 0;
+  let latestPromptTokens: number | null = null;
+  let cacheReadTokenTotal = 0;
+  let cacheWriteTokenTotal = 0;
+  let sawCacheTelemetry = false;
 
   for (const record of usageRecords) {
     const usage = normalizeTokenUsage(record);
     if (!usage) continue;
     if (usage.inputTokens !== null) latestInputTokens = usage.inputTokens;
+    if (usage.promptTokens !== null) {
+      latestPromptTokens = usage.promptTokens;
+      promptTokenTotal += usage.promptTokens;
+    }
+    cacheReadTokenTotal += usage.cacheReadTokens;
+    cacheWriteTokenTotal += usage.cacheWriteTokens;
+    sawCacheTelemetry ||= usage.cacheHitRate !== null;
     if (usage.outputTokens !== null) {
       outputTokenTotal += usage.outputTokens;
       sawOutputTokens = true;
@@ -1799,8 +1837,13 @@ function summarizeReportedHoneycrispUsage(
   return {
     usage: {
       inputTokens: latestInputTokens,
+      promptTokens: latestPromptTokens,
+      sessionPromptTokens: promptTokenTotal > 0 ? promptTokenTotal : null,
       outputTokens: sawOutputTokens ? outputTokenTotal : null,
-      totalTokens: sawTotalTokens ? totalTokenTotal : null
+      totalTokens: sawTotalTokens ? totalTokenTotal : null,
+      cacheReadTokens: cacheReadTokenTotal,
+      cacheWriteTokens: cacheWriteTokenTotal,
+      cacheHitRate: sawCacheTelemetry && promptTokenTotal > 0 ? cacheReadTokenTotal / promptTokenTotal : null
     },
     callCount: usageRecords.length
   };
@@ -1836,27 +1879,78 @@ function collectHoneycrispUsageRecords(capture: HoneycrispFlowCapture): Record<s
 
 function normalizeTokenUsage(record: Record<string, unknown>): NormalizedTokenUsage | null {
   const inputTokens =
-    positiveNumberRecordValue(record, 'input_tokens') ??
-    positiveNumberRecordValue(record, 'prompt_tokens') ??
-    positiveNumberRecordValue(record, 'inputTokens') ??
-    positiveNumberRecordValue(record, 'promptTokens') ??
-    positiveNumberRecordValue(record, 'input');
+    nonNegativeNumberRecordValue(record, 'input_tokens') ??
+    nonNegativeNumberRecordValue(record, 'inputTokens') ??
+    nonNegativeNumberRecordValue(record, 'input');
   const outputTokens =
-    positiveNumberRecordValue(record, 'output_tokens') ??
-    positiveNumberRecordValue(record, 'completion_tokens') ??
-    positiveNumberRecordValue(record, 'outputTokens') ??
-    positiveNumberRecordValue(record, 'completionTokens') ??
-    positiveNumberRecordValue(record, 'output');
-  const totalTokens = positiveNumberRecordValue(record, 'total_tokens') ?? positiveNumberRecordValue(record, 'totalTokens');
-  if (inputTokens === null && outputTokens === null && totalTokens === null) return null;
-  return { inputTokens, outputTokens, totalTokens };
+    nonNegativeNumberRecordValue(record, 'output_tokens') ??
+    nonNegativeNumberRecordValue(record, 'completion_tokens') ??
+    nonNegativeNumberRecordValue(record, 'outputTokens') ??
+    nonNegativeNumberRecordValue(record, 'completionTokens') ??
+    nonNegativeNumberRecordValue(record, 'output');
+  const totalTokens = nonNegativeNumberRecordValue(record, 'total_tokens') ?? nonNegativeNumberRecordValue(record, 'totalTokens');
+  const cacheReadTokens =
+    positiveNumberRecordValue(record, 'cache_read_tokens') ??
+    positiveNumberRecordValue(record, 'cached_tokens') ??
+    positiveNumberRecordValue(record, 'cacheReadTokens') ??
+    positiveNumberRecordValue(record, 'cacheRead') ??
+    0;
+  const cacheWriteTokens =
+    positiveNumberRecordValue(record, 'cache_write_tokens') ??
+    positiveNumberRecordValue(record, 'cacheWriteTokens') ??
+    positiveNumberRecordValue(record, 'cacheWrite') ??
+    0;
+  const reportedPromptTokens =
+    nonNegativeNumberRecordValue(record, 'prompt_tokens') ??
+    nonNegativeNumberRecordValue(record, 'promptTokens');
+  const promptTokens = reportedPromptTokens ?? (
+    inputTokens !== null || cacheReadTokens > 0 || cacheWriteTokens > 0
+      ? (inputTokens ?? 0) + cacheReadTokens + cacheWriteTokens
+      : null
+  );
+  const reportedCacheHitRate =
+    nonNegativeNumberRecordValue(record, 'cache_hit_rate') ??
+    nonNegativeNumberRecordValue(record, 'cacheHitRate');
+  const hasCacheTelemetry = [
+    'cache_read_tokens',
+    'cached_tokens',
+    'cacheReadTokens',
+    'cacheRead',
+    'cache_write_tokens',
+    'cacheWriteTokens',
+    'cacheWrite',
+    'cache_hit_rate',
+    'cacheHitRate'
+  ].some((key) => key in record);
+  const cacheHitRate = reportedCacheHitRate ?? (
+    hasCacheTelemetry && promptTokens && promptTokens > 0 ? cacheReadTokens / promptTokens : null
+  );
+  if (inputTokens === null && outputTokens === null && totalTokens === null && promptTokens === null) return null;
+  return {
+    inputTokens,
+    promptTokens,
+    sessionPromptTokens: promptTokens,
+    outputTokens,
+    totalTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheHitRate
+  };
 }
 
 function reportedHoneycrispTraceUsage(usage: NormalizedTokenUsage): Record<string, unknown> {
   return {
     ...(usage.inputTokens !== null ? { input_tokens: usage.inputTokens } : {}),
+    ...(usage.promptTokens !== null ? { prompt_tokens: usage.promptTokens } : {}),
     ...(usage.outputTokens !== null ? { output_tokens: usage.outputTokens } : {}),
     ...(usage.totalTokens !== null ? { total_tokens: usage.totalTokens } : {}),
+    ...(usage.cacheHitRate !== null
+      ? {
+          cache_read_tokens: usage.cacheReadTokens,
+          cache_write_tokens: usage.cacheWriteTokens,
+          cache_hit_rate: usage.cacheHitRate
+        }
+      : {}),
     source: HONEYCRISP_REPORTED_USAGE_SOURCE,
     estimated: false
   };
@@ -1865,8 +1959,17 @@ function reportedHoneycrispTraceUsage(usage: NormalizedTokenUsage): Record<strin
 function honeycrispTraceUsage(usage: HoneycrispContextUsageSummary): Record<string, unknown> {
   return {
     input_tokens: usage.inputTokens,
+    prompt_tokens: usage.promptTokens,
+    cache_prompt_tokens: usage.sessionPromptTokens,
     ...(usage.outputTokens !== null ? { output_tokens: usage.outputTokens } : {}),
     ...(usage.totalTokens !== null ? { total_tokens: usage.totalTokens } : {}),
+    ...(usage.cacheHitRate !== null
+      ? {
+          cache_read_tokens: usage.cacheReadTokens,
+          cache_write_tokens: usage.cacheWriteTokens,
+          cache_hit_rate: usage.cacheHitRate
+        }
+      : {}),
     source: usage.source,
     estimated: usage.estimated,
     reportedCallCount: usage.reportedCallCount,
@@ -1877,8 +1980,10 @@ function honeycrispTraceUsage(usage: HoneycrispContextUsageSummary): Record<stri
 function honeycrispContextUsageMetadata(usage: HoneycrispContextUsageSummary | null): Record<string, unknown> {
   if (!usage) return {};
   return {
-    latestReportedInputTokens: usage.inputTokens,
+    latestReportedInputTokens: usage.promptTokens,
     latestReportedTotalTokens: usage.totalTokens,
+    latestCacheHitRate: usage.cacheHitRate,
+    sessionCachePromptTokens: usage.sessionPromptTokens,
     latestContextUsageSource: usage.source,
     latestContextUsageEstimated: usage.estimated,
     latestContextUsageReportedCallCount: usage.reportedCallCount,
@@ -1944,6 +2049,16 @@ function arrayRecordValues(value: unknown): Record<string, unknown>[] {
 
 function positiveNumberRecordValue(record: Record<string, unknown>, key: string): number | null {
   return positiveNumber(record[key]);
+}
+
+function nonNegativeNumberRecordValue(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+  }
+  return null;
 }
 
 function positiveNumber(value: unknown): number | null {

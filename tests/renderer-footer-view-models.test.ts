@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { contextMeterForDetail, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
-import { isSessionUsageVisible } from '../src/renderer/features/momentum/SessionUsageStatus';
+import { contextMeterForDetail, visibleCacheHitRateLabel, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
 
-describe('renderer footer view models', () => {
-  it('shows token usage whenever a session is selected', () => {
-    expect(isSessionUsageVisible(null)).toBe(false);
-    expect(isSessionUsageVisible(runDetail({ status: 'completed' }))).toBe(true);
-    expect(isSessionUsageVisible(runDetail({ status: 'active' }))).toBe(true);
-  });
-
+describe('renderer session usage view models', () => {
   it('formats context usage against the default 372k Sol limit', () => {
     const meter = contextMeterForDetail(
       runDetail({
@@ -124,6 +117,55 @@ describe('renderer footer view models', () => {
     expect(meter.label).toBe('12k/372k');
     expect(meter.totalSessionTokens).toBe(12_800);
     expect(meter.source).toBe('Honeycrisp reported model usage');
+  });
+
+  it('uses Pi cache tokens for full context size and session cache hit rate', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              usage: {
+                input: 200,
+                output: 50,
+                cacheRead: 800,
+                cacheWrite: 0,
+                totalTokens: 1_050,
+                cacheHitRate: 0.8,
+                source: 'Honeycrisp reported model usage'
+              }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.label).toBe('1k/372k');
+    expect(meter.cacheReadTokens).toBe(800);
+    expect(meter.cachePromptTokens).toBe(1_000);
+    expect(meter.cacheHitRate).toBe(0.8);
+    expect(visibleCacheHitRateLabel(meter)).toBe('80%');
+  });
+
+  it('weights cache hit rate by prompt tokens across model turns', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({ payload: { usage: { input_tokens: 500, prompt_tokens: 1_000, cache_read_tokens: 500, cache_hit_rate: 0.5 } } }),
+          traceEvent({ id: 'trace_second', sequence: 2, payload: { usage: { input_tokens: 100, prompt_tokens: 1_000, cache_read_tokens: 900, cache_hit_rate: 0.9 } } })
+        ]
+      })
+    );
+
+    expect(meter.cacheReadTokens).toBe(1_400);
+    expect(meter.cachePromptTokens).toBe(2_000);
+    expect(visibleCacheHitRateLabel(meter)).toBe('70%');
+  });
+
+  it('shows unavailable cache telemetry distinctly from a zero-percent hit rate', () => {
+    const meter = contextMeterForDetail(runDetail({ traceEvents: [] }));
+    expect(meter.cacheHitRate).toBeNull();
+    expect(visibleCacheHitRateLabel(meter)).toBe('—');
   });
 
   it('uses compaction token pressure as the current context source when newer', () => {
