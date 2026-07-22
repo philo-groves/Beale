@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Honeycrisp response guidance now asks agents to write as sharp, curious research collaborators using concise, technically precise, cohesive prose, without narrating routine memory updates.
 - Stopping a Honeycrisp session now cancels the root and all running subagents through the control stream before Beale falls back to process-group termination; model calls that produce no response events for three minutes are retried instead of holding the agent tree indefinitely.
 - Honeycrisp agent sessions now compact older bulky tool results before context exhaustion, retry once with forced compaction after a context-window rejection, cap collaboration waits at one minute, and return leaf/idle waits immediately so root and child sessions cannot silently stall on irrelevant `wait_agent` calls.
 - Session heat now derives only from current-session Honeycrisp primitive and chain memories: suspected/confirmed primitives map to low/medium, suspected/confirmed chains map to high/critical, and rejected memories immediately stop contributing. Background pulse momentum now recognizes Honeycrisp graph mutations and recent session chains instead of legacy Beale hypothesis/finding records.
@@ -22,6 +23,7 @@
 
 ### Added
 
+- Added a draggable, keyboard-accessible divider between the session trace and Memory/Subagents sidebar, with bounded responsive sizing and a persisted width preference.
 - Formalized Honeycrisp `hypothesis` memory as a testable unproven proposition with suspected/rejected lifecycle guidance and required reclassification to a primitive or chain when proven; `evidence` and `finding` remain excluded as memory node types.
 - Added inline expand/collapse controls for truncated file-read excerpts and Shell stdout previews.
 - Added Settings > Shell Options with user-global default and per-utility concurrency limits; a limit of `0` disables the utility and `sudo` is disabled by default.

@@ -90,7 +90,8 @@ body {
   background: transparent;
 }
 
-body.is-resizing-sidebar {
+body.is-resizing-sidebar,
+body.is-resizing-research-side {
   cursor: col-resize;
   user-select: none;
 }
@@ -1630,12 +1631,34 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 6px var(--research-side-panel-width, 360px);
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
   row-gap: 0;
   background: var(--panel-column);
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.research-side-resize-handle {
+  width: 6px;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--panel-column);
+  outline: 0;
+}
+
+.research-side-resize-handle:hover,
+.research-side-resize-handle:focus-visible,
+body.is-resizing-research-side .research-side-resize-handle {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body.is-resizing-research-side .main-session-grid {
+  transition: none;
 }
 
 .context-session-workspace {
@@ -2414,7 +2437,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
-  padding: 12px 8px 0 12px;
+  padding: 12px 8px 0 6px;
 }
 
 .memory-catalog.view-subagents {

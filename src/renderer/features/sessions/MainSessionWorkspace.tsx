@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { JSX } from 'react';
+import type { CSSProperties, JSX } from 'react';
 import type { HoneycrispMemorySummary, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -9,6 +9,10 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { ContextSessionView } from './ContextSessionView';
 import { SessionViewControls } from './SessionHeaderControls';
 import type { SessionMainView } from './sessionViews';
+import {
+  MIN_RESEARCH_SIDE_PANEL_WIDTH,
+  useResizableResearchSidePanel
+} from '../../hooks/useResizableResearchSidePanel';
 
 export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
@@ -59,6 +63,14 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionViewChange: (view: SessionMainView) => void;
   onSteerInstruction: (runId: string, instruction: string) => void;
 }): JSX.Element | null {
+  const {
+    containerRef,
+    panelWidth,
+    maximumPanelWidth,
+    beginResize,
+    handleResizeKeyDown
+  } = useResizableResearchSidePanel(selectedRunId !== null && sessionView === 'list');
+
   if (!selectedRunId) {
     return (
       <WorkspaceUnderstandingView
@@ -82,7 +94,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       {sessionView === 'context' ? (
         <ContextSessionView honeycrispMemory={detail?.honeycrispMemory ?? null} selectedRunId={selectedRunId} />
       ) : (
-        <div className="main-session-grid">
+        <div
+          ref={containerRef}
+          className="main-session-grid"
+          style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
+        >
           <TraceView
             busy={busy}
             detail={detail}
@@ -100,6 +116,18 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
             onSelectTraceEvent={onSelectTraceEvent}
             onSessionAction={onSessionAction}
             onSteerInstruction={onSteerInstruction}
+          />
+          <div
+            className="research-side-resize-handle"
+            role="separator"
+            aria-label="Resize Memory and Subagents sidebar"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
+            aria-valuemax={maximumPanelWidth}
+            aria-valuenow={panelWidth}
+            tabIndex={0}
+            onKeyDown={handleResizeKeyDown}
+            onPointerDown={beginResize}
           />
           <ResearchSidePanel
             events={allEvents}
