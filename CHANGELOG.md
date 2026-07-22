@@ -328,6 +328,7 @@
 
 ### Fixed
 
+- Honeycrisp shell timeouts and aborts now terminate the utility's full process group so orphaned build or test descendants cannot hold sessions open; pending research-tool requests are streamed immediately while execution is still in progress.
 - Fixed subagent turns appearing inline between root-agent turns with raw `/root/...` timeline headers; the main trace now shows root and setup events while child traces remain in the Subagents view.
 - Reserved bug memories for confirmed historical flaw precedents with affected assets and precedent evidence; current-research flaws remain primitives or chains, and exact correction can reclassify a node without losing its graph relationships.
 - Fixed broad Honeycrisp memory queries being treated as one literal substring, added bounded retries for transient model-provider failures before substantive output, and made Beale mark errored Honeycrisp captures as failed even when the host process exits normally. A database migration repairs affected persisted run, attempt, and model-session statuses.

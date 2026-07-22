@@ -2223,7 +2223,7 @@ body.is-resizing-research-side .main-session-grid {
   border-radius: 8px;
   background-color: var(--panel);
   background-position: right 4px center;
-  color: var(--muted-strong);
+  color: var(--muted);
   padding: 0 22px 0 8px;
   font-size: 1rem;
   font-weight: 400;
