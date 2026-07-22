@@ -403,6 +403,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.startOpenAiOAuth, () => workspaceService.startOpenAiOAuth());
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
+  ipcMain.handle(IPC_CHANNELS.getResearchProviderModelCatalog, () => workspaceService.getResearchProviderModelCatalog());
   ipcMain.handle(IPC_CHANNELS.startResearchProviderOAuth, async (_event, providerId: ResearchProviderId) => {
     const result = await workspaceService.startResearchProviderOAuth(providerId);
     if (result.verificationUri) {

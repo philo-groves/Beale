@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { Play, ShieldAlert } from 'lucide-react';
-import type { OpenAiAccountStatus, ResearchProviderId, ResearchProviderStatus, StartRunInput, WorkspaceSnapshot } from '@shared/types';
+import type {
+  OpenAiAccountStatus,
+  ResearchModelEffortLevel,
+  ResearchModelProviderId,
+  ResearchProviderModel,
+  ResearchProviderModelCatalog,
+  ResearchProviderStatus,
+  StartRunInput,
+  WorkspaceSnapshot
+} from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { networkProfileLabel } from '../../lib/formatting';
 import {
@@ -14,19 +23,18 @@ const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 
 type StartRunFieldUpdater = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]) => void;
 type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number) => void;
-type SessionProviderId = 'openai-codex' | ResearchProviderId;
-
 interface SessionProviderOption {
-  id: SessionProviderId;
+  id: ResearchModelProviderId;
   label: string;
-  defaultModel: string | null;
   configured: boolean;
+  models: ResearchProviderModel[];
 }
 
 export function StartRunForm({
   snapshot,
   openAiStatus,
   researchProviderStatuses,
+  providerModelCatalog,
   busy,
   runAction,
   onCancel,
@@ -35,6 +43,7 @@ export function StartRunForm({
   snapshot: WorkspaceSnapshot;
   openAiStatus: OpenAiAccountStatus | null;
   researchProviderStatuses: ResearchProviderStatus[];
+  providerModelCatalog: ResearchProviderModelCatalog[];
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
@@ -46,30 +55,42 @@ export function StartRunForm({
     sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState<SessionProviderId>('openai-codex');
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>('openai-codex');
   const providerOptions = useMemo<SessionProviderOption[]>(
-    () => [
-      {
-        id: 'openai-codex',
-        label: 'OpenAI (Codex)',
-        defaultModel: openAiStatus?.defaultModel ?? defaultRunInput.model,
-        configured: openAiStatus?.configured ?? false
-      },
-      ...researchProviderStatuses.map((provider) => ({
-        id: provider.id,
-        label: provider.name,
-        defaultModel: provider.defaultModel,
-        configured: provider.configured
-      }))
-    ],
-    [openAiStatus, researchProviderStatuses]
+    () => providerModelCatalog.map((catalog) => ({
+      id: catalog.providerId,
+      label: providerLabel(catalog.providerId, catalog.providerName),
+      configured: catalog.providerId === 'openai-codex'
+        ? openAiStatus?.configured ?? false
+        : researchProviderStatuses.find((provider) => provider.id === catalog.providerId)?.configured ?? false,
+      models: catalog.models
+    })),
+    [openAiStatus, providerModelCatalog, researchProviderStatuses]
   );
+  const selectedProvider = providerOptions.find((provider) => provider.id === selectedProviderId) ?? null;
+  const selectedModel = selectedProvider?.models.find((model) => model.id === input.model) ?? null;
 
   useEffect(() => {
     setInput((current) => {
       return { ...current, networkProfile: 'elevated', sandboxProfile: 'host' };
     });
   }, [snapshot.activeScope.id]);
+
+  useEffect(() => {
+    if (!selectedProvider) return;
+    setInput((current) => {
+      const preferredModelId = providerDefaultModel(selectedProvider.id, openAiStatus, researchProviderStatuses);
+      const model = selectedProvider.models.find((candidate) => candidate.id === current.model)
+        ?? selectedProvider.models.find((candidate) => candidate.id === preferredModelId)
+        ?? selectedProvider.models[0];
+      if (!model) return current;
+      const effort = inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)));
+      if (current.provider === selectedProvider.id && current.model === model.id && current.reasoningEffort === effort) {
+        return current;
+      }
+      return { ...current, provider: selectedProvider.id, model: model.id, reasoningEffort: effort };
+    });
+  }, [openAiStatus, researchProviderStatuses, selectedProvider]);
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => {
@@ -84,7 +105,8 @@ export function StartRunForm({
   };
   const minuteLimitValue = input.budget.maxMinutes >= UNBOUNDED_MINUTES ? '' : String(input.budget.maxMinutes);
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
-  const canStart = hasPromptDraft;
+  const selectedEffort = effortLevelFromInput(input.reasoningEffort);
+  const canStart = hasPromptDraft && Boolean(selectedModel?.effortLevels.includes(selectedEffort));
 
   const startWithInput = (startInput: StartRunInput): void => {
     if (startingRun) return;
@@ -101,11 +123,32 @@ export function StartRunForm({
     startWithInput(input);
   };
 
-  const selectProvider = (providerId: SessionProviderId): void => {
+  const selectProvider = (providerId: ResearchModelProviderId): void => {
     setSelectedProviderId(providerId);
-    update('provider', providerId);
     const provider = providerOptions.find((candidate) => candidate.id === providerId);
-    if (provider?.defaultModel) update('model', provider.defaultModel);
+    const preferredModelId = providerDefaultModel(providerId, openAiStatus, researchProviderStatuses);
+    const model = provider?.models.find((candidate) => candidate.id === preferredModelId) ?? provider?.models[0];
+    if (!model) return;
+    setInput((current) => ({
+      ...current,
+      provider: providerId,
+      model: model.id,
+      reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
+    }));
+  };
+
+  const selectModel = (modelId: string): void => {
+    const model = selectedProvider?.models.find((candidate) => candidate.id === modelId);
+    if (!model) return;
+    setInput((current) => ({
+      ...current,
+      model: model.id,
+      reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
+    }));
+  };
+
+  const selectEffort = (effort: ResearchModelEffortLevel): void => {
+    update('reasoningEffort', inputValueForEffort(effort));
   };
 
   const closeModal = (): void => {
@@ -156,12 +199,14 @@ export function StartRunForm({
         <details className="advanced-run-options">
           <summary>Session Settings</summary>
           <SessionSettingsFields
-            input={input}
             minuteLimitValue={minuteLimitValue}
             providerOptions={providerOptions}
             selectedProviderId={selectedProviderId}
+            selectedModel={selectedModel}
+            selectedEffort={selectedEffort}
             onSelectProvider={selectProvider}
-            onUpdate={update}
+            onSelectModel={selectModel}
+            onSelectEffort={selectEffort}
             onUpdateBudget={updateBudget}
           />
         </details>
@@ -171,20 +216,24 @@ export function StartRunForm({
 }
 
 export function SessionSettingsFields({
-  input,
   minuteLimitValue,
   providerOptions,
   selectedProviderId,
+  selectedModel,
+  selectedEffort,
   onSelectProvider,
-  onUpdate,
+  onSelectModel,
+  onSelectEffort,
   onUpdateBudget
 }: {
-  input: StartRunInput;
   minuteLimitValue: string;
   providerOptions: SessionProviderOption[];
-  selectedProviderId: SessionProviderId;
-  onSelectProvider: (providerId: SessionProviderId) => void;
-  onUpdate: StartRunFieldUpdater;
+  selectedProviderId: ResearchModelProviderId;
+  selectedModel: ResearchProviderModel | null;
+  selectedEffort: ResearchModelEffortLevel;
+  onSelectProvider: (providerId: ResearchModelProviderId) => void;
+  onSelectModel: (modelId: string) => void;
+  onSelectEffort: (effort: ResearchModelEffortLevel) => void;
   onUpdateBudget: StartRunBudgetUpdater;
 }): JSX.Element {
   return (
@@ -201,9 +250,10 @@ export function SessionSettingsFields({
       </label>
       <label>
         Provider
-        <select value={selectedProviderId} onChange={(event) => onSelectProvider(event.target.value as SessionProviderId)}>
+        <select value={selectedProviderId} disabled={providerOptions.length === 0} onChange={(event) => onSelectProvider(event.target.value as ResearchModelProviderId)}>
+          {providerOptions.length === 0 ? <option>Loading Pi catalog…</option> : null}
           {providerOptions.map((provider) => (
-            <option value={provider.id} disabled={!provider.defaultModel} key={provider.id}>
+            <option value={provider.id} disabled={provider.models.length === 0} key={provider.id}>
               {provider.label}{provider.configured ? '' : ' — Not configured'}
             </option>
           ))}
@@ -211,12 +261,59 @@ export function SessionSettingsFields({
       </label>
       <label>
         Model
-        <input value={input.model} onChange={(event) => onUpdate('model', event.target.value)} />
+        <select value={selectedModel?.id ?? ''} disabled={!selectedModel} onChange={(event) => onSelectModel(event.target.value)}>
+          {(providerOptions.find((provider) => provider.id === selectedProviderId)?.models ?? []).map((model) => (
+            <option value={model.id} key={model.id}>{modelOptionLabel(model)}</option>
+          ))}
+        </select>
       </label>
       <label>
         Reasoning
-        <input value={input.reasoningEffort} onChange={(event) => onUpdate('reasoningEffort', event.target.value)} />
+        <select value={selectedEffort} disabled={!selectedModel} onChange={(event) => onSelectEffort(event.target.value as ResearchModelEffortLevel)}>
+          {(selectedModel?.effortLevels ?? []).map((effort) => (
+            <option value={effort} key={effort}>{effortLabel(effort)}</option>
+          ))}
+        </select>
       </label>
     </div>
   );
+}
+
+function providerLabel(providerId: ResearchModelProviderId, fallback: string): string {
+  if (providerId === 'openai-codex') return 'OpenAI (Codex)';
+  if (providerId === 'anthropic') return 'Anthropic (Claude)';
+  if (providerId === 'xai') return 'xAI (Grok/X)';
+  return fallback;
+}
+
+function providerDefaultModel(
+  providerId: ResearchModelProviderId,
+  openAiStatus: OpenAiAccountStatus | null,
+  statuses: ResearchProviderStatus[]
+): string | null {
+  if (providerId === 'openai-codex') return openAiStatus?.defaultModel ?? defaultRunInput.model;
+  return statuses.find((provider) => provider.id === providerId)?.defaultModel ?? null;
+}
+
+function modelOptionLabel(model: ResearchProviderModel): string {
+  return model.name === model.id ? model.name : `${model.name} — ${model.id}`;
+}
+
+function effortLevelFromInput(value: string): ResearchModelEffortLevel {
+  return value.trim() ? value as ResearchModelEffortLevel : 'off';
+}
+
+function inputValueForEffort(value: ResearchModelEffortLevel): string {
+  return value === 'off' ? '' : value;
+}
+
+function preferredEffort(levels: ResearchModelEffortLevel[], current: ResearchModelEffortLevel): ResearchModelEffortLevel {
+  if (levels.includes(current)) return current;
+  if (levels.includes('high')) return 'high';
+  return levels[0] ?? 'off';
+}
+
+function effortLabel(effort: ResearchModelEffortLevel): string {
+  if (effort === 'xhigh') return 'XHigh';
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
 }

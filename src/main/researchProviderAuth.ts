@@ -1,8 +1,18 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { ResearchProviderId, ResearchProviderOAuthStartResult, ResearchProviderStatus } from '@shared/types';
+import type {
+  ResearchModelEffortLevel,
+  ResearchModelProviderId,
+  ResearchProviderId,
+  ResearchProviderModel,
+  ResearchProviderModelCatalog,
+  ResearchProviderOAuthStartResult,
+  ResearchProviderStatus
+} from '@shared/types';
 import { honeycrispProcessEnvironment, resolveHoneycrispInvocation } from './honeycrispRunEngine';
 
 const SUPPORTED_PROVIDERS: readonly ResearchProviderId[] = ['anthropic', 'xai'];
+const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'anthropic', 'xai'];
+const EFFORT_LEVELS: readonly ResearchModelEffortLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const STATUS_TIMEOUT_MS = 10_000;
 const INITIAL_OAUTH_OUTPUT_MS = 2_500;
 const MAX_AUTH_OUTPUT_CHARS = 16_000;
@@ -30,9 +40,26 @@ interface ParsedAuthVerification {
 export class ResearchProviderAuthService {
   private readonly loginProcesses = new Map<ResearchProviderId, ChildProcessWithoutNullStreams>();
   private readonly latestStarts = new Map<ResearchProviderId, ResearchProviderOAuthStartResult>();
+  private modelCatalog: ResearchProviderModelCatalog[] | null = null;
 
   public async getStatuses(): Promise<ResearchProviderStatus[]> {
     return Promise.all(SUPPORTED_PROVIDERS.map((providerId) => this.getStatus(providerId)));
+  }
+
+  public async getModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
+    if (this.modelCatalog) return this.modelCatalog;
+    const catalogs = await Promise.all(
+      MODEL_PROVIDERS.map(async (providerId) => {
+        const result = await runHoneycrispCommand(['models', 'list', providerId, '--json']);
+        const [catalog] = parseHoneycrispModelCatalog(result.stdout);
+        if (!catalog || catalog.providerId !== providerId) {
+          throw new Error(`Honeycrisp returned an unrecognized ${providerId} model catalog.`);
+        }
+        return catalog;
+      })
+    );
+    this.modelCatalog = catalogs;
+    return catalogs;
   }
 
   public async startOAuthLogin(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {
@@ -90,8 +117,8 @@ export class ResearchProviderAuthService {
   private async getStatus(providerId: ResearchProviderId): Promise<ResearchProviderStatus> {
     try {
       const [statusResult, verifyResult] = await Promise.all([
-        runHoneycrispAuthCommand(['auth', 'status', providerId]),
-        runHoneycrispAuthCommand(['auth', 'verify', providerId])
+        runHoneycrispCommand(['auth', 'status', providerId]),
+        runHoneycrispCommand(['auth', 'verify', providerId])
       ]);
       const status = parseHoneycrispAuthStatus(statusResult.stdout);
       const verification = parseHoneycrispAuthVerification(verifyResult.stdout);
@@ -168,7 +195,20 @@ export function parseProviderOAuthInstructions(output: string): Pick<ResearchPro
   return { verificationUri, userCode: (explicitCode ?? dashedCode)?.toUpperCase() ?? null };
 }
 
-async function runHoneycrispAuthCommand(args: readonly string[]): Promise<AuthCommandResult> {
+export function parseHoneycrispModelCatalog(output: string): ResearchProviderModelCatalog[] {
+  const parsed = recordValue(JSON.parse(cleanOutput(output)) as unknown);
+  if (!parsed || !Array.isArray(parsed.providers)) return [];
+  return parsed.providers.flatMap((value) => {
+    const provider = recordValue(value);
+    const providerId = stringValue(provider?.providerId);
+    const providerName = stringValue(provider?.providerName);
+    if (!providerId || !providerName || !isModelProviderId(providerId) || !Array.isArray(provider?.models)) return [];
+    const models = provider.models.flatMap(parseProviderModel);
+    return [{ providerId, providerName, models }];
+  });
+}
+
+async function runHoneycrispCommand(args: readonly string[]): Promise<AuthCommandResult> {
   const invocation = resolveHoneycrispInvocation();
   const child = spawn(invocation.command, [...invocation.prefixArgs, ...args], {
     cwd: invocation.cwd,
@@ -176,6 +216,24 @@ async function runHoneycrispAuthCommand(args: readonly string[]): Promise<AuthCo
     windowsHide: true
   });
   return collectCommandOutput(child, STATUS_TIMEOUT_MS);
+}
+
+function parseProviderModel(value: unknown): ResearchProviderModel[] {
+  const model = recordValue(value);
+  const id = stringValue(model?.id);
+  const name = stringValue(model?.name);
+  const effortLevels = Array.isArray(model?.effortLevels)
+    ? model.effortLevels.filter((level): level is ResearchModelEffortLevel => typeof level === 'string' && EFFORT_LEVELS.includes(level as ResearchModelEffortLevel))
+    : [];
+  if (!id || !name || typeof model?.reasoning !== 'boolean' || effortLevels.length === 0) return [];
+  return [{
+    id,
+    name,
+    reasoning: model.reasoning,
+    effortLevels,
+    contextWindow: finiteNumber(model.contextWindow),
+    maxTokens: finiteNumber(model.maxTokens)
+  }];
 }
 
 function collectCommandOutput(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<AuthCommandResult> {
@@ -266,6 +324,22 @@ function providerDisplayName(providerId: ResearchProviderId): string {
 
 function requireSupportedProvider(providerId: ResearchProviderId): void {
   if (!SUPPORTED_PROVIDERS.includes(providerId)) throw new Error(`Unsupported research provider: ${providerId}`);
+}
+
+function isModelProviderId(value: string): value is ResearchModelProviderId {
+  return MODEL_PROVIDERS.includes(value as ResearchModelProviderId);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function finiteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function errorMessage(error: unknown): string {

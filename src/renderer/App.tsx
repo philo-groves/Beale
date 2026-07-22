@@ -10,6 +10,7 @@ import type {
   OpenAiOAuthStartResult,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
+  ResearchProviderModelCatalog,
   ResearchProviderStatus,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -70,6 +71,7 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
+  const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
@@ -280,10 +282,23 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const loadResearchProviderModelCatalog = useCallback(async (): Promise<void> => {
+    try {
+      setResearchProviderModelCatalog(await window.beale.getResearchProviderModelCatalog());
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
   useEffect(() => {
     if (!newResearchOpen && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderStatuses();
   }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    if (!newResearchOpen) return;
+    void loadResearchProviderModelCatalog();
+  }, [loadResearchProviderModelCatalog, newResearchOpen]);
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
@@ -577,6 +592,7 @@ export function App(): JSX.Element {
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         researchProviderOAuthResults={researchProviderOAuthResults}
+        researchProviderModelCatalog={researchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
         profilingOpen={profilingOpen}
         profilingState={profilingState}

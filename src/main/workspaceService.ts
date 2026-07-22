@@ -73,6 +73,7 @@ import type {
   OpenAiOAuthStartResult,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
+  ResearchProviderModelCatalog,
   ResearchProviderStatus,
   ProfilingMetricDetail,
   ProfilingReport,
@@ -813,6 +814,10 @@ export class WorkspaceService {
 
   public getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
     return this.researchProviderAuth.getStatuses();
+  }
+
+  public getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
+    return this.researchProviderAuth.getModelCatalog();
   }
 
   public startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult> {

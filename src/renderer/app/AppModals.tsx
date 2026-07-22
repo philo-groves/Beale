@@ -9,6 +9,7 @@ import type {
   OpenAiOAuthStartResult,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
+  ResearchProviderModelCatalog,
   ResearchProviderStatus,
   ProfilingReport,
   ProfilingState,
@@ -44,6 +45,7 @@ export function AppModals({
   openAiOAuthResult,
   openAiStatus,
   researchProviderOAuthResults,
+  researchProviderModelCatalog,
   researchProviderStatuses,
   profilingOpen,
   profilingState,
@@ -105,6 +107,7 @@ export function AppModals({
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
+  researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
@@ -176,6 +179,7 @@ export function AppModals({
           snapshot={snapshot}
           openAiStatus={openAiStatus}
           researchProviderStatuses={researchProviderStatuses}
+          providerModelCatalog={researchProviderModelCatalog}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}

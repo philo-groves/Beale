@@ -132,7 +132,7 @@ Codex remains Beale's default provider and `gpt-5.6-sol` remains the default res
 - Anthropic uses the Pi provider id `anthropic`, with Claude Pro/Max OAuth or `ANTHROPIC_API_KEY`.
 - xAI uses the Pi provider id `xai`, with Grok/X subscription OAuth or `XAI_API_KEY`.
 - Provider OAuth credentials remain in Honeycrisp's host-only credential store; API keys are read only from the trusted host process environment.
-- Beale displays provider readiness and Pi's current default model without placing credential values in renderer diagnostics, traces, workspace context, or the global database.
-- New Research selects a provider by applying that provider's current Pi model id. Honeycrisp remains authoritative for resolving the provider/model pair and refreshing OAuth credentials.
+- Beale displays provider readiness and the installed Pi model catalog without placing credential values in renderer diagnostics, traces, workspace context, or the global database.
+- New Research selects an exact provider/model pair from that catalog and limits reasoning effort to the levels Pi reports for that model. Honeycrisp remains authoritative for catalog resolution and OAuth credential refresh.
 
 This is an additive compatibility surface around the Honeycrisp/Pi runtime, not a replacement for the OpenAI-specific Responses API adapter used by Beale-owned prompt generation and imports.

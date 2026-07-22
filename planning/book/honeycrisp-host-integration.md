@@ -56,7 +56,7 @@ Before launching Honeycrisp, Beale resolves explicit GitHub or GitLab repository
 
 When launching the CLI from Electron, Beale must resolve a plain Node runtime instead of using Electron's own executable as `process.execPath`. Packaged or nonstandard deployments can override this with `BEALE_HONEYCRISP_NODE_COMMAND`.
 
-Provider authentication is also owned by Honeycrisp's Pi boundary. Beale may inspect non-secret provider readiness and launch Honeycrisp's interactive OAuth flow, but it must not parse or persist access tokens. Codex is the default; Anthropic and xAI are supported through Pi's native provider ids, OAuth refresh behavior, and host-environment API-key resolution.
+Provider authentication and model discovery are also owned by Honeycrisp's Pi boundary. Beale may inspect non-secret provider readiness, read the installed Pi provider/model/effort catalog, and launch Honeycrisp's interactive OAuth flow, but it must not parse or persist access tokens. Codex is the default; Anthropic and xAI are supported through Pi's native provider ids, OAuth refresh behavior, and host-environment API-key resolution.
 
 ## MCP and Built-In Views
 

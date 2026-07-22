@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseHoneycrispAuthStatus,
   parseHoneycrispAuthVerification,
+  parseHoneycrispModelCatalog,
   parseProviderOAuthInstructions
 } from '../src/main/researchProviderAuth';
 
@@ -42,5 +43,35 @@ describe('research provider auth parsing', () => {
       verificationUri: 'https://auth.x.ai/device?code=ABCD-EFGH',
       userCode: 'ABCD-EFGH'
     });
+  });
+
+  it('parses Pi model catalogs with model-specific effort levels', () => {
+    expect(
+      parseHoneycrispModelCatalog(JSON.stringify({
+        providers: [{
+          providerId: 'xai',
+          providerName: 'xAI',
+          models: [{
+            id: 'grok-4.5',
+            name: 'Grok 4.5',
+            reasoning: true,
+            effortLevels: ['low', 'medium', 'high'],
+            contextWindow: 2_000_000,
+            maxTokens: 32_000
+          }]
+        }]
+      }))
+    ).toEqual([{
+      providerId: 'xai',
+      providerName: 'xAI',
+      models: [{
+        id: 'grok-4.5',
+        name: 'Grok 4.5',
+        reasoning: true,
+        effortLevels: ['low', 'medium', 'high'],
+        contextWindow: 2_000_000,
+        maxTokens: 32_000
+      }]
+    }]);
   });
 });

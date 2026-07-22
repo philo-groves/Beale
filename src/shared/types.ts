@@ -823,6 +823,25 @@ export interface OpenAiOAuthStartResult {
 
 export type ResearchProviderId = 'anthropic' | 'xai';
 
+export type ResearchModelProviderId = 'openai-codex' | ResearchProviderId;
+
+export type ResearchModelEffortLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface ResearchProviderModel {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  effortLevels: ResearchModelEffortLevel[];
+  contextWindow: number;
+  maxTokens: number;
+}
+
+export interface ResearchProviderModelCatalog {
+  providerId: ResearchModelProviderId;
+  providerName: string;
+  models: ResearchProviderModel[];
+}
+
 export type ResearchProviderReadiness = 'ready' | 'not_configured' | 'unavailable';
 
 export interface ResearchProviderStatus {
@@ -1351,6 +1370,7 @@ export interface BealeApi {
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
+  getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
   startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
