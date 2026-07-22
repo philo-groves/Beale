@@ -9,6 +9,12 @@ export interface SubagentSummary {
   lastActiveAt: string;
 }
 
+const ACTIVE_SUBAGENT_STATUSES = new Set(['pending', 'running']);
+
+export function activeSubagentCount(subagents: readonly SubagentSummary[]): number {
+  return subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status.trim().toLowerCase())).length;
+}
+
 export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[] {
   const summaries = new Map<string, SubagentSummary>();
 

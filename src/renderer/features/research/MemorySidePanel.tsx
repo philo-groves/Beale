@@ -5,8 +5,8 @@ import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, Honeycri
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey } from '../../view-models/memoryCatalog';
-import { formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
+import { activeSubagentCount, formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
 type MemoryScopeFilter = 'all' | 'session' | 'workspace' | 'subject';
@@ -32,10 +32,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
+  const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
   const currentSessionNode = nodes.find((node) => node.sessionId === runId);
   const workspaceId = currentSessionNode?.workspaceId ?? nodes[0]?.workspaceId ?? null;
   const subjectId = currentSessionNode?.subjectId ?? nodes.find((node) => node.workspaceId === workspaceId && node.subjectId)?.subjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events), [events]);
+  const activeSubagents = useMemo(() => activeSubagentCount(subagents), [subagents]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
@@ -75,7 +77,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           onClick={() => setActiveView('memory')}
         >
           <Database size={15} />
-          <span>Memory</span>
+          <span>{researchSideTabLabel('memory', activeMemories)}</span>
         </button>
         <button
           type="button"
@@ -85,7 +87,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           onClick={() => setActiveView('subagents')}
         >
           <GitFork size={15} />
-          <span>Subagents</span>
+          <span>{researchSideTabLabel('subagents', activeSubagents)}</span>
         </button>
       </header>
 

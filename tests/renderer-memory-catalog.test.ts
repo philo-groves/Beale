@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary } from '@shared/types';
-import { filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
+  it('labels sidebar tabs with live memory and subagent counts', () => {
+    expect(researchSideTabLabel('memory', 0)).toBe('0 Memories');
+    expect(researchSideTabLabel('memory', 1)).toBe('1 Memory');
+    expect(researchSideTabLabel('memory', 42)).toBe('42 Memories');
+    expect(researchSideTabLabel('subagents', 0)).toBe('0 Subagents');
+    expect(researchSideTabLabel('subagents', 1)).toBe('1 Subagent');
+    expect(researchSideTabLabel('subagents', 2)).toBe('2 Subagents');
+  });
+
+  it('excludes stale memories from the active sidebar count', () => {
+    expect(activeMemoryCount([
+      memoryNode({ id: 'confirmed', status: 'confirmed' }),
+      memoryNode({ id: 'suspected', status: 'suspected' }),
+      memoryNode({ id: 'rejected', status: 'rejected' }),
+      memoryNode({ id: 'stale', status: 'stale' })
+    ])).toBe(3);
+  });
+
   it('filters across context identities, types, node text, tags, and references', () => {
     const sessionPrimitive = memoryNode({ id: 'session_primitive', sessionId: 'run_current', type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
     const subjectInvariant = memoryNode({

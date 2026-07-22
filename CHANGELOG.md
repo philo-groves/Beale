@@ -15,6 +15,7 @@
 - Session content-view controls now float without an outline at the upper-right of the session content area instead of occupying the main header.
 - The main trace side panel now uses trace-scale typography, full-width two-line memory titles, and type-colored labels instead of colored card edges.
 - The memory catalog now orders entries chronologically, follows new entries at the bottom, and shows status and updated time without confidence percentages.
+- The session sidebar Memory and Subagents tabs now include active counts for faster orientation: Memory excludes stale records, while Subagents includes only pending and running children.
 - Shell traces now show full multiline commands, bounded stdout previews using the file-read treatment, and full captured stderr messages using the standard error treatment.
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.

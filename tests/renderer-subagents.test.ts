@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { formatRelativeActivity, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, formatRelativeActivity, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -48,6 +48,23 @@ describe('subagent trace view models', () => {
 
     expect(traceEventsForSubagent(events, '/root/one').map((event) => event.id)).toEqual(['one']);
     expect(traceEventsForSubagent(events, null).map((event) => event.id)).toEqual(['setup', 'root']);
+  });
+
+  it('counts only pending and running subagents as active', () => {
+    const base = {
+      id: null,
+      path: '/root/worker',
+      name: 'worker',
+      latestMessage: '',
+      lastActiveAt: '2026-07-20T10:00:00.000Z'
+    };
+    expect(activeSubagentCount([
+      { ...base, path: '/root/pending', status: 'pending' },
+      { ...base, path: '/root/running', status: 'running' },
+      { ...base, path: '/root/completed', status: 'completed' },
+      { ...base, path: '/root/interrupted', status: 'interrupted' },
+      { ...base, path: '/root/errored', status: 'errored' }
+    ])).toBe(2);
   });
 
   it('formats compact relative activity labels', () => {

@@ -9,6 +9,15 @@ export interface MemoryCatalogFilters {
   type: string;
 }
 
+export function researchSideTabLabel(view: 'memory' | 'subagents', count: number): string {
+  if (view === 'memory') return `${count} ${count === 1 ? 'Memory' : 'Memories'}`;
+  return `${count} ${count === 1 ? 'Subagent' : 'Subagents'}`;
+}
+
+export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[]): number {
+  return nodes.filter((node) => node.status.trim().toLowerCase() !== 'stale').length;
+}
+
 export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], filters: MemoryCatalogFilters): HoneycrispMemoryNodeSummary[] {
   const query = filters.query.trim().toLocaleLowerCase();
   return nodes
