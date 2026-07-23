@@ -834,7 +834,7 @@ code {
   flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 4px;
   overflow: hidden;
 }
 
