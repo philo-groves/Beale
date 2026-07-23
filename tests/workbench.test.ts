@@ -346,6 +346,8 @@ describe('Beale workbench skeleton', () => {
         "if (!args.includes('--event-stream')) throw new Error('missing --event-stream');",
         "if (args[args.indexOf('--executor') + 1] !== 'agent') throw new Error('missing agent executor');",
         "if (args[args.indexOf('--provider') + 1] !== 'xai') throw new Error('missing xAI provider');",
+        "if (args[args.indexOf('--title-model') + 1] !== 'grok-4.3') throw new Error('missing xAI title model');",
+        "if (args[args.indexOf('--title-effort') + 1] !== 'medium') throw new Error('missing title effort');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
@@ -397,6 +399,8 @@ describe('Beale workbench skeleton', () => {
         "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { status: 'error', provider: 'xai', model: 'grok-4.3', effort: 'medium', errorMessage: 'Fixture title failure.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { title: 'Zsh Host Adapter Validation', provider: 'xai', model: 'grok-4.3', effort: 'medium' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Inspect parser boundary.' } }));",
@@ -430,6 +434,13 @@ describe('Beale workbench skeleton', () => {
     await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'completed', 5000);
 
     const detail = service.getRunDetail(runId ?? '');
+    expect(detail.run.title).toBe('Zsh Host Adapter Validation');
+    expect(detail.traceEvents.find((event) => event.summary === 'Session title generation failed.')?.payload).toMatchObject({
+      provider: 'xai',
+      model: 'grok-4.3',
+      effort: 'medium',
+      errorMessage: 'Fixture title failure.'
+    });
     expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
     expect(detail.modelSessions[0]?.metadata).toMatchObject({
       provider: 'xai',
@@ -778,10 +789,11 @@ describe('Beale workbench skeleton', () => {
         'const [invocationLogPath, ...args] = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const prompt = args[args.indexOf('-p') + 1];",
+        "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, turn }) + '\\n');",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
         'const capture = {',
         '  schemaVersion: 4,',
@@ -819,7 +831,7 @@ describe('Beale workbench skeleton', () => {
       const invocations = readFileSync(invocationLogPath, 'utf8')
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { capturePath: string; prompt: string; turn: number });
+        .map((line) => JSON.parse(line) as { capturePath: string; prompt: string; titleModel: string | null; turn: number });
       expect(detail.run.id).toBe(runId);
       expect(detail.attempts).toHaveLength(2);
       expect(detail.modelSessions).toHaveLength(2);
@@ -828,6 +840,7 @@ describe('Beale workbench skeleton', () => {
         expect.arrayContaining(['Now inspect integer truncation paths.', 'Turn 1 response.', 'Turn 2 response.'])
       );
       expect(invocations).toHaveLength(2);
+      expect(invocations.map((invocation) => invocation.titleModel)).toEqual(['gpt-5.6-luna', null]);
       expect(invocations[1]?.capturePath).not.toBe(invocations[0]?.capturePath);
       expect(invocations[1]?.prompt).toContain('Now inspect integer truncation paths.');
       expect(invocations[1]?.prompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');

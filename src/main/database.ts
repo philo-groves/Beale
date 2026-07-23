@@ -4225,6 +4225,16 @@ export class WorkspaceDatabase {
     if (run) this.indexRunSearchDocument(run);
   }
 
+  public updateRunTitle(runId: string, title: string): RunRecord {
+    const normalized = title.replace(/\s+/g, ' ').trim();
+    if (!normalized) throw new Error('Run title cannot be empty.');
+    this.db.prepare('UPDATE runs SET title = ? WHERE id = ?').run(normalized, runId);
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found after title update: ${runId}`);
+    this.indexRunSearchDocument(run);
+    return run;
+  }
+
   public updateRunModelSelection(runId: string, selection: ResearchModelSelection): RunRecord {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);

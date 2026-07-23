@@ -117,7 +117,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 {visibleSessions.length > 0 ? (
                   visibleSessions.map((session) => (
                     <div className="workspace-session-row" key={session.id}>
-                      <SessionActiveIndicator status={session.status} />
                       <button
                         type="button"
                         className={`workspace-session-item ${selectedRunId === session.runId ? 'active' : ''}`}
@@ -126,6 +125,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                       >
                         <span className="workspace-session-title">{promptSessionTitle(session)}</span>
                         <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
+                        <SessionActiveIndicator status={session.status} />
                       </button>
                     </div>
                   ))
@@ -148,10 +148,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   );
 });
 
-function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element {
+function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element | null {
+  if (status !== 'active') return null;
   return (
     <span className="workspace-session-status" title={sessionStatusLabel(status)} aria-label={`Session status: ${sessionStatusLabel(status)}`}>
-      {status === 'active' ? <RefreshCw size={10} /> : null}
+      <RefreshCw size={10} />
     </span>
   );
 }
