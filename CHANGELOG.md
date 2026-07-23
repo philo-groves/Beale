@@ -29,6 +29,7 @@
 
 ### Added
 
+- Added provider-native session title generation at research start using GPT-5.6 Luna Medium for OpenAI, Claude Haiku 4.5 Medium for Anthropic, and Grok 4.3 Medium for xAI.
 - Added Pi-native Anthropic (Claude) and xAI (Grok/X) provider readiness, subscription OAuth launch, environment API-key detection, and provider model selection to Beale while retaining Codex as the default. New Research now loads each provider's installed Pi model catalog and exposes the exact model-specific reasoning effort levels, including `max` where supported.
 - Added workspace-scoped Honeycrisp runbooks as revisioned Jupyter `nbformat 4` artifacts, with `runbook.list/get/create/append` tools, bounded recorded outputs, optimistic revision guards, dedicated traces, and a Beale Runbooks sidebar tab. Runbooks record procedures but execute only through `shell.run`.
 - Added Beale workbench migration 3 (`global_workspace_ownership`) and a global workspace identity table so multiple workspaces can safely share operational schema and migration history.
@@ -330,6 +331,7 @@
 
 ### Fixed
 
+- Removed an unsupported temperature parameter from provider-native session title requests and retained bounded non-fatal diagnostics when title generation fails.
 - Honeycrisp shell timeouts and aborts now terminate the utility's full process group so orphaned build or test descendants cannot hold sessions open; pending research-tool requests are streamed immediately while execution is still in progress.
 - Fixed subagent turns appearing inline between root-agent turns with raw `/root/...` timeline headers; the main trace now shows root and setup events while child traces remain in the Subagents view.
 - Reserved bug memories for confirmed historical flaw precedents with affected assets and precedent evidence; current-research flaws remain primitives or chains, and exact correction can reclassify a node without losing its graph relationships.

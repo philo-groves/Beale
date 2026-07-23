@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { ResearchModelSelection, RunRecord, TranscriptMessageRecord, WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
-import { generateSessionTitle } from '../shared/sessionTitle';
+import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
+import { SESSION_TITLE_REASONING_EFFORT, sessionTitleModelForProvider } from '../shared/modelDefaults';
 import { redactForModelText } from './redaction';
 
 export interface HoneycrispRunHandle {
@@ -196,7 +197,7 @@ export class HoneycrispRunEngine {
     const scope = this.db.getActiveScope();
     const context = this.db.createRun({
       scopeVersionId: scope.id,
-      title: generateSessionTitle(input.promptMarkdown),
+      title: SESSION_TITLE_FALLBACK,
       promptMarkdown: input.promptMarkdown,
       mode: input.mode,
       model: input.model,
@@ -335,7 +336,7 @@ export class HoneycrispRunEngine {
     );
     const args = [
       ...invocation.prefixArgs,
-      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath, this.shellOptionsPath)
+      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath, this.shellOptionsPath, !continuation)
     ];
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -555,6 +556,33 @@ export class HoneycrispRunEngine {
 
   private recordLiveEvent(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
     const active = this.activeRuns.get(context.run.id);
+    if (event.kind === 'session.title') {
+      const title = stringPayload(event.payload ?? {}, 'title');
+      if (title) {
+        this.db.updateRunTitle(context.run.id, title.slice(0, 120));
+        this.onChange();
+        return;
+      }
+      if (stringPayload(event.payload ?? {}, 'status') !== 'error') return;
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'vm_event',
+        source: 'executor',
+        summary: 'Session title generation failed.',
+        payload: {
+          provider: stringPayload(event.payload ?? {}, 'provider'),
+          model: stringPayload(event.payload ?? {}, 'model'),
+          effort: stringPayload(event.payload ?? {}, 'effort'),
+          errorMessage: stringPayload(event.payload ?? {}, 'errorMessage')
+        },
+        vmContextId: context.vmContext.id,
+        modelVisible: false
+      });
+      this.onChange();
+      return;
+    }
+
     if (event.kind === 'research.event') {
       const honeycrispEvent = honeycrispCaptureEventFromLiveEvent(event);
       if (!honeycrispEvent) return;
@@ -1251,7 +1279,8 @@ function honeycrispRunArgs(
   workspacePath: string,
   capturePath: string,
   workspaceContextPath: string,
-  shellOptionsPath?: string
+  shellOptionsPath?: string,
+  generateTitle = false
 ): string[] {
   const args = [
     '--workspace-root',
@@ -1277,6 +1306,12 @@ function honeycrispRunArgs(
   const provider = process.env.BEALE_HONEYCRISP_PROVIDER?.trim() || input.provider?.trim();
   if (provider) {
     args.push('--provider', provider);
+  }
+  if (generateTitle) {
+    const titleModel = sessionTitleModelForProvider(provider || 'openai-codex');
+    if (titleModel) {
+      args.push('--title-model', titleModel, '--title-effort', SESSION_TITLE_REASONING_EFFORT);
+    }
   }
   if (input.model.trim()) {
     args.push('--model', input.model.trim());
