@@ -1,14 +1,14 @@
 import type { JSX } from 'react';
 import type { RunDetail } from '@shared/types';
 import { displaySessionTitle } from '../../../shared/sessionTitle';
-import { Modal } from '../../app/Modal';
+import { BottomSheet } from '../../app/Modal';
 import { sessionConfigPills } from '../../view-models/sessionHeader';
 
 export function SessionSummaryModal({ detail, onClose }: { detail: RunDetail; onClose: () => void }): JSX.Element {
   const configPills = sessionConfigPills(detail);
 
   return (
-    <Modal title="Session Summary" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+    <BottomSheet title="Session Summary" wide onClose={onClose}>
       <div className="research-prompt-detail">
         <div className="research-prompt-title">
           <span>Session</span>
@@ -24,6 +24,6 @@ export function SessionSummaryModal({ detail, onClose }: { detail: RunDetail; on
         <span className="research-prompt-section-label">Original research prompt</span>
         <pre>{detail.run.promptMarkdown || 'No prompt recorded.'}</pre>
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }

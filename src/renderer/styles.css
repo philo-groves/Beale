@@ -4897,6 +4897,53 @@ body.is-resizing-research-side .main-session-grid {
   width: min(940px, calc(100vw - 36px));
 }
 
+.modal-backdrop.bottom-sheet-backdrop {
+  place-items: end center;
+  padding: 18px 18px 0;
+}
+
+.modal-panel.bottom-sheet-panel {
+  min-height: min(500px, 75vh);
+  max-height: 75vh;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  animation: bottom-sheet-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.bottom-sheet-panel .modal-header button,
+.bottom-sheet-panel .modal-header button:hover:not(:disabled) {
+  border: 0;
+}
+
+.modal-panel.bottom-sheet-panel.bottom-sheet-closing {
+  animation: bottom-sheet-slide-out 180ms cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
+
+.bottom-sheet-panel .modal-body {
+  overscroll-behavior: contain;
+}
+
+@keyframes bottom-sheet-slide-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes bottom-sheet-slide-out {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(100%);
+  }
+}
+
 .modal-panel.workspace-onboarding-modal {
   width: min(1180px, calc(100vw - 36px));
   max-height: min(860px, calc(100vh - 36px));
@@ -7166,7 +7213,8 @@ body.is-resizing-research-side .main-session-grid {
   }
 
   .main-trace-turn.trace-turn-entering .main-trace-turn-header,
-  .main-trace-event.trace-entering {
+  .main-trace-event.trace-entering,
+  .modal-panel.bottom-sheet-panel {
     animation: none;
   }
 }

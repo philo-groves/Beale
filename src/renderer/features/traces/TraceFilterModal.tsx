@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { Modal } from '../../app/Modal';
+import { BottomSheet } from '../../app/Modal';
 import type { TraceCategoryId } from '../../traceClassification';
 import { ALL_TRACE_CATEGORY_IDS, TRACE_CATEGORY_OPTIONS, traceCategoryIcon } from './traceVisuals';
 
@@ -22,7 +22,7 @@ export function TraceFilterModal({
   };
 
   return (
-    <Modal
+    <BottomSheet
       title="Trace Filters"
       wide
       onClose={onClose}
@@ -33,9 +33,6 @@ export function TraceFilterModal({
           </button>
           <button type="button" onClick={() => onChange([])}>
             Clear
-          </button>
-          <button type="button" onClick={onClose}>
-            Done
           </button>
         </>
       }
@@ -55,6 +52,6 @@ export function TraceFilterModal({
           );
         })}
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }

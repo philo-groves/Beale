@@ -11,7 +11,7 @@ import type {
   ResearchProviderStatus,
   ShellOptions
 } from '@shared/types';
-import { Modal } from '../../app/Modal';
+import { BottomSheet } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
 import { stateClass } from '../../lib/formatting';
 
@@ -56,15 +56,10 @@ export function SettingsModal({
   const activeSection = sections.includes(section) ? section : 'general';
 
   return (
-    <Modal
+    <BottomSheet
       title="Settings"
       wide
       onClose={onClose}
-      footer={
-        <button type="button" onClick={onClose}>
-          Done
-        </button>
-      }
     >
       <div className="settings-layout">
         <nav className="settings-sections" aria-label="Settings sections">
@@ -95,7 +90,7 @@ export function SettingsModal({
           )}
         </section>
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }
 

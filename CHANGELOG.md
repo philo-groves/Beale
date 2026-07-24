@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Workspace summary, session summary, settings, and trace filters now use a reusable bottom sheet with bounded content scrolling, slide-in and slide-out transitions, and dismissal from the upper-right control or backdrop instead of redundant footer buttons.
 - Subagent rows now remain in creation order instead of reordering on activity, strip Markdown decoration from message previews, and keep short preview cards stretched to the sidebar width.
 - Split the steering footer's combined model/effort label into Pi-catalog-backed model and reasoning dropdowns; selections persist on the session and apply to the next active Honeycrisp turn or inactive continuation.
 - Consolidated Memory sidebar filtering into one search, type, and level control row; memory level now defaults to Session and replaces the previous context pills.

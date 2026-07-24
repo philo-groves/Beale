@@ -1,11 +1,11 @@
 import type { JSX } from 'react';
 import type { WorkspaceRegistryEntry, ResearchSessionSummary } from '@shared/types';
-import { Modal } from '../../app/Modal';
+import { BottomSheet, Modal } from '../../app/Modal';
 import { promptSessionTitle, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
 export function WorkspaceInformationModal({ workspace, onClose }: { workspace: WorkspaceRegistryEntry; onClose: () => void }): JSX.Element {
   return (
-    <Modal title="Workspace Information" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+    <BottomSheet title="Workspace Information" wide onClose={onClose}>
       <div className="workspace-info-grid">
         <div>
           <span>Workspace</span>
@@ -40,7 +40,7 @@ export function WorkspaceInformationModal({ workspace, onClose }: { workspace: W
           <p>{workspace.rulesMarkdown || 'No scope or rules recorded.'}</p>
         </div>
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }
 
