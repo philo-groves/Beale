@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Subagent rows now remain in creation order instead of reordering on activity, strip Markdown decoration from message previews, and keep short preview cards stretched to the sidebar width.
 - Split the steering footer's combined model/effort label into Pi-catalog-backed model and reasoning dropdowns; selections persist on the session and apply to the next active Honeycrisp turn or inactive continuation.
 - Consolidated Memory sidebar filtering into one search, type, and level control row; memory level now defaults to Session and replaces the previous context pills.
 - Moved Honeycrisp and Beale persistence to the user-global `~/.honeycrisp/memory.sqlite`, with explicit workspace ownership for operational scope records and in-database session/workspace/subject memory visibility. The existing Zsh database was adopted non-destructively and its source remains intact.

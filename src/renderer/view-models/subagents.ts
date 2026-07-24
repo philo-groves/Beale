@@ -6,6 +6,7 @@ export interface SubagentSummary {
   name: string;
   status: string;
   latestMessage: string;
+  createdAt: string;
   lastActiveAt: string;
 }
 
@@ -27,6 +28,7 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
       name: subagentName(path),
       status: 'running',
       latestMessage: '',
+      createdAt: event.createdAt,
       lastActiveAt: event.createdAt
     };
     const message = subagentMessage(event);
@@ -35,12 +37,13 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
       id: stringValue(event.payload.agentId) ?? current.id,
       status: stringValue(event.payload.status) ?? current.status,
       latestMessage: message ?? current.latestMessage,
+      createdAt: earlierTimestamp(current.createdAt, event.createdAt),
       lastActiveAt: laterTimestamp(current.lastActiveAt, event.createdAt)
     });
   }
 
   return [...summaries.values()].sort((left, right) => {
-    const timeDifference = Date.parse(right.lastActiveAt) - Date.parse(left.lastActiveAt);
+    const timeDifference = timestampOrder(left.createdAt, right.createdAt);
     return timeDifference || left.path.localeCompare(right.path);
   });
 }
@@ -90,7 +93,22 @@ function subagentMessage(event: TraceEventRecord): string | null {
 
 function normalizedPreview(value: string | null): string | null {
   if (!value) return null;
-  const normalized = value.replace(/\s+/g, ' ').trim();
+  const normalized = value
+    .replace(/```(?:[\w-]+)?\s*([\s\S]*?)```/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}(?:\s+|$)/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
+    .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1')
+    .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
   return normalized || null;
 }
 
@@ -98,12 +116,28 @@ function subagentName(path: string): string {
   return path.split('/').filter(Boolean).at(-1) ?? path;
 }
 
+function earlierTimestamp(left: string, right: string): string {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (!Number.isFinite(leftMs)) return right;
+  if (!Number.isFinite(rightMs)) return left;
+  return leftMs <= rightMs ? left : right;
+}
+
 function laterTimestamp(left: string, right: string): string {
   const leftMs = Date.parse(left);
   const rightMs = Date.parse(right);
   if (!Number.isFinite(leftMs)) return right;
   if (!Number.isFinite(rightMs)) return left;
-  return rightMs >= leftMs ? right : left;
+  return leftMs <= rightMs ? right : left;
+}
+
+function timestampOrder(left: string, right: string): number {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (!Number.isFinite(leftMs)) return Number.isFinite(rightMs) ? 1 : 0;
+  if (!Number.isFinite(rightMs)) return -1;
+  return leftMs - rightMs;
 }
 
 function stringValue(value: unknown): string | null {

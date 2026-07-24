@@ -33,9 +33,50 @@ describe('subagent trace view models', () => {
         name: 'parser_review',
         status: 'completed',
         latestMessage: 'Parser review complete.',
+        createdAt: '2026-07-20T10:00:00.000Z',
         lastActiveAt: '2026-07-20T10:04:00.000Z'
       }
     ]);
+  });
+
+  it('keeps subagents in creation order when their activity changes', () => {
+    const events = [
+      traceEvent({
+        id: 'first-spawn',
+        createdAt: '2026-07-20T10:00:00.000Z',
+        payload: { agentPath: '/root/first', status: 'running', message: 'First task.' }
+      }),
+      traceEvent({
+        id: 'second-spawn',
+        createdAt: '2026-07-20T10:01:00.000Z',
+        payload: { agentPath: '/root/second', status: 'running', message: 'Second task.' }
+      }),
+      traceEvent({
+        id: 'first-update',
+        createdAt: '2026-07-20T10:03:00.000Z',
+        payload: { agentPath: '/root/first', status: 'completed', message: 'First task complete.' }
+      })
+    ];
+
+    expect(subagentSummaries(events).map((subagent) => subagent.path)).toEqual([
+      '/root/first',
+      '/root/second'
+    ]);
+  });
+
+  it('renders Markdown preview messages as compact plain text', () => {
+    const events = [
+      traceEvent({
+        payload: {
+          agentPath: '/root/reviewer',
+          text: '## Review complete\n\nFound **two issues** in [`parser.ts`](src/parser.ts).\n- Validate `length`.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events)[0]?.latestMessage).toBe(
+      'Review complete Found two issues in parser.ts. Validate length.'
+    );
   });
 
   it('filters traces by exact canonical child path', () => {
@@ -56,6 +97,7 @@ describe('subagent trace view models', () => {
       path: '/root/worker',
       name: 'worker',
       latestMessage: '',
+      createdAt: '2026-07-20T10:00:00.000Z',
       lastActiveAt: '2026-07-20T10:00:00.000Z'
     };
     expect(activeSubagentCount([

@@ -2249,8 +2249,13 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .subagent-catalog-list {
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: max-content;
   align-content: start;
   gap: 7px;
@@ -2258,8 +2263,10 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .subagent-catalog-item {
+  width: 100%;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   border: 0;
   border-radius: 9px;
@@ -2309,8 +2316,11 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .subagent-catalog-preview {
+  width: 100%;
+  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--muted-strong);
   font-size: 1rem;
   line-height: 1.38;
