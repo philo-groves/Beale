@@ -99,6 +99,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -116,6 +117,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -133,6 +135,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -149,6 +152,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -168,6 +172,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -184,6 +189,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -199,6 +205,7 @@ body.is-resizing-research-side {
 :where(
   .sidebar,
   .main-trace-list,
+  .runbook-view-scroll,
   .memory-catalog-list,
   .modal-body,
   .session-history-list,
@@ -2379,6 +2386,177 @@ body.is-resizing-research-side .main-session-grid {
   );
 }
 
+.runbook-view {
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--panel);
+}
+
+.runbook-view-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 52px clamp(18px, 4vw, 48px) 32px;
+}
+
+.runbook-view-scroll > * {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.runbook-view-header {
+  border-bottom: 1px solid #242424;
+  padding: 0 0 22px;
+}
+
+.runbook-view-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #8eb8df;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.runbook-view-header h2 {
+  margin: 9px 0 7px;
+  color: #ededed;
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-weight: 620;
+  line-height: 1.25;
+}
+
+.runbook-view-header > p {
+  margin: 0;
+  color: #a2a2a2;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.runbook-view-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin-top: 13px;
+  color: #717171;
+  font-size: 0.76rem;
+}
+
+.runbook-cell-list {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+}
+
+.runbook-cell {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #111111;
+}
+
+.runbook-cell-header {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #242424;
+  color: #777777;
+  padding: 6px 11px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.runbook-cell-content {
+  min-width: 0;
+  color: #c8c8c8;
+  padding: 13px 14px;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+
+.runbook-cell-code .runbook-cell-content {
+  padding: 0;
+}
+
+.runbook-cell-code .main-trace-markdown-code-block {
+  margin: 0;
+  border-radius: 0;
+}
+
+.runbook-cell-raw .runbook-cell-content > pre,
+.runbook-output pre {
+  max-width: 100%;
+  overflow: auto;
+  margin: 0;
+  color: #bebebe;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.runbook-output-list {
+  border-top: 1px solid #242424;
+}
+
+.runbook-output {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 11px 14px 13px;
+  background: #0c0c0c;
+}
+
+.runbook-output + .runbook-output {
+  border-top: 1px solid #202020;
+}
+
+.runbook-output-error,
+.runbook-output.is-stderr {
+  background: color-mix(in srgb, #3b1717 26%, #0c0c0c);
+}
+
+.runbook-output-label {
+  color: #6f6f6f;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.66rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.runbook-output-error .runbook-output-label,
+.runbook-output.is-stderr .runbook-output-label {
+  color: #c87777;
+}
+
+.runbook-view-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #838383;
+  text-align: center;
+}
+
+.runbook-view-state.is-error {
+  color: #d28181;
+}
+
+.runbook-view-spinner {
+  animation: runbook-spin 850ms linear infinite;
+}
+
+@keyframes runbook-spin {
+  to { transform: rotate(360deg); }
+}
+
 .main-side-section {
   min-width: 0;
   min-height: 0;
@@ -2672,19 +2850,76 @@ body.is-resizing-research-side .main-session-grid {
   text-transform: uppercase;
 }
 
-.runbook-catalog-open {
-  margin-top: 9px;
+.runbook-catalog-item {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  align-items: start;
+  justify-items: stretch;
+  gap: 6px;
   border: 0;
-  border-radius: 6px;
-  background: #202020;
-  color: var(--text);
-  padding: 6px 9px;
-  font-size: 1rem;
-  font-weight: 400;
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  padding: 10px;
+  text-align: left;
+  white-space: normal;
+  transition: background 140ms ease, box-shadow 140ms ease;
 }
 
-.runbook-catalog-open:hover {
-  background: #292929;
+.runbook-catalog-item:hover,
+.runbook-catalog-item.selected {
+  background: #181818;
+}
+
+.runbook-catalog-item.selected {
+  box-shadow: inset 2px 0 #77a8d8;
+}
+
+.runbook-catalog-heading,
+.runbook-catalog-labels,
+.runbook-catalog-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.runbook-catalog-heading {
+  justify-content: space-between;
+  color: #777777;
+  font-size: 0.75rem;
+}
+
+.runbook-catalog-labels {
+  flex-wrap: wrap;
+}
+
+.runbook-catalog-item > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #d7d7d7;
+  font-size: 0.95rem;
+  font-weight: 580;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runbook-catalog-purpose {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #969696;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.runbook-catalog-meta {
+  color: #696969;
+  font-size: 0.74rem;
 }
 
 .memory-catalog-toggle {

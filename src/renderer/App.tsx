@@ -6,6 +6,7 @@ import type {
   DeveloperSettings,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispRunbookDocument,
   NotificationRecord,
   OpenAiOAuthStartResult,
   ResearchModelSelection,
@@ -91,6 +92,10 @@ export function App(): JSX.Element {
   const [sessionSummaryDetail, setSessionSummaryDetail] = useState<RunDetail | null>(null);
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
+  const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
+  const [selectedRunbookDocument, setSelectedRunbookDocument] = useState<HoneycrispRunbookDocument | null>(null);
+  const [runbookLoading, setRunbookLoading] = useState(false);
+  const [runbookError, setRunbookError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
@@ -129,6 +134,10 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setSelectedSubagentPath(null);
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookLoading(false);
+    setRunbookError(null);
   }, [selectedRunId]);
 
   useEffect(() => {
@@ -250,12 +259,24 @@ export function App(): JSX.Element {
     [runAction]
   );
 
-  const openHoneycrispRunbook = useCallback(
-    async (runbookId: string) => {
-      await runAction(() => window.beale.openHoneycrispRunbook(runbookId));
-    },
-    [runAction]
-  );
+  const openHoneycrispRunbook = useCallback((runbookId: string): void => {
+    setSelectedSubagentPath(null);
+    setSelectedRunbookId(runbookId);
+  }, []);
+
+  const selectSubagent = useCallback((path: string): void => {
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
+    setSelectedSubagentPath(path);
+  }, []);
+
+  const backToMain = useCallback((): void => {
+    setSelectedSubagentPath(null);
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
+  }, []);
 
   const refreshOpenAiProvider = useCallback(async () => {
     setBusy(true);
@@ -409,6 +430,41 @@ export function App(): JSX.Element {
       ) ?? null
     );
   }, [workspaceRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
+  const selectedRunbook = useMemo(
+    () => activeRunDetail?.honeycrispMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
+    [activeRunDetail?.honeycrispMemory?.runbooks, selectedRunbookId]
+  );
+  useEffect(() => {
+    if (!selectedRunbookId || !activeRunDetail || selectedRunbook) return;
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
+  }, [activeRunDetail, selectedRunbook, selectedRunbookId]);
+  useEffect(() => {
+    if (!selectedRunbookId) {
+      setRunbookLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setRunbookLoading(true);
+    setRunbookError(null);
+    setSelectedRunbookDocument(null);
+    void window.beale.getHoneycrispRunbook(selectedRunbookId)
+      .then((document) => {
+        if (cancelled || document.runbookId !== selectedRunbookId) return;
+        setSelectedRunbookDocument(document);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setRunbookError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setRunbookLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRunbook?.revision, selectedRunbookId]);
+
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
@@ -495,6 +551,9 @@ export function App(): JSX.Element {
     const targetEvent = traceEventForSearchResult(activeTraceEvents, pendingSearchTarget);
     if (!targetEvent) return;
     setSelectedSubagentPath(null);
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
     focusTraceEvent(targetEvent);
     setPendingSearchTarget(null);
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
@@ -556,6 +615,10 @@ export function App(): JSX.Element {
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
+            selectedRunbook={selectedRunbook}
+            selectedRunbookDocument={selectedRunbookDocument}
+            runbookLoading={runbookLoading}
+            runbookError={runbookError}
             selectedSubagentPath={selectedSubagentPath}
             selectedTraceEventId={selectedTraceEventId}
             searchHighlightQuery={traceSearchHighlightQuery}
@@ -566,9 +629,9 @@ export function App(): JSX.Element {
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onOpenHoneycrispRunbook={openHoneycrispRunbook}
-            onBackToMain={() => setSelectedSubagentPath(null)}
+            onBackToMain={backToMain}
             onSelectTraceEvent={selectTraceEvent}
-            onSelectSubagent={setSelectedSubagentPath}
+            onSelectSubagent={selectSubagent}
             onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
           />

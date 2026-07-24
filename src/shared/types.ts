@@ -521,6 +521,30 @@ export interface HoneycrispRunbookSummary {
   updatedAt: string;
 }
 
+export interface HoneycrispRunbookOutput {
+  kind: 'stream' | 'display' | 'error';
+  text: string;
+  streamName: 'stdout' | 'stderr' | null;
+  mimeType: string | null;
+}
+
+export interface HoneycrispRunbookCell {
+  id: string;
+  type: 'markdown' | 'code' | 'raw';
+  source: string;
+  language: string | null;
+  executionCount: number | null;
+  outputs: HoneycrispRunbookOutput[];
+}
+
+export interface HoneycrispRunbookDocument {
+  runbookId: string;
+  nbformat: 4;
+  nbformatMinor: number;
+  language: string | null;
+  cells: HoneycrispRunbookCell[];
+}
+
 export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
@@ -1382,7 +1406,7 @@ export interface BealeApi {
   setProfilingEnabled(enabled: boolean): Promise<ProfilingState>;
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
-  openHoneycrispRunbook(runbookId: string): Promise<void>;
+  getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;

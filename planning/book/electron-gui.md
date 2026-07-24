@@ -62,6 +62,8 @@ The primary session detail surface combines:
 
 Model claims remain visually distinct from tool results and referenced files or outputs.
 
+Selecting a runbook replaces the trace content column with an in-agent notebook view while keeping the research sidebar available. The view renders every Markdown, code, and raw cell in order, applies language-aware highlighting to code, includes bounded recorded outputs, and returns to the trace through the same upper-right Back to Main control used by subagent views.
+
 Workspace summary, session summary, settings, and trace filters open in a shared bottom-sheet surface. The sheet enters from the bottom, remains at least 500 pixels tall when the window permits, never exceeds 75 percent of the window height, and scrolls its body when content exceeds that bound. It exits downward before closing and is dismissed through the upper-right close control or a click on the backdrop; these sheets do not repeat dismissal actions in a footer.
 
 ## Memory Catalog

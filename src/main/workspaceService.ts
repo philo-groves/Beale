@@ -13,6 +13,7 @@ import { OpenAiAuthService } from './openaiAuth';
 import { ResearchProviderAuthService } from './researchProviderAuth';
 import { HoneycrispRunEngine, invokeHoneycrispToolsConfig, invokeHoneycrispToolsList } from './honeycrispRunEngine';
 import { getHoneycrispMemorySummary } from './honeycrispMemorySummary';
+import { readHoneycrispRunbook } from './honeycrispRunbook';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { ProfilingService } from './profilingService';
 import {
@@ -36,6 +37,7 @@ import type {
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemorySummary,
+  HoneycrispRunbookDocument,
   HoneycrispToolingConfigSummary,
   HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
@@ -413,6 +415,10 @@ export class WorkspaceService {
     }
     if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`Runbook artifact is missing: ${runbookId}`);
     return path;
+  }
+
+  public getHoneycrispRunbook(runbookId: string): HoneycrispRunbookDocument {
+    return readHoneycrispRunbook(this.resolveHoneycrispRunbookPath(runbookId), runbookId);
   }
 
   public getHoneycrispToolingSummary(): HoneycrispToolingSummary {

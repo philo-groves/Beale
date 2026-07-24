@@ -423,12 +423,10 @@ function registerIpc(): void {
       if (error) throw new Error(error);
     })
   );
-  ipcMain.handle(IPC_CHANNELS.openHoneycrispRunbook, (_event, runbookId: string) =>
-    timedMainIpcAsync('openHoneycrispRunbook', { runbook: shortMetricId(runbookId) }, async () => {
-      const path = workspaceService.resolveHoneycrispRunbookPath(runbookId);
-      const error = await shell.openPath(path);
-      if (error) throw new Error(error);
-    })
+  ipcMain.handle(IPC_CHANNELS.getHoneycrispRunbook, (_event, runbookId: string) =>
+    timedMainIpc('getHoneycrispRunbook', { runbook: shortMetricId(runbookId) }, () =>
+      workspaceService.getHoneycrispRunbook(runbookId)
+    )
   );
   ipcMain.handle(IPC_CHANNELS.getHoneycrispToolingSummary, () =>
     timedMainIpc('getHoneycrispToolingSummary', {}, () => workspaceService.getHoneycrispToolingSummary())

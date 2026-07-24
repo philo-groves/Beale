@@ -8,6 +8,7 @@ import type {
   HostEnvironment,
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
+  HoneycrispRunbookDocument,
   HoneycrispToolingConfigUpdate,
   WorkspaceOnboardingInput,
   WorkspaceOnboardingProgressUpdate,
@@ -123,8 +124,8 @@ const api: BealeApi = {
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']) {
     return ipcRenderer.invoke(IPC_CHANNELS.openHoneycrispMemoryDirectory, name);
   },
-  openHoneycrispRunbook(runbookId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.openHoneycrispRunbook, runbookId);
+  getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispRunbook, runbookId);
   },
   getHoneycrispToolingSummary() {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispToolingSummary);

@@ -26,7 +26,7 @@ export const IPC_CHANNELS = {
   setProfilingEnabled: 'beale:set-profiling-enabled',
   recordProfilingReport: 'beale:record-profiling-report',
   openHoneycrispMemoryDirectory: 'beale:open-honeycrisp-memory-directory',
-  openHoneycrispRunbook: 'beale:open-honeycrisp-runbook',
+  getHoneycrispRunbook: 'beale:get-honeycrisp-runbook',
   getHoneycrispToolingSummary: 'beale:get-honeycrisp-tooling-summary',
   updateHoneycrispToolingConfig: 'beale:update-honeycrisp-tooling-config',
   generateResearchPrompt: 'beale:generate-research-prompt',

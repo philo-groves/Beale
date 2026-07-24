@@ -75,7 +75,7 @@ Durable knowledge is a separate logical layer in the same database. It contains 
 - `workspace`: reusable across sessions in the originating workspace.
 - `subject`: reusable across workspaces with the same normalized owner or subject.
 
-Runbooks are a first-class artifact family rather than memory nodes. Their workspace-owned metadata and optimistic revision live in SQLite; their ordered markdown/code cells and bounded recorded outputs live as Jupyter `nbformat 4` files under `~/.honeycrisp/artifacts/runbooks/<workspace-id>/`. A runbook never bypasses the normal Honeycrisp tool boundary: commands recorded in a notebook are executed separately through `shell.run`.
+Runbooks are a first-class artifact family rather than memory nodes. Their workspace-owned metadata and optimistic revision live in SQLite; their ordered markdown/code cells and bounded recorded outputs live as Jupyter `nbformat 4` files under `~/.honeycrisp/artifacts/runbooks/<workspace-id>/`. Beale resolves and parses the workspace-owned artifact in the trusted host, then exposes only typed cell and output content to the renderer for its in-agent notebook view. A runbook never bypasses the normal Honeycrisp tool boundary: commands recorded in a notebook are executed separately through `shell.run`.
 
 Subject visibility reads only durable graph tables. Run events, transcripts, bulk outputs, operational findings, and artifact contents remain partitioned by their originating workspace and must not be promoted automatically into durable knowledge.
 

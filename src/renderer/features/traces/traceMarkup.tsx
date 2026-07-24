@@ -65,6 +65,13 @@ export function renderTraceProseText(text: string, category: TraceCategoryId): R
   );
 }
 
+export function renderHighlightedCodeBlock(code: string, language: string | null): ReactNode {
+  const normalizedLanguage = language && /^[a-zA-Z0-9_+.-]+$/.test(language) ? language : 'text';
+  const longestBacktickRun = Math.max(0, ...Array.from(code.matchAll(/`+/g), (match) => match[0].length));
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1));
+  return renderMarkdownTraceText(`${fence}${normalizedLanguage}\n${code}\n${fence}`);
+}
+
 export function renderInlineCodeText(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   const pattern = /(`+)([^`\n]+?)\1/g;

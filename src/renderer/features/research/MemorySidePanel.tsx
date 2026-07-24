@@ -7,6 +7,7 @@ import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
 import { activeSubagentCount, formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
+import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
 type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
@@ -17,6 +18,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   memory,
   runId,
   selectedSubagentPath,
+  selectedRunbookId,
   onOpenRunbook,
   onSelectSubagent
 }: {
@@ -24,6 +26,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   memory: HoneycrispMemorySummary | null;
   runId: string;
   selectedSubagentPath: string | null;
+  selectedRunbookId: string | null;
   onOpenRunbook: (runbookId: string) => void;
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
@@ -165,7 +168,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       ) : activeView === 'runbooks' ? (
         runbooks.length > 0 ? (
           <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
-            {runbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} onOpen={() => onOpenRunbook(runbook.id)} />)}
+            {runbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
           </MainSideScrollRegion>
         ) : (
           <div className="memory-catalog-empty">No runbooks in this workspace.</div>
@@ -196,37 +199,36 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
 });
 
-function RunbookCatalogItem({ runbook, onOpen }: { runbook: HoneycrispRunbookSummary; onOpen: () => void }): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const contentId = `runbook-record-${runbook.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+function RunbookCatalogItem({
+  runbook,
+  selected,
+  onOpen
+}: {
+  runbook: HoneycrispRunbookSummary;
+  selected: boolean;
+  onOpen: () => void;
+}): JSX.Element {
   return (
-    <article className={`memory-catalog-item runbook-catalog-item ${expanded ? 'expanded' : ''}`}>
-      <button type="button" className="memory-catalog-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded((current) => !current)}>
-        <span className="memory-catalog-item-heading">
-          <span className="memory-catalog-item-meta-line">
-            <span className="memory-catalog-item-labels">
-              <span className="runbook-catalog-type">Runbook</span>
-              <span className="memory-catalog-status">{traceLabel(runbook.status)}</span>
-            </span>
-            <span className="memory-catalog-item-trailing">
-              <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
-              <ChevronDown size={14} aria-hidden="true" />
-            </span>
-          </span>
-          <strong>{runbook.title}</strong>
+    <button
+      type="button"
+      className={`runbook-catalog-item ${selected ? 'selected' : ''}`}
+      aria-pressed={selected}
+      onClick={onOpen}
+    >
+      <span className="runbook-catalog-heading">
+        <span className="runbook-catalog-labels">
+          <span className="runbook-catalog-type">Runbook</span>
+          <span className="memory-catalog-status">{traceLabel(runbook.status)}</span>
         </span>
-      </button>
-      <div id={contentId} className="memory-catalog-content" hidden={!expanded}>
-        <p className="memory-catalog-summary">{runbook.purpose}</p>
-        <div className="memory-catalog-meta">
-          <span>rev {runbook.revision}</span>
-          <span>{runbook.sessionId ? 'Session-linked' : 'Workspace'}</span>
-          <span>Jupyter</span>
-        </div>
-        <code>{runbook.artifactId}</code>
-        <button type="button" className="runbook-catalog-open" onClick={onOpen}>Open Notebook</button>
-      </div>
-    </article>
+        <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+      </span>
+      <strong>{runbook.title}</strong>
+      {runbook.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(runbook.purpose)}</span> : null}
+      <span className="runbook-catalog-meta">
+        <span>rev {runbook.revision}</span>
+        <span>{runbook.sessionId ? 'Session-linked' : 'Workspace'}</span>
+      </span>
+    </button>
   );
 }
 

@@ -1,8 +1,9 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
+import { RunbookView } from '../research/RunbookView';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -20,6 +21,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount,
   scope,
   selectedRunId,
+  selectedRunbook,
+  selectedRunbookDocument,
+  runbookLoading,
+  runbookError,
   selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
@@ -44,6 +49,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
+  selectedRunbook: HoneycrispRunbookSummary | null;
+  selectedRunbookDocument: HoneycrispRunbookDocument | null;
+  runbookLoading: boolean;
+  runbookError: string | null;
   selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
@@ -86,7 +95,13 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       className="main-session-grid"
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
-      <TraceView
+      {selectedRunbook ? <RunbookView
+        document={selectedRunbookDocument}
+        error={runbookError}
+        loading={runbookLoading}
+        runbook={selectedRunbook}
+        onBackToMain={onBackToMain}
+      /> : <TraceView
         busy={busy}
         detail={detail}
         events={events}
@@ -104,7 +119,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onSelectTraceEvent={onSelectTraceEvent}
         onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
-      />
+      />}
       <div
         className="research-side-resize-handle"
         role="separator"
@@ -121,6 +136,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}
         runId={selectedRunId}
+        selectedRunbookId={selectedRunbook?.id ?? null}
         selectedSubagentPath={selectedSubagentPath}
         onSelectSubagent={onSelectSubagent}
         onOpenRunbook={onOpenHoneycrispRunbook}
