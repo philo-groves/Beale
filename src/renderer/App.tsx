@@ -632,7 +632,6 @@ export function App(): JSX.Element {
             onBackToMain={backToMain}
             onSelectTraceEvent={selectTraceEvent}
             onSelectSubagent={selectSubagent}
-            onSessionAction={handleSessionAction}
             onSteerInstruction={handleSteerInstruction}
           />
         </div>

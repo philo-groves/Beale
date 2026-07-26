@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, WorkspaceScopeVersion, RunDetail } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { RunbookView } from '../research/RunbookView';
@@ -38,7 +38,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToMain,
   onSelectTraceEvent,
   onSelectSubagent,
-  onSessionAction,
   onSteerInstruction
 }: {
   detail: RunDetail | null;
@@ -66,7 +65,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToMain: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
-  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const {
@@ -117,7 +115,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onOpenTraceFilters={onOpenTraceFilters}
         onBackToMain={onBackToMain}
         onSelectTraceEvent={onSelectTraceEvent}
-        onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />}
       <div

@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, SlidersHorizontal } from 'lucide-react';
 import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
@@ -8,8 +8,7 @@ import type {
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   RunDetail,
-  RunStatus,
-  SteeringAction
+  RunStatus
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -62,7 +61,6 @@ export const TraceView = memo(function TraceView({
   onBackToMain,
   onOpenTraceFilters,
   onSelectTraceEvent,
-  onSessionAction,
   onSteerInstruction
 }: {
   busy: boolean;
@@ -80,7 +78,6 @@ export const TraceView = memo(function TraceView({
   onBackToMain: () => void;
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
-  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const loading = !detail;
@@ -514,7 +511,6 @@ export const TraceView = memo(function TraceView({
         traceFilterCount={traceFilterCount}
         totalTraceFilterCount={totalTraceFilterCount}
         onOpenTraceFilters={onOpenTraceFilters}
-        onSessionAction={onSessionAction}
         onSteerInstruction={onSteerInstruction}
       />
     </section>
@@ -529,7 +525,6 @@ const MainSteerArea = memo(function MainSteerArea({
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
-  onSessionAction,
   onSteerInstruction
 }: {
   runId: string | null;
@@ -539,21 +534,18 @@ const MainSteerArea = memo(function MainSteerArea({
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
-  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
   const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
   const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
   const footerRef = useRef<HTMLElement | null>(null);
-  const controlRowRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pasteCaretRef = useRef<number | null>(null);
   const previousSessionStateRef = useRef<{ runId: string | null; status: RunStatus | null }>({ runId: null, status: null });
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
   const status = detail?.run.status ?? null;
-  const inProgress = status === 'active' || status === 'queued';
   const controlsDisabled = busy || !runId;
   const providerId = runModelProvider(detail, providerModelCatalog);
   const providerCatalog = providerModelCatalog.find((catalog) => catalog.providerId === providerId) ?? null;
@@ -580,7 +572,6 @@ const MainSteerArea = memo(function MainSteerArea({
   const resizeTextarea = useCallback((): void => {
     const textarea = textareaRef.current;
     const footer = footerRef.current;
-    const controlRow = controlRowRef.current;
     if (!textarea || !footer) return;
 
     textarea.style.height = '0px';
@@ -591,11 +582,7 @@ const MainSteerArea = memo(function MainSteerArea({
     const minHeight = Number.parseFloat(computedStyle.minHeight) || 44;
     const maxHeight = lineHeight * STEER_TEXTAREA_MAX_LINES + paddingTop + paddingBottom;
     const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
-    const controlHeight = controlRow?.offsetHeight ?? 0;
-    const controlMarginTop = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginTop) || 0 : 0;
-    const controlMarginBottom = controlRow ? Number.parseFloat(window.getComputedStyle(controlRow).marginBottom) || 0 : 0;
-    const nextFooterHeight = controlHeight + controlMarginTop + controlMarginBottom
-      + nextHeight + STEER_ACTION_ROW_HEIGHT + STEER_COMPOSER_ROW_GAP;
+    const nextFooterHeight = nextHeight + STEER_ACTION_ROW_HEIGHT + STEER_COMPOSER_ROW_GAP;
 
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
@@ -657,72 +644,8 @@ const MainSteerArea = memo(function MainSteerArea({
     setInstruction('');
   };
 
-  const pauseSession = (): void => {
-    if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'pause', runId, note: 'Pause requested from session controls.' });
-  };
-
-  const stopSession = (): void => {
-    if (controlsDisabled || !runId) return;
-    onSessionAction({ type: 'stop', runId, note: 'Stop requested from session controls.' });
-  };
-
-  const continueSession = (): void => {
-    if (controlsDisabled || !runId) return;
-    if (status === 'paused') {
-      onSessionAction({
-        type: 'resume',
-        runId,
-        modelSelection,
-        ...(trimmedInstruction ? { instruction: trimmedInstruction } : {}),
-        note: 'Continue requested from session controls.'
-      });
-      setInstruction('');
-      return;
-    }
-    onSessionAction({
-      type: 'steer',
-      runId,
-      instruction: trimmedInstruction || 'Continue the current research session.',
-      modelSelection
-    });
-    setInstruction('');
-  };
-
   return (
     <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
-      <div className="main-steer-control-row" ref={controlRowRef}>
-        <span className="main-steer-status">{sessionControlStatusLabel(status)}</span>
-        <div className="main-session-controls" aria-label="Session controls">
-          <button
-            type="button"
-            className="main-session-control-button primary"
-            title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-            aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-            onClick={onOpenTraceFilters}
-          >
-            <SlidersHorizontal size={12} />
-            <span>Filters</span>
-          </button>
-          {inProgress ? (
-            <>
-              <button type="button" className="main-session-control-button" title="Pause this session" disabled={controlsDisabled || status !== 'active'} onClick={pauseSession}>
-                <Pause size={12} />
-                <span>Pause</span>
-              </button>
-              <button type="button" className="main-session-control-button danger" title="Stop this session" disabled={controlsDisabled} onClick={stopSession}>
-                <Square size={11} />
-                <span>Stop</span>
-              </button>
-            </>
-          ) : (
-            <button type="button" className="main-session-control-button primary" title={status === 'paused' ? 'Resume this session' : 'Continue this session'} disabled={controlsDisabled} onClick={continueSession}>
-              <Play size={12} />
-              <span>Continue</span>
-            </button>
-          )}
-        </div>
-      </div>
       <div className="main-steer-input-row">
         <textarea
           ref={textareaRef}
@@ -760,6 +683,16 @@ const MainSteerArea = memo(function MainSteerArea({
           options={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
           onChange={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
         />
+        <button
+          type="button"
+          className="main-steer-filter-button"
+          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          onClick={onOpenTraceFilters}
+        >
+          <SlidersHorizontal size={12} />
+          <span>Filters</span>
+        </button>
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />
         </button>
@@ -799,12 +732,6 @@ function fallbackResearchModel(model: string, effort: ResearchModelEffortLevel):
 function researchEffortLabel(effort: ResearchModelEffortLevel): string {
   if (effort === 'xhigh') return 'XHigh';
   return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
-}
-
-function sessionControlStatusLabel(status: RunStatus | null): string {
-  if (!status) return 'NO SESSION SELECTED';
-  if (status === 'active') return 'RUNNING...';
-  return traceLabel(status).toUpperCase();
 }
 
 function traceEventNodes(list: HTMLDivElement): HTMLElement[] {

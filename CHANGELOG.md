@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Removed the steering helper status and session-action bar, retaining Filters as an inline composer action beside model effort.
 - Standardized steering control typography and weight, muted its dropdown labels, preserved dropdown descenders, and padded the lower action shelf.
 - Rounded both sides of the steering composer and removed the gaps around its text-input row.
 - Changed the steering composer from black to the same raised grey surface used by the active sidebar view button.
