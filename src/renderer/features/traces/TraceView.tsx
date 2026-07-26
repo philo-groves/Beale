@@ -1,6 +1,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, ArrowRight, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, Pause, Play, SlidersHorizontal, Square } from 'lucide-react';
 import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
@@ -736,31 +736,29 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
-        <select
+        <SteerPicker
           className="main-steer-model-picker"
           value={selectedModel?.id ?? ''}
           title="Model for the next agent turn"
           aria-label="Model for the next agent turn"
           disabled={!selectedModel || controlsDisabled}
-          onChange={(event) => {
-            const model = modelOptions.find((candidate) => candidate.id === event.target.value);
+          options={modelOptions.map((model) => ({ value: model.id, label: model.name }))}
+          onChange={(value) => {
+            const model = modelOptions.find((candidate) => candidate.id === value);
             if (!model) return;
             setSelectedModelId(model.id);
             setSelectedEffort((current) => preferredResearchEffort(model.effortLevels, current));
           }}
-        >
-          {modelOptions.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
-        </select>
-        <select
+        />
+        <SteerPicker
           className="main-steer-effort-picker"
           value={selectedEffort}
           title="Reasoning effort for the next agent turn"
           aria-label="Reasoning effort for the next agent turn"
           disabled={!selectedModel || controlsDisabled}
-          onChange={(event) => setSelectedEffort(event.target.value as ResearchModelEffortLevel)}
-        >
-          {(selectedModel?.effortLevels ?? []).map((effort) => <option value={effort} key={effort}>{researchEffortLabel(effort)}</option>)}
-        </select>
+          options={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
+          onChange={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
+        />
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />
         </button>
@@ -768,6 +766,100 @@ const MainSteerArea = memo(function MainSteerArea({
     </footer>
   );
 });
+
+function SteerPicker({
+  className,
+  value,
+  options,
+  disabled,
+  title,
+  'aria-label': ariaLabel,
+  onChange
+}: {
+  className: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled: boolean;
+  title: string;
+  'aria-label': string;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const selectedOption = options.find((option) => option.value === value) ?? options[0] ?? null;
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const dismissOnOutsidePointer = (event: PointerEvent): void => {
+      if (pickerRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('pointerdown', dismissOnOutsidePointer);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsidePointer);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  return (
+    <div
+      className={`${className} main-steer-picker ${open ? 'is-open' : ''}`}
+      ref={pickerRef}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="main-steer-picker-trigger"
+        title={title}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <span className="main-steer-picker-label">{selectedOption?.label ?? ''}</span>
+        <ChevronDown className="main-steer-picker-chevron" size={13} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="main-steer-picker-menu" role="listbox" aria-label={ariaLabel}>
+          {options.map((option) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={option.value === selectedOption?.value}
+              className={option.value === selectedOption?.value ? 'is-selected' : undefined}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function runModelProvider(detail: RunDetail | null, catalogs: ResearchProviderModelCatalog[]): ResearchModelProviderId {
   const stored = detail?.run.budget.modelProvider;
