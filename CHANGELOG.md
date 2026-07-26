@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Moved the memory sidebar level and type selectors inside its full-width search field and matched them to the floating text dropdown treatment.
 - Restyled the steering footer's model and reasoning selectors as floating text controls with adjacent rotating chevrons and upward-opening menus.
 - Runbook selection now opens a native in-agent notebook view in place of the session trace, with Back to Main navigation, full Markdown rendering, syntax-highlighted code cells, and visible recorded outputs.
 - Workspace summary, session summary, settings, and trace filters now use a reusable bottom sheet with bounded content scrolling, slide-in and slide-out transitions, and dismissal from the upper-right control or backdrop instead of redundant footer buttons.

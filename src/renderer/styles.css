@@ -2182,29 +2182,33 @@ body.is-resizing-research-side .main-session-grid {
 
 .memory-catalog-controls {
   min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 6px;
+  width: 100%;
 }
 
 .memory-catalog-search {
+  --memory-catalog-filter-inset: 210px;
   min-width: 0;
+  width: 100%;
   height: 32px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
+  position: relative;
   border: 0;
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
-  padding: 0 9px;
   font-size: 1rem;
 }
 
 .memory-catalog-search:focus-within {
   background: #181818;
+}
+
+.memory-catalog-search > svg {
+  position: absolute;
+  z-index: 1;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .memory-catalog-search input {
@@ -2215,33 +2219,50 @@ body.is-resizing-research-side .main-session-grid {
   outline: 0;
   background: transparent;
   color: var(--text);
+  padding: 0 var(--memory-catalog-filter-inset) 0 30px;
   font: inherit;
+}
+
+.memory-catalog-search input:focus {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.memory-catalog-inline-filters {
+  height: 100%;
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
 }
 
 .memory-catalog-filter {
   min-width: 0;
-  width: 100%;
-  height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background-color: var(--panel);
-  background-position: right 4px center;
-  color: var(--muted);
-  padding: 0 22px 0 8px;
-  font-size: 1rem;
-  font-weight: 400;
-  cursor: pointer;
+  flex: 0 0 auto;
 }
 
-.memory-catalog-filter:hover,
-.memory-catalog-filter:focus {
-  border: 0;
-  outline: 0;
-  background-color: #202020;
-  color: var(--text);
-  box-shadow: none;
+.memory-catalog-level-filter {
+  max-width: 82px;
 }
 
+.memory-catalog-type-filter {
+  max-width: 112px;
+}
+
+.memory-catalog-filter .floating-text-picker-menu {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.memory-catalog-type-filter .floating-text-picker-menu {
+  right: 0;
+  left: auto;
+}
 .memory-catalog-empty {
   min-width: 0;
   align-self: start;
@@ -3626,7 +3647,7 @@ body.is-resizing-research-side .main-session-grid {
   padding: 0;
 }
 
-.main-steer-picker {
+.floating-text-picker {
   grid-row: 2;
   align-self: start;
   position: relative;
@@ -3653,7 +3674,7 @@ body.is-resizing-research-side .main-session-grid {
   grid-column: 2;
 }
 
-.main-steer-picker-trigger {
+.floating-text-picker-trigger {
   min-width: 0;
   max-width: 100%;
   height: 31px;
@@ -3670,23 +3691,23 @@ body.is-resizing-research-side .main-session-grid {
   line-height: 1;
 }
 
-.main-steer-picker-label {
+.floating-text-picker-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.main-steer-picker-chevron {
+.floating-text-picker-chevron {
   flex: 0 0 auto;
   transition: transform 140ms ease;
 }
 
-.main-steer-picker.is-open .main-steer-picker-chevron {
+.floating-text-picker.is-open .floating-text-picker-chevron {
   transform: rotate(180deg);
 }
 
-.main-steer-picker-menu {
+.floating-text-picker-menu {
   min-width: max(100%, 124px);
   max-width: 260px;
   max-height: 240px;
@@ -3705,7 +3726,7 @@ body.is-resizing-research-side .main-session-grid {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
-.main-steer-picker-menu button {
+.floating-text-picker-menu button {
   width: 100%;
   min-height: 28px;
   flex: 0 0 auto;
@@ -3723,14 +3744,14 @@ body.is-resizing-research-side .main-session-grid {
   white-space: nowrap;
 }
 
-.main-steer-picker-menu button:hover,
-.main-steer-picker-menu button:focus-visible {
+.floating-text-picker-menu button:hover,
+.floating-text-picker-menu button:focus-visible {
   background: transparent;
   color: var(--text);
   outline: none;
 }
 
-.main-steer-picker-menu button.is-selected {
+.floating-text-picker-menu button.is-selected {
   color: var(--text);
 }
 
@@ -3744,14 +3765,14 @@ body.is-resizing-research-side .main-session-grid {
   background: #171717;
 }
 
-.main-steer-picker-trigger:hover:not(:disabled),
-.main-steer-picker-trigger:focus-visible {
+.floating-text-picker-trigger:hover:not(:disabled),
+.floating-text-picker-trigger:focus-visible {
   background: transparent;
   color: var(--text);
   outline: none;
 }
 
-.main-steer-picker-trigger:disabled {
+.floating-text-picker-trigger:disabled {
   color: #555555;
   cursor: default;
 }

@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { BookOpen, ChevronDown, Database, GitFork, Search } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
+import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
@@ -113,39 +114,42 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       {activeView === 'memory' ? (
         <>
           <div className="memory-catalog-controls">
-            <label className="memory-catalog-search">
+            <div className="memory-catalog-search">
               <Search size={14} aria-hidden="true" />
               <input
                 type="search"
                 value={query}
                 placeholder="Search"
-                aria-label="Search"
+                aria-label="Search memory"
                 onChange={(event) => setQuery(event.target.value)}
               />
-            </label>
-            <select
-              className="memory-catalog-filter memory-catalog-level-filter"
-              value={scope}
-              aria-label="Memory level filter"
-              onChange={(event) => setScope(event.target.value as MemoryLevelFilter)}
-            >
-              <option value="session">Session</option>
-              <option value="workspace">Workspace</option>
-              <option value="subject">Subject</option>
-            </select>
-            <select
-              className="memory-catalog-filter memory-catalog-type-filter"
-              value={type}
-              aria-label="Memory type filter"
-              onChange={(event) => setType(event.target.value)}
-            >
-              <option value="all">All Memories</option>
-              {nodeTypes.map((nodeType) => (
-                <option value={nodeType} key={nodeType}>{traceLabel(nodeType)}</option>
-              ))}
-            </select>
+              <div className="memory-catalog-inline-filters" aria-label="Memory filters">
+                <FloatingTextPicker
+                  className="memory-catalog-filter memory-catalog-level-filter"
+                  value={scope}
+                  title="Memory level filter"
+                  ariaLabel="Memory level filter"
+                  options={[
+                    { value: 'session', label: 'Session' },
+                    { value: 'workspace', label: 'Workspace' },
+                    { value: 'subject', label: 'Subject' }
+                  ]}
+                  onChange={(value) => setScope(value as MemoryLevelFilter)}
+                />
+                <FloatingTextPicker
+                  className="memory-catalog-filter memory-catalog-type-filter"
+                  value={type}
+                  title="Memory type filter"
+                  ariaLabel="Memory type filter"
+                  options={[
+                    { value: 'all', label: 'All Memories' },
+                    ...nodeTypes.map((nodeType) => ({ value: nodeType, label: traceLabel(nodeType) }))
+                  ]}
+                  onChange={setType}
+                />
+              </div>
+            </div>
           </div>
-
           {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
           {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
           {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
