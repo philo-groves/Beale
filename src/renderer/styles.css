@@ -2141,7 +2141,7 @@ body.is-resizing-research-side .main-session-grid {
 
 .research-side-tabs button:hover,
 .research-side-tabs button.active {
-  background: #202020;
+  background: var(--panel-raised);
   color: var(--text);
 }
 
@@ -2390,11 +2390,11 @@ body.is-resizing-research-side .main-session-grid {
   display: grid;
   --trace-footer-input-min-height: 54px;
   --trace-footer-actions-height: 39px;
-  --trace-footer-composer-row-gap: 4px;
+  --trace-footer-composer-row-gap: 0;
   --trace-footer-min-height: calc(var(--trace-footer-input-min-height) + var(--trace-footer-actions-height) + var(--trace-footer-composer-row-gap));
   --trace-footer-control-height: 30px;
   --trace-footer-control-inline-margin: 12px;
-  --trace-footer-control-bottom-margin: 2px;
+  --trace-footer-control-bottom-margin: 0;
   --trace-footer-height: calc(var(--trace-footer-min-height) + var(--trace-footer-control-height) + var(--trace-footer-control-bottom-margin));
   --trace-footer-radius: 12px;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -3494,6 +3494,8 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .main-trace-footer {
+  --steer-control-font-size: 12px;
+  --steer-input-font-size: 13px;
   min-width: 0;
   height: var(--trace-footer-height);
   min-height: var(--trace-footer-height);
@@ -3505,7 +3507,7 @@ body.is-resizing-research-side .main-session-grid {
   overflow: visible;
   margin-left: 0;
   padding: 0;
-  border-radius: var(--trace-footer-radius) var(--trace-footer-radius) var(--trace-footer-radius) 0;
+  border-radius: var(--trace-footer-radius);
   background: var(--panel);
 }
 
@@ -3527,8 +3529,8 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   overflow: hidden;
   color: #b6b6b6;
-  font-size: 0.7rem;
-  font-weight: 760;
+  font-size: var(--steer-control-font-size);
+  font-weight: 400;
   line-height: 1;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -3555,8 +3557,8 @@ body.is-resizing-research-side .main-session-grid {
   border-radius: 999px;
   background: #141414;
   color: #8f8f8f;
-  font-size: 0.74rem;
-  font-weight: 760;
+  font-size: var(--steer-control-font-size);
+  font-weight: 400;
   line-height: 1;
   padding: 3px 8px;
 }
@@ -3608,8 +3610,8 @@ body.is-resizing-research-side .main-session-grid {
   row-gap: var(--trace-footer-composer-row-gap);
   align-items: center;
   overflow: visible;
-  border-radius: var(--trace-footer-radius) var(--trace-footer-radius) var(--trace-footer-radius) 0;
-  background: var(--panel-input);
+  border-radius: var(--trace-footer-radius);
+  background: var(--panel-raised);
   padding: 0 8px 0 0;
 }
 
@@ -3622,9 +3624,10 @@ body.is-resizing-research-side .main-session-grid {
   resize: none;
   overflow: hidden;
   border: 0;
-  border-radius: 0;
-  background: var(--panel-input);
+  border-radius: var(--trace-footer-radius) var(--trace-footer-radius) 0 0;
+  background: var(--panel-raised);
   padding: 10px 12px;
+  font-size: var(--steer-input-font-size);
   line-height: 1.2;
 }
 
@@ -3667,7 +3670,7 @@ body.is-resizing-research-side .main-session-grid {
 .main-steer-model-picker {
   grid-column: 1;
   max-width: 190px;
-  margin-left: 8px;
+  margin-left: 12px;
 }
 
 .main-steer-effort-picker {
@@ -3694,6 +3697,7 @@ body.is-resizing-research-side .main-session-grid {
 .floating-text-picker-label {
   min-width: 0;
   overflow: hidden;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3753,6 +3757,22 @@ body.is-resizing-research-side .main-session-grid {
 
 .floating-text-picker-menu button.is-selected {
   color: var(--text);
+}
+
+.main-steer-input-row .floating-text-picker,
+.main-steer-input-row .floating-text-picker-trigger,
+.main-steer-input-row .floating-text-picker-menu button {
+  font-size: var(--steer-control-font-size);
+  line-height: 1.25;
+}
+
+.main-steer-input-row .floating-text-picker {
+  color: var(--muted);
+}
+
+.main-steer-input-row .floating-text-picker-trigger:hover:not(:disabled),
+.main-steer-input-row .floating-text-picker-trigger:focus-visible {
+  color: var(--muted-strong);
 }
 
 .main-steer-send {

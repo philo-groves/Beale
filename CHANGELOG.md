@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Standardized steering control typography and weight, muted its dropdown labels, preserved dropdown descenders, and padded the lower action shelf.
+- Rounded both sides of the steering composer and removed the gaps around its text-input row.
+- Changed the steering composer from black to the same raised grey surface used by the active sidebar view button.
 - Moved the memory sidebar level and type selectors inside its full-width search field and matched them to the floating text dropdown treatment.
 - Restyled the steering footer's model and reasoning selectors as floating text controls with adjacent rotating chevrons and upward-opening menus.
 - Runbook selection now opens a native in-agent notebook view in place of the session trace, with Back to Main navigation, full Markdown rendering, syntax-highlighted code cells, and visible recorded outputs.

@@ -44,7 +44,7 @@ const TRACE_WINDOW_EDGE_BUFFER = TRACE_ESTIMATED_EVENT_HEIGHT * 6;
 const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
 const STEER_ACTION_ROW_HEIGHT = 39;
-const STEER_COMPOSER_ROW_GAP = 4;
+const STEER_COMPOSER_ROW_GAP = 0;
 
 export const TraceView = memo(function TraceView({
   busy,
