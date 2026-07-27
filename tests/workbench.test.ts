@@ -592,7 +592,7 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(heartbeatPath, '0');",
         'let heartbeat = 0;',
-        "const timer = setInterval(() => writeFileSync(heartbeatPath, String(++heartbeat)), 20);",
+        "let timer = setInterval(() => writeFileSync(heartbeatPath, String(++heartbeat)), 20);",
         "process.stdin.setEncoding('utf8');",
         "let buffer = '';",
         "process.stdin.on('data', (chunk) => {",
@@ -603,8 +603,10 @@ describe('Beale workbench skeleton', () => {
         '    buffer = buffer.slice(newlineIndex + 1);',
         '    const message = JSON.parse(line);',
         "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'pause' && timer) { clearInterval(timer); timer = null; }",
+        "    if (message.type === 'resume' && !timer) timer = setInterval(() => writeFileSync(heartbeatPath, String(++heartbeat)), 20);",
         "    if (message.type === 'steer') {",
-        '      clearInterval(timer);',
+        '      if (timer) clearInterval(timer);',
         '      const now = new Date().toISOString();',
         '      const capture = {',
         '        schemaVersion: 4,',
@@ -869,7 +871,7 @@ describe('Beale workbench skeleton', () => {
         "if (args.includes('--repo-root') || args.includes('--file-read-root')) throw new Error('Old repository guard args must not be passed');",
         "if (args.includes('--skill-dir') || args.includes('beale-skeptical-triage')) throw new Error('Removed Beale triage guidance was passed');",
         "const workspaceContext = JSON.parse(readFileSync(contextPath, 'utf8'));",
-        "if (!workspaceContext.materializedSourcePaths?.some((path) => String(path).endsWith('/sources/zsh'))) throw new Error('Nested source path missing from workspace context');",
+        "if (!workspaceContext.materializedSourcePaths?.some((path) => String(path).replaceAll('\\\\', '/').endsWith('/sources/zsh'))) throw new Error('Nested source path missing from workspace context');",
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
@@ -2566,6 +2568,12 @@ describe('Beale workbench skeleton', () => {
       })
     ).toThrow(/passing real verifier/);
 
+    const verifierArtifactPath = join(dir, 'beale-verifier-output.txt');
+    const verifierScript = [
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(verifierArtifactPath)}, 'verifier-ok\\n');`,
+      "process.stdout.write('verifier-ok\\n');"
+    ].join('');
     const contract = db.createVerifierContract({
       runId: context.run.id,
       hypothesisId: hypothesis.id,
@@ -2575,14 +2583,14 @@ describe('Beale workbench skeleton', () => {
       triggerStepsMarkdown: 'Run the verifier script on the host.',
       expectedObservations: { stdout: 'verifier-ok' },
       invariants: { hostDatabaseMounted: false, openAiCredentialsMounted: false },
-      artifactsToCollect: { verifierOutput: '/tmp/beale-output.txt' },
+      artifactsToCollect: { verifierOutput: verifierArtifactPath },
       passCriteria: {
         verifier: {
           operationKind: 'shell',
-          script: 'echo verifier-ok | tee /tmp/beale-output.txt',
+          command: [process.execPath, '-e', verifierScript],
           expectedExitCode: 0,
           expectedStdoutIncludes: 'verifier-ok',
-          artifactPath: '/tmp/beale-output.txt',
+          artifactPath: verifierArtifactPath,
           timeoutMs: 30_000
         }
       }

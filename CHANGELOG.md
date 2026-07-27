@@ -340,6 +340,7 @@
 
 ### Fixed
 
+- Fixed Windows host compatibility for workspace database teardown, Node-based Git command overrides, native verifier shell and Python selection, workspace-rooted host execution, Honeycrisp process-tree cleanup, workspace-scoped shell home variables, shell-neutral test setup, and portable durable paths.
 - Removed an unsupported temperature parameter from provider-native session title requests and retained bounded non-fatal diagnostics when title generation fails.
 - Honeycrisp shell timeouts and aborts now terminate the utility's full process group so orphaned build or test descendants cannot hold sessions open; pending research-tool requests are streamed immediately while execution is still in progress.
 - Fixed subagent turns appearing inline between root-agent turns with raw `/root/...` timeline headers; the main trace now shows root and setup events while child traces remain in the Subagents view.

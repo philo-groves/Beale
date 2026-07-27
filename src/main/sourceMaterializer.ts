@@ -314,8 +314,8 @@ function gitOutput(localPath: string, args: string[]): string | null {
 }
 
 function runGit(args: string[]): { stdout: string; stderr: string } {
-  const command = process.env.BEALE_GIT_COMMAND?.trim() || 'git';
-  const result = spawnSync(command, args, {
+  const invocation = gitInvocation(args);
+  const result = spawnSync(invocation.command, invocation.args, {
     encoding: 'utf8',
     env: gitEnv(),
     timeout: GIT_TIMEOUT_MS,
@@ -329,13 +329,13 @@ function runGit(args: string[]): { stdout: string; stderr: string } {
 }
 
 function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
-  const command = process.env.BEALE_GIT_COMMAND?.trim() || 'git';
+  const invocation = gitInvocation(args);
   return new Promise((resolvePromise, reject) => {
     if (signal?.aborted) {
       reject(new Error('git operation aborted'));
       return;
     }
-    const child = spawn(command, args, {
+    const child = spawn(invocation.command, invocation.args, {
       env: gitEnv(),
       windowsHide: true
     });
@@ -373,6 +373,14 @@ function runGitAsync(args: string[], signal?: AbortSignal): Promise<{ stdout: st
       resolvePromise({ stdout, stderr });
     });
   });
+}
+
+function gitInvocation(args: string[]): { command: string; args: string[] } {
+  const command = process.env.BEALE_GIT_COMMAND?.trim() || 'git';
+  if (process.platform === 'win32' && /\.(?:[cm]?js)$/i.test(command)) {
+    return { command: process.execPath, args: [command, ...args] };
+  }
+  return { command, args };
 }
 
 function boundedAppend(current: string, chunk: string): string {

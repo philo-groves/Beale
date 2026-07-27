@@ -3519,6 +3519,10 @@ export class WorkspaceDatabase {
     return this.databasePath;
   }
 
+  public getWorkspacePath(): string {
+    return this.workspaceIdentity.workspacePath;
+  }
+
   public getArtifactRoot(): string {
     return this.artifactRoot;
   }

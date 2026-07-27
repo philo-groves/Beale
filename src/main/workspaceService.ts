@@ -1794,6 +1794,8 @@ export class WorkspaceService {
       this.disposeRuntime(runtime);
     }
     this.backgroundRuntimes.clear();
+    this.workspaceRegistry?.close();
+    this.workspaceRegistry = null;
   }
 
   public dispose(): void {
@@ -1801,8 +1803,6 @@ export class WorkspaceService {
     this.profiling.dispose();
     this.openAiAuth.dispose();
     this.researchProviderAuth.dispose();
-    this.workspaceRegistry?.close();
-    this.workspaceRegistry = null;
   }
 
   private open(path: string, create: boolean, emitChange = true): WorkspaceSnapshot {

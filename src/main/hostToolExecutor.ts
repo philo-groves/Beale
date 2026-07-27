@@ -291,7 +291,11 @@ function isCollectableHostArtifact(db: WorkspaceDatabase, path: string, hostTarg
 
 function hostToolEnv(input: Record<string, string>, hostTarget: string | null): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
-  for (const key of ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP']) {
+  const inheritedKeys =
+    process.platform === 'win32'
+      ? ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'ComSpec', 'PATHEXT', 'SystemRoot']
+      : ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP'];
+  for (const key of inheritedKeys) {
     if (process.env[key]) env[key] = process.env[key];
   }
   for (const [key, value] of Object.entries(input)) {
@@ -356,7 +360,7 @@ function sanitizePrefix(value: string): string {
 }
 
 function workspaceRoot(db: WorkspaceDatabase): string {
-  return dirname(dirname(db.getDatabasePath()));
+  return db.getWorkspacePath();
 }
 
 function safeStat(path: string): ReturnType<typeof statSync> | null {

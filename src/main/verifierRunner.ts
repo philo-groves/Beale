@@ -234,7 +234,9 @@ function verifierSpecFromObject(value: Record<string, unknown>): VerifierExecuti
   const commandValue = value.command;
   const script = stringValue(value.script).trim();
   const command = Array.isArray(commandValue) && commandValue.every((item) => typeof item === 'string') ? commandValue : null;
-  const normalizedCommand = command ?? (script ? (operationKind === 'python' ? ['python3', '-c', script] : shellCommandForScript(script)) : null);
+  const normalizedCommand =
+    command ??
+    (script ? (operationKind === 'python' ? [process.platform === 'win32' ? 'python' : 'python3', '-c', script] : shellCommandForScript(script)) : null);
   if (!normalizedCommand || normalizedCommand.length === 0) return null;
 
   return {
@@ -249,6 +251,9 @@ function verifierSpecFromObject(value: Record<string, unknown>): VerifierExecuti
 }
 
 function shellCommandForScript(script: string): string[] {
+  if (process.platform === 'win32') {
+    return [process.env.ComSpec?.trim() || 'cmd.exe', '/d', '/s', '/c', script];
+  }
   return [scriptRequestsBash(script) ? 'bash' : 'sh', '-lc', script];
 }
 
