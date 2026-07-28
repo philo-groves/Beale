@@ -4,7 +4,6 @@ import {
   codeBrowserTracePreview,
   compactTracePath,
   duplicateBlockedTraceDetail,
-  evidenceTracePreview,
   formatReasoningTraceText,
   honeycrispAgentListResults,
   honeycrispCollaborationTraceSummary,
@@ -533,26 +532,6 @@ describe('renderer trace content view models', () => {
       facts: []
     });
 
-    expect(
-      evidenceTracePreview(
-        traceEvent({
-          type: 'artifact_created',
-          source: 'tool',
-          summary: 'Evidence recorded: Verifier confirmed the auth bypass.',
-          payload: {
-            evidenceId: 'evidence_test',
-            kind: 'verifier',
-            summary: 'Verifier confirmed the auth bypass.',
-            verifierRunId: 'verifier_run_test',
-            hypothesisId: 'hypothesis_test'
-          }
-        })
-      )
-    ).toEqual({
-      title: 'Verifier reference',
-      description: 'Verifier confirmed the auth bypass.',
-      facts: ['Verifier run referenced', 'Linked hypothesis']
-    });
   });
 
   it('builds structured code browser previews from bounded excerpts', () => {

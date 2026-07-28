@@ -47,8 +47,8 @@ Preserve these invariants in docs and implementation:
 - OpenAI OAuth credentials stay on the host.
 - The global database and credential material must not be exposed through model-visible tool results.
 - Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
-- Findings require tool, artifact, or verifier-backed evidence.
-- User-provided vulnerability claims seed hypotheses; they are not target observations by themselves.
+- Confirmed vulnerability conclusions require tool, artifact, or verifier-backed evidence references.
+- User-provided vulnerability claims may seed Honeycrisp hypotheses; they are not target observations by themselves.
 - Live-target testing is allowed only when the recorded authorized scope and active network profile permit it.
 
 ## Implementation Rules

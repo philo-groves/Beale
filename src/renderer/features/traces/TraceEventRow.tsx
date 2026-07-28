@@ -7,7 +7,6 @@ import { tracePayloadPrimitive } from '../../traceClassification';
 import {
   codeBrowserTracePreview,
   duplicateBlockedTraceDetail,
-  evidenceTracePreview,
   honeycrispAgentListResults,
   honeycrispCollaborationTraceSummary,
   honeycrispMemoryCorrectionSummary,
@@ -66,7 +65,6 @@ export const TraceEventRow = memo(function TraceEventRow({
   const summary = useMemo(() => traceEventSummary(event, category), [category, event]);
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
   const verifierPreview = useMemo(() => verifierTracePreview(event), [event]);
-  const evidencePreview = useMemo(() => evidenceTracePreview(event), [event]);
   const codeBrowserPreview = useMemo(() => codeBrowserTracePreview(event), [event]);
   const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
   const reasoningSummaries = useMemo(() => reasoningTraceSummariesForEvent(event, category), [category, event]);
@@ -104,8 +102,6 @@ export const TraceEventRow = memo(function TraceEventRow({
     <PythonTracePreview preview={pythonPreview} />
   ) : verifierPreview ? (
     <StructuredTracePreview preview={verifierPreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
-  ) : evidencePreview ? (
-    <StructuredTracePreview preview={evidencePreview} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
   ) : codeBrowserPreview ? (
     <CodeBrowserTracePreviewRow
       preview={codeBrowserPreview}
@@ -553,7 +549,7 @@ function traceEventRowPropsEqual(previous: TraceEventRowProps, next: TraceEventR
   if (isPythonExecutionTraceEvent(previous.event) || isPythonExecutionTraceEvent(next.event)) {
     return previous.detail?.traceEvents === next.detail?.traceEvents;
   }
-  return previous.detail?.hypotheses === next.detail?.hypotheses && previous.detail?.findings === next.detail?.findings;
+  return previous.detail?.honeycrispMemory?.nodes === next.detail?.honeycrispMemory?.nodes;
 }
 
 function traceToolClassName(event: TraceDisplayEvent): string {

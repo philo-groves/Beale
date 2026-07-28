@@ -11,11 +11,8 @@ import type {
   AttemptRecord,
   AttemptStatus,
   ContextCompactionRecord,
-  EvidenceRecord,
   ExportRecord,
   ExportReviewDecision,
-  FindingRecord,
-  HypothesisRecord,
   ModelSessionRecord,
   NotificationRecord,
   NotificationStatus,
@@ -54,36 +51,11 @@ import type {
   VerifierContractEditInput,
   VerifierContractRecord,
   VerifierRunRecord,
-  WeaknessMappingEntityKind,
-  WeaknessMappingInput,
-  WeaknessMappingRecord,
-  WeaknessMappingConfidence,
-  WeaknessMappingRole,
-  WeaknessMappingSource,
-  WeaknessMappingStatus,
   VmContextRecord,
   WorkspaceExportResult,
   WorkspaceRecoveryReport
 } from '@shared/types';
 import { selectRunTarget } from './runTarget';
-import {
-  DEFAULT_CWE_CATALOG,
-  DEFAULT_CWE_CATALOG_ID,
-  DEFAULT_CWE_CATALOG_VERSION,
-  DEFAULT_CWE_SOURCE_URL,
-  cweEntryForId,
-  normalizeCweConfidence,
-  normalizeCweId,
-  normalizeCweMappingStatus
-} from './cweCatalog';
-import { clampPriorityScore, MAX_PRIORITY_SCORE } from './discoveryScoring';
-import {
-  claimCandidateFromFinding,
-  duplicateReviewPayload,
-  reviewClaimDuplicate,
-  type ClaimCandidate,
-  type ClaimDraft
-} from './duplicateReview';
 
 type SqlPrimitive = string | number | bigint | null;
 type SqlRow = Record<string, SqlPrimitive>;
@@ -121,43 +93,9 @@ export interface CreateTranscriptMessageInput {
   metadata?: Record<string, unknown>;
 }
 
-export interface CreateHypothesisInput {
-  runId: string;
-  parentHypothesisId?: string | null;
-  state: string;
-  title: string;
-  descriptionMarkdown: string;
-  component: string;
-  bugClass: string;
-  priorityScore: number;
-  attackerReachability: string;
-  impact: string;
-  evidenceConfidence: string;
-  exploitPracticality: string;
-  scopeConfidence: string;
-  cweMappings?: WeaknessMappingInput[];
-}
-
-export interface CreateFindingInput {
-  runId: string;
-  hypothesisId?: string | null;
-  state: string;
-  title: string;
-  summaryMarkdown: string;
-  affectedAssets?: Record<string, unknown>;
-  affectedVersions?: Record<string, unknown>;
-  reportability?: Record<string, unknown>;
-  impactAssessment?: Record<string, unknown>;
-  impactMarkdown: string;
-  priorityScore: number;
-  verifiedByVerifierRunId?: string | null;
-  cweMappings?: WeaknessMappingInput[];
-}
-
 export interface CreateVerifierContractInput {
   runId: string;
-  hypothesisId?: string | null;
-  findingId?: string | null;
+  memoryNodeId?: string | null;
   mode: string;
   status: string;
   targetStates?: Record<string, unknown>;
@@ -191,17 +129,6 @@ export interface CreateArtifactInput {
   source: string;
   metadata?: Record<string, unknown>;
   content: string | Buffer;
-}
-
-export interface CreateEvidenceInput {
-  runId: string;
-  hypothesisId?: string | null;
-  findingId?: string | null;
-  kind: string;
-  summary: string;
-  observationTraceEventId?: string | null;
-  artifactId?: string | null;
-  verifierRunId?: string | null;
 }
 
 export interface CreateApprovalInput {
@@ -291,7 +218,7 @@ export interface StartRunRecordInput {
 
 export interface CreateExportInput {
   runId: string;
-  findingId?: string | null;
+  memoryNodeId?: string | null;
   kind: string;
   relativePath: string;
   redactionPolicy?: Record<string, unknown>;
@@ -843,10 +770,8 @@ const SEMANTIC_SYNONYMS: Record<string, string[]> = {
   xss: ['script', 'html', 'dom'],
   csrf: ['request', 'token', 'state'],
   idor: ['authorization', 'access', 'object', 'reference'],
-  cwe: ['weakness', 'vulnerability', 'classification'],
   evidence: ['artifact', 'observation', 'verifier'],
-  finding: ['vulnerability', 'impact', 'evidence'],
-  hypothesis: ['candidate', 'theory', 'vulnerability']
+  memory: ['artifact', 'observation', 'verifier', 'trajectory', 'primitive', 'chain']
 };
 
 export function createId(prefix: string): string {
@@ -884,48 +809,6 @@ function parseStringArray(value: SqlPrimitive | undefined): string[] {
 
 function arrayOfStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
-}
-
-function verifierRunIsRealPass(run: VerifierRunRecord): boolean {
-  return run.status === 'pass' && run.result.realExecution === true && (run.result.vmExecution === true || run.result.hostExecution === true);
-}
-
-function isVerifierGatedFindingState(state: string): boolean {
-  return state === 'verified' || state === 'reportable';
-}
-
-function weaknessMappingInputs(records: WeaknessMappingRecord[]): WeaknessMappingInput[] {
-  return records.map((record) => ({
-    cweId: record.cweId,
-    cweName: record.cweName,
-    mappingRole: record.mappingRole,
-    mappingStatus: record.mappingStatus,
-    confidence: record.confidence,
-    rationaleMarkdown: record.rationaleMarkdown,
-    source: record.source
-  }));
-}
-
-function findingClaimDraftFromHypothesis(hypothesis: HypothesisRecord, evidenceSummary: string): ClaimDraft {
-  return {
-    entityKind: 'finding',
-    title: hypothesis.title,
-    bodyMarkdown: `${hypothesis.descriptionMarkdown}\n\nEvidence: ${evidenceSummary}`,
-    component: hypothesis.component,
-    bugClass: hypothesis.bugClass,
-    impactMarkdown: hypothesis.impact,
-    affectedAssets: { component: hypothesis.component },
-    cweMappings: hypothesis.cweMappings
-  };
-}
-
-function componentFromAffectedAssets(affectedAssets: Record<string, unknown>): string {
-  const component = stringFromUnknown(affectedAssets.component);
-  if (component) return component;
-  const path = stringFromUnknown(affectedAssets.path);
-  if (path) return path;
-  const asset = stringFromUnknown(affectedAssets.asset);
-  return asset ?? '';
 }
 
 function text(row: SqlRow, key: string): string {
@@ -1084,7 +967,7 @@ function projectSemanticNamespace(document: ProjectSearchDocumentRecord): string
     if (resourceKind === 'manifest') return 'docs';
     return 'code';
   }
-  if (['hypothesis', 'finding', 'evidence', 'verifier_run', 'verifier_contract', 'artifact', 'trace_event', 'transcript', 'run'].includes(document.entityType)) return 'research_memory';
+  if (['verifier_run', 'verifier_contract', 'artifact', 'trace_event', 'transcript', 'run'].includes(document.entityType)) return 'research_memory';
   return 'docs';
 }
 
@@ -1445,7 +1328,7 @@ function semanticNamespaceWeights(termWeights: Map<string, number>): Record<stri
     code: ['auth', 'authorization', 'class', 'function', 'guard', 'handler', 'import', 'method', 'middleware', 'parser', 'query', 'route', 'sql'],
     docs: ['policy', 'readme', 'rule', 'scope'],
     mobile: ['activity', 'android', 'camera', 'exported', 'ios', 'manifest', 'mobile', 'permission', 'provider', 'receiver', 'service'],
-    research_memory: ['artifact', 'cwe', 'evidence', 'finding', 'hypothesis', 'impact', 'observation', 'reproduced', 'verifier', 'weakness'],
+    research_memory: ['artifact', 'chain', 'evidence', 'impact', 'memory', 'observation', 'primitive', 'reproduced', 'trajectory', 'verifier'],
     web: ['api', 'csrf', 'endpoint', 'graphql', 'http', 'request', 'response', 'route', 'ssrf', 'url', 'xss']
   };
   const weights: Record<string, number> = {};
@@ -1515,10 +1398,10 @@ const SEMANTIC_HIGH_VALUE_ENTITY_KINDS = new Set([
   'web_endpoint'
 ]);
 
-const SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES = new Set(['artifact', 'evidence', 'finding', 'hypothesis', 'verifier_contract', 'verifier_run']);
-const SEMANTIC_STRONG_RESEARCH_STATES = new Set(['reportable', 'verified', 'reproduced', 'promoted']);
-const SEMANTIC_DUPLICATE_RISK_STATES = new Set(['duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope']);
-const SEMANTIC_DUPLICATE_RISK_TERMS = ['duplicate', 'dismissed', 'false positive', 'not reproducible', 'out of scope', 'blocked before creation'];
+const SEMANTIC_RESEARCH_MEMORY_ENTITY_TYPES = new Set(['artifact', 'verifier_contract', 'verifier_run']);
+const SEMANTIC_STRONG_RESEARCH_STATES = new Set(['pass', 'completed', 'approved']);
+const SEMANTIC_DUPLICATE_RISK_STATES = new Set(['failed', 'error', 'rejected']);
+const SEMANTIC_DUPLICATE_RISK_TERMS = ['failed', 'error', 'rejected', 'not reproducible', 'out of scope'];
 
 function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, queryVector: Record<string, number>): ProjectSemanticRankScore {
   const vectorScore = semanticCosineSimilarity(parseSemanticVector(row.vector_json), queryVector);
@@ -1570,7 +1453,7 @@ function semanticRankScore(row: SqlRow, profile: ProjectSemanticQueryProfile, qu
 
 function semanticEntityScore(entityType: string): number {
   if (entityType === 'structure_entity') return 0.035;
-  if (entityType === 'finding' || entityType === 'evidence' || entityType === 'hypothesis') return 0.03;
+  if (entityType === 'artifact') return 0.03;
   if (entityType === 'verifier_run' || entityType === 'verifier_contract') return 0.025;
   if (entityType === 'inventory_item') return 0.015;
   return 0;
@@ -3411,47 +3294,12 @@ function tableHasColumn(database: DatabaseSync, table: string, column: string): 
   return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>).some((row) => row.name === column);
 }
 
+function tableExists(database: DatabaseSync, table: string): boolean {
+  return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
 function rows(value: unknown[]): SqlRow[] {
   return value as SqlRow[];
-}
-
-function normalizeWeaknessMappingInputs(mappings: WeaknessMappingInput[]): Array<Required<WeaknessMappingInput>> {
-  const normalized: Array<Required<WeaknessMappingInput>> = [];
-  const seen = new Set<string>();
-
-  for (const mapping of mappings) {
-    const cweId = normalizeCweId(mapping.cweId);
-    if (!cweId) continue;
-    const entry = cweEntryForId(cweId);
-    const mappingRole = mapping.mappingRole === 'alternate' ? 'alternate' : 'primary';
-    const key = `${mappingRole}:${cweId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    normalized.push({
-      cweId,
-      cweName: (mapping.cweName?.trim() || entry?.name || cweId).slice(0, 240),
-      mappingRole,
-      mappingStatus: normalizeCweMappingStatus(mapping.mappingStatus, entry?.mappingStatus ?? 'unknown'),
-      confidence: normalizeCweConfidence(mapping.confidence, 'low'),
-      rationaleMarkdown: (mapping.rationaleMarkdown?.trim() || 'No CWE mapping rationale provided.').slice(0, 2000),
-      source: normalizeWeaknessMappingSource(mapping.source)
-    });
-  }
-
-  const primaryIndex = normalized.findIndex((mapping) => mapping.mappingRole === 'primary');
-  if (primaryIndex > 0) {
-    const [primary] = normalized.splice(primaryIndex, 1);
-    normalized.unshift(primary);
-  }
-  if (!normalized.some((mapping) => mapping.mappingRole === 'primary') && normalized[0]) {
-    normalized[0].mappingRole = 'primary';
-  }
-  return normalized;
-}
-
-function normalizeWeaknessMappingSource(value: unknown): WeaknessMappingSource {
-  if (value === 'model' || value === 'user' || value === 'import' || value === 'system') return value;
-  return 'model';
 }
 
 function memorySubjectId(subjectName: string): string {
@@ -3496,7 +3344,6 @@ export class WorkspaceDatabase {
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.createSchema();
     this.ensureWorkspaceIdentity();
-    this.ensureCweCatalog();
     this.ensureWorkspaceMeta();
     this.ensureDefaultScope();
     this.ensureProjectSearchIndexSeeded();
@@ -4322,164 +4169,6 @@ export class WorkspaceDatabase {
       );
   }
 
-  public createHypothesis(input: CreateHypothesisInput): HypothesisRecord {
-    const id = createId('hyp');
-    const createdAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO hypotheses (
-          id, run_id, parent_hypothesis_id, state, title, description_markdown, component,
-          bug_class, priority_score, attacker_reachability, impact, evidence_confidence,
-          exploit_practicality, scope_confidence, created_trace_event_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.runId,
-        input.parentHypothesisId ?? null,
-        input.state,
-        input.title,
-        input.descriptionMarkdown,
-        input.component,
-        input.bugClass,
-        clampPriorityScore(input.priorityScore),
-        input.attackerReachability,
-        input.impact,
-        input.evidenceConfidence,
-        input.exploitPracticality,
-        input.scopeConfidence,
-        null,
-        createdAt,
-        createdAt
-      );
-    if (input.cweMappings) {
-      this.replaceWeaknessMappings('hypothesis', id, input.cweMappings);
-    }
-    const hypothesis = this.getHypothesis(id);
-    if (!hypothesis) throw new Error('Failed to create hypothesis');
-    this.indexHypothesisSearchDocument(hypothesis);
-    this.refreshProjectGraphForRun(hypothesis.runId);
-    return hypothesis;
-  }
-
-  public setHypothesisTrace(hypothesisId: string, traceEventId: string): void {
-    this.db.prepare('UPDATE hypotheses SET created_trace_event_id = ?, updated_at = ? WHERE id = ?').run(traceEventId, nowIso(), hypothesisId);
-    const hypothesis = this.getHypothesis(hypothesisId);
-    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
-    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
-  }
-
-  public updateHypothesis(
-    hypothesisId: string,
-    patch: {
-      state?: string;
-      title?: string;
-      descriptionMarkdown?: string;
-      component?: string;
-      bugClass?: string;
-      priorityScore?: number;
-      attackerReachability?: string;
-      impact?: string;
-      evidenceConfidence?: string;
-      exploitPracticality?: string;
-      scopeConfidence?: string;
-      cweMappings?: WeaknessMappingInput[];
-    }
-  ): HypothesisRecord {
-    const existing = this.getHypothesis(hypothesisId);
-    if (!existing) throw new Error(`Hypothesis not found: ${hypothesisId}`);
-    this.db
-      .prepare(
-        `UPDATE hypotheses
-         SET state = ?,
-             title = ?,
-             description_markdown = ?,
-             component = ?,
-             bug_class = ?,
-             priority_score = ?,
-             attacker_reachability = ?,
-             impact = ?,
-             evidence_confidence = ?,
-             exploit_practicality = ?,
-             scope_confidence = ?,
-             updated_at = ?
-         WHERE id = ?`
-      )
-      .run(
-        patch.state ?? existing.state,
-        patch.title ?? existing.title,
-        patch.descriptionMarkdown ?? existing.descriptionMarkdown,
-        patch.component ?? existing.component,
-        patch.bugClass ?? existing.bugClass,
-        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
-        patch.attackerReachability ?? existing.attackerReachability,
-        patch.impact ?? existing.impact,
-        patch.evidenceConfidence ?? existing.evidenceConfidence,
-        patch.exploitPracticality ?? existing.exploitPracticality,
-        patch.scopeConfidence ?? existing.scopeConfidence,
-        nowIso(),
-        hypothesisId
-      );
-    if (patch.cweMappings) {
-      this.replaceWeaknessMappings('hypothesis', hypothesisId, patch.cweMappings);
-    }
-    const updated = this.getHypothesis(hypothesisId);
-    if (!updated) throw new Error(`Hypothesis not found after update: ${hypothesisId}`);
-    this.indexHypothesisSearchDocument(updated);
-    this.refreshProjectGraphForRun(updated.runId);
-    return updated;
-  }
-
-  public updateHypothesisState(hypothesisId: string, state: string): void {
-    this.db.prepare('UPDATE hypotheses SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), hypothesisId);
-    const hypothesis = this.getHypothesis(hypothesisId);
-    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
-    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
-  }
-
-  public updateHypothesisReview(
-    hypothesisId: string,
-    patch: {
-      state?: string;
-      priorityScore?: number;
-      attackerReachability?: string;
-      impact?: string;
-      evidenceConfidence?: string;
-      exploitPracticality?: string;
-      scopeConfidence?: string;
-    }
-  ): void {
-    const existing = this.getHypothesis(hypothesisId);
-    if (!existing) throw new Error(`Hypothesis not found: ${hypothesisId}`);
-    this.db
-      .prepare(
-        `UPDATE hypotheses
-         SET state = ?,
-             priority_score = ?,
-             attacker_reachability = ?,
-             impact = ?,
-             evidence_confidence = ?,
-             exploit_practicality = ?,
-             scope_confidence = ?,
-             updated_at = ?
-         WHERE id = ?`
-      )
-      .run(
-        patch.state ?? existing.state,
-        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
-        patch.attackerReachability ?? existing.attackerReachability,
-        patch.impact ?? existing.impact,
-        patch.evidenceConfidence ?? existing.evidenceConfidence,
-        patch.exploitPracticality ?? existing.exploitPracticality,
-        patch.scopeConfidence ?? existing.scopeConfidence,
-        nowIso(),
-        hypothesisId
-      );
-    const hypothesis = this.getHypothesis(hypothesisId);
-    if (hypothesis) this.indexHypothesisSearchDocument(hypothesis);
-    if (hypothesis) this.refreshProjectGraphForRun(hypothesis.runId);
-  }
-
   public createArtifact(input: CreateArtifactInput): ArtifactRecord {
     const id = createId('artifact');
     const buffer = typeof input.content === 'string' ? Buffer.from(input.content) : input.content;
@@ -4538,84 +4227,21 @@ export class WorkspaceDatabase {
     if (runId) this.refreshProjectGraphForRun(runId);
   }
 
-  public createEvidence(input: CreateEvidenceInput): EvidenceRecord {
-    const id = createId('evidence');
-    const verifierRun = input.verifierRunId ? this.getVerifierRun(input.verifierRunId) : null;
-    const supersededByVerifierRunId = verifierRun ? stringValueForJson(verifierRun.result.supersededByVerifierRunId) || null : null;
-    const supersededAt = verifierRun ? stringValueForJson(verifierRun.result.supersededAt) || null : null;
-    const canonical = supersededByVerifierRunId ? 0 : 1;
-    this.db
-      .prepare(
-        `INSERT INTO evidence (
-          id, run_id, hypothesis_id, finding_id, kind, summary, observation_trace_event_id,
-          artifact_id, verifier_run_id, superseded_by_verifier_run_id, superseded_at, canonical, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.runId,
-        input.hypothesisId ?? null,
-        input.findingId ?? null,
-        input.kind,
-        input.summary,
-        input.observationTraceEventId ?? null,
-        input.artifactId ?? null,
-        input.verifierRunId ?? null,
-        supersededByVerifierRunId,
-        supersededAt,
-        canonical,
-        nowIso()
-      );
-    const evidence = this.getEvidence(id);
-    if (!evidence) throw new Error('Failed to create evidence');
-    this.indexEvidenceSearchDocument(evidence);
-    this.refreshProjectGraphForRun(evidence.runId);
-    return evidence;
-  }
-
-  public linkHypothesisEvidenceToFinding(runId: string, hypothesisId: string, findingId: string): void {
-    this.db
-      .prepare(
-        `UPDATE evidence
-         SET finding_id = ?
-         WHERE run_id = ?
-           AND hypothesis_id = ?
-           AND finding_id IS NULL`
-      )
-      .run(findingId, runId, hypothesisId);
-    for (const row of rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? AND hypothesis_id = ? AND finding_id = ?').all(runId, hypothesisId, findingId))) {
-      this.indexEvidenceSearchDocument(this.mapEvidence(row));
-    }
-    this.refreshProjectGraphForRun(runId);
-  }
-
-  public createEvidenceFromArtifact(runId: string, artifactId: string, summary: string, hypothesisId?: string | null, findingId?: string | null): string {
-    return this.createEvidence({
-      runId,
-      hypothesisId,
-      findingId,
-      kind: 'artifact',
-      summary,
-      artifactId
-    }).id;
-  }
-
   public createVerifierContract(input: CreateVerifierContractInput): VerifierContractRecord {
     const id = createId('verifier');
     const createdAt = nowIso();
     this.db
       .prepare(
         `INSERT INTO verifier_contracts (
-          id, run_id, hypothesis_id, finding_id, mode, status, target_states_json,
+          id, run_id, memory_node_id, mode, status, target_states_json,
           setup_steps_markdown, trigger_steps_markdown, expected_observations_json,
           invariants_json, artifacts_to_collect_json, pass_criteria_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         input.runId,
-        input.hypothesisId ?? null,
-        input.findingId ?? null,
+        input.memoryNodeId ?? null,
         input.mode,
         input.status,
         toJson(input.targetStates),
@@ -4699,137 +4325,6 @@ export class WorkspaceDatabase {
     this.indexVerifierRunSearchDocument(verifierRun);
     this.refreshProjectGraphForRun(verifierRun.runId);
     return verifierRun;
-  }
-
-  public createFinding(input: CreateFindingInput): FindingRecord {
-    if (isVerifierGatedFindingState(input.state)) {
-      this.assertVerifierRunCanVerify(input.verifiedByVerifierRunId ?? null, input.runId);
-    }
-    const id = createId('finding');
-    const createdAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO findings (
-          id, run_id, hypothesis_id, state, title, summary_markdown, affected_assets_json,
-          affected_versions_json, reportability_json, impact_assessment_json, impact_markdown, priority_score, verified_by_verifier_run_id,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.runId,
-        input.hypothesisId ?? null,
-        input.state,
-        input.title,
-        input.summaryMarkdown,
-        toJson(input.affectedAssets),
-        toJson(input.affectedVersions),
-        toJson(input.reportability ?? {}),
-        toJson(input.impactAssessment ?? {}),
-        input.impactMarkdown,
-        clampPriorityScore(input.priorityScore),
-        input.verifiedByVerifierRunId ?? null,
-        createdAt,
-        createdAt
-      );
-    if (input.cweMappings) {
-      this.replaceWeaknessMappings('finding', id, input.cweMappings);
-    }
-    const finding = this.getFinding(id);
-    if (!finding) throw new Error('Failed to create finding');
-    this.indexFindingSearchDocument(finding);
-    this.refreshProjectGraphForRun(finding.runId);
-    return finding;
-  }
-
-  public updateFindingState(findingId: string, state: string): void {
-    if (isVerifierGatedFindingState(state)) {
-      throw new Error('Use verifier-backed finding updates to mark a finding verified or reportable.');
-    }
-    this.db.prepare('UPDATE findings SET state = ?, updated_at = ? WHERE id = ?').run(state, nowIso(), findingId);
-    const finding = this.getFinding(findingId);
-    if (finding) this.indexFindingSearchDocument(finding);
-    if (finding) this.refreshProjectGraphForRun(finding.runId);
-  }
-
-  public updateFinding(
-    findingId: string,
-    patch: {
-      hypothesisId?: string | null;
-      state?: string;
-      title?: string;
-      summaryMarkdown?: string;
-      affectedAssets?: Record<string, unknown>;
-      affectedVersions?: Record<string, unknown>;
-      reportability?: Record<string, unknown>;
-      impactAssessment?: Record<string, unknown>;
-      impactMarkdown?: string;
-      priorityScore?: number;
-      verifiedByVerifierRunId?: string | null;
-      cweMappings?: WeaknessMappingInput[];
-    }
-  ): FindingRecord {
-    const existing = this.getFinding(findingId);
-    if (!existing) throw new Error(`Finding not found: ${findingId}`);
-    const nextState = patch.state ?? existing.state;
-    const nextVerifierRunId = patch.verifiedByVerifierRunId ?? existing.verifiedByVerifierRunId;
-    if (isVerifierGatedFindingState(nextState)) {
-      this.assertVerifierRunCanVerify(nextVerifierRunId ?? null, existing.runId);
-    }
-    this.db
-      .prepare(
-        `UPDATE findings
-         SET hypothesis_id = ?,
-             state = ?,
-             title = ?,
-             summary_markdown = ?,
-             affected_assets_json = ?,
-             affected_versions_json = ?,
-             reportability_json = ?,
-             impact_assessment_json = ?,
-             impact_markdown = ?,
-             priority_score = ?,
-             verified_by_verifier_run_id = ?,
-             updated_at = ?
-         WHERE id = ?`
-      )
-      .run(
-        patch.hypothesisId === undefined ? existing.hypothesisId : patch.hypothesisId,
-        nextState,
-        patch.title ?? existing.title,
-        patch.summaryMarkdown ?? existing.summaryMarkdown,
-        toJson(patch.affectedAssets ?? existing.affectedAssets),
-        toJson(patch.affectedVersions ?? existing.affectedVersions),
-        toJson(patch.reportability ?? existing.reportability),
-        toJson(patch.impactAssessment ?? existing.impactAssessment),
-        patch.impactMarkdown ?? existing.impactMarkdown,
-        clampPriorityScore(patch.priorityScore ?? existing.priorityScore),
-        nextVerifierRunId ?? null,
-        nowIso(),
-        findingId
-      );
-    if (patch.cweMappings) {
-      this.replaceWeaknessMappings('finding', findingId, patch.cweMappings);
-    }
-    const updated = this.getFinding(findingId);
-    if (!updated) throw new Error(`Finding not found after update: ${findingId}`);
-    this.indexFindingSearchDocument(updated);
-    this.refreshProjectGraphForRun(updated.runId);
-    return updated;
-  }
-
-  public verifyFindingWithVerifierRun(findingId: string, verifierRunId: string): FindingRecord {
-    const finding = this.getFinding(findingId);
-    if (!finding) throw new Error(`Finding not found: ${findingId}`);
-    this.assertVerifierRunCanVerify(verifierRunId, finding.runId);
-    this.db
-      .prepare('UPDATE findings SET state = ?, verified_by_verifier_run_id = ?, updated_at = ? WHERE id = ?')
-      .run('verified', verifierRunId, nowIso(), findingId);
-    const updated = this.getFinding(findingId);
-    if (!updated) throw new Error(`Finding not found after verification update: ${findingId}`);
-    this.indexFindingSearchDocument(updated);
-    this.refreshProjectGraphForRun(updated.runId);
-    return updated;
   }
 
   public countCodeBrowserReadsForPath(runId: string, sourcePath: string): number {
@@ -5004,129 +4499,19 @@ export class WorkspaceDatabase {
       );
   }
 
-  public markPriorVerifierRunsSuperseded(runId: string, hypothesisId: string | null, findingId: string | null, verifierRunId: string): string[] {
-    if (!hypothesisId && !findingId) return [];
-    const current = this.getVerifierRun(verifierRunId);
-    if (!current || current.status !== 'pass') return [];
-    const rowsToSupersede = rows(
-      this.db
-        .prepare(
-          `SELECT vr.*
-           FROM verifier_runs vr
-           JOIN verifier_contracts vc ON vc.id = vr.contract_id
-           WHERE vr.run_id = ?
-             AND vr.id <> ?
-             AND vr.status = 'pass'
-             AND (? IS NULL OR vc.hypothesis_id = ?)
-             AND (? IS NULL OR vc.finding_id = ?)
-           ORDER BY vr.started_at ASC, vr.id ASC`
-        )
-        .all(runId, verifierRunId, hypothesisId, hypothesisId, findingId, findingId)
-    ).map((row) => this.mapVerifierRun(row));
-    const supersededIds = rowsToSupersede
-      .filter((run) => stringValueForJson(run.result.supersededByVerifierRunId) !== verifierRunId)
-      .map((run) => run.id);
-    if (supersededIds.length === 0) return [];
-    const updatedAt = nowIso();
-    for (const run of rowsToSupersede) {
-      const result = {
-        ...run.result,
-        supersededByVerifierRunId: verifierRunId,
-        supersededAt: updatedAt,
-        canonical: false
-      };
-      this.db.prepare('UPDATE verifier_runs SET result_json = ? WHERE id = ?').run(toJson(result), run.id);
-      this.indexVerifierRunSearchDocument({ ...run, result });
-    }
-    this.db
-      .prepare(
-        `UPDATE evidence
-         SET superseded_by_verifier_run_id = ?,
-             superseded_at = ?,
-             canonical = 0
-         WHERE run_id = ?
-           AND verifier_run_id IN (${supersededIds.map(() => '?').join(',')})`
-      )
-      .run(verifierRunId, updatedAt, runId, ...supersededIds);
-    this.db
-      .prepare(
-        `UPDATE evidence
-         SET superseded_by_verifier_run_id = NULL,
-             superseded_at = NULL,
-             canonical = 1
-         WHERE run_id = ?
-           AND verifier_run_id = ?`
-      )
-      .run(runId, verifierRunId);
-    for (const row of rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id = ? AND (verifier_run_id = ? OR verifier_run_id IN (${supersededIds.map(() => '?').join(',')}))`).all(runId, verifierRunId, ...supersededIds))) {
-      this.indexEvidenceSearchDocument(this.mapEvidence(row));
-    }
-    const nextCurrentResult = {
-      ...current.result,
-      supersedesVerifierRunIds: uniqueStringsForJson([...(Array.isArray(current.result.supersedesVerifierRunIds) ? current.result.supersedesVerifierRunIds : []), ...supersededIds]),
-      canonical: true
-    };
-    this.db.prepare('UPDATE verifier_runs SET result_json = ? WHERE id = ?').run(toJson(nextCurrentResult), verifierRunId);
-    this.indexVerifierRunSearchDocument({ ...current, result: nextCurrentResult });
-    this.refreshProjectGraphForRun(runId);
-    return supersededIds;
-  }
-
-  public replaceWeaknessMappings(entityKind: WeaknessMappingEntityKind, entityId: string, mappings: WeaknessMappingInput[]): WeaknessMappingRecord[] {
-    const normalized = normalizeWeaknessMappingInputs(mappings);
-    this.db.prepare('DELETE FROM weakness_mappings WHERE entity_kind = ? AND entity_id = ?').run(entityKind, entityId);
-    const createdAt = nowIso();
-    for (const mapping of normalized) {
-      this.db
-        .prepare(
-          `INSERT INTO weakness_mappings (
-            id, entity_kind, entity_id, cwe_id, cwe_name, mapping_role, mapping_status,
-            confidence, rationale_markdown, source, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          createId('weakness'),
-          entityKind,
-          entityId,
-          mapping.cweId,
-          mapping.cweName,
-          mapping.mappingRole,
-          mapping.mappingStatus,
-          mapping.confidence,
-          mapping.rationaleMarkdown,
-          mapping.source,
-          createdAt,
-          createdAt
-        );
-    }
-    return this.listWeaknessMappings(entityKind, entityId);
-  }
-
-  public listWeaknessMappings(entityKind: WeaknessMappingEntityKind, entityId: string): WeaknessMappingRecord[] {
-    return rows(
-      this.db
-        .prepare(
-          `SELECT * FROM weakness_mappings
-           WHERE entity_kind = ? AND entity_id = ?
-           ORDER BY CASE mapping_role WHEN 'primary' THEN 0 ELSE 1 END, cwe_id ASC, created_at ASC`
-        )
-        .all(entityKind, entityId)
-    ).map((row) => this.mapWeaknessMapping(row));
-  }
-
   public createExportRecord(input: CreateExportInput): string {
     const id = createId('export');
     this.db
       .prepare(
         `INSERT INTO exports (
-          id, run_id, finding_id, kind, relative_path, redaction_policy_json,
+          id, run_id, memory_node_id, kind, relative_path, redaction_policy_json,
           included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         input.runId,
-        input.findingId ?? null,
+        input.memoryNodeId ?? null,
         input.kind,
         input.relativePath,
         toJson(input.redactionPolicy),
@@ -5202,7 +4587,6 @@ export class WorkspaceDatabase {
   public getRunDetail(runId: string): RunDetail {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
-    this.ensureFindingsForReproducedHypotheses(runId);
     return {
       run,
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
@@ -5210,7 +4594,6 @@ export class WorkspaceDatabase {
       transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
         this.mapTranscriptMessage(row)
       ),
-      hypotheses: rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC').all(runId)).map((row) => this.mapHypothesis(row)),
       artifacts: rows(
         this.db
           .prepare(
@@ -5221,8 +4604,6 @@ export class WorkspaceDatabase {
           )
           .all(runId)
       ).map((row) => this.mapArtifact(row)),
-      evidence: rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapEvidence(row)),
-      findings: rows(this.db.prepare('SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapFinding(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
       verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
       vmContexts: rows(
@@ -5361,7 +4742,6 @@ export class WorkspaceDatabase {
     verifiedEntityKeys: string[];
     correctedNegativeEntityKeys: string[];
   } {
-    const lineageRunSql = this.scopeVersionLineagePredicate('scope_version_id');
     const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
     const readPathCounts: Record<string, number> = {};
     const readRows = rows(
@@ -5385,26 +4765,12 @@ export class WorkspaceDatabase {
     }
 
     const verifiedEntityKeys = new Set<string>();
-    for (const row of rows(this.db.prepare(`SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('reproduced', 'verified', 'reportable', 'disclosure_ready')`).all(scopeVersionId))) {
-      verifiedEntityKeys.add(`finding:${text(row, 'id')}`);
-    }
-    for (const row of rows(this.db.prepare(`SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('reproduced', 'verified', 'promoted')`).all(scopeVersionId))) {
-      verifiedEntityKeys.add(`hypothesis:${text(row, 'id')}`);
-    }
-    for (const row of rows(this.db.prepare(`SELECT vc.hypothesis_id, vc.finding_id FROM verifier_runs vr JOIN verifier_contracts vc ON vc.id = vr.contract_id JOIN runs r ON r.id = vr.run_id WHERE ${joinedLineageRunSql} AND vr.status = 'pass'`).all(scopeVersionId))) {
-      const hypothesisId = nullableText(row, 'hypothesis_id');
-      const findingId = nullableText(row, 'finding_id');
-      if (hypothesisId) verifiedEntityKeys.add(`hypothesis:${hypothesisId}`);
-      if (findingId) verifiedEntityKeys.add(`finding:${findingId}`);
+    for (const row of rows(this.db.prepare(`SELECT vc.memory_node_id FROM verifier_runs vr JOIN verifier_contracts vc ON vc.id = vr.contract_id JOIN runs r ON r.id = vr.run_id WHERE ${joinedLineageRunSql} AND vr.status = 'pass' AND vc.memory_node_id IS NOT NULL`).all(scopeVersionId))) {
+      const memoryNodeId = nullableText(row, 'memory_node_id');
+      if (memoryNodeId) verifiedEntityKeys.add(`memory_node:${memoryNodeId}`);
     }
 
     const correctedNegativeEntityKeys = new Set<string>();
-    for (const row of rows(this.db.prepare(`SELECT id FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')`).all(scopeVersionId))) {
-      correctedNegativeEntityKeys.add(`hypothesis:${text(row, 'id')}`);
-    }
-    for (const row of rows(this.db.prepare(`SELECT id FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql}) AND state IN ('duplicate', 'dismissed', 'false_positive', 'invalid', 'not_reproducible', 'out_of_scope')`).all(scopeVersionId))) {
-      correctedNegativeEntityKeys.add(`finding:${text(row, 'id')}`);
-    }
     return {
       readPathCounts,
       verifiedEntityKeys: [...verifiedEntityKeys],
@@ -5656,9 +5022,9 @@ export class WorkspaceDatabase {
                  WHEN 'scope_version' THEN 0
                  WHEN 'scope_asset' THEN 1
                  WHEN 'run' THEN 2
-                 WHEN 'hypothesis' THEN 3
-                 WHEN 'finding' THEN 4
-                 WHEN 'evidence' THEN 5
+                 WHEN 'verifier_run' THEN 3
+                 WHEN 'verifier_contract' THEN 4
+                 WHEN 'artifact' THEN 5
                  WHEN 'structure_entity' THEN 6
                  WHEN 'inventory_item' THEN 7
                  ELSE 20
@@ -5732,18 +5098,13 @@ export class WorkspaceDatabase {
                WHEN 'scope_version' THEN 0
                WHEN 'scope_asset' THEN 1
                WHEN 'run' THEN 2
-               WHEN 'hypothesis' THEN 3
-               WHEN 'finding' THEN 4
-               WHEN 'evidence' THEN 5
-               WHEN 'verifier_run' THEN 6
-               WHEN 'verifier_contract' THEN 7
-               WHEN 'artifact' THEN 8
-               WHEN 'structure_entity' THEN 9
-               WHEN 'inventory_item' THEN 10
-               WHEN 'trace_event' THEN 11
-               WHEN 'transcript' THEN 12
-               WHEN 'research_component' THEN 13
-               WHEN 'weakness' THEN 14
+               WHEN 'verifier_run' THEN 3
+               WHEN 'verifier_contract' THEN 4
+               WHEN 'artifact' THEN 5
+               WHEN 'structure_entity' THEN 6
+               WHEN 'inventory_item' THEN 7
+               WHEN 'trace_event' THEN 8
+               WHEN 'transcript' THEN 9
                ELSE 30
              END,
              label ASC,
@@ -6018,35 +5379,8 @@ export class WorkspaceDatabase {
          WHERE ${joinedLineageRunSql}`,
         scopeVersionId
       ),
-      hypothesis: count(`SELECT COUNT(*) AS count FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      finding: count(`SELECT COUNT(*) AS count FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      evidence: count(`SELECT COUNT(*) AS count FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
       verifier_contract: count(`SELECT COUNT(*) AS count FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      verifier_run: count(`SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId),
-      research_component: count(
-        `SELECT COUNT(*) AS count
-         FROM (
-           SELECT LOWER(TRIM(component)) AS component_key
-           FROM hypotheses
-           WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})
-             AND TRIM(component) <> ''
-           UNION
-           SELECT LOWER(TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), ''))) AS component_key
-           FROM findings
-           WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})
-             AND TRIM(COALESCE(json_extract(affected_assets_json, '$.component'), json_extract(affected_assets_json, '$.path'), json_extract(affected_assets_json, '$.asset'), '')) <> ''
-         )`,
-        scopeVersionId,
-        scopeVersionId
-      ),
-      weakness: count(
-        `SELECT COUNT(DISTINCT cwe_id) AS count
-         FROM weakness_mappings
-         WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT h.id FROM hypotheses h JOIN runs r ON r.id = h.run_id WHERE ${joinedLineageRunSql}))
-            OR (entity_kind = 'finding' AND entity_id IN (SELECT f.id FROM findings f JOIN runs r ON r.id = f.run_id WHERE ${joinedLineageRunSql}))`,
-        scopeVersionId,
-        scopeVersionId
-      )
+      verifier_run: count(`SELECT COUNT(*) AS count FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`, scopeVersionId)
     };
     return Object.fromEntries(Object.entries(families).filter(([, value]) => value > 0));
   }
@@ -6890,9 +6224,6 @@ export class WorkspaceDatabase {
       for (const row of rows(this.db.prepare(`SELECT * FROM runs WHERE id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexRunSearchDocument(this.mapRun(row));
       for (const row of rows(this.db.prepare(`SELECT * FROM transcript_messages WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC, rowid ASC`).all(this.workspaceId))) this.indexTranscriptSearchDocument(this.mapTranscriptMessage(row));
       for (const row of rows(this.db.prepare(`SELECT * FROM trace_events WHERE model_visible = 1 AND run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexTraceSearchDocument(this.mapTraceEvent(row));
-      for (const row of rows(this.db.prepare(`SELECT * FROM hypotheses WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexHypothesisSearchDocument(this.mapHypothesis(row));
-      for (const row of rows(this.db.prepare(`SELECT * FROM findings WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexFindingSearchDocument(this.mapFinding(row));
-      for (const row of rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexEvidenceSearchDocument(this.mapEvidence(row));
       for (const row of rows(this.db.prepare(`SELECT DISTINCT a.* FROM artifacts a JOIN trace_events t ON t.artifact_id = a.id WHERE a.model_visible = 1 AND t.run_id IN (${workspaceRunIds}) ORDER BY a.created_at ASC`).all(this.workspaceId))) this.indexArtifactSearchDocument(this.mapArtifact(row));
       for (const row of rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (${workspaceRunIds}) ORDER BY created_at ASC`).all(this.workspaceId))) this.indexVerifierContractSearchDocument(this.mapVerifierContract(row));
       for (const row of rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (${workspaceRunIds}) ORDER BY started_at ASC, rowid ASC`).all(this.workspaceId))) this.indexVerifierRunSearchDocument(this.mapVerifierRun(row));
@@ -6957,7 +6288,6 @@ export class WorkspaceDatabase {
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
-    this.ensureFindingsForReproducedHypotheses(runId);
     const afterTraceSequence = Number.isFinite(cursor.afterTraceSequence) ? Math.max(-1, Math.floor(cursor.afterTraceSequence)) : -1;
     const afterTranscriptCount = Number.isFinite(cursor.afterTranscriptCount) ? Math.max(0, Math.floor(cursor.afterTranscriptCount)) : 0;
 
@@ -6973,7 +6303,6 @@ export class WorkspaceDatabase {
           .prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC LIMIT -1 OFFSET ?')
           .all(runId, afterTranscriptCount)
       ).map((row) => this.mapTranscriptMessage(row)),
-      hypotheses: rows(this.db.prepare('SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC').all(runId)).map((row) => this.mapHypothesis(row)),
       artifacts: rows(
         this.db
           .prepare(
@@ -6984,8 +6313,6 @@ export class WorkspaceDatabase {
           )
           .all(runId)
       ).map((row) => this.mapArtifact(row)),
-      evidence: rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapEvidence(row)),
-      findings: rows(this.db.prepare('SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapFinding(row)),
       verifierContracts: rows(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC').all(runId)).map((row) => this.mapVerifierContract(row)),
       verifierRuns: rows(this.db.prepare('SELECT * FROM verifier_runs WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) => this.mapVerifierRun(row)),
       vmContexts: rows(
@@ -7058,36 +6385,6 @@ export class WorkspaceDatabase {
         runId
       ),
       this.aggregateVersionPart(
-        'hypotheses',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(updated_at), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || title || ':' || priority_score || ':' || updated_at, '|'), '') AS rows
-         FROM (SELECT * FROM hypotheses WHERE run_id = ? ORDER BY priority_score DESC, created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'findings',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(updated_at), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || title || ':' || priority_score || ':' || updated_at || ':' || COALESCE(verified_by_verifier_run_id, ''), '|'), '') AS rows
-         FROM (SELECT * FROM findings WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'weakness_mappings',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(updated_at), '') AS max_updated,
-                COALESCE(GROUP_CONCAT(entity_kind || ':' || entity_id || ':' || cwe_id || ':' || mapping_role || ':' || mapping_status || ':' || confidence || ':' || updated_at, '|'), '') AS rows
-         FROM (
-           SELECT * FROM weakness_mappings
-           WHERE (entity_kind = 'hypothesis' AND entity_id IN (SELECT id FROM hypotheses WHERE run_id = ?))
-              OR (entity_kind = 'finding' AND entity_id IN (SELECT id FROM findings WHERE run_id = ?))
-           ORDER BY entity_kind ASC, entity_id ASC, cwe_id ASC, mapping_role ASC
-         )`,
-        runId,
-        runId
-      ),
-      this.aggregateVersionPart(
         'artifacts',
         `SELECT COUNT(*) AS count,
                 COALESCE(MAX(created_at), '') AS max_created,
@@ -7097,14 +6394,6 @@ export class WorkspaceDatabase {
            JOIN trace_events t ON t.artifact_id = a.id
            WHERE t.run_id = ?
          )`,
-        runId
-      ),
-      this.aggregateVersionPart(
-        'evidence',
-        `SELECT COUNT(*) AS count,
-                COALESCE(MAX(created_at), '') AS max_created,
-                COALESCE(GROUP_CONCAT(id || ':' || kind || ':' || summary || ':' || COALESCE(hypothesis_id, '') || ':' || COALESCE(finding_id, '') || ':' || COALESCE(artifact_id, '') || ':' || COALESCE(verifier_run_id, ''), '|'), '') AS rows
-         FROM (SELECT * FROM evidence WHERE run_id = ? ORDER BY created_at ASC, id ASC)`,
         runId
       ),
       this.aggregateVersionPart(
@@ -7192,161 +6481,6 @@ export class WorkspaceDatabase {
       .join(';')}`;
   }
 
-  public ensureFindingsForReproducedHypotheses(
-    runId: string,
-    options: { attemptId?: string | null; vmContextId?: string | null; modelVisible?: boolean; reason?: string } = {}
-  ): FindingRecord[] {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`Run not found: ${runId}`);
-
-    const created: FindingRecord[] = [];
-    const hypotheses = rows(
-      this.db
-        .prepare("SELECT * FROM hypotheses WHERE run_id = ? AND state IN ('reproduced', 'promoted') ORDER BY priority_score DESC, created_at ASC")
-        .all(runId)
-    ).map((row) => this.mapHypothesis(row));
-
-    for (const hypothesis of hypotheses) {
-      const existingFinding = rowOrUndefined(
-        this.db
-          .prepare(
-            `SELECT id FROM findings
-             WHERE run_id = ? AND hypothesis_id = ? AND state NOT IN ('dismissed', 'out_of_scope', 'false_positive', 'duplicate')
-             LIMIT 1`
-          )
-          .get(runId, hypothesis.id)
-      );
-      if (existingFinding) continue;
-
-      const evidence = rows(this.db.prepare('SELECT * FROM evidence WHERE run_id = ? AND hypothesis_id = ? ORDER BY created_at ASC').all(runId, hypothesis.id)).map((row) =>
-        this.mapEvidence(row)
-      );
-      const verifierEvidence = evidence.find((item) => {
-        if (!item.verifierRunId) return false;
-        const verifierRun = this.getVerifierRun(item.verifierRunId);
-        return verifierRun ? verifierRunIsRealPass(verifierRun) : false;
-      });
-      if (!verifierEvidence?.verifierRunId) continue;
-
-      const duplicateReview = reviewClaimDuplicate(findingClaimDraftFromHypothesis(hypothesis, verifierEvidence.summary), this.listWorkspaceFindingCandidates(runId));
-      if (duplicateReview.outcome === 'duplicate' && duplicateReview.matchedEntityKind === 'finding' && duplicateReview.matchedEntityId) {
-        this.createEvidence({
-          runId,
-          hypothesisId: hypothesis.id,
-          findingId: duplicateReview.matchedEntityId,
-          kind: verifierEvidence.kind,
-          summary: verifierEvidence.summary,
-          observationTraceEventId: verifierEvidence.observationTraceEventId,
-          artifactId: verifierEvidence.artifactId,
-          verifierRunId: verifierEvidence.verifierRunId
-        });
-        this.updateHypothesisReview(hypothesis.id, { state: 'duplicate' });
-        this.appendTraceEvent({
-          runId,
-          attemptId: options.attemptId ?? null,
-          type: 'finding_event',
-          source: 'system',
-          summary: `Duplicate finding blocked before auto-promotion: ${hypothesis.title}.`,
-          payload: {
-            observationBacked: true,
-            claimStatus: 'duplicate_review',
-            action: 'auto_duplicate_blocked',
-            hypothesisId: hypothesis.id,
-            matchedFindingId: duplicateReview.matchedEntityId,
-            duplicateReview: duplicateReviewPayload(duplicateReview),
-            reason: options.reason ?? 'reproduced_hypothesis_matched_existing_scope_finding'
-          },
-          vmContextId: options.vmContextId ?? null,
-          modelVisible: options.modelVisible ?? false
-        });
-        continue;
-      }
-
-      const finding = this.createFinding({
-        runId,
-        hypothesisId: hypothesis.id,
-        state: 'reproduced',
-        title: hypothesis.title,
-        summaryMarkdown: `${hypothesis.descriptionMarkdown}\n\nEvidence: ${verifierEvidence.summary}`,
-        affectedAssets: { component: hypothesis.component },
-        affectedVersions: {},
-        impactMarkdown: hypothesis.impact,
-        priorityScore: hypothesis.priorityScore,
-        verifiedByVerifierRunId: verifierEvidence.verifierRunId,
-        cweMappings: weaknessMappingInputs(hypothesis.cweMappings)
-      });
-      created.push(finding);
-
-      this.createEvidence({
-        runId,
-        hypothesisId: hypothesis.id,
-        findingId: finding.id,
-        kind: verifierEvidence.kind,
-        summary: verifierEvidence.summary,
-        observationTraceEventId: verifierEvidence.observationTraceEventId,
-        artifactId: verifierEvidence.artifactId,
-        verifierRunId: verifierEvidence.verifierRunId
-      });
-
-      this.appendTraceEvent({
-        runId,
-        attemptId: options.attemptId ?? null,
-        type: 'finding_event',
-        source: 'system',
-        summary: `Finding created from reproduced verifier-backed hypothesis: ${finding.title}.`,
-        payload: {
-          observationBacked: true,
-          claimStatus: 'verifier_backed_reproduced_finding',
-          action: 'auto_create',
-          findingId: finding.id,
-          hypothesisId: hypothesis.id,
-          title: finding.title,
-          state: finding.state,
-          priorityScore: finding.priorityScore,
-          verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
-          reason: options.reason ?? 'reproduced_hypothesis_with_real_verifier_evidence'
-        },
-        vmContextId: options.vmContextId ?? null,
-        modelVisible: options.modelVisible ?? false
-      });
-    }
-
-    return created;
-  }
-
-  public listWorkspaceHypothesesForRun(runId: string): HypothesisRecord[] {
-    if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(
-      this.db
-        .prepare(
-          `SELECT h.* FROM hypotheses h
-           JOIN runs r ON r.id = h.run_id
-           JOIN scope_versions s ON s.id = r.scope_version_id
-           WHERE s.workspace_id = ? ORDER BY h.created_at ASC`
-        )
-        .all(this.workspaceId)
-    ).map((row) => this.mapHypothesis(row));
-  }
-
-  public listWorkspaceFindingsForRun(runId: string): FindingRecord[] {
-    if (!this.getRun(runId)) throw new Error(`Run not found: ${runId}`);
-    return rows(
-      this.db
-        .prepare(
-          `SELECT f.* FROM findings f
-           JOIN runs r ON r.id = f.run_id
-           JOIN scope_versions s ON s.id = r.scope_version_id
-           WHERE s.workspace_id = ? ORDER BY f.created_at ASC`
-        )
-        .all(this.workspaceId)
-    ).map((row) => this.mapFinding(row));
-  }
-
-  private listWorkspaceFindingCandidates(runId: string): ClaimCandidate[] {
-    const hypothesesById = new Map(this.listWorkspaceHypothesesForRun(runId).map((hypothesis) => [hypothesis.id, hypothesis]));
-    return this.listWorkspaceFindingsForRun(runId).map((finding) => claimCandidateFromFinding(finding, finding.hypothesisId ? hypothesesById.get(finding.hypothesisId) ?? null : null));
-  }
-
   public getRun(runId: string): RunRecord | null {
     const row = rowOrUndefined(
       this.db
@@ -7375,24 +6509,9 @@ export class WorkspaceDatabase {
     return row ? this.mapArtifact(row) : null;
   }
 
-  public getFirstHypothesis(runId: string): HypothesisRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM hypotheses WHERE run_id = ? ORDER BY created_at ASC LIMIT 1').get(runId));
-    return row ? this.mapHypothesis(row) : null;
-  }
-
   public getFirstVerifierContract(runId: string): VerifierContractRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM verifier_contracts WHERE run_id = ? ORDER BY created_at ASC LIMIT 1').get(runId));
     return row ? this.mapVerifierContract(row) : null;
-  }
-
-  private assertVerifierRunCanVerify(verifierRunId: string | null, runId: string): void {
-    if (!verifierRunId) {
-      throw new Error('Verified findings require a passing real verifier run.');
-    }
-    const verifierRun = this.getVerifierRun(verifierRunId);
-    if (!verifierRun || verifierRun.runId !== runId || !verifierRunIsRealPass(verifierRun)) {
-      throw new Error('Verified findings require a passing real verifier run.');
-    }
   }
 
   private createSchema(): void {
@@ -7505,63 +6624,113 @@ export class WorkspaceDatabase {
           }
           database.exec('CREATE INDEX IF NOT EXISTS idx_scope_versions_workspace_status ON scope_versions(workspace_id, status, version);');
         }
+      },
+      {
+        version: 4,
+        name: 'honeycrisp_owned_research_memory',
+        up: (database) => {
+          if (tableHasColumn(database, 'verifier_contracts', 'hypothesis_id')) {
+            database.exec(`
+              CREATE TABLE verifier_runs_migration_backup AS SELECT * FROM verifier_runs;
+              DROP TABLE verifier_runs;
+              ALTER TABLE verifier_contracts RENAME TO verifier_contracts_legacy;
+              CREATE TABLE verifier_contracts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                memory_node_id TEXT,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                target_states_json TEXT NOT NULL,
+                setup_steps_markdown TEXT NOT NULL,
+                trigger_steps_markdown TEXT NOT NULL,
+                expected_observations_json TEXT NOT NULL,
+                invariants_json TEXT NOT NULL,
+                artifacts_to_collect_json TEXT NOT NULL,
+                pass_criteria_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              );
+              INSERT INTO verifier_contracts (
+                id, run_id, memory_node_id, mode, status, target_states_json,
+                setup_steps_markdown, trigger_steps_markdown, expected_observations_json,
+                invariants_json, artifacts_to_collect_json, pass_criteria_json, created_at, updated_at
+              )
+              SELECT
+                id, run_id, NULL, mode, status, target_states_json,
+                setup_steps_markdown, trigger_steps_markdown, expected_observations_json,
+                invariants_json, artifacts_to_collect_json, pass_criteria_json, created_at, updated_at
+              FROM verifier_contracts_legacy;
+              DROP TABLE verifier_contracts_legacy;
+              CREATE TABLE verifier_runs (
+                id TEXT PRIMARY KEY,
+                contract_id TEXT NOT NULL REFERENCES verifier_contracts(id) ON DELETE CASCADE,
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                attempt_id TEXT REFERENCES attempts(id),
+                vm_context_id TEXT REFERENCES vm_contexts(id),
+                status TEXT NOT NULL,
+                blocked_issue TEXT NOT NULL,
+                behavior_preserved TEXT NOT NULL,
+                diagnostics_clean TEXT NOT NULL,
+                regression_tests TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT
+              );
+              INSERT INTO verifier_runs SELECT * FROM verifier_runs_migration_backup;
+              DROP TABLE verifier_runs_migration_backup;
+              CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
+            `);
+          }
+          if (tableHasColumn(database, 'exports', 'finding_id')) {
+            database.exec(`
+              ALTER TABLE exports RENAME TO exports_legacy;
+              CREATE TABLE exports (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                memory_node_id TEXT,
+                kind TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                redaction_policy_json TEXT NOT NULL,
+                included_artifacts_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                review_decision TEXT,
+                review_note TEXT,
+                created_at TEXT NOT NULL,
+                reviewed_at TEXT
+              );
+              INSERT INTO exports (
+                id, run_id, memory_node_id, kind, relative_path, redaction_policy_json,
+                included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
+              )
+              SELECT
+                id, run_id, NULL, kind, relative_path, redaction_policy_json,
+                included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
+              FROM exports_legacy;
+              DROP TABLE exports_legacy;
+            `);
+          }
+          for (const table of ['weakness_mappings', 'evidence', 'findings', 'hypotheses', 'cwe_entries', 'cwe_catalogs']) {
+            if (tableExists(database, table)) database.exec(`DROP TABLE ${table};`);
+          }
+          database.exec(`
+            DELETE FROM project_search_documents
+            WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness');
+            DELETE FROM project_graph_edges
+            WHERE source_node_id IN (
+              SELECT id FROM project_graph_nodes WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component')
+            )
+               OR target_node_id IN (
+              SELECT id FROM project_graph_nodes WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component')
+            )
+               OR target_entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component');
+            DELETE FROM project_graph_nodes
+            WHERE entity_type IN ('hypothesis', 'finding', 'evidence', 'weakness', 'research_component');
+            CREATE INDEX IF NOT EXISTS idx_verifier_contracts_memory_node ON verifier_contracts(memory_node_id);
+            CREATE INDEX IF NOT EXISTS idx_exports_memory_node ON exports(memory_node_id);
+          `);
+        }
       }
     ]);
-  }
-
-  private ensureCweCatalog(): void {
-    const importedAt = nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO cwe_catalogs (
-          id, source_url, catalog_version, view_id, imported_at, metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          source_url = excluded.source_url,
-          catalog_version = excluded.catalog_version,
-          view_id = excluded.view_id,
-          metadata_json = excluded.metadata_json`
-      )
-      .run(
-        DEFAULT_CWE_CATALOG_ID,
-        DEFAULT_CWE_SOURCE_URL,
-        DEFAULT_CWE_CATALOG_VERSION,
-        '1003',
-        importedAt,
-        toJson({ bundled: true, source: 'MITRE CWE View-1003 seed', entryCount: DEFAULT_CWE_CATALOG.length })
-      );
-
-    for (const entry of DEFAULT_CWE_CATALOG) {
-      this.db
-        .prepare(
-          `INSERT INTO cwe_entries (
-            cwe_id, name, abstraction, status, description, parent_ids_json,
-            view_ids_json, mapping_status, catalog_version, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(cwe_id) DO UPDATE SET
-            name = excluded.name,
-            abstraction = excluded.abstraction,
-            status = excluded.status,
-            description = excluded.description,
-            parent_ids_json = excluded.parent_ids_json,
-            view_ids_json = excluded.view_ids_json,
-            mapping_status = excluded.mapping_status,
-            catalog_version = excluded.catalog_version,
-            updated_at = excluded.updated_at`
-        )
-        .run(
-          entry.cweId,
-          entry.name,
-          entry.abstraction,
-          entry.status,
-          entry.description,
-          toJson(entry.parentIds),
-          toJson(entry.viewIds),
-          entry.mappingStatus,
-          DEFAULT_CWE_CATALOG_VERSION,
-          importedAt
-        );
-    }
   }
 
   private ensureWorkspaceIdentity(): void {
@@ -8231,211 +7400,6 @@ export class WorkspaceDatabase {
       });
     }
 
-    const hypothesisRows = rows(this.db.prepare(`SELECT * FROM hypotheses WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of hypothesisRows) {
-      const hypothesis = this.mapHypothesis(row);
-      const nodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'hypothesis',
-        entityId: hypothesis.id,
-        nodeKind: `hypothesis:${hypothesis.state}`,
-        label: hypothesis.title,
-        sourcePath: null,
-        metadata: {
-          runId: hypothesis.runId,
-          state: hypothesis.state,
-          component: hypothesis.component,
-          bugClass: hypothesis.bugClass,
-          priorityScore: hypothesis.priorityScore,
-          createdTraceEventId: hypothesis.createdTraceEventId
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', hypothesis.runId),
-        targetEntityType: 'run',
-        targetEntityId: hypothesis.runId,
-        targetLabel: hypothesis.runId,
-        metadata: { source: 'hypothesis' },
-        indexedAt
-      });
-      const componentNodeId = this.upsertResearchComponentGraphNode(scopeVersionId, hypothesis.component, indexedAt);
-      if (componentNodeId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'affects_component',
-          targetNodeId: componentNodeId,
-          targetEntityType: 'research_component',
-          targetEntityId: researchComponentEntityId(hypothesis.component),
-          targetLabel: hypothesis.component,
-          metadata: { source: 'hypothesis', component: hypothesis.component },
-          indexedAt
-        });
-      }
-      for (const mapping of hypothesis.cweMappings) {
-        const cweNodeId = this.upsertWeaknessGraphNode(scopeVersionId, mapping.cweId, mapping.cweName, indexedAt);
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'classified_as_cwe',
-          targetNodeId: cweNodeId,
-          targetEntityType: 'weakness',
-          targetEntityId: mapping.cweId,
-          targetLabel: `${mapping.cweId}: ${mapping.cweName}`,
-          metadata: { source: 'hypothesis', confidence: mapping.confidence, mappingRole: mapping.mappingRole, mappingStatus: mapping.mappingStatus },
-          indexedAt
-        });
-      }
-      if (hypothesis.createdTraceEventId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'derived_from_trace',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', hypothesis.createdTraceEventId),
-          targetEntityType: 'trace_event',
-          targetEntityId: hypothesis.createdTraceEventId,
-          targetLabel: hypothesis.createdTraceEventId,
-          metadata: { source: 'hypothesis' },
-          indexedAt
-        });
-      }
-      if (hypothesis.parentHypothesisId) {
-        const relationKind = hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis';
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: relationKind,
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', hypothesis.parentHypothesisId),
-          targetEntityType: 'hypothesis',
-          targetEntityId: hypothesis.parentHypothesisId,
-          targetLabel: hypothesis.parentHypothesisId,
-          metadata: { source: 'hypothesis' },
-          indexedAt
-        });
-      }
-    }
-
-    for (const row of hypothesisRows) {
-      const hypothesis = this.mapHypothesis(row);
-      if (!hypothesis.parentHypothesisId) continue;
-      const parentNodeId = this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', hypothesis.parentHypothesisId);
-      if (!parentNodeId) continue;
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: parentNodeId,
-        edgeKind: hypothesis.state === 'duplicate' ? 'has_duplicate_hypothesis' : 'superseded_by_hypothesis',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'hypothesis', hypothesis.id),
-        targetEntityType: 'hypothesis',
-        targetEntityId: hypothesis.id,
-        targetLabel: hypothesis.title,
-        metadata: { source: 'hypothesis', inverseOf: hypothesis.state === 'duplicate' ? 'duplicates' : 'derived_from_hypothesis' },
-        indexedAt
-      });
-    }
-
-    const findingRows = rows(this.db.prepare(`SELECT * FROM findings WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of findingRows) {
-      const finding = this.mapFinding(row);
-      const nodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'finding',
-        entityId: finding.id,
-        nodeKind: `finding:${finding.state}`,
-        label: finding.title,
-        sourcePath: null,
-        metadata: {
-          runId: finding.runId,
-          state: finding.state,
-          hypothesisId: finding.hypothesisId,
-          priorityScore: finding.priorityScore,
-          verifiedByVerifierRunId: finding.verifiedByVerifierRunId
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', finding.runId),
-        targetEntityType: 'run',
-        targetEntityId: finding.runId,
-        targetLabel: finding.runId,
-        metadata: { source: 'finding' },
-        indexedAt
-      });
-      const findingComponent = componentFromAffectedAssets(finding.affectedAssets);
-      const componentNodeId = this.upsertResearchComponentGraphNode(scopeVersionId, findingComponent, indexedAt);
-      if (componentNodeId && findingComponent) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'affects_component',
-          targetNodeId: componentNodeId,
-          targetEntityType: 'research_component',
-          targetEntityId: researchComponentEntityId(findingComponent),
-          targetLabel: findingComponent,
-          metadata: { source: 'finding', component: findingComponent },
-          indexedAt
-        });
-      }
-      for (const mapping of finding.cweMappings) {
-        const cweNodeId = this.upsertWeaknessGraphNode(scopeVersionId, mapping.cweId, mapping.cweName, indexedAt);
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'classified_as_cwe',
-          targetNodeId: cweNodeId,
-          targetEntityType: 'weakness',
-          targetEntityId: mapping.cweId,
-          targetLabel: `${mapping.cweId}: ${mapping.cweName}`,
-          metadata: { source: 'finding', confidence: mapping.confidence, mappingRole: mapping.mappingRole, mappingStatus: mapping.mappingStatus },
-          indexedAt
-        });
-      }
-      if (finding.hypothesisId) {
-        const relationKind = finding.state === 'duplicate' ? 'duplicates' : 'promoted_from_hypothesis';
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: relationKind,
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', finding.hypothesisId),
-          targetEntityType: 'hypothesis',
-          targetEntityId: finding.hypothesisId,
-          targetLabel: finding.hypothesisId,
-          metadata: { source: 'finding' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', finding.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', finding.hypothesisId),
-          edgeKind: finding.state === 'duplicate' ? 'has_duplicate_finding' : 'promoted_to_finding',
-          targetNodeId: nodeId,
-          targetEntityType: 'finding',
-          targetEntityId: finding.id,
-          targetLabel: finding.title,
-          metadata: { source: 'finding', inverseOf: relationKind },
-          indexedAt
-        });
-      }
-      if (finding.verifiedByVerifierRunId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'verified_by',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', finding.verifiedByVerifierRunId),
-          targetEntityType: 'verifier_run',
-          targetEntityId: finding.verifiedByVerifierRunId,
-          targetLabel: finding.verifiedByVerifierRunId,
-          metadata: { source: 'finding' },
-          indexedAt
-        });
-      }
-    }
-
     const contractRows = rows(this.db.prepare(`SELECT * FROM verifier_contracts WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
     for (const row of contractRows) {
       const contract = this.mapVerifierContract(row);
@@ -8449,8 +7413,7 @@ export class WorkspaceDatabase {
         metadata: {
           runId: contract.runId,
           status: contract.status,
-          hypothesisId: contract.hypothesisId,
-          findingId: contract.findingId
+          memoryNodeId: contract.memoryNodeId
         },
         indexedAt
       });
@@ -8465,54 +7428,6 @@ export class WorkspaceDatabase {
         metadata: { source: 'verifier_contract' },
         indexedAt
       });
-      if (contract.hypothesisId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'verifies_hypothesis',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', contract.hypothesisId),
-          targetEntityType: 'hypothesis',
-          targetEntityId: contract.hypothesisId,
-          targetLabel: contract.hypothesisId,
-          metadata: { source: 'verifier_contract' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', contract.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', contract.hypothesisId),
-          edgeKind: 'verified_by_contract',
-          targetNodeId: nodeId,
-          targetEntityType: 'verifier_contract',
-          targetEntityId: contract.id,
-          targetLabel: `${contract.mode} verifier contract`,
-          metadata: { source: 'verifier_contract', status: contract.status },
-          indexedAt
-        });
-      }
-      if (contract.findingId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'verifies_finding',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', contract.findingId),
-          targetEntityType: 'finding',
-          targetEntityId: contract.findingId,
-          targetLabel: contract.findingId,
-          metadata: { source: 'verifier_contract' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', contract.findingId) ?? projectGraphNodeId(scopeVersionId, 'finding', contract.findingId),
-          edgeKind: 'verified_by_contract',
-          targetNodeId: nodeId,
-          targetEntityType: 'verifier_contract',
-          targetEntityId: contract.id,
-          targetLabel: `${contract.mode} verifier contract`,
-          metadata: { source: 'verifier_contract', status: contract.status },
-          indexedAt
-        });
-      }
     }
 
     const verifierRunRows = rows(this.db.prepare(`SELECT * FROM verifier_runs WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
@@ -8567,48 +7482,6 @@ export class WorkspaceDatabase {
         metadata: { source: 'verifier_run', status: verifierRun.status },
         indexedAt
       });
-      const verifierContract = this.getVerifierContract(verifierRun.contractId);
-      if (verifierContract?.hypothesisId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: verifierRun.status === 'pass' ? 'verifier_passed_hypothesis' : 'verifier_outcome_for_hypothesis',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', verifierContract.hypothesisId),
-          targetEntityType: 'hypothesis',
-          targetEntityId: verifierContract.hypothesisId,
-          targetLabel: verifierContract.hypothesisId,
-          metadata: { source: 'verifier_run', status: verifierRun.status, contractId: verifierRun.contractId },
-          indexedAt
-        });
-      }
-      if (verifierContract?.findingId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: verifierRun.status === 'pass' ? 'verifier_passed_finding' : 'verifier_outcome_for_finding',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', verifierContract.findingId),
-          targetEntityType: 'finding',
-          targetEntityId: verifierContract.findingId,
-          targetLabel: verifierContract.findingId,
-          metadata: { source: 'verifier_run', status: verifierRun.status, contractId: verifierRun.contractId },
-          indexedAt
-        });
-      }
-      for (const findingRow of findingRows) {
-        const finding = this.mapFinding(findingRow);
-        if (finding.verifiedByVerifierRunId !== verifierRun.id) continue;
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'verifies_finding_outcome',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', finding.id),
-          targetEntityType: 'finding',
-          targetEntityId: finding.id,
-          targetLabel: finding.title,
-          metadata: { source: 'finding', findingState: finding.state },
-          indexedAt
-        });
-      }
       const verifierArtifactId = stringFromUnknown(verifierRun.result.artifactId);
       if (verifierArtifactId) {
         this.insertProjectGraphEdge({
@@ -8620,160 +7493,6 @@ export class WorkspaceDatabase {
           targetEntityId: verifierArtifactId,
           targetLabel: verifierArtifactId,
           metadata: { source: 'verifier_run' },
-          indexedAt
-        });
-      }
-    }
-
-    const evidenceRows = rows(this.db.prepare(`SELECT * FROM evidence WHERE run_id IN (SELECT id FROM runs WHERE ${lineageRunSql})`).all(scopeVersionId));
-    for (const row of evidenceRows) {
-      const evidence = this.mapEvidence(row);
-      const nodeId = this.upsertProjectGraphNode({
-        scopeVersionId,
-        entityType: 'evidence',
-        entityId: evidence.id,
-        nodeKind: `evidence:${evidence.kind}`,
-        label: evidence.summary,
-        sourcePath: null,
-        metadata: {
-          runId: evidence.runId,
-          kind: evidence.kind,
-          hypothesisId: evidence.hypothesisId,
-          findingId: evidence.findingId,
-          artifactId: evidence.artifactId,
-          verifierRunId: evidence.verifierRunId,
-          observationTraceEventId: evidence.observationTraceEventId
-        },
-        indexedAt
-      });
-      this.insertProjectGraphEdge({
-        scopeVersionId,
-        sourceNodeId: nodeId,
-        edgeKind: 'belongs_to_run',
-        targetNodeId: projectGraphNodeId(scopeVersionId, 'run', evidence.runId),
-        targetEntityType: 'run',
-        targetEntityId: evidence.runId,
-        targetLabel: evidence.runId,
-        metadata: { source: 'evidence' },
-        indexedAt
-      });
-      if (evidence.hypothesisId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'supports_hypothesis',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', evidence.hypothesisId),
-          targetEntityType: 'hypothesis',
-          targetEntityId: evidence.hypothesisId,
-          targetLabel: evidence.hypothesisId,
-          metadata: { source: 'evidence' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'hypothesis', evidence.hypothesisId) ?? projectGraphNodeId(scopeVersionId, 'hypothesis', evidence.hypothesisId),
-          edgeKind: 'supported_by_evidence',
-          targetNodeId: nodeId,
-          targetEntityType: 'evidence',
-          targetEntityId: evidence.id,
-          targetLabel: evidence.summary,
-          metadata: { source: 'evidence', evidenceKind: evidence.kind },
-          indexedAt
-        });
-      }
-      if (evidence.findingId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'supports_finding',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', evidence.findingId),
-          targetEntityType: 'finding',
-          targetEntityId: evidence.findingId,
-          targetLabel: evidence.findingId,
-          metadata: { source: 'evidence' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'finding', evidence.findingId) ?? projectGraphNodeId(scopeVersionId, 'finding', evidence.findingId),
-          edgeKind: 'supported_by_evidence',
-          targetNodeId: nodeId,
-          targetEntityType: 'evidence',
-          targetEntityId: evidence.id,
-          targetLabel: evidence.summary,
-          metadata: { source: 'evidence', evidenceKind: evidence.kind },
-          indexedAt
-        });
-      }
-      if (evidence.artifactId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'backed_by_artifact',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', evidence.artifactId),
-          targetEntityType: 'artifact',
-          targetEntityId: evidence.artifactId,
-          targetLabel: evidence.artifactId,
-          metadata: { source: 'evidence' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'artifact', evidence.artifactId) ?? projectGraphNodeId(scopeVersionId, 'artifact', evidence.artifactId),
-          edgeKind: 'backs_evidence',
-          targetNodeId: nodeId,
-          targetEntityType: 'evidence',
-          targetEntityId: evidence.id,
-          targetLabel: evidence.summary,
-          metadata: { source: 'evidence', evidenceKind: evidence.kind },
-          indexedAt
-        });
-      }
-      if (evidence.verifierRunId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'backed_by_verifier_run',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', evidence.verifierRunId),
-          targetEntityType: 'verifier_run',
-          targetEntityId: evidence.verifierRunId,
-          targetLabel: evidence.verifierRunId,
-          metadata: { source: 'evidence' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'verifier_run', evidence.verifierRunId) ?? projectGraphNodeId(scopeVersionId, 'verifier_run', evidence.verifierRunId),
-          edgeKind: 'backs_evidence',
-          targetNodeId: nodeId,
-          targetEntityType: 'evidence',
-          targetEntityId: evidence.id,
-          targetLabel: evidence.summary,
-          metadata: { source: 'evidence', evidenceKind: evidence.kind },
-          indexedAt
-        });
-      }
-      if (evidence.observationTraceEventId) {
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: nodeId,
-          edgeKind: 'backed_by_trace',
-          targetNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', evidence.observationTraceEventId),
-          targetEntityType: 'trace_event',
-          targetEntityId: evidence.observationTraceEventId,
-          targetLabel: evidence.observationTraceEventId,
-          metadata: { source: 'evidence' },
-          indexedAt
-        });
-        this.insertProjectGraphEdge({
-          scopeVersionId,
-          sourceNodeId: this.projectGraphNodeIdIfExists(scopeVersionId, 'trace_event', evidence.observationTraceEventId) ?? projectGraphNodeId(scopeVersionId, 'trace_event', evidence.observationTraceEventId),
-          edgeKind: 'backs_evidence',
-          targetNodeId: nodeId,
-          targetEntityType: 'evidence',
-          targetEntityId: evidence.id,
-          targetLabel: evidence.summary,
-          metadata: { source: 'evidence', evidenceKind: evidence.kind },
           indexedAt
         });
       }
@@ -9193,35 +7912,6 @@ export class WorkspaceDatabase {
     return id;
   }
 
-  private upsertResearchComponentGraphNode(scopeVersionId: string, component: string, indexedAt: string): string | null {
-    const normalized = component.trim();
-    if (!normalized) return null;
-    return this.upsertProjectGraphNode({
-      scopeVersionId,
-      entityType: 'research_component',
-      entityId: researchComponentEntityId(normalized),
-      nodeKind: 'research_component',
-      label: normalized,
-      sourcePath: null,
-      metadata: { component: normalized, source: 'research_memory' },
-      indexedAt
-    });
-  }
-
-  private upsertWeaknessGraphNode(scopeVersionId: string, cweId: string, cweName: string, indexedAt: string): string {
-    const label = cweName ? `${cweId}: ${cweName}` : cweId;
-    return this.upsertProjectGraphNode({
-      scopeVersionId,
-      entityType: 'weakness',
-      entityId: cweId,
-      nodeKind: 'weakness:cwe',
-      label,
-      sourcePath: null,
-      metadata: { cweId, cweName, source: 'weakness_mapping' },
-      indexedAt
-    });
-  }
-
   private insertProjectGraphEdge(input: {
     scopeVersionId: string;
     sourceNodeId: string;
@@ -9464,98 +8154,6 @@ export class WorkspaceDatabase {
     });
   }
 
-  private indexHypothesisSearchDocument(hypothesis: HypothesisRecord): void {
-    const run = this.getRun(hypothesis.runId);
-    if (!run) return;
-    this.upsertProjectSearchDocument({
-      scopeVersionId: run.scopeVersionId,
-      runId: hypothesis.runId,
-      entityType: 'hypothesis',
-      entityId: hypothesis.id,
-      title: hypothesis.title,
-      body: [
-        hypothesis.descriptionMarkdown,
-        hypothesis.component,
-        hypothesis.bugClass,
-        hypothesis.state,
-        hypothesis.attackerReachability,
-        hypothesis.impact,
-        hypothesis.evidenceConfidence,
-        hypothesis.exploitPracticality,
-        hypothesis.scopeConfidence,
-        hypothesis.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
-      ].join('\n'),
-      metadata: {
-        state: hypothesis.state,
-        component: hypothesis.component,
-        bugClass: hypothesis.bugClass,
-        priorityScore: hypothesis.priorityScore,
-        cweMappings: hypothesis.cweMappings
-      },
-      createdAt: hypothesis.createdAt,
-      updatedAt: hypothesis.updatedAt
-    });
-  }
-
-  private indexFindingSearchDocument(finding: FindingRecord): void {
-    const run = this.getRun(finding.runId);
-    if (!run) return;
-    this.upsertProjectSearchDocument({
-      scopeVersionId: run.scopeVersionId,
-      runId: finding.runId,
-      entityType: 'finding',
-      entityId: finding.id,
-      title: finding.title,
-      body: [
-        finding.summaryMarkdown,
-        finding.impactMarkdown,
-        finding.state,
-        JSON.stringify(finding.affectedAssets),
-        JSON.stringify(finding.affectedVersions),
-        JSON.stringify(finding.reportability),
-        JSON.stringify(finding.impactAssessment),
-        finding.cweMappings.map((mapping) => `${mapping.cweId} ${mapping.cweName}`).join('\n')
-      ].join('\n'),
-      metadata: {
-        state: finding.state,
-        hypothesisId: finding.hypothesisId,
-        priorityScore: finding.priorityScore,
-        verifiedByVerifierRunId: finding.verifiedByVerifierRunId,
-        reportability: finding.reportability,
-        impactAssessment: finding.impactAssessment,
-        cweMappings: finding.cweMappings
-      },
-      createdAt: finding.createdAt,
-      updatedAt: finding.updatedAt
-    });
-  }
-
-  private indexEvidenceSearchDocument(evidence: EvidenceRecord): void {
-    const run = this.getRun(evidence.runId);
-    if (!run) return;
-    this.upsertProjectSearchDocument({
-      scopeVersionId: run.scopeVersionId,
-      runId: evidence.runId,
-      entityType: 'evidence',
-      entityId: evidence.id,
-      title: `Evidence: ${evidence.kind}`,
-      body: evidence.summary,
-      metadata: {
-        kind: evidence.kind,
-        hypothesisId: evidence.hypothesisId,
-        findingId: evidence.findingId,
-        observationTraceEventId: evidence.observationTraceEventId,
-        artifactId: evidence.artifactId,
-        verifierRunId: evidence.verifierRunId,
-        supersededByVerifierRunId: evidence.supersededByVerifierRunId,
-        supersededAt: evidence.supersededAt,
-        canonical: evidence.canonical
-      },
-      createdAt: evidence.createdAt,
-      updatedAt: evidence.createdAt
-    });
-  }
-
   private indexArtifactSearchDocument(artifact: ArtifactRecord): void {
     if (!artifact.modelVisible) return;
     const runRow = rowOrUndefined(
@@ -9624,8 +8222,7 @@ export class WorkspaceDatabase {
       metadata: {
         status: contract.status,
         mode: contract.mode,
-        hypothesisId: contract.hypothesisId,
-        findingId: contract.findingId
+        memoryNodeId: contract.memoryNodeId
       },
       createdAt: contract.createdAt,
       updatedAt: contract.updatedAt
@@ -9801,9 +8398,9 @@ export class WorkspaceDatabase {
                WHEN 'scope_version' THEN 0
                WHEN 'scope_asset' THEN 1
                WHEN 'run' THEN 2
-               WHEN 'hypothesis' THEN 3
-               WHEN 'finding' THEN 4
-               WHEN 'evidence' THEN 5
+               WHEN 'verifier_run' THEN 3
+               WHEN 'verifier_contract' THEN 4
+               WHEN 'artifact' THEN 5
                WHEN 'structure_entity' THEN 6
                WHEN 'inventory_item' THEN 7
                ELSE 20
@@ -9914,19 +8511,9 @@ export class WorkspaceDatabase {
     return row ? this.mapVmContext(row) : null;
   }
 
-  private getHypothesis(hypothesisId: string): HypothesisRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM hypotheses WHERE id = ?').get(hypothesisId));
-    return row ? this.mapHypothesis(row) : null;
-  }
-
   private getArtifact(artifactId: string): ArtifactRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM artifacts WHERE id = ?').get(artifactId));
     return row ? this.mapArtifact(row) : null;
-  }
-
-  private getEvidence(evidenceId: string): EvidenceRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM evidence WHERE id = ?').get(evidenceId));
-    return row ? this.mapEvidence(row) : null;
   }
 
   private getVerifierContract(contractId: string): VerifierContractRecord | null {
@@ -9937,11 +8524,6 @@ export class WorkspaceDatabase {
   private getVerifierRun(verifierRunId: string): VerifierRunRecord | null {
     const row = rowOrUndefined(this.db.prepare('SELECT * FROM verifier_runs WHERE id = ?').get(verifierRunId));
     return row ? this.mapVerifierRun(row) : null;
-  }
-
-  private getFinding(findingId: string): FindingRecord | null {
-    const row = rowOrUndefined(this.db.prepare('SELECT * FROM findings WHERE id = ?').get(findingId));
-    return row ? this.mapFinding(row) : null;
   }
 
   private getApproval(approvalId: string): ApprovalRecord | null {
@@ -10088,47 +8670,6 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapWeaknessMapping(row: SqlRow): WeaknessMappingRecord {
-    return {
-      id: text(row, 'id'),
-      entityKind: text(row, 'entity_kind') as WeaknessMappingEntityKind,
-      entityId: text(row, 'entity_id'),
-      cweId: text(row, 'cwe_id'),
-      cweName: text(row, 'cwe_name'),
-      mappingRole: text(row, 'mapping_role') as WeaknessMappingRole,
-      mappingStatus: text(row, 'mapping_status') as WeaknessMappingStatus,
-      confidence: text(row, 'confidence') as WeaknessMappingConfidence,
-      rationaleMarkdown: text(row, 'rationale_markdown'),
-      source: text(row, 'source') as WeaknessMappingSource,
-      createdAt: text(row, 'created_at'),
-      updatedAt: text(row, 'updated_at')
-    };
-  }
-
-  private mapHypothesis(row: SqlRow): HypothesisRecord {
-    const id = text(row, 'id');
-    return {
-      id,
-      runId: text(row, 'run_id'),
-      parentHypothesisId: nullableText(row, 'parent_hypothesis_id'),
-      state: text(row, 'state'),
-      title: text(row, 'title'),
-      descriptionMarkdown: text(row, 'description_markdown'),
-      component: text(row, 'component'),
-      bugClass: text(row, 'bug_class'),
-      priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
-      attackerReachability: text(row, 'attacker_reachability'),
-      impact: text(row, 'impact'),
-      evidenceConfidence: text(row, 'evidence_confidence'),
-      exploitPracticality: text(row, 'exploit_practicality'),
-      scopeConfidence: text(row, 'scope_confidence'),
-      cweMappings: this.listWeaknessMappings('hypothesis', id),
-      createdTraceEventId: nullableText(row, 'created_trace_event_id'),
-      createdAt: text(row, 'created_at'),
-      updatedAt: text(row, 'updated_at')
-    };
-  }
-
   private mapArtifact(row: SqlRow): ArtifactRecord {
     return {
       id: text(row, 'id'),
@@ -10146,52 +8687,11 @@ export class WorkspaceDatabase {
     };
   }
 
-  private mapEvidence(row: SqlRow): EvidenceRecord {
-    return {
-      id: text(row, 'id'),
-      runId: text(row, 'run_id'),
-      hypothesisId: nullableText(row, 'hypothesis_id'),
-      findingId: nullableText(row, 'finding_id'),
-      kind: text(row, 'kind'),
-      summary: text(row, 'summary'),
-      observationTraceEventId: nullableText(row, 'observation_trace_event_id'),
-      artifactId: nullableText(row, 'artifact_id'),
-      verifierRunId: nullableText(row, 'verifier_run_id'),
-      supersededByVerifierRunId: nullableText(row, 'superseded_by_verifier_run_id'),
-      supersededAt: nullableText(row, 'superseded_at'),
-      canonical: booleanValue(row, 'canonical'),
-      createdAt: text(row, 'created_at')
-    };
-  }
-
-  private mapFinding(row: SqlRow): FindingRecord {
-    const id = text(row, 'id');
-    return {
-      id,
-      runId: text(row, 'run_id'),
-      hypothesisId: nullableText(row, 'hypothesis_id'),
-      state: text(row, 'state'),
-      title: text(row, 'title'),
-      summaryMarkdown: text(row, 'summary_markdown'),
-      affectedAssets: parseJson(row.affected_assets_json),
-      affectedVersions: parseJson(row.affected_versions_json),
-      reportability: parseJson(row.reportability_json),
-      impactAssessment: parseJson(row.impact_assessment_json),
-      impactMarkdown: text(row, 'impact_markdown'),
-      priorityScore: clampPriorityScore(numberValue(row, 'priority_score')),
-      verifiedByVerifierRunId: nullableText(row, 'verified_by_verifier_run_id'),
-      cweMappings: this.listWeaknessMappings('finding', id),
-      createdAt: text(row, 'created_at'),
-      updatedAt: text(row, 'updated_at')
-    };
-  }
-
   private mapVerifierContract(row: SqlRow): VerifierContractRecord {
     return {
       id: text(row, 'id'),
       runId: text(row, 'run_id'),
-      hypothesisId: nullableText(row, 'hypothesis_id'),
-      findingId: nullableText(row, 'finding_id'),
+      memoryNodeId: nullableText(row, 'memory_node_id'),
       mode: text(row, 'mode'),
       status: text(row, 'status'),
       targetStates: parseJson(row.target_states_json),
@@ -10258,7 +8758,7 @@ export class WorkspaceDatabase {
     return {
       id: text(row, 'id'),
       runId: text(row, 'run_id'),
-      findingId: nullableText(row, 'finding_id'),
+      memoryNodeId: nullableText(row, 'memory_node_id'),
       kind: text(row, 'kind'),
       relativePath: text(row, 'relative_path'),
       status: text(row, 'status') as ExportRecord['status'],
@@ -10402,50 +8902,6 @@ CREATE TABLE IF NOT EXISTS transcript_messages (
 
 CREATE INDEX IF NOT EXISTS idx_transcript_messages_run_created ON transcript_messages(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_transcript_messages_trace ON transcript_messages(trace_event_id);
-`;
-
-const CWE_CLASSIFICATION_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS cwe_catalogs (
-  id TEXT PRIMARY KEY,
-  source_url TEXT NOT NULL,
-  catalog_version TEXT NOT NULL,
-  view_id TEXT NOT NULL,
-  imported_at TEXT NOT NULL,
-  metadata_json TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS cwe_entries (
-  cwe_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  abstraction TEXT NOT NULL,
-  status TEXT NOT NULL,
-  description TEXT NOT NULL,
-  parent_ids_json TEXT NOT NULL,
-  view_ids_json TEXT NOT NULL,
-  mapping_status TEXT NOT NULL,
-  catalog_version TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS weakness_mappings (
-  id TEXT PRIMARY KEY,
-  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('hypothesis', 'finding')),
-  entity_id TEXT NOT NULL,
-  cwe_id TEXT NOT NULL,
-  cwe_name TEXT NOT NULL,
-  mapping_role TEXT NOT NULL CHECK (mapping_role IN ('primary', 'alternate')),
-  mapping_status TEXT NOT NULL CHECK (mapping_status IN ('allowed', 'discouraged', 'prohibited', 'unknown')),
-  confidence TEXT NOT NULL CHECK (confidence IN ('low', 'medium', 'high')),
-  rationale_markdown TEXT NOT NULL,
-  source TEXT NOT NULL CHECK (source IN ('model', 'user', 'import', 'system')),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(entity_kind, entity_id, cwe_id, mapping_role)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cwe_entries_mapping_status ON cwe_entries(mapping_status);
-CREATE INDEX IF NOT EXISTS idx_weakness_mappings_entity ON weakness_mappings(entity_kind, entity_id);
-CREATE INDEX IF NOT EXISTS idx_weakness_mappings_cwe ON weakness_mappings(cwe_id);
 `;
 
 const PROJECT_UNDERSTANDING_SCHEMA_SQL = `
@@ -10802,71 +9258,14 @@ ${NOTIFICATIONS_SCHEMA_SQL}
 
 ${TRANSCRIPT_MESSAGES_SCHEMA_SQL}
 
-${CWE_CLASSIFICATION_SCHEMA_SQL}
-
 ${PROJECT_UNDERSTANDING_SCHEMA_SQL}
 
 ${PROJECT_STRUCTURE_SCHEMA_SQL}
 
-CREATE TABLE IF NOT EXISTS hypotheses (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  parent_hypothesis_id TEXT REFERENCES hypotheses(id),
-  state TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description_markdown TEXT NOT NULL,
-  component TEXT NOT NULL,
-  bug_class TEXT NOT NULL,
-  priority_score REAL NOT NULL,
-  attacker_reachability TEXT NOT NULL,
-  impact TEXT NOT NULL,
-  evidence_confidence TEXT NOT NULL,
-  exploit_practicality TEXT NOT NULL,
-  scope_confidence TEXT NOT NULL,
-  created_trace_event_id TEXT REFERENCES trace_events(id),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS findings (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  hypothesis_id TEXT REFERENCES hypotheses(id),
-  state TEXT NOT NULL,
-  title TEXT NOT NULL,
-  summary_markdown TEXT NOT NULL,
-  affected_assets_json TEXT NOT NULL,
-  affected_versions_json TEXT NOT NULL,
-  reportability_json TEXT NOT NULL DEFAULT '{}',
-  impact_assessment_json TEXT NOT NULL DEFAULT '{}',
-  impact_markdown TEXT NOT NULL,
-  priority_score REAL NOT NULL,
-  verified_by_verifier_run_id TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS evidence (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  hypothesis_id TEXT REFERENCES hypotheses(id),
-  finding_id TEXT REFERENCES findings(id),
-  kind TEXT NOT NULL,
-  summary TEXT NOT NULL,
-  observation_trace_event_id TEXT REFERENCES trace_events(id),
-  artifact_id TEXT REFERENCES artifacts(id),
-  verifier_run_id TEXT,
-  superseded_by_verifier_run_id TEXT,
-  superseded_at TEXT,
-  canonical INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS verifier_contracts (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  hypothesis_id TEXT REFERENCES hypotheses(id),
-  finding_id TEXT REFERENCES findings(id),
+  memory_node_id TEXT,
   mode TEXT NOT NULL,
   status TEXT NOT NULL,
   target_states_json TEXT NOT NULL,
@@ -10899,7 +9298,7 @@ CREATE TABLE IF NOT EXISTS verifier_runs (
 CREATE TABLE IF NOT EXISTS exports (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  finding_id TEXT REFERENCES findings(id),
+  memory_node_id TEXT,
   kind TEXT NOT NULL,
   relative_path TEXT NOT NULL,
   redaction_policy_json TEXT NOT NULL,
@@ -10920,7 +9319,7 @@ CREATE INDEX IF NOT EXISTS idx_model_sessions_run ON model_sessions(run_id);
 CREATE INDEX IF NOT EXISTS idx_trace_run_sequence ON trace_events(run_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_trace_artifact ON trace_events(artifact_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_sha256 ON artifacts(sha256);
-CREATE INDEX IF NOT EXISTS idx_hypotheses_run_state ON hypotheses(run_id, state);
-CREATE INDEX IF NOT EXISTS idx_findings_run_state ON findings(run_id, state);
+CREATE INDEX IF NOT EXISTS idx_verifier_contracts_memory_node ON verifier_contracts(memory_node_id);
 CREATE INDEX IF NOT EXISTS idx_verifier_runs_status ON verifier_runs(status);
+CREATE INDEX IF NOT EXISTS idx_exports_memory_node ON exports(memory_node_id);
 `;

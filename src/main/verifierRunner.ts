@@ -94,13 +94,6 @@ function runHostVerifierContract(
       }
     });
 
-    if (execution.artifactId) {
-      db.createEvidenceFromArtifact(runId, execution.artifactId, 'Verifier output artifact from host execution.', contract.hypothesisId, contract.findingId);
-    }
-    if (verdict.status === 'pass' && contract.findingId) {
-      db.verifyFindingWithVerifierRun(contract.findingId, verifierRun.id);
-    }
-
     const event = db.appendTraceEvent({
       runId,
       attemptId: context.attempt.id,

@@ -140,7 +140,7 @@ describe('architecture conformance', () => {
     db.close();
   });
 
-  it('keeps fixture run evidence provenance distinct from model claims', () => {
+  it('keeps fixture observations and verifier provenance distinct from model claims', () => {
     const service = new WorkspaceService();
     service.createWorkspace(tempDir('beale-architecture-workspace-'));
     service.saveScope({
@@ -157,13 +157,13 @@ describe('architecture conformance', () => {
     const detail = service.getRunDetail(snapshot.runs[0].run.id);
     const modelMessages = detail.traceEvents.filter((event) => event.source === 'model' && event.type === 'model_message');
     const observations = detail.traceEvents.filter((event) => ['tool', 'verifier'].includes(event.source) && ['tool_result', 'artifact_created', 'verifier_result'].includes(event.type));
-    const verifiedFindings = detail.findings.filter((finding) => finding.state === 'verified');
+    const verifierRuns = detail.verifierRuns.filter((run) => run.status === 'pass');
 
     expect(modelMessages.length).toBeGreaterThan(0);
     expect(modelMessages.every((event) => typeof event.payload.claimStatus === 'string')).toBe(true);
     expect(observations.length).toBeGreaterThan(0);
     expect(observations.every((event) => event.payload.observationBacked === true)).toBe(true);
-    expect(verifiedFindings.every((finding) => typeof finding.verifiedByVerifierRunId === 'string')).toBe(true);
+    expect(verifierRuns.every((run) => run.result.fixture === true || run.result.simulated === true)).toBe(true);
     service.close();
   });
 });

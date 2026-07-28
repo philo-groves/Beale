@@ -1025,58 +1025,6 @@ export interface NotificationRecord {
   dismissedAt: string | null;
 }
 
-export type WeaknessMappingEntityKind = 'hypothesis' | 'finding';
-export type WeaknessMappingRole = 'primary' | 'alternate';
-export type WeaknessMappingStatus = 'allowed' | 'discouraged' | 'prohibited' | 'unknown';
-export type WeaknessMappingConfidence = 'low' | 'medium' | 'high';
-export type WeaknessMappingSource = 'model' | 'user' | 'import' | 'system';
-
-export interface WeaknessMappingInput {
-  cweId: string;
-  cweName?: string;
-  mappingRole?: WeaknessMappingRole;
-  mappingStatus?: WeaknessMappingStatus;
-  confidence?: WeaknessMappingConfidence;
-  rationaleMarkdown?: string;
-  source?: WeaknessMappingSource;
-}
-
-export interface WeaknessMappingRecord {
-  id: string;
-  entityKind: WeaknessMappingEntityKind;
-  entityId: string;
-  cweId: string;
-  cweName: string;
-  mappingRole: WeaknessMappingRole;
-  mappingStatus: WeaknessMappingStatus;
-  confidence: WeaknessMappingConfidence;
-  rationaleMarkdown: string;
-  source: WeaknessMappingSource;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface HypothesisRecord {
-  id: string;
-  runId: string;
-  parentHypothesisId: string | null;
-  state: string;
-  title: string;
-  descriptionMarkdown: string;
-  component: string;
-  bugClass: string;
-  priorityScore: number;
-  attackerReachability: string;
-  impact: string;
-  evidenceConfidence: string;
-  exploitPracticality: string;
-  scopeConfidence: string;
-  cweMappings: WeaknessMappingRecord[];
-  createdTraceEventId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ArtifactRecord {
   id: string;
   sha256: string;
@@ -1092,46 +1040,10 @@ export interface ArtifactRecord {
   createdAt: string;
 }
 
-export interface EvidenceRecord {
-  id: string;
-  runId: string;
-  hypothesisId: string | null;
-  findingId: string | null;
-  kind: string;
-  summary: string;
-  observationTraceEventId: string | null;
-  artifactId: string | null;
-  verifierRunId: string | null;
-  supersededByVerifierRunId: string | null;
-  supersededAt: string | null;
-  canonical: boolean;
-  createdAt: string;
-}
-
-export interface FindingRecord {
-  id: string;
-  runId: string;
-  hypothesisId: string | null;
-  state: string;
-  title: string;
-  summaryMarkdown: string;
-  affectedAssets: Record<string, unknown>;
-  affectedVersions: Record<string, unknown>;
-  reportability: Record<string, unknown>;
-  impactAssessment: Record<string, unknown>;
-  impactMarkdown: string;
-  priorityScore: number;
-  verifiedByVerifierRunId: string | null;
-  cweMappings: WeaknessMappingRecord[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface VerifierContractRecord {
   id: string;
   runId: string;
-  hypothesisId: string | null;
-  findingId: string | null;
+  memoryNodeId: string | null;
   mode: string;
   status: string;
   targetStates: Record<string, unknown>;
@@ -1239,7 +1151,7 @@ export interface VerifierContractEditInput {
 export interface ExportRecord {
   id: string;
   runId: string;
-  findingId: string | null;
+  memoryNodeId: string | null;
   kind: string;
   relativePath: string;
   status: 'pending_review' | ExportReviewDecision;
@@ -1261,10 +1173,7 @@ export interface RunDetail {
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
-  hypotheses: HypothesisRecord[];
   artifacts: ArtifactRecord[];
-  evidence: EvidenceRecord[];
-  findings: FindingRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
   vmContexts: VmContextRecord[];
@@ -1293,10 +1202,7 @@ export interface RunDetailUpdate {
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
-  hypotheses: HypothesisRecord[];
   artifacts: ArtifactRecord[];
-  evidence: EvidenceRecord[];
-  findings: FindingRecord[];
   verifierContracts: VerifierContractRecord[];
   verifierRuns: VerifierRunRecord[];
   vmContexts: VmContextRecord[];
@@ -1329,14 +1235,6 @@ export interface WorkspacePickerResult {
   path: string | null;
 }
 
-export interface PriorityFactorInput {
-  attackerReachability: number;
-  impact: number;
-  evidenceConfidence: number;
-  exploitPracticality: number;
-  scopeConfidence: number;
-}
-
 export type SteeringAction =
   | { type: 'pause'; runId: string; note?: string }
   | { type: 'resume'; runId: string; instruction?: string; modelSelection?: ResearchModelSelection; note?: string }
@@ -1348,27 +1246,15 @@ export type SteeringAction =
   | { type: 'rerun_verifier'; runId: string; verifierContractId: string; note?: string }
   | { type: 'edit_verifier_contract'; runId: string; verifierContractId: string; patch: VerifierContractEditInput; note?: string }
   | { type: 'review_verifier_contract'; runId: string; verifierContractId: string; decision: VerifierContractReviewDecision; note?: string }
-  | { type: 'promote_artifact'; runId: string; artifactId: string; note?: string }
   | { type: 'mark_artifact_sensitive'; runId: string; artifactId: string; note?: string }
-  | { type: 'promote_hypothesis'; runId: string; hypothesisId: string; note?: string }
-  | { type: 'merge_hypotheses'; runId: string; sourceHypothesisId: string; targetHypothesisId: string; note?: string }
-  | { type: 'adjust_priority'; runId: string; hypothesisId: string; factors: PriorityFactorInput; note?: string }
-  | { type: 'request_reproduction'; runId: string; hypothesisId: string; note?: string }
-  | { type: 'request_patch_validation'; runId: string; hypothesisId?: string; findingId?: string; note?: string }
-  | { type: 'mark_finding_false_positive'; runId: string; findingId: string; note?: string }
-  | { type: 'mark_finding_out_of_scope'; runId: string; findingId: string; note?: string }
-  | { type: 'mark_disclosure_ready'; runId: string; findingId: string; note?: string }
-  | { type: 'mark_needs_more_evidence'; runId: string; findingId: string; note?: string }
-  | { type: 'export_evidence_bundle'; runId: string; findingId?: string; note?: string }
-  | { type: 'export_finding_bundle'; runId: string; findingId?: string; note?: string }
-  | { type: 'export_redacted_trace'; runId: string; findingId?: string; note?: string }
-  | { type: 'generate_report_draft'; runId: string; findingId?: string; note?: string }
+  | { type: 'export_evidence_bundle'; runId: string; memoryNodeId?: string; note?: string }
+  | { type: 'export_research_bundle'; runId: string; memoryNodeId?: string; note?: string }
+  | { type: 'export_redacted_trace'; runId: string; memoryNodeId?: string; note?: string }
+  | { type: 'generate_report_draft'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'review_export'; runId: string; exportId: string; decision: ExportReviewDecision; note?: string }
   | { type: 'review_policy_request'; runId: string; requestKind: PolicyReviewRequestKind; decision: PolicyReviewDecision; requestedAction: Record<string, unknown>; note?: string }
   | { type: 'preserve_vm'; runId: string; vmContextId?: string; reason?: string }
-  | { type: 'destroy_vm'; runId: string; vmContextId?: string; reason?: string }
-  | { type: 'dismiss_hypothesis'; runId: string; hypothesisId: string; note?: string }
-  | { type: 'mark_hypothesis_out_of_scope'; runId: string; hypothesisId: string; note?: string };
+  | { type: 'destroy_vm'; runId: string; vmContextId?: string; reason?: string };
 
 export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;

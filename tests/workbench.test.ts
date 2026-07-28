@@ -171,6 +171,183 @@ describe('Beale workbench skeleton', () => {
     migratedDatabase.close();
   });
 
+  it('migrates legacy research tables to Honeycrisp-node operational links', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const snapshot = startRunForTest(service, runInput('verified_finding'));
+    const runId = snapshot.runs[0].run.id;
+    service.steerRun({ type: 'export_evidence_bundle', runId });
+    const detail = service.getRunDetail(runId);
+    const contractId = detail.verifierContracts[0].id;
+    const verifierRunId = detail.verifierRuns[0].id;
+    const exportId = detail.exports[0].id;
+    service.close();
+
+    const legacy = new DatabaseSync(globalDatabasePath());
+    legacy.exec(`
+      CREATE TABLE hypotheses (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        parent_hypothesis_id TEXT REFERENCES hypotheses(id),
+        state TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description_markdown TEXT NOT NULL,
+        component TEXT NOT NULL,
+        bug_class TEXT NOT NULL,
+        priority_score REAL NOT NULL,
+        attacker_reachability TEXT NOT NULL,
+        impact TEXT NOT NULL,
+        evidence_confidence TEXT NOT NULL,
+        exploit_practicality TEXT NOT NULL,
+        scope_confidence TEXT NOT NULL,
+        created_trace_event_id TEXT REFERENCES trace_events(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE findings (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        hypothesis_id TEXT REFERENCES hypotheses(id),
+        state TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary_markdown TEXT NOT NULL,
+        affected_assets_json TEXT NOT NULL,
+        affected_versions_json TEXT NOT NULL,
+        reportability_json TEXT NOT NULL,
+        impact_assessment_json TEXT NOT NULL,
+        impact_markdown TEXT NOT NULL,
+        priority_score REAL NOT NULL,
+        verified_by_verifier_run_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE evidence (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        hypothesis_id TEXT REFERENCES hypotheses(id),
+        finding_id TEXT REFERENCES findings(id),
+        kind TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        observation_trace_event_id TEXT REFERENCES trace_events(id),
+        artifact_id TEXT REFERENCES artifacts(id),
+        verifier_run_id TEXT,
+        superseded_by_verifier_run_id TEXT,
+        superseded_at TEXT,
+        canonical INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE cwe_catalogs (id TEXT PRIMARY KEY);
+      CREATE TABLE cwe_entries (cwe_id TEXT PRIMARY KEY);
+      CREATE TABLE weakness_mappings (id TEXT PRIMARY KEY);
+    `);
+    const now = new Date().toISOString();
+    legacy
+      .prepare(
+        `INSERT INTO hypotheses VALUES (
+          'hyp_legacy', ?, NULL, 'reproduced', 'Legacy hypothesis', 'Legacy description',
+          'legacy component', 'authorization', 1, 'remote', 'high', 'tool-backed',
+          'reproduced', 'in_scope', NULL, ?, ?
+        )`
+      )
+      .run(runId, now, now);
+    legacy
+      .prepare(
+        `INSERT INTO findings VALUES (
+          'finding_legacy', ?, 'hyp_legacy', 'verified', 'Legacy finding', 'Legacy summary',
+          '{}', '{}', '{}', '{}', 'Legacy impact', 1, ?, ?, ?
+        )`
+      )
+      .run(runId, verifierRunId, now, now);
+    legacy.exec(`
+      CREATE TABLE verifier_runs_migration_seed AS SELECT * FROM verifier_runs;
+      DROP TABLE verifier_runs;
+      ALTER TABLE verifier_contracts RENAME TO verifier_contracts_current;
+      CREATE TABLE verifier_contracts (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        hypothesis_id TEXT REFERENCES hypotheses(id),
+        finding_id TEXT REFERENCES findings(id),
+        mode TEXT NOT NULL,
+        status TEXT NOT NULL,
+        target_states_json TEXT NOT NULL,
+        setup_steps_markdown TEXT NOT NULL,
+        trigger_steps_markdown TEXT NOT NULL,
+        expected_observations_json TEXT NOT NULL,
+        invariants_json TEXT NOT NULL,
+        artifacts_to_collect_json TEXT NOT NULL,
+        pass_criteria_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO verifier_contracts
+      SELECT id, run_id, 'hyp_legacy', 'finding_legacy', mode, status, target_states_json,
+             setup_steps_markdown, trigger_steps_markdown, expected_observations_json,
+             invariants_json, artifacts_to_collect_json, pass_criteria_json, created_at, updated_at
+      FROM verifier_contracts_current;
+      DROP TABLE verifier_contracts_current;
+      CREATE TABLE verifier_runs (
+        id TEXT PRIMARY KEY,
+        contract_id TEXT NOT NULL REFERENCES verifier_contracts(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        attempt_id TEXT REFERENCES attempts(id),
+        vm_context_id TEXT REFERENCES vm_contexts(id),
+        status TEXT NOT NULL,
+        blocked_issue TEXT NOT NULL,
+        behavior_preserved TEXT NOT NULL,
+        diagnostics_clean TEXT NOT NULL,
+        regression_tests TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      );
+      INSERT INTO verifier_runs SELECT * FROM verifier_runs_migration_seed;
+      DROP TABLE verifier_runs_migration_seed;
+      ALTER TABLE exports RENAME TO exports_current;
+      CREATE TABLE exports (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        finding_id TEXT REFERENCES findings(id),
+        kind TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        redaction_policy_json TEXT NOT NULL,
+        included_artifacts_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        review_decision TEXT,
+        review_note TEXT,
+        created_at TEXT NOT NULL,
+        reviewed_at TEXT
+      );
+      INSERT INTO exports
+      SELECT id, run_id, 'finding_legacy', kind, relative_path, redaction_policy_json,
+             included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
+      FROM exports_current;
+      DROP TABLE exports_current;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 4;
+    `);
+    legacy.close();
+
+    const reopened = new WorkspaceService();
+    reopened.openWorkspace(workspace);
+    const migrated = reopened.getRunDetail(runId);
+    expect(migrated.verifierContracts.find((contract) => contract.id === contractId)?.memoryNodeId).toBeNull();
+    expect(migrated.verifierRuns.some((run) => run.id === verifierRunId)).toBe(true);
+    expect(migrated.exports.find((record) => record.id === exportId)?.memoryNodeId).toBeNull();
+    reopened.close();
+
+    const verified = new DatabaseSync(globalDatabasePath());
+    const retiredTables = verified
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('hypotheses', 'findings', 'evidence', 'weakness_mappings', 'cwe_entries', 'cwe_catalogs')"
+      )
+      .all();
+    expect(retiredTables).toEqual([]);
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 4").get()).toEqual({
+      name: 'honeycrisp_owned_research_memory'
+    });
+    verified.close();
+  });
+
   it('keeps operational records scoped while workspaces share the global database', () => {
     const databasePath = globalDatabasePath();
     const firstWorkspace = tempWorkspace();
@@ -229,20 +406,6 @@ describe('Beale workbench skeleton', () => {
     service.close();
 
     const db = new WorkspaceDatabase(globalDatabasePath(), join(dir, '.beale', 'artifacts'), { workspacePath: dir });
-    db.createHypothesis({
-      runId: String(runId),
-      state: 'needs_evidence',
-      title: 'Snapshot graph refresh hypothesis',
-      descriptionMarkdown: 'The workspace overview should refresh stale graph state before rendering.',
-      component: 'overview graph',
-      bugClass: 'state_sync',
-      priorityScore: 0.4,
-      attackerReachability: 'local',
-      impact: 'low',
-      evidenceConfidence: 'model',
-      exploitPracticality: 'needs validation',
-      scopeConfidence: 'in_scope'
-    });
     const graph = db.getProjectGraphSummary(runSnapshot.activeScope.id);
     expect(graph.status).toBe('empty');
     expect(graph.nodeCount).toBe(0);
@@ -1927,13 +2090,13 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('/src/kernel');
         expect(serialized).toContain('previousResearch');
         expect(serialized).toContain('likelyUnderexploredInScopeAssets');
-        expect(serialized).toContain('chain existing findings');
+        expect(serialized).toContain('Honeycrisp primitives');
         expect(serialized).toContain('promptQualityRules');
         expect(serialized).toContain('one-time preflight gate');
         expect(serialized).toContain('Do not repeatedly inspect HackerOne');
         expect(serialized).toContain('hasUsableCredentialAssets');
         expect(serialized).toContain('static/passive fallback');
-        expect(serialized).toContain('recentEvidence');
+        expect(serialized).toContain('recentMemoryEvidenceRefs');
         expect(serialized).toContain('requestedSession');
         expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
         expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
@@ -2213,11 +2376,8 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.source === 'tool' && event.type === 'tool_result')).toBe(true);
     expect(detail.traceEvents.some((event) => event.source === 'policy' && event.type === 'approval_event')).toBe(true);
     expect(detail.traceEvents.some((event) => event.type === 'verifier_result')).toBe(true);
-    expect(detail.hypotheses.length).toBeGreaterThan(0);
     expect(detail.artifacts.length).toBeGreaterThan(0);
     expect(detail.verifierRuns.some((run) => run.status === 'pass')).toBe(true);
-    expect(detail.findings.some((finding) => finding.state === 'verified')).toBe(false);
-    expect(detail.findings.some((finding) => finding.state === 'needs_evidence')).toBe(true);
     expect(detail.attempts.length).toBeGreaterThan(1);
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('parser_memory_safety');
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('authorization_review');
@@ -2233,7 +2393,7 @@ describe('Beale workbench skeleton', () => {
     const replayed = reopened.getRunDetail(runId);
     expect(replayed.traceEvents.map((event) => event.sequence)).toEqual(sequence(replayed.traceEvents.length));
     expect(replayed.artifacts[0].provenanceTraceEventId).toBeTruthy();
-    expect(replayed.hypotheses[0].createdTraceEventId).toBeTruthy();
+    expect(replayed.verifierContracts.every((contract) => contract.memoryNodeId === null)).toBe(true);
     reopened.close();
   });
 
@@ -2263,156 +2423,19 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('updates artifact and hypothesis state through steering controls', () => {
+  it('updates artifact sensitivity through steering controls', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('verified_finding'));
     const runId = snapshot.runs[0].run.id;
     const detail = service.getRunDetail(runId);
     const artifact = detail.artifacts[0];
-    const hypothesis = detail.hypotheses[0];
 
     service.steerRun({ type: 'mark_artifact_sensitive', runId, artifactId: artifact.id });
-    service.steerRun({ type: 'dismiss_hypothesis', runId, hypothesisId: hypothesis.id });
 
     const updated = service.getRunDetail(runId);
     expect(updated.artifacts.find((item) => item.id === artifact.id)?.modelVisible).toBe(false);
     expect(updated.artifacts.find((item) => item.id === artifact.id)?.sensitivity).toBe('sensitive');
-    expect(updated.hypotheses.find((item) => item.id === hypothesis.id)?.state).toBe('dismissed');
     expect(updated.traceEvents.some((event) => event.summary === 'Artifact marked sensitive and hidden from model context.')).toBe(true);
-    expect(updated.traceEvents.some((event) => event.summary === 'Hypothesis dismissed by user.')).toBe(true);
-    service.close();
-  });
-
-  it('supports discovery steering, verifier contracts, priority scoring, finding states, and evidence export', () => {
-    const service = openService();
-    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
-    const runId = snapshot.runs[0].run.id;
-    let detail = service.getRunDetail(runId);
-    const hypothesis = detail.hypotheses[0];
-
-    service.steerRun({
-      type: 'adjust_priority',
-      runId,
-      hypothesisId: hypothesis.id,
-      factors: {
-        attackerReachability: 2,
-        impact: 3,
-        evidenceConfidence: 2,
-        exploitPracticality: 2,
-        scopeConfidence: 3
-      }
-    });
-    service.steerRun({ type: 'request_reproduction', runId, hypothesisId: hypothesis.id });
-    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
-
-    detail = service.getRunDetail(runId);
-    const promoted = detail.hypotheses.find((item) => item.id === hypothesis.id);
-    const finding = detail.findings.find((item) => item.hypothesisId === hypothesis.id);
-    expect(promoted?.priorityScore).toBe(20);
-    expect(promoted?.state).toBe('promoted');
-    expect(finding?.state).toBe('needs_evidence');
-    expect(detail.verifierContracts.some((contract) => contract.mode === 'reproduction' && contract.hypothesisId === hypothesis.id)).toBe(true);
-
-    service.steerRun({ type: 'request_patch_validation', runId, findingId: finding?.id });
-    service.steerRun({ type: 'mark_finding_false_positive', runId, findingId: finding?.id ?? '' });
-    service.steerRun({ type: 'mark_finding_out_of_scope', runId, findingId: finding?.id ?? '' });
-    service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding?.id, note: 'api_key=supersecretvalue12345' });
-
-    detail = service.getRunDetail(runId);
-    const exported = detail.artifacts.find((artifact) => artifact.kind === 'evidence_bundle_export');
-    const exportRecord = detail.exports.find((item) => item.kind === 'evidence_bundle');
-    expect(detail.findings.find((item) => item.id === finding?.id)?.state).toBe('out_of_scope');
-    expect(detail.verifierContracts.some((contract) => contract.mode === 'patch_validation' && contract.findingId === finding?.id)).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked false positive by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(true);
-    expect(exported?.modelVisible).toBe(false);
-    expect(exportRecord?.status).toBe('pending_review');
-    const exportedPath = join(snapshot.workspace.workspacePath, String(exported?.metadata.exportRelativePath));
-    expect(existsSync(exportedPath)).toBe(true);
-    expect(readFileSync(exportedPath, 'utf8')).toContain('api_key=...redacted');
-    expect(readFileSync(exportedPath, 'utf8')).not.toContain('supersecretvalue12345');
-
-    service.steerRun({ type: 'review_export', runId, exportId: exportRecord?.id ?? '', decision: 'approved', note: 'token=reviewsecret12345' });
-    detail = service.getRunDetail(runId);
-    const reviewed = detail.exports.find((item) => item.id === exportRecord?.id);
-    expect(reviewed?.status).toBe('approved');
-    expect(reviewed?.reviewDecision).toBe('approved');
-    expect(reviewed?.reviewNote).toContain('token=...redacted');
-    expect(reviewed?.reviewNote).not.toContain('reviewsecret12345');
-    expect(detail.traceEvents.some((event) => event.summary === 'Export review recorded: approved.')).toBe(true);
-    service.close();
-  });
-
-  it('supports remaining steering and disclosure export controls', () => {
-    const service = openService();
-    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
-    const runId = snapshot.runs[0].run.id;
-    let detail = service.getRunDetail(runId);
-    const hypothesis = detail.hypotheses[0];
-
-    service.steerRun({ type: 'request_reproduction', runId, hypothesisId: hypothesis.id });
-    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
-    detail = service.getRunDetail(runId);
-    const contract = detail.verifierContracts.find((item) => item.mode === 'reproduction' && item.hypothesisId === hypothesis.id);
-    const finding = detail.findings.find((item) => item.hypothesisId === hypothesis.id);
-    expect(contract).toBeTruthy();
-    expect(finding).toBeTruthy();
-
-    service.steerRun({ type: 'update_run_budget', runId, budgetPatch: { maxMinutes: 60, maxAttempts: 3, maxCostUsd: 12 }, note: 'budget updated' });
-    service.steerRun({ type: 'restart_from_snapshot', runId, snapshotRef: 'clean-user-review', note: 'token=restartsecret12345' });
-    service.steerRun({
-      type: 'edit_verifier_contract',
-      runId,
-      verifierContractId: contract?.id ?? '',
-      patch: {
-        triggerStepsMarkdown: 'Run the edited verifier trigger through host execution.',
-        expectedObservations: { stdout: 'edited verifier output' }
-      }
-    });
-    service.steerRun({ type: 'review_verifier_contract', runId, verifierContractId: contract?.id ?? '', decision: 'approved', note: 'secret=approvesecret12345' });
-    service.steerRun({ type: 'mark_disclosure_ready', runId, findingId: finding?.id ?? '', note: 'ready for report draft' });
-    service.steerRun({ type: 'mark_needs_more_evidence', runId, findingId: finding?.id ?? '', note: 'api_key=evidencesecret12345' });
-    service.steerRun({ type: 'export_finding_bundle', runId, findingId: finding?.id, note: 'token=findingsecret12345' });
-    service.steerRun({ type: 'export_redacted_trace', runId, findingId: finding?.id, note: 'api_key=tracesecret12345' });
-    service.steerRun({ type: 'generate_report_draft', runId, findingId: finding?.id, note: 'password=reportsecret12345' });
-    service.steerRun({ type: 'preserve_vm', runId, reason: 'Preserve host execution record for review.' });
-    service.steerRun({ type: 'destroy_vm', runId, reason: 'Close host execution record after review.' });
-
-    detail = service.getRunDetail(runId);
-    const updatedContract = detail.verifierContracts.find((item) => item.id === contract?.id);
-    const updatedFinding = detail.findings.find((item) => item.id === finding?.id);
-    const exportKinds = detail.exports.map((item) => item.kind);
-    expect(detail.run.budget.maxMinutes).toBe(60);
-    expect(detail.run.budget.maxAttempts).toBe(3);
-    expect(detail.run.budget.maxCostUsd).toBe(12);
-    expect(detail.vmContexts[0].snapshotId).toBe('clean-user-review');
-    expect(detail.vmContexts[0].state).toBe('destroyed');
-    expect(updatedContract?.status).toBe('approved');
-    expect(updatedContract?.triggerStepsMarkdown).toContain('edited verifier trigger');
-    expect(updatedFinding?.state).toBe('needs_evidence');
-    expect(exportKinds).toEqual(expect.arrayContaining(['finding_bundle', 'redacted_trace', 'report_draft']));
-    expect(detail.traceEvents.some((event) => event.summary === 'Run budget updated by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Host process execution record refreshed by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract approved by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked disclosure ready by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Finding marked as needing more evidence by user.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Finding bundle export created.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Redacted trace export created.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Report draft export created.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Host execution record preserved by explicit request.')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Host execution record closed.')).toBe(true);
-
-    for (const exportRecord of detail.exports.filter((item) => ['finding_bundle', 'redacted_trace', 'report_draft'].includes(item.kind))) {
-      const exportPath = join(snapshot.workspace.workspacePath, exportRecord.relativePath);
-      const content = readFileSync(exportPath, 'utf8');
-      expect(existsSync(exportPath)).toBe(true);
-      expect(content).toContain('...redacted');
-      expect(content).not.toContain('findingsecret12345');
-      expect(content).not.toContain('tracesecret12345');
-      expect(content).not.toContain('reportsecret12345');
-      expect(content).not.toContain('evidencesecret12345');
-      expect(content).not.toContain('restartsecret12345');
-    }
     service.close();
   });
 
@@ -2463,6 +2486,7 @@ describe('Beale workbench skeleton', () => {
     });
     const contract = db.createVerifierContract({
       runId: context.run.id,
+      memoryNodeId: 'memory_node_verifier_test',
       mode: 'reproduction',
       status: 'draft_requested',
       setupStepsMarkdown: '',
@@ -2481,156 +2505,20 @@ describe('Beale workbench skeleton', () => {
     service.steerRun({ type: 'rerun_verifier', runId: context.run.id, verifierContractId: contract.id, note: 'rerun incomplete verifier' });
     const detail = service.getRunDetail(context.run.id);
     expect(detail.run.status).toBe('completed');
+    expect(detail.verifierContracts.find((item) => item.id === contract.id)?.memoryNodeId).toBe('memory_node_verifier_test');
     expect(detail.verifierRuns.at(-1)?.status).toBe('error');
     expect(detail.traceEvents.some((event) => event.summary === 'Verifier rerun failed before execution.')).toBe(true);
     service.close();
   });
 
-  it('executes verifier contracts on the host before allowing verified findings', () => {
-    const dir = tempWorkspace();
-    const artifactRoot = join(dir, '.beale', 'artifacts');
-    const targetDir = join(dir, 'target');
-    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
-    mkdirSync(targetDir, { recursive: true });
-    writeFileSync(join(targetDir, 'target.txt'), 'verifier target\n');
-    const db = new WorkspaceDatabase(globalDatabasePath(), artifactRoot, { workspacePath: dir });
-    db.initialize();
-    db.saveScope({
-      workspaceName: 'Verifier Workspace',
-      scopeOwner: 'Example Org',
-      descriptionMarkdown: 'Scoped verifier target.',
-      rulesMarkdown: 'Host verifier only.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [asset('in_scope', 'path', targetDir)]
-    });
-    const context = db.createRun({
-      scopeVersionId: db.getActiveScope().id,
-      title: 'Verifier execution run',
-      promptMarkdown: '# Verifier execution run',
-      mode: 'open_discovery',
-      model: 'gpt-5.5',
-      reasoningEffort: 'xhigh',
-      attemptStrategy: 'single_path',
-      networkProfile: 'offline',
-      sandboxProfile: 'host',
-      budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
-    });
-    const hypothesis = db.createHypothesis({
-      runId: context.run.id,
-      state: 'candidate',
-      title: 'Verifier-backed issue',
-      descriptionMarkdown: 'A real verifier should decide this hypothesis.',
-      component: 'verifier fixture',
-      bugClass: 'authorization',
-      priorityScore: 0.5,
-      attackerReachability: 'local',
-      impact: 'medium',
-      evidenceConfidence: 'tool-backed',
-      exploitPracticality: 'reproducible',
-      scopeConfidence: 'in_scope'
-    });
-    const simulatedRun = db.createVerifierRun({
-      contractId: db
-        .createVerifierContract({
-          runId: context.run.id,
-          hypothesisId: hypothesis.id,
-          mode: 'reproduction',
-          status: 'approved',
-          setupStepsMarkdown: 'Simulated setup.',
-          triggerStepsMarkdown: 'Simulated trigger.',
-          expectedObservations: { simulated: true },
-          invariants: { noHostExecution: true },
-          artifactsToCollect: { trace: true },
-          passCriteria: { simulated: true }
-        })
-        .id,
-      runId: context.run.id,
-      attemptId: context.attempt.id,
-      vmContextId: context.vmContext.id,
-      status: 'pass',
-      blockedIssue: 'yes',
-      behaviorPreserved: 'not_applicable',
-      diagnosticsClean: 'yes',
-      regressionTests: 'not_run',
-      result: { simulated: true }
-    });
-    expect(() =>
-      db.createFinding({
-        runId: context.run.id,
-        hypothesisId: hypothesis.id,
-        state: 'verified',
-        title: 'Blocked simulated finding',
-        summaryMarkdown: 'This should not become authoritative.',
-        impactMarkdown: 'Simulated only.',
-        priorityScore: 0.5,
-        verifiedByVerifierRunId: simulatedRun.id
-      })
-    ).toThrow(/passing real verifier/);
-
-    const verifierArtifactPath = join(dir, 'beale-verifier-output.txt');
-    const verifierScript = [
-      "const { writeFileSync } = require('node:fs');",
-      `writeFileSync(${JSON.stringify(verifierArtifactPath)}, 'verifier-ok\\n');`,
-      "process.stdout.write('verifier-ok\\n');"
-    ].join('');
-    const contract = db.createVerifierContract({
-      runId: context.run.id,
-      hypothesisId: hypothesis.id,
-      mode: 'reproduction',
-      status: 'approved',
-      setupStepsMarkdown: 'Prepare scoped target for host verifier execution.',
-      triggerStepsMarkdown: 'Run the verifier script on the host.',
-      expectedObservations: { stdout: 'verifier-ok' },
-      invariants: { hostDatabaseMounted: false, openAiCredentialsMounted: false },
-      artifactsToCollect: { verifierOutput: verifierArtifactPath },
-      passCriteria: {
-        verifier: {
-          operationKind: 'shell',
-          command: [process.execPath, '-e', verifierScript],
-          expectedExitCode: 0,
-          expectedStdoutIncludes: 'verifier-ok',
-          artifactPath: verifierArtifactPath,
-          timeoutMs: 30_000
-        }
-      }
-    });
-    db.updateAttemptState(context.attempt.id, 'completed', 'Prepared executable verifier contract.');
-    db.updateRunStatus(context.run.id, 'completed', 'Prepared executable verifier contract.');
-    db.close();
-
-    const service = new WorkspaceService();
-    service.openWorkspace(dir);
-    service.steerRun({ type: 'rerun_verifier', runId: context.run.id, verifierContractId: contract.id, note: 'run real verifier' });
-    let detail = service.getRunDetail(context.run.id);
-    const realVerifierRun = detail.verifierRuns.at(-1);
-    expect(realVerifierRun?.status).toBe('pass');
-    expect(realVerifierRun?.result.realExecution).toBe(true);
-    expect(realVerifierRun?.result.vmExecution).toBe(false);
-    expect(realVerifierRun?.result.hostExecution).toBe(true);
-    expect(detail.artifacts.some((artifact) => artifact.kind === 'verifier_output')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.summary === 'Verifier contract executed on host with pass.')).toBe(true);
-
-    service.steerRun({ type: 'promote_hypothesis', runId: context.run.id, hypothesisId: hypothesis.id });
-    detail = service.getRunDetail(context.run.id);
-    const finding = detail.findings.at(-1);
-    expect(finding?.state).toBe('verified');
-    expect(finding?.verifiedByVerifierRunId).toBe(realVerifierRun?.id);
-    service.close();
-  });
-
-  it('keeps authoritative state clean when evidence export fails before publish', () => {
+  it('keeps authoritative state clean when an export fails before publish', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_logic_bug'));
     const runId = snapshot.runs[0].run.id;
     let detail = service.getRunDetail(runId);
-    const hypothesis = detail.hypotheses[0];
-    service.steerRun({ type: 'promote_hypothesis', runId, hypothesisId: hypothesis.id });
-    detail = service.getRunDetail(runId);
-    const finding = detail.findings[0];
 
     process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT = 'before_rename';
-    expect(() => service.steerRun({ type: 'export_evidence_bundle', runId, findingId: finding.id })).toThrow(/Injected atomic export failure/);
+    expect(() => service.steerRun({ type: 'export_evidence_bundle', runId })).toThrow(/Injected atomic export failure/);
 
     detail = service.getRunDetail(runId);
     expect(detail.exports).toHaveLength(0);

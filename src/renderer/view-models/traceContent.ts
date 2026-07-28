@@ -592,28 +592,6 @@ export function verifierTracePreview(event: TraceEventRecord): TraceStructuredPr
   };
 }
 
-export function evidenceTracePreview(event: TraceEventRecord): TraceStructuredPreview | null {
-  const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
-  if (event.type === 'tool_call' && toolName === 'evidence') {
-    const args = tracePayloadRecord(event.payload, 'arguments');
-    if (!args) return null;
-    const kind = stringRecordValue(args, 'kind') ?? 'evidence';
-    return {
-      title: `${traceLabel(kind)} reference`,
-      description: stringRecordValue(args, 'summary') ?? 'Reference request prepared.',
-      facts: evidenceReferenceFacts(args)
-    };
-  }
-
-  if (event.type !== 'artifact_created' || !tracePayloadPrimitive(event.payload, 'evidenceId')) return null;
-  const kind = tracePayloadPrimitive(event.payload, 'kind') ?? 'evidence';
-  return {
-    title: `${traceLabel(kind)} reference`,
-    description: tracePayloadPrimitive(event.payload, 'summary') ?? evidenceSummaryFromTraceSummary(event.summary) ?? 'Reference recorded.',
-    facts: evidenceReferenceFacts(event.payload)
-  };
-}
-
 export function codeBrowserTracePreview(event: TraceEventRecord, maxLines = DEFAULT_TRACE_PREVIEW_LINE_LIMIT): CodeBrowserTracePreview | null {
   const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(event.summary);
   if (event.type === 'tool_call' && toolName === 'code_browser') {
@@ -782,21 +760,6 @@ function verifierExecutionSubstrate(payload: Record<string, unknown>): string {
 function verifierStatusFromSummary(summary: string): string | null {
   const match = summary.match(/^Verifier contract executed (?:in disposable (?:VM|sandbox)|on host|with) with ([^.]+)\./i);
   return match?.[1]?.trim() || null;
-}
-
-function evidenceSummaryFromTraceSummary(summary: string): string | null {
-  const match = summary.match(/^Evidence recorded: (.+)\.$/i);
-  return match?.[1]?.trim() || null;
-}
-
-function evidenceReferenceFacts(payload: Record<string, unknown>): string[] {
-  return [
-    tracePayloadPrimitive(payload, 'verifierRunId') || stringRecordValue(payload, 'verifier_run_id') ? 'Verifier run referenced' : null,
-    tracePayloadPrimitive(payload, 'artifactId') || stringRecordValue(payload, 'artifact_id') ? 'Artifact referenced' : null,
-    tracePayloadPrimitive(payload, 'traceEventId') || stringRecordValue(payload, 'trace_event_id') ? 'Trace referenced' : null,
-    tracePayloadPrimitive(payload, 'findingId') || stringRecordValue(payload, 'finding_id') ? 'Linked finding' : null,
-    tracePayloadPrimitive(payload, 'hypothesisId') || stringRecordValue(payload, 'hypothesis_id') ? 'Linked hypothesis' : null
-  ].filter((part): part is string => Boolean(part));
 }
 
 function honeycrispToolPayload(event: TraceEventRecord, expectedToolName: string): Record<string, unknown> | null {
@@ -1369,18 +1332,12 @@ function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
   if (event.type !== 'artifact_created' && event.type !== 'finding_event' && event.type !== 'hypothesis_event') return null;
   const payload = event.payload;
   return [
-    pathPart('hypothesis', tracePayloadPrimitive(payload, 'hypothesisId')),
-    pathPart('source hypothesis', tracePayloadPrimitive(payload, 'sourceHypothesisId')),
-    pathPart('target hypothesis', tracePayloadPrimitive(payload, 'targetHypothesisId')),
-    pathPart('finding', tracePayloadPrimitive(payload, 'findingId')),
+    pathPart('memory node', tracePayloadPrimitive(payload, 'memoryNodeId')),
     tracePart('title', tracePayloadPrimitive(payload, 'title')),
     tracePart('component', tracePayloadPrimitive(payload, 'component')),
-    tracePart('cwe', cweMappingLabel(payload)),
     tracePart('severity', tracePayloadPrimitive(payload, 'severity')),
-    tracePart('state', tracePayloadPrimitive(payload, 'findingState') ?? tracePayloadPrimitive(payload, 'state')),
-    traceNumberPart('priority', tracePayloadPrimitive(payload, 'priorityScore')),
+    tracePart('status', tracePayloadPrimitive(payload, 'status') ?? tracePayloadPrimitive(payload, 'state')),
     pathPart('artifact', tracePayloadPrimitive(payload, 'artifactId')),
-    pathPart('evidence', tracePayloadPrimitive(payload, 'evidenceId')),
     pathPart('export', tracePayloadPrimitive(payload, 'exportId')),
     pathPart('path', tracePayloadPrimitive(payload, 'relativePath')),
     tracePart('decision', tracePayloadPrimitive(payload, 'decision')),

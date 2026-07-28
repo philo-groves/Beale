@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Beale verifier contracts and disclosure exports now target optional Honeycrisp memory node IDs instead of Beale-owned hypothesis or finding rows; run prompts and export bundles consume visible Honeycrisp nodes and evidence references.
+- Added workbench migration 4 (`honeycrisp_owned_research_memory`), which preserves runs, traces, artifacts, verifier history, and exports while clearing legacy target links that cannot be mapped safely to Honeycrisp identities.
 - Session lists no longer compute or transport unused Beale-owned hypothesis, finding, verifier, policy, artifact, attempt-summary, or placeholder-cost aggregates.
 - Honeycrisp memory summaries now enforce Honeycrisp's session, workspace, and subject visibility rules before returning nodes, relationships, references, or counts to the renderer.
 - Trace selection no longer reconstructs Beale-owned hypothesis and finding records or renders their legacy CWE/priority inspector; trace details use recorded event payloads and durable knowledge remains in Honeycrisp Memory.
@@ -155,11 +157,12 @@
 
 ### Removed
 
+- Removed Beale's parallel hypotheses, findings, evidence, weakness mappings, bundled CWE catalog, duplicate review, and discovery-scoring persistence and service layers. Honeycrisp memory nodes and evidence references are now the only research-memory model.
 - Removed the obsolete `planning/` book and research-note tree; current source, tests, README, and changelog now define product behavior and development boundaries.
 - Removed the secondary session context/dashboard view, its view toggle, and its renderer-to-main context-inspection API; selected sessions now always show the trace with Memory/Subagents.
 
 - Removed separate repository-search, file-read, code-intelligence, analysis, synthesis, storage, experiment, and MCP tools from Beale-launched research sessions, along with the inactive Skills and MCP sidebar controls; durable memory tools and `shell.run` remain.
-- Removed the redundant Honeycrisp `finding` memory type; migrations convert existing nodes and their identifiers to trajectories while preserving graph references. Beale's verifier-backed operational findings remain unchanged.
+- Removed the redundant Honeycrisp `finding` memory type; Honeycrisp migrations convert existing nodes and their identifiers to trajectories while preserving graph references, and Beale migration 4 removes the former parallel operational finding records.
 
 - Removed the retired Honeycrisp `evidenceExtracted` and `claimsProposed` tool-observation fields and Beale's repository-search fallback; structured tool results are now the sole source of observation data.
 - Removed compatibility for Honeycrisp's retired derived-memory, proof, context-packet-v2, and pre-tier graph schemas; Beale now uses only the tiered graph-memory schema and schema-v4 capture contract.

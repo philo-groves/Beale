@@ -19,10 +19,7 @@ describe('renderer session header view models', () => {
       traceEvent({ id: 'trace_agent', sequence: 1, payload: { transcriptRole: 'assistant', turn: 1 }, summary: 'Agent response.' }),
       traceEvent({ id: 'trace_tool', sequence: 2, source: 'tool', type: 'tool_result', payload: { turn: '2' }, summary: 'Tool returned output.' })
     ];
-    const detail = runDetail({
-      traceEvents: events,
-      findings: [{ createdAt: '2026-04-30T10:15:00.000Z', updatedAt: '2026-04-30T10:30:00.000Z' }]
-    });
+    const detail = runDetail({ traceEvents: events });
 
     const timing = sessionHeaderTiming(detail, events, ['agent_output'], Date.parse('2026-04-30T12:00:00.000Z'));
 
@@ -31,10 +28,10 @@ describe('renderer session header view models', () => {
       visibleEventCount: 1,
       totalEventCount: 2,
       eventMetric: '2',
-      durationLabel: '00:30:00',
+      durationLabel: '00:05:00',
       turnTooltip: 'Current model turn.'
     });
-    expect(timing?.durationTooltip).toBe('Created Apr 30, 6:00a\nUpdated Apr 30, 6:30a');
+    expect(timing?.durationTooltip).toBe('Created Apr 30, 6:00a\nUpdated Apr 30, 6:05a');
   });
 
   it('extracts trace turn numbers and latest group keys', () => {

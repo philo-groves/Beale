@@ -33,16 +33,16 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 ### Core Principles
 - **Authorization first** — everything stays within the operator-recorded authorized scope
 - **References over unsupported claims** — durable conclusions should point to observable tool results, files, commands, or artifacts
-- **Traceability** — full append-only audit trail of sessions, tool calls, observations, and findings
+- **Traceability** — full append-only audit trail of sessions, tool calls, observations, artifacts, and verifier outcomes
 - **Operator-controlled isolation** — Beale/Honeycrisp run with the user's host privileges; launch them inside your own VM or container when isolation is required
-- **Human in the loop** — steering, review, hypothesis validation, and patch checking remain researcher-driven
+- **Human in the loop** — steering, review, Honeycrisp memory validation, and patch checking remain researcher-driven
 
 ---
 
 ## Key Concepts
 
 - **Workspaces**: Local authorized research contexts with explicit ownership in Honeycrisp's global SQLite database, Beale artifacts, and references to relevant source material
-- **Runs / Sessions**: Research sessions with adaptive planning, steering, and planned forking
+- **Runs / Sessions**: Research sessions with steering and agent forking
 - **Trace, Memory & Runbooks**: Timeline of model and tool activity beside durable research knowledge and revisioned executable procedures
 - **Tools**: Honeycrisp tools, skills, MCP servers, and Beale-owned disclosure/export affordances
 - **Harness**: Trusted Electron main process manages credentials, policy, persistence, and coordination
@@ -75,7 +75,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp's `~/.honeycrisp/memory.sqlite` is the single database for both headless and Beale-driven research across workspaces. Operational session data, revisioned runbook metadata, and the durable knowledge graph share that database but retain explicit workspace ownership. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, and bulk outputs are not memory. Nodes are tiered as session, workspace, or owner/subject knowledge, and only subject-tier knowledge crosses matching workspaces. Runbooks are workspace-scoped `.ipynb` artifacts for reusable procedures and proof sequences; they do not execute outside Honeycrisp's normal shell boundary. Beale keeps the researcher interface, authorized-scope setup, visualization, and disclosure/export workflows without maintaining a parallel source of truth.
+Honeycrisp's `~/.honeycrisp/memory.sqlite` is the single database for both headless and Beale-driven research across workspaces. Operational session data, revisioned runbook metadata, and the durable knowledge graph share that database but retain explicit workspace ownership. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, and bulk outputs are not memory. Nodes are tiered as session, workspace, or owner/subject knowledge, and only subject-tier knowledge crosses matching workspaces. Runbooks are workspace-scoped `.ipynb` artifacts for reusable procedures and proof sequences; they do not execute outside Honeycrisp's normal shell boundary. Beale keeps the researcher interface, authorized-scope setup, operational traces and artifacts, verifier history, and disclosure/export workflows without maintaining parallel hypotheses, findings, evidence, scoring, or CWE state.
 
 Beale is pre-alpha and uses append-only component-scoped migrations. The global-database migration adopts the existing workspace database without deleting the source.
 

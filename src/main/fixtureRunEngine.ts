@@ -1,5 +1,4 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import { defaultHypothesisFactors, priorityFactorLabels, scorePriority, verifiedFindingFactors } from './discoveryScoring';
 import type { FixtureScenario, StartRunInput } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
 
@@ -319,22 +318,6 @@ function recordArtifact(
 
 function recordHypothesis(context: CreatedRunContext, title: string, component: string, bugClass: string, description: string): string {
   const db = contextDb(context);
-  const factors = defaultHypothesisFactors(hypothesisKind(bugClass));
-  const labels = priorityFactorLabels(factors);
-  const hypothesis = db.createHypothesis({
-    runId: context.run.id,
-    state: 'needs_evidence',
-    title,
-    descriptionMarkdown: description,
-    component,
-    bugClass,
-    priorityScore: scorePriority(factors),
-    attackerReachability: labels.attackerReachability,
-    impact: labels.impact,
-    evidenceConfidence: labels.evidenceConfidence,
-    exploitPracticality: labels.exploitPracticality,
-    scopeConfidence: labels.scopeConfidence
-  });
   const event = db.appendTraceEvent({
     runId: context.run.id,
     attemptId: context.attempt.id,
@@ -342,19 +325,20 @@ function recordHypothesis(context: CreatedRunContext, title: string, component: 
     source: 'system',
     summary: `Hypothesis created: ${title}.`,
     payload: {
-      hypothesisId: hypothesis.id,
       title,
-      impact: hypothesis.impact,
+      component,
+      bugClass,
+      description,
+      fixtureOnly: true,
       observationSource: 'tool_results'
     }
   });
-  db.setHypothesisTrace(hypothesis.id, event.id);
-  return hypothesis.id;
+  return event.id;
 }
 
 function recordVerifier(
   context: CreatedRunContext,
-  hypothesisId: string | null,
+  _memoryNodeId: string | null,
   status: string,
   summary: string,
   result: Record<string, unknown>
@@ -362,7 +346,7 @@ function recordVerifier(
   const db = contextDb(context);
   const contract = db.createVerifierContract({
     runId: context.run.id,
-    hypothesisId,
+    memoryNodeId: null,
     mode: 'reproduction',
     status: 'approved',
     targetStates: { vmContextId: context.vmContext.id },
@@ -498,18 +482,15 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         'memory_corruption',
         'Simulated debugger output and crash input metadata suggest unchecked chunk length arithmetic reaches a crashing memory access.'
       );
-      contextDb(context).createFinding({
+      contextDb(context).appendTraceEvent({
         runId: context.run.id,
-        hypothesisId,
-        state: 'needs_evidence',
-        title: 'Chunk length crash needs reproduction evidence',
-        summaryMarkdown: 'The fixture debugger produced a crash and crash-input artifact, but no real reproduction has run.',
-        affectedAssets: { component: 'chunk decoder' },
-        affectedVersions: { fixture: 'fixture' },
-        impactMarkdown: 'Potential denial of service or memory safety issue pending real execution.',
-        priorityScore: scorePriority(defaultHypothesisFactors('memory_corruption'))
+        attemptId: context.attempt.id,
+        type: 'artifact_created',
+        source: 'system',
+        summary: 'Simulated crash input retained as an operational artifact.',
+        payload: { hypothesisTraceEventId: hypothesisId, artifactId, fixtureOnly: true },
+        artifactId
       });
-      contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash input from fixture debugger.', hypothesisId);
     },
     (context) => {
       finishRun(context, 'completed', 'Simulated memory corruption run finished with a needs-evidence finding.', 'Finding remains needs_evidence after simulated crash artifact collection.');
@@ -596,7 +577,6 @@ function verifiedFindingSteps(): ScenarioStep[] {
         'authorization',
         'Tool-backed source observations indicate exportTenant uses a request tenantId before membership validation.'
       );
-      contextDb(context).updateHypothesisState(hypothesisId, 'reproduced');
       const artifactId = recordArtifact(
         context,
         'evidence-bundle-F-2.txt',
@@ -604,21 +584,9 @@ function verifiedFindingSteps(): ScenarioStep[] {
         { kind: 'evidence_bundle', finding: 'F-2' },
         'verifier'
       );
-      contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Verifier evidence bundle for simulated tenant export finding.', hypothesisId);
       const verifierRunId = recordVerifier(context, hypothesisId, 'pass', 'Verifier placeholder passed for reproduced tenant export issue.', {
         reproduced: true,
         artifactId
-      });
-      contextDb(context).createFinding({
-        runId: context.run.id,
-        hypothesisId,
-        state: 'needs_evidence',
-        title: 'Tenant export authorization bypass',
-        summaryMarkdown: 'Simulated verifier result reproduced a tenant export authorization bypass, but a real verifier is required before verification.',
-        affectedAssets: { component: 'tenant export' },
-        affectedVersions: { fixture: 'fixture' },
-        impactMarkdown: 'A scoped authenticated user could export data for another tenant in the fixture.',
-        priorityScore: scorePriority(verifiedFindingFactors('authorization'))
       });
       contextDb(context).appendTraceEvent({
         runId: context.run.id,
@@ -668,7 +636,15 @@ function adaptivePortfolioSteps(): ScenarioStep[] {
         'memory_corruption',
         'The parser path has a simulated crash artifact, but no verifier-backed finding yet.'
       );
-      contextDb(context).createEvidenceFromArtifact(context.run.id, artifactId, 'Simulated crash artifact from adaptive portfolio path.', hypothesisId);
+      contextDb(context).appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'artifact_created',
+        source: 'system',
+        summary: 'Adaptive portfolio retained the simulated crash artifact.',
+        payload: { hypothesisTraceEventId: hypothesisId, artifactId, fixtureOnly: true },
+        artifactId
+      });
     },
     ...policyBlockSteps().slice(1, 2),
     ...verifiedFindingSteps().slice(0, 2),

@@ -22,9 +22,8 @@ export function runDetailMetricDetail(detail: RunDetail): DevMetricDetail {
     status: detail.run.status,
     traceEvents: detail.traceEvents.length,
     transcripts: detail.transcriptMessages.length,
-    hypotheses: detail.hypotheses.length,
-    findings: detail.findings.length,
-    evidence: detail.evidence.length
+    artifacts: detail.artifacts.length,
+    memoryNodes: detail.honeycrispMemory?.nodes.length ?? 0
   };
 }
 
@@ -35,9 +34,8 @@ export function runDetailUpdateMetricDetail(update: RunDetailUpdate): DevMetricD
     versionDatabaseMs: update.version.databaseMs,
     traceEvents: update.traceEvents.length,
     transcripts: update.transcriptMessages.length,
-    hypotheses: update.hypotheses.length,
-    findings: update.findings.length,
-    evidence: update.evidence.length
+    artifacts: update.artifacts.length,
+    memoryNodes: update.honeycrispMemory?.nodes.length ?? 0
   };
 }
 
@@ -54,10 +52,7 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     attempts: update.attempts,
     traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
     transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),
-    hypotheses: update.hypotheses,
     artifacts: update.artifacts,
-    evidence: update.evidence,
-    findings: update.findings,
     verifierContracts: update.verifierContracts,
     verifierRuns: update.verifierRuns,
     vmContexts: update.vmContexts,
