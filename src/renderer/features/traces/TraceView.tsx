@@ -657,6 +657,15 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
+        <button
+          type="button"
+          className="main-steer-filter-button"
+          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+          onClick={onOpenTraceFilters}
+        >
+          <SlidersHorizontal size={14} />
+        </button>
         <FloatingTextPicker
           className="main-steer-model-picker"
           value={selectedModel?.id ?? ''}
@@ -680,16 +689,6 @@ const MainSteerArea = memo(function MainSteerArea({
           options={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
           onChange={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
         />
-        <button
-          type="button"
-          className="main-steer-filter-button"
-          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          onClick={onOpenTraceFilters}
-        >
-          <SlidersHorizontal size={12} />
-          <span>Filters</span>
-        </button>
         <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
           <ArrowRight size={16} />
         </button>
