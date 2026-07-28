@@ -2333,14 +2333,41 @@ body.is-resizing-research-side .main-session-grid {
   gap: 8px;
 }
 
-.subagent-catalog-heading strong {
+.subagent-catalog-labels {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.subagent-catalog-name {
   min-width: 0;
   overflow: hidden;
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   font-size: 1rem;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.subagent-catalog-name.status-running,
+.subagent-catalog-name.status-pending {
+  background: transparent;
+  color: var(--accent);
+}
+
+.subagent-catalog-name.status-completed {
+  background: transparent;
+  color: var(--green);
+}
+
+.subagent-catalog-name.status-errored,
+.subagent-catalog-name.status-error,
+.subagent-catalog-name.status-failed {
+  background: transparent;
+  color: var(--red);
 }
 
 .subagent-catalog-heading time {
@@ -2359,34 +2386,13 @@ body.is-resizing-research-side .main-session-grid {
   color: var(--muted-strong);
   font-size: 1rem;
   line-height: 1.38;
+  white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .subagent-catalog-status {
-  justify-self: start;
-  border-radius: 999px;
-  background: #1d1d1d;
-  color: var(--muted);
-  padding: 2px 6px;
-  font-size: 0.72rem;
-  font-weight: 850;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.subagent-catalog-status.status-running,
-.subagent-catalog-status.status-pending {
-  color: var(--accent);
-}
-
-.subagent-catalog-status.status-completed {
-  color: var(--green);
-}
-
-.subagent-catalog-status.status-errored,
-.subagent-catalog-status.status-failed {
-  color: var(--red);
+  flex: 0 1 auto;
 }
 
 .main-trace-view {

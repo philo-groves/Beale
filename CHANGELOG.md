@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Subagent catalog rows now show their creation time using the same timestamp format as Memory and Runbooks, sort by Honeycrisp spawn time, follow newly created rows, and use the shared auto-hiding sidebar scrollbar.
+- Subagent catalog rows now mirror Memory row styling with status-colored names, neutral inline status labels, two-line descriptions, and shared timestamp/scrollbar behavior; rows sort by Honeycrisp spawn time and follow new agents.
 - More Sessions, memory record details, and transcript Search now open in the shared sliding bottom-sheet surface; memory catalog rows remain compact instead of expanding inline.
 - Beale traces now persist Honeycrisp research output as `research_event` and present it under a Research filter; generated files and exports use the separate Artifacts filter.
 - Deterministic fixture scenarios now describe exercised behavior (`multi_branch_trace`, `source_review`, `crash_artifact`, `scope_block`, and `verifier_pass`) instead of encoding hypothesis/finding lifecycle outcomes.

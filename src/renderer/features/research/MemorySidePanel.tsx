@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { BookOpen, ChevronRight, Database, GitFork, Search } from 'lucide-react';
+import { BookOpen, Database, GitFork, Search } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
 import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
@@ -190,11 +190,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               onClick={() => onSelectSubagent(agent.path)}
             >
               <span className="subagent-catalog-heading">
-                <strong>{agent.name}</strong>
+                <span className="subagent-catalog-labels">
+                  <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{agent.name}</strong>
+                  <span className="memory-catalog-status subagent-catalog-status">{traceLabel(agent.status)}</span>
+                </span>
                 <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
               </span>
               <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
-              <span className={`subagent-catalog-status status-${stateClass(agent.status)}`}>{traceLabel(agent.status)}</span>
             </button>
           ))}
         </MainSideScrollRegion>
@@ -267,7 +269,6 @@ function MemoryCatalogItem({
             </span>
             <span className="memory-catalog-item-trailing">
               <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
-              <ChevronRight size={14} aria-hidden="true" />
             </span>
           </span>
           <strong>{node.title}</strong>
