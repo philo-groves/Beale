@@ -20,10 +20,10 @@ import type {
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
-import { WorkspaceInformationModal, WorkspaceSessionHistoryModal } from '../features/workspaces/WorkspaceModals';
+import { WorkspaceInformationModal, WorkspaceSessionHistorySheet } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
 import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
-import { TranscriptSearchModal } from '../features/search/TranscriptSearchModal';
+import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
@@ -216,7 +216,7 @@ export function AppModals({
         />
       ) : null}
       {searchOpen ? (
-        <TranscriptSearchModal
+        <TranscriptSearchSheet
           activeWorkspaceName={activeWorkspaceName}
           workspaceOpen={Boolean(snapshot)}
           selectedRunId={selectedRunId}
@@ -242,7 +242,7 @@ export function AppModals({
       ) : null}
       {workspaceInfo ? <WorkspaceInformationModal workspace={workspaceInfo} onClose={onCloseWorkspaceInfo} /> : null}
       {sessionHistoryWorkspace ? (
-        <WorkspaceSessionHistoryModal
+        <WorkspaceSessionHistorySheet
           workspace={sessionHistoryWorkspace}
           sessions={sessionHistorySessions}
           selectedRunId={selectedRunId}

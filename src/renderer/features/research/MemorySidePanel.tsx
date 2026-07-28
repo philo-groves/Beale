@@ -1,7 +1,8 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { BookOpen, ChevronDown, Database, GitFork, Search } from 'lucide-react';
+import { BookOpen, ChevronRight, Database, GitFork, Search } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
+import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
@@ -35,7 +36,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>('session');
   const [type, setType] = useState('all');
-  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
@@ -51,13 +52,19 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = runbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
 
   useEffect(() => {
     setActiveView('memory');
+    setSelectedNodeId(null);
   }, [runId]);
+
+  useEffect(() => {
+    if (selectedNodeId && !nodeById.has(selectedNodeId)) setSelectedNodeId(null);
+  }, [nodeById, selectedNodeId]);
 
   useEffect(() => {
     if (activeView !== 'subagents') return undefined;
@@ -75,7 +82,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   }));
 
   return (
-    <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
+    <>
+      <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
       <header className="research-side-tabs">
         <div className="research-side-tab-buttons" role="tablist" aria-label="Session details">
           <button
@@ -158,12 +166,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <MainSideScrollRegion listClassName="memory-catalog-list" stickToEnd updateKey={updateKey}>
               {filteredNodes.map((node) => (
                 <MemoryCatalogItem
-                  expanded={expandedNodeId === node.id}
                   key={node.id}
                   node={node}
-                  nodeById={nodeById}
-                  relationships={relationshipsByNodeId.get(node.id) ?? []}
-                  onToggle={() => setExpandedNodeId((current) => current === node.id ? null : node.id)}
+                  selected={selectedNodeId === node.id}
+                  onOpen={() => setSelectedNodeId(node.id)}
                 />
               ))}
             </MainSideScrollRegion>
@@ -199,7 +205,16 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       ) : (
         <div className="memory-catalog-empty">No subagents in this session.</div>
       )}
-    </aside>
+      </aside>
+      {selectedNode ? (
+        <MemoryDetailSheet
+          node={selectedNode}
+          nodeById={nodeById}
+          relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
+          onClose={() => setSelectedNodeId(null)}
+        />
+      ) : null}
+    </>
   );
 });
 
@@ -237,22 +252,17 @@ function RunbookCatalogItem({
 }
 
 function MemoryCatalogItem({
-  expanded,
   node,
-  nodeById,
-  relationships,
-  onToggle
+  selected,
+  onOpen
 }: {
-  expanded: boolean;
   node: HoneycrispMemoryNodeSummary;
-  nodeById: Map<string, HoneycrispMemoryNodeSummary>;
-  relationships: HoneycrispMemoryEdgeSummary[];
-  onToggle: () => void;
+  selected: boolean;
+  onOpen: () => void;
 }): JSX.Element {
-  const contentId = `memory-record-${node.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   return (
-    <article className={`memory-catalog-item type-${stateClass(node.type)} ${expanded ? 'expanded' : ''}`}>
-      <button type="button" className="memory-catalog-toggle" aria-expanded={expanded} aria-controls={contentId} onClick={onToggle}>
+    <article className={`memory-catalog-item type-${stateClass(node.type)} ${selected ? 'selected' : ''}`}>
+      <button type="button" className="memory-catalog-toggle" aria-haspopup="dialog" onClick={onOpen}>
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
             <span className="memory-catalog-item-labels">
@@ -261,65 +271,92 @@ function MemoryCatalogItem({
             </span>
             <span className="memory-catalog-item-trailing">
               <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
-              <ChevronDown size={14} aria-hidden="true" />
+              <ChevronRight size={14} aria-hidden="true" />
             </span>
           </span>
           <strong>{node.title}</strong>
         </span>
       </button>
-      <div id={contentId} className="memory-catalog-content" hidden={!expanded}>
-        {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
-        {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
-        <div className="memory-catalog-meta">
-          <span>{traceLabel(node.tier)}</span>
-          <span>rev {node.revision}</span>
-          <span>{node.evidenceRefs.length} refs</span>
-          <span>{relationships.length} links</span>
-        </div>
-        {node.subjectName || node.workspaceName ? (
-          <dl className="memory-catalog-scope">
-            {node.subjectName ? <div><dt>Subject</dt><dd>{node.subjectName}</dd></div> : null}
-            <div><dt>Workspace</dt><dd>{node.workspaceName}</dd></div>
-            {node.sessionId ? <div><dt>Session</dt><dd>{node.sessionId}</dd></div> : null}
-          </dl>
-        ) : null}
-        {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
-        {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
-        {node.evidenceRefs.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="References">
-            <h4>References</h4>
-            <div className="memory-reference-list">
-              {node.evidenceRefs.map((reference) => (
-                <article key={reference.id}>
-                  <span>{traceLabel(reference.kind)}</span>
-                  <strong>{reference.summary || reference.path || reference.id}</strong>
-                  {reference.path ? <code>{reference.path}</code> : null}
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {relationships.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="Relationships">
-            <h4>Relationships</h4>
-            <div className="memory-relationship-list">
-              {relationships.map((relationship) => {
-                const outbound = relationship.fromId === node.id;
-                const relatedId = outbound ? relationship.toId : relationship.fromId;
-                const relatedNode = nodeById.get(relatedId);
-                return (
-                  <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
-                    <span>{outbound ? '→' : '←'} {traceLabel(relationship.relation)}</span>
-                    <strong>{relatedNode?.title ?? relatedId}</strong>
-                    {relationship.note ? <p>{relationship.note}</p> : null}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
-      </div>
     </article>
+  );
+}
+
+export function MemoryDetailSheet({
+  node,
+  nodeById,
+  relationships,
+  onClose
+}: {
+  node: HoneycrispMemoryNodeSummary;
+  nodeById: Map<string, HoneycrispMemoryNodeSummary>;
+  relationships: HoneycrispMemoryEdgeSummary[];
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <BottomSheet title="Memory Details" wide className="memory-detail-sheet" onClose={onClose}>
+      <article className={`memory-detail type-${stateClass(node.type)}`}>
+        <header className="memory-detail-heading">
+          <span className="memory-catalog-item-labels">
+            <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+            <span className="memory-catalog-status">{traceLabel(node.status)}</span>
+          </span>
+          <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
+          <h3>{node.title}</h3>
+        </header>
+        <div className="memory-catalog-content">
+          {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
+          {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
+          <div className="memory-catalog-meta">
+            <span>{traceLabel(node.tier)}</span>
+            <span>rev {node.revision}</span>
+            <span>{node.evidenceRefs.length} refs</span>
+            <span>{relationships.length} links</span>
+          </div>
+          {node.subjectName || node.workspaceName ? (
+            <dl className="memory-catalog-scope">
+              {node.subjectName ? <div><dt>Subject</dt><dd>{node.subjectName}</dd></div> : null}
+              <div><dt>Workspace</dt><dd>{node.workspaceName}</dd></div>
+              {node.sessionId ? <div><dt>Session</dt><dd>{node.sessionId}</dd></div> : null}
+            </dl>
+          ) : null}
+          {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
+          {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
+          {node.evidenceRefs.length > 0 ? (
+            <section className="memory-catalog-subsection" aria-label="References">
+              <h4>References</h4>
+              <div className="memory-reference-list">
+                {node.evidenceRefs.map((reference) => (
+                  <article key={reference.id}>
+                    <span>{traceLabel(reference.kind)}</span>
+                    <strong>{reference.summary || reference.path || reference.id}</strong>
+                    {reference.path ? <code>{reference.path}</code> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {relationships.length > 0 ? (
+            <section className="memory-catalog-subsection" aria-label="Relationships">
+              <h4>Relationships</h4>
+              <div className="memory-relationship-list">
+                {relationships.map((relationship) => {
+                  const outbound = relationship.fromId === node.id;
+                  const relatedId = outbound ? relationship.toId : relationship.fromId;
+                  const relatedNode = nodeById.get(relatedId);
+                  return (
+                    <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
+                      <span>{outbound ? '→' : '←'} {traceLabel(relationship.relation)}</span>
+                      <strong>{relatedNode?.title ?? relatedId}</strong>
+                      {relationship.note ? <p>{relationship.note}</p> : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </article>
+    </BottomSheet>
   );
 }
 

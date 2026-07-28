@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import type { SessionTranscriptSearchResponse, SessionTranscriptSearchResult } from '@shared/types';
-import { Modal } from '../../app/Modal';
+import { BottomSheet } from '../../app/Modal';
 import { formatSessionDateTime } from '../../lib/formatting';
 import { renderSearchHighlightedText } from './searchHighlight';
 
@@ -10,7 +10,7 @@ const SEARCH_DEBOUNCE_MS = 120;
 const SEARCH_RESULT_PAGE_SIZE = 25;
 const MIN_SEARCH_CHARS = 2;
 
-export function TranscriptSearchModal({
+export function TranscriptSearchSheet({
   activeWorkspaceName,
   workspaceOpen,
   selectedRunId,
@@ -88,7 +88,7 @@ export function TranscriptSearchModal({
   };
 
   return (
-    <Modal title="Search" wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+    <BottomSheet title="Search" wide onClose={onClose}>
       <div className="transcript-search">
         <label className="transcript-search-input-row">
           <Search size={15} />
@@ -151,7 +151,7 @@ export function TranscriptSearchModal({
           ))}
         </div>
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }
 

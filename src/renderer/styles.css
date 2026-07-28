@@ -2846,23 +2846,30 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .memory-catalog-item:hover,
-.memory-catalog-item.expanded {
+.memory-catalog-item.selected {
   background: #151515;
 }
 
 .memory-catalog-item.type-primitive .memory-catalog-type,
-.memory-catalog-item.type-bug .memory-catalog-type {
+.memory-catalog-item.type-bug .memory-catalog-type,
+.memory-detail.type-primitive .memory-catalog-type,
+.memory-detail.type-bug .memory-catalog-type {
   color: var(--red);
 }
 
 .memory-catalog-item.type-invariant .memory-catalog-type,
-.memory-catalog-item.type-mitigation .memory-catalog-type {
+.memory-catalog-item.type-mitigation .memory-catalog-type,
+.memory-detail.type-invariant .memory-catalog-type,
+.memory-detail.type-mitigation .memory-catalog-type {
   color: var(--green);
 }
 
 .memory-catalog-item.type-source .memory-catalog-type,
 .memory-catalog-item.type-sink .memory-catalog-type,
-.memory-catalog-item.type-asset .memory-catalog-type {
+.memory-catalog-item.type-asset .memory-catalog-type,
+.memory-detail.type-source .memory-catalog-type,
+.memory-detail.type-sink .memory-catalog-type,
+.memory-detail.type-asset .memory-catalog-type {
   color: var(--amber);
 }
 
@@ -3031,21 +3038,39 @@ body.is-resizing-research-side .main-session-grid {
   font-variant-numeric: tabular-nums;
 }
 
-.memory-catalog-item-trailing svg {
-  transition: transform 150ms ease;
-}
-
-.memory-catalog-item.expanded .memory-catalog-item-trailing svg {
-  transform: rotate(180deg);
-}
-
 .memory-catalog-content {
   min-width: 0;
-  padding: 0 10px 11px;
 }
 
-.memory-catalog-content[hidden] {
-  display: none;
+.memory-detail {
+  width: min(880px, 100%);
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.memory-detail-heading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px 12px;
+}
+
+.memory-detail-heading time {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.memory-detail-heading h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .memory-catalog-summary,
@@ -6194,6 +6219,7 @@ body.is-resizing-research-side .main-session-grid {
 .session-history-list {
   min-width: 0;
   display: grid;
+  justify-items: stretch;
   gap: 3px;
 }
 
@@ -6202,6 +6228,9 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   display: grid;
   gap: 4px;
+  align-content: start;
+  align-items: start;
+  justify-content: stretch;
   justify-items: start;
   border-color: transparent;
   background: transparent;
@@ -6216,10 +6245,17 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .session-history-title {
+  width: 100%;
   max-width: 100%;
   overflow: hidden;
   color: var(--muted-strong);
+  text-align: left;
   text-overflow: ellipsis;
+}
+
+.session-history-meta {
+  width: 100%;
+  text-align: left;
 }
 
 .session-history-meta,

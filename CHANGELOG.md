@@ -4,6 +4,7 @@
 
 ### Changed
 
+- More Sessions, memory record details, and transcript Search now open in the shared sliding bottom-sheet surface; memory catalog rows remain compact instead of expanding inline.
 - Beale traces now persist Honeycrisp research output as `research_event` and present it under a Research filter; generated files and exports use the separate Artifacts filter.
 - Deterministic fixture scenarios now describe exercised behavior (`multi_branch_trace`, `source_review`, `crash_artifact`, `scope_block`, and `verifier_pass`) instead of encoding hypothesis/finding lifecycle outcomes.
 - The default attempt strategy is now `iterative_research`, and disclosure exports use `artifact_bundle` terminology.

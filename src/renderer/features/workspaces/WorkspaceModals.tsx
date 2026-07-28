@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { WorkspaceRegistryEntry, ResearchSessionSummary } from '@shared/types';
-import { BottomSheet, Modal } from '../../app/Modal';
+import { BottomSheet } from '../../app/Modal';
 import { promptSessionTitle, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
 export function WorkspaceInformationModal({ workspace, onClose }: { workspace: WorkspaceRegistryEntry; onClose: () => void }): JSX.Element {
@@ -44,7 +44,7 @@ export function WorkspaceInformationModal({ workspace, onClose }: { workspace: W
   );
 }
 
-export function WorkspaceSessionHistoryModal({
+export function WorkspaceSessionHistorySheet({
   workspace,
   sessions,
   selectedRunId,
@@ -58,7 +58,7 @@ export function WorkspaceSessionHistoryModal({
   onOpenSession: (session: ResearchSessionSummary) => void;
 }): JSX.Element {
   return (
-    <Modal title={`${workspace.workspaceName} Sessions`} wide onClose={onClose} footer={<button type="button" onClick={onClose}>Done</button>}>
+    <BottomSheet title={`${workspace.workspaceName} Sessions`} wide onClose={onClose}>
       <div className="session-history-list">
         {sessions.length > 0 ? (
           sessions.map((session) => (
@@ -78,6 +78,6 @@ export function WorkspaceSessionHistoryModal({
           <span className="session-history-empty">No Session Yet...</span>
         )}
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }
