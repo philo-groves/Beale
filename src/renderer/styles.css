@@ -2206,7 +2206,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .memory-catalog-search:focus-within {
-  background: #181818;
+  background: var(--panel-raised);
 }
 
 .memory-catalog-search > svg {
