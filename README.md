@@ -64,6 +64,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - User-global registry of local Beale workspaces
 - Unified Honeycrisp-owned SQLite persistence at `~/.honeycrisp/memory.sqlite`
 - Honeycrisp-backed research session execution
+- Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Session transcripts persisted separately from trace metadata
 - List-only Honeycrisp memory catalog with search, tier/type filters, inline details, references, and textual relationships

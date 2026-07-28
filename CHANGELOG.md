@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.
 - Active sessions now replace the steering Send control with Stop; stopping the HAM-owned active session also disables HAM Mode so it cannot launch a continuation.
 - Memory Save trace rows now show the memory type and status above a Markdown-formatted summary.
 - Memory Link trace rows now show their source, relationship, and target IDs with the recorded note beneath them.
@@ -364,6 +365,7 @@
 
 ### Fixed
 
+- Exiting Beale during an active Honeycrisp session now terminates the host process tree and suppresses late persistence callbacks before closing SQLite, preventing shutdown-time database lock errors.
 - Bounded OpenAI `prompt_cache_key`, `session_id`, and client request identifiers to 64 characters with a deterministic hash suffix so HAM prompt generation works for workspaces with long identifiers.
 - Fixed explicit Go HAM starts so a dormant paused or blocked predecessor is reviewed as prior context instead of leaving HAM Mode indefinitely in its preparation state; automatic continuation still waits on newly paused HAM sessions.
 - Fixed provider-generated session titles so active sessions update their left-sidebar registry row immediately instead of remaining `No Title Yet` until completion.

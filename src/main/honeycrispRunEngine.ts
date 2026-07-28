@@ -185,6 +185,7 @@ const HONEYCRISP_STOP_GRACE_MS = 1_500;
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
+  private disposed = false;
 
   public constructor(
     private readonly db: WorkspaceDatabase,
@@ -194,6 +195,9 @@ export class HoneycrispRunEngine {
   ) {}
 
   public startRun(input: StartRunInput): HoneycrispRunHandle {
+    if (this.disposed) {
+      throw new Error('Honeycrisp run engine has been disposed.');
+    }
     const scope = this.db.getActiveScope();
     const context = this.db.createRun({
       scopeVersionId: scope.id,
@@ -389,7 +393,9 @@ export class HoneycrispRunEngine {
       child.once('error', (error) => {
         this.clearTimeLimit(active);
         this.clearForceStopTimer(active);
-        this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
+        if (!this.disposed) {
+          this.failRun(context, 'Honeycrisp host process failed to start.', { error: errorMessage(error), capturePath });
+        }
         resolveCompletion();
       });
       child.once('close', (code, signal) => {
@@ -398,7 +404,9 @@ export class HoneycrispRunEngine {
         stdout.flush();
         stderr.flush();
         this.activeRuns.delete(context.run.id);
-        this.finishClosedProcess(context, capturePath, code, signal, active);
+        if (!this.disposed) {
+          this.finishClosedProcess(context, capturePath, code, signal, active);
+        }
         resolveCompletion();
       });
     }).finally(() => {
@@ -520,8 +528,20 @@ export class HoneycrispRunEngine {
   }
 
   public dispose(): void {
-    for (const runId of this.activeRuns.keys()) {
-      this.stop(runId);
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const active of this.activeRuns.values()) {
+      this.clearTimeLimit(active);
+      this.clearForceStopTimer(active);
+      if (active.paused && process.platform !== 'win32') {
+        signalHoneycrispProcess(active.child, 'SIGCONT');
+      }
+      try {
+        this.sendControl(active, { schemaVersion: 1, type: 'stop' });
+      } catch {
+        // The process tree is terminated below even when its control stream has closed.
+      }
+      signalHoneycrispProcess(active.child, 'SIGTERM');
     }
     this.activeRuns.clear();
   }
@@ -534,6 +554,7 @@ export class HoneycrispRunEngine {
   }
 
   private recordProcessLine(context: CreatedRunContext, stream: 'stdout' | 'stderr', line: string): void {
+    if (this.disposed) return;
     const text = line.trim();
     if (!text) return;
     const liveEvent = stream === 'stdout' ? parseHoneycrispLiveEvent(text) : null;
@@ -711,14 +732,20 @@ export class HoneycrispRunEngine {
     const payload = event.payload ?? {};
     const errorMessage = stringPayload(payload, 'errorMessage') ?? 'Transient model error.';
     const silentStream = errorMessage.includes('produced no content');
+    const safetyGuardrail = stringPayload(payload, 'recoveryKind') === 'safety_guardrail';
+    const likelyFalsePositive = stringPayload(payload, 'safetyDisposition') === 'likely_false_positive';
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
       type: 'model_message',
       source: 'system',
-      summary: silentStream
-        ? 'Honeycrisp retried a silent model stream.'
-        : 'Honeycrisp retried a transient model error.',
+      summary: safetyGuardrail
+        ? likelyFalsePositive
+          ? 'Honeycrisp continued after an authorized safety guardrail false positive.'
+          : 'Honeycrisp added safer steering after a provider safety guardrail.'
+        : silentStream
+          ? 'Honeycrisp retried a silent model stream.'
+          : 'Honeycrisp retried a transient model error.',
       payload: {
         honeycrispLiveKind: event.kind,
         honeycrispTimestamp: event.timestamp ?? null,

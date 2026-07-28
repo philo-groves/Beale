@@ -661,7 +661,8 @@ describe('Beale workbench skeleton', () => {
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, usage: { input: 1000, output: 100, totalTokens: 1100 } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'context_compacted', reason: 'context_window_error', retry: true, agentId: 'root', agentPath: '/root', tokensBefore: 280000, tokensAfter: 120000 } }));",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'model_retry', retry: 1, maxRetries: 2, errorMessage: 'Model stream produced no content for 180000ms.', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'model_retry', retry: 1, delayMs: 0, recoveryKind: 'transient', errorMessage: 'Model stream produced no content for 180000ms.', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'model_retry', retry: 2, delayMs: 60000, recoveryKind: 'safety_guardrail', safetyDisposition: 'likely_false_positive', errorMessage: 'Cyber safety guardrail interrupted this response.', agentId: 'root', agentPath: '/root', parentAgentId: '' } }));",
         "console.log('fixture honeycrisp stdout');"
       ].join('\n')
     );
@@ -753,7 +754,15 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp retried a silent model stream.')?.payload).toMatchObject({
       agentPath: '/root/parser_review',
       retry: 1,
-      maxRetries: 2
+      delayMs: 0,
+      recoveryKind: 'transient'
+    });
+    expect(detail.traceEvents.find((event) => event.summary === 'Honeycrisp continued after an authorized safety guardrail false positive.')?.payload).toMatchObject({
+      agentPath: '/root',
+      retry: 2,
+      delayMs: 60000,
+      recoveryKind: 'safety_guardrail',
+      safetyDisposition: 'likely_false_positive'
     });
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp tool.requested'))).toBe(true);
     expect(
@@ -996,6 +1005,52 @@ describe('Beale workbench skeleton', () => {
     } finally {
       service.close();
     }
+  });
+
+  it('terminates an active Honeycrisp process before closing its database on Beale shutdown', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-shutdown-honeycrisp.mjs');
+    const readyPath = join(workspace, 'shutdown-ready.txt');
+    const stoppedPath = join(workspace, 'shutdown-stopped.txt');
+    const exitedPath = join(workspace, 'shutdown-exited.txt');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { writeFileSync } from 'node:fs';",
+        'const [readyPath, stoppedPath, exitedPath] = process.argv.slice(2);',
+        "writeFileSync(readyPath, 'ready');",
+        "process.on('SIGTERM', () => {",
+        "  writeFileSync(stoppedPath, 'stopped');",
+        '  setTimeout(() => process.exit(0), 25);',
+        '});',
+        "process.on('exit', () => writeFileSync(exitedPath, 'exited'));",
+        'process.stdin.resume();',
+        'setInterval(() => undefined, 1000);'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, readyPath, stoppedPath, exitedPath]);
+
+    const service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const started = service.startRun({
+      ...runInput('multi_branch_trace'),
+      runEngine: 'honeycrisp',
+      promptMarkdown: 'Exercise application shutdown during an active session.'
+    });
+    const runId = started.runs[0]?.run.id ?? '';
+    await waitForCondition(() => existsSync(readyPath));
+
+    service.close();
+
+    await waitForCondition(() => existsSync(stoppedPath));
+    await waitForCondition(() => existsSync(exitedPath));
+    const reopened = new WorkspaceService();
+    const recovered = reopened.openWorkspace(workspace);
+    expect(recovered.runs.find((row) => row.run.id === runId)?.run.status).toBe('paused');
+    reopened.close();
   });
 
   it('stops an active Honeycrisp process when its session time limit is reached', async () => {
