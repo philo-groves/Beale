@@ -4,12 +4,7 @@
 
 Beale is an authorized vulnerability research workbench.
 
-The current project state is planning-first:
-
-- Planning docs live in `planning/`.
-- The book index is `planning/book/SUMMARY.md`.
-- Research notes live in `planning/research/`.
-- Generated planning images currently live in `planning/book/`.
+The implementation, tests, root README, and changelog define the current product state.
 
 Do not use legacy branding in new docs or code. Use `Beale`.
 
@@ -22,10 +17,8 @@ Do not use legacy branding in new docs or code. Use `Beale`.
 
 ## Documentation Rules
 
-- When adding a new planning document, link it from `planning/book/SUMMARY.md`.
-- Keep the book organized by chapter.
-- Use `planning/book/...` paths when referencing docs from project-root-oriented prose.
-- Use `../book/...` only when a relative Markdown link is intended from `planning/research/`.
+- Keep documentation aligned with implemented behavior and tested boundaries.
+- Do not add speculative planning, roadmap, or architecture documents unless explicitly requested.
 - Keep terminology consistent:
   - Product name: `Beale`
   - Workspace metadata directory: `.beale/`
@@ -34,7 +27,6 @@ Do not use legacy branding in new docs or code. Use `Beale`.
   - Authorized scope: the recorded authorization boundary within a workspace
   - First release focus: authorized open-ended vulnerability discovery
   - Execution posture: Beale and Honeycrisp run with the current user's host privileges; users should launch them inside their own VM/container when OS isolation is required
-- If generated diagrams or UI mockups are added, store them under `planning/book/` and mention any important stale labels in the final response.
 
 ## CHANGELOG.md Management
 
@@ -61,18 +53,11 @@ Preserve these invariants in docs and implementation:
 
 ## Implementation Rules
 
-- Read the planning docs before implementing a subsystem.
-- Prefer the first vertical slice in `planning/book/vertical-slice.md` before broader feature work.
-- Keep the first implementation narrow:
-  - Workspace open/create.
-  - Authorized scope.
-  - SQLite persistence.
-  - Run tracker.
-  - Run detail.
-  - Fake agent/executor trace events.
-- Do not add real target execution before the executor boundary is implemented.
+- Inspect the current source, shared contracts, and relevant tests before changing a subsystem.
+- Preserve the Honeycrisp-owned research engine and global database as the canonical runtime and persistence boundaries.
+- Keep product behavior, shared types, IPC contracts, and tests synchronized.
 - Do not introduce remote persistence, cloud sync, or cross-workspace global search unless explicitly requested.
-- Do not add model-facing tools beyond the planned v1 set without updating the structured-tools docs.
+- Do not add model-facing tools without updating their typed contracts and boundary tests.
 
 ## Code Quality
 
@@ -85,7 +70,6 @@ Preserve these invariants in docs and implementation:
 
 ## Commands
 
-- This project does not yet define package scripts.
-- Do not invent checks before the project has a package manifest.
-- Once scripts exist, run the project-specific typecheck/lint command after code changes.
-- Documentation-only changes do not require code checks.
+- Run `npm run typecheck` after code changes.
+- Run `npm test` after behavior, boundary, persistence, or test changes.
+- Live provider tests remain opt-in and require user-provided credentials.

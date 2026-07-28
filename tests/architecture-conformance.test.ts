@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, relative, resolve } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
 import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
@@ -33,25 +33,10 @@ afterEach(() => {
   }
 });
 
-describe('plan conformance', () => {
+describe('architecture conformance', () => {
   it('keeps every host API on a distinct IPC channel', () => {
     const channels = Object.values(IPC_CHANNELS);
     expect(new Set(channels).size).toBe(channels.length);
-  });
-
-  it('keeps planning documents linked from the book summary', () => {
-    const summaryPath = join(ROOT, 'planning/book/SUMMARY.md');
-    const summary = readFileSync(summaryPath, 'utf8');
-    const linked = new Set(
-      [...summary.matchAll(/\]\(([^)]+\.md)\)/g)].map((match) => normalizePath(relative(ROOT, resolve(join(ROOT, 'planning/book'), match[1]))))
-    );
-    const expectedDocs = [...filesUnder('planning/book'), ...filesUnder('planning/research')]
-      .filter((path) => path.endsWith('.md'))
-      .filter((path) => basename(path) !== 'SUMMARY.md')
-      .map(normalizePath);
-
-    const unlinked = expectedDocs.filter((path) => !linked.has(path));
-    expect(unlinked).toEqual([]);
   });
 
   it('keeps renderer and preload behind typed host APIs without secrets or database access', () => {
@@ -100,7 +85,7 @@ describe('plan conformance', () => {
     expect(files).not.toContain('src/main/fakeRunEngine.ts');
   });
 
-  it('keeps the OpenAI adapter aligned with the planned defaults and host-only credential state', () => {
+  it('keeps the OpenAI adapter aligned with product defaults and host-only credential state', () => {
     withCleanOpenAiEnv(() => {
       const auth = new OpenAiAuthService();
       const status = auth.getStatus();
@@ -111,12 +96,12 @@ describe('plan conformance', () => {
       const adapter = new OpenAiResponsesAdapter(auth, async () => new Response('', { status: 500 }), 'https://api.openai.test/v1', null);
       const request = adapter.buildRequest({
         model: status.defaultModel,
-        instructions: 'Plan conformance smoke request.',
+        instructions: 'Architecture conformance smoke request.',
         input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Return ok.' }] }],
         tools: [],
         reasoning: { effort: status.defaultReasoningEffort },
         text: { verbosity: 'low' },
-        metadata: { beale_plan_check: 'true' }
+        metadata: { beale_architecture_check: 'true' }
       });
 
       expect(request.store).toBe(false);
@@ -128,7 +113,7 @@ describe('plan conformance', () => {
   });
 
   it('creates shared SQLite state and host execution records without exposing secrets', () => {
-    const dir = tempDir('beale-plan-db-');
+    const dir = tempDir('beale-architecture-db-');
     const artifactRoot = join(dir, '.beale', 'artifacts');
     mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
     const db = new WorkspaceDatabase(join(dir, '.honeycrisp', 'memory', 'memory.sqlite'), artifactRoot);
@@ -136,8 +121,8 @@ describe('plan conformance', () => {
 
     const context = db.createRun({
       scopeVersionId: db.getActiveScope().id,
-      title: 'Plan conformance run',
-      promptMarkdown: '# Plan conformance',
+      title: 'Architecture conformance run',
+      promptMarkdown: '# Architecture conformance',
       mode: 'open_discovery',
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
@@ -157,15 +142,15 @@ describe('plan conformance', () => {
 
   it('keeps fixture run evidence provenance distinct from model claims', () => {
     const service = new WorkspaceService();
-    service.createWorkspace(tempDir('beale-plan-workspace-'));
+    service.createWorkspace(tempDir('beale-architecture-workspace-'));
     service.saveScope({
-      workspaceName: 'Plan Workspace',
+      workspaceName: 'Architecture Workspace',
       scopeOwner: 'Example Org',
-      descriptionMarkdown: 'Plan conformance scope.',
+      descriptionMarkdown: 'Architecture conformance scope.',
       rulesMarkdown: 'Stay inside local fixtures.',
       networkProfile: 'offline',
       expiresAt: null,
-      assets: [asset('in_scope', 'path', '/targets/plan-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
+      assets: [asset('in_scope', 'path', '/targets/architecture-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
     });
 
     const snapshot = startRunForTest(service, { ...runInput(), fixtureScenario: 'verified_finding' });
@@ -256,7 +241,7 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
-    promptMarkdown: '# Plan conformance\nExercise the fixture workbench path.',
+    promptMarkdown: '# Architecture conformance\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'adaptive_portfolio',
     model: 'gpt-5.5',

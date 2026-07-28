@@ -71,7 +71,6 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Steering for active sessions
 - Codex, Anthropic (Claude), and xAI (Grok/X) provider onboarding/status UI
 - Opt-in local profiling that writes structured JSONL reports
-- Planning documents and architecture notes in the `planning/` directory
 - No public releases yet
 
 ### Honeycrisp Boundary
@@ -82,18 +81,15 @@ Beale is pre-alpha and uses append-only component-scoped migrations. The global-
 
 The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
 
-See `CHANGELOG.md`, `AGENTS.md`, and the `planning/` folder for more details on direction and recent changes.
+See `CHANGELOG.md` and `AGENTS.md` for current product changes and development rules.
 
 ### Known Incomplete Surfaces
 
-- The baked-in File/Edit/View/Window menu buttons are placeholders.
-- Sidebar Search and Schedules are not complete product flows.
+- Scheduled research is not a product flow.
 - Export, disclosure draft, and redacted trace review are incomplete.
 - Full pause/resume/stop/fork/restart run controls are incomplete.
 - Full verifier contract, artifact review, and evidence bundle controls are incomplete.
 - Settings coverage is still narrow.
-
-See `planning/book/beta-readiness.md` for the current beta-readiness checklist.
 
 ---
 
@@ -150,18 +146,6 @@ Provider credentials stay in the trusted host runtime and are not copied into mo
 
 ---
 
-## Planning Docs
-
-Good starting points:
-
-- `planning/book/product-scope.md`
-- `planning/book/first-release-mode.md`
-- `planning/book/roadmap.md`
-- `planning/book/beta-readiness.md`
-- `planning/book/SUMMARY.md`
-
----
-
 ## Disclaimer & Safety
 
 This tool is intended **only** for authorized vulnerability research and testing. Always respect scope, legal boundaries, and responsible disclosure practices.
@@ -174,7 +158,7 @@ The project includes strong policy and isolation intentions, but as it is pre-al
 
 Contributions are welcome, but because the project is so early, it's best to start with a discussion (open an issue) before submitting large changes.
 
-Before changing a subsystem, read the relevant planning docs under `planning/book/`.
+Before changing a subsystem, inspect its current source, shared contracts, and relevant tests.
 
 ---
 

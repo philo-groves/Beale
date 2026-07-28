@@ -152,6 +152,7 @@
 
 ### Removed
 
+- Removed the obsolete `planning/` book and research-note tree; current source, tests, README, and changelog now define product behavior and development boundaries.
 - Removed the secondary session context/dashboard view, its view toggle, and its renderer-to-main context-inspection API; selected sessions now always show the trace with Memory/Subagents.
 
 - Removed separate repository-search, file-read, code-intelligence, analysis, synthesis, storage, experiment, and MCP tools from Beale-launched research sessions, along with the inactive Skills and MCP sidebar controls; durable memory tools and `shell.run` remain.
@@ -404,9 +405,5 @@
 
 ### Documentation
 
-- Added a Fiddlesticks gap analysis for a post-alpha Rust harness migration.
-- Added a beta-readiness chapter for non-functional buttons, placeholder surfaces, and incomplete beta-facing controls.
-- Expanded the root README for human readers with current status, setup, safety boundaries, known incomplete surfaces, and planning links.
+- Expanded the root README for human readers with current status, setup, safety boundaries, and known incomplete surfaces.
 - Added MIT licensing metadata and a root `LICENSE`.
-- Added a beta optimization planning chapter for renderer responsiveness, trace performance, animation budget, and performance-aware refactor sequencing.
-- Updated structured-tool and schema planning docs for Beale resource lookup and the `reportable` finding state.

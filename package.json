@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:plan": "vitest run tests/plan-conformance.test.ts",
+    "test:architecture": "vitest run tests/architecture-conformance.test.ts",
     "test:openai:live": "BEALE_LIVE_OPENAI_TEST=1 vitest run tests/openai-live.test.ts",
     "build": "npm run typecheck && electron-vite build"
   },
