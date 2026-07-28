@@ -54,7 +54,7 @@ export interface CodeBlockLineRows {
 }
 
 export function renderTraceProseText(text: string, category: TraceCategoryId): ReactNode {
-  const proseCategory = category === 'agent_output' || category === 'evidence' || category === 'failure_recovery' || category === 'hypotheses' || category === 'reasoning';
+  const proseCategory = category === 'agent_output' || category === 'artifacts' || category === 'failure_recovery' || category === 'research' || category === 'reasoning';
   const cache = proseCategory ? proseMarkupCache : inlineMarkupCache;
   return cachedMarkup(cache, `${category}\0${text}`, () =>
     devInstrumentation.time(

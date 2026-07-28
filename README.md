@@ -88,7 +88,7 @@ See `CHANGELOG.md` and `AGENTS.md` for current product changes and development r
 - Scheduled research is not a product flow.
 - Export, disclosure draft, and redacted trace review are incomplete.
 - Full pause/resume/stop/fork/restart run controls are incomplete.
-- Full verifier contract, artifact review, and evidence bundle controls are incomplete.
+- Full verifier contract, artifact review, and artifact bundle controls are incomplete.
 - Settings coverage is still narrow.
 
 ---

@@ -72,16 +72,6 @@ describe('trace classification', () => {
         traceEvent({
           source: 'model',
           type: 'tool_call',
-          summary: 'OpenAI requested Beale tool: evidence.',
-          payload: { toolName: 'evidence' }
-        })
-      )
-    ).toBe('non_standard');
-    expect(
-      traceCategoryForEvent(
-        traceEvent({
-          source: 'model',
-          type: 'tool_call',
           summary: 'OpenAI completed function call arguments for code_browser.',
           payload: { toolName: 'code_browser' }
         })

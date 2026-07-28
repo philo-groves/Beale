@@ -5,7 +5,6 @@ import {
   honeycrispToolName,
   honeycrispToolPairingKey,
   honeycrispToolPayload as honeycrispEventToolPayload,
-  isToolCallNamed,
   stringRecordValue,
   toolNameFromSummary,
   tracePayloadArray,
@@ -115,8 +114,8 @@ export function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
   if (category === 'agent_output' || category === 'reasoning') return 'Report';
   if (category === 'tools') return 'Run';
   if (category === 'vm_execution') return 'Execute';
-  if (category === 'hypotheses') return 'Track';
-  if (category === 'evidence') return 'Record';
+  if (category === 'research') return 'Research';
+  if (category === 'artifacts') return 'Record';
   if (category === 'verifier') return 'Verify';
   if (category === 'policy_scope') return 'Enforce';
   if (category === 'code_navigation') return 'Inspect';
@@ -125,18 +124,6 @@ export function traceCategoryFallbackPrefix(category: TraceCategoryId): string {
 }
 
 export function traceEventDetailText(event: TraceEventRecord, category: TraceCategoryId, detail: RunDetail | null = null): string {
-  const securityRecordDetail = securityRecordToolCallDetail(event);
-  if (securityRecordDetail) return securityRecordDetail;
-
-  const duplicateBlockedDetail = duplicateBlockedEventDetailText(event);
-  if (duplicateBlockedDetail) return duplicateBlockedDetail;
-
-  const hypothesisDetail = hypothesisEventDetailText(event);
-  if (hypothesisDetail) return hypothesisDetail;
-
-  const findingDetail = findingEventDetailText(event);
-  if (findingDetail) return findingDetail;
-
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
   if ((category === 'agent_output' || category === 'reasoning') && text) {
     return isReasoningTraceEvent(event, category) ? formatReasoningTraceText(text) : text.replace(/\r\n?/g, '\n').trim();
@@ -437,7 +424,8 @@ export function honeycrispMemorySearchResults(
 }
 
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
-  return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event) || findingEventDetailText(event));
+  void detail;
+  return event.type === 'research_event';
 }
 
 export interface PythonToolCallPreview {
@@ -454,11 +442,6 @@ export interface PythonToolCallPreview {
 export interface PythonTraceScript {
   task: string;
   script: string;
-}
-
-export interface DuplicateBlockedTraceDetail {
-  attributes: string;
-  title: string;
 }
 
 export interface ReasoningTraceSummarySegment {
@@ -564,15 +547,13 @@ export function verifierTracePreview(event: TraceEventRecord): TraceStructuredPr
   if (event.type === 'tool_call' && toolName === 'verifier') {
     const args = tracePayloadRecord(event.payload, 'arguments');
     if (!args) return null;
-    const expectation = stringRecordValue(args, 'expectation');
-    const hypothesis = stringRecordValue(args, 'hypothesis');
+    const contractId = stringRecordValue(args, 'contractId');
+    const mode = stringRecordValue(args, 'mode');
     return {
       title: 'Verifier prepared',
-      description: expectation || hypothesis || 'Verifier request prepared.',
+      description: mode ? `${traceLabel(mode)} verifier request prepared.` : 'Verifier request prepared.',
       facts: [
-        stringRecordValue(args, 'artifact_id') ? 'Artifact referenced' : null,
-        stringRecordValue(args, 'trace_event_id') ? 'Trace referenced' : null,
-        stringRecordValue(args, 'verifier_script') ? 'Executable script' : null
+        contractId ? `Contract ${contractId}` : null
       ].filter((part): part is string => Boolean(part))
     };
   }
@@ -926,9 +907,6 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (event.type === 'tool_call') {
     const toolName = tracePayloadPrimitive(event.payload, 'toolName') ?? toolNameFromSummary(summary);
     if (toolName === 'python') return /^OpenAI requested Beale tool: python\.$/i.test(summary) ? 'Queue Python' : 'Prepare Python';
-    if (toolName === 'hypothesis') return /^OpenAI requested Beale tool: hypothesis\.$/i.test(summary) ? 'Queue Hypothesis' : 'Prepare Hypothesis';
-    if (toolName === 'finding') return /^OpenAI requested Beale tool: finding\.$/i.test(summary) ? 'Queue Finding' : 'Prepare Finding';
-    if (toolName === 'evidence') return /^OpenAI requested Beale tool: evidence\.$/i.test(summary) ? 'Queue Reference' : 'Prepare Reference';
     if (toolName === 'verifier') return /^OpenAI requested Beale tool: verifier\.$/i.test(summary) ? 'Queue Verifier' : 'Prepare Verifier';
     if (toolName === 'code_browser') return /^OpenAI requested Beale tool: code_browser\.$/i.test(summary) ? 'Queue Code Browser' : 'Prepare Code Browser';
     if (toolName === 'resource_lookup') return /^OpenAI requested Beale tool: resource_lookup\.$/i.test(summary) ? 'Queue Resource Lookup' : 'Prepare Resource Lookup';
@@ -961,20 +939,14 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (summary === 'Fake executor allocated a simulated disposable VM context.' || summary === 'Fake executor allocated a simulated disposable sandbox context.') return 'Allocate simulated sandbox context';
   if (summary === 'Simulated model planned an open-ended discovery pass.') return 'Plan discovery pass';
   if (summary === 'No network request was sent.') return 'Skip network request';
-  if (summary === 'Simulated finding recorded; real VM verifier required for verified state.' || summary === 'Simulated finding recorded; real sandbox verifier required for verified state.') return 'Record simulated finding';
   if (summary === 'Verifier failed to destroy guest after execution.') return 'Review verifier cleanup failure';
   if (summary === 'VM executor alpha failed to destroy guest after run failure.' || summary === 'Sandbox executor alpha failed to destroy context after run failure.') return 'Review sandbox cleanup failure';
   if (summary === 'VM executor alpha run failed.' || summary === 'Sandbox executor alpha run failed.') return 'Fail sandbox executor run';
   if (summary === 'VM executor alpha run started from markdown prompt.' || summary === 'Sandbox executor alpha run started from markdown prompt.') return 'Start sandbox executor run';
-  if (isDuplicateBlockedSummary(summary)) return 'Duplicate Blocked';
-
   let match = summary.match(/^OpenAI Responses request sent for turn (\d+)\.$/);
   if (match) return `Request for Turn ${match[1]}`;
   match = summary.match(/^OpenAI completed function call arguments for ([^.]+)\.$/);
   if (match?.[1] === 'python') return 'Prepare Python';
-  if (match?.[1] === 'hypothesis') return 'Prepare Hypothesis';
-  if (match?.[1] === 'finding') return 'Prepare Finding';
-  if (match?.[1] === 'evidence') return 'Prepare Reference';
   if (match?.[1] === 'verifier') return 'Prepare Verifier';
   if (match?.[1] === 'code_browser') return 'Prepare Code Browser';
   if (match?.[1] === 'resource_lookup') return 'Prepare Resource Lookup';
@@ -1012,24 +984,12 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier recorded ([^.;]+) result;/);
   if (match) return `Record verifier result: ${match[1]}`;
-  match = summary.match(/^Adaptive portfolio branch recorded: (.+)\.$/);
-  if (match) return `Record portfolio branch: ${match[1]}`;
-  match = summary.match(/^Evidence recorded: (.+)\.$/);
-  if (match) return 'Reference Recorded';
+  match = summary.match(/^Fixture branch recorded: (.+)\.$/);
+  if (match) return `Record fixture branch: ${match[1]}`;
   match = summary.match(/^Requested (.+)\.$/);
   if (match) return `Request ${match[1]}`;
   match = summary.match(/^Artifact recorded: (.+)\.$/);
   if (match) return `Record artifact: ${match[1]}`;
-  match = summary.match(/^Hypothesis created: (.+)\.$/);
-  if (match) return 'Hypothesis Created';
-  match = summary.match(/^Hypothesis updated: (.+)\.$/);
-  if (match) return 'Hypothesis Updated';
-  match = summary.match(/^Finding created: (.+)\.$/);
-  if (match) return 'Finding Created';
-  match = summary.match(/^Finding updated: (.+)\.$/);
-  if (match) return 'Finding Updated';
-  match = summary.match(/^Finding created from reproduced verifier-backed hypothesis: (.+)\.$/);
-  if (match) return 'Finding Created';
   match = summary.match(/^Policy engine blocked (.+)\.$/);
   if (match) return `Block ${match[1]}`;
   match = summary.match(/^Paused after (.+)\.$/);
@@ -1098,7 +1058,7 @@ function tracePayloadDetailText(event: TraceEventRecord, category: TraceCategory
       detailPartsForVerifierEvent(event),
       detailPartsForNetworkEvent(event),
       detailPartsForVmEvent(event),
-      detailPartsForEvidenceEvent(event),
+      detailPartsForResearchArtifactEvent(event),
       detailPartsForReviewEvent(event),
       detailPartsForUserEvent(event),
       fallbackPayloadParts(payload, category)
@@ -1160,9 +1120,7 @@ function toolArgumentParts(toolName: string | null, args: Record<string, unknown
   if (toolName === 'python') return [quotedPart('task', stringRecordValue(args, 'task')), pathPart('artifact', stringRecordValue(args, 'artifact_path'))];
   if (toolName === 'debugger') return [tracePart('operation', stringRecordValue(args, 'operation')), pathPart('target', stringRecordValue(args, 'target')), pathPart('input', stringRecordValue(args, 'input_path'))];
   if (toolName === 'artifact') return [quotedPart('name', stringRecordValue(args, 'name')), tracePart('kind', stringRecordValue(args, 'kind'))];
-  if (toolName === 'hypothesis') return [quotedPart('title', stringRecordValue(args, 'title')), tracePart('state', stringRecordValue(args, 'state')), tracePart('cwe', stringRecordValue(args, 'primary_cwe_id'))];
-  if (toolName === 'finding') return [quotedPart('title', stringRecordValue(args, 'title')), tracePart('state', stringRecordValue(args, 'state')), tracePart('cwe', stringRecordValue(args, 'primary_cwe_id'))];
-  if (toolName === 'verifier') return [quotedPart('hypothesis', stringRecordValue(args, 'hypothesis')), pathPart('artifact', stringRecordValue(args, 'artifact_id')), pathPart('trace', stringRecordValue(args, 'trace_event_id'))];
+  if (toolName === 'verifier') return [pathPart('contract', stringRecordValue(args, 'contractId')), tracePart('mode', stringRecordValue(args, 'mode'))];
   return Object.entries(args)
     .slice(0, 3)
     .map(([key, value]) => primitiveValuePart(key, value));
@@ -1328,8 +1286,8 @@ function detailPartsForVmEvent(event: TraceEventRecord): string[] | null {
   ].filter((part): part is string => Boolean(part));
 }
 
-function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
-  if (event.type !== 'artifact_created' && event.type !== 'finding_event' && event.type !== 'hypothesis_event') return null;
+function detailPartsForResearchArtifactEvent(event: TraceEventRecord): string[] | null {
+  if (event.type !== 'artifact_created' && event.type !== 'research_event') return null;
   const payload = event.payload;
   return [
     pathPart('memory node', tracePayloadPrimitive(payload, 'memoryNodeId')),
@@ -1342,19 +1300,11 @@ function detailPartsForEvidenceEvent(event: TraceEventRecord): string[] | null {
     pathPart('path', tracePayloadPrimitive(payload, 'relativePath')),
     tracePart('decision', tracePayloadPrimitive(payload, 'decision')),
     traceBooleanPart('reversible', tracePayloadPrimitive(payload, 'reversible')),
+    tracePayloadPrimitive(payload, 'text'),
+    tracePayloadPrimitive(payload, 'description'),
+    tracePayloadPrimitive(payload, 'impact'),
     tracePayloadPrimitive(payload, 'note')
   ].filter((part): part is string => Boolean(part));
-}
-
-function cweMappingLabel(payload: Record<string, unknown>): string | null {
-  const mappings = tracePayloadArray(payload, 'cweMappings');
-  if (!mappings) return null;
-  const records = mappings
-    .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null))
-    .filter((item): item is Record<string, unknown> => Boolean(item));
-  const selected = records.find((item) => stringRecordValue(item, 'mappingRole') === 'primary') ?? records[0];
-  if (!selected) return null;
-  return stringRecordValue(selected, 'cweId');
 }
 
 function detailPartsForReviewEvent(event: TraceEventRecord): string[] | null {
@@ -1589,81 +1539,4 @@ function firstArrayPart(label: string, value: unknown[] | null): string | null {
   const first = value[0];
   if (typeof first === 'string') return `${label} ${truncateText(first, 72)}`;
   return `${label} ${value.length}`;
-}
-
-function securityRecordToolCallDetail(event: TraceEventRecord): string | null {
-  return cweTitleToolCallDetail(event, 'hypothesis', 'Untitled hypothesis') ?? cweTitleToolCallDetail(event, 'finding', 'Untitled finding');
-}
-
-function duplicateBlockedEventDetailText(event: TraceEventRecord): string | null {
-  const detail = duplicateBlockedTraceDetail(event);
-  if (!detail) return null;
-  return [detail.title, detail.attributes].filter(Boolean).join('\n');
-}
-
-export function duplicateBlockedTraceDetail(event: TraceEventRecord): DuplicateBlockedTraceDetail | null {
-  if (tracePayloadPrimitive(event.payload, 'action') !== 'duplicate_blocked' && !isDuplicateBlockedSummary(event.summary)) return null;
-
-  const title = tracePayloadPrimitive(event.payload, 'proposedTitle') ?? duplicateBlockedTitleFromSummary(event.summary);
-  if (!title) return null;
-
-  const matchedEntityKind = tracePayloadPrimitive(event.payload, 'matchedEntityKind') ?? (tracePayloadPrimitive(event.payload, 'matchedFindingId') ? 'finding' : null);
-  const matchedEntityId = tracePayloadPrimitive(event.payload, 'matchedEntityId') ?? tracePayloadPrimitive(event.payload, 'matchedFindingId') ?? tracePayloadPrimitive(event.payload, 'findingId');
-  const attributes = formatTraceDetailParts(
-    [
-      tracePart('claim', traceLabel(tracePayloadPrimitive(event.payload, 'claimStatus') ?? 'duplicate_review')),
-      tracePart('action', traceLabel(tracePayloadPrimitive(event.payload, 'action') ?? 'duplicate_blocked')),
-      matchedEntityKind && matchedEntityId ? pathPart(`matched ${traceLabel(matchedEntityKind).toLowerCase()}`, matchedEntityId) : null
-    ].filter((part): part is string => Boolean(part))
-  );
-  return { attributes, title: title.trim() };
-}
-
-function hypothesisEventDetailText(event: TraceEventRecord): string | null {
-  if (event.type !== 'hypothesis_event') return null;
-  const title = tracePayloadPrimitive(event.payload, 'title');
-  const description = tracePayloadPrimitive(event.payload, 'description');
-  const lines = [boldTraceTitle(title), description?.trim()].filter((line): line is string => Boolean(line));
-  return lines.length > 0 ? lines.join('\n') : null;
-}
-
-function findingEventDetailText(event: TraceEventRecord): string | null {
-  if (event.type !== 'finding_event') return null;
-  const title = tracePayloadPrimitive(event.payload, 'title');
-  const impact = tracePayloadPrimitive(event.payload, 'impact');
-  const lines = [boldTraceTitle(title), impact?.trim()].filter((line): line is string => Boolean(line));
-  return lines.length > 0 ? lines.join('\n') : null;
-}
-
-function boldTraceTitle(value: string | null | undefined): string | null {
-  const title = value?.trim();
-  return title ? `**${title}**` : null;
-}
-
-function duplicateBlockedTitleFromSummary(summary: string): string | null {
-  const match = summary.match(/^Duplicate (?:hypothesis|finding) blocked before creation: (.+?)(?:\.)?$/i);
-  return match?.[1]?.trim() || null;
-}
-
-function isDuplicateBlockedSummary(summary: string): boolean {
-  return /^Duplicate (?:hypothesis|finding) blocked before creation: .+\.?$/i.test(summary.trim());
-}
-
-function cweTitleToolCallDetail(event: TraceEventRecord, toolName: string, fallbackTitle: string): string | null {
-  if (!isToolCallNamed(event, toolName)) return null;
-  const args = tracePayloadRecord(event.payload, 'arguments');
-  if (!args) return null;
-
-  const title = stringRecordValue(args, 'title') ?? fallbackTitle;
-  const cweName = stringRecordValue(args, 'primary_cwe_name') ?? 'Unclassified weakness';
-  const cweId = formatToolCallCweId(stringRecordValue(args, 'primary_cwe_id'));
-  return `${cweName} (${cweId}): ${title}`;
-}
-
-function formatToolCallCweId(value: string | null): string {
-  if (!value || /^(unknown|none|null|n\/a|needs[_ -]?classification)$/i.test(value)) return 'CWE TBD';
-  const cweMatch = value.match(/^CWE-(\d{1,8})$/i);
-  if (cweMatch) return `CWE-${cweMatch[1]}`;
-  const numericMatch = value.match(/^(\d{1,8})$/);
-  return numericMatch ? `CWE-${numericMatch[1]}` : value;
 }

@@ -35,12 +35,11 @@ export type TraceEventType =
   | 'artifact_created'
   | 'vm_event'
   | 'approval_event'
-  | 'hypothesis_event'
+  | 'research_event'
   | 'verifier_result'
-  | 'finding_event'
   | 'network_event';
 
-export type FixtureScenario = 'adaptive_portfolio' | 'source_logic_bug' | 'memory_corruption' | 'policy_block' | 'verified_finding';
+export type FixtureScenario = 'multi_branch_trace' | 'source_review' | 'crash_artifact' | 'scope_block' | 'verifier_pass';
 
 export type RunEngineKind = 'honeycrisp' | 'fixture';
 
@@ -807,7 +806,7 @@ export interface WorkspacePolicyReview {
 }
 
 export interface WorkspaceExportResult {
-  kind: 'workspace_backup' | 'evidence_bundle';
+  kind: 'workspace_backup';
   relativePath: string;
   absolutePath: string;
   createdAt: string;
@@ -1247,7 +1246,7 @@ export type SteeringAction =
   | { type: 'edit_verifier_contract'; runId: string; verifierContractId: string; patch: VerifierContractEditInput; note?: string }
   | { type: 'review_verifier_contract'; runId: string; verifierContractId: string; decision: VerifierContractReviewDecision; note?: string }
   | { type: 'mark_artifact_sensitive'; runId: string; artifactId: string; note?: string }
-  | { type: 'export_evidence_bundle'; runId: string; memoryNodeId?: string; note?: string }
+  | { type: 'export_artifact_bundle'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'export_research_bundle'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'export_redacted_trace'; runId: string; memoryNodeId?: string; note?: string }
   | { type: 'generate_report_draft'; runId: string; memoryNodeId?: string; note?: string }

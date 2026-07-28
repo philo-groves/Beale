@@ -23,7 +23,7 @@ export class FixtureRunEngine {
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): CreatedRunContext {
     const scope = this.db.getActiveScope();
-    const scenario = input.fixtureScenario ?? 'adaptive_portfolio';
+    const scenario = input.fixtureScenario ?? 'multi_branch_trace';
     const context = attachDatabase(this.db.createRun({
       scopeVersionId: scope.id,
       title: generateSessionTitle(input.promptMarkdown),
@@ -76,7 +76,7 @@ export class FixtureRunEngine {
       source: 'model',
       summary: 'Simulated model planned an open-ended discovery pass.',
       payload: {
-        claimStatus: 'hypothesis_seed',
+        fixtureOnly: true,
         model: input.model,
         reasoningEffort: input.reasoningEffort
       }
@@ -166,17 +166,17 @@ export class FixtureRunEngine {
 
 function getSteps(scenario: FixtureScenario): ScenarioStep[] {
   switch (scenario) {
-    case 'source_logic_bug':
-      return sourceLogicBugSteps();
-    case 'memory_corruption':
-      return memoryCorruptionSteps();
-    case 'policy_block':
-      return policyBlockSteps();
-    case 'verified_finding':
-      return verifiedFindingSteps();
-    case 'adaptive_portfolio':
+    case 'source_review':
+      return sourceReviewSteps();
+    case 'crash_artifact':
+      return crashArtifactSteps();
+    case 'scope_block':
+      return scopeBlockSteps();
+    case 'verifier_pass':
+      return verifierPassSteps();
+    case 'multi_branch_trace':
     default:
-      return adaptivePortfolioSteps();
+      return multiBranchTraceSteps();
   }
 }
 
@@ -188,13 +188,13 @@ function recordModel(context: CreatedRunContext, summary: string, payload: Recor
     source: 'model',
     summary,
     payload: {
-      claimStatus: 'model_claim',
+      fixtureOnly: true,
       ...payload
     }
   });
 }
 
-function recordAdaptivePortfolioBranches(context: CreatedRunContext): void {
+function recordFixtureBranches(context: CreatedRunContext): void {
   const db = contextDb(context);
   const branches = [
     { role: 'parser_memory_safety', state: 'Cheap parser and crash-surface orientation completed.' },
@@ -214,7 +214,7 @@ function recordAdaptivePortfolioBranches(context: CreatedRunContext): void {
       vmMetadata: {
         executor: 'fixture',
         targetExecution: false,
-        adaptivePortfolioBranch: true
+        fixtureBranch: true
       }
     });
     db.appendTraceEvent({
@@ -222,9 +222,9 @@ function recordAdaptivePortfolioBranches(context: CreatedRunContext): void {
       attemptId: attempt.id,
       type: 'user_note',
       source: 'system',
-      summary: `Adaptive portfolio branch recorded: ${branch.role}.`,
+      summary: `Fixture branch recorded: ${branch.role}.`,
       payload: {
-        strategy: 'adaptive_portfolio',
+        fixtureScenario: 'multi_branch_trace',
         parentAttemptId: context.attempt.id,
         branchRole: branch.role
       },
@@ -289,7 +289,7 @@ function recordArtifact(
 ): string {
   const db = contextDb(context);
   const artifact = db.createArtifact({
-    kind: metadata.kind ? String(metadata.kind) : 'evidence',
+    kind: metadata.kind ? String(metadata.kind) : 'artifact',
     mimeType: 'text/plain',
     sensitivity: 'internal',
     modelVisible: true,
@@ -316,18 +316,18 @@ function recordArtifact(
   return artifact.id;
 }
 
-function recordHypothesis(context: CreatedRunContext, title: string, component: string, bugClass: string, description: string): string {
+function recordResearchNote(context: CreatedRunContext, title: string, component: string, researchArea: string, description: string): string {
   const db = contextDb(context);
   const event = db.appendTraceEvent({
     runId: context.run.id,
     attemptId: context.attempt.id,
-    type: 'hypothesis_event',
+    type: 'research_event',
     source: 'system',
-    summary: `Hypothesis created: ${title}.`,
+    summary: `Fixture research note recorded: ${title}.`,
     payload: {
       title,
       component,
-      bugClass,
+      researchArea,
       description,
       fixtureOnly: true,
       observationSource: 'tool_results'
@@ -412,7 +412,7 @@ function finishRun(context: CreatedRunContext, status: 'completed' | 'blocked', 
   }
 }
 
-function sourceLogicBugSteps(): ScenarioStep[] {
+function sourceReviewSteps(): ScenarioStep[] {
   return [
     (context) => {
       contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Mapping authorization-sensitive routes and import handlers.');
@@ -428,17 +428,17 @@ function sourceLogicBugSteps(): ScenarioStep[] {
       });
     },
     (context) => {
-      recordModel(context, 'Model proposed an authorization hypothesis from tool-backed handler observations.', {
-        hypothesisBoundary: 'not yet verified'
+      recordModel(context, 'Model recorded an authorization research direction from tool-backed handler observations.', {
+        verificationState: 'not_yet_verified'
       });
-      const hypothesisId = recordHypothesis(
+      const researchEventId = recordResearchNote(
         context,
         'Missing ownership check before import commit',
         'import handler',
         'authorization',
         'Tool-backed source observations suggest importProject commits scoped project data before enforcing ownership.'
       );
-      recordVerifier(context, hypothesisId, 'inconclusive', 'Verifier placeholder returned inconclusive for the import ownership hypothesis.', {
+      recordVerifier(context, researchEventId, 'inconclusive', 'Verifier placeholder returned inconclusive for the import ownership issue.', {
         reason: 'Fixture executor has no real target execution in this slice.'
       });
     },
@@ -448,7 +448,7 @@ function sourceLogicBugSteps(): ScenarioStep[] {
   ];
 }
 
-function memoryCorruptionSteps(): ScenarioStep[] {
+function crashArtifactSteps(): ScenarioStep[] {
   return [
     (context) => {
       contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Mapping parser entry points and import handlers.');
@@ -475,11 +475,11 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         'FAKE-CRASH-INPUT-003\nlength=4294967295\n',
         { kind: 'crash_input', filename: 'crash-input-003.bin' }
       );
-      const hypothesisId = recordHypothesis(
+      const researchEventId = recordResearchNote(
         context,
         'Unchecked chunk length can crash decoder',
         'chunk decoder',
-        'memory_corruption',
+        'memory_safety',
         'Simulated debugger output and crash input metadata suggest unchecked chunk length arithmetic reaches a crashing memory access.'
       );
       contextDb(context).appendTraceEvent({
@@ -488,17 +488,17 @@ function memoryCorruptionSteps(): ScenarioStep[] {
         type: 'artifact_created',
         source: 'system',
         summary: 'Simulated crash input retained as an operational artifact.',
-        payload: { hypothesisTraceEventId: hypothesisId, artifactId, fixtureOnly: true },
+        payload: { researchTraceEventId: researchEventId, artifactId, fixtureOnly: true },
         artifactId
       });
     },
     (context) => {
-      finishRun(context, 'completed', 'Simulated memory corruption run finished with a needs-evidence finding.', 'Finding remains needs_evidence after simulated crash artifact collection.');
+      finishRun(context, 'completed', 'Simulated crash-artifact run finished without real target verification.', 'Crash artifact retained; real target verification remains pending.');
     }
   ];
 }
 
-function policyBlockSteps(): ScenarioStep[] {
+function scopeBlockSteps(): ScenarioStep[] {
   return [
     (context) => {
       contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Checking requested network access against recorded workspace scope.');
@@ -557,10 +557,10 @@ function policyBlockSteps(): ScenarioStep[] {
   ];
 }
 
-function verifiedFindingSteps(): ScenarioStep[] {
+function verifierPassSteps(): ScenarioStep[] {
   return [
     (context) => {
-      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Building a PoC for hypothesis H-14.');
+      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Building a fixture reproduction for a tenant export issue.');
       recordTool(context, 'search', { query: 'tenant export bypass ownership' }, 'Search found tenant export and ownership-check paths.', {
         paths: ['src/export/exportTenant.ts', 'src/authz/tenantAccess.ts'],
         observation: 'Export code and tenant access helper are both present in scoped metadata.'
@@ -570,7 +570,7 @@ function verifiedFindingSteps(): ScenarioStep[] {
       recordTool(context, 'code_browser', { path: 'src/export/exportTenant.ts', symbol: 'exportTenant' }, 'Code browser found a simulated tenant ID trust boundary issue.', {
         observation: 'The fixture accepts tenantId from request parameters before checking caller membership.'
       });
-      const hypothesisId = recordHypothesis(
+      const researchEventId = recordResearchNote(
         context,
         'Tenant export accepts attacker-controlled tenant ID',
         'tenant export',
@@ -579,23 +579,23 @@ function verifiedFindingSteps(): ScenarioStep[] {
       );
       const artifactId = recordArtifact(
         context,
-        'evidence-bundle-F-2.txt',
-        'FAKE-EVIDENCE-BUNDLE-F-2\ntrace=tool-backed\nverifier=pass\n',
-        { kind: 'evidence_bundle', finding: 'F-2' },
+        'verifier-output.txt',
+        'FAKE-VERIFIER-OUTPUT\ntrace=tool-backed\nverifier=pass\n',
+        { kind: 'verifier_output' },
         'verifier'
       );
-      const verifierRunId = recordVerifier(context, hypothesisId, 'pass', 'Verifier placeholder passed for reproduced tenant export issue.', {
+      const verifierRunId = recordVerifier(context, researchEventId, 'pass', 'Verifier placeholder passed for reproduced tenant export issue.', {
         reproduced: true,
         artifactId
       });
       contextDb(context).appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: 'finding_event',
+        type: 'research_event',
         source: 'system',
-        summary: 'Simulated finding recorded; real verifier required for verified state.',
+        summary: 'Fixture verifier outcome recorded; real target execution is still required.',
         payload: {
-          state: 'needs_evidence',
+          state: 'fixture_only',
           verifierRunId,
           artifactId
         },
@@ -604,24 +604,24 @@ function verifiedFindingSteps(): ScenarioStep[] {
       });
     },
     (context) => {
-      finishRun(context, 'completed', 'Simulated finding F-2 collected; real verifier still required.', 'Simulated finding F-2 collected; real verifier still required.');
+      finishRun(context, 'completed', 'Fixture verifier passed; real target execution is still required.', 'Fixture verifier passed; real target execution is still required.');
     }
   ];
 }
 
-function adaptivePortfolioSteps(): ScenarioStep[] {
+function multiBranchTraceSteps(): ScenarioStep[] {
   return [
     (context) => {
-      recordAdaptivePortfolioBranches(context);
-      recordModel(context, 'Adaptive portfolio started with independent parser and authorization branches.', {
-        strategy: 'adaptive_portfolio',
+      recordFixtureBranches(context);
+      recordModel(context, 'Multi-branch fixture started with independent parser and authorization traces.', {
+        fixtureScenario: 'multi_branch_trace',
         branchCount: 2
       });
     },
-    ...memoryCorruptionSteps().slice(0, 2),
+    ...crashArtifactSteps().slice(0, 2),
     (context) => {
-      recordModel(context, 'Model split the portfolio between parser crash reproduction and authorization review.', {
-        strategy: 'adaptive_portfolio'
+      recordModel(context, 'Fixture split the trace between parser crash reproduction and authorization review.', {
+        fixtureScenario: 'multi_branch_trace'
       });
       const artifactId = recordArtifact(
         context,
@@ -629,48 +629,40 @@ function adaptivePortfolioSteps(): ScenarioStep[] {
         'FAKE-ADAPTIVE-CRASH-INPUT-003\nlength=4294967295\n',
         { kind: 'crash_input', filename: 'crash-input-003.bin' }
       );
-      const hypothesisId = recordHypothesis(
+      const researchEventId = recordResearchNote(
         context,
         'Unchecked parser length has crash potential',
         'packet parser',
-        'memory_corruption',
-        'The parser path has a simulated crash artifact, but no verifier-backed finding yet.'
+        'memory_safety',
+        'The parser path has a simulated crash artifact, but no real target verification yet.'
       );
       contextDb(context).appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
         type: 'artifact_created',
         source: 'system',
-        summary: 'Adaptive portfolio retained the simulated crash artifact.',
-        payload: { hypothesisTraceEventId: hypothesisId, artifactId, fixtureOnly: true },
+        summary: 'Multi-branch fixture retained the simulated crash artifact.',
+        payload: { researchTraceEventId: researchEventId, artifactId, fixtureOnly: true },
         artifactId
       });
     },
-    ...policyBlockSteps().slice(1, 2),
-    ...verifiedFindingSteps().slice(0, 2),
+    ...scopeBlockSteps().slice(1, 2),
+    ...verifierPassSteps().slice(0, 2),
     (context) => {
       contextDb(context).appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
-        type: 'hypothesis_event',
+        type: 'research_event',
         source: 'system',
-        summary: 'Paused after duplicate hypothesis merge.',
+        summary: 'Fixture branch reconciliation completed.',
         payload: {
-          merge: 'duplicate authorization hypotheses consolidated',
+          reconciliation: 'overlapping authorization research notes consolidated',
           reversible: true
         }
       });
-      finishRun(context, 'completed', 'Verified finding F-2; collecting disclosure artifacts.', 'Verified finding F-2; collecting disclosure artifacts.');
+      finishRun(context, 'completed', 'Fixture trace completed with verifier and artifact outputs.', 'Fixture trace completed with verifier and artifact outputs.');
     }
   ];
-}
-
-function hypothesisKind(bugClass: string): 'authorization' | 'memory_corruption' | 'policy' | 'generic' {
-  const lower = bugClass.toLowerCase();
-  if (lower.includes('auth')) return 'authorization';
-  if (lower.includes('memory') || lower.includes('crash') || lower.includes('corruption')) return 'memory_corruption';
-  if (lower.includes('policy') || lower.includes('scope')) return 'policy';
-  return 'generic';
 }
 
 function contextDb(context: CreatedRunContext): WorkspaceDatabase {

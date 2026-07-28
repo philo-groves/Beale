@@ -17,8 +17,8 @@ const ALL_CATEGORIES: TraceCategoryId[] = [
   'reasoning',
   'tools',
   'vm_execution',
-  'hypotheses',
-  'evidence',
+  'research',
+  'artifacts',
   'verifier',
   'policy_scope',
   'code_navigation',
@@ -72,8 +72,6 @@ describe('renderer trace display view models', () => {
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: code_browser.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: resource_lookup.' }))).toBe('non_standard');
     expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: search.' }))).toBe('non_standard');
-    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }))).toBe('non_standard');
-    expect(traceCategoryForEvent(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }))).toBe('non_standard');
   });
 
   it('filters hidden categories while preserving group counters for visible events only', () => {

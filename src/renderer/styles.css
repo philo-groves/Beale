@@ -3939,14 +3939,14 @@ body.is-resizing-research-side .main-session-grid {
   color: #aaaaaa;
 }
 
-.main-trace-event.category-hypotheses .main-trace-marker span,
-.trace-filter-icon.category-hypotheses {
+.main-trace-event.category-research .main-trace-marker span,
+.trace-filter-icon.category-research {
   border-color: var(--green);
   color: var(--green);
 }
 
-.main-trace-event.category-evidence .main-trace-marker span,
-.trace-filter-icon.category-evidence,
+.main-trace-event.category-artifacts .main-trace-marker span,
+.trace-filter-icon.category-artifacts,
 .main-trace-event.category-verifier .main-trace-marker span,
 .trace-filter-icon.category-verifier {
   border-color: var(--green);
@@ -4135,27 +4135,6 @@ body.is-resizing-research-side .main-session-grid {
   white-space: nowrap;
 }
 
-.main-trace-duplicate-detail {
-  min-width: 0;
-  width: 100%;
-  display: grid;
-  gap: 4px;
-}
-
-.main-trace-duplicate-attributes {
-  min-width: 0;
-  overflow: hidden;
-  border: 0;
-  background: transparent;
-  color: #777777;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  padding: 0;
-  font-size: 0.86rem;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .main-trace-reasoning-detail {
   min-width: 0;
   width: 100%;
@@ -4241,9 +4220,9 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .main-trace-event.category-agent_output .main-trace-prose,
-.main-trace-event.category-evidence .main-trace-prose,
+.main-trace-event.category-artifacts .main-trace-prose,
 .main-trace-event.category-failure_recovery .main-trace-prose,
-.main-trace-event.category-hypotheses .main-trace-prose,
+.main-trace-event.category-research .main-trace-prose,
 .main-trace-event.category-reasoning .main-trace-prose {
   display: block;
   overflow: visible;

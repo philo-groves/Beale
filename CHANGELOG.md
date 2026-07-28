@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Beale traces now persist Honeycrisp research output as `research_event` and present it under a Research filter; generated files and exports use the separate Artifacts filter.
+- Deterministic fixture scenarios now describe exercised behavior (`multi_branch_trace`, `source_review`, `crash_artifact`, `scope_block`, and `verifier_pass`) instead of encoding hypothesis/finding lifecycle outcomes.
+- The default attempt strategy is now `iterative_research`, and disclosure exports use `artifact_bundle` terminology.
+- Added workbench migration 5 (`operational_trace_taxonomy`) to normalize legacy trace types, fixture aliases, attempt strategy, artifact bundles, and their search/graph projections.
 - Beale verifier contracts and disclosure exports now target optional Honeycrisp memory node IDs instead of Beale-owned hypothesis or finding rows; run prompts and export bundles consume visible Honeycrisp nodes and evidence references.
 - Added workbench migration 4 (`honeycrisp_owned_research_memory`), which preserves runs, traces, artifacts, verifier history, and exports while clearing legacy target links that cannot be mapped safely to Honeycrisp identities.
 - Session lists no longer compute or transport unused Beale-owned hypothesis, finding, verifier, policy, artifact, attempt-summary, or placeholder-cost aggregates.
@@ -157,6 +161,7 @@
 
 ### Removed
 
+- Removed the renderer's hypothesis/finding tool-call formatting, duplicate-record previews, CWE formatting, and hypothesis/finding trace categories.
 - Removed Beale's parallel hypotheses, findings, evidence, weakness mappings, bundled CWE catalog, duplicate review, and discovery-scoring persistence and service layers. Honeycrisp memory nodes and evidence references are now the only research-memory model.
 - Removed the obsolete `planning/` book and research-note tree; current source, tests, README, and changelog now define product behavior and development boundaries.
 - Removed the secondary session context/dashboard view, its view toggle, and its renderer-to-main context-inspection API; selected sessions now always show the trace with Memory/Subagents.

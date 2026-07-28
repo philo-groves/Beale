@@ -1067,7 +1067,7 @@ export class HoneycrispRunEngine {
         this.db.appendTraceEvent({
           runId: context.run.id,
           attemptId: context.attempt.id,
-          type: kind === 'hypotheses' ? 'hypothesis_event' : 'model_message',
+          type: 'research_event',
           source: 'model',
           summary: `Honeycrisp ${kind}: ${truncateSummary(item.text ?? '')}`,
           payload: {
@@ -1765,7 +1765,7 @@ function mapHoneycrispEvent(kind: string | undefined): { type: TraceEventType; s
     case 'tool.observed':
       return { type: 'tool_result', source: 'tool' };
     case 'model.hypothesis':
-      return { type: 'hypothesis_event', source: 'model' };
+      return { type: 'research_event', source: 'model' };
     case 'error.observed':
       return { type: 'approval_event', source: 'system' };
     case 'model.visible_note':

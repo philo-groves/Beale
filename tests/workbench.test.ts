@@ -127,7 +127,7 @@ describe('Beale workbench skeleton', () => {
     const workspace = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(workspace);
-    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const snapshot = startRunForTest(service, runInput('source_review'));
     const runId = snapshot.runs[0]?.run.id ?? '';
     const attemptId = service.getRunDetail(runId).attempts.at(-1)?.id ?? '';
     service.close();
@@ -175,13 +175,15 @@ describe('Beale workbench skeleton', () => {
     const workspace = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(workspace);
-    const snapshot = startRunForTest(service, runInput('verified_finding'));
+    const snapshot = startRunForTest(service, runInput('verifier_pass'));
     const runId = snapshot.runs[0].run.id;
-    service.steerRun({ type: 'export_evidence_bundle', runId });
+    service.steerRun({ type: 'export_artifact_bundle', runId });
     const detail = service.getRunDetail(runId);
     const contractId = detail.verifierContracts[0].id;
     const verifierRunId = detail.verifierRuns[0].id;
     const exportId = detail.exports[0].id;
+    const exportArtifactId = detail.artifacts.find((artifact) => artifact.kind === 'artifact_bundle_export')?.id ?? '';
+    const legacyTraceId = detail.traceEvents.find((event) => event.type === 'research_event')?.id ?? '';
     service.close();
 
     const legacy = new DatabaseSync(globalDatabasePath());
@@ -259,6 +261,39 @@ describe('Beale workbench skeleton', () => {
         )`
       )
       .run(runId, verifierRunId, now, now);
+    legacy
+      .prepare(
+        `UPDATE trace_events
+         SET type = 'hypothesis_event', summary = 'Hypothesis created: Legacy trace note.'
+         WHERE id = ?`
+      )
+      .run(legacyTraceId);
+    legacy.prepare("UPDATE exports SET kind = 'evidence_bundle' WHERE id = ?").run(exportId);
+    legacy
+      .prepare(
+        `UPDATE artifacts
+         SET kind = 'evidence_bundle_export',
+             metadata_json = json_set(metadata_json, '$.exportKind', 'evidence_bundle')
+         WHERE id = ?`
+      )
+      .run(exportArtifactId);
+    legacy
+      .prepare(
+        `UPDATE runs
+         SET budget_json = json_set(budget_json, '$.fixtureScenario', 'verified_finding'),
+             attempt_strategy = 'adaptive_portfolio'
+         WHERE id = ?`
+      )
+      .run(runId);
+    legacy
+      .prepare(
+        `UPDATE project_search_documents
+         SET title = 'Hypothesis created: Legacy trace note.',
+             body = replace(body, 'research_event', 'hypothesis_event'),
+             metadata_json = json_set(metadata_json, '$.type', 'hypothesis_event')
+         WHERE entity_type = 'trace_event' AND entity_id = ?`
+      )
+      .run(legacyTraceId);
     legacy.exec(`
       CREATE TABLE verifier_runs_migration_seed AS SELECT * FROM verifier_runs;
       DROP TABLE verifier_runs;
@@ -323,7 +358,7 @@ describe('Beale workbench skeleton', () => {
              included_artifacts_json, status, review_decision, review_note, created_at, reviewed_at
       FROM exports_current;
       DROP TABLE exports_current;
-      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 4;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 4;
     `);
     legacy.close();
 
@@ -333,6 +368,14 @@ describe('Beale workbench skeleton', () => {
     expect(migrated.verifierContracts.find((contract) => contract.id === contractId)?.memoryNodeId).toBeNull();
     expect(migrated.verifierRuns.some((run) => run.id === verifierRunId)).toBe(true);
     expect(migrated.exports.find((record) => record.id === exportId)?.memoryNodeId).toBeNull();
+    expect(migrated.exports.find((record) => record.id === exportId)?.kind).toBe('artifact_bundle');
+    expect(migrated.artifacts.find((artifact) => artifact.id === exportArtifactId)?.kind).toBe('artifact_bundle_export');
+    expect(migrated.run.budget.fixtureScenario).toBe('verifier_pass');
+    expect(migrated.run.attemptStrategy).toBe('iterative_research');
+    expect(migrated.traceEvents.find((event) => event.id === legacyTraceId)).toMatchObject({
+      type: 'research_event',
+      summary: 'Research note recorded: Legacy trace note.'
+    });
     reopened.close();
 
     const verified = new DatabaseSync(globalDatabasePath());
@@ -344,6 +387,17 @@ describe('Beale workbench skeleton', () => {
     expect(retiredTables).toEqual([]);
     expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 4").get()).toEqual({
       name: 'honeycrisp_owned_research_memory'
+    });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 5").get()).toEqual({
+      name: 'operational_trace_taxonomy'
+    });
+    expect(
+      verified
+        .prepare("SELECT title, json_extract(metadata_json, '$.type') AS type FROM project_search_documents WHERE entity_type = 'trace_event' AND entity_id = ?")
+        .get(legacyTraceId)
+    ).toEqual({
+      title: 'Research note recorded: Legacy trace note.',
+      type: 'research_event'
     });
     verified.close();
   });
@@ -400,7 +454,7 @@ describe('Beale workbench skeleton', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
     service.createWorkspace(dir);
-    const runSnapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const runSnapshot = startRunForTest(service, runInput('source_review'));
     const runId = runSnapshot.runs[0]?.run.id;
     expect(runId).toBeTruthy();
     service.close();
@@ -470,7 +524,7 @@ describe('Beale workbench skeleton', () => {
     });
     expect(service.inspectWorkspaceDirectory(workspace).knownWorkspace?.id).toBe(registered.workspaces[0].id);
 
-    const runSnapshot = service.startRun(runInput('verified_finding'), 'complete');
+    const runSnapshot = service.startRun(runInput('verifier_pass'), 'complete');
     const latestRun = runSnapshot.runs[0]?.run;
     expect(latestRun).toBeTruthy();
     const withRun = service.getWorkspaceRegistryState();
@@ -582,7 +636,7 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService();
     const snapshot = service.createWorkspace(workspace);
     const runSnapshot = service.startRun({
-      ...runInput('adaptive_portfolio'),
+      ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
       promptMarkdown: '# Honeycrisp fixture\nRun through the host adapter.',
       provider: 'xai',
@@ -663,7 +717,7 @@ describe('Beale workbench skeleton', () => {
       detail.traceEvents.filter((event) => (event.payload as { honeycrispEventId?: string }).honeycrispEventId === 'evt_tool_result')
     ).toHaveLength(1);
     expect(detail.traceEvents.find((event) => event.payload.honeycrispEventId === 'evt_tool_result')?.payload.agentPath).toBe('/root/parser_review');
-    expect(detail.traceEvents.some((event) => event.type === 'hypothesis_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
+    expect(detail.traceEvents.some((event) => event.type === 'research_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.find((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toMatchObject({ modelVisible: false });
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
@@ -721,7 +775,7 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService();
     service.createWorkspace(workspace);
     const snapshot = service.startRun({
-      ...runInput('adaptive_portfolio'),
+      ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
       promptMarkdown: 'Exercise errored capture handling.'
     });
@@ -794,7 +848,7 @@ describe('Beale workbench skeleton', () => {
     try {
       service.createWorkspace(workspace);
       const started = service.startRun({
-        ...runInput('adaptive_portfolio'),
+        ...runInput('multi_branch_trace'),
         runEngine: 'honeycrisp',
         promptMarkdown: '# Controlled Honeycrisp fixture',
         model: 'fixture-model',
@@ -877,7 +931,7 @@ describe('Beale workbench skeleton', () => {
     try {
       service.createWorkspace(workspace);
       const started = service.startRun({
-        ...runInput('adaptive_portfolio'),
+        ...runInput('multi_branch_trace'),
         runEngine: 'honeycrisp',
         promptMarkdown: 'Exercise graceful Honeycrisp cancellation.',
         model: 'fixture-model',
@@ -920,7 +974,7 @@ describe('Beale workbench skeleton', () => {
     try {
       service.createWorkspace(workspace);
       const started = service.startRun({
-        ...runInput('adaptive_portfolio'),
+        ...runInput('multi_branch_trace'),
         runEngine: 'honeycrisp',
         promptMarkdown: 'Exercise the bounded Honeycrisp fixture.',
         model: 'fixture-model',
@@ -978,7 +1032,7 @@ describe('Beale workbench skeleton', () => {
     try {
       service.createWorkspace(workspace);
       const started = service.startRun({
-        ...runInput('adaptive_portfolio'),
+        ...runInput('multi_branch_trace'),
         runEngine: 'honeycrisp',
         promptMarkdown: 'Research the ZFTP module for memory-safety vulnerabilities.',
         model: 'fixture-model',
@@ -1081,7 +1135,7 @@ describe('Beale workbench skeleton', () => {
       ]
     });
     const runSnapshot = service.startRun({
-      ...runInput('adaptive_portfolio'),
+      ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
       promptMarkdown: '# Honeycrisp node fixture\nRun through the default CLI path.'
     });
@@ -1201,7 +1255,7 @@ describe('Beale workbench skeleton', () => {
       assets: []
     });
     const snapshot = service.startRun({
-      ...runInput('adaptive_portfolio'),
+      ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
       promptMarkdown: 'Inspect interactions with related Apple components.'
     });
@@ -1270,7 +1324,7 @@ describe('Beale workbench skeleton', () => {
     });
 
     const snapshot = await service.startRunWithSourcePreparation({
-      ...runInput('adaptive_portfolio'),
+      ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
       networkProfile: 'elevated',
       promptMarkdown:
@@ -1532,7 +1586,7 @@ describe('Beale workbench skeleton', () => {
 
   it('reports a cheap run detail version for active polling', () => {
     const service = openService();
-    const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
+    const snapshot = service.startRun(runInput('source_review'), 'complete');
     const runId = snapshot.runs[0]?.run.id ?? '';
 
     const initial = service.getRunDetailVersion(runId);
@@ -1556,7 +1610,7 @@ describe('Beale workbench skeleton', () => {
 
   it('searches session transcripts in the active workspace', () => {
     const service = openService();
-    const snapshot = service.startRun(runInput('source_logic_bug'), 'complete');
+    const snapshot = service.startRun(runInput('source_review'), 'complete');
     const runId = snapshot.runs[0]?.run.id ?? '';
 
     const response = service.searchSessionTranscripts({ query: 'fixture workbench', limit: 5 });
@@ -1583,8 +1637,8 @@ describe('Beale workbench skeleton', () => {
 
   it('reports transcript search totals beyond the visible result limit', () => {
     const service = openService();
-    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# First\nlimitedneedle first transcript.' }, 'complete');
-    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# Second\nlimitedneedle second transcript.' }, 'complete');
+    service.startRun({ ...runInput('source_review'), promptMarkdown: '# First\nlimitedneedle first transcript.' }, 'complete');
+    service.startRun({ ...runInput('source_review'), promptMarkdown: '# Second\nlimitedneedle second transcript.' }, 'complete');
 
     const response = service.searchSessionTranscripts({ query: 'limitedneedle', limit: 1 });
     expect(response.results).toHaveLength(1);
@@ -1612,7 +1666,7 @@ describe('Beale workbench skeleton', () => {
       networkProfile: 'offline',
       expiresAt: null
     });
-    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# First\nsharedneedle first transcript.' }, 'complete');
+    service.startRun({ ...runInput('source_review'), promptMarkdown: '# First\nsharedneedle first transcript.' }, 'complete');
     service.createScopedWorkspace({
       workspacePath: secondWorkspace,
       workspaceName: 'Second Workspace',
@@ -1622,7 +1676,7 @@ describe('Beale workbench skeleton', () => {
       networkProfile: 'offline',
       expiresAt: null
     });
-    service.startRun({ ...runInput('source_logic_bug'), promptMarkdown: '# Second\nsharedneedle second transcript.' }, 'complete');
+    service.startRun({ ...runInput('source_review'), promptMarkdown: '# Second\nsharedneedle second transcript.' }, 'complete');
 
     const currentOnly = service.searchSessionTranscripts({ query: 'sharedneedle', limit: 10 });
     expect(currentOnly.totalTranscriptMatches).toBe(1);
@@ -1697,7 +1751,7 @@ describe('Beale workbench skeleton', () => {
       expiresAt: null
     });
     const firstRegisteredWorkspace = service.getWorkspaceRegistryState().workspaces.find((workspace) => workspace.workspaceName === 'First Workspace');
-    const activeSnapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const activeSnapshot = service.startRun(runInput('source_review'), 'scheduled');
     const runId = activeSnapshot.runs[0]?.run.id ?? '';
     const initialTraceCount = service.getRunDetail(runId).traceEvents.length;
 
@@ -1804,7 +1858,7 @@ describe('Beale workbench skeleton', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
     changes.length = 0;
 
-    const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const snapshot = service.startRun(runInput('source_review'), 'scheduled');
     const runId = snapshot.runs[0]?.run.id ?? '';
     const initialTraceCount = service.getRunDetail(runId).traceEvents.length;
     expect(changes).toEqual([true]);
@@ -2125,7 +2179,7 @@ describe('Beale workbench skeleton', () => {
       expiresAt: null,
       assets: [asset('in_scope', 'repo', '/src/kernel'), asset('in_scope', 'binary', '/bin/parserd'), asset('out_of_scope', 'domain', 'prod.example.test')]
     });
-    startRunForTest(service, runInput('verified_finding'));
+    startRunForTest(service, runInput('verifier_pass'));
 
     const result = await service.generateResearchPrompt({
       mode: 'dynamic',
@@ -2306,7 +2360,7 @@ describe('Beale workbench skeleton', () => {
 
   it('recovers interrupted active state on workspace reopen', () => {
     const service = openService();
-    const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const snapshot = service.startRun(runInput('source_review'), 'scheduled');
     const runId = snapshot.runs[0].run.id;
     const workspacePath = snapshot.workspace.workspacePath;
     service.close();
@@ -2366,7 +2420,7 @@ describe('Beale workbench skeleton', () => {
       assets: [asset('in_scope', 'path', '/targets/parser')]
     });
 
-    const snapshot = startRunForTest(service, runInput('adaptive_portfolio'));
+    const snapshot = startRunForTest(service, runInput('multi_branch_trace'));
     const runId = snapshot.runs[0].run.id;
     const detail = service.getRunDetail(runId);
 
@@ -2399,7 +2453,7 @@ describe('Beale workbench skeleton', () => {
 
   it('records steering actions as trace events and state changes', () => {
     const service = openService();
-    const snapshot = service.startRun(runInput('source_logic_bug'), 'scheduled');
+    const snapshot = service.startRun(runInput('source_review'), 'scheduled');
     const runId = snapshot.runs[0].run.id;
 
     service.steerRun({ type: 'steer', runId, instruction: 'Focus on auth boundary checks.' });
@@ -2425,7 +2479,7 @@ describe('Beale workbench skeleton', () => {
 
   it('updates artifact sensitivity through steering controls', () => {
     const service = openService();
-    const snapshot = startRunForTest(service, runInput('verified_finding'));
+    const snapshot = startRunForTest(service, runInput('verifier_pass'));
     const runId = snapshot.runs[0].run.id;
     const detail = service.getRunDetail(runId);
     const artifact = detail.artifacts[0];
@@ -2441,7 +2495,7 @@ describe('Beale workbench skeleton', () => {
 
   it('records scoped policy approval decisions with redacted request data', () => {
     const service = openService();
-    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const snapshot = startRunForTest(service, runInput('source_review'));
     const runId = snapshot.runs[0].run.id;
 
     service.steerRun({
@@ -2513,17 +2567,17 @@ describe('Beale workbench skeleton', () => {
 
   it('keeps authoritative state clean when an export fails before publish', () => {
     const service = openService();
-    const snapshot = startRunForTest(service, runInput('source_logic_bug'));
+    const snapshot = startRunForTest(service, runInput('source_review'));
     const runId = snapshot.runs[0].run.id;
     let detail = service.getRunDetail(runId);
 
     process.env.BEALE_TEST_FAIL_ATOMIC_EXPORT = 'before_rename';
-    expect(() => service.steerRun({ type: 'export_evidence_bundle', runId })).toThrow(/Injected atomic export failure/);
+    expect(() => service.steerRun({ type: 'export_artifact_bundle', runId })).toThrow(/Injected atomic export failure/);
 
     detail = service.getRunDetail(runId);
     expect(detail.exports).toHaveLength(0);
-    expect(detail.artifacts.some((artifact) => artifact.kind === 'evidence_bundle_export')).toBe(false);
-    expect(detail.traceEvents.some((event) => event.summary === 'Evidence bundle export created.')).toBe(false);
+    expect(detail.artifacts.some((artifact) => artifact.kind === 'artifact_bundle_export')).toBe(false);
+    expect(detail.traceEvents.some((event) => event.summary === 'Artifact bundle export created.')).toBe(false);
     service.close();
   });
 
@@ -2642,7 +2696,7 @@ function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunIn
     runEngine: 'fixture',
     promptMarkdown: '# Test run\nExercise the fixture workbench path.',
     mode: 'open_discovery',
-    attemptStrategy: 'adaptive_portfolio',
+    attemptStrategy: 'iterative_research',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     networkProfile: 'offline',

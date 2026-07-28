@@ -1,9 +1,9 @@
 import type { JSX } from 'react';
 import {
-  Bug,
   CheckCircle2,
   FileOutput,
   GitFork,
+  Lightbulb,
   Search,
   Server,
   ShieldAlert,
@@ -37,8 +37,8 @@ export const TRACE_CATEGORY_OPTIONS: TraceCategoryOption[] = [
   { id: 'reasoning', label: 'Reasoning', description: 'Provider-generated summaries of reasoning, intent, and concise rationale. Hidden chain-of-thought is not exposed.' },
   { id: 'tools', label: 'Tools', description: 'Tool calls, tool results, and execution summaries.' },
   { id: 'vm_execution', label: 'Execution', description: 'Host execution, commands, cleanup, and target execution.' },
-  { id: 'hypotheses', label: 'Hypotheses', description: 'Hypothesis creation, priority changes, merges, dismissals, and scope decisions.' },
-  { id: 'evidence', label: 'References / Artifacts', description: 'Referenced outputs, artifacts, finding records, and exportable observations.' },
+  { id: 'research', label: 'Research', description: 'Honeycrisp observations, inferences, hypotheses, assumptions, and research notes.' },
+  { id: 'artifacts', label: 'Artifacts', description: 'Generated files, captured outputs, exports, and durable references.' },
   { id: 'verifier', label: 'Verifier', description: 'Verifier contracts, pass/fail results, and verification gating.' },
   { id: 'policy_scope', label: 'Scope / Policy', description: 'Scope checks, network decisions, approvals, and policy blocks.' },
   { id: 'code_navigation', label: 'Code Nav', description: 'Search, code browser, symbol, file, and repository inspection traces.' },
@@ -59,7 +59,6 @@ export function traceCategoryLabel(category: TraceCategoryId): string {
 }
 
 export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
-  if (category === 'evidence') return 'References';
   if (category === 'reasoning') return 'Reasoning';
   return traceCategoryLabel(category);
 }
@@ -84,8 +83,8 @@ export function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
   if (category === 'reasoning') return <GitFork size={13} />;
   if (category === 'tools') return <Terminal size={13} />;
   if (category === 'vm_execution') return <Server size={13} />;
-  if (category === 'hypotheses') return <Bug size={13} />;
-  if (category === 'evidence') return <FileOutput size={13} />;
+  if (category === 'research') return <Lightbulb size={13} />;
+  if (category === 'artifacts') return <FileOutput size={13} />;
   if (category === 'verifier') return <ShieldCheck size={13} />;
   if (category === 'policy_scope') return <ShieldAlert size={13} />;
   if (category === 'code_navigation') return <Search size={13} />;

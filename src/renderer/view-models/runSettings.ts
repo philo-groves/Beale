@@ -9,7 +9,7 @@ export const defaultRunInput: StartRunInput = {
   provider: 'openai-codex',
   promptMarkdown: '',
   mode: 'dynamic',
-  attemptStrategy: 'adaptive_portfolio',
+  attemptStrategy: 'iterative_research',
   model: DEFAULT_RESEARCH_MODEL,
   reasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
   networkProfile: 'elevated',

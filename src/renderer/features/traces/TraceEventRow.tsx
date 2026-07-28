@@ -6,7 +6,6 @@ import { honeycrispToolEventKind, honeycrispToolName, toolNameFromSummary, trace
 import { tracePayloadPrimitive } from '../../traceClassification';
 import {
   codeBrowserTracePreview,
-  duplicateBlockedTraceDetail,
   honeycrispAgentListResults,
   honeycrispCollaborationTraceSummary,
   honeycrispMemoryCorrectionSummary,
@@ -25,7 +24,6 @@ import {
   traceEventSummary,
   verifierTracePreview,
   type CodeBrowserTracePreview,
-  type DuplicateBlockedTraceDetail,
   type HoneycrispAgentListPreview,
   type HoneycrispMemorySearchResultsPreview,
   type HoneycrispShellTraceOutput,
@@ -66,7 +64,6 @@ export const TraceEventRow = memo(function TraceEventRow({
   const icon = useMemo(() => traceEventIcon(event, category), [category, event]);
   const verifierPreview = useMemo(() => verifierTracePreview(event), [event]);
   const codeBrowserPreview = useMemo(() => codeBrowserTracePreview(event), [event]);
-  const duplicateBlockedDetail = useMemo(() => duplicateBlockedTraceDetail(event), [event]);
   const reasoningSummaries = useMemo(() => reasoningTraceSummariesForEvent(event, category), [category, event]);
   const primaryReasoningSummary = reasoningSummaries[0] ?? null;
   const displaySummary = primaryReasoningSummary ? reasoningSummaryHeading(primaryReasoningSummary) : summary;
@@ -112,8 +109,6 @@ export const TraceEventRow = memo(function TraceEventRow({
       searchHighlightQuery={searchHighlightQuery}
       onToggleExpanded={() => setLimitedOutputExpanded((current) => !current)}
     />
-  ) : duplicateBlockedDetail ? (
-    <DuplicateBlockedTracePreview detail={duplicateBlockedDetail} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
   ) : reasoningSummaries.length > 0 ? (
     <ReasoningTraceContinuation summaries={reasoningSummaries} sourceLabel={sourceLabel} hasSearchHighlight={hasSearchHighlight} searchHighlightQuery={searchHighlightQuery} />
   ) : toolObservationError && hasDetail ? (
@@ -378,25 +373,6 @@ function CodeBrowserTracePreviewRow({
   );
 }
 
-function DuplicateBlockedTracePreview({
-  detail,
-  hasSearchHighlight,
-  searchHighlightQuery
-}: {
-  detail: DuplicateBlockedTraceDetail;
-  hasSearchHighlight: boolean;
-  searchHighlightQuery: string;
-}): JSX.Element {
-  return (
-    <span className="main-trace-duplicate-detail">
-      <div className="main-trace-prose main-trace-duplicate-title">
-        {hasSearchHighlight ? renderSearchHighlightedText(detail.title, searchHighlightQuery) : renderTraceProseText(detail.title, 'agent_output')}
-      </div>
-      {detail.attributes ? <code className="main-trace-duplicate-attributes">{hasSearchHighlight ? renderSearchHighlightedText(detail.attributes, searchHighlightQuery) : detail.attributes}</code> : null}
-    </span>
-  );
-}
-
 function ReasoningTraceContinuation({
   summaries,
   sourceLabel,
@@ -578,7 +554,7 @@ function sameTraceDisplayEvent(previous: TraceDisplayEvent, next: TraceDisplayEv
 }
 
 function traceEventNeedsRunDetail(event: TraceDisplayEvent): boolean {
-  return event.type === 'hypothesis_event' || event.type === 'finding_event' || isPythonExecutionTraceEvent(event) || isHoneycrispMemoryGetRequest(event);
+  return isPythonExecutionTraceEvent(event) || isHoneycrispMemoryGetRequest(event);
 }
 
 function isHoneycrispMemoryGetRequest(event: TraceDisplayEvent): boolean {

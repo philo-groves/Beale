@@ -99,7 +99,7 @@ const DEFAULT_VM_PREFERENCE: VmPreference = {
 };
 const MAX_CACHED_BACKGROUND_RUNTIMES = 4;
 const ONBOARDING_INDEX_NOW_ATTRIBUTE = 'bealeOnboardingIndexNow';
-type DisclosureExportKind = 'evidence_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
+type DisclosureExportKind = 'artifact_bundle' | 'research_bundle' | 'redacted_trace' | 'report_draft';
 type ResearchPromptGenerationUpdateHandler = (update: ResearchPromptGenerationUpdate) => void;
 type WorkspaceOnboardingProgressHandler = (update: WorkspaceOnboardingProgressUpdate) => void;
 
@@ -1390,8 +1390,8 @@ export class WorkspaceService {
         });
         break;
       }
-      case 'export_evidence_bundle': {
-        this.exportEvidenceBundle(action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
+      case 'export_artifact_bundle': {
+        this.exportArtifactBundle(action.runId, action.memoryNodeId ?? null, action.note ?? '', attempt?.id ?? null, attempt?.vmContextId ?? null);
         break;
       }
       case 'export_research_bundle': {
@@ -1906,8 +1906,8 @@ export class WorkspaceService {
     }
   }
 
-  private exportEvidenceBundle(runId: string, memoryNodeId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
-    this.exportDisclosureArtifact('evidence_bundle', runId, memoryNodeId, note, attemptId, vmContextId);
+  private exportArtifactBundle(runId: string, memoryNodeId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
+    this.exportDisclosureArtifact('artifact_bundle', runId, memoryNodeId, note, attemptId, vmContextId);
   }
 
   private exportDisclosureArtifact(kind: DisclosureExportKind, runId: string, memoryNodeId: string | null, note: string, attemptId: string | null, vmContextId: string | null): void {
@@ -2209,7 +2209,7 @@ function buildDisclosureMarkdown(
   if (kind === 'redacted_trace') {
     return buildRedactedTraceMarkdown(detail, memoryNode, note);
   }
-  const heading = kind === 'report_draft' ? 'Report Draft' : kind === 'research_bundle' ? 'Research Bundle' : 'Evidence Bundle';
+  const heading = kind === 'report_draft' ? 'Report Draft' : kind === 'research_bundle' ? 'Research Bundle' : 'Artifact Bundle';
   const contracts = detail.verifierContracts.filter((contract) => !memoryNode || contract.memoryNodeId === memoryNode.id);
   const contractIds = new Set(contracts.map((contract) => contract.id));
   const verifierRuns = detail.verifierRuns.filter((run) => !memoryNode || contractIds.has(run.contractId));
@@ -2286,7 +2286,7 @@ function buildRedactedTraceMarkdown(detail: RunDetail, memoryNode: HoneycrispMem
 
 function exportKindFileSuffix(kind: DisclosureExportKind): string {
   return {
-    evidence_bundle: 'evidence',
+    artifact_bundle: 'artifact-bundle',
     research_bundle: 'research-bundle',
     redacted_trace: 'redacted-trace',
     report_draft: 'report-draft'
@@ -2295,7 +2295,7 @@ function exportKindFileSuffix(kind: DisclosureExportKind): string {
 
 function exportKindSummary(kind: DisclosureExportKind): string {
   return {
-    evidence_bundle: 'Evidence bundle export created.',
+    artifact_bundle: 'Artifact bundle export created.',
     research_bundle: 'Research bundle export created.',
     redacted_trace: 'Redacted trace export created.',
     report_draft: 'Report draft export created.'
@@ -2909,7 +2909,7 @@ function buildResearchPromptRecommendationInput(scope: WorkspaceScopeVersion, de
         blockedIssue: trimRedactedText(run.blockedIssue, 180)
       })),
       notableTraceEvents: detail.traceEvents
-        .filter((event) => ['tool_result', 'verifier_result', 'artifact_created', 'approval_event', 'finding_event', 'hypothesis_event'].includes(event.type))
+        .filter((event) => ['tool_result', 'verifier_result', 'artifact_created', 'approval_event', 'research_event'].includes(event.type))
         .slice(-10)
         .map((event) => ({
           type: event.type,
@@ -3218,15 +3218,15 @@ function stringFromRecord(record: Record<string, unknown>, key: string): string 
 function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScenario {
   const value = budget.fixtureScenario;
   if (
-    value === 'adaptive_portfolio' ||
-    value === 'source_logic_bug' ||
-    value === 'memory_corruption' ||
-    value === 'policy_block' ||
-    value === 'verified_finding'
+    value === 'multi_branch_trace' ||
+    value === 'source_review' ||
+    value === 'crash_artifact' ||
+    value === 'scope_block' ||
+    value === 'verifier_pass'
   ) {
     return value;
   }
-  return 'adaptive_portfolio';
+  return 'multi_branch_trace';
 }
 
 function requireFixtureRunEngineEnabled(): void {

@@ -5,8 +5,8 @@ export type TraceCategoryId =
   | 'reasoning'
   | 'tools'
   | 'vm_execution'
-  | 'hypotheses'
-  | 'evidence'
+  | 'research'
+  | 'artifacts'
   | 'verifier'
   | 'policy_scope'
   | 'code_navigation'
@@ -33,14 +33,11 @@ export function traceCategoryForEvent(event: TraceEventRecord): TraceCategoryId 
   if (transcriptRole === 'user' || transcriptRole === 'system') return 'events';
 
   const toolName = traceToolName(event);
-  if (event.type === 'tool_call' && toolName === 'hypothesis') return 'hypotheses';
-  if (event.type === 'tool_call' && toolName === 'finding') return 'evidence';
-
   if (traceEventOutcome(event) === 'failure' || summaryIndicatesRecovery(event.summary)) return 'failure_recovery';
   if (isPolicyScopeEvent(event)) return 'policy_scope';
   if (event.type === 'verifier_result' || event.source === 'verifier') return 'verifier';
-  if (event.type === 'hypothesis_event') return 'hypotheses';
-  if (isEvidenceEvent(event)) return 'evidence';
+  if (event.type === 'research_event') return 'research';
+  if (isArtifactEvent(event)) return 'artifacts';
   if (isVmExecutionEvent(event)) return 'vm_execution';
   if (isToolEvent(event)) return isCodeNavigationEvent(event, toolName) ? 'code_navigation' : 'tools';
   if (event.source === 'model' || event.type === 'model_message') {
@@ -137,9 +134,9 @@ function isPolicyScopeEvent(event: TraceEventRecord): boolean {
   return event.source === 'policy' || event.type === 'approval_event' || event.type === 'network_event' || event.type === 'user_scope';
 }
 
-function isEvidenceEvent(event: TraceEventRecord): boolean {
+function isArtifactEvent(event: TraceEventRecord): boolean {
   const summary = event.summary.toLowerCase();
-  return event.type === 'artifact_created' || event.type === 'finding_event' || /\b(evidence|artifact|export|finding)\b/.test(summary);
+  return event.type === 'artifact_created' || /\b(artifact|export|reference)\b/.test(summary);
 }
 
 function isVmExecutionEvent(event: TraceEventRecord): boolean {
@@ -160,11 +157,8 @@ function isNonStandardLifecycleEvent(event: TraceEventRecord): boolean {
     event.summary === 'OpenAI requested Beale tool: code_browser.' ||
     event.summary === 'OpenAI requested Beale tool: resource_lookup.' ||
     event.summary === 'OpenAI requested Beale tool: search.' ||
-    event.summary === 'OpenAI requested Beale tool: evidence.' ||
     event.summary === 'OpenAI requested Beale tool: verifier.' ||
-    event.summary === 'OpenAI requested Beale tool: hypothesis.' ||
-    event.summary === 'OpenAI requested Beale tool: finding.' ||
-    /^OpenAI completed function call arguments for (code_browser|resource_lookup|evidence|verifier)\.$/.test(event.summary) ||
+    /^OpenAI completed function call arguments for (code_browser|resource_lookup|verifier)\.$/.test(event.summary) ||
     /^OpenAI Responses request sent for turn \d+\.$/.test(event.summary)
   );
 }

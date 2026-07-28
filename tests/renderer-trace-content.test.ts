@@ -3,7 +3,6 @@ import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   codeBrowserTracePreview,
   compactTracePath,
-  duplicateBlockedTraceDetail,
   formatReasoningTraceText,
   honeycrispAgentListResults,
   honeycrispCollaborationTraceSummary,
@@ -75,9 +74,6 @@ describe('renderer trace content view models', () => {
       )
     ).toBe('Prepare Python');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: python.' }), 'tools')).toBe('Queue Python');
-    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: hypothesis.' }), 'hypotheses')).toBe('Queue Hypothesis');
-    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: finding.' }), 'evidence')).toBe('Queue Finding');
-    expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI requested Beale tool: evidence.' }), 'non_standard')).toBe('Queue Reference');
     expect(traceEventSummary(traceEvent({ type: 'tool_call', summary: 'OpenAI completed function call arguments for verifier.', payload: { toolName: 'verifier' } }), 'non_standard')).toBe(
       'Prepare Verifier'
     );
@@ -101,20 +97,10 @@ describe('renderer trace content view models', () => {
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Examined 1 file and returned 1 match.' }), 'code_navigation')).toBe('Examined 1 file and returned 1 match');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Code browser returned 156 bounded lines.' }), 'code_navigation')).toBe('Read Code');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Code browser could not read the requested bounded text.' }), 'failure_recovery')).toBe('Code Browser Error');
-    expect(traceEventSummary(traceEvent({ type: 'artifact_created', summary: 'Evidence recorded: Verifier confirmed the auth bypass.' }), 'evidence')).toBe('Reference Recorded');
+    expect(traceEventSummary(traceEvent({ type: 'artifact_created', summary: 'Artifact recorded: verifier-output.txt.' }), 'artifacts')).toBe('Record artifact: verifier-output.txt');
     expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed with pass; finding promotion remains gated.' }), 'verifier')).toBe('Verifier Execution');
     expect(traceEventSummary(traceEvent({ type: 'verifier_result', summary: 'Verifier contract executed on host with pass.' }), 'verifier')).toBe('Verifier Execution');
     expect(traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Host python operation finished with success.' }), 'tools')).toBe('Run Python: success');
-    expect(
-      traceEventSummary(
-        traceEvent({
-          type: 'hypothesis_event',
-          summary: 'Duplicate hypothesis blocked before creation: ACME challenge middleware bypasses Pages access control',
-          payload: { action: 'duplicate_blocked' }
-        }),
-        'failure_recovery'
-      )
-    ).toBe('Duplicate Blocked');
     expect(traceEventSummary(traceEvent({ summary: 'Search completed.' }), 'code_navigation')).toBe('Search completed');
     expect(traceEventSummary(traceEvent({ summary: 'Repository status changed.' }), 'events')).toBe('Note: Repository status changed');
   });
@@ -219,41 +205,20 @@ describe('renderer trace content view models', () => {
     expect(isHoneycrispToolObservationError(honeycrispToolFailure)).toBe(true);
     expect(isHoneycrispToolObservationError(honeycrispToolRequest)).toBe(false);
 
-    const hypothesisTool = traceEvent({
-      type: 'tool_call',
-      source: 'model',
-      summary: 'OpenAI completed function call arguments for hypothesis.',
-      payload: {
-        toolName: 'hypothesis',
-        arguments: {
-          title: 'Reflected callback parameter reaches HTML',
-          primary_cwe_id: '79',
-          primary_cwe_name: 'Cross-site Scripting'
-        }
-      }
-    });
-    expect(traceEventDetailText(hypothesisTool, 'hypotheses')).toBe('Cross-site Scripting (CWE-79): Reflected callback parameter reaches HTML');
-
-    const duplicate = traceEvent({
-      type: 'hypothesis_event',
+    const researchNote = traceEvent({
+      type: 'research_event',
       source: 'system',
-      summary: 'Duplicate hypothesis blocked before creation: ACME challenge middleware bypasses Pages access control.',
+      summary: 'Fixture research note recorded: ACME challenge middleware bypasses Pages access control.',
       payload: {
-        claimStatus: 'duplicate_review',
-        action: 'duplicate_blocked',
-        proposedTitle: 'ACME challenge middleware bypasses Pages access control',
-        matchedEntityKind: 'finding',
-        matchedEntityId: 'finding_existing'
+        title: 'ACME challenge middleware bypasses Pages access control',
+        component: 'challenge middleware',
+        description: 'The fixture trace records the research note without creating parallel durable memory.'
       }
     });
-    expect(traceEventDetailText(duplicate, 'failure_recovery')).toBe(
-      'ACME challenge middleware bypasses Pages access control\nclaim Duplicate Review · action Duplicate Blocked · matched finding finding_existing'
+    expect(traceEventDetailText(researchNote, 'research')).toBe(
+      'title ACME challenge middleware bypasses Pages access control · component challenge middleware · The fixture trace records the research note without creating parallel durable memory.'
     );
-    expect(duplicateBlockedTraceDetail(duplicate)).toEqual({
-      attributes: 'claim Duplicate Review · action Duplicate Blocked · matched finding finding_existing',
-      title: 'ACME challenge middleware bypasses Pages access control'
-    });
-    expect(isProseTraceEvent(duplicate, 'failure_recovery')).toBe(true);
+    expect(isProseTraceEvent(researchNote, 'research')).toBe(true);
   });
 
   it('renders concise structured subtext for selected Honeycrisp tool requests', () => {
@@ -508,7 +473,7 @@ describe('renderer trace content view models', () => {
     expect(lineRangePart({ lineStart: 12, lineEnd: 19 })).toBe('lines 12-19');
   });
 
-  it('builds structured verifier and evidence previews without raw id-heavy detail text', () => {
+  it('builds structured verifier previews without raw id-heavy detail text', () => {
     expect(
       verifierTracePreview(
         traceEvent({
@@ -671,20 +636,22 @@ describe('renderer trace content view models', () => {
     });
   });
 
-  it('uses recorded event payloads for legacy hypothesis and finding trace details', () => {
-    const hypothesisEvent = traceEvent({
-      id: 'trace_hypothesis_created',
-      type: 'hypothesis_event',
-      payload: { title: 'Payload hypothesis', description: 'Payload hypothesis description.' }
+  it('uses recorded event payloads for research and artifact trace details', () => {
+    const researchEvent = traceEvent({
+      id: 'trace_research',
+      type: 'research_event',
+      payload: { title: 'Parser boundary note', description: 'Unchecked arithmetic is visible in the captured source excerpt.' }
     });
-    const findingEvent = traceEvent({
-      id: 'trace_finding',
-      type: 'finding_event',
-      payload: { title: 'Payload finding', impact: 'Payload finding impact.' }
+    const artifactEvent = traceEvent({
+      id: 'trace_artifact',
+      type: 'artifact_created',
+      payload: { title: 'Verifier output', artifactId: 'artifact_one', status: 'captured' }
     });
 
-    expect(traceEventDetailText(hypothesisEvent, 'hypotheses')).toBe('**Payload hypothesis**\nPayload hypothesis description.');
-    expect(traceEventDetailText(findingEvent, 'evidence')).toBe('**Payload finding**\nPayload finding impact.');
+    expect(traceEventDetailText(researchEvent, 'research')).toBe(
+      'title Parser boundary note · Unchecked arithmetic is visible in the captured source excerpt.'
+    );
+    expect(traceEventDetailText(artifactEvent, 'artifacts')).toBe('artifact artifact_one');
   });
 
   it('compacts long trace paths from the right-hand side', () => {

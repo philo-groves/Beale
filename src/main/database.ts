@@ -6729,6 +6729,167 @@ export class WorkspaceDatabase {
             CREATE INDEX IF NOT EXISTS idx_exports_memory_node ON exports(memory_node_id);
           `);
         }
+      },
+      {
+        version: 5,
+        name: 'operational_trace_taxonomy',
+        up: (database) => {
+          database.exec(`
+            CREATE TEMP TABLE legacy_trace_taxonomy_ids AS
+            SELECT id, type
+            FROM trace_events
+            WHERE type IN ('hypothesis_event', 'finding_event');
+
+            UPDATE project_search_fts
+            SET
+              title = CASE
+                WHEN title LIKE 'Hypothesis created:%' THEN 'Research note recorded:' || substr(title, length('Hypothesis created:') + 1)
+                WHEN title LIKE 'Simulated finding recorded%' THEN 'Fixture research outcome recorded; real target execution is still required.'
+                ELSE title
+              END,
+              body = replace(replace(body, 'hypothesis_event', 'research_event'), 'finding_event', 'research_event')
+            WHERE document_id IN (
+              SELECT id
+              FROM project_search_documents
+              WHERE entity_type = 'trace_event'
+                AND entity_id IN (SELECT id FROM legacy_trace_taxonomy_ids)
+            );
+
+            UPDATE project_search_documents
+            SET
+              title = CASE
+                WHEN title LIKE 'Hypothesis created:%' THEN 'Research note recorded:' || substr(title, length('Hypothesis created:') + 1)
+                WHEN title LIKE 'Simulated finding recorded%' THEN 'Fixture research outcome recorded; real target execution is still required.'
+                ELSE title
+              END,
+              body = replace(replace(body, 'hypothesis_event', 'research_event'), 'finding_event', 'research_event'),
+              metadata_json = CASE
+                WHEN json_valid(metadata_json) THEN json_set(metadata_json, '$.type', 'research_event')
+                ELSE metadata_json
+              END
+            WHERE entity_type = 'trace_event'
+              AND entity_id IN (SELECT id FROM legacy_trace_taxonomy_ids);
+
+            UPDATE project_graph_nodes
+            SET
+              node_kind = 'trace:research_event',
+              label = CASE
+                WHEN label LIKE 'Hypothesis created:%' THEN 'Research note recorded:' || substr(label, length('Hypothesis created:') + 1)
+                WHEN label LIKE 'Simulated finding recorded%' THEN 'Fixture research outcome recorded; real target execution is still required.'
+                ELSE label
+              END,
+              metadata_json = CASE
+                WHEN json_valid(metadata_json) THEN json_set(metadata_json, '$.type', 'research_event')
+                ELSE metadata_json
+              END
+            WHERE entity_type = 'trace_event'
+              AND entity_id IN (SELECT id FROM legacy_trace_taxonomy_ids);
+
+            UPDATE trace_events
+            SET
+              type = 'research_event',
+              summary = CASE
+                WHEN summary LIKE 'Hypothesis created:%' THEN 'Research note recorded:' || substr(summary, length('Hypothesis created:') + 1)
+                WHEN summary LIKE 'Simulated finding recorded%' THEN 'Fixture research outcome recorded; real target execution is still required.'
+                ELSE summary
+              END
+            WHERE id IN (SELECT id FROM legacy_trace_taxonomy_ids);
+
+            UPDATE runs
+            SET budget_json = json_set(
+              budget_json,
+              '$.fixtureScenario',
+              CASE json_extract(budget_json, '$.fixtureScenario')
+                WHEN 'adaptive_portfolio' THEN 'multi_branch_trace'
+                WHEN 'source_logic_bug' THEN 'source_review'
+                WHEN 'memory_corruption' THEN 'crash_artifact'
+                WHEN 'policy_block' THEN 'scope_block'
+                WHEN 'verified_finding' THEN 'verifier_pass'
+              END
+            )
+            WHERE json_valid(budget_json)
+              AND json_extract(budget_json, '$.fixtureScenario') IN (
+                'adaptive_portfolio',
+                'source_logic_bug',
+                'memory_corruption',
+                'policy_block',
+                'verified_finding'
+              );
+
+            UPDATE runs
+            SET attempt_strategy = 'iterative_research'
+            WHERE attempt_strategy = 'adaptive_portfolio';
+
+            UPDATE trace_events
+            SET payload_json = json_set(payload_json, '$.attemptStrategy', 'iterative_research')
+            WHERE json_valid(payload_json)
+              AND json_extract(payload_json, '$.attemptStrategy') = 'adaptive_portfolio';
+
+            UPDATE project_search_fts
+            SET body = replace(body, 'adaptive_portfolio', 'iterative_research')
+            WHERE body LIKE '%adaptive_portfolio%';
+
+            UPDATE project_search_documents
+            SET
+              body = replace(body, 'adaptive_portfolio', 'iterative_research'),
+              metadata_json = replace(metadata_json, 'adaptive_portfolio', 'iterative_research')
+            WHERE body LIKE '%adaptive_portfolio%'
+               OR metadata_json LIKE '%adaptive_portfolio%';
+
+            UPDATE project_graph_nodes
+            SET metadata_json = replace(metadata_json, 'adaptive_portfolio', 'iterative_research')
+            WHERE metadata_json LIKE '%adaptive_portfolio%';
+
+            UPDATE exports
+            SET kind = 'artifact_bundle'
+            WHERE kind = 'evidence_bundle';
+
+            UPDATE artifacts
+            SET
+              kind = 'artifact_bundle_export',
+              metadata_json = CASE
+                WHEN json_valid(metadata_json) THEN json_set(metadata_json, '$.exportKind', 'artifact_bundle')
+                ELSE metadata_json
+              END
+            WHERE kind = 'evidence_bundle_export';
+
+            UPDATE trace_events
+            SET summary = 'Artifact bundle export created.'
+            WHERE summary = 'Evidence bundle export created.';
+
+            UPDATE project_search_fts
+            SET
+              title = replace(replace(title, 'Evidence bundle', 'Artifact bundle'), 'evidence_bundle', 'artifact_bundle'),
+              body = replace(replace(body, 'Evidence bundle', 'Artifact bundle'), 'evidence_bundle', 'artifact_bundle')
+            WHERE document_id IN (
+              SELECT id
+              FROM project_search_documents
+              WHERE
+                (entity_type = 'artifact' AND entity_id IN (SELECT id FROM artifacts WHERE kind = 'artifact_bundle_export'))
+                OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'))
+            );
+
+            UPDATE project_search_documents
+            SET
+              title = replace(replace(title, 'Evidence bundle', 'Artifact bundle'), 'evidence_bundle', 'artifact_bundle'),
+              body = replace(replace(body, 'Evidence bundle', 'Artifact bundle'), 'evidence_bundle', 'artifact_bundle'),
+              metadata_json = replace(metadata_json, 'evidence_bundle', 'artifact_bundle')
+            WHERE
+              (entity_type = 'artifact' AND entity_id IN (SELECT id FROM artifacts WHERE kind = 'artifact_bundle_export'))
+              OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'));
+
+            UPDATE project_graph_nodes
+            SET
+              node_kind = replace(node_kind, 'evidence_bundle', 'artifact_bundle'),
+              label = replace(label, 'Evidence bundle', 'Artifact bundle'),
+              metadata_json = replace(metadata_json, 'evidence_bundle', 'artifact_bundle')
+            WHERE
+              (entity_type = 'artifact' AND entity_id IN (SELECT id FROM artifacts WHERE kind = 'artifact_bundle_export'))
+              OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'));
+
+            DROP TABLE legacy_trace_taxonomy_ids;
+          `);
+        }
       }
     ]);
   }

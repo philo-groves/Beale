@@ -34,18 +34,18 @@ export function researchMomentumForDetail(detail: RunDetail | null, heat: Sessio
   }
 
   if (hasMomentumHotLead(detail, heat, recent)) {
-    const supporting = recent.filter((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'evidence');
+    const supporting = recent.filter((event) => isMomentumVerifyingEvent(event) || isMomentumBuildingEvent(event) || traceCategoryForEvent(event) === 'artifacts');
     return momentumState('hot', `Observation-backed ${traceLabel(heat)} lead is active.`, supporting.length > 0 ? supporting : recent.slice(-3));
   }
 
   const verifyingEvents = recent.filter(isMomentumVerifyingEvent);
   if (verifyingEvents.length > 0) {
-    return momentumState('verifying', momentumReasonFromEvent('Verifying evidence', verifyingEvents.at(-1) ?? latest), verifyingEvents);
+    return momentumState('verifying', momentumReasonFromEvent('Verifying observed behavior', verifyingEvents.at(-1) ?? latest), verifyingEvents);
   }
 
   const buildingEvents = recent.filter(isMomentumBuildingEvent);
   if (buildingEvents.length > 0) {
-    return momentumState('building', momentumReasonFromEvent('Building hypotheses or experiments', buildingEvents.at(-1) ?? latest), buildingEvents);
+    return momentumState('building', momentumReasonFromEvent('Building research context or experiments', buildingEvents.at(-1) ?? latest), buildingEvents);
   }
 
   const exploringEvents = recent.filter(isMomentumExploringEvent);
