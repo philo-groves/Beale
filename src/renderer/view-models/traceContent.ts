@@ -1,4 +1,4 @@
-import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { traceLabel, truncateText } from '../lib/formatting';
 import {
   honeycrispToolEventKind,
@@ -131,10 +131,10 @@ export function traceEventDetailText(event: TraceEventRecord, category: TraceCat
   const duplicateBlockedDetail = duplicateBlockedEventDetailText(event);
   if (duplicateBlockedDetail) return duplicateBlockedDetail;
 
-  const hypothesisDetail = hypothesisEventDetailText(event, detail);
+  const hypothesisDetail = hypothesisEventDetailText(event);
   if (hypothesisDetail) return hypothesisDetail;
 
-  const findingDetail = findingEventDetailText(event, detail);
+  const findingDetail = findingEventDetailText(event);
   if (findingDetail) return findingDetail;
 
   const text = tracePayloadPrimitive(event.payload, 'text') ?? tracePayloadPrimitive(event.payload, 'delta');
@@ -437,7 +437,7 @@ export function honeycrispMemorySearchResults(
 }
 
 export function hasStructuredProseTraceDetail(event: TraceEventRecord, detail: RunDetail | null = null): boolean {
-  return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event, detail) || findingEventDetailText(event, detail));
+  return Boolean(securityRecordToolCallDetail(event) || duplicateBlockedEventDetailText(event) || hypothesisEventDetailText(event) || findingEventDetailText(event));
 }
 
 export interface PythonToolCallPreview {
@@ -955,34 +955,6 @@ export function compactTracePath(value: string): string {
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length <= 2) return `...${normalized.slice(-64)}`;
   return `.../${parts.slice(-3).join('/')}`;
-}
-
-export function hypothesisForTraceEvent(detail: RunDetail | null, event: TraceEventRecord): HypothesisRecord | null {
-  if (!detail) return null;
-
-  const createdMatch = detail.hypotheses.find((hypothesis) => hypothesis.createdTraceEventId === event.id);
-  if (createdMatch) return createdMatch;
-
-  const hypothesisId =
-    tracePayloadPrimitive(event.payload, 'hypothesisId') ??
-    tracePayloadPrimitive(event.payload, 'targetHypothesisId') ??
-    tracePayloadPrimitive(event.payload, 'sourceHypothesisId');
-  if (!hypothesisId) return null;
-  return detail.hypotheses.find((hypothesis) => hypothesis.id === hypothesisId) ?? null;
-}
-
-export function findingForTraceEvent(detail: RunDetail | null, event: TraceEventRecord): FindingRecord | null {
-  if (!detail) return null;
-
-  const findingId = tracePayloadPrimitive(event.payload, 'findingId');
-  if (findingId) {
-    const directMatch = detail.findings.find((finding) => finding.id === findingId);
-    if (directMatch) return directMatch;
-  }
-
-  const hypothesis = hypothesisForTraceEvent(detail, event);
-  if (!hypothesis) return null;
-  return detail.findings.find((finding) => finding.hypothesisId === hypothesis.id) ?? null;
 }
 
 function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId): string {
@@ -1690,20 +1662,18 @@ export function duplicateBlockedTraceDetail(event: TraceEventRecord): DuplicateB
   return { attributes, title: title.trim() };
 }
 
-function hypothesisEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
+function hypothesisEventDetailText(event: TraceEventRecord): string | null {
   if (event.type !== 'hypothesis_event') return null;
-  const hypothesis = hypothesisForTraceEvent(detail, event);
-  const title = hypothesis?.title ?? tracePayloadPrimitive(event.payload, 'title');
-  const description = hypothesis?.descriptionMarkdown ?? tracePayloadPrimitive(event.payload, 'description');
+  const title = tracePayloadPrimitive(event.payload, 'title');
+  const description = tracePayloadPrimitive(event.payload, 'description');
   const lines = [boldTraceTitle(title), description?.trim()].filter((line): line is string => Boolean(line));
   return lines.length > 0 ? lines.join('\n') : null;
 }
 
-function findingEventDetailText(event: TraceEventRecord, detail: RunDetail | null): string | null {
+function findingEventDetailText(event: TraceEventRecord): string | null {
   if (event.type !== 'finding_event') return null;
-  const finding = findingForTraceEvent(detail, event);
-  const title = finding?.title ?? tracePayloadPrimitive(event.payload, 'title');
-  const impact = finding?.impactMarkdown ?? tracePayloadPrimitive(event.payload, 'impact');
+  const title = tracePayloadPrimitive(event.payload, 'title');
+  const impact = tracePayloadPrimitive(event.payload, 'impact');
   const lines = [boldTraceTitle(title), impact?.trim()].filter((line): line is string => Boolean(line));
   return lines.length > 0 ? lines.join('\n') : null;
 }

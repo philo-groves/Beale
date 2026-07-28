@@ -5190,114 +5190,11 @@ export class WorkspaceDatabase {
         .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? ORDER BY r.created_at DESC')
         .all(this.workspaceId)
     );
-    const attemptCounts = new Map(
-      rows(this.db.prepare('SELECT run_id, COUNT(*) AS count FROM attempts GROUP BY run_id').all()).map((row) => [text(row, 'run_id'), numberValue(row, 'count')])
-    );
-    const latestAttempts = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT run_id, short_state
-             FROM (
-               SELECT run_id, short_state, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY started_at DESC, rowid DESC) AS row_number
-               FROM attempts
-             )
-             WHERE row_number = 1`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), row])
-    );
-    const topHypotheses = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT run_id, title, state
-             FROM (
-               SELECT run_id, title, state, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY priority_score DESC, created_at DESC, rowid DESC) AS row_number
-               FROM hypotheses
-               WHERE state NOT IN ('dismissed', 'out_of_scope')
-             )
-             WHERE row_number = 1`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), row])
-    );
-    const topFindings = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT run_id, title, state
-             FROM (
-               SELECT run_id, title, state, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY priority_score DESC, created_at DESC, rowid DESC) AS row_number
-               FROM findings
-               WHERE state NOT IN ('dismissed', 'out_of_scope')
-             )
-             WHERE row_number = 1`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), row])
-    );
-    const latestVerifierRuns = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT run_id, status
-             FROM (
-               SELECT run_id, status, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY started_at DESC, rowid DESC) AS row_number
-               FROM verifier_runs
-             )
-             WHERE row_number = 1`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), row])
-    );
-    const latestPolicyBlocks = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT run_id, reason
-             FROM (
-               SELECT run_id, reason, ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY created_at DESC, rowid DESC) AS row_number
-               FROM approvals
-               WHERE decision = 'blocked'
-             )
-             WHERE row_number = 1`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), row])
-    );
-    const artifactCounts = new Map(
-      rows(
-        this.db
-          .prepare(
-            `SELECT t.run_id, COUNT(DISTINCT a.id) AS count
-             FROM artifacts a
-             JOIN trace_events t ON t.artifact_id = a.id
-             GROUP BY t.run_id`
-          )
-          .all()
-      ).map((row) => [text(row, 'run_id'), numberValue(row, 'count')])
-    );
-
     return runRows.map((runRow) => {
       const run = this.mapRun(runRow);
-      const latestAttempt = latestAttempts.get(run.id);
-      const topHypothesis = topHypotheses.get(run.id);
-      const topFinding = topFindings.get(run.id);
-      const verifier = latestVerifierRuns.get(run.id);
-      const policy = latestPolicyBlocks.get(run.id);
-
       return {
         run,
-        attemptCount: attemptCounts.get(run.id) ?? 0,
-        engine: this.runEngineFromBudget(run.budget),
-        latestAttemptState: latestAttempt ? text(latestAttempt, 'short_state') : run.summary,
-        topHypothesis: topHypothesis ? `${text(topHypothesis, 'title')} (${text(topHypothesis, 'state')})` : null,
-        topFinding: topFinding ? `${text(topFinding, 'title')} (${text(topFinding, 'state')})` : null,
-        verifierState: verifier ? text(verifier, 'status') : null,
-        policyBlocker: policy ? text(policy, 'reason') : null,
-        artifactCount: artifactCounts.get(run.id) ?? 0,
-        costLabel: '$0.00'
+        engine: this.runEngineFromBudget(run.budget)
       };
     });
   }

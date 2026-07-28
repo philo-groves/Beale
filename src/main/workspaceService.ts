@@ -1072,7 +1072,7 @@ export class WorkspaceService {
   public getRunDetail(runId: string): RunDetail {
     const runtime = this.getForegroundRuntime();
     const detail = this.requireDb().getRunDetail(runId);
-    return runtime ? attachHoneycrispMemory(detail, this.memorySummaryForRuntime(runtime)) : detail;
+    return runtime ? attachHoneycrispMemory(detail, this.memorySummaryForRuntime(runtime, runtime.db.getActiveScope(), runId)) : detail;
   }
 
   public getRunDetailVersion(runId: string): RunDetailVersion {
@@ -1082,7 +1082,7 @@ export class WorkspaceService {
   public getRunDetailUpdate(runId: string, cursor: RunDetailUpdateCursor): RunDetailUpdate {
     const runtime = this.getForegroundRuntime();
     const update = this.requireDb().getRunDetailUpdate(runId, cursor);
-    return runtime ? attachHoneycrispMemory(update, this.memorySummaryForRuntime(runtime)) : update;
+    return runtime ? attachHoneycrispMemory(update, this.memorySummaryForRuntime(runtime, runtime.db.getActiveScope(), runId)) : update;
   }
 
   public searchSessionTranscripts(input: SessionTranscriptSearchInput): SessionTranscriptSearchResponse {
@@ -2084,10 +2084,11 @@ export class WorkspaceService {
     };
   }
 
-  private memorySummaryForRuntime(runtime: WorkspaceRuntime, scope = runtime.db.getActiveScope()): HoneycrispMemorySummary {
+  private memorySummaryForRuntime(runtime: WorkspaceRuntime, scope = runtime.db.getActiveScope(), sessionId?: string): HoneycrispMemorySummary {
     return getHoneycrispMemorySummary({
       databasePath: runtime.db.getDatabasePath(),
       artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(),
+      ...(sessionId ? { sessionId } : {}),
       workspaceId: runtime.db.getWorkspaceId(),
       subjectId: scope.scopeOwner.trim() ? memorySubjectId(scope.scopeOwner) : null
     });

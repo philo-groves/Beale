@@ -17,12 +17,13 @@ type SqlRow = Record<string, unknown>;
 export interface HoneycrispMemorySummaryOptions {
   databasePath: string;
   artifactDirectoryPath: string;
+  sessionId?: string;
   workspaceId: string;
   subjectId: string | null;
 }
 
 export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptions): HoneycrispMemorySummary {
-  const { databasePath, artifactDirectoryPath, workspaceId, subjectId } = options;
+  const { databasePath, artifactDirectoryPath, sessionId, workspaceId, subjectId } = options;
   const storageRoot = dirname(databasePath);
   const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, subjectId);
   if (!existsSync(databasePath)) return base;
@@ -31,9 +32,10 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
   try {
     database = new DatabaseSync(databasePath, { readOnly: true });
     const hasNodes = tableExists(database, 'memory_nodes');
-    const nodes = hasNodes ? readNodes(database) : [];
-    const edges = tableExists(database, 'memory_edges') ? readEdges(database) : [];
-    const evidenceRefCount = tableExists(database, 'memory_evidence_refs') ? countRows(database, 'memory_evidence_refs') : 0;
+    const nodes = hasNodes ? readNodes(database, { sessionId, workspaceId, subjectId }) : [];
+    const visibleNodeIds = new Set(nodes.map((node) => node.id));
+    const edges = tableExists(database, 'memory_edges') ? readEdges(database, visibleNodeIds) : [];
+    const evidenceRefCount = nodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
     const runbooks = tableExists(database, 'honeycrisp_runbooks') ? readRunbooks(database, workspaceId) : [];
     return {
       ...base,
@@ -45,10 +47,10 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       evidenceRefCount,
       storageArtifactCount: storageArtifactCount(artifactDirectoryPath),
       runbookCount: runbooks.length,
-      latestNodeUpdatedAt: hasNodes ? latestText(database, 'memory_nodes', 'updated_at') : null,
-      nodeTypeCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'type') : {},
-      nodeStatusCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'status') : {},
-      nodeTierCounts: hasNodes ? groupedCounts(database, 'memory_nodes', 'tier') : {},
+      latestNodeUpdatedAt: nodes[0]?.updatedAt ?? null,
+      nodeTypeCounts: groupedNodeCounts(nodes, (node) => node.type),
+      nodeStatusCounts: groupedNodeCounts(nodes, (node) => node.status),
+      nodeTierCounts: groupedNodeCounts(nodes, (node) => node.tier),
       nodes,
       edges,
       runbooks
@@ -118,11 +120,16 @@ function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRu
   }));
 }
 
-function readNodes(database: DatabaseSync): HoneycrispMemoryNodeSummary[] {
-  const rows = database.prepare('SELECT * FROM memory_nodes ORDER BY updated_at DESC, id ASC').all() as SqlRow[];
-  const assets = groupedStrings(database, 'SELECT node_id, asset_id AS value FROM memory_node_assets ORDER BY asset_id');
-  const tags = groupedStrings(database, 'SELECT node_id, tag AS value FROM memory_node_tags ORDER BY tag');
-  const evidence = readEvidence(database);
+function readNodes(
+  database: DatabaseSync,
+  context: { sessionId?: string; workspaceId: string; subjectId: string | null }
+): HoneycrispMemoryNodeSummary[] {
+  const visibility = memoryVisibility(context);
+  const rows = database.prepare(`SELECT * FROM memory_nodes WHERE ${visibility.sql} ORDER BY updated_at DESC, id ASC`).all(...visibility.params) as SqlRow[];
+  const visibleNodeIds = new Set(rows.map((row) => requiredString(row.id)));
+  const assets = groupedStrings(database, 'SELECT node_id, asset_id AS value FROM memory_node_assets ORDER BY asset_id', visibleNodeIds);
+  const tags = groupedStrings(database, 'SELECT node_id, tag AS value FROM memory_node_tags ORDER BY tag', visibleNodeIds);
+  const evidence = readEvidence(database, visibleNodeIds);
   return rows.map((row) => {
     const id = requiredString(row.id);
     return {
@@ -150,12 +157,13 @@ function readNodes(database: DatabaseSync): HoneycrispMemoryNodeSummary[] {
   });
 }
 
-function readEvidence(database: DatabaseSync): Map<string, HoneycrispMemoryEvidenceRefSummary[]> {
+function readEvidence(database: DatabaseSync, visibleNodeIds: ReadonlySet<string>): Map<string, HoneycrispMemoryEvidenceRefSummary[]> {
   if (!tableExists(database, 'memory_evidence_refs')) return new Map();
   const grouped = new Map<string, HoneycrispMemoryEvidenceRefSummary[]>();
   const rows = database.prepare('SELECT * FROM memory_evidence_refs ORDER BY created_at, id').all() as SqlRow[];
   for (const row of rows) {
     const nodeId = requiredString(row.node_id);
+    if (!visibleNodeIds.has(nodeId)) continue;
     const values = grouped.get(nodeId) ?? [];
     values.push({
       id: requiredString(row.id),
@@ -171,25 +179,56 @@ function readEvidence(database: DatabaseSync): Map<string, HoneycrispMemoryEvide
   return grouped;
 }
 
-function readEdges(database: DatabaseSync): HoneycrispMemoryEdgeSummary[] {
+function readEdges(database: DatabaseSync, visibleNodeIds: ReadonlySet<string>): HoneycrispMemoryEdgeSummary[] {
   const rows = database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[];
-  return rows.map((row) => ({
-    fromId: requiredString(row.from_id),
-    toId: requiredString(row.to_id),
-    relation: requiredString(row.relation),
-    note: requiredString(row.note),
-    createdAt: requiredString(row.created_at),
-    updatedAt: requiredString(row.updated_at)
-  }));
+  return rows.flatMap((row) => {
+    const fromId = requiredString(row.from_id);
+    const toId = requiredString(row.to_id);
+    if (!visibleNodeIds.has(fromId) || !visibleNodeIds.has(toId)) return [];
+    return [{
+      fromId,
+      toId,
+      relation: requiredString(row.relation),
+      note: requiredString(row.note),
+      createdAt: requiredString(row.created_at),
+      updatedAt: requiredString(row.updated_at)
+    }];
+  });
 }
 
-function groupedStrings(database: DatabaseSync, sql: string): Map<string, string[]> {
+function groupedStrings(database: DatabaseSync, sql: string, visibleNodeIds: ReadonlySet<string>): Map<string, string[]> {
   const grouped = new Map<string, string[]>();
   for (const row of database.prepare(sql).all() as SqlRow[]) {
     const nodeId = requiredString(row.node_id);
+    if (!visibleNodeIds.has(nodeId)) continue;
     grouped.set(nodeId, [...(grouped.get(nodeId) ?? []), requiredString(row.value)]);
   }
   return grouped;
+}
+
+function memoryVisibility(context: { sessionId?: string; workspaceId: string; subjectId: string | null }): { sql: string; params: string[] } {
+  const clauses = ["(tier = 'workspace' AND scope_key = ?)"];
+  const params = [context.workspaceId];
+  if (context.sessionId) {
+    clauses.push("(tier = 'session' AND scope_key = ?)");
+    params.push(context.sessionId);
+  }
+  if (context.subjectId) {
+    clauses.push("(tier = 'subject' AND scope_key = ?)");
+    params.push(context.subjectId);
+  }
+  return { sql: `(${clauses.join(' OR ')})`, params };
+}
+
+function groupedNodeCounts(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  select: (node: HoneycrispMemoryNodeSummary) => string
+): Record<string, number> {
+  return nodes.reduce<Record<string, number>>((counts, node) => {
+    const name = select(node);
+    counts[name] = (counts[name] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 function artifactDirectorySummary(path: string): HoneycrispMemoryDirectorySummary {
@@ -221,22 +260,6 @@ function fileSize(path: string): number {
 
 function tableExists(database: DatabaseSync, table: string): boolean {
   return Boolean(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
-}
-
-function countRows(database: DatabaseSync, table: string): number {
-  return requiredNumber((database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as SqlRow | undefined)?.count);
-}
-
-function latestText(database: DatabaseSync, table: string, column: string): string | null {
-  const row = database.prepare(`SELECT ${column} AS value FROM ${table} ORDER BY ${column} DESC LIMIT 1`).get() as SqlRow | undefined;
-  return optionalString(row?.value);
-}
-
-function groupedCounts(database: DatabaseSync, table: string, column: string): Record<string, number> {
-  return (database.prepare(`SELECT ${column} AS name, COUNT(*) AS count FROM ${table} GROUP BY ${column}`).all() as SqlRow[]).reduce<Record<string, number>>((counts, row) => {
-    counts[requiredString(row.name)] = requiredNumber(row.count);
-    return counts;
-  }, {});
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

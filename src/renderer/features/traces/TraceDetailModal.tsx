@@ -1,25 +1,20 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
-import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import { Modal } from '../../app/Modal';
-import { formatPriorityPill, formatSessionStart, traceLabel } from '../../lib/formatting';
+import { formatSessionStart, traceLabel } from '../../lib/formatting';
 import { stringRecordValue, toolNameFromSummary, traceCategoryForEvent, tracePayloadPrimitive, tracePayloadRecord } from '../../traceClassification';
 import { compactTracePath, isProseTraceEvent, lineRangePart, pythonTraceScript, traceEventDetailText, traceEventSummary } from '../../view-models/traceContent';
-import { CwePill } from '../research/CwePill';
 import { highlightJsonCode, highlightPythonCode, renderTraceProseText } from './traceMarkup';
 import { traceCategoryLabel, traceEventIcon, traceEventMarkerToneClass, traceTypeLabel } from './traceVisuals';
 
 export function TraceDetailModal({
   detail,
   event,
-  finding,
-  hypothesis,
   onClose
 }: {
   detail: RunDetail | null;
   event: TraceEventRecord;
-  finding: FindingRecord | null;
-  hypothesis: HypothesisRecord | null;
   onClose: () => void;
 }): JSX.Element {
   const category = traceCategoryForEvent(event);
@@ -50,8 +45,6 @@ export function TraceDetailModal({
             <p>{event.summary}</p>
           </div>
         </div>
-        {finding ? <FindingInspectorContext finding={finding} hypothesis={hypothesis} /> : null}
-        {!finding && hypothesis ? <HypothesisInspectorContext hypothesis={hypothesis} /> : null}
         <TraceTypedDetail detail={detail} event={event} />
         <div className="trace-inspector-grid">
           <div>
@@ -187,58 +180,6 @@ function CodeNavigationTraceDetail({ event }: { event: TraceEventRecord }): JSX.
           <code>{traceEventDetailText(event, traceCategoryForEvent(event)) || 'No source excerpt recorded.'}</code>
         </div>
       )}
-    </section>
-  );
-}
-
-function FindingInspectorContext({ finding, hypothesis }: { finding: FindingRecord; hypothesis: HypothesisRecord | null }): JSX.Element {
-  const affectedSurface =
-    hypothesis?.component ??
-    stringRecordValue(finding.affectedAssets, 'component') ??
-    stringRecordValue(finding.affectedAssets, 'asset') ??
-    stringRecordValue(finding.affectedAssets, 'path') ??
-    stringRecordValue(finding.affectedAssets, 'service') ??
-    'Unknown surface';
-
-  return (
-    <section className="trace-inspector-context" aria-label="Finding context">
-      <div className="trace-inspector-context-header">
-        <span>Finding</span>
-        <div className="main-hypothesis-meta main-finding-meta" aria-label="Finding state, priority, and CWE">
-          <span className="hypothesis-pill state-pill">{traceLabel(finding.state)}</span>
-          <span className="hypothesis-pill priority-pill">{formatPriorityPill(finding.priorityScore)}</span>
-          <CwePill mappings={finding.cweMappings} />
-        </div>
-      </div>
-      <strong>{finding.title}</strong>
-      <p>{finding.summaryMarkdown || 'No summary recorded.'}</p>
-      <dl className="trace-inspector-context-facts">
-        <div>
-          <dt>Surface</dt>
-          <dd>{affectedSurface}</dd>
-        </div>
-        <div>
-          <dt>Impact</dt>
-          <dd>{finding.impactMarkdown || 'Impact not yet assessed.'}</dd>
-        </div>
-      </dl>
-    </section>
-  );
-}
-
-function HypothesisInspectorContext({ hypothesis }: { hypothesis: HypothesisRecord }): JSX.Element {
-  return (
-    <section className="trace-inspector-context" aria-label="Hypothesis context">
-      <div className="trace-inspector-context-header">
-        <span>Hypothesis</span>
-        <div className="main-hypothesis-meta" aria-label="Hypothesis state, priority, and CWE">
-          <span className="hypothesis-pill state-pill">{traceLabel(hypothesis.state)}</span>
-          <span className="hypothesis-pill priority-pill">{formatPriorityPill(hypothesis.priorityScore)}</span>
-          <CwePill mappings={hypothesis.cweMappings} />
-        </div>
-      </div>
-      <strong>{hypothesis.title}</strong>
-      <p>{hypothesis.descriptionMarkdown || 'No description recorded.'}</p>
     </section>
   );
 }

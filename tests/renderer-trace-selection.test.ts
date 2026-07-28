@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { FindingRecord, HypothesisRecord, RunDetail } from '@shared/types';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 import {
   selectedTraceEventForId,
@@ -15,32 +14,15 @@ describe('renderer trace selection view model', () => {
     expect(selectedTraceEventForId(events, null)).toBeNull();
   });
 
-  it('resolves hypothesis and finding context for selected trace events', () => {
-    const hypothesis = { id: 'hypothesis_one', createdTraceEventId: 'trace_hypothesis' } as HypothesisRecord;
-    const finding = { id: 'finding_one', hypothesisId: 'hypothesis_one' } as FindingRecord;
-    const detail = {
-      hypotheses: [hypothesis],
-      findings: [finding]
-    } as unknown as RunDetail;
+  it('keeps selection independent from Beale-owned research records', () => {
     const events = [
       traceEvent('trace_hypothesis'),
       traceEvent('trace_finding', { findingId: 'finding_one' })
     ];
 
-    expect(traceSelectionDetail(detail, events, 'trace_hypothesis')).toMatchObject({
-      event: events[0],
-      hypothesis,
-      finding
-    });
-    expect(traceSelectionDetail(detail, events, 'trace_finding')).toMatchObject({
-      event: events[1],
-      finding
-    });
-    expect(traceSelectionDetail(detail, events, 'missing')).toEqual({
-      event: null,
-      finding: null,
-      hypothesis: null
-    });
+    expect(traceSelectionDetail(events, 'trace_hypothesis')).toEqual({ event: events[0] });
+    expect(traceSelectionDetail(events, 'trace_finding')).toEqual({ event: events[1] });
+    expect(traceSelectionDetail(events, 'missing')).toEqual({ event: null });
   });
 });
 

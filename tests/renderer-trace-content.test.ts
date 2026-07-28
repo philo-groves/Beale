@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { FindingRecord, HypothesisRecord, RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   codeBrowserTracePreview,
   compactTracePath,
   duplicateBlockedTraceDetail,
   evidenceTracePreview,
-  findingForTraceEvent,
   formatReasoningTraceText,
   honeycrispAgentListResults,
   honeycrispCollaborationTraceSummary,
@@ -15,7 +14,6 @@ import {
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
   honeycrispToolTraceSubtextPill,
-  hypothesisForTraceEvent,
   isHoneycrispToolObservationError,
   isEmptyHoneycrispMemorySearchObservation,
   isProseTraceEvent,
@@ -694,33 +692,20 @@ describe('renderer trace content view models', () => {
     });
   });
 
-  it('uses session records for hypothesis and finding trace details when available', () => {
-    const detail = runDetail({
-      hypotheses: [
-        hypothesisRecord({
-          id: 'hypothesis_one',
-          createdTraceEventId: 'trace_hypothesis_created',
-          title: 'Stored hypothesis title',
-          descriptionMarkdown: 'Stored hypothesis description.'
-        })
-      ],
-      findings: [
-        findingRecord({
-          id: 'finding_one',
-          hypothesisId: 'hypothesis_one',
-          title: 'Stored finding title',
-          impactMarkdown: 'Stored finding impact.'
-        })
-      ]
+  it('uses recorded event payloads for legacy hypothesis and finding trace details', () => {
+    const hypothesisEvent = traceEvent({
+      id: 'trace_hypothesis_created',
+      type: 'hypothesis_event',
+      payload: { title: 'Payload hypothesis', description: 'Payload hypothesis description.' }
+    });
+    const findingEvent = traceEvent({
+      id: 'trace_finding',
+      type: 'finding_event',
+      payload: { title: 'Payload finding', impact: 'Payload finding impact.' }
     });
 
-    const hypothesisEvent = traceEvent({ id: 'trace_hypothesis_created', type: 'hypothesis_event', payload: { title: 'Payload title' } });
-    const findingEvent = traceEvent({ id: 'trace_finding', type: 'finding_event', payload: { findingId: 'finding_one', title: 'Payload finding' } });
-
-    expect(hypothesisForTraceEvent(detail, hypothesisEvent)?.id).toBe('hypothesis_one');
-    expect(findingForTraceEvent(detail, findingEvent)?.id).toBe('finding_one');
-    expect(traceEventDetailText(hypothesisEvent, 'hypotheses', detail)).toBe('**Stored hypothesis title**\nStored hypothesis description.');
-    expect(traceEventDetailText(findingEvent, 'evidence', detail)).toBe('**Stored finding title**\nStored finding impact.');
+    expect(traceEventDetailText(hypothesisEvent, 'hypotheses')).toBe('**Payload hypothesis**\nPayload hypothesis description.');
+    expect(traceEventDetailText(findingEvent, 'evidence')).toBe('**Payload finding**\nPayload finding impact.');
   });
 
   it('compacts long trace paths from the right-hand side', () => {
@@ -729,7 +714,7 @@ describe('renderer trace content view models', () => {
 });
 
 function runDetail(
-  input: { traceEvents?: TraceEventRecord[]; hypotheses?: HypothesisRecord[]; findings?: FindingRecord[]; honeycrispMemory?: RunDetail['honeycrispMemory'] } = {}
+  input: { traceEvents?: TraceEventRecord[]; honeycrispMemory?: RunDetail['honeycrispMemory'] } = {}
 ): RunDetail {
   return {
     run: {
@@ -747,10 +732,10 @@ function runDetail(
     attempts: [],
     traceEvents: input.traceEvents ?? [],
     transcriptMessages: [],
-    hypotheses: input.hypotheses ?? [],
+    hypotheses: [],
     artifacts: [],
     evidence: [],
-    findings: input.findings ?? [],
+    findings: [],
     verifierContracts: [],
     verifierRuns: [],
     vmContexts: [],
@@ -796,33 +781,6 @@ function honeycrispToolObservation(toolName: string, normalizedInputs: Record<st
       }
     }
   });
-}
-
-function hypothesisRecord(input: Partial<HypothesisRecord> = {}): HypothesisRecord {
-  return {
-    id: 'hypothesis_test',
-    title: 'Hypothesis',
-    state: 'needs_evidence',
-    priorityScore: 10,
-    descriptionMarkdown: '',
-    createdTraceEventId: null,
-    cweMappings: [],
-    ...input
-  } as unknown as HypothesisRecord;
-}
-
-function findingRecord(input: Partial<FindingRecord> = {}): FindingRecord {
-  return {
-    id: 'finding_test',
-    hypothesisId: 'hypothesis_test',
-    title: 'Finding',
-    state: 'verified',
-    priorityScore: 50,
-    impactMarkdown: '',
-    summaryMarkdown: '',
-    cweMappings: [],
-    ...input
-  } as unknown as FindingRecord;
 }
 
 function traceEvent(input: Partial<TraceEventRecord> = {}): TraceEventRecord {

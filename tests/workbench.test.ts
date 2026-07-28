@@ -2222,7 +2222,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('parser_memory_safety');
     expect(detail.attempts.map((attempt) => attempt.strategyRole)).toContain('authorization_review');
     expect(detail.vmContexts[0].backend).toBe('fixture');
-    expect(snapshot.runs[0].attemptCount).toBeGreaterThan(1);
+    expect(service.getRunDetail(runId).attempts.length).toBeGreaterThan(1);
     expect(snapshot.runs[0].engine).toBe('fixture');
 
     const workspacePath = snapshot.workspace.workspacePath;

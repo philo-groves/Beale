@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Session lists no longer compute or transport unused Beale-owned hypothesis, finding, verifier, policy, artifact, attempt-summary, or placeholder-cost aggregates.
+- Honeycrisp memory summaries now enforce Honeycrisp's session, workspace, and subject visibility rules before returning nodes, relationships, references, or counts to the renderer.
+- Trace selection no longer reconstructs Beale-owned hypothesis and finding records or renders their legacy CWE/priority inspector; trace details use recorded event payloads and durable knowledge remains in Honeycrisp Memory.
 - Reordered the steering actions so an icon-only circular Filters control aligns with the steering text on the left while the tightly grouped model, reasoning, and Send controls sit on the right, with hover and focus backgrounds for the Filters and dropdown controls.
 - Increased steering input and placeholder text size and matched its top, bottom, and side padding while leaving the action controls unchanged.
 - Subagent trace views now hide the main-session steering composer and use the recovered vertical space for the trace.

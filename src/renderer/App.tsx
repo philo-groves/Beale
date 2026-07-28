@@ -482,13 +482,10 @@ export function App(): JSX.Element {
     selectedTraceEventId,
     traceDetailOpen,
     selectedTraceEvent,
-    selectedTraceFinding,
-    selectedTraceHypothesis,
     selectTraceEvent,
     focusTraceEvent,
     closeTraceDetail
   } = useTraceSelection({
-    detail: activeRunDetail,
     events: visibleSessionTraceEvents,
     selectedRunId
   });
@@ -670,8 +667,6 @@ export function App(): JSX.Element {
         searchOpen={searchOpen}
         selectedRunId={selectedRunId}
         selectedTraceEvent={selectedTraceEvent}
-        selectedTraceFinding={selectedTraceFinding}
-        selectedTraceHypothesis={selectedTraceHypothesis}
         sessionHistoryWorkspace={sessionHistoryWorkspace}
         sessionHistorySessions={sessionHistorySessions}
         settingsOpen={settingsOpen}

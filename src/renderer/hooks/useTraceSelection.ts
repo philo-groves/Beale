@@ -1,22 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { RunDetail } from '@shared/types';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
 import { traceSelectionDetail } from '../view-models/traceSelection';
 
 export function useTraceSelection({
-  detail,
   events,
   selectedRunId
 }: {
-  detail: RunDetail | null;
   events: TraceDisplayEvent[];
   selectedRunId: string | null;
 }): {
   selectedTraceEventId: string | null;
   traceDetailOpen: boolean;
   selectedTraceEvent: TraceDisplayEvent | null;
-  selectedTraceFinding: ReturnType<typeof traceSelectionDetail>['finding'];
-  selectedTraceHypothesis: ReturnType<typeof traceSelectionDetail>['hypothesis'];
   selectTraceEvent: (event: TraceDisplayEvent) => void;
   focusTraceEvent: (event: TraceDisplayEvent) => void;
   closeTraceDetail: () => void;
@@ -29,7 +24,7 @@ export function useTraceSelection({
     setTraceDetailOpen(false);
   }, [selectedRunId]);
 
-  const selection = useMemo(() => traceSelectionDetail(detail, events, selectedTraceEventId), [detail, events, selectedTraceEventId]);
+  const selection = useMemo(() => traceSelectionDetail(events, selectedTraceEventId), [events, selectedTraceEventId]);
 
   useEffect(() => {
     if (!selectedTraceEventId || selection.event) return;
@@ -53,8 +48,6 @@ export function useTraceSelection({
     selectedTraceEventId,
     traceDetailOpen,
     selectedTraceEvent: selection.event,
-    selectedTraceFinding: selection.finding,
-    selectedTraceHypothesis: selection.hypothesis,
     selectTraceEvent,
     focusTraceEvent,
     closeTraceDetail

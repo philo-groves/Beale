@@ -2,8 +2,6 @@ import type { JSX } from 'react';
 import type {
   DeveloperSettings,
   ShellOptions,
-  FindingRecord,
-  HypothesisRecord,
   NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
@@ -57,8 +55,6 @@ export function AppModals({
   searchOpen,
   selectedRunId,
   selectedTraceEvent,
-  selectedTraceFinding,
-  selectedTraceHypothesis,
   sessionHistoryWorkspace,
   sessionHistorySessions,
   settingsOpen,
@@ -119,8 +115,6 @@ export function AppModals({
   searchOpen: boolean;
   selectedRunId: string | null;
   selectedTraceEvent: TraceDisplayEvent | null;
-  selectedTraceFinding: FindingRecord | null;
-  selectedTraceHypothesis: HypothesisRecord | null;
   sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
   sessionHistorySessions: ResearchSessionSummary[];
   settingsOpen: boolean;
@@ -243,8 +237,6 @@ export function AppModals({
         <TraceDetailModal
           detail={activeRunDetail}
           event={selectedTraceEvent}
-          finding={selectedTraceFinding}
-          hypothesis={selectedTraceHypothesis}
           onClose={onCloseTraceDetail}
         />
       ) : null}

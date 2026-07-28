@@ -1253,15 +1253,7 @@ export interface ExportRecord {
 
 export interface RunRow {
   run: RunRecord;
-  attemptCount: number;
   engine: RunEngineKind;
-  latestAttemptState: string;
-  topHypothesis: string | null;
-  topFinding: string | null;
-  verifierState: string | null;
-  policyBlocker: string | null;
-  artifactCount: number;
-  costLabel: string;
 }
 
 export interface RunDetail {
