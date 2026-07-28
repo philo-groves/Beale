@@ -7,8 +7,7 @@ import type {
   ResearchModelSelection,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
-  RunDetail,
-  RunStatus
+  RunDetail
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -542,7 +541,7 @@ const MainSteerArea = memo(function MainSteerArea({
   const footerRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pasteCaretRef = useRef<number | null>(null);
-  const previousSessionStateRef = useRef<{ runId: string | null; status: RunStatus | null }>({ runId: null, status: null });
+  const focusedRunIdRef = useRef<string | null>(null);
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
   const status = detail?.run.status ?? null;
@@ -627,16 +626,14 @@ const MainSteerArea = memo(function MainSteerArea({
   }, []);
 
   useEffect(() => {
-    const previous = previousSessionStateRef.current;
-    previousSessionStateRef.current = { runId, status };
-    if (!runId || status !== 'active') return undefined;
-    if (previous.runId === runId && previous.status === 'active') return undefined;
+    if (!runId || focusedRunIdRef.current === runId) return undefined;
+    focusedRunIdRef.current = runId;
 
     const frame = window.requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [runId, status]);
+  }, [runId]);
 
   const submit = (): void => {
     if (disabled || !runId) return;
