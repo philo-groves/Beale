@@ -8,6 +8,7 @@ import {
   honeycrispCollaborationTraceSummary,
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
+  honeycrispMemoryLinkNote,
   honeycrispMemorySearchResults,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
@@ -223,8 +224,15 @@ describe('renderer trace content view models', () => {
 
   it('renders concise structured subtext for selected Honeycrisp tool requests', () => {
     const memoryId = 'trajectory_0123456789abcdefabcd';
+    const linkedMemoryId = 'primitive_0123456789abcdefabcd';
     const memorySearch = honeycrispToolRequest('memory.search', { query: 'ZFTP length boundary' });
     const memoryGet = honeycrispToolRequest('memory.get', { id: memoryId });
+    const memoryLink = honeycrispToolRequest('memory.link', {
+      fromId: memoryId,
+      relation: 'supports',
+      toId: linkedMemoryId,
+      note: 'The trajectory repeatedly reaches this primitive.'
+    });
     const fileRead = honeycrispToolRequest('file.read', { path: '/repo/Src/Modules/zftp.c', offset: 320 });
     const memoryCorrect = honeycrispToolRequest('memory.correct', { id: memoryId, status: 'confirmed', summary: 'Corrected first line.\nClarified second line.' });
     const shellRun = honeycrispToolRequest('shell.run', { utility: 'rg', args: ['-n', 'zftp data', 'Src/Modules'] });
@@ -236,6 +244,8 @@ describe('renderer trace content view models', () => {
 
     expect(traceEventDetailText(memorySearch, 'non_standard')).toBe('ZFTP length boundary');
     expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Trajectory · ${memoryId}`);
+    expect(honeycrispToolTraceSubtext(memoryLink)).toBe(`${memoryId} → supports → ${linkedMemoryId}`);
+    expect(honeycrispMemoryLinkNote(memoryLink)).toBe('The trajectory repeatedly reaches this primitive.');
     expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
     expect(traceEventDetailText(memoryCorrect, 'non_standard')).toBe(`Trajectory · ${memoryId} · Confirmed`);
     expect(honeycrispMemoryCorrectionSummary(memoryCorrect)).toBe('Corrected first line.\nClarified second line.');
@@ -247,8 +257,14 @@ describe('renderer trace content view models', () => {
 
   it('preserves request subtext on Honeycrisp observations and identifies empty memory searches', () => {
     const memoryId = 'trajectory_0123456789abcdefabcd';
+    const linkedMemoryId = 'primitive_0123456789abcdefabcd';
     const memorySearch = honeycrispToolObservation('memory.search', { query: 'ZFTP length boundary' }, []);
     const memoryGet = honeycrispToolObservation('memory.get', { id: memoryId }, { id: memoryId, type: 'trajectory', summary: 'A reusable research trajectory.' });
+    const memoryLink = honeycrispToolObservation(
+      'memory.link',
+      { fromId: memoryId, relation: 'supports', toId: linkedMemoryId, note: 'The trajectory repeatedly reaches this primitive.' },
+      { fromId: memoryId, relation: 'supports', toId: linkedMemoryId }
+    );
     const fileRead = honeycrispToolObservation('file.read', { path: '/repo/Src/Modules/zftp.c' }, { text: 'source' });
     const memoryCorrect = honeycrispToolObservation('memory.correct', { id: memoryId, status: 'suspected', summary: 'Updated memory summary.' }, { id: memoryId });
     const shellRun = honeycrispToolObservation('shell.run', { utility: 'make', args: ['test'] }, { exitCode: 0 });
@@ -256,6 +272,8 @@ describe('renderer trace content view models', () => {
     expect(honeycrispToolTraceSubtext(memorySearch)).toBe('ZFTP length boundary');
     expect(honeycrispToolTraceSubtext(memoryGet)).toBe(`Trajectory · ${memoryId}`);
     expect(honeycrispMemoryGetSummary(memoryGet)).toBe('A reusable research trajectory.');
+    expect(honeycrispToolTraceSubtext(memoryLink)).toBe(`${memoryId} → supports → ${linkedMemoryId}`);
+    expect(honeycrispMemoryLinkNote(memoryLink)).toBe('The trajectory repeatedly reaches this primitive.');
     expect(honeycrispToolTraceSubtext(fileRead)).toBe('');
     expect(honeycrispToolTraceSubtext(memoryCorrect)).toBe(`Trajectory · ${memoryId} · Suspected`);
     expect(honeycrispMemoryCorrectionSummary(memoryCorrect)).toBe('Updated memory summary.');
