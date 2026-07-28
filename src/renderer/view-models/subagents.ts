@@ -1,27 +1,37 @@
-import type { TraceEventRecord } from '@shared/types';
+import type { RunStatus, TraceEventRecord } from '@shared/types';
+
+export type SubagentStatus = 'pending' | 'running' | 'completed' | 'interrupted' | 'errored';
 
 export interface SubagentSummary {
   id: string | null;
   path: string;
   name: string;
-  status: string;
+  status: SubagentStatus;
   latestMessage: string;
   createdAt: string;
   lastActiveAt: string;
 }
 
 interface SubagentAccumulator extends SubagentSummary {
+  attemptId: string | null;
   spawnedAt: string | null;
 }
 
 const ACTIVE_SUBAGENT_STATUSES = new Set(['pending', 'running']);
+const SUBAGENT_STATUSES = new Set<SubagentStatus>(['pending', 'running', 'completed', 'interrupted', 'errored']);
 
 export function activeSubagentCount(subagents: readonly SubagentSummary[]): number {
-  return subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status.trim().toLowerCase())).length;
+  return subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status)).length;
 }
 
-export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[] {
+export function subagentStatusLabel(status: SubagentStatus): string {
+  if (status === 'errored') return 'Error';
+  return `${status[0]?.toUpperCase() ?? ''}${status.slice(1)}`;
+}
+
+export function subagentSummaries(events: TraceEventRecord[], runStatus?: RunStatus | null): SubagentSummary[] {
   const summaries = new Map<string, SubagentAccumulator>();
+  const currentAttemptId = latestRootAttemptId(events);
 
   for (const event of events) {
     const path = traceAgentPath(event);
@@ -29,7 +39,8 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
     const timestamp = subagentEventTimestamp(event);
     const eventType = subagentPayloadValue(event, 'type');
     const action = subagentPayloadValue(event, 'action');
-    const spawnEvent = eventType === 'subagent.activity' && action === 'spawned';
+    const lifecycleEvent = eventType === 'subagent.activity';
+    const spawnEvent = lifecycleEvent && action === 'spawned';
     const current = summaries.get(path) ?? {
       id: null,
       path,
@@ -38,16 +49,20 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
       latestMessage: '',
       createdAt: timestamp,
       lastActiveAt: timestamp,
+      attemptId: event.attemptId,
       spawnedAt: null
     };
     const message = subagentMessage(event);
     summaries.set(path, {
       ...current,
       id: subagentPayloadValue(event, 'agentId') ?? current.id,
-      status: subagentPayloadValue(event, 'status') ?? current.status,
+      status: lifecycleEvent
+        ? subagentLifecycleStatus(subagentPayloadValue(event, 'status'), action) ?? current.status
+        : current.status,
       latestMessage: message ?? current.latestMessage,
       createdAt: earlierTimestamp(current.createdAt, timestamp),
       lastActiveAt: laterTimestamp(current.lastActiveAt, timestamp),
+      attemptId: event.attemptId ?? current.attemptId,
       spawnedAt: spawnEvent
         ? current.spawnedAt
           ? earlierTimestamp(current.spawnedAt, timestamp)
@@ -56,8 +71,9 @@ export function subagentSummaries(events: TraceEventRecord[]): SubagentSummary[]
     });
   }
 
-  return [...summaries.values()].map(({ spawnedAt, ...summary }) => ({
+  return [...summaries.values()].map(({ attemptId, spawnedAt, ...summary }) => ({
     ...summary,
+    status: reconciledSubagentStatus(summary.status, attemptId, currentAttemptId, runStatus),
     createdAt: spawnedAt ?? summary.createdAt
   })).sort((left, right) => {
     const timeDifference = timestampOrder(left.createdAt, right.createdAt);
@@ -130,6 +146,40 @@ function normalizedPreview(value: string | null): string | null {
 
 function subagentName(path: string): string {
   return path.split('/').filter(Boolean).at(-1) ?? path;
+}
+
+function subagentLifecycleStatus(status: string | null, action: string | null): SubagentStatus | null {
+  const normalizedStatus = status?.trim().toLowerCase();
+  if (normalizedStatus && SUBAGENT_STATUSES.has(normalizedStatus as SubagentStatus)) {
+    return normalizedStatus as SubagentStatus;
+  }
+  if (action === 'spawned' || action === 'followup') return 'running';
+  if (action === 'completed') return 'completed';
+  if (action === 'interrupted') return 'interrupted';
+  if (action === 'errored') return 'errored';
+  return null;
+}
+
+function reconciledSubagentStatus(
+  status: SubagentStatus,
+  attemptId: string | null,
+  currentAttemptId: string | null,
+  runStatus?: RunStatus | null
+): SubagentStatus {
+  if (!ACTIVE_SUBAGENT_STATUSES.has(status)) return status;
+  if (attemptId && currentAttemptId && attemptId !== currentAttemptId) return 'interrupted';
+  if (runStatus && !['queued', 'active', 'paused'].includes(runStatus)) return 'interrupted';
+  return status;
+}
+
+function latestRootAttemptId(events: readonly TraceEventRecord[]): string | null {
+  let attemptId: string | null = null;
+  for (const event of events) {
+    const agentPath = traceAgentPath(event);
+    if (agentPath && agentPath !== '/root') continue;
+    attemptId = event.attemptId ?? attemptId;
+  }
+  return attemptId;
 }
 
 function earlierTimestamp(left: string, right: string): string {

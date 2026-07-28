@@ -1,14 +1,14 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { BookOpen, Database, GitFork, Search } from 'lucide-react';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunStatus } from '@shared/types';
 import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
-import { activeSubagentCount, subagentSummaries } from '../../view-models/subagents';
+import { activeSubagentCount, subagentStatusLabel, subagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
@@ -19,6 +19,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events,
   memory,
   runId,
+  runStatus,
   selectedSubagentPath,
   selectedRunbookId,
   onOpenRunbook,
@@ -27,6 +28,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
   runId: string;
+  runStatus: RunStatus | null;
   selectedSubagentPath: string | null;
   selectedRunbookId: string | null;
   onOpenRunbook: (runbookId: string) => void;
@@ -43,7 +45,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const activeRunbooks = useMemo(() => runbooks.filter((runbook) => runbook.status !== 'archived').length, [runbooks]);
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
-  const subagents = useMemo(() => subagentSummaries(events), [events]);
+  const subagents = useMemo(() => subagentSummaries(events, runStatus), [events, runStatus]);
   const activeSubagents = useMemo(() => activeSubagentCount(subagents), [subagents]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(
@@ -179,7 +181,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         <MainSideScrollRegion
           listClassName="subagent-catalog-list"
           stickToEnd
-          updateKey={subagents.map((agent) => `${agent.path}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+          updateKey={subagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
         >
           {subagents.map((agent) => (
             <button
@@ -192,7 +194,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <span className="subagent-catalog-heading">
                 <span className="subagent-catalog-labels">
                   <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{agent.name}</strong>
-                  <span className="memory-catalog-status subagent-catalog-status">{traceLabel(agent.status)}</span>
+                  <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
                 </span>
                 <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
               </span>

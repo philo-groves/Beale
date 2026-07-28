@@ -502,7 +502,10 @@ export function App(): JSX.Element {
     () => traceEventsForSubagent(activeTraceEvents, selectedSubagentPath),
     [activeTraceEvents, selectedSubagentPath]
   );
-  const activeSubagents = useMemo(() => subagentSummaries(activeTraceEvents), [activeTraceEvents]);
+  const activeSubagents = useMemo(
+    () => subagentSummaries(activeTraceEvents, activeRunDetail?.run.status),
+    [activeRunDetail?.run.status, activeTraceEvents]
+  );
   useEffect(() => {
     if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
     setSelectedSubagentPath(null);

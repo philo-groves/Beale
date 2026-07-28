@@ -2376,6 +2376,11 @@ body.is-resizing-research-side .main-session-grid {
   color: var(--green);
 }
 
+.subagent-catalog-name.status-interrupted {
+  background: transparent;
+  color: var(--amber);
+}
+
 .subagent-catalog-name.status-errored,
 .subagent-catalog-name.status-error,
 .subagent-catalog-name.status-failed {

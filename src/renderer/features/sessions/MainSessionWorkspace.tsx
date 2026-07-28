@@ -136,6 +136,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}
         runId={selectedRunId}
+        runStatus={detail?.run.status ?? null}
         selectedRunbookId={selectedRunbook?.id ?? null}
         selectedSubagentPath={selectedSubagentPath}
         onSelectSubagent={onSelectSubagent}

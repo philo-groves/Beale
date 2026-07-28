@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Subagent counts and catalog statuses now follow only Honeycrisp lifecycle activity, prevent child tool result statuses from making running or interrupted agents appear complete, and mark unresolved agents from superseded attempts or terminal sessions as interrupted.
+
 ### Changed
 
 - Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -144,6 +144,170 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/interrupted', status: 'interrupted' },
       { ...base, path: '/root/errored', status: 'errored' }
     ])).toBe(2);
+  });
+
+  it('does not replace lifecycle state with child tool result status', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentId: 'agent_worker',
+          agentPath: '/root/worker',
+          status: 'running'
+        }
+      }),
+      traceEvent({
+        id: 'tool-observed',
+        sequence: 2,
+        payload: {
+          agentId: 'agent_worker',
+          agentPath: '/root/worker',
+          honeycrispKind: 'tool.observed',
+          status: 'complete',
+          summary: 'Shell completed successfully.'
+        }
+      })
+    ];
+
+    const subagents = subagentSummaries(events);
+    expect(subagents[0]?.status).toBe('running');
+    expect(activeSubagentCount(subagents)).toBe(1);
+  });
+
+  it('preserves interrupted state when late child events arrive', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          status: 'running'
+        }
+      }),
+      traceEvent({
+        id: 'interrupted',
+        sequence: 2,
+        payload: {
+          type: 'subagent.activity',
+          action: 'interrupted',
+          agentPath: '/root/worker',
+          status: 'interrupted'
+        }
+      }),
+      traceEvent({
+        id: 'late-tool-observed',
+        sequence: 3,
+        payload: {
+          agentPath: '/root/worker',
+          honeycrispKind: 'tool.observed',
+          status: 'complete'
+        }
+      })
+    ];
+
+    const subagents = subagentSummaries(events);
+    expect(subagents[0]?.status).toBe('interrupted');
+    expect(activeSubagentCount(subagents)).toBe(0);
+    expect(subagentStatusLabel(subagents[0]!.status)).toBe('Interrupted');
+  });
+
+  it('derives canonical lifecycle state from activity actions when status is absent', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker'
+        }
+      }),
+      traceEvent({
+        id: 'errored',
+        sequence: 2,
+        payload: {
+          type: 'subagent.activity',
+          action: 'errored',
+          agentPath: '/root/worker'
+        }
+      })
+    ];
+
+    const subagent = subagentSummaries(events)[0];
+    expect(subagent?.status).toBe('errored');
+    expect(subagentStatusLabel(subagent!.status)).toBe('Error');
+  });
+
+  it('interrupts unresolved agents from superseded attempts while preserving current agents', () => {
+    const events = [
+      traceEvent({
+        id: 'old-root',
+        attemptId: 'attempt_old',
+        sequence: 1,
+        payload: { agentPath: '/root', turn: 1 }
+      }),
+      traceEvent({
+        id: 'old-spawn',
+        attemptId: 'attempt_old',
+        sequence: 2,
+        createdAt: '2026-07-20T10:00:00.000Z',
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/old_worker',
+          status: 'running'
+        }
+      }),
+      traceEvent({
+        id: 'current-root',
+        attemptId: 'attempt_current',
+        sequence: 3,
+        payload: { agentPath: '/root', turn: 1 }
+      }),
+      traceEvent({
+        id: 'current-spawn',
+        attemptId: 'attempt_current',
+        sequence: 4,
+        createdAt: '2026-07-20T10:01:00.000Z',
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/current_worker',
+          status: 'running'
+        }
+      })
+    ];
+
+    const subagents = subagentSummaries(events, 'active');
+    expect(subagents.map((subagent) => [subagent.path, subagent.status])).toEqual([
+      ['/root/old_worker', 'interrupted'],
+      ['/root/current_worker', 'running']
+    ]);
+    expect(activeSubagentCount(subagents)).toBe(1);
+  });
+
+  it('interrupts unresolved agents when the parent session is terminal', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        attemptId: 'attempt_current',
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          status: 'running'
+        }
+      })
+    ];
+
+    const subagents = subagentSummaries(events, 'completed');
+    expect(subagents[0]?.status).toBe('interrupted');
+    expect(activeSubagentCount(subagents)).toBe(0);
   });
 
 });
