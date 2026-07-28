@@ -1,13 +1,14 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, ArrowRight, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, ArrowRight, SlidersHorizontal, Square } from 'lucide-react';
 import type {
   ResearchModelEffortLevel,
   ResearchModelProviderId,
   ResearchModelSelection,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
-  RunDetail
+  RunDetail,
+  SteeringAction
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
@@ -60,6 +61,7 @@ export const TraceView = memo(function TraceView({
   onBackToMain,
   onOpenTraceFilters,
   onSelectTraceEvent,
+  onSessionAction,
   onSteerInstruction
 }: {
   busy: boolean;
@@ -77,6 +79,7 @@ export const TraceView = memo(function TraceView({
   onBackToMain: () => void;
   onOpenTraceFilters: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
   const loading = !detail;
@@ -511,6 +514,7 @@ export const TraceView = memo(function TraceView({
           traceFilterCount={traceFilterCount}
           totalTraceFilterCount={totalTraceFilterCount}
           onOpenTraceFilters={onOpenTraceFilters}
+          onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />
       ) : null}
@@ -526,6 +530,7 @@ const MainSteerArea = memo(function MainSteerArea({
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
+  onSessionAction,
   onSteerInstruction
 }: {
   runId: string | null;
@@ -535,6 +540,7 @@ const MainSteerArea = memo(function MainSteerArea({
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
+  onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
@@ -643,6 +649,13 @@ const MainSteerArea = memo(function MainSteerArea({
     setInstruction('');
   };
 
+  const stopSession = (): void => {
+    if (controlsDisabled || !runId) return;
+    onSessionAction({ type: 'stop', runId, note: 'Stop requested from session composer.' });
+  };
+
+  const sessionActive = status === 'active';
+
   return (
     <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
       <div className="main-steer-input-row">
@@ -691,9 +704,15 @@ const MainSteerArea = memo(function MainSteerArea({
           options={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
           onChange={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
         />
-        <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
-          <ArrowRight size={16} />
-        </button>
+        {sessionActive ? (
+          <button type="button" className="main-steer-send main-steer-stop" title="Stop session" aria-label="Stop session" disabled={controlsDisabled} onClick={stopSession}>
+            <Square size={11} fill="currentColor" />
+          </button>
+        ) : (
+          <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>
+            <ArrowRight size={16} />
+          </button>
+        )}
       </div>
     </footer>
   );

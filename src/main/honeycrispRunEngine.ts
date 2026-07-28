@@ -189,7 +189,7 @@ export class HoneycrispRunEngine {
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
-    private readonly onChange: () => void = () => undefined,
+    private readonly onChange: (change?: { workspaceRegistryChanged?: boolean }) => void = () => undefined,
     private readonly shellOptionsPath?: string
   ) {}
 
@@ -417,6 +417,10 @@ export class HoneycrispRunEngine {
     this.stopActiveRun(active, 'user');
   }
 
+  public hasRun(runId: string): boolean {
+    return this.activeRuns.has(runId);
+  }
+
   private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit'): void {
     if (active.stopped) return;
     active.stopped = true;
@@ -560,7 +564,7 @@ export class HoneycrispRunEngine {
       const title = stringPayload(event.payload ?? {}, 'title');
       if (title) {
         this.db.updateRunTitle(context.run.id, title.slice(0, 120));
-        this.onChange();
+        this.onChange({ workspaceRegistryChanged: true });
         return;
       }
       if (stringPayload(event.payload ?? {}, 'status') !== 'error') return;

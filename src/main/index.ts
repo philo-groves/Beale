@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   HoneycrispMemoryDirectorySummary,
+  HamModeGenerationUpdate,
   HoneycrispToolingConfigUpdate,
   ProfilingReport,
   WorkspaceRegistryState,
@@ -337,6 +338,12 @@ function broadcastSnapshot(change: WorkspaceChange = { workspaceRegistryChanged:
   });
 }
 
+function broadcastHamModeGenerationUpdate(update: HamModeGenerationUpdate): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(IPC_CHANNELS.hamModeGenerationUpdated, update);
+  }
+}
+
 function snapshotBroadcastMetricDetail(snapshot: WorkspaceSnapshot | null): Record<string, string | number | boolean> {
   return {
     active: Boolean(snapshot),
@@ -441,6 +448,11 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.cancelResearchPromptGeneration, (_event, requestId: string) => workspaceService.cancelResearchPromptGeneration(requestId));
   ipcMain.handle(IPC_CHANNELS.saveScope, (_event, scope: WorkspaceScopeDraft) => workspaceService.saveScope(scope));
+  ipcMain.handle(IPC_CHANNELS.setHamModeEnabled, (_event, enabled: boolean, promptGuidance?: string) =>
+    timedMainIpc('setHamModeEnabled', { enabled, guidanceChars: promptGuidance?.length ?? 0 }, () =>
+      workspaceService.setHamModeEnabled(enabled, promptGuidance)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) =>
     timedMainIpcAsync('startRun', { engine: input.runEngine, mode: input.mode, network: input.networkProfile }, () =>
       workspaceService.startRunWithSourcePreparation(input)
@@ -488,7 +500,7 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  workspaceService = new WorkspaceService(broadcastSnapshot);
+  workspaceService = new WorkspaceService(broadcastSnapshot, { onHamModeGenerationUpdate: broadcastHamModeGenerationUpdate });
   registerIpc();
   createWindow();
   setImmediate(() => {

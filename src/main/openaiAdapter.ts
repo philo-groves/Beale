@@ -1,4 +1,5 @@
 import type { OpenAiTransport, ProfilingMetricDetail } from '@shared/types';
+import { createHash } from 'node:crypto';
 import { arch, platform, release } from 'node:os';
 import { setImmediate as yieldImmediate } from 'node:timers/promises';
 import { OpenAiAuthService, type OpenAiCredential, resolveOpenAiTransport } from './openaiAuth';
@@ -9,6 +10,8 @@ const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CODEX_SSE_BETA_HEADER = 'responses=experimental';
 const CODEX_WEBSOCKET_BETA_HEADER = 'responses_websockets=2026-02-06';
 const STREAM_EVENT_LOOP_YIELD_BATCH = 25;
+const PROMPT_CACHE_KEY_MAX_CHARS = 64;
+const PROMPT_CACHE_KEY_HASH_CHARS = 16;
 
 export interface ResponseInputMessage {
   type: 'message';
@@ -167,7 +170,8 @@ export class OpenAiResponsesAdapter {
     try {
       const credential = this.auth.getCredentialOrThrow();
       source = credential.source;
-      const sessionId = input.body.metadata.beale_run_id;
+      const rawSessionId = input.body.metadata.beale_run_id;
+      const sessionId = rawSessionId ? boundedOpenAiPromptCacheKey(rawSessionId) : undefined;
       const response = await this.fetchImpl(this.responsesHttpUrl(credential), {
         method: 'POST',
         headers: this.sseHeaders(credential, sessionId),
@@ -228,7 +232,7 @@ export class OpenAiResponsesAdapter {
     try {
       const credential = this.auth.getCredentialOrThrow();
       source = credential.source;
-      const sessionKey = input.body.metadata.beale_run_id || 'default';
+      const sessionKey = boundedOpenAiPromptCacheKey(input.body.metadata.beale_run_id || 'default');
       const session = this.getWebSocketSession(sessionKey, credential);
       try {
         for await (const event of session.stream(wireBodyForCredential(credential, input.body, sessionKey), input.signal)) {
@@ -264,9 +268,10 @@ export class OpenAiResponsesAdapter {
   }
 
   public closeWebSocketSession(sessionKey: string): void {
-    const session = this.webSocketSessions.get(sessionKey);
+    const boundedSessionKey = boundedOpenAiPromptCacheKey(sessionKey);
+    const session = this.webSocketSessions.get(boundedSessionKey);
     session?.close();
-    this.webSocketSessions.delete(sessionKey);
+    this.webSocketSessions.delete(boundedSessionKey);
   }
 
   public closeAllWebSocketSessions(): void {
@@ -637,8 +642,15 @@ function wireBodyForCredential(credential: OpenAiCredential, body: OpenAiRespons
     ...wireBody,
     reasoning: { ...body.reasoning, summary: 'auto' },
     include: ['reasoning.encrypted_content'],
-    ...(sessionId ? { prompt_cache_key: sessionId } : {})
+    ...(sessionId ? { prompt_cache_key: boundedOpenAiPromptCacheKey(sessionId) } : {})
   };
+}
+
+export function boundedOpenAiPromptCacheKey(sessionId: string): string {
+  if (sessionId.length <= PROMPT_CACHE_KEY_MAX_CHARS) return sessionId;
+  const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, PROMPT_CACHE_KEY_HASH_CHARS);
+  const prefixLength = PROMPT_CACHE_KEY_MAX_CHARS - PROMPT_CACHE_KEY_HASH_CHARS - 1;
+  return `${sessionId.slice(0, prefixLength)}_${digest}`;
 }
 
 function usesCodexBackend(credential: OpenAiCredential): boolean {

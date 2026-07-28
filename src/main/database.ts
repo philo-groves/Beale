@@ -13,6 +13,8 @@ import type {
   ContextCompactionRecord,
   ExportRecord,
   ExportReviewDecision,
+  HamModePhase,
+  HamModeState,
   ModelSessionRecord,
   NotificationRecord,
   NotificationStatus,
@@ -782,6 +784,56 @@ export function createId(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+const HAM_MODE_PHASES = new Set<HamModePhase>([
+  'disabled',
+  'waiting_for_session',
+  'reviewing_research',
+  'starting_session',
+  'session_active',
+  'error'
+]);
+
+function emptyHamModeState(): HamModeState {
+  return {
+    enabled: false,
+    phase: 'disabled',
+    promptGuidance: '',
+    startRequestedAt: null,
+    activeRunId: null,
+    lastHandledRunId: null,
+    lastStartedRunId: null,
+    lastError: null,
+    updatedAt: null
+  };
+}
+
+function parseHamModeState(value: unknown): HamModeState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyHamModeState();
+  const record = value as Record<string, unknown>;
+  const enabled = record.enabled === true;
+  const rawPhase = typeof record.phase === 'string' ? record.phase : '';
+  const phase = enabled && HAM_MODE_PHASES.has(rawPhase as HamModePhase) && rawPhase !== 'disabled'
+    ? rawPhase as HamModePhase
+    : enabled
+      ? 'waiting_for_session'
+      : 'disabled';
+  const nullableString = (key: string): string | null => typeof record[key] === 'string' && record[key].trim() ? record[key].trim() : null;
+  const updatedAt = nullableString('updatedAt');
+  return {
+    enabled,
+    phase,
+    promptGuidance: typeof record.promptGuidance === 'string' ? record.promptGuidance.trim().slice(0, 6000) : '',
+    startRequestedAt:
+      nullableString('startRequestedAt') ??
+      (enabled && phase === 'waiting_for_session' && !Object.hasOwn(record, 'startRequestedAt') ? updatedAt : null),
+    activeRunId: nullableString('activeRunId'),
+    lastHandledRunId: nullableString('lastHandledRunId'),
+    lastStartedRunId: nullableString('lastStartedRunId'),
+    lastError: nullableString('lastError'),
+    updatedAt
+  };
 }
 
 function toJson(value: Record<string, unknown> | unknown[] | null | undefined): string {
@@ -3395,6 +3447,22 @@ export class WorkspaceDatabase {
 
   public recordWorkspaceBackup(result: WorkspaceExportResult): void {
     this.setMetaValue('last_workspace_backup_json', JSON.stringify(result), result.createdAt);
+  }
+
+  public getHamModeState(): HamModeState {
+    const value = this.getMetaValue('ham_mode_state_json');
+    if (!value) return emptyHamModeState();
+    try {
+      return parseHamModeState(JSON.parse(value) as unknown);
+    } catch {
+      return emptyHamModeState();
+    }
+  }
+
+  public setHamModeState(state: HamModeState): HamModeState {
+    const next = parseHamModeState(state);
+    this.setMetaValue('ham_mode_state_json', JSON.stringify(next), next.updatedAt ?? nowIso());
+    return next;
   }
 
   public recoverInterruptedState(reason = 'workspace_open'): WorkspaceRecoveryReport {

@@ -925,6 +925,7 @@ export interface GeneratedResearchPrompt {
 export interface ResearchPromptGenerationUpdate {
   requestId: string;
   promptMarkdown: string;
+  reasoningSummary?: string | null;
 }
 
 export interface ResearchPromptGenerationInput {
@@ -939,6 +940,33 @@ export interface ResearchPromptGenerationInput {
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;
+}
+
+export type HamModePhase =
+  | 'disabled'
+  | 'waiting_for_session'
+  | 'reviewing_research'
+  | 'starting_session'
+  | 'session_active'
+  | 'error';
+
+export interface HamModeState {
+  enabled: boolean;
+  phase: HamModePhase;
+  promptGuidance: string;
+  startRequestedAt: string | null;
+  activeRunId: string | null;
+  lastHandledRunId: string | null;
+  lastStartedRunId: string | null;
+  lastError: string | null;
+  updatedAt: string | null;
+}
+
+export interface HamModeGenerationUpdate {
+  workspaceId: string;
+  requestId: string;
+  promptMarkdown: string;
+  reasoningSummary: string | null;
 }
 
 export interface RunRecord {
@@ -1218,6 +1246,7 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: WorkspaceScopeVersion;
+  hamMode: HamModeState;
   honeycrispMemory: HoneycrispMemorySummary;
   projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;
@@ -1289,7 +1318,9 @@ export interface BealeApi {
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
+  onHamModeGenerationUpdate(listener: (update: HamModeGenerationUpdate) => void): () => void;
   saveScope(scope: WorkspaceScopeDraft): Promise<WorkspaceSnapshot>;
+  setHamModeEnabled(enabled: boolean, promptGuidance?: string): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;

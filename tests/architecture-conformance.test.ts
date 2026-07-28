@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase } from '../src/main/database';
-import { OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
+import { boundedOpenAiPromptCacheKey, OpenAiResponsesAdapter } from '../src/main/openaiAdapter';
 import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import { IPC_CHANNELS } from '../src/shared/ipc';
@@ -110,6 +110,63 @@ describe('architecture conformance', () => {
       expect(request.parallel_tool_calls).toBe(true);
       expect(request.reasoning).toEqual({ effort: 'high' });
     });
+  });
+
+  it('bounds deterministic OpenAI prompt cache keys without changing short session ids', () => {
+    expect(boundedOpenAiPromptCacheKey('run_short')).toBe('run_short');
+
+    const longSessionId = `prompt_generation_ham_${'workspace-with-a-long-id_'.repeat(4)}request`;
+    const bounded = boundedOpenAiPromptCacheKey(longSessionId);
+    expect(bounded).toHaveLength(64);
+    expect(bounded).toBe(boundedOpenAiPromptCacheKey(longSessionId));
+    expect(bounded).not.toBe(boundedOpenAiPromptCacheKey(`${longSessionId}_different`));
+  });
+
+  it('bounds long Codex session identifiers in both request headers and prompt cache bodies', async () => {
+    const captured: { headers?: HeadersInit; body?: string } = {};
+    const credential = {
+      token: 'test-token',
+      source: 'codex_oauth_file' as const,
+      accountId: 'test-account'
+    };
+    const auth = {
+      getCredential: () => credential,
+      getCredentialOrThrow: () => credential
+    } as OpenAiAuthService;
+    const adapter = new OpenAiResponsesAdapter(
+      auth,
+      async (_url, init) => {
+        captured.headers = init.headers;
+        captured.body = String(init.body ?? '');
+        return new Response('data: {"type":"response.completed","response":{"id":"response_test"}}\n\n', {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' }
+        });
+      },
+      'https://api.openai.test/v1',
+      null,
+      'https://chatgpt.test/backend-api'
+    );
+    const longSessionId = `prompt_generation_ham_${'workspace-with-a-long-id_'.repeat(4)}request`;
+    const request = adapter.buildRequest({
+      model: 'gpt-5.6-sol',
+      instructions: 'Return ok.',
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Return ok.' }] }],
+      tools: [],
+      reasoning: { effort: 'high' },
+      text: { verbosity: 'low' },
+      metadata: { beale_run_id: longSessionId }
+    });
+
+    for await (const _event of adapter.streamResponse({ body: request })) {
+      // Drain the stream to capture the serialized request.
+    }
+
+    const headers = new Headers(captured.headers);
+    const body = JSON.parse(captured.body ?? '{}') as Record<string, unknown>;
+    expect(headers.get('session_id')).toHaveLength(64);
+    expect(headers.get('x-client-request-id')).toHaveLength(64);
+    expect(body.prompt_cache_key).toBe(headers.get('session_id'));
   });
 
   it('creates shared SQLite state and host execution records without exposing secrets', () => {

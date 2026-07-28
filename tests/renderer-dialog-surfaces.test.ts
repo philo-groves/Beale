@@ -5,6 +5,7 @@ import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, WorkspaceRegi
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailSheet } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
+import { HamModeStartSheet } from '../src/renderer/features/sessions/HamModeStartSheet';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 
 describe('renderer dialog surfaces', () => {
@@ -149,5 +150,69 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('Memory Details');
     expect(html).toContain('Unchecked parser length');
     expect(html).toContain('Detailed parser analysis.');
+  });
+
+  it('renders HAM prompt guidance, reasoning status, and the streamed prompt in a bottom sheet', () => {
+    const html = renderToStaticMarkup(
+      createElement(HamModeStartSheet, {
+        busy: false,
+        hamMode: {
+          enabled: true,
+          phase: 'reviewing_research',
+          promptGuidance: 'Favor parser boundaries.',
+          startRequestedAt: '2026-07-28T10:00:00.000Z',
+          activeRunId: null,
+          lastHandledRunId: 'run_seed',
+          lastStartedRunId: null,
+          lastError: null,
+          updatedAt: '2026-07-28T10:00:00.000Z'
+        },
+        generationUpdate: {
+          workspaceId: 'workspace_one',
+          requestId: 'ham_request',
+          reasoningSummary: '**Extending** the strongest unresolved path.',
+          promptMarkdown: '# Parser boundary\n\nEstablish one verifier-backed result.'
+        },
+        onClose: () => undefined,
+        onStart: () => undefined
+      })
+    );
+
+    expect(html).toContain('bottom-sheet-panel');
+    expect(html).toContain('Prompt Guidance');
+    expect(html).toContain('Go HAM');
+    expect(html).toContain('ham-mode-start-button is-running');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toMatch(/<textarea[^>]*disabled=""[^>]*>Favor parser boundaries\.<\/textarea>/);
+    expect(html).toContain('Agent Status');
+    expect(html).toContain('<strong>Extending</strong>');
+    expect(html).toContain('Generated Prompt');
+    expect(html).toContain('<h1>Parser boundary</h1>');
+  });
+
+  it('keeps first-session HAM guidance and Go HAM controls interactive', () => {
+    const html = renderToStaticMarkup(
+      createElement(HamModeStartSheet, {
+        busy: false,
+        hamMode: {
+          enabled: false,
+          phase: 'disabled',
+          promptGuidance: 'Favor parser boundaries.',
+          startRequestedAt: null,
+          activeRunId: null,
+          lastHandledRunId: null,
+          lastStartedRunId: null,
+          lastError: null,
+          updatedAt: null
+        },
+        generationUpdate: null,
+        onClose: () => undefined,
+        onStart: () => undefined
+      })
+    );
+
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).not.toContain('ham-mode-start-button is-running');
+    expect(html).not.toMatch(/<textarea[^>]*disabled=/);
   });
 });

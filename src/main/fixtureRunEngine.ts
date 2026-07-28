@@ -112,6 +112,10 @@ export class FixtureRunEngine {
     this.scheduledRuns.delete(runId);
   }
 
+  public hasRun(runId: string): boolean {
+    return this.scheduledRuns.has(runId);
+  }
+
   public dispose(): void {
     for (const scheduled of this.scheduledRuns.values()) {
       if (scheduled.timer) {

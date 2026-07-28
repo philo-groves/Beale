@@ -488,6 +488,41 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('persists HAM Mode state in workspace-owned metadata', () => {
+    const workspace = tempWorkspace();
+    const databasePath = globalDatabasePath();
+    const artifactRoot = join(workspace, '.beale', 'artifacts');
+    const first = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath: workspace });
+    first.initialize();
+    first.setHamModeState({
+      enabled: true,
+      phase: 'waiting_for_session',
+      promptGuidance: 'Favor parser boundaries.',
+      startRequestedAt: '2026-07-28T10:00:00.000Z',
+      activeRunId: null,
+      lastHandledRunId: 'run_previous',
+      lastStartedRunId: 'run_ham',
+      lastError: null,
+      updatedAt: '2026-07-28T10:00:00.000Z'
+    });
+    first.close();
+
+    const reopened = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath: workspace });
+    reopened.initialize();
+    expect(reopened.getHamModeState()).toEqual({
+      enabled: true,
+      phase: 'waiting_for_session',
+      promptGuidance: 'Favor parser boundaries.',
+      startRequestedAt: '2026-07-28T10:00:00.000Z',
+      activeRunId: null,
+      lastHandledRunId: 'run_previous',
+      lastStartedRunId: 'run_ham',
+      lastError: null,
+      updatedAt: '2026-07-28T10:00:00.000Z'
+    });
+    reopened.close();
+  });
+
   it('onboards workspaces into the global registry and mirrors run summaries', () => {
     const workspace = tempWorkspace();
     const registryDir = tempWorkspace();
@@ -618,6 +653,7 @@ describe('Beale workbench skeleton', () => {
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { status: 'error', provider: 'xai', model: 'grok-4.3', effort: 'medium', errorMessage: 'Fixture title failure.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { title: 'Zsh Host Adapter Validation', provider: 'xai', model: 'grok-4.3', effort: 'medium' } }));",
+        "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Inspect parser boundary.' } }));",
@@ -648,6 +684,13 @@ describe('Beale workbench skeleton', () => {
     expect(runSnapshot.runs[0]?.engine).toBe('honeycrisp');
     expect(snapshot.workspace.workspacePath).toBe(workspace);
 
+    await waitForCondition(
+      () =>
+        service.getCachedWorkspaceRegistryState().researchSessions.find((session) => session.runId === runId)?.title ===
+        'Zsh Host Adapter Validation',
+      5000
+    );
+    expect(service.getSnapshot()?.runs[0]?.run.status).toBe('active');
     await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'completed', 5000);
 
     const detail = service.getRunDetail(runId ?? '');
@@ -2196,6 +2239,208 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('runs persisted HAM sessions one at a time from the previous transcript and subject memory', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-mode';
+    const workspace = tempWorkspace();
+    const modelRequests: Record<string, unknown>[] = [];
+    const generationUpdates: Array<{ promptMarkdown: string; reasoningSummary: string | null }> = [];
+    const service = new WorkspaceService(() => undefined, {
+      onHamModeGenerationUpdate: (update) => generationUpdates.push({
+        promptMarkdown: update.promptMarkdown,
+        reasoningSummary: update.reasoningSummary
+      }),
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        modelRequests.push(request);
+        return new Response(
+          sse(
+            event('response.reasoning_summary_text.delta', {
+              type: 'response.reasoning_summary_text.delta',
+              delta: 'Extending the unresolved parser boundary.'
+            }) +
+            event('response.output_text.done', {
+              type: 'response.output_text.done',
+              text: JSON.stringify({
+                promptMarkdown: '# One parser outcome\nFind one evidence-backed parser boundary violation under the recorded threat model.'
+              })
+            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_ham_prompt_generation' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        );
+      }
+    });
+
+    service.createWorkspace(workspace);
+    const scoped = service.saveScope({
+      workspaceName: 'HAM Parser Workspace',
+      scopeOwner: 'Example Subject',
+      descriptionMarkdown: 'Authorized parser source review.',
+      rulesMarkdown: 'Treat remote input as attacker controlled and require a safe proof.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'repo', '/src/parser')]
+    });
+    const seed = startRunForTest(service, {
+      ...runInput('source_review'),
+      promptMarkdown: '# Seed parser review\nMap the parser boundary and record unresolved paths.'
+    });
+    const seedRunId = seed.runs[0]?.run.id ?? '';
+    const memoryDb = new DatabaseSync(scoped.workspace.databasePath);
+    memoryDb.exec(`
+      CREATE TABLE IF NOT EXISTS memory_nodes (id TEXT PRIMARY KEY, tier TEXT NOT NULL, scope_key TEXT NOT NULL, session_id TEXT, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_node_assets (node_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY(node_id, asset_id));
+      CREATE TABLE IF NOT EXISTS memory_node_tags (node_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(node_id, tag));
+    `);
+    const subjectId = scoped.honeycrispMemory.contextSubjectId ?? '';
+    memoryDb.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'trajectory_ham_subject',
+      'subject',
+      subjectId,
+      null,
+      scoped.workspace.workspaceId,
+      'HAM Parser Workspace',
+      subjectId,
+      'Example Subject',
+      'trajectory',
+      'Promising parser boundary',
+      'promising parser boundary',
+      'The previous session reached an unresolved length conversion.',
+      'Extend only if the attacker-controlled length reaches allocation arithmetic.',
+      'suspected',
+      0.7,
+      '{}',
+      '2026-07-28T10:00:00.000Z',
+      '2026-07-28T10:00:00.000Z',
+      1
+    );
+    memoryDb.close();
+
+    const enabled = service.setHamModeEnabled(true, 'Favor remotely reachable parser length conversions.');
+    expect(enabled.hamMode.enabled).toBe(true);
+    expect(enabled.hamMode.promptGuidance).toBe('Favor remotely reachable parser length conversions.');
+    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
+
+    const running = service.getSnapshot();
+    const hamRun = running?.runs[0]?.run;
+    expect(hamRun?.id).not.toBe(seedRunId);
+    expect(hamRun?.status).toBe('active');
+    expect(hamRun?.promptMarkdown).toContain('One parser outcome');
+    expect(running?.hamMode).toMatchObject({
+      enabled: true,
+      phase: 'session_active',
+      activeRunId: hamRun?.id,
+      lastHandledRunId: seedRunId,
+      lastStartedRunId: hamRun?.id,
+      lastError: null
+    });
+    expect(modelRequests).toHaveLength(1);
+    const serialized = JSON.stringify(modelRequests[0]);
+    expect(serialized).toContain('HAM Mode');
+    expect(serialized).toContain('exactly one primary security research outcome');
+    expect(serialized).toContain('red-team it for shortcuts');
+    expect(serialized).toContain('Seed parser review');
+    expect(serialized).toContain('Promising parser boundary');
+    expect(serialized).toContain('subjectMemories');
+    expect(serialized).toContain('transcript');
+    expect(serialized).toContain('Favor remotely reachable parser length conversions.');
+    expect(generationUpdates.some((update) => update.reasoningSummary === 'Extending the unresolved parser boundary.')).toBe(true);
+    expect(generationUpdates.at(-1)?.promptMarkdown).toContain('One parser outcome');
+
+    const disabled = service.setHamModeEnabled(false);
+    expect(disabled.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
+    expect(service.getRunDetail(hamRun?.id ?? '').run.status).toBe('active');
+    expect(service.getSnapshot()?.runs).toHaveLength(2);
+    service.close();
+
+    const reopened = new WorkspaceService();
+    const reopenedSnapshot = reopened.openWorkspace(workspace);
+    expect(reopenedSnapshot.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
+    reopened.close();
+  });
+
+  it('starts HAM explicitly from a dormant paused session instead of waiting indefinitely', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-paused-ham-start';
+    let promptRequests = 0;
+    const workspace = tempWorkspace();
+    let service = new WorkspaceService();
+    service.createWorkspace(workspace);
+    const pausedSnapshot = service.startRun(runInput('source_review'), 'scheduled');
+    const pausedRunId = pausedSnapshot.runs[0]?.run.id ?? '';
+    service.steerRun({ type: 'pause', runId: pausedRunId });
+    expect(service.getRunDetail(pausedRunId).run.status).toBe('paused');
+    service.close();
+
+    service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () => {
+        promptRequests += 1;
+        return new Response(
+          sse(
+            event('response.output_text.done', {
+              type: 'response.output_text.done',
+              text: JSON.stringify({
+                promptMarkdown: '# Resume with a new session\nUse the paused transcript as prior context and pursue one bounded outcome.'
+              })
+            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_paused_ham_start' } })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        );
+      }
+    });
+    service.openWorkspace(workspace);
+
+    const enabled = service.setHamModeEnabled(true);
+    expect(enabled.hamMode).toMatchObject({
+      enabled: true,
+      phase: 'waiting_for_session',
+      activeRunId: null
+    });
+    expect(enabled.hamMode.startRequestedAt).toBeTruthy();
+
+    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
+    const next = service.getSnapshot();
+    expect(promptRequests).toBe(1);
+    expect(next?.runs[0]?.run.id).not.toBe(pausedRunId);
+    expect(next?.runs[0]?.run.promptMarkdown).toContain('Resume with a new session');
+    expect(next?.hamMode.startRequestedAt).toBeNull();
+    service.setHamModeEnabled(false);
+    service.close();
+  });
+
+  it('cancels HAM prompt preparation without interrupting the current session when disabled', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-disable';
+    let fetchStarted: (() => void) | null = null;
+    let fetchAborted = false;
+    const started = new Promise<void>((resolve) => {
+      fetchStarted = resolve;
+    });
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        fetchStarted?.();
+        return await new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal;
+          if (!signal) throw new Error('Expected HAM prompt generation to pass an AbortSignal.');
+          signal.addEventListener('abort', () => {
+            fetchAborted = true;
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        });
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+    const seed = startRunForTest(service, runInput('source_review'));
+    const seedRunId = seed.runs[0]?.run.id ?? '';
+
+    service.setHamModeEnabled(true);
+    await started;
+    const disabled = service.setHamModeEnabled(false);
+    await waitForCondition(() => fetchAborted);
+
+    expect(disabled.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
+    expect(service.getRunDetail(seedRunId).run.status).toBe('completed');
+    expect(service.getSnapshot()?.runs).toHaveLength(1);
+    service.close();
+  });
+
   it('cancels an in-flight research prompt generation request', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
     let resolveFetchStarted: (() => void) | null = null;
@@ -2469,10 +2714,13 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run paused by user.');
 
     service.steerRun({ type: 'resume', runId });
-    service.steerRun({ type: 'stop', runId });
+    const hamSnapshot = service.setHamModeEnabled(true);
+    expect(hamSnapshot.hamMode).toMatchObject({ enabled: true, phase: 'session_active', activeRunId: runId });
+    const stopped = service.steerRun({ type: 'stop', runId });
     detail = service.getRunDetail(runId);
     expect(detail.run.status).toBe('stopped');
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run stopped by user.');
+    expect(stopped.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
 
     service.close();
   });

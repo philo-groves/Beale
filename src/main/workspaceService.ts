@@ -24,6 +24,7 @@ import {
 } from './sourceMaterializer';
 import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
+import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import type {
   AttemptRecord,
   ArtifactRecord,
@@ -31,6 +32,8 @@ import type {
   ExecutorStatus,
   FixtureScenario,
   GeneratedResearchPrompt,
+  HamModeGenerationUpdate,
+  HamModeState,
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemoryNodeSummary,
@@ -55,6 +58,7 @@ import type {
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
+  RunRow,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -213,6 +217,23 @@ const RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
   'Avoid prompts that send the agent into broad workspace-page, HackerOne, source-discovery, or account-creation exploration loops after the target and authorization boundary are already known.',
   'Return strict JSON only with a string field named promptMarkdown.'
 ].join('\n');
+const HAM_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
+  RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS,
+  'This prompt will start the next session in HAM Mode, a sequence of independent research sessions rather than a persistent goal loop.',
+  'Review the complete previous-session transcript and every supplied subject-tier Honeycrisp memory before choosing the next session objective.',
+  'Treat optional human prompt guidance as the researcher’s preferred direction for every HAM session. Follow it when it remains consistent with recorded authorization, evidence, and the single-outcome requirement.',
+  'Decide whether the strongest next move is to extend the previous session or pivot to a different underexplored attack surface. Make that decision from evidence, unresolved memory state, realistic impact, and diminishing returns.',
+  'Write exactly one primary security research outcome for the session. Do not combine competing outcomes such as vulnerability discovery and broad coverage improvement.',
+  'Define the outcome precisely, including realistic attacker capabilities, trust boundaries, what evidence would establish success, and what preconditions or duplicate/false-positive conditions invalidate a candidate.',
+  'Describe the desired outcome and constraints, not a prescribed step-by-step path. Preserve the research agent’s freedom to choose static analysis, variant analysis, fuzzing, differential testing, targeted execution, or another suitable method.',
+  'If a specific method is essential, name only the method-level constraint; do not require creating or reusing a particular harness unless the evidence makes that necessary.',
+  'Use recorded threat-model and scope material to define what counts as a valid vulnerability. Reject findings that require implausible attacker control, misuse internal APIs, or lack real security impact.',
+  'Treat “no bug found” in the first explored path as an intermediate result. The session should persist across promising alternatives, but it may end naturally after recording reusable negative knowledge when its single objective is convincingly exhausted.',
+  'Before returning the prompt, red-team it for shortcuts: identify internally how a future agent could satisfy it lazily, avoid meaningful code review, accept weak evidence, inflate severity, or repeat exhausted work. Revise the prompt to close those easy outs.',
+  'If the session delegates, each subagent must receive one bounded outcome.',
+  'Require duplicate checking and tool-, artifact-, or verifier-backed evidence before a vulnerability candidate is treated as established.',
+  'Return only the revised final prompt in the promptMarkdown field; do not include your extend-or-pivot deliberation or prompt critique.'
+].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
 export interface WorkspaceChange {
@@ -282,6 +303,7 @@ export interface WorkspaceServiceOptions {
   repositoryStoreDirectory?: string;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
+  onHamModeGenerationUpdate?: (update: HamModeGenerationUpdate) => void;
 }
 
 interface WorkspaceRuntime {
@@ -291,6 +313,13 @@ interface WorkspaceRuntime {
   db: WorkspaceDatabase;
   fixtureEngine: FixtureRunEngine | null;
   honeycrispEngine: HoneycrispRunEngine;
+}
+
+interface ResearchPromptGenerationOptions {
+  controller?: AbortController;
+  hamMode?: boolean;
+  hamPromptGuidance?: string;
+  forceDefaultModel?: boolean;
 }
 
 export class WorkspaceService {
@@ -308,6 +337,10 @@ export class WorkspaceService {
   private pendingChangeRequiresWorkspaceRegistrySync = false;
   private pendingChangeIncludesWorkspaceRegistry = false;
   private readonly researchPromptControllers = new Map<string, AbortController>();
+  private readonly hamPromptControllers = new Map<string, AbortController>();
+  private readonly hamContinuationInFlight = new Set<string>();
+  private readonly hamContinuationScheduled = new Set<string>();
+  private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
 
@@ -827,17 +860,32 @@ export class WorkspaceService {
   }
 
   public async generateResearchPrompt(input: ResearchPromptGenerationInput | null = null, onUpdate?: ResearchPromptGenerationUpdateHandler): Promise<GeneratedResearchPrompt> {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    return this.generateResearchPromptForRuntime(runtime, input, onUpdate);
+  }
+
+  private async generateResearchPromptForRuntime(
+    runtime: WorkspaceRuntime,
+    input: ResearchPromptGenerationInput | null,
+    onUpdate?: ResearchPromptGenerationUpdateHandler,
+    options: ResearchPromptGenerationOptions = {}
+  ): Promise<GeneratedResearchPrompt> {
     requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
-    const db = this.requireDb();
+    const db = runtime.db;
     const scope = db.getActiveScope();
     const status = this.openAiAuth.getStatus();
     const requestId = input?.requestId?.trim() || null;
-    const controller = new AbortController();
-    if (requestId) {
+    const controller = options.controller ?? new AbortController();
+    if (requestId && !options.hamMode) {
       this.researchPromptControllers.get(requestId)?.abort();
       this.researchPromptControllers.set(requestId, controller);
     }
-    const model = input?.model?.trim() || status.defaultModel;
+    const model = options.forceDefaultModel ? status.defaultModel : input?.model?.trim() || status.defaultModel;
+    const memory = this.memorySummaryForRuntime(runtime, scope);
+    const details = db.listRunRows().slice(0, 12).map((row) =>
+      attachHoneycrispMemory(db.getRunDetail(row.run.id), this.memorySummaryForRuntime(runtime, scope, row.run.id))
+    );
     const adapter = new OpenAiResponsesAdapter(
       this.openAiAuth,
       this.options.openAiFetch ?? (fetch as FetchLike),
@@ -848,7 +896,7 @@ export class WorkspaceService {
     );
     const body = adapter.buildRequest({
       model,
-      instructions: RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS,
+      instructions: options.hamMode ? HAM_PROMPT_RECOMMENDATION_INSTRUCTIONS : RESEARCH_PROMPT_RECOMMENDATION_INSTRUCTIONS,
       input: [
         {
           type: 'message',
@@ -856,7 +904,17 @@ export class WorkspaceService {
           content: [
             {
               type: 'input_text',
-              text: JSON.stringify(buildResearchPromptRecommendationInput(scope, db.listRunRows().map((row) => db.getRunDetail(row.run.id)), input), null, 2)
+              text: JSON.stringify(
+                buildResearchPromptRecommendationInput(
+                  scope,
+                  details,
+                  input,
+                  options.hamMode ? memory : null,
+                  options.hamMode ? options.hamPromptGuidance ?? '' : ''
+                ),
+                null,
+                2
+              )
             }
           ]
         }
@@ -866,7 +924,7 @@ export class WorkspaceService {
       text: { verbosity: 'medium' },
       metadata: {
         beale_run_id: requestId ? `prompt_generation_${requestId}` : `prompt_generation_${db.getWorkspaceId()}`,
-        beale_task: 'research_prompt_recommendation',
+        beale_task: options.hamMode ? 'ham_research_prompt_recommendation' : 'research_prompt_recommendation',
         beale_workspace_scope_version: scope.id
       }
     });
@@ -876,7 +934,7 @@ export class WorkspaceService {
       emitResearchPromptGenerationUpdate(requestId, promptMarkdown, onUpdate);
       return { promptMarkdown };
     } finally {
-      if (requestId && this.researchPromptControllers.get(requestId) === controller) {
+      if (requestId && !options.hamMode && this.researchPromptControllers.get(requestId) === controller) {
         this.researchPromptControllers.delete(requestId);
       }
     }
@@ -938,6 +996,55 @@ export class WorkspaceService {
     db.saveScope(scope);
     this.emitChange();
     return this.requireSnapshot();
+  }
+
+  public setHamModeEnabled(enabled: boolean, promptGuidance?: string): WorkspaceSnapshot {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    const current = runtime.db.getHamModeState();
+    if (!enabled) {
+      this.disableHamMode(runtime, current);
+      this.emitChangeNow();
+      return this.requireSnapshot();
+    }
+
+    const activeRun = latestActiveRun(runtime);
+    const latestRun = runtime.db.listRunRows()[0] ?? null;
+    const liveDormantRun =
+      latestRun &&
+      (latestRun.run.status === 'paused' || latestRun.run.status === 'blocked') &&
+      runtimeHasRun(runtime, latestRun.run.id)
+        ? latestRun
+        : null;
+    const updatedAt = nowIso();
+    runtime.db.setHamModeState({
+      ...current,
+      enabled: true,
+      phase: activeRun ? 'session_active' : 'waiting_for_session',
+      promptGuidance: promptGuidance === undefined ? current.promptGuidance : promptGuidance.trim().slice(0, 6000),
+      startRequestedAt: activeRun || liveDormantRun ? null : updatedAt,
+      activeRunId: activeRun?.run.id ?? liveDormantRun?.run.id ?? null,
+      lastError: null,
+      updatedAt
+    });
+    this.scheduleHamContinuation(runtime);
+    this.emitChangeNow();
+    return this.requireSnapshot();
+  }
+
+  private disableHamMode(runtime: WorkspaceRuntime, current: HamModeState = runtime.db.getHamModeState()): void {
+    this.hamPromptControllers.get(runtime.workspacePath)?.abort();
+    this.hamPromptControllers.delete(runtime.workspacePath);
+    this.hamContinuationScheduled.delete(runtime.workspacePath);
+    runtime.db.setHamModeState({
+      ...current,
+      enabled: false,
+      phase: 'disabled',
+      startRequestedAt: null,
+      activeRunId: null,
+      lastError: null,
+      updatedAt: nowIso()
+    });
   }
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
@@ -1208,6 +1315,11 @@ export class WorkspaceService {
         break;
       }
       case 'stop': {
+        const runtime = this.getForegroundRuntime();
+        const hamMode = db.getHamModeState();
+        if (runtime && hamMode.enabled && hamMode.activeRunId === action.runId) {
+          this.disableHamMode(runtime, hamMode);
+        }
         this.fixtureEngine?.stop(action.runId);
         this.honeycrispEngine?.stop(action.runId);
         if (attempt) db.updateAttemptState(attempt.id, 'stopped', 'Stopped by user steering.');
@@ -1554,6 +1666,12 @@ export class WorkspaceService {
       controller.abort();
     }
     this.researchPromptControllers.clear();
+    for (const controller of this.hamPromptControllers.values()) {
+      controller.abort();
+    }
+    this.hamPromptControllers.clear();
+    this.hamContinuationInFlight.clear();
+    this.hamContinuationScheduled.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
       this.disposeRuntime(foreground);
@@ -1594,6 +1712,7 @@ export class WorkspaceService {
     if (foreground?.workspacePath === workspacePath) {
       this.getWorkspaceRegistry();
       this.syncWorkspaceRegistry();
+      this.scheduleHamContinuation(foreground);
       if (emitChange) this.emitChange();
       return this.requireSnapshot();
     }
@@ -1605,13 +1724,16 @@ export class WorkspaceService {
       this.setForegroundRuntime(background);
       this.getWorkspaceRegistry();
       this.syncWorkspaceRegistry();
+      this.scheduleHamContinuation(background);
       if (emitChange) this.emitChange();
       return this.requireSnapshot();
     }
 
-    this.setForegroundRuntime(this.createRuntime(workspacePath, bealeDir, artifactRoot));
+    const runtime = this.createRuntime(workspacePath, bealeDir, artifactRoot);
+    this.setForegroundRuntime(runtime);
     this.getWorkspaceRegistry();
     this.syncWorkspaceRegistry();
+    this.scheduleHamContinuation(runtime);
     if (emitChange) this.emitChange();
     return this.requireSnapshot();
   }
@@ -1636,7 +1758,7 @@ export class WorkspaceService {
       honeycrispEngine: new HoneycrispRunEngine(
         db,
         workspacePath,
-        () => this.emitRuntimeChange(workspacePath),
+        (change) => this.emitRuntimeChange(workspacePath, change),
         this.getWorkspaceRegistry().getShellOptionsPath()
       )
     };
@@ -1719,7 +1841,10 @@ export class WorkspaceService {
   }
 
   private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
-    return runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active');
+    return (
+      runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active') ||
+      this.hamContinuationInFlight.has(runtime.workspacePath)
+    );
   }
 
   private pruneBackgroundRuntimeCache(): void {
@@ -1733,14 +1858,24 @@ export class WorkspaceService {
   }
 
   private disposeRuntime(runtime: WorkspaceRuntime): void {
+    this.disposedRuntimeDatabases.add(runtime.db);
+    this.hamPromptControllers.get(runtime.workspacePath)?.abort();
+    this.hamPromptControllers.delete(runtime.workspacePath);
+    this.hamContinuationScheduled.delete(runtime.workspacePath);
     runtime.fixtureEngine?.dispose();
     runtime.honeycrispEngine.dispose();
     runtime.db.close();
   }
 
-  private emitRuntimeChange(workspacePath: string): void {
+  private emitRuntimeChange(workspacePath: string, change: { workspaceRegistryChanged?: boolean } = {}): void {
     if (this.workspacePath === workspacePath) {
       const runtime = this.getForegroundRuntime();
+      if (runtime) this.scheduleHamContinuation(runtime);
+      if (runtime && change.workspaceRegistryChanged) {
+        this.syncWorkspaceRegistryForRuntime(runtime, false);
+        this.onChange({ workspaceRegistryChanged: true });
+        return;
+      }
       if (runtime && this.hasActiveRuntimeWork(runtime)) {
         return;
       }
@@ -1752,13 +1887,187 @@ export class WorkspaceService {
     }
     const runtime = this.backgroundRuntimes.get(workspacePath);
     if (runtime) {
-      if (!this.hasActiveRuntimeWork(runtime)) {
+      this.scheduleHamContinuation(runtime);
+      if (change.workspaceRegistryChanged || !this.hasActiveRuntimeWork(runtime)) {
         this.syncWorkspaceRegistryForRuntime(runtime, false);
         this.onChange({ workspaceRegistryChanged: true });
       }
       return;
     }
     this.onChange({ workspaceRegistryChanged: false });
+  }
+
+  private scheduleHamContinuation(runtime: WorkspaceRuntime): void {
+    if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+    const workspacePath = runtime.workspacePath;
+    const state = runtime.db.getHamModeState();
+    if (!state.enabled || state.phase === 'error' || this.hamContinuationInFlight.has(workspacePath) || this.hamContinuationScheduled.has(workspacePath)) return;
+    const activeRun = latestActiveRun(runtime);
+    if (activeRun) {
+      if (state.phase !== 'session_active' || state.activeRunId !== activeRun.run.id) {
+        runtime.db.setHamModeState({
+          ...state,
+          phase: 'session_active',
+          startRequestedAt: null,
+          activeRunId: activeRun.run.id,
+          lastError: null,
+          updatedAt: nowIso()
+        });
+      }
+      return;
+    }
+    const latestRun = runtime.db.listRunRows()[0] ?? null;
+    const explicitStartRequested = Boolean(state.startRequestedAt) && (!latestRun || !runtimeHasRun(runtime, latestRun.run.id));
+    if (!explicitStartRequested && latestRun && (latestRun.run.status === 'paused' || latestRun.run.status === 'blocked')) {
+      if (state.phase !== 'waiting_for_session' || state.activeRunId !== null) {
+        runtime.db.setHamModeState({
+          ...state,
+          phase: 'waiting_for_session',
+          activeRunId: null,
+          updatedAt: nowIso()
+        });
+      }
+      return;
+    }
+    if (!explicitStartRequested && latestRun && state.lastHandledRunId === latestRun.run.id) return;
+    this.hamContinuationScheduled.add(workspacePath);
+    setImmediate(() => {
+      this.hamContinuationScheduled.delete(workspacePath);
+      void this.runHamContinuation(runtime);
+    });
+  }
+
+  private async runHamContinuation(runtime: WorkspaceRuntime): Promise<void> {
+    if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+    const workspacePath = runtime.workspacePath;
+    if (this.hamContinuationInFlight.has(workspacePath)) return;
+    this.hamContinuationInFlight.add(workspacePath);
+    try {
+      let state = runtime.db.getHamModeState();
+      const rows = runtime.db.listRunRows();
+      const previous = rows[0] ?? null;
+      const explicitStartRequested = Boolean(state.startRequestedAt) && (!previous || !runtimeHasRun(runtime, previous.run.id));
+      if (!state.enabled || latestActiveRun(runtime)) return;
+      if (
+        !explicitStartRequested &&
+        previous &&
+        (previous.run.status === 'paused' || previous.run.status === 'blocked' || state.lastHandledRunId === previous.run.id)
+      ) return;
+
+      runtime.db.setHamModeState({
+        ...state,
+        phase: 'reviewing_research',
+        activeRunId: null,
+        lastError: null,
+        updatedAt: nowIso()
+      });
+      this.emitHamModeChange(runtime);
+
+      const startInput = hamStartRunInput(previous, runtime.db.getActiveScope());
+      const controller = new AbortController();
+      const requestId = `ham_${runtime.db.getWorkspaceId()}_${Date.now().toString(36)}`;
+      let generatedPromptMarkdown = '';
+      let reasoningSummary: string | null = null;
+      const emitGenerationUpdate = (update: ResearchPromptGenerationUpdate): void => {
+        generatedPromptMarkdown = update.promptMarkdown || generatedPromptMarkdown;
+        if (update.reasoningSummary !== undefined) reasoningSummary = update.reasoningSummary;
+        this.options.onHamModeGenerationUpdate?.({
+          workspaceId: runtime.db.getWorkspaceId(),
+          requestId,
+          promptMarkdown: generatedPromptMarkdown,
+          reasoningSummary
+        });
+      };
+      emitGenerationUpdate({ requestId, promptMarkdown: '', reasoningSummary: null });
+      this.hamPromptControllers.get(workspacePath)?.abort();
+      this.hamPromptControllers.set(workspacePath, controller);
+      const generated = await this.generateResearchPromptForRuntime(
+        runtime,
+        { ...researchPromptGenerationInputFromStartInput(startInput), requestId },
+        emitGenerationUpdate,
+        {
+          controller,
+          hamMode: true,
+          hamPromptGuidance: state.promptGuidance,
+          forceDefaultModel: true
+        }
+      );
+      if (this.hamPromptControllers.get(workspacePath) === controller) {
+        this.hamPromptControllers.delete(workspacePath);
+      }
+
+      state = runtime.db.getHamModeState();
+      if (!state.enabled || latestActiveRun(runtime)) return;
+      runtime.db.setHamModeState({
+        ...state,
+        phase: 'starting_session',
+        activeRunId: null,
+        lastError: null,
+        updatedAt: nowIso()
+      });
+      this.emitHamModeChange(runtime);
+
+      if (!runtime.db.getHamModeState().enabled || latestActiveRun(runtime)) return;
+      this.startRunOnRuntime(runtime, { ...startInput, promptMarkdown: generated.promptMarkdown });
+      const started = runtime.db.listRunRows()[0] ?? null;
+      if (!started) throw new Error('HAM Mode could not identify the newly started research session.');
+      state = runtime.db.getHamModeState();
+      runtime.db.setHamModeState({
+        ...state,
+        enabled: true,
+        phase: 'session_active',
+        startRequestedAt: null,
+        activeRunId: started.run.id,
+        lastHandledRunId: previous?.run.id ?? null,
+        lastStartedRunId: started.run.id,
+        lastError: null,
+        updatedAt: nowIso()
+      });
+      this.emitHamModeChange(runtime);
+    } catch (error) {
+      if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+      const current = runtime.db.getHamModeState();
+      if (current.enabled && !isAbortError(error)) {
+        runtime.db.setHamModeState({
+          ...current,
+          phase: 'error',
+          startRequestedAt: null,
+          activeRunId: null,
+          lastError: errorMessage(error),
+          updatedAt: nowIso()
+        });
+        this.emitHamModeChange(runtime);
+      }
+    } finally {
+      this.hamPromptControllers.delete(workspacePath);
+      this.hamContinuationInFlight.delete(workspacePath);
+      if (!this.disposedRuntimeDatabases.has(runtime.db)) this.scheduleHamContinuation(runtime);
+    }
+  }
+
+  private emitHamModeChange(runtime: WorkspaceRuntime): void {
+    if (this.workspacePath === runtime.workspacePath) {
+      this.emitChange({ syncWorkspaceRegistry: true, workspaceRegistryChanged: true });
+      return;
+    }
+    this.syncWorkspaceRegistryForRuntime(runtime, false);
+    this.onChange({ workspaceRegistryChanged: true });
+  }
+
+  private startRunOnRuntime(runtime: WorkspaceRuntime, input: StartRunInput): void {
+    if (input.runEngine === 'honeycrisp') {
+      runtime.honeycrispEngine.startRun(input);
+      return;
+    }
+    if (input.runEngine !== 'fixture') {
+      throw new Error(`Unsupported HAM research run engine: ${String(input.runEngine)}`);
+    }
+    requireFixtureRunEngineEnabled();
+    const foreground = this.workspacePath === runtime.workspacePath;
+    const engine = foreground
+      ? this.requireFixtureEngine()
+      : runtime.fixtureEngine ?? (runtime.fixtureEngine = new FixtureRunEngine(runtime.db, () => this.emitRuntimeChange(runtime.workspacePath)));
+    engine.startRun(input, 'scheduled');
   }
 
   private getWorkspaceRegistry(): WorkspaceRegistry {
@@ -1828,6 +2137,7 @@ export class WorkspaceService {
       executor: this.profileMainTiming('snapshot.executorStatus', detail, () => hostExecutionStatus()),
       vmPreference: this.profileMainTiming('snapshot.vmPreference', detail, () => this.getVmPreferenceForSnapshot()),
       activeScope,
+      hamMode: runtime.db.getHamModeState(),
       honeycrispMemory: this.profileMainTiming('snapshot.honeycrispMemory', detail, () => this.memorySummaryForRuntime(runtime, activeScope)),
       projectGraph: inactiveProjectGraphSummary(activeScope.id),
       projectSemantic: inactiveProjectSemanticSummary(activeScope.id),
@@ -2774,11 +3084,20 @@ function buildHackerOneModelInput(facts: HackerOneScopeImportFacts): Record<stri
   };
 }
 
-function buildResearchPromptRecommendationInput(scope: WorkspaceScopeVersion, details: RunDetail[], input: ResearchPromptGenerationInput | null): Record<string, unknown> {
+function buildResearchPromptRecommendationInput(
+  scope: WorkspaceScopeVersion,
+  details: RunDetail[],
+  input: ResearchPromptGenerationInput | null,
+  hamMemory: HoneycrispMemorySummary | null = null,
+  hamPromptGuidance = ''
+): Record<string, unknown> {
   const recentDetails = details.slice(0, 12);
+  const previousDetail = details[0] ?? null;
   const corpus = buildResearchCorpus(recentDetails);
   const inScopeAssets = scope.assets.filter((asset) => asset.direction === 'in_scope');
   const hasUsableCredentialAssets = inScopeAssets.some((asset) => asset.kind === 'account' || asset.kind === 'credential_ref');
+  const hamSubjectNodes = hamMemory?.nodes.filter((node) => node.tier === 'subject') ?? [];
+  const hamSubjectNodeIds = new Set(hamSubjectNodes.map((node) => node.id));
   const draftPromptMarkdown = input?.draftPromptMarkdown?.trim() ? trimRedactedText(input.draftPromptMarkdown, 6000) : null;
   const operation = input?.operation === 'refine' || draftPromptMarkdown ? 'refine_research_session_prompt' : 'recommend_next_research_session_prompt';
   return {
@@ -2797,6 +3116,58 @@ function buildResearchPromptRecommendationInput(scope: WorkspaceScopeVersion, de
         }
       : null,
     draftPromptMarkdown,
+    hamMode: hamMemory
+      ? {
+          enabled: true,
+          promptGuidance: hamPromptGuidance.trim() ? trimRedactedText(hamPromptGuidance, 6000) : null,
+          continuityDecision: 'Choose one: extend the previous session where evidence shows a promising unresolved path, or pivot when returns are diminishing or another realistic attack surface is stronger.',
+          previousSession: previousDetail
+            ? {
+                runId: previousDetail.run.id,
+                title: trimRedactedText(previousDetail.run.title, 220),
+                status: previousDetail.run.status,
+                promptMarkdown: trimRedactedText(previousDetail.run.promptMarkdown, 12_000),
+                summary: trimRedactedText(previousDetail.run.summary, 4_000),
+                transcript: previousDetail.transcriptMessages.map((message) => ({
+                  role: message.role,
+                  source: message.source,
+                  contentMarkdown: trimRedactedText(message.contentMarkdown, 12_000),
+                  createdAt: message.createdAt
+                }))
+              }
+            : null,
+          subjectMemories: hamSubjectNodes.map((node) => ({
+              id: node.id,
+              type: node.type,
+              status: node.status,
+              title: trimRedactedText(node.title, 500),
+              summary: trimRedactedText(node.summary, 2_000),
+              body: trimRedactedText(node.body, 4_000),
+              confidence: node.confidence,
+              assetIds: node.assetIds.map((assetId) => trimRedactedText(assetId, 500)),
+              tags: node.tags,
+              attributes: redactJsonForModel(node.attributes),
+              evidenceRefs: node.evidenceRefs.map((ref) => ({
+                kind: ref.kind,
+                pathBase: ref.pathBase,
+                path: ref.path ? trimRedactedText(ref.path, 1_000) : null,
+                locator: redactJsonForModel(ref.locator),
+                summary: trimRedactedText(ref.summary, 2_000),
+                createdAt: ref.createdAt
+              })),
+              updatedAt: node.updatedAt,
+              revision: node.revision
+            })),
+          subjectRelationships: hamMemory.edges.filter((edge) => hamSubjectNodeIds.has(edge.fromId) && hamSubjectNodeIds.has(edge.toId)),
+          promptDesignRules: {
+            oneOutcome: 'Give the session exactly one primary security outcome; do not compete with a coverage or infrastructure outcome.',
+            outcomeNotPath: 'Define a precise, testable result and rejection criteria while leaving the research method open.',
+            threatModel: 'Ground attacker capabilities, trust boundaries, impact, duplicates, and invalid preconditions in the recorded scope and threat model.',
+            persistence: 'A first unproductive path is not completion; explore credible alternatives and record reusable negative knowledge before natural completion.',
+            selfRedTeam: 'Silently identify lazy satisfaction paths and revise the final prompt to prevent shortcuts, weak evidence, severity inflation, and repetition.'
+          }
+        }
+      : null,
     prioritizationPolicy: {
       primary: 'security-sensitive in-scope surfaces with little or no prior research coverage',
       fallback: 'extend Honeycrisp primitives, chains, trajectories, and hypotheses by closing verifier, reproduction, impact, or exploitability gaps',
@@ -2997,15 +3368,26 @@ async function collectResearchPromptText(
 ): Promise<string> {
   let deltaText = '';
   let doneText: string | null = null;
+  let reasoningSummary: string | null = null;
   try {
     for await (const event of stream) {
+      const nextReasoningSummary = researchPromptReasoningSummary(event, reasoningSummary);
+      if (nextReasoningSummary !== reasoningSummary) {
+        reasoningSummary = nextReasoningSummary;
+        emitResearchPromptGenerationUpdate(
+          requestId,
+          partialResearchPromptMarkdown(doneText ?? deltaText),
+          onUpdate,
+          reasoningSummary
+        );
+      }
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
         deltaText += event.delta;
-        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(deltaText), onUpdate);
+        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(deltaText), onUpdate, reasoningSummary);
       }
       if (event.type === 'response.output_text.done' && typeof event.text === 'string') {
         doneText = event.text;
-        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(doneText), onUpdate);
+        emitResearchPromptGenerationUpdate(requestId, partialResearchPromptMarkdown(doneText), onUpdate, reasoningSummary);
       }
       if (event.type === 'error') {
         throw openAiApiErrorFromEvent(event);
@@ -3021,9 +3403,34 @@ async function collectResearchPromptText(
   return text;
 }
 
-function emitResearchPromptGenerationUpdate(requestId: string | null, promptMarkdown: string, onUpdate?: ResearchPromptGenerationUpdateHandler): void {
-  if (!requestId || !promptMarkdown || !onUpdate) return;
-  onUpdate({ requestId, promptMarkdown: promptMarkdown.slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS) });
+function emitResearchPromptGenerationUpdate(
+  requestId: string | null,
+  promptMarkdown: string,
+  onUpdate?: ResearchPromptGenerationUpdateHandler,
+  reasoningSummary?: string | null
+): void {
+  if (!requestId || !onUpdate || (!promptMarkdown && !reasoningSummary)) return;
+  onUpdate({
+    requestId,
+    promptMarkdown: promptMarkdown.slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS),
+    ...(reasoningSummary === undefined ? {} : { reasoningSummary })
+  });
+}
+
+function researchPromptReasoningSummary(event: OpenAiStreamEvent, current: string | null): string | null {
+  if (!event.type.includes('reasoning') || !event.type.includes('summary')) return current;
+  if (event.type.endsWith('.delta') && typeof event.delta === 'string') {
+    return `${current ?? ''}${event.delta}`.slice(-GENERATED_RESEARCH_PROMPT_MAX_CHARS);
+  }
+  if (event.type.endsWith('.done') && typeof event.text === 'string') {
+    return event.text.trim().slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS) || current;
+  }
+  const part = event.part;
+  if (part && typeof part === 'object' && !Array.isArray(part)) {
+    const text = (part as Record<string, unknown>).text;
+    if (typeof text === 'string' && text.trim()) return text.trim().slice(0, GENERATED_RESEARCH_PROMPT_MAX_CHARS);
+  }
+  return current;
 }
 
 function hackerOneModelReviewError(error: unknown, authSource: OpenAiAccountStatus['source']): Error {
@@ -3203,6 +3610,71 @@ function searchWorkspaceContext(workspacePath: string, workspace: WorkspaceRegis
 function memorySubjectId(subjectName: string): string {
   const normalized = subjectName.trim().replace(/\s+/g, ' ').toLowerCase();
   return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
+}
+
+function latestActiveRun(runtime: WorkspaceRuntime): RunRow | null {
+  return runtime.db.listRunRows().find((row) => row.run.status === 'queued' || row.run.status === 'active') ?? null;
+}
+
+function runtimeHasRun(runtime: WorkspaceRuntime, runId: string): boolean {
+  return runtime.honeycrispEngine.hasRun(runId) || Boolean(runtime.fixtureEngine?.hasRun(runId));
+}
+
+function hamStartRunInput(previous: RunRow | null, scope: WorkspaceScopeVersion): StartRunInput {
+  if (!previous) {
+    return {
+      runEngine: 'honeycrisp',
+      provider: 'openai-codex',
+      promptMarkdown: '',
+      mode: 'dynamic',
+      attemptStrategy: 'iterative_research',
+      model: DEFAULT_RESEARCH_MODEL,
+      reasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
+      networkProfile: scope.networkProfile,
+      sandboxProfile: 'host',
+      budget: {
+        maxMinutes: UNBOUNDED_RUN_MINUTES,
+        maxAttempts: 1,
+        maxCostUsd: 0
+      }
+    };
+  }
+
+  const { run } = previous;
+  const provider = stringFromRecord(run.budget, 'modelProvider');
+  const input: StartRunInput = {
+    runEngine: previous.engine,
+    ...(provider ? { provider } : {}),
+    promptMarkdown: '',
+    mode: run.mode,
+    attemptStrategy: run.attemptStrategy,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    networkProfile: run.networkProfile,
+    sandboxProfile: run.sandboxProfile,
+    targetAssetId: run.targetAssetId,
+    targetPath: run.targetPath,
+    budget: {
+      maxMinutes: numberFromBudget(run.budget, 'maxMinutes', UNBOUNDED_RUN_MINUTES),
+      maxAttempts: numberFromBudget(run.budget, 'maxAttempts', 1),
+      maxCostUsd: numberFromBudget(run.budget, 'maxCostUsd', 0)
+    }
+  };
+  return previous.engine === 'fixture' ? { ...input, fixtureScenario: fixtureScenarioFromBudget(run.budget) } : input;
+}
+
+function researchPromptGenerationInputFromStartInput(input: StartRunInput): ResearchPromptGenerationInput {
+  return {
+    operation: 'generate',
+    mode: input.mode,
+    attemptStrategy: input.attemptStrategy,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    networkProfile: input.networkProfile,
+    sandboxProfile: input.sandboxProfile,
+    targetAssetId: input.targetAssetId ?? null,
+    targetPath: input.targetPath ?? null
+  };
 }
 
 function numberFromBudget(budget: Record<string, unknown>, key: string, fallback: number): number {
