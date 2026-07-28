@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, formatRelativeActivity, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -64,6 +64,43 @@ describe('subagent trace view models', () => {
     ]);
   });
 
+  it('prefers explicit spawn timestamps over earlier imported child activity', () => {
+    const events = [
+      traceEvent({
+        id: 'late-child-import',
+        createdAt: '2026-07-20T12:00:00.000Z',
+        payload: {
+          agentPath: '/root/created_second',
+          honeycrispTimestamp: '2026-07-20T09:00:00.000Z',
+          payload: { status: 'running', message: 'Imported activity.' }
+        }
+      }),
+      traceEvent({
+        id: 'first-spawn',
+        createdAt: '2026-07-20T12:00:01.000Z',
+        payload: {
+          agentPath: '/root/created_first',
+          honeycrispTimestamp: '2026-07-20T10:00:00.000Z',
+          payload: { type: 'subagent.activity', action: 'spawned', status: 'running', message: 'First task.' }
+        }
+      }),
+      traceEvent({
+        id: 'second-spawn',
+        createdAt: '2026-07-20T12:00:02.000Z',
+        payload: {
+          agentPath: '/root/created_second',
+          honeycrispTimestamp: '2026-07-20T10:01:00.000Z',
+          payload: { type: 'subagent.activity', action: 'spawned', status: 'running', message: 'Second task.' }
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events).map((subagent) => [subagent.path, subagent.createdAt])).toEqual([
+      ['/root/created_first', '2026-07-20T10:00:00.000Z'],
+      ['/root/created_second', '2026-07-20T10:01:00.000Z']
+    ]);
+  });
+
   it('renders Markdown preview messages as compact plain text', () => {
     const events = [
       traceEvent({
@@ -109,13 +146,6 @@ describe('subagent trace view models', () => {
     ])).toBe(2);
   });
 
-  it('formats compact relative activity labels', () => {
-    const now = Date.parse('2026-07-20T12:00:00.000Z');
-    expect(formatRelativeActivity('2026-07-20T11:59:40.000Z', now)).toBe('now');
-    expect(formatRelativeActivity('2026-07-20T11:57:00.000Z', now)).toBe('3m');
-    expect(formatRelativeActivity('2026-07-20T07:00:00.000Z', now)).toBe('5h');
-    expect(formatRelativeActivity('2026-07-18T12:00:00.000Z', now)).toBe('2d');
-  });
 });
 
 function traceEvent(input: Partial<TraceEventRecord>): TraceEventRecord {

@@ -8,7 +8,7 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
-import { activeSubagentCount, formatRelativeActivity, subagentSummaries } from '../../view-models/subagents';
+import { activeSubagentCount, subagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
@@ -37,7 +37,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [scope, setScope] = useState<MemoryLevelFilter>('session');
   const [type, setType] = useState('all');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const nodes = memory?.nodes ?? [];
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
   const runbooks = memory?.runbooks ?? [];
@@ -65,13 +64,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   useEffect(() => {
     if (selectedNodeId && !nodeById.has(selectedNodeId)) setSelectedNodeId(null);
   }, [nodeById, selectedNodeId]);
-
-  useEffect(() => {
-    if (activeView !== 'subagents') return undefined;
-    setNowMs(Date.now());
-    const interval = window.setInterval(() => setNowMs(Date.now()), 60_000);
-    return () => window.clearInterval(interval);
-  }, [activeView]);
 
   useDevRenderProbe('research.memory', () => ({
     loaded: Boolean(memory),
@@ -184,7 +176,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           <div className="memory-catalog-empty">No runbooks in this workspace.</div>
         )
       ) : subagents.length > 0 ? (
-        <MainSideScrollRegion listClassName="subagent-catalog-list" updateKey={subagents.map((agent) => `${agent.path}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}>
+        <MainSideScrollRegion
+          listClassName="subagent-catalog-list"
+          stickToEnd
+          updateKey={subagents.map((agent) => `${agent.path}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+        >
           {subagents.map((agent) => (
             <button
               type="button"
@@ -195,7 +191,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             >
               <span className="subagent-catalog-heading">
                 <strong>{agent.name}</strong>
-                <time dateTime={agent.lastActiveAt} title={formatSessionDateTime(agent.lastActiveAt)}>{formatRelativeActivity(agent.lastActiveAt, nowMs)}</time>
+                <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
               </span>
               <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
               <span className={`subagent-catalog-status status-${stateClass(agent.status)}`}>{traceLabel(agent.status)}</span>
