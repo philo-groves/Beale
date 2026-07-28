@@ -127,7 +127,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <input
                 type="search"
                 value={query}
-                placeholder="Search"
+                placeholder="Find a Memory"
                 aria-label="Search memory"
                 onChange={(event) => setQuery(event.target.value)}
               />
