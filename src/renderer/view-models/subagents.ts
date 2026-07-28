@@ -24,6 +24,15 @@ export function activeSubagentCount(subagents: readonly SubagentSummary[]): numb
   return subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status)).length;
 }
 
+export function visibleSubagentSummaries(
+  subagents: readonly SubagentSummary[],
+  showInactive: boolean
+): SubagentSummary[] {
+  return showInactive
+    ? [...subagents]
+    : subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status));
+}
+
 export function subagentStatusLabel(status: SubagentStatus): string {
   if (status === 'errored') return 'Error';
   return `${status[0]?.toUpperCase() ?? ''}${status.slice(1)}`;

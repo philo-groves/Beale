@@ -8,7 +8,7 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
-import { activeSubagentCount, subagentStatusLabel, subagentSummaries } from '../../view-models/subagents';
+import { activeSubagentCount, subagentStatusLabel, subagentSummaries, visibleSubagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 
@@ -39,6 +39,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [scope, setScope] = useState<MemoryLevelFilter>('session');
   const [type, setType] = useState('all');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [showInactiveSubagents, setShowInactiveSubagents] = useState(false);
   const nodes = memory?.nodes ?? [];
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
   const runbooks = memory?.runbooks ?? [];
@@ -47,6 +48,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events, runStatus), [events, runStatus]);
   const activeSubagents = useMemo(() => activeSubagentCount(subagents), [subagents]);
+  const inactiveSubagents = subagents.length - activeSubagents;
+  const visibleSubagents = useMemo(
+    () => visibleSubagentSummaries(subagents, showInactiveSubagents),
+    [showInactiveSubagents, subagents]
+  );
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
@@ -61,6 +67,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   useEffect(() => {
     setActiveView('memory');
     setSelectedNodeId(null);
+    setShowInactiveSubagents(false);
   }, [runId]);
 
   useEffect(() => {
@@ -180,10 +187,22 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       ) : subagents.length > 0 ? (
         <MainSideScrollRegion
           listClassName="subagent-catalog-list"
-          stickToEnd
-          updateKey={subagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+          stickToEnd={!showInactiveSubagents}
+          updateKey={`${showInactiveSubagents}:${visibleSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}`}
         >
-          {subagents.map((agent) => (
+          {inactiveSubagents > 0 ? (
+            <div className="subagent-inactive-toggle-row">
+              <button
+                type="button"
+                className="subagent-inactive-toggle"
+                aria-pressed={showInactiveSubagents}
+                onClick={() => setShowInactiveSubagents((visible) => !visible)}
+              >
+                {showInactiveSubagents ? 'Hide Inactive' : 'Show Inactive'}
+              </button>
+            </div>
+          ) : null}
+          {visibleSubagents.map((agent) => (
             <button
               type="button"
               className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}

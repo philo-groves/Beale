@@ -2310,6 +2310,41 @@ body.is-resizing-research-side .main-session-grid {
   padding: 0 4px 12px 0;
 }
 
+.subagent-inactive-toggle-row {
+  width: 100%;
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  justify-content: center;
+  background: var(--panel-column);
+  padding: 2px 0 4px;
+}
+
+.subagent-inactive-toggle {
+  min-width: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted-strong);
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.subagent-inactive-toggle:hover,
+.subagent-inactive-toggle[aria-pressed='true'] {
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.subagent-inactive-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 2px;
+}
+
 .subagent-catalog-item {
   width: 100%;
   min-width: 0;
