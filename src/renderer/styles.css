@@ -2404,6 +2404,12 @@ body.is-resizing-research-side .main-session-grid {
   );
 }
 
+.main-trace-view.is-subagent-trace {
+  --trace-footer-height: 0px;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--panel-column);
+}
+
 .runbook-view {
   grid-template-rows: minmax(0, 1fr);
   background: var(--panel);

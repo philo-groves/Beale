@@ -465,7 +465,7 @@ export const TraceView = memo(function TraceView({
   if (!selectedRunId) return null;
 
   return (
-    <section className="main-trace-view" aria-label="Agent trace">
+    <section className={`main-trace-view${showBackToMain ? ' is-subagent-trace' : ''}`} aria-label="Agent trace">
       {showBackToMain ? (
         <button
           type="button"
@@ -502,16 +502,18 @@ export const TraceView = memo(function TraceView({
           </div>
         </div>
       ) : null}
-      <MainSteerArea
-        busy={busy}
-        detail={detail}
-        providerModelCatalog={providerModelCatalog}
-        runId={detail?.run.id ?? null}
-        traceFilterCount={traceFilterCount}
-        totalTraceFilterCount={totalTraceFilterCount}
-        onOpenTraceFilters={onOpenTraceFilters}
-        onSteerInstruction={onSteerInstruction}
-      />
+      {!showBackToMain ? (
+        <MainSteerArea
+          busy={busy}
+          detail={detail}
+          providerModelCatalog={providerModelCatalog}
+          runId={detail?.run.id ?? null}
+          traceFilterCount={traceFilterCount}
+          totalTraceFilterCount={totalTraceFilterCount}
+          onOpenTraceFilters={onOpenTraceFilters}
+          onSteerInstruction={onSteerInstruction}
+        />
+      ) : null}
     </section>
   );
 });

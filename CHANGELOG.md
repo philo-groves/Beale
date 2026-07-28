@@ -6,6 +6,7 @@
 
 - Reordered the steering actions so an icon-only circular Filters control aligns with the steering text on the left while the tightly grouped model, reasoning, and Send controls sit on the right, with hover and focus backgrounds for the Filters and dropdown controls.
 - Increased steering input and placeholder text size and matched its top, bottom, and side padding while leaving the action controls unchanged.
+- Subagent trace views now hide the main-session steering composer and use the recovered vertical space for the trace.
 - Newly selected research sessions now autofocus the steering input when their session view appears.
 - Removed the steering helper status and session-action bar, retaining Filters as an inline composer action beside model effort.
 - Standardized steering control typography and weight, muted its dropdown labels, preserved dropdown descenders, and padded the lower action shelf.
