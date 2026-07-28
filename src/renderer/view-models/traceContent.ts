@@ -147,6 +147,12 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   const inputs = tracePayloadRecord(payload, 'normalizedInputs');
   if (!inputs) return '';
   if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'memory.save') {
+    const result = tracePayloadRecord(payload, 'result');
+    const memoryType = (result ? stringRecordValue(result, 'type') : null) ?? stringRecordValue(inputs, 'type');
+    const status = (result ? stringRecordValue(result, 'status') : null) ?? stringRecordValue(inputs, 'status') ?? 'draft';
+    return [memoryType, status].filter((value): value is string => Boolean(value)).map(traceLabel).join(' • ');
+  }
   if (toolName === 'memory.link') {
     const fromId = stringRecordValue(inputs, 'fromId');
     const relation = stringRecordValue(inputs, 'relation');
@@ -268,6 +274,14 @@ export function honeycrispMemoryCorrectionSummary(event: TraceEventRecord): stri
   if (!payload || honeycrispToolName(event) !== 'memory.correct') return '';
   const inputs = tracePayloadRecord(payload, 'normalizedInputs');
   return inputs ? stringRecordValue(inputs, 'summary') ?? '' : '';
+}
+
+export function honeycrispMemorySaveSummary(event: TraceEventRecord): string {
+  const payload = honeycrispEventToolPayload(event);
+  if (!payload || honeycrispToolName(event) !== 'memory.save') return '';
+  const result = tracePayloadRecord(payload, 'result');
+  const inputs = tracePayloadRecord(payload, 'normalizedInputs');
+  return (result ? stringRecordValue(result, 'summary') : null) ?? (inputs ? stringRecordValue(inputs, 'summary') : null) ?? '';
 }
 
 export function honeycrispMemoryLinkNote(event: TraceEventRecord): string {

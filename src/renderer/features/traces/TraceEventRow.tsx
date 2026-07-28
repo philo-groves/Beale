@@ -11,6 +11,7 @@ import {
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
   honeycrispMemoryLinkNote,
+  honeycrispMemorySaveSummary,
   honeycrispMemorySearchResults,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
@@ -83,12 +84,14 @@ export const TraceEventRow = memo(function TraceEventRow({
   const memoryCorrectionTrace = honeycrispToolNameValue === 'memory.correct';
   const memoryGetTrace = honeycrispToolNameValue === 'memory.get';
   const memoryLinkTrace = honeycrispToolNameValue === 'memory.link';
+  const memorySaveTrace = honeycrispToolNameValue === 'memory.save';
   const memorySearchTrace = honeycrispToolNameValue === 'memory.search';
   const collaborationToolTrace = isCollaborationToolName(honeycrispToolNameValue);
   const memoryCorrectionSummary = memoryCorrectionTrace ? honeycrispMemoryCorrectionSummary(event) : '';
   const memoryGetSummary = memoryGetTrace ? honeycrispMemoryGetSummary(event, detailForEvent) : '';
   const memoryLinkNote = memoryLinkTrace ? honeycrispMemoryLinkNote(event) : '';
-  const memorySummary = memoryCorrectionSummary || memoryGetSummary || memoryLinkNote;
+  const memorySaveSummary = memorySaveTrace ? honeycrispMemorySaveSummary(event) : '';
+  const memorySummary = memoryCorrectionSummary || memoryGetSummary || memoryLinkNote || memorySaveSummary;
   const collaborationSummary = collaborationToolTrace ? honeycrispCollaborationTraceSummary(event) : '';
   const fileReadObservation = honeycrispToolObservation && honeycrispToolNameValue === 'file.read';
   const toolTraceSubtext = honeycrispToolRequest || honeycrispToolObservation ? honeycrispToolTraceSubtext(event, detailForEvent) : '';
@@ -132,9 +135,13 @@ export const TraceEventRow = memo(function TraceEventRow({
     </span>
   ) : null;
   const memorySummaryContent = memorySummary ? (
-    <span className="main-trace-memory-summary">
-      {hasSearchHighlight ? renderSearchHighlightedText(memorySummary, searchHighlightQuery) : memorySummary}
-    </span>
+    <div className="main-trace-memory-summary">
+      {hasSearchHighlight
+        ? renderSearchHighlightedText(memorySummary, searchHighlightQuery)
+        : memorySaveTrace
+          ? renderTraceProseText(memorySummary, 'agent_output')
+          : memorySummary}
+    </div>
   ) : null;
   const collaborationSummaryContent = collaborationSummary ? (
     <span className="main-trace-tool-summary">
@@ -170,7 +177,7 @@ export const TraceEventRow = memo(function TraceEventRow({
     />
   ) : null;
   const contextContent = honeycrispToolObservation ? (
-    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || collaborationSummary ? 'is-natural-summary' : ''}`}>
+    <div className={`main-trace-tool-observation-detail ${memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || memorySaveTrace || collaborationSummary ? 'is-natural-summary' : ''}`}>
       {toolSubtextContent}
       {memorySummaryContent}
       {collaborationSummaryContent}
@@ -184,8 +191,8 @@ export const TraceEventRow = memo(function TraceEventRow({
         shellOutputContent ?? structuredContextContent
       )}
     </div>
-  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || collaborationToolTrace) ? (
-    memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || collaborationToolTrace ? (
+  ) : honeycrispToolRequest && (shellToolTrace || memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || memorySaveTrace || collaborationToolTrace) ? (
+    memoryCorrectionTrace || memoryGetTrace || memoryLinkTrace || memorySaveTrace || collaborationToolTrace ? (
       <span className="main-trace-tool-observation-detail is-natural-summary">
         {toolSubtextContent}
         {memorySummaryContent}

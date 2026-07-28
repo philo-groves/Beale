@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
+import { TraceEventRow } from '../src/renderer/features/traces/TraceEventRow';
 import {
   codeBrowserTracePreview,
   compactTracePath,
@@ -9,6 +12,7 @@ import {
   honeycrispMemoryCorrectionSummary,
   honeycrispMemoryGetSummary,
   honeycrispMemoryLinkNote,
+  honeycrispMemorySaveSummary,
   honeycrispMemorySearchResults,
   honeycrispShellTraceOutput,
   honeycrispToolTraceSubtext,
@@ -233,6 +237,12 @@ describe('renderer trace content view models', () => {
       toId: linkedMemoryId,
       note: 'The trajectory repeatedly reaches this primitive.'
     });
+    const memorySave = honeycrispToolRequest('memory.save', {
+      type: 'primitive',
+      title: 'Unchecked ZFTP length',
+      summary: '**Unchecked length** reaches the allocation.',
+      status: 'suspected'
+    });
     const fileRead = honeycrispToolRequest('file.read', { path: '/repo/Src/Modules/zftp.c', offset: 320 });
     const memoryCorrect = honeycrispToolRequest('memory.correct', { id: memoryId, status: 'confirmed', summary: 'Corrected first line.\nClarified second line.' });
     const shellRun = honeycrispToolRequest('shell.run', { utility: 'rg', args: ['-n', 'zftp data', 'Src/Modules'] });
@@ -246,6 +256,8 @@ describe('renderer trace content view models', () => {
     expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Trajectory · ${memoryId}`);
     expect(honeycrispToolTraceSubtext(memoryLink)).toBe(`${memoryId} → supports → ${linkedMemoryId}`);
     expect(honeycrispMemoryLinkNote(memoryLink)).toBe('The trajectory repeatedly reaches this primitive.');
+    expect(honeycrispToolTraceSubtext(memorySave)).toBe('Primitive • Suspected');
+    expect(honeycrispMemorySaveSummary(memorySave)).toBe('**Unchecked length** reaches the allocation.');
     expect(traceEventDetailText(fileRead, 'non_standard')).toBe('/repo/Src/Modules/zftp.c');
     expect(traceEventDetailText(memoryCorrect, 'non_standard')).toBe(`Trajectory · ${memoryId} · Confirmed`);
     expect(honeycrispMemoryCorrectionSummary(memoryCorrect)).toBe('Corrected first line.\nClarified second line.');
@@ -265,6 +277,11 @@ describe('renderer trace content view models', () => {
       { fromId: memoryId, relation: 'supports', toId: linkedMemoryId, note: 'The trajectory repeatedly reaches this primitive.' },
       { fromId: memoryId, relation: 'supports', toId: linkedMemoryId }
     );
+    const memorySave = honeycrispToolObservation(
+      'memory.save',
+      { type: 'primitive', title: 'Unchecked ZFTP length', summary: 'Requested summary.' },
+      { type: 'primitive', status: 'confirmed', summary: '**Persisted summary** with `code`.' }
+    );
     const fileRead = honeycrispToolObservation('file.read', { path: '/repo/Src/Modules/zftp.c' }, { text: 'source' });
     const memoryCorrect = honeycrispToolObservation('memory.correct', { id: memoryId, status: 'suspected', summary: 'Updated memory summary.' }, { id: memoryId });
     const shellRun = honeycrispToolObservation('shell.run', { utility: 'make', args: ['test'] }, { exitCode: 0 });
@@ -274,12 +291,36 @@ describe('renderer trace content view models', () => {
     expect(honeycrispMemoryGetSummary(memoryGet)).toBe('A reusable research trajectory.');
     expect(honeycrispToolTraceSubtext(memoryLink)).toBe(`${memoryId} → supports → ${linkedMemoryId}`);
     expect(honeycrispMemoryLinkNote(memoryLink)).toBe('The trajectory repeatedly reaches this primitive.');
+    expect(honeycrispToolTraceSubtext(memorySave)).toBe('Primitive • Confirmed');
+    expect(honeycrispMemorySaveSummary(memorySave)).toBe('**Persisted summary** with `code`.');
     expect(honeycrispToolTraceSubtext(fileRead)).toBe('');
     expect(honeycrispToolTraceSubtext(memoryCorrect)).toBe(`Trajectory · ${memoryId} · Suspected`);
     expect(honeycrispMemoryCorrectionSummary(memoryCorrect)).toBe('Updated memory summary.');
     expect(honeycrispToolTraceSubtext(shellRun)).toBe('make test');
     expect(isEmptyHoneycrispMemorySearchObservation(memorySearch)).toBe(true);
     expect(isEmptyHoneycrispMemorySearchObservation(honeycrispToolObservation('memory.search', { query: 'ZFTP' }, [{ id: memoryId }]))).toBe(false);
+  });
+
+  it('renders Memory Save metadata and summary Markdown in trace rows', () => {
+    const memorySave = honeycrispToolObservation(
+      'memory.save',
+      { type: 'primitive', title: 'Unchecked ZFTP length', status: 'suspected', summary: '**Unchecked length** reaches `malloc`.' },
+      { type: 'primitive', status: 'suspected', summary: '**Unchecked length** reaches `malloc`.' }
+    );
+    const html = renderToStaticMarkup(
+      createElement(TraceEventRow, {
+        detail: null,
+        entering: false,
+        event: memorySave,
+        searchHighlightQuery: '',
+        selected: false,
+        onSelect: () => undefined
+      })
+    );
+
+    expect(html).toContain('Primitive • Suspected');
+    expect(html).toContain('<strong>Unchecked length</strong>');
+    expect(html).toContain('<code class="main-trace-inline-code">malloc</code>');
   });
 
   it('renders collaboration tool targets, prompts, wait state, and bounded agent lists', () => {

@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Memory Save trace rows now show the memory type and status above a Markdown-formatted summary.
 - Memory Link trace rows now show their source, relationship, and target IDs with the recorded note beneath them.
 - Subagent catalog rows now mirror Memory row styling with status-colored names, neutral inline status labels, two-line descriptions, and shared timestamp/scrollbar behavior; rows sort by Honeycrisp spawn time and follow new agents.
 - More Sessions, memory record details, and transcript Search now open in the shared sliding bottom-sheet surface; memory catalog rows remain compact instead of expanding inline.
