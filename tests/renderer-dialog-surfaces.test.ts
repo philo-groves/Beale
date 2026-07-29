@@ -215,4 +215,36 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('ham-mode-start-button is-running');
     expect(html).not.toMatch(/<textarea[^>]*disabled=/);
   });
+
+  it('keeps HAM restart controls available after prompt generation fails', () => {
+    const html = renderToStaticMarkup(
+      createElement(HamModeStartSheet, {
+        busy: false,
+        hamMode: {
+          enabled: false,
+          phase: 'disabled',
+          promptGuidance: 'Favor parser boundaries.',
+          startRequestedAt: null,
+          activeRunId: null,
+          lastHandledRunId: 'run_seed',
+          lastStartedRunId: null,
+          lastError: 'Prompt generation failed.',
+          updatedAt: '2026-07-29T10:00:00.000Z'
+        },
+        generationUpdate: {
+          workspaceId: 'workspace_one',
+          requestId: 'failed_ham_request',
+          reasoningSummary: 'Still reviewing.',
+          promptMarkdown: ''
+        },
+        onClose: () => undefined,
+        onStart: () => undefined
+      })
+    );
+
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('HAM Mode stopped after an error: Prompt generation failed.');
+    expect(html).not.toContain('Still reviewing.');
+    expect(html).not.toMatch(/<textarea[^>]*disabled=/);
+  });
 });

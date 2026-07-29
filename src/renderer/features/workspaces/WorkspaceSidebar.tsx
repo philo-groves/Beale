@@ -68,7 +68,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         </button>
         <button
           type="button"
-          className={`sidebar-utility-button sidebar-ham-mode ${hamMode?.enabled ? 'active' : ''} ${hamMode?.phase === 'error' ? 'error' : ''}`}
+          className={`sidebar-utility-button sidebar-ham-mode ${hamMode?.enabled ? 'active' : ''} ${
+            hamMode?.phase === 'error' || (!hamMode?.enabled && hamMode?.lastError) ? 'error' : ''
+          }`}
           title={hamModeButtonTitle(hamMode)}
           aria-pressed={hamMode?.enabled ?? false}
           disabled={busy || !snapshot}
@@ -180,9 +182,10 @@ function sessionStatusLabel(value: string): string {
 }
 
 function hamModeButtonTitle(state: HamModeState | null): string {
-  if (!state?.enabled) return 'Enable HAM Mode';
+  if (!state?.enabled) return state?.lastError ? `HAM Mode stopped: ${state.lastError}` : 'Enable HAM Mode';
   if (state.phase === 'reviewing_research') return 'HAM Mode is reviewing the previous session and subject memory';
   if (state.phase === 'starting_session') return 'HAM Mode is starting the next research session';
+  if (state.phase === 'retrying_session') return `HAM Mode is retrying the current session${state.lastError ? `: ${state.lastError}` : ''}`;
   if (state.phase === 'session_active') return 'HAM Mode is active; disable it to let this session finish without starting another';
   if (state.phase === 'error') return `HAM Mode needs attention${state.lastError ? `: ${state.lastError}` : ''}`;
   return 'HAM Mode is waiting for the current session to finish';
