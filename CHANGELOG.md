@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Steering a completed Honeycrisp session now continues root trace turn numbering and carries prior root reasoning summaries, responses, and steering into the continuation context.
 - Subagent counts and catalog statuses now follow only Honeycrisp lifecycle activity, prevent child tool result statuses from making running or interrupted agents appear complete, and mark unresolved agents from superseded attempts or terminal sessions as interrupted.
 - Subagent lists now show active children by default and provide a centered Show Inactive toggle as the first list item for completed, interrupted, and errored children.
 

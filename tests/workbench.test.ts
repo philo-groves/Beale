@@ -1112,6 +1112,8 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, responseId: `response_${turn}`, stopReason: 'stop' } }));",
         'const capture = {',
         '  schemaVersion: 4,',
         '  capturedAt: now,',
@@ -1162,6 +1164,11 @@ describe('Beale workbench skeleton', () => {
       expect(invocations[1]?.prompt).toContain('Now inspect integer truncation paths.');
       expect(invocations[1]?.prompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
       expect(invocations[1]?.prompt).toContain('Turn 1 response.');
+      expect(invocations[1]?.prompt).toContain('Retained reasoning from invocation 1.');
+      expect(invocations[1]?.prompt).toContain('Do not restart the investigation or treat this as turn 1.');
+      const rootTurnEvents = detail.traceEvents.filter((event) => event.summary.startsWith('Honeycrisp model turn '));
+      expect(rootTurnEvents.map((event) => event.payload.turn)).toEqual([1, 2]);
+      expect(rootTurnEvents[1]?.payload).toMatchObject({ processTurn: 1, turn: 2 });
       expect(detail.traceEvents.some((event) => event.summary === 'User steering extended the current research session.')).toBe(true);
     } finally {
       service.close();
