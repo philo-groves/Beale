@@ -281,7 +281,16 @@ export class HoneycrispRunEngine {
     const vmContext = refreshed.vmContexts.find((candidate) => candidate.id === attempt.vmContextId);
     if (!vmContext) throw new Error(`Continuation VM context not found for run ${runId}.`);
     const context: CreatedRunContext = { run, attempt, vmContext };
-    const continuationInput = startRunInputFromRun(run, buildContinuationPrompt(run, detail.transcriptMessages, instruction));
+    const continuationFallbackPrompt = buildContinuationPrompt(run, detail.transcriptMessages, instruction);
+    const continuationInput = startRunInputFromRun(run, instruction.trim());
+    const resumeCapturePath = parentAttempt
+      ? join(
+          this.workspacePath,
+          '.beale',
+          'honeycrisp-runs',
+          `${parentAttempt.parentAttemptId ? `${run.id}.${parentAttempt.id}` : run.id}.capture.json`
+        )
+      : undefined;
 
     this.db.createModelSession({
       runId,
@@ -316,14 +325,18 @@ export class HoneycrispRunEngine {
     });
     this.db.updateRunStatus(runId, 'active', 'Continuing the current Honeycrisp research session.');
 
-    return this.launchRun(context, continuationInput, scope, true);
+    return this.launchRun(context, continuationInput, scope, true, {
+      resumeCapturePath,
+      fallbackPrompt: continuationFallbackPrompt
+    });
   }
 
   private launchRun(
     context: CreatedRunContext,
     input: StartRunInput,
     scope: WorkspaceScopeVersion,
-    continuation: boolean
+    continuation: boolean,
+    resume?: { resumeCapturePath?: string; fallbackPrompt: string }
   ): HoneycrispRunHandle {
     const invocation = resolveHoneycrispInvocation();
     const runDirectory = join(this.workspacePath, '.beale', 'honeycrisp-runs');
@@ -340,7 +353,17 @@ export class HoneycrispRunEngine {
     );
     const args = [
       ...invocation.prefixArgs,
-      ...honeycrispRunArgs(input, this.workspacePath, capturePath, workspaceContextPath, this.shellOptionsPath, !continuation)
+      ...honeycrispRunArgs(
+        input,
+        this.workspacePath,
+        capturePath,
+        workspaceContextPath,
+        context.run.id,
+        this.shellOptionsPath,
+        !continuation,
+        resume?.resumeCapturePath,
+        resume?.fallbackPrompt
+      )
     ];
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -355,7 +378,9 @@ export class HoneycrispRunEngine {
         configuredBy: invocation.configuredBy,
         capturePath,
         workspaceContextPath,
-        continuation
+        continuation,
+        resumeCapturePath: resume?.resumeCapturePath ?? null,
+        nativeResumeRequested: Boolean(resume?.resumeCapturePath)
       },
       vmContextId: context.vmContext.id
     });
@@ -1310,8 +1335,11 @@ function honeycrispRunArgs(
   workspacePath: string,
   capturePath: string,
   workspaceContextPath: string,
+  sessionId: string,
   shellOptionsPath?: string,
-  generateTitle = false
+  generateTitle = false,
+  resumeCapturePath?: string,
+  resumeFallbackPrompt?: string
 ): string[] {
   const args = [
     '--workspace-root',
@@ -1324,9 +1352,17 @@ function honeycrispRunArgs(
     'agent',
     '--event-stream',
     '--control-stream',
+    '--session-id',
+    sessionId,
     '-p',
     input.promptMarkdown
   ];
+  if (resumeCapturePath) {
+    args.push('--resume-capture', resumeCapturePath);
+  }
+  if (resumeFallbackPrompt) {
+    args.push('--resume-fallback-prompt', resumeFallbackPrompt);
+  }
   if (honeycrispMockModeEnabled()) {
     args.push('--mock');
   }
@@ -1776,7 +1812,7 @@ function bealeHoneycrispRuntimeArgs(shellOptionsPath?: string): string[] {
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {
-  const sensitiveFlags = new Set(['--config', '-p']);
+  const sensitiveFlags = new Set(['--config', '-p', '--resume-fallback-prompt']);
   const redacted: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

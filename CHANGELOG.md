@@ -4,11 +4,14 @@
 
 ### Fixed
 
+- Honeycrisp continuations now restore compatible provider context from the prior flow capture and send only the new steering instruction, while retaining the bounded transcript reconstruction as a fallback for missing, legacy, or incompatible captures.
 - Subagent counts and catalog statuses now follow only Honeycrisp lifecycle activity, prevent child tool result statuses from making running or interrupted agents appear complete, and mark unresolved agents from superseded attempts or terminal sessions as interrupted.
 - Subagent lists now show active children by default and provide a centered Show Inactive toggle as the first list item for completed, interrupted, and errored children.
 
 ### Changed
 
+- The session header context meter now presents 200k as its default context ceiling instead of 372k.
+- Beale now supplies the stable research run ID as Honeycrisp's provider session-affinity key across active turns and capture-backed continuations; Honeycrisp derives separate stable keys for subagents.
 - Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.
 - Active sessions now replace the steering Send control with Stop; stopping the HAM-owned active session also disables HAM Mode so it cannot launch a continuation.
 - Memory Save trace rows now show the memory type and status above a Markdown-formatted summary.

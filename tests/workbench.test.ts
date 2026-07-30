@@ -1093,7 +1093,7 @@ describe('Beale workbench skeleton', () => {
     }
   });
 
-  it('extends a completed Honeycrisp session in place with prior transcript context', async () => {
+  it('extends a completed Honeycrisp session with captured model context and transcript fallback', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-continuing-honeycrisp.mjs');
     const invocationLogPath = join(workspace, 'invocations.jsonl');
@@ -1106,11 +1106,14 @@ describe('Beale workbench skeleton', () => {
         'const [invocationLogPath, ...args] = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const prompt = args[args.indexOf('-p') + 1];",
+        "const sessionId = args.includes('--session-id') ? args[args.indexOf('--session-id') + 1] : null;",
+        "const resumeCapturePath = args.includes('--resume-capture') ? args[args.indexOf('--resume-capture') + 1] : null;",
+        "const resumeFallbackPrompt = args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null;",
         "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, titleModel, turn }) + '\\n');",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
         'const capture = {',
         '  schemaVersion: 4,',
@@ -1148,7 +1151,15 @@ describe('Beale workbench skeleton', () => {
       const invocations = readFileSync(invocationLogPath, 'utf8')
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { capturePath: string; prompt: string; titleModel: string | null; turn: number });
+        .map((line) => JSON.parse(line) as {
+          capturePath: string;
+          prompt: string;
+          sessionId: string | null;
+          resumeCapturePath: string | null;
+          resumeFallbackPrompt: string | null;
+          titleModel: string | null;
+          turn: number;
+        });
       expect(detail.run.id).toBe(runId);
       expect(detail.attempts).toHaveLength(2);
       expect(detail.modelSessions).toHaveLength(2);
@@ -1158,10 +1169,20 @@ describe('Beale workbench skeleton', () => {
       );
       expect(invocations).toHaveLength(2);
       expect(invocations.map((invocation) => invocation.titleModel)).toEqual(['gpt-5.6-luna', null]);
+      expect(invocations.map((invocation) => invocation.sessionId)).toEqual([runId, runId]);
       expect(invocations[1]?.capturePath).not.toBe(invocations[0]?.capturePath);
-      expect(invocations[1]?.prompt).toContain('Now inspect integer truncation paths.');
-      expect(invocations[1]?.prompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
-      expect(invocations[1]?.prompt).toContain('Turn 1 response.');
+      expect(invocations[1]?.prompt).toBe('Now inspect integer truncation paths.');
+      expect(invocations[1]?.resumeCapturePath).toBe(invocations[0]?.capturePath);
+      expect(invocations[1]?.resumeFallbackPrompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
+      expect(invocations[1]?.resumeFallbackPrompt).toContain('Turn 1 response.');
+      const continuationLaunch = detail.traceEvents.find(
+        (event) => event.summary === 'Honeycrisp host process launched to continue the current session.'
+      );
+      expect(continuationLaunch?.payload).toMatchObject({
+        resumeCapturePath: invocations[0]?.capturePath,
+        nativeResumeRequested: true
+      });
+      expect(JSON.stringify(continuationLaunch?.payload)).not.toContain('Research the ZFTP module');
       expect(detail.traceEvents.some((event) => event.summary === 'User steering extended the current research session.')).toBe(true);
     } finally {
       service.close();
