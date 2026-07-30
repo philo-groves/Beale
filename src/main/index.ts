@@ -435,6 +435,14 @@ function registerIpc(): void {
       workspaceService.getHoneycrispRunbook(runbookId)
     )
   );
+  ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, () =>
+    timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming())
+  );
+  ipcMain.handle(IPC_CHANNELS.restoreMemoryDreamingChange, (_event, changeId: string) =>
+    timedMainIpc('restoreMemoryDreamingChange', { change: shortMetricId(changeId) }, () =>
+      workspaceService.restoreMemoryDreamingChange(changeId)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.getHoneycrispToolingSummary, () =>
     timedMainIpc('getHoneycrispToolingSummary', {}, () => workspaceService.getHoneycrispToolingSummary())
   );

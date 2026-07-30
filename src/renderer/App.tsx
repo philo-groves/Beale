@@ -288,6 +288,14 @@ export function App(): JSX.Element {
     [runAction]
   );
 
+  const runMemoryDreaming = useCallback((): void => {
+    void runAction(() => window.beale.runMemoryDreaming());
+  }, [runAction]);
+
+  const restoreMemoryDreamingChange = useCallback((changeId: string): void => {
+    void runAction(() => window.beale.restoreMemoryDreamingChange(changeId));
+  }, [runAction]);
+
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
     setSelectedSubagentPath(null);
     setSelectedRunbookId(runbookId);
@@ -671,6 +679,8 @@ export function App(): JSX.Element {
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onOpenTraceFilters={openTraceFilters}
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
+            onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
+            onRunMemoryDreaming={runMemoryDreaming}
             onOpenHoneycrispRunbook={openHoneycrispRunbook}
             onBackToMain={backToMain}
             onSelectTraceEvent={selectTraceEvent}

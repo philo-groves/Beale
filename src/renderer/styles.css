@@ -1869,6 +1869,32 @@ body.is-resizing-research-side .main-session-grid {
   cursor: default;
 }
 
+.workspace-understanding-action-button {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #3a3a3a;
+  border-radius: 7px;
+  background: #1b1b1b;
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+
+.workspace-understanding-action-button:hover:not(:disabled) {
+  border-color: #505050;
+  background: #242424;
+}
+
+.workspace-understanding-action-button:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
 .workspace-understanding-row-icon-button {
   width: 24px;
   height: 24px;
@@ -2092,6 +2118,89 @@ body.is-resizing-research-side .main-session-grid {
   font-size: 0.78rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.workspace-understanding-dreaming-copy,
+.workspace-understanding-dreaming-last-run {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
+.workspace-understanding-dreaming-history {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-understanding-dreaming-history h4 {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-understanding-dreaming-history ul {
+  min-width: 0;
+  max-height: 320px;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+
+.workspace-understanding-dreaming-history li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #242424;
+  padding-bottom: 7px;
+}
+
+.workspace-understanding-dreaming-history li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.workspace-understanding-dreaming-history li > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-understanding-dreaming-history strong,
+.workspace-understanding-dreaming-history small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-understanding-dreaming-history strong {
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  line-height: 1.28;
+}
+
+.workspace-understanding-dreaming-history small,
+.workspace-understanding-dreaming-history p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.workspace-understanding-dreaming-last-run {
+  border-top: 1px solid #242424;
+  padding-top: 9px;
 }
 
 .main-session-side {

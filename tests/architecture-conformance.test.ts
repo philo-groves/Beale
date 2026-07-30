@@ -53,7 +53,12 @@ describe('architecture conformance', () => {
   });
 
   it('keeps authoritative SQL mutation inside the persistence service', () => {
-    const persistenceFiles = new Set(['src/main/database.ts', 'src/main/databaseMigrations.ts', 'src/main/workspaceRegistry.ts']);
+    const persistenceFiles = new Set([
+      'src/main/database.ts',
+      'src/main/databaseMigrations.ts',
+      'src/main/memoryDreaming.ts',
+      'src/main/workspaceRegistry.ts'
+    ]);
     const files = filesUnder('src').filter(isSourceFile).filter((path) => !persistenceFiles.has(normalizePath(path)));
     const forbiddenSql = [/\bINSERT INTO\b/i, /\bCREATE TABLE\b/i, /\bDELETE FROM\b/i, /\bALTER TABLE\b/i, /\bUPDATE\s+[a-z_]+\s+SET\b/i, /\bPRAGMA\b/i];
 

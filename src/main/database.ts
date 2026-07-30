@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
+import { MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -6957,6 +6958,64 @@ export class WorkspaceDatabase {
               OR (entity_type = 'trace_event' AND entity_id IN (SELECT id FROM trace_events WHERE summary = 'Artifact bundle export created.'));
 
             DROP TABLE legacy_trace_taxonomy_ids;
+          `);
+        }
+      },
+      {
+        version: 6,
+        name: 'reversible_memory_dreaming',
+        up: (database) => {
+          database.exec(MEMORY_DREAMING_SCHEMA_SQL);
+        }
+      },
+      {
+        version: 7,
+        name: 'semantic_memory_dreaming',
+        up: (database) => {
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'model')) {
+            database.exec("ALTER TABLE memory_dreaming_runs ADD COLUMN model TEXT NOT NULL DEFAULT 'unknown';");
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'reasoning_effort')) {
+            database.exec("ALTER TABLE memory_dreaming_runs ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'unknown';");
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'input_node_count')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN input_node_count INTEGER NOT NULL DEFAULT 0;');
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'input_session_count')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN input_session_count INTEGER NOT NULL DEFAULT 0;');
+          }
+          database.exec(`
+            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_semantic;
+            CREATE TABLE memory_dreaming_changes (
+              id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
+              workspace_id TEXT NOT NULL,
+              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise')),
+              title TEXT NOT NULL,
+              node_type TEXT NOT NULL,
+              hidden_node_ids_json TEXT NOT NULL,
+              survivor_node_id TEXT,
+              reason TEXT NOT NULL,
+              before_json TEXT NOT NULL,
+              after_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              restored_at TEXT
+            );
+            INSERT INTO memory_dreaming_changes (
+              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+              survivor_node_id, reason, before_json, after_json, created_at, restored_at
+            )
+            SELECT
+              id, run_id, workspace_id,
+              CASE action WHEN 'hide_stale' THEN 'prune' ELSE action END,
+              title, node_type, hidden_node_ids_json, survivor_node_id, reason,
+              before_json, after_json, created_at, restored_at
+            FROM memory_dreaming_changes_pre_semantic;
+            DROP TABLE memory_dreaming_changes_pre_semantic;
+            CREATE INDEX idx_memory_dreaming_changes_workspace_created
+            ON memory_dreaming_changes(workspace_id, created_at DESC);
+            CREATE INDEX idx_memory_dreaming_changes_run
+            ON memory_dreaming_changes(run_id);
           `);
         }
       }

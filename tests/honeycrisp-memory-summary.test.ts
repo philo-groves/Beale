@@ -26,6 +26,7 @@ describe('Honeycrisp memory summary', () => {
     expect(summary.databasePath).toBe(databasePath);
     expect(summary.nodeCount).toBe(0);
     expect(summary.edgeCount).toBe(0);
+    expect(summary.dreaming).toMatchObject({ available: false, hiddenNodeCount: 0, restorableChangeCount: 0 });
     expect(summary.directories).toEqual([
       expect.objectContaining({ name: 'artifacts', exists: false })
     ]);
@@ -82,7 +83,8 @@ describe('Honeycrisp memory summary', () => {
       latestNodeUpdatedAt: '2026-06-25T10:03:00.000Z',
       nodeTypeCounts: { hypothesis: 1, trajectory: 1 },
       nodeStatusCounts: { confirmed: 1, suspected: 1 },
-      nodeTierCounts: { session: 1, subject: 1 }
+      nodeTierCounts: { session: 1, subject: 1 },
+      dreaming: { available: false, scope: 'workspace', hiddenNodeCount: 0, restorableChangeCount: 0 }
     });
     expect(summary.nodes[0]).toMatchObject({
       id: 'trajectory_one',

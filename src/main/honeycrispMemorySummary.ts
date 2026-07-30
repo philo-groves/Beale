@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { emptyMemoryDreamingSummary, getMemoryDreamingSummary } from './memoryDreaming';
 import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemoryEdgeSummary,
@@ -53,7 +54,8 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       nodeTierCounts: groupedNodeCounts(nodes, (node) => node.tier),
       nodes,
       edges,
-      runbooks
+      runbooks,
+      dreaming: getMemoryDreamingSummary(database, workspaceId)
     };
   } catch (error) {
     return {
@@ -95,6 +97,7 @@ function emptySummary(
     nodes: [],
     edges: [],
     runbooks: [],
+    dreaming: emptyMemoryDreamingSummary(),
     directories: [artifactDirectorySummary(artifactDirectoryPath)],
     lastError: null
   };

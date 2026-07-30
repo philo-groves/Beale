@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Memory Dreaming now allocates model context fairly across every workspace node and up to 100 recent sessions, retries with a smaller profile after context-window rejection, and retries transient provider failures before surfacing an error.
 - Honeycrisp continuations now restore compatible provider context from the prior flow capture and send only the new steering instruction, while retaining the bounded transcript reconstruction as a fallback for missing, legacy, or incompatible captures.
 - HAM Mode now disables itself after prompt-generation errors and retries failed HAM-owned runs as continuation attempts in the same session before generating a new session.
 - Steering a completed Honeycrisp session now continues root trace turn numbering and carries prior root reasoning summaries, responses, and steering into the continuation context.
@@ -67,6 +68,7 @@
 
 ### Added
 
+- Added model-reasoned workspace-memory Dreaming on the workspace dashboard. The research model synthesizes workspace memories with up to 100 past session transcripts, proposes semantic pruning, revision, and de-duplication decisions, and Beale host-validates and applies them while preserving restorable originals through workbench migrations 6 and 7.
 - Added a HAM Mode start bottom sheet with persistent optional prompt guidance, live agent reasoning status, and a Markdown preview of the generated prompt before the next session launches.
 - HAM Mode now opens the prompt-generation sheet for every continuation, automatically follows streamed prompt output at the bottom, and presents later sessions with saved guidance and an already-running Go HAM control.
 - Added persisted HAM Mode for sequential autonomous research sessions: Beale reviews the previous transcript and all subject memories, writes one outcome-focused prompt, and starts at most one next session after natural completion; disabling the mode leaves the current session untouched and suppresses continuation.

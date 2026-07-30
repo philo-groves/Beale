@@ -128,6 +128,12 @@ const api: BealeApi = {
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispRunbook, runbookId);
   },
+  runMemoryDreaming() {
+    return ipcRenderer.invoke(IPC_CHANNELS.runMemoryDreaming);
+  },
+  restoreMemoryDreamingChange(changeId: string) {
+    return ipcRenderer.invoke(IPC_CHANNELS.restoreMemoryDreamingChange, changeId);
+  },
   getHoneycrispToolingSummary() {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispToolingSummary);
   },

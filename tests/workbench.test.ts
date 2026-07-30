@@ -397,6 +397,17 @@ describe('Beale workbench skeleton', () => {
     expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 5").get()).toEqual({
       name: 'operational_trace_taxonomy'
     });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 6").get()).toEqual({
+      name: 'reversible_memory_dreaming'
+    });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 7").get()).toEqual({
+      name: 'semantic_memory_dreaming'
+    });
+    expect(
+      verified
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('memory_dreaming_runs', 'memory_dreaming_changes') ORDER BY name")
+        .all()
+    ).toEqual([{ name: 'memory_dreaming_changes' }, { name: 'memory_dreaming_runs' }]);
     expect(
       verified
         .prepare("SELECT title, json_extract(metadata_json, '$.type') AS type FROM project_search_documents WHERE entity_type = 'trace_event' AND entity_id = ?")

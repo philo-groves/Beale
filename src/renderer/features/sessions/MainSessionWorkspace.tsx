@@ -34,6 +34,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount,
   onOpenTraceFilters,
   onOpenHoneycrispMemoryDirectory,
+  onRestoreMemoryDreamingChange,
+  onRunMemoryDreaming,
   onOpenHoneycrispRunbook,
   onBackToMain,
   onSelectTraceEvent,
@@ -62,6 +64,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
+  onRestoreMemoryDreamingChange: (changeId: string) => void;
+  onRunMemoryDreaming: () => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToMain: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
@@ -85,6 +89,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         runCount={runCount}
         scope={scope}
         onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
+        onRestoreMemoryDreamingChange={onRestoreMemoryDreamingChange}
+        onRunMemoryDreaming={onRunMemoryDreaming}
       />
     );
   }

@@ -1,7 +1,8 @@
 import type { JSX, ReactNode } from 'react';
-import { Boxes, Database, FolderOpen, GitBranch, Network } from 'lucide-react';
+import { Boxes, Database, FolderOpen, GitBranch, MoonStar, Network, RotateCcw } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
+  MemoryDreamingSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
   WorkspaceScopeVersion,
@@ -13,12 +14,16 @@ export function WorkspaceUnderstandingView({
   busy,
   honeycrispMemory,
   onOpenHoneycrispMemoryDirectory,
+  onRestoreMemoryDreamingChange,
+  onRunMemoryDreaming,
   runCount,
   scope
 }: {
   busy: boolean;
   honeycrispMemory: HoneycrispMemorySummary | null;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
+  onRestoreMemoryDreamingChange: (changeId: string) => void;
+  onRunMemoryDreaming: () => void;
   runCount: number;
   scope: WorkspaceScopeVersion | null;
 }): JSX.Element {
@@ -89,9 +94,101 @@ export function WorkspaceUnderstandingView({
             <CountList title="Asset Types" counts={assetKindCounts(inScopeAssets)} />
             <RepositoryList assets={repositoryAssets} total={inScopeAssets.filter((asset) => asset.kind === 'repo').length} />
           </section>
+
+          <DreamingSection
+            busy={busy}
+            dreaming={honeycrispMemory?.dreaming ?? null}
+            onRestoreChange={onRestoreMemoryDreamingChange}
+            onRun={onRunMemoryDreaming}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+function DreamingSection({
+  busy,
+  dreaming,
+  onRestoreChange,
+  onRun
+}: {
+  busy: boolean;
+  dreaming: MemoryDreamingSummary | null;
+  onRestoreChange: (changeId: string) => void;
+  onRun: () => void;
+}): JSX.Element {
+  const available = Boolean(dreaming?.available);
+  const lastRun = dreaming?.lastRun ?? null;
+  return (
+    <section className="workspace-understanding-section workspace-understanding-dreaming" aria-label="Memory dreaming">
+      <SectionHeader
+        icon={<MoonStar size={16} />}
+        title="Dreaming"
+        status={lastRun?.status ?? (available ? 'ready' : 'unavailable')}
+        action={
+          <button
+            type="button"
+            className="workspace-understanding-action-button"
+            disabled={busy || !available}
+            title={available ? 'Have the research model synthesize workspace memories and past sessions' : 'Honeycrisp memory is not initialized'}
+            onClick={onRun}
+          >
+            <MoonStar size={13} />
+            Dream
+          </button>
+        }
+      />
+      <p className="workspace-understanding-dreaming-copy">
+        The research model reviews workspace-tier memory with up to 100 past session transcripts, then prunes, revises, and consolidates semantically redundant knowledge. Original nodes and revisions remain stored for restoration.
+      </p>
+      <div className="workspace-understanding-metric-grid compact">
+        <MetricCell label="Hidden Nodes" value={formatCount(dreaming?.hiddenNodeCount ?? 0)} />
+        <MetricCell label="Restorable Changes" value={formatCount(dreaming?.restorableChangeCount ?? 0)} />
+        <MetricCell label="Last Pruned" value={formatCount(lastRun?.prunedNodeCount ?? 0)} />
+        <MetricCell label="Last De-duplication" value={formatCount(lastRun?.duplicateHiddenCount ?? 0)} />
+      </div>
+      <div className="workspace-understanding-dreaming-history">
+        <h4>Recent Changes</h4>
+        {dreaming?.changes.length ? (
+          <ul>
+            {dreaming.changes.map((change) => (
+              <li key={change.id}>
+                <span>
+                  <strong title={change.title}>{truncateText(change.title || change.hiddenNodeIds[0] || change.id, 54)}</strong>
+                  <small title={change.reason}>
+                    {change.action === 'prune'
+                      ? 'Memory pruned'
+                      : change.action === 'revise'
+                        ? 'Memory revised'
+                        : `${formatCount(change.hiddenNodeIds.length)} duplicate${change.hiddenNodeIds.length === 1 ? '' : 's'} consolidated`}
+                    {' · '}
+                    {formatNullableDate(change.createdAt)}
+                  </small>
+                </span>
+                <button
+                  type="button"
+                  className="workspace-understanding-row-icon-button"
+                  disabled={busy || !change.canRestore}
+                  title={change.restoredAt ? 'This change has been restored' : change.canRestore ? 'Restore this Dreaming change' : 'Cannot restore because the affected memory changed afterward'}
+                  aria-label={`Restore Dreaming change for ${change.title}`}
+                  onClick={() => onRestoreChange(change.id)}
+                >
+                  <RotateCcw size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No Dreaming changes recorded.</p>
+        )}
+      </div>
+      {lastRun ? (
+        <small className="workspace-understanding-dreaming-last-run">
+          Last run {formatNullableDate(lastRun.completedAt)} · {lastRun.model} / {traceLabel(lastRun.reasoningEffort)} · reviewed {formatCount(lastRun.inputNodeCount)} nodes and {formatCount(lastRun.inputSessionCount)} sessions · {formatCount(lastRun.editedNodeCount)} edited output{lastRun.editedNodeCount === 1 ? '' : 's'}
+        </small>
+      ) : null}
+    </section>
   );
 }
 

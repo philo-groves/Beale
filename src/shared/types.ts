@@ -544,6 +544,47 @@ export interface HoneycrispRunbookDocument {
   cells: HoneycrispRunbookCell[];
 }
 
+export type MemoryDreamingAction = 'prune' | 'merge_duplicates' | 'revise';
+
+export interface MemoryDreamingChangeSummary {
+  id: string;
+  runId: string;
+  action: MemoryDreamingAction;
+  title: string;
+  nodeType: string;
+  hiddenNodeIds: string[];
+  survivorNodeId: string | null;
+  reason: string;
+  createdAt: string;
+  restoredAt: string | null;
+  canRestore: boolean;
+}
+
+export interface MemoryDreamingRunSummary {
+  id: string;
+  status: 'completed' | 'restored';
+  model: string;
+  reasoningEffort: string;
+  inputNodeCount: number;
+  inputSessionCount: number;
+  prunedNodeCount: number;
+  duplicateHiddenCount: number;
+  duplicateGroupCount: number;
+  editedNodeCount: number;
+  createdAt: string;
+  completedAt: string;
+  restoredAt: string | null;
+}
+
+export interface MemoryDreamingSummary {
+  available: boolean;
+  scope: 'workspace';
+  hiddenNodeCount: number;
+  restorableChangeCount: number;
+  lastRun: MemoryDreamingRunSummary | null;
+  changes: MemoryDreamingChangeSummary[];
+}
+
 export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
@@ -565,6 +606,7 @@ export interface HoneycrispMemorySummary {
   nodes: HoneycrispMemoryNodeSummary[];
   edges: HoneycrispMemoryEdgeSummary[];
   runbooks: HoneycrispRunbookSummary[];
+  dreaming: MemoryDreamingSummary;
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
 }
@@ -1314,6 +1356,8 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
+  runMemoryDreaming(): Promise<WorkspaceSnapshot>;
+  restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
