@@ -7,9 +7,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
-import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { hamRunRetryDelayMs, startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
+
+describe('HAM run retry timing', () => {
+  it('retries immediately, then after one and two minutes, capped at three minutes', () => {
+    expect([1, 2, 3, 4, 8].map(hamRunRetryDelayMs)).toEqual([0, 60_000, 120_000, 180_000, 180_000]);
+  });
+});
 
 beforeEach(() => {
   process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempWorkspace();
@@ -1115,6 +1121,8 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, responseId: `response_${turn}`, stopReason: 'stop' } }));",
         'const capture = {',
         '  schemaVersion: 4,',
         '  capturedAt: now,',
@@ -2432,6 +2440,120 @@ describe('Beale workbench skeleton', () => {
     const reopenedSnapshot = reopened.openWorkspace(workspace);
     expect(reopenedSnapshot.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
     reopened.close();
+  });
+
+  it('disables HAM Mode when next-session prompt generation fails', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-prompt-error';
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () =>
+        new Response(
+          sse(
+            event('error', {
+              type: 'error',
+              status: 500,
+              error: {
+                message: 'The prompt generation service is temporarily unavailable.',
+                code: 'server_error'
+              }
+            })
+          ),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+    });
+    service.createWorkspace(tempWorkspace());
+    const seed = startRunForTest(service, runInput('source_review'));
+    const seedRunId = seed.runs[0]?.run.id ?? '';
+
+    service.setHamModeEnabled(true);
+    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
+
+    expect(service.getSnapshot()?.hamMode).toMatchObject({
+      enabled: false,
+      phase: 'disabled',
+      activeRunId: null,
+      lastError: 'The prompt generation service is temporarily unavailable.'
+    });
+    expect(service.getSnapshot()?.runs.map((row) => row.run.id)).toEqual([seedRunId]);
+    service.close();
+  });
+
+  it('retries a failed HAM run in the same session before generating the next one', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-ham-retry-honeycrisp.mjs');
+    const invocationLogPath = join(workspace, 'ham-retry-invocations.jsonl');
+    let promptRequests = 0;
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [invocationLogPath, ...args] = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const prompt = args[args.indexOf('-p') + 1];",
+        "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
+        'const invocation = priorCount + 1;',
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "appendFileSync(invocationLogPath, JSON.stringify({ invocation, prompt }) + '\\n');",
+        'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);',
+        'const now = new Date().toISOString();',
+        "const status = invocation === 1 ? 'error' : 'complete';",
+        'const capture = {',
+        '  schemaVersion: 4,',
+        '  capturedAt: now,',
+        '  request: { prompt },',
+        "  agent: { id: `agent_${invocation}`, status, executorName: 'ham-retry-fixture', startedAt: now, completedAt: now, outputText: invocation === 1 ? 'Unexpected server error.' : 'Recovered in the same session.' },",
+        '  eventTimeline: []',
+        '};',
+        "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');",
+        'if (invocation > 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLogPath]);
+
+    const service = new WorkspaceService(() => undefined, {
+      hamRunRetryDelayMs: () => 0,
+      openAiFetch: async () => {
+        promptRequests += 1;
+        throw new Error('HAM should recover the failed run before generating another prompt.');
+      }
+    });
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Continue this HAM-owned parser investigation after transient failures.'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+      service.setHamModeEnabled(true);
+
+      await waitForCondition(() => {
+        if (!existsSync(invocationLogPath)) return false;
+        return readFileSync(invocationLogPath, 'utf8').trim().split('\n').filter(Boolean).length === 2;
+      }, 5000);
+      const retrying = service.getRunDetail(runId);
+      const invocations = readFileSync(invocationLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { invocation: number; prompt: string });
+
+      expect(service.getSnapshot()?.runs).toHaveLength(1);
+      expect(retrying.attempts).toHaveLength(2);
+      expect(retrying.run.status).toBe('active');
+      expect(invocations[1]?.prompt).toContain('HAM Mode recovery retry 1');
+      expect(invocations[1]?.prompt).toContain('Unexpected server error');
+      expect(promptRequests).toBe(0);
+
+      service.setHamModeEnabled(false);
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+      expect(service.getSnapshot()?.runs).toHaveLength(1);
+      expect(service.getRunDetail(runId).transcriptMessages.map((message) => message.contentMarkdown)).toContain('Recovered in the same session.');
+    } finally {
+      service.close();
+    }
   });
 
   it('starts HAM explicitly from a dormant paused session instead of waiting indefinitely', async () => {

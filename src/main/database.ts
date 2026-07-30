@@ -791,6 +791,7 @@ const HAM_MODE_PHASES = new Set<HamModePhase>([
   'waiting_for_session',
   'reviewing_research',
   'starting_session',
+  'retrying_session',
   'session_active',
   'error'
 ]);

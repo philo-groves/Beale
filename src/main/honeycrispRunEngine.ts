@@ -4,7 +4,17 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
-import type { ResearchModelSelection, RunRecord, TranscriptMessageRecord, WorkspaceScopeVersion, ScopeAsset, StartRunInput, TraceEventType, TraceSource } from '@shared/types';
+import type {
+  ResearchModelSelection,
+  RunRecord,
+  TranscriptMessageRecord,
+  WorkspaceScopeVersion,
+  ScopeAsset,
+  StartRunInput,
+  TraceEventRecord,
+  TraceEventType,
+  TraceSource
+} from '@shared/types';
 import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import { SESSION_TITLE_REASONING_EFFORT, sessionTitleModelForProvider } from '../shared/modelDefaults';
 import { redactForModelText } from './redaction';
@@ -63,6 +73,7 @@ interface HoneycrispWorkspaceRepositoryContext {
 interface ActiveHoneycrispRun {
   child: ChildProcessWithoutNullStreams;
   context: CreatedRunContext;
+  rootTurnOffset: number;
   paused: boolean;
   stopped: boolean;
   stopReason: 'user' | 'time_limit' | null;
@@ -339,6 +350,7 @@ export class HoneycrispRunEngine {
     resume?: { resumeCapturePath?: string; fallbackPrompt: string }
   ): HoneycrispRunHandle {
     const invocation = resolveHoneycrispInvocation();
+    const rootTurnOffset = continuation ? latestRootTurn(this.db.getRunDetail(context.run.id).traceEvents) : 0;
     const runDirectory = join(this.workspacePath, '.beale', 'honeycrisp-runs');
     const fileStem = continuation ? `${context.run.id}.${context.attempt.id}` : context.run.id;
     const capturePath = join(runDirectory, `${fileStem}.capture.json`);
@@ -398,6 +410,7 @@ export class HoneycrispRunEngine {
     const active: ActiveHoneycrispRun = {
       child,
       context,
+      rootTurnOffset,
       paused: false,
       stopped: false,
       stopReason: null,
@@ -606,6 +619,7 @@ export class HoneycrispRunEngine {
 
   private recordLiveEvent(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
     const active = this.activeRuns.get(context.run.id);
+    event = offsetRootTurn(event, active?.rootTurnOffset ?? 0);
     if (event.kind === 'session.title') {
       const title = stringPayload(event.payload ?? {}, 'title');
       if (title) {
@@ -1415,8 +1429,8 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
 function buildContinuationPrompt(run: RunRecord, messages: readonly TranscriptMessageRecord[], instruction: string): string {
   const originalRequest = run.promptMarkdown.trim().slice(0, CONTINUATION_CONTEXT_MAX_CHARS / 2);
   const priorTurns = messages
-    .filter((message) => message.source === 'honeycrisp' || message.source === 'user_steering')
-    .map((message) => `${message.role === 'assistant' ? 'Agent' : 'User'}:\n${message.contentMarkdown.trim()}`)
+    .filter(isRootContinuationMessage)
+    .map((message) => `${continuationMessageLabel(message)}:\n${message.contentMarkdown.trim()}`)
     .filter((message) => message.length > 0);
   const retainedTurns: string[] = [];
   let retainedChars = originalRequest.length;
@@ -1433,12 +1447,62 @@ function buildContinuationPrompt(run: RunRecord, messages: readonly TranscriptMe
     retainedChars += turn.length;
   }
   return [
+    '# Continue the existing Beale research session',
+    '',
+    'Continue from the prior session state below. Preserve its established facts, decisions, explored paths, and tool-backed observations. Do not restart the investigation or treat this as turn 1.',
+    '',
+    '## New steering instruction',
     instruction.trim(),
     '',
     '## Existing session context',
     `Original request:\n${originalRequest}`,
     ...(retainedTurns.length > 0 ? ['', ...retainedTurns] : [])
   ].join('\n');
+}
+
+function isRootContinuationMessage(message: TranscriptMessageRecord): boolean {
+  if (message.source !== 'honeycrisp' && message.source !== 'user_steering' && message.source !== 'openai_reasoning_summary') {
+    return false;
+  }
+  const agentPath = stringPayload(message.metadata, 'agentPath');
+  return !agentPath || agentPath === '/root';
+}
+
+function continuationMessageLabel(message: TranscriptMessageRecord): string {
+  if (message.source === 'openai_reasoning_summary') return 'Agent progress';
+  return message.role === 'assistant' ? 'Agent' : message.role === 'system' ? 'System' : 'User';
+}
+
+function latestRootTurn(events: readonly TraceEventRecord[]): number {
+  let latest = 0;
+  for (const event of events) {
+    const agentPath = stringPayload(event.payload, 'agentPath');
+    if (agentPath && agentPath !== '/root') continue;
+    const turn = numberPayload(event.payload, 'turn') ?? turnFromSummary(event.summary);
+    if (turn && Number.isInteger(turn)) latest = Math.max(latest, turn);
+  }
+  return latest;
+}
+
+function turnFromSummary(summary: string): number | null {
+  const match = summary.match(/\bturn\s+(\d+)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+function offsetRootTurn(event: HoneycrispLiveEvent, rootTurnOffset: number): HoneycrispLiveEvent {
+  if (rootTurnOffset <= 0 || !event.payload) return event;
+  const turn = numberPayload(event.payload, 'turn');
+  if (!turn) return event;
+  const agentPath = stringPayload(event.payload, 'agentPath');
+  if (agentPath && agentPath !== '/root') return event;
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      processTurn: turn,
+      turn: rootTurnOffset + turn
+    }
+  };
 }
 
 function finiteRecordNumber(record: Record<string, unknown>, key: string, fallback: number): number {

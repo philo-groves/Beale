@@ -24,7 +24,9 @@ export function HamModeStartSheet({
   const promptPreviewRef = useRef<HTMLElement | null>(null);
   const started = hamMode.enabled;
   const working = started && (hamMode.phase === 'reviewing_research' || hamMode.phase === 'starting_session');
-  const status = generationUpdate?.reasoningSummary?.trim() || hamModeStatus(hamMode);
+  const status = hamMode.lastError
+    ? hamModeStatus(hamMode)
+    : generationUpdate?.reasoningSummary?.trim() || hamModeStatus(hamMode);
   const generatedPrompt = generationUpdate?.promptMarkdown.trim() ?? '';
 
   useEffect(() => {
@@ -93,11 +95,16 @@ export function HamModeStartSheet({
 
 function hamModeStatus(state: HamModeState): string {
   if (state.phase === 'error') return state.lastError || 'HAM Mode could not prepare the next research session.';
+  if (state.phase === 'retrying_session') return state.lastError
+    ? `The current session failed and HAM Mode is waiting to retry it: ${state.lastError}`
+    : 'The current session failed and HAM Mode is waiting to retry it.';
   if (state.phase === 'session_active') return 'The HAM research session has started.';
   if (state.phase === 'starting_session') return 'The prompt is ready. Starting the next research session…';
   if (state.phase === 'reviewing_research') return 'Reviewing the previous transcript and subject memories…';
   if (state.enabled) return state.activeRunId
     ? 'Waiting for the current session to end naturally before preparing the next prompt.'
     : 'Preparing to review the prior research context…';
-  return 'Add optional guidance, then start HAM Mode.';
+  return state.lastError
+    ? `HAM Mode stopped after an error: ${state.lastError}`
+    : 'Add optional guidance, then start HAM Mode.';
 }

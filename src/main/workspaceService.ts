@@ -236,6 +236,8 @@ const HAM_PROMPT_RECOMMENDATION_INSTRUCTIONS = [
 ].join('\n');
 const GENERATED_RESEARCH_PROMPT_MAX_CHARS = 25_000;
 const CHANGE_BROADCAST_DELAY_MS = 150;
+const HAM_RUN_RETRY_INTERVAL_MS = 60_000;
+const HAM_RUN_RETRY_MAX_DELAY_MS = 180_000;
 export interface WorkspaceChange {
   workspaceRegistryChanged: boolean;
 }
@@ -304,6 +306,7 @@ export interface WorkspaceServiceOptions {
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
   onHamModeGenerationUpdate?: (update: HamModeGenerationUpdate) => void;
+  hamRunRetryDelayMs?: (retry: number) => number;
 }
 
 interface WorkspaceRuntime {
@@ -340,6 +343,7 @@ export class WorkspaceService {
   private readonly hamPromptControllers = new Map<string, AbortController>();
   private readonly hamContinuationInFlight = new Set<string>();
   private readonly hamContinuationScheduled = new Set<string>();
+  private readonly hamRunRetryTimers = new Map<string, { runId: string; timer: ReturnType<typeof setTimeout> }>();
   private readonly disposedRuntimeDatabases = new WeakSet<WorkspaceDatabase>();
   private readonly onboardingRepositoryJobs = new Map<string, WorkspaceOnboardingRepositoryJob>();
   private readonly backgroundRuntimes = new Map<string, WorkspaceRuntime>();
@@ -1036,6 +1040,7 @@ export class WorkspaceService {
     this.hamPromptControllers.get(runtime.workspacePath)?.abort();
     this.hamPromptControllers.delete(runtime.workspacePath);
     this.hamContinuationScheduled.delete(runtime.workspacePath);
+    this.clearHamRunRetry(runtime.workspacePath);
     runtime.db.setHamModeState({
       ...current,
       enabled: false,
@@ -1672,6 +1677,8 @@ export class WorkspaceService {
     this.hamPromptControllers.clear();
     this.hamContinuationInFlight.clear();
     this.hamContinuationScheduled.clear();
+    for (const retry of this.hamRunRetryTimers.values()) clearTimeout(retry.timer);
+    this.hamRunRetryTimers.clear();
     const foreground = this.detachForegroundRuntime();
     if (foreground) {
       this.disposeRuntime(foreground);
@@ -1843,7 +1850,8 @@ export class WorkspaceService {
   private hasActiveRuntimeWork(runtime: WorkspaceRuntime): boolean {
     return (
       runtime.db.listRunRows().some((row) => row.run.status === 'queued' || row.run.status === 'active') ||
-      this.hamContinuationInFlight.has(runtime.workspacePath)
+      this.hamContinuationInFlight.has(runtime.workspacePath) ||
+      this.hamRunRetryTimers.has(runtime.workspacePath)
     );
   }
 
@@ -1862,6 +1870,7 @@ export class WorkspaceService {
     this.hamPromptControllers.get(runtime.workspacePath)?.abort();
     this.hamPromptControllers.delete(runtime.workspacePath);
     this.hamContinuationScheduled.delete(runtime.workspacePath);
+    this.clearHamRunRetry(runtime.workspacePath);
     runtime.fixtureEngine?.dispose();
     runtime.honeycrispEngine.dispose();
     runtime.db.close();
@@ -1901,9 +1910,21 @@ export class WorkspaceService {
     if (this.disposedRuntimeDatabases.has(runtime.db)) return;
     const workspacePath = runtime.workspacePath;
     const state = runtime.db.getHamModeState();
-    if (!state.enabled || state.phase === 'error' || this.hamContinuationInFlight.has(workspacePath) || this.hamContinuationScheduled.has(workspacePath)) return;
+    if (state.enabled && state.phase === 'error') {
+      runtime.db.setHamModeState({
+        ...state,
+        enabled: false,
+        phase: 'disabled',
+        startRequestedAt: null,
+        activeRunId: null,
+        updatedAt: nowIso()
+      });
+      return;
+    }
+    if (!state.enabled || this.hamContinuationInFlight.has(workspacePath) || this.hamContinuationScheduled.has(workspacePath)) return;
     const activeRun = latestActiveRun(runtime);
     if (activeRun) {
+      this.clearHamRunRetry(workspacePath);
       if (state.phase !== 'session_active' || state.activeRunId !== activeRun.run.id) {
         runtime.db.setHamModeState({
           ...state,
@@ -1918,6 +1939,15 @@ export class WorkspaceService {
     }
     const latestRun = runtime.db.listRunRows()[0] ?? null;
     const explicitStartRequested = Boolean(state.startRequestedAt) && (!latestRun || !runtimeHasRun(runtime, latestRun.run.id));
+    const failedHamRun =
+      !explicitStartRequested &&
+      latestRun?.run.status === 'failed' &&
+      (state.activeRunId === latestRun.run.id || state.lastStartedRunId === latestRun.run.id);
+    if (failedHamRun) {
+      this.scheduleFailedHamRunRetry(runtime, latestRun, state);
+      return;
+    }
+    this.clearHamRunRetry(workspacePath);
     if (!explicitStartRequested && latestRun && (latestRun.run.status === 'paused' || latestRun.run.status === 'blocked')) {
       if (state.phase !== 'waiting_for_session' || state.activeRunId !== null) {
         runtime.db.setHamModeState({
@@ -1935,6 +1965,94 @@ export class WorkspaceService {
       this.hamContinuationScheduled.delete(workspacePath);
       void this.runHamContinuation(runtime);
     });
+  }
+
+  private scheduleFailedHamRunRetry(runtime: WorkspaceRuntime, failedRun: RunRow, state: HamModeState): void {
+    const workspacePath = runtime.workspacePath;
+    const existing = this.hamRunRetryTimers.get(workspacePath);
+    if (existing?.runId === failedRun.run.id) return;
+    if (existing) this.clearHamRunRetry(workspacePath);
+
+    const detail = runtime.db.getRunDetail(failedRun.run.id);
+    const retry = detail.transcriptMessages.filter(
+      (message) => message.source === 'user_steering' && message.contentMarkdown.startsWith('HAM Mode recovery retry ')
+    ).length + 1;
+    const configuredDelay = this.options.hamRunRetryDelayMs?.(retry);
+    const delayMs = Number.isFinite(configuredDelay)
+      ? Math.max(0, configuredDelay ?? 0)
+      : hamRunRetryDelayMs(retry);
+    const latestEndedAt = detail.attempts.at(-1)?.endedAt;
+    const elapsedMs = latestEndedAt ? Math.max(0, Date.now() - Date.parse(latestEndedAt)) : 0;
+    const remainingDelayMs = Math.max(0, delayMs - (Number.isFinite(elapsedMs) ? elapsedMs : 0));
+
+    runtime.db.setHamModeState({
+      ...state,
+      phase: 'retrying_session',
+      startRequestedAt: null,
+      activeRunId: failedRun.run.id,
+      lastError: failedRun.run.summary || 'The HAM research session failed.',
+      updatedAt: nowIso()
+    });
+    this.emitHamModeChange(runtime);
+    const timer = setTimeout(() => {
+      this.hamRunRetryTimers.delete(workspacePath);
+      void this.retryFailedHamRun(runtime, failedRun.run.id, retry);
+    }, remainingDelayMs);
+    timer.unref();
+    this.hamRunRetryTimers.set(workspacePath, { runId: failedRun.run.id, timer });
+  }
+
+  private async retryFailedHamRun(runtime: WorkspaceRuntime, runId: string, retry: number): Promise<void> {
+    const workspacePath = runtime.workspacePath;
+    if (this.disposedRuntimeDatabases.has(runtime.db) || this.hamContinuationInFlight.has(workspacePath)) return;
+    this.hamContinuationInFlight.add(workspacePath);
+    try {
+      const state = runtime.db.getHamModeState();
+      const current = runtime.db.getRun(runId);
+      if (!state.enabled || state.activeRunId !== runId || current?.status !== 'failed' || latestActiveRun(runtime)) return;
+
+      const failure = current.summary.trim() || 'The previous Honeycrisp attempt failed.';
+      runtime.honeycrispEngine.extendRun(
+        runId,
+        [
+          `HAM Mode recovery retry ${retry}: continue this same research session after the previous attempt failed.`,
+          'Preserve the existing transcript, evidence, explored paths, and current objective. Do not start a new investigation.',
+          `Previous failure: ${redactForModelText(failure)}`
+        ].join('\n\n')
+      );
+      runtime.db.setHamModeState({
+        ...state,
+        phase: 'session_active',
+        startRequestedAt: null,
+        activeRunId: runId,
+        lastError: null,
+        updatedAt: nowIso()
+      });
+      this.emitHamModeChange(runtime);
+    } catch (error) {
+      if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+      const current = runtime.db.getHamModeState();
+      runtime.db.setHamModeState({
+        ...current,
+        enabled: false,
+        phase: 'disabled',
+        startRequestedAt: null,
+        activeRunId: null,
+        lastError: errorMessage(error),
+        updatedAt: nowIso()
+      });
+      this.emitHamModeChange(runtime);
+    } finally {
+      this.hamContinuationInFlight.delete(workspacePath);
+      if (!this.disposedRuntimeDatabases.has(runtime.db)) this.scheduleHamContinuation(runtime);
+    }
+  }
+
+  private clearHamRunRetry(workspacePath: string): void {
+    const retry = this.hamRunRetryTimers.get(workspacePath);
+    if (!retry) return;
+    clearTimeout(retry.timer);
+    this.hamRunRetryTimers.delete(workspacePath);
   }
 
   private async runHamContinuation(runtime: WorkspaceRuntime): Promise<void> {
@@ -2030,7 +2148,8 @@ export class WorkspaceService {
       if (current.enabled && !isAbortError(error)) {
         runtime.db.setHamModeState({
           ...current,
-          phase: 'error',
+          enabled: false,
+          phase: 'disabled',
           startRequestedAt: null,
           activeRunId: null,
           lastError: errorMessage(error),
@@ -3618,6 +3737,11 @@ function latestActiveRun(runtime: WorkspaceRuntime): RunRow | null {
 
 function runtimeHasRun(runtime: WorkspaceRuntime, runId: string): boolean {
   return runtime.honeycrispEngine.hasRun(runId) || Boolean(runtime.fixtureEngine?.hasRun(runId));
+}
+
+export function hamRunRetryDelayMs(retry: number): number {
+  if (!Number.isFinite(retry) || retry <= 1) return 0;
+  return Math.min((Math.floor(retry) - 1) * HAM_RUN_RETRY_INTERVAL_MS, HAM_RUN_RETRY_MAX_DELAY_MS);
 }
 
 function hamStartRunInput(previous: RunRow | null, scope: WorkspaceScopeVersion): StartRunInput {
