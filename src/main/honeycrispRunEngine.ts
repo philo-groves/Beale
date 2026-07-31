@@ -10,6 +10,10 @@ import type {
   TranscriptMessageRecord,
   WorkspaceScopeVersion,
   ScopeAsset,
+  SessionBlockerDependency,
+  SessionBlockerDependencyKind,
+  SessionDispositionOutcome,
+  SessionFinalDisposition,
   StartRunInput,
   TraceEventRecord,
   TraceEventType,
@@ -96,6 +100,7 @@ interface HoneycrispFlowCapture {
     startedAt?: string;
     completedAt?: string;
     outputText?: string;
+    finalDisposition?: unknown;
     nextPromptSuggestions?: HoneycrispNextPromptSuggestion[];
     researchTrace?: {
       observations?: HoneycrispTraceItem[];
@@ -1041,7 +1046,12 @@ export class HoneycrispRunEngine {
       const summary = honeycrispCompletionSummary(capture);
       const completed = capture.agent?.status === 'complete';
       this.db.updateAttemptState(context.attempt.id, completed ? 'completed' : 'failed', summary);
-      this.db.updateRunStatus(context.run.id, completed ? 'completed' : 'failed', summary);
+      this.db.updateRunStatus(
+        context.run.id,
+        completed ? 'completed' : 'failed',
+        summary,
+        completed ? honeycrispFinalDisposition(capture) ?? undefined : undefined
+      );
       this.db.updateModelSessionByRun(context.run.id, {
         status: completed ? 'completed' : 'failed',
         metadata: {
@@ -2250,6 +2260,38 @@ function positiveNumber(value: unknown): number | null {
 function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
   const status = capture.agent?.status ?? 'unknown';
   return status === 'complete' ? 'Honeycrisp completed the research session.' : `Honeycrisp process finished with agent status ${status}.`;
+}
+
+function honeycrispFinalDisposition(
+  capture: HoneycrispFlowCapture
+): (Omit<SessionFinalDisposition, 'recordedAt'> & { recordedAt?: string }) | null {
+  const value = recordValue(capture.agent?.finalDisposition);
+  if (!value) return null;
+  const outcome = stringPayload(value, 'outcome') as SessionDispositionOutcome | null;
+  const summary = stringPayload(value, 'summary');
+  const externalStateRequired = typeof value.externalStateRequired === 'boolean' ? value.externalStateRequired : null;
+  if (!outcome || !['objective_achieved', 'objective_partially_achieved', 'blocked', 'inconclusive', 'failed', 'stopped'].includes(outcome)) return null;
+  if (!summary || externalStateRequired === null || !Array.isArray(value.blockerDependencies)) return null;
+  const blockerDependencies: SessionBlockerDependency[] = [];
+  for (const candidate of value.blockerDependencies) {
+    const dependency = recordValue(candidate);
+    if (!dependency) return null;
+    const kind = stringPayload(dependency, 'kind') as SessionBlockerDependencyKind | null;
+    const description = stringPayload(dependency, 'description');
+    const requiredState = stringPayload(dependency, 'requiredState');
+    if (!kind || !['user_input', 'credentials', 'authorization', 'source_material', 'environment', 'network_access', 'external_service', 'target_state', 'other'].includes(kind)) return null;
+    if (!description || !requiredState || typeof dependency.external !== 'boolean') return null;
+    blockerDependencies.push({ kind, description, requiredState, external: dependency.external });
+  }
+  if (externalStateRequired !== blockerDependencies.some((dependency) => dependency.external)) return null;
+  return {
+    outcome,
+    summary,
+    blockerDependencies,
+    externalStateRequired,
+    source: 'agent',
+    ...(typeof value.recordedAt === 'string' && value.recordedAt.trim() ? { recordedAt: value.recordedAt.trim() } : {})
+  };
 }
 
 function renderHoneycrispAssistantMessage(capture: HoneycrispFlowCapture): string {

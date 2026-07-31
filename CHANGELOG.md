@@ -69,6 +69,7 @@
 
 ### Added
 
+- Added structured final dispositions for every terminal research session, including typed blocker dependencies, an explicit external-state-required flag, Honeycrisp root-agent finalization, host fallbacks, registry mirroring, and workbench migration 8.
 - Added model-reasoned workspace-memory Dreaming on the workspace dashboard. The research model synthesizes workspace memories with up to 100 past session transcripts, proposes semantic pruning, revision, and de-duplication decisions, and Beale host-validates and applies them while preserving restorable originals through workbench migrations 6 and 7.
 - Added a HAM Mode start bottom sheet with persistent optional prompt guidance, live agent reasoning status, and a Markdown preview of the generated prompt before the next session launches.
 - HAM Mode now opens the prompt-generation sheet for every continuation, automatically follows streamed prompt output at the bottom, and presents later sessions with saved guidance and an already-running Go HAM control.

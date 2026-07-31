@@ -88,6 +88,7 @@ function session(input: Partial<ResearchSessionSummary>): ResearchSessionSummary
     startedAt: '2026-04-30T00:00:00.000Z',
     endedAt: '2026-04-30T01:00:00.000Z',
     updatedAt: '2026-04-30T01:00:00.000Z',
-    ...input
+    ...input,
+    finalDisposition: input.finalDisposition ?? null
   };
 }

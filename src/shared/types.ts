@@ -24,6 +24,41 @@ export type RunStatus =
 
 export type AttemptStatus = 'queued' | 'active' | 'paused' | 'blocked' | 'completed' | 'failed' | 'stopped';
 
+export type SessionDispositionOutcome =
+  | 'objective_achieved'
+  | 'objective_partially_achieved'
+  | 'blocked'
+  | 'inconclusive'
+  | 'failed'
+  | 'stopped';
+
+export type SessionBlockerDependencyKind =
+  | 'user_input'
+  | 'credentials'
+  | 'authorization'
+  | 'source_material'
+  | 'environment'
+  | 'network_access'
+  | 'external_service'
+  | 'target_state'
+  | 'other';
+
+export interface SessionBlockerDependency {
+  kind: SessionBlockerDependencyKind;
+  description: string;
+  requiredState: string;
+  external: boolean;
+}
+
+export interface SessionFinalDisposition {
+  outcome: SessionDispositionOutcome;
+  summary: string;
+  blockerDependencies: SessionBlockerDependency[];
+  externalStateRequired: boolean;
+  source: 'agent' | 'host' | 'fixture' | 'migration';
+  recordedAt: string;
+}
+
 export type TraceSource = 'user' | 'model' | 'tool' | 'executor' | 'verifier' | 'policy' | 'system';
 
 export type TraceEventType =
@@ -244,6 +279,7 @@ export interface ResearchSessionSummary {
   mode: string;
   promptMarkdown: string;
   summary: string;
+  finalDisposition: SessionFinalDisposition | null;
   model: string;
   reasoningEffort: string;
   networkProfile: string;
@@ -1028,6 +1064,7 @@ export interface RunRecord {
   targetPath: string | null;
   budget: Record<string, unknown>;
   summary: string;
+  finalDisposition: SessionFinalDisposition | null;
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;

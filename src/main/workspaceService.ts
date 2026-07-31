@@ -3354,6 +3354,7 @@ function buildResearchPromptRecommendationInput(
                 runId: previousDetail.run.id,
                 title: trimRedactedText(previousDetail.run.title, 220),
                 status: previousDetail.run.status,
+                finalDisposition: previousDetail.run.finalDisposition ? redactJsonForModel(previousDetail.run.finalDisposition) : null,
                 promptMarkdown: trimRedactedText(previousDetail.run.promptMarkdown, 12_000),
                 summary: trimRedactedText(previousDetail.run.summary, 4_000),
                 transcript: previousDetail.transcriptMessages.map((message) => ({
@@ -3478,6 +3479,7 @@ function buildResearchPromptRecommendationInput(
       runId: detail.run.id,
       title: trimRedactedText(detail.run.title, 220),
       status: detail.run.status,
+      finalDisposition: detail.run.finalDisposition ? redactJsonForModel(detail.run.finalDisposition) : null,
       mode: detail.run.mode,
       promptMarkdown: trimRedactedText(detail.run.promptMarkdown, 1200),
       summary: trimRedactedText(detail.run.summary, 900),

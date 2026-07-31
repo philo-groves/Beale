@@ -401,7 +401,15 @@ function recordVerifier(
 function finishRun(context: CreatedRunContext, status: 'completed' | 'blocked', summary: string, attemptState: string): void {
   const db = contextDb(context);
   db.updateAttemptState(context.attempt.id, status === 'completed' ? 'completed' : 'blocked', attemptState);
-  db.updateRunStatus(context.run.id, status, summary);
+  db.updateRunStatus(context.run.id, status, summary, {
+    outcome: status === 'blocked' ? 'blocked' : 'inconclusive',
+    summary,
+    blockerDependencies: status === 'blocked'
+      ? [{ kind: 'authorization', description: 'The requested fixture action is outside the recorded authorization boundary.', requiredState: 'A separately recorded authorized scope would be required before testing that target.', external: true }]
+      : [],
+    externalStateRequired: status === 'blocked',
+    source: 'fixture'
+  });
   if (status === 'completed') {
     db.updateVmState(context.vmContext.id, 'destroyed');
     db.appendTraceEvent({

@@ -42,6 +42,10 @@ import type {
   RunStatus,
   ScopeAsset,
   ScopeAssetInput,
+  SessionBlockerDependency,
+  SessionBlockerDependencyKind,
+  SessionFinalDisposition,
+  SessionDispositionOutcome,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
   SessionTranscriptSearchResult,
@@ -3340,6 +3344,130 @@ function booleanValue(row: SqlRow, key: string): boolean {
   return numberValue(row, key) === 1;
 }
 
+const SESSION_DISPOSITION_OUTCOMES = new Set<SessionDispositionOutcome>([
+  'objective_achieved',
+  'objective_partially_achieved',
+  'blocked',
+  'inconclusive',
+  'failed',
+  'stopped'
+]);
+const SESSION_BLOCKER_DEPENDENCY_KINDS = new Set<SessionBlockerDependencyKind>([
+  'user_input',
+  'credentials',
+  'authorization',
+  'source_material',
+  'environment',
+  'network_access',
+  'external_service',
+  'target_state',
+  'other'
+]);
+const SESSION_DISPOSITION_SOURCES = new Set<SessionFinalDisposition['source']>(['agent', 'host', 'fixture', 'migration']);
+
+function isFinalRunStatus(status: RunStatus): boolean {
+  return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
+}
+
+function normalizeSessionFinalDisposition(
+  status: RunStatus,
+  summary: string,
+  input?: Omit<SessionFinalDisposition, 'recordedAt'> & { recordedAt?: string }
+): SessionFinalDisposition {
+  if (!input) return fallbackSessionFinalDisposition(status, summary, 'host');
+  if (!SESSION_DISPOSITION_OUTCOMES.has(input.outcome)) throw new Error(`Unsupported session disposition outcome: ${input.outcome}`);
+  if (!SESSION_DISPOSITION_SOURCES.has(input.source)) throw new Error(`Unsupported session disposition source: ${input.source}`);
+  const dependencies = input.blockerDependencies.map(normalizeSessionBlockerDependency);
+  if (input.externalStateRequired !== dependencies.some((dependency) => dependency.external)) {
+    throw new Error('Session externalStateRequired must match the presence of external blocker dependencies.');
+  }
+  if (input.outcome === 'blocked' && dependencies.length === 0) {
+    throw new Error('A blocked session disposition requires at least one blocker dependency.');
+  }
+  if (input.outcome === 'objective_achieved' && dependencies.length > 0) {
+    throw new Error('An achieved session disposition cannot retain blocker dependencies.');
+  }
+  return {
+    outcome: input.outcome,
+    summary: input.summary.trim() || summary.trim() || `Session ended with status ${status}.`,
+    blockerDependencies: dependencies,
+    externalStateRequired: input.externalStateRequired,
+    source: input.source,
+    recordedAt: input.recordedAt?.trim() || nowIso()
+  };
+}
+
+function fallbackSessionFinalDisposition(
+  status: RunStatus,
+  summary: string,
+  source: SessionFinalDisposition['source'],
+  recordedAt = nowIso()
+): SessionFinalDisposition {
+  const outcome: SessionDispositionOutcome = status === 'failed'
+    ? 'failed'
+    : status === 'stopped'
+      ? 'stopped'
+      : status === 'blocked'
+        ? 'blocked'
+        : 'inconclusive';
+  return {
+    outcome,
+    summary: summary.trim() || `Session ended with status ${status}.`,
+    blockerDependencies: status === 'blocked'
+      ? [{ kind: 'other', description: 'The session ended in a blocked state without a structured dependency.', requiredState: 'Review the session trace and supply the missing state.', external: true }]
+      : [],
+    externalStateRequired: status === 'blocked',
+    source,
+    recordedAt
+  };
+}
+
+function normalizeSessionBlockerDependency(dependency: SessionBlockerDependency): SessionBlockerDependency {
+  if (!SESSION_BLOCKER_DEPENDENCY_KINDS.has(dependency.kind)) throw new Error(`Unsupported session blocker dependency kind: ${dependency.kind}`);
+  const description = dependency.description.trim();
+  const requiredState = dependency.requiredState.trim();
+  if (!description || !requiredState) throw new Error('Session blocker dependencies require description and requiredState.');
+  return { kind: dependency.kind, description, requiredState, external: dependency.external };
+}
+
+function dispositionMetadata(disposition: SessionFinalDisposition): Record<string, unknown> {
+  return {
+    outcome: disposition.outcome,
+    summary: disposition.summary,
+    source: disposition.source,
+    recordedAt: disposition.recordedAt
+  };
+}
+
+function mapSessionFinalDisposition(row: SqlRow): SessionFinalDisposition | null {
+  const metadata = parseJson(row.final_disposition_json);
+  if (!SESSION_DISPOSITION_OUTCOMES.has(metadata.outcome as SessionDispositionOutcome)) return null;
+  const rawDependencies = typeof row.blocker_dependencies_json === 'string'
+    ? JSON.parse(row.blocker_dependencies_json) as unknown
+    : [];
+  const blockerDependencies = Array.isArray(rawDependencies)
+    ? rawDependencies.flatMap((value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+        const dependency = value as Record<string, unknown>;
+        const kind = dependency.kind as SessionBlockerDependencyKind;
+        if (!SESSION_BLOCKER_DEPENDENCY_KINDS.has(kind)) return [];
+        if (typeof dependency.description !== 'string' || typeof dependency.requiredState !== 'string' || typeof dependency.external !== 'boolean') return [];
+        return [{ kind, description: dependency.description, requiredState: dependency.requiredState, external: dependency.external }];
+      })
+    : [];
+  const source = SESSION_DISPOSITION_SOURCES.has(metadata.source as SessionFinalDisposition['source'])
+    ? metadata.source as SessionFinalDisposition['source']
+    : 'host';
+  return {
+    outcome: metadata.outcome as SessionDispositionOutcome,
+    summary: typeof metadata.summary === 'string' ? metadata.summary : text(row, 'summary'),
+    blockerDependencies,
+    externalStateRequired: booleanValue(row, 'external_state_required'),
+    source,
+    recordedAt: typeof metadata.recordedAt === 'string' ? metadata.recordedAt : nullableText(row, 'ended_at') ?? text(row, 'created_at')
+  };
+}
+
 function rowOrUndefined(value: unknown): SqlRow | undefined {
   return value ? (value as SqlRow) : undefined;
 }
@@ -3540,7 +3668,7 @@ export class WorkspaceDatabase {
     this.transaction(() => {
       for (const row of interruptedRunRows) {
         this.db
-          .prepare('UPDATE runs SET status = ?, summary = ? WHERE id = ?')
+          .prepare("UPDATE runs SET status = ?, summary = ?, ended_at = NULL, final_disposition_json = NULL, blocker_dependencies_json = '[]', external_state_required = 0 WHERE id = ?")
           .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
       }
       for (const row of interruptedAttemptRows) {
@@ -4139,9 +4267,31 @@ export class WorkspaceDatabase {
       .run(status, resultSummary, toJson(result), nowIso(), toolCallId);
   }
 
-  public updateRunStatus(runId: string, status: RunStatus, summary: string): void {
+  public updateRunStatus(
+    runId: string,
+    status: RunStatus,
+    summary: string,
+    dispositionInput?: Omit<SessionFinalDisposition, 'recordedAt'> & { recordedAt?: string }
+  ): void {
+    const terminal = isFinalRunStatus(status);
     const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
-    this.db.prepare('UPDATE runs SET status = ?, summary = ?, ended_at = ? WHERE id = ?').run(status, summary, endedAt, runId);
+    const disposition = terminal ? normalizeSessionFinalDisposition(status, summary, dispositionInput) : null;
+    this.db
+      .prepare(
+        `UPDATE runs
+         SET status = ?, summary = ?, ended_at = ?, final_disposition_json = ?,
+             blocker_dependencies_json = ?, external_state_required = ?
+         WHERE id = ?`
+      )
+      .run(
+        status,
+        summary,
+        endedAt,
+        disposition ? toJson(dispositionMetadata(disposition)) : null,
+        toJson(disposition?.blockerDependencies ?? []),
+        disposition?.externalStateRequired ? 1 : 0,
+        runId
+      );
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
   }
@@ -6426,6 +6576,7 @@ export class WorkspaceDatabase {
         run.targetPath ?? '',
         run.startedAt ?? '',
         run.endedAt ?? '',
+        JSON.stringify(run.finalDisposition),
         JSON.stringify(run.budget)
       ].join(':'),
       this.aggregateVersionPart(
@@ -7017,6 +7168,38 @@ export class WorkspaceDatabase {
             CREATE INDEX idx_memory_dreaming_changes_run
             ON memory_dreaming_changes(run_id);
           `);
+        }
+      },
+      {
+        version: 8,
+        name: 'structured_session_final_disposition',
+        up: (database) => {
+          if (!tableHasColumn(database, 'runs', 'final_disposition_json')) {
+            database.exec('ALTER TABLE runs ADD COLUMN final_disposition_json TEXT;');
+          }
+          if (!tableHasColumn(database, 'runs', 'blocker_dependencies_json')) {
+            database.exec("ALTER TABLE runs ADD COLUMN blocker_dependencies_json TEXT NOT NULL DEFAULT '[]';");
+          }
+          if (!tableHasColumn(database, 'runs', 'external_state_required')) {
+            database.exec('ALTER TABLE runs ADD COLUMN external_state_required INTEGER NOT NULL DEFAULT 0;');
+          }
+          const terminalRows = rows(
+            database
+              .prepare("SELECT id, status, summary, created_at, ended_at FROM runs WHERE status IN ('blocked', 'completed', 'failed', 'stopped') AND final_disposition_json IS NULL")
+              .all()
+          );
+          const update = database.prepare(
+            'UPDATE runs SET final_disposition_json = ?, blocker_dependencies_json = ?, external_state_required = ? WHERE id = ?'
+          );
+          for (const row of terminalRows) {
+            const disposition = fallbackSessionFinalDisposition(
+              text(row, 'status') as RunStatus,
+              text(row, 'summary'),
+              'migration',
+              nullableText(row, 'ended_at') ?? text(row, 'created_at')
+            );
+            update.run(toJson(dispositionMetadata(disposition)), '[]', 0, text(row, 'id'));
+          }
         }
       }
     ]);
@@ -8382,7 +8565,7 @@ export class WorkspaceDatabase {
       entityType: 'run',
       entityId: run.id,
       title: run.title || 'Untitled research session',
-      body: [run.promptMarkdown, run.mode, run.status, run.summary, run.model, run.reasoningEffort, run.networkProfile, run.sandboxProfile, run.targetPath].join('\n'),
+      body: [run.promptMarkdown, run.mode, run.status, run.summary, run.model, run.reasoningEffort, run.networkProfile, run.sandboxProfile, run.targetPath, JSON.stringify(run.finalDisposition)].join('\n'),
       sourcePath: run.targetPath,
       metadata: {
         status: run.status,
@@ -8392,7 +8575,8 @@ export class WorkspaceDatabase {
         networkProfile: run.networkProfile,
         sandboxProfile: run.sandboxProfile,
         targetAssetId: run.targetAssetId,
-        targetPath: run.targetPath
+        targetPath: run.targetPath,
+        finalDisposition: run.finalDisposition
       },
       createdAt: run.createdAt,
       updatedAt: run.endedAt ?? run.startedAt ?? run.createdAt
@@ -8887,6 +9071,7 @@ export class WorkspaceDatabase {
       targetPath: nullableText(row, 'target_path'),
       budget: parseJson(row.budget_json),
       summary: text(row, 'summary'),
+      finalDisposition: mapSessionFinalDisposition(row),
       createdAt: text(row, 'created_at'),
       startedAt: nullableText(row, 'started_at'),
       endedAt: nullableText(row, 'ended_at')
@@ -9432,6 +9617,9 @@ CREATE TABLE IF NOT EXISTS runs (
   target_path TEXT,
   budget_json TEXT NOT NULL,
   summary TEXT NOT NULL,
+  final_disposition_json TEXT,
+  blocker_dependencies_json TEXT NOT NULL DEFAULT '[]',
+  external_state_required INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   started_at TEXT,
   ended_at TEXT

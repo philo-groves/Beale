@@ -8035,6 +8035,52 @@ body.is-resizing-research-side .main-session-grid {
   white-space: nowrap;
 }
 
+.session-final-disposition {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 10px;
+}
+
+.session-final-disposition > p,
+.session-final-disposition li span,
+.session-final-disposition li small {
+  margin: 0;
+  color: var(--muted-strong);
+  overflow-wrap: anywhere;
+}
+
+.session-final-disposition-state {
+  width: fit-content;
+  border-radius: 999px;
+  background: #171717;
+  color: var(--muted-strong);
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.session-final-disposition ul {
+  display: grid;
+  gap: 7px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-final-disposition li {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 7px;
+}
+
+.session-final-disposition li small {
+  font-size: 0.72rem;
+}
+
 .research-prompt-section-label {
   color: var(--muted);
   font-size: 0.7rem;

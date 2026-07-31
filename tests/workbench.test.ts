@@ -85,6 +85,9 @@ describe('Beale workbench skeleton', () => {
       version: 1,
       name: 'registry_schema_baseline'
     });
+    expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
+      name: 'structured_session_final_disposition'
+    });
     expect(registry.prepare("SELECT value FROM registry_meta WHERE key = 'schema_version'").get()).toBeUndefined();
     registry.close();
     const schema = new DatabaseSync(globalDatabasePath());
@@ -403,6 +406,9 @@ describe('Beale workbench skeleton', () => {
     expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 7").get()).toEqual({
       name: 'semantic_memory_dreaming'
     });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 8").get()).toEqual({
+      name: 'structured_session_final_disposition'
+    });
     expect(
       verified
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('memory_dreaming_runs', 'memory_dreaming_changes') ORDER BY name")
@@ -630,6 +636,7 @@ describe('Beale workbench skeleton', () => {
         '    startedAt: now,',
         '    completedAt: now,',
         "    outputText: 'Fixture Honeycrisp answer.',",
+        "    finalDisposition: { outcome: 'blocked', summary: 'Live validation needs a test account.', blockerDependencies: [{ kind: 'credentials', description: 'No authorized test account is available.', requiredState: 'Provide an authorized test account credential reference.', external: true }], externalStateRequired: true, recordedAt: now },",
         '    nextPromptSuggestions: [',
         "      { title: 'Verify fixture', promptMarkdown: 'Skeptically verify the fixture result with fresh evidence.', rationale: 'Test structured prompt suggestions.' },",
         "      { title: 'Inspect adjacent fixture', promptMarkdown: 'Inspect adjacent fixture files without repeating exhausted targets.' },",
@@ -713,6 +720,20 @@ describe('Beale workbench skeleton', () => {
 
     const detail = service.getRunDetail(runId ?? '');
     expect(detail.run.title).toBe('Zsh Host Adapter Validation');
+    expect(detail.run.finalDisposition).toEqual({
+      outcome: 'blocked',
+      summary: 'Live validation needs a test account.',
+      blockerDependencies: [{
+        kind: 'credentials',
+        description: 'No authorized test account is available.',
+        requiredState: 'Provide an authorized test account credential reference.',
+        external: true
+      }],
+      externalStateRequired: true,
+      source: 'agent',
+      recordedAt: expect.any(String)
+    });
+    expect(service.getWorkspaceRegistryState().researchSessions.find((session) => session.runId === runId)?.finalDisposition).toEqual(detail.run.finalDisposition);
     expect(detail.traceEvents.find((event) => event.summary === 'Session title generation failed.')?.payload).toMatchObject({
       provider: 'xai',
       model: 'grok-4.3',
@@ -2879,6 +2900,12 @@ describe('Beale workbench skeleton', () => {
     const detail = service.getRunDetail(runId);
 
     expect(detail.run.status).toBe('completed');
+    expect(detail.run.finalDisposition).toMatchObject({
+      outcome: 'inconclusive',
+      blockerDependencies: [],
+      externalStateRequired: false,
+      source: 'fixture'
+    });
     expect(detail.traceEvents.map((event) => event.sequence)).toEqual(sequence(detail.traceEvents.length));
     expect(detail.traceEvents.some((event) => event.source === 'model' && event.type === 'model_message')).toBe(true);
     expect(detail.traceEvents.some((event) => event.source === 'tool' && event.type === 'tool_result')).toBe(true);
@@ -2928,6 +2955,7 @@ describe('Beale workbench skeleton', () => {
     const stopped = service.steerRun({ type: 'stop', runId });
     detail = service.getRunDetail(runId);
     expect(detail.run.status).toBe('stopped');
+    expect(detail.run.finalDisposition).toMatchObject({ outcome: 'stopped', blockerDependencies: [], externalStateRequired: false, source: 'host' });
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run stopped by user.');
     expect(stopped.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
 

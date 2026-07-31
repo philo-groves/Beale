@@ -1,11 +1,12 @@
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, WorkspaceRegistryEntry } from '@shared/types';
+import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailSheet } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { HamModeStartSheet } from '../src/renderer/features/sessions/HamModeStartSheet';
+import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 
 describe('renderer dialog surfaces', () => {
@@ -49,6 +50,36 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet');
   });
 
+  it('shows the structured final disposition and blocker dependencies in session summaries', () => {
+    const detail = {
+      run: {
+        id: 'run_one',
+        title: 'Validate account boundary',
+        promptMarkdown: 'Validate the account boundary.',
+        mode: 'dynamic',
+        attemptStrategy: 'iterative_research',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        networkProfile: 'scoped',
+        sandboxProfile: 'host',
+        finalDisposition: {
+          outcome: 'blocked',
+          summary: 'Validation requires an authorized second account.',
+          blockerDependencies: [{ kind: 'credentials', description: 'No second test account is recorded.', requiredState: 'Provide an authorized credential reference.', external: true }],
+          externalStateRequired: true,
+          source: 'agent',
+          recordedAt: '2026-07-31T12:00:00.000Z'
+        }
+      }
+    } as unknown as RunDetail;
+    const html = renderToStaticMarkup(createElement(SessionSummaryModal, { detail, onClose: () => undefined }));
+
+    expect(html).toContain('Final disposition');
+    expect(html).toContain('Blocked');
+    expect(html).toContain('External state required');
+    expect(html).toContain('Provide an authorized credential reference.');
+  });
+
   it('uses bottom sheets for session history and transcript search', () => {
     const workspace: WorkspaceRegistryEntry = {
       id: 'registry_workspace',
@@ -78,6 +109,7 @@ describe('renderer dialog surfaces', () => {
       mode: 'dynamic',
       promptMarkdown: 'Review parser bounds.',
       summary: 'Review complete.',
+      finalDisposition: null,
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
       networkProfile: 'offline',

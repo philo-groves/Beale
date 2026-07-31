@@ -12,6 +12,7 @@ import type {
   WorkspaceRegistryEntry,
   WorkspaceRegistryState,
   ResearchSessionSummary,
+  SessionFinalDisposition,
   RunEngineKind,
   RunStatus,
   VmPreference,
@@ -223,6 +224,7 @@ export class WorkspaceRegistry {
         mode TEXT NOT NULL,
         prompt_markdown TEXT NOT NULL DEFAULT '',
         summary TEXT NOT NULL,
+        final_disposition_json TEXT,
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
         network_profile TEXT NOT NULL,
@@ -239,6 +241,15 @@ export class WorkspaceRegistry {
       CREATE INDEX IF NOT EXISTS idx_research_sessions_updated_at ON research_sessions(updated_at);
       DELETE FROM registry_meta WHERE key = 'schema_version';
     `)
+    }, {
+      version: 2,
+      name: 'structured_session_final_disposition',
+      up: (database) => {
+        const columns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
+        if (!columns.some((column) => column.name === 'final_disposition_json')) {
+          database.exec('ALTER TABLE research_sessions ADD COLUMN final_disposition_json TEXT;');
+        }
+      }
     }]);
   }
 
@@ -369,6 +380,7 @@ export class WorkspaceRegistry {
       run.mode,
       run.promptMarkdown,
       run.summary,
+      run.finalDisposition ? JSON.stringify(run.finalDisposition) : null,
       run.model,
       run.reasoningEffort,
       run.networkProfile,
@@ -393,6 +405,7 @@ export class WorkspaceRegistry {
             mode = ?,
             prompt_markdown = ?,
             summary = ?,
+            final_disposition_json = ?,
             model = ?,
             reasoning_effort = ?,
             network_profile = ?,
@@ -411,9 +424,9 @@ export class WorkspaceRegistry {
       .prepare(
         `INSERT INTO research_sessions (
           id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
-          mode, prompt_markdown, summary, model, reasoning_effort, network_profile, sandbox_profile,
-          created_at, started_at, ended_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort, network_profile,
+          sandbox_profile, created_at, started_at, ended_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
@@ -452,6 +465,7 @@ export class WorkspaceRegistry {
       mode: text(row, 'mode'),
       promptMarkdown: text(row, 'prompt_markdown'),
       summary: text(row, 'summary'),
+      finalDisposition: parseSessionFinalDisposition(row.final_disposition_json),
       model: text(row, 'model'),
       reasoningEffort: text(row, 'reasoning_effort'),
       networkProfile: text(row, 'network_profile'),
@@ -461,6 +475,21 @@ export class WorkspaceRegistry {
       endedAt: nullableText(row, 'ended_at'),
       updatedAt: text(row, 'updated_at')
     };
+  }
+}
+
+function parseSessionFinalDisposition(value: unknown): SessionFinalDisposition | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const disposition = parsed as Partial<SessionFinalDisposition>;
+    if (typeof disposition.outcome !== 'string' || typeof disposition.summary !== 'string') return null;
+    if (!Array.isArray(disposition.blockerDependencies) || typeof disposition.externalStateRequired !== 'boolean') return null;
+    if (typeof disposition.source !== 'string' || typeof disposition.recordedAt !== 'string') return null;
+    return disposition as SessionFinalDisposition;
+  } catch {
+    return null;
   }
 }
 
