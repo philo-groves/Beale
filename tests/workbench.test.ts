@@ -517,6 +517,31 @@ describe('Beale workbench skeleton', () => {
     const artifactRoot = join(workspace, '.beale', 'artifacts');
     const first = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath: workspace });
     first.initialize();
+    const lastExploration = {
+      requestId: 'ham_request',
+      subsystemKey: 'parser:decode-subsystem',
+      subsystemTitle: 'Parser decode subsystem',
+      subsystemBoundary: 'Decoder entry points and immediate state transitions.',
+      underexploredRationale: 'Prior sessions did not close decoder candidates.',
+      candidates: [{
+        rank: 1,
+        candidateKey: 'parser:length-conversion',
+        surfaceKey: 'parser:decode-boundary',
+        title: 'Length conversion boundary',
+        hypothesis: 'An attacker-controlled length may truncate before allocation.',
+        continuity: 'pivot' as const,
+        attackerControl: 'Remote input controls the encoded length.',
+        trustBoundary: 'Untrusted bytes enter privileged parser state.',
+        securityImpact: 'A size mismatch could cause memory corruption.',
+        evidenceRefs: ['run:run_previous'],
+        preliminaryReview: 'survived' as const,
+        preliminaryReviewSummary: 'The candidate has plausible control and impact.',
+        survivedPreliminaryReview: true,
+        hostRejectionReasons: []
+      }],
+      survivorCandidateKeys: ['parser:length-conversion'],
+      createdAt: '2026-07-28T10:00:00.000Z'
+    };
     first.setHamModeState({
       enabled: true,
       phase: 'waiting_for_session',
@@ -534,6 +559,7 @@ describe('Beale workbench skeleton', () => {
       },
       candidateCooldowns: [],
       surfaceCooldowns: [],
+      lastExploration,
       lastError: null,
       updatedAt: '2026-07-28T10:00:00.000Z'
     });
@@ -558,6 +584,7 @@ describe('Beale workbench skeleton', () => {
       },
       candidateCooldowns: [],
       surfaceCooldowns: [],
+      lastExploration,
       lastError: null,
       updatedAt: '2026-07-28T10:00:00.000Z'
     });
@@ -2377,33 +2404,32 @@ describe('Beale workbench skeleton', () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-mode';
     const workspace = tempWorkspace();
     const modelRequests: Record<string, unknown>[] = [];
-    const generationUpdates: Array<{ promptMarkdown: string; reasoningSummary: string | null }> = [];
+    const generationUpdates: Array<{ promptMarkdown: string; reasoningSummary: string | null; phase?: 'exploration' | 'closure' }> = [];
     const service = new WorkspaceService(() => undefined, {
       onHamModeGenerationUpdate: (update) => generationUpdates.push({
         promptMarkdown: update.promptMarkdown,
-        reasoningSummary: update.reasoningSummary
+        reasoningSummary: update.reasoningSummary,
+        phase: update.phase
       }),
       openAiFetch: async (_url, init) => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         modelRequests.push(request);
-        return new Response(
-          sse(
-            event('response.reasoning_summary_text.delta', {
-              type: 'response.reasoning_summary_text.delta',
-              delta: 'Extending the unresolved parser boundary.'
-            }) +
-            event('response.output_text.done', {
-              type: 'response.output_text.done',
-              text: JSON.stringify({
-                promptMarkdown: '# One parser outcome\nFind one evidence-backed parser boundary violation under the recorded threat model.',
-                continuity: 'extend',
-                candidateKey: 'parser:length-conversion-boundary',
-                surfaceKey: 'parser:decode-boundary'
-              })
-            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_ham_prompt_generation' } })
-          ),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
-        );
+        const task = (request.metadata as Record<string, unknown>)?.beale_task;
+        if (task === 'ham_exploration') {
+          return hamJsonResponse(
+            hamExplorationResult(request, [
+              { continuity: 'extend' },
+              {},
+              { preliminaryReview: 'rejected', preliminaryReviewSummary: 'Cleanup is already guarded by an ownership bit.' }
+            ]),
+            'resp_ham_exploration',
+            'Ranking candidates in the bounded decoder subsystem.'
+          );
+        }
+        return hamJsonResponse({
+          selectedCandidateKey: 'parser:length-conversion-boundary',
+          promptMarkdown: '# One parser outcome\nFind one evidence-backed parser boundary violation under the recorded threat model.'
+        }, 'resp_ham_closure', 'Closing the strongest surviving parser candidate.');
       }
     });
 
@@ -2470,18 +2496,25 @@ describe('Beale workbench skeleton', () => {
       lastStartedRunId: hamRun?.id,
       lastError: null
     });
-    expect(modelRequests).toHaveLength(1);
+    expect(modelRequests).toHaveLength(2);
     const serialized = JSON.stringify(modelRequests[0]);
-    expect(serialized).toContain('HAM Mode');
-    expect(serialized).toContain('exactly one primary security research outcome');
-    expect(serialized).toContain('red-team it for shortcuts');
+    expect(serialized).toContain('HAM exploration reviewer');
+    expect(serialized).toContain('3 to 6 distinct ranked vulnerability candidates');
     expect(serialized).toContain('Seed parser review');
     expect(serialized).toContain('Promising parser boundary');
     expect(serialized).toContain('subjectMemories');
     expect(serialized).toContain('transcript');
     expect(serialized).toContain('Favor remotely reachable parser length conversions.');
-    expect(generationUpdates.some((update) => update.reasoningSummary === 'Extending the unresolved parser boundary.')).toBe(true);
+    expect(generationUpdates.some((update) => update.phase === 'exploration' && update.reasoningSummary === 'Ranking candidates in the bounded decoder subsystem.')).toBe(true);
+    expect(generationUpdates.some((update) => update.phase === 'closure' && update.reasoningSummary === 'Closing the strongest surviving parser candidate.')).toBe(true);
     expect(generationUpdates.at(-1)?.promptMarkdown).toContain('One parser outcome');
+    expect(running?.hamMode.lastExploration).toMatchObject({
+      subsystemKey: 'parser:decode-subsystem',
+      survivorCandidateKeys: ['parser:length-conversion-boundary', 'parser:state-confusion']
+    });
+    const closurePayload = hamRequestPayload(modelRequests[1]);
+    expect(JSON.stringify(closurePayload)).toContain('parser:length-conversion-boundary');
+    expect(JSON.stringify(closurePayload)).not.toContain('parser:cleanup-reentrancy');
 
     const disabled = service.setHamModeEnabled(false);
     expect(disabled.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
@@ -2493,6 +2526,41 @@ describe('Beale workbench skeleton', () => {
     const reopenedSnapshot = reopened.openWorkspace(workspace);
     expect(reopenedSnapshot.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
     reopened.close();
+  });
+
+  it('rejects closure attempts to restore a candidate that failed preliminary review', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-closure-gate';
+    const requests: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        requests.push(request);
+        const task = (request.metadata as Record<string, unknown>)?.beale_task;
+        if (task === 'ham_exploration') {
+          return hamJsonResponse(hamExplorationResult(request, [
+            {},
+            {},
+            { preliminaryReview: 'rejected', preliminaryReviewSummary: 'The required attacker control is not plausible.' }
+          ]), 'resp_ham_gate_exploration');
+        }
+        return hamJsonResponse({
+          selectedCandidateKey: 'parser:cleanup-reentrancy',
+          promptMarkdown: '# Invalid closure\nAttempt to restore a rejected candidate.'
+        }, 'resp_ham_gate_closure');
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+    const seed = startRunForTest(service, runInput('source_review'));
+    const seedRunId = seed.runs[0]?.run.id ?? '';
+
+    service.setHamModeEnabled(true);
+    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
+
+    expect(service.getSnapshot()?.hamMode.lastError).toContain('did not survive preliminary review');
+    expect(service.getSnapshot()?.runs.map((row) => row.run.id)).toEqual([seedRunId]);
+    expect(service.getSnapshot()?.hamMode.lastExploration?.survivorCandidateKeys).not.toContain('parser:cleanup-reentrancy');
+    expect(JSON.stringify(hamRequestPayload(requests[1]))).not.toContain('parser:cleanup-reentrancy');
+    service.close();
   });
 
   it('enforces persisted candidate and surface cooldowns before starting another HAM session', async () => {
@@ -2519,58 +2587,57 @@ describe('Beale workbench skeleton', () => {
     db.close();
 
     const requests: Record<string, unknown>[] = [];
-    const selections = [
-      { continuity: 'pivot', candidateKey: 'parser:length-overflow', surfaceKey: 'parser:decode-boundary' },
-      { continuity: 'pivot', candidateKey: 'parser:integer-truncation', surfaceKey: 'parser:decode-boundary' },
-      { continuity: 'pivot', candidateKey: 'parser:state-confusion', surfaceKey: 'parser:state-machine' }
-    ] as const;
-    let requestIndex = 0;
     service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
-        requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        const selection = selections[requestIndex++] ?? selections.at(-1)!;
-        return new Response(
-          sse(
-            event('response.output_text.done', {
-              type: 'response.output_text.done',
-              text: JSON.stringify({
-                promptMarkdown: '# Cooldown-aware parser research\nPursue one distinct verifier-backed parser outcome.',
-                ...selection
-              })
-            }) + event('response.completed', { type: 'response.completed', response: { id: `resp_ham_cooldown_${requestIndex}` } })
-          ),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
-        );
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        requests.push(request);
+        const task = (request.metadata as Record<string, unknown>)?.beale_task;
+        if (task === 'ham_exploration') {
+          return hamJsonResponse(hamExplorationResult(request, [
+            { candidateKey: 'parser:length-overflow', surfaceKey: 'parser:decode-boundary' },
+            { candidateKey: 'parser:integer-truncation', surfaceKey: 'parser:decode-boundary' },
+            { candidateKey: 'parser:state-confusion', surfaceKey: 'parser:state-machine' }
+          ]), 'resp_ham_cooldown_exploration');
+        }
+        return hamJsonResponse({
+          selectedCandidateKey: 'parser:state-confusion',
+          promptMarkdown: '# Cooldown-aware parser research\nPursue one distinct verifier-backed parser outcome.'
+        }, 'resp_ham_cooldown_closure');
       }
     });
     service.openWorkspace(workspace);
 
     service.setHamModeEnabled(true);
-    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
-    expect(service.getSnapshot()?.hamMode.lastError).toContain('candidate parser:length-overflow is still on cooldown');
+    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
     expect(service.getSnapshot()?.hamMode.candidateCooldowns).toMatchObject([{
       key: 'parser:length-overflow',
       sourceRunId: completedRunId,
       reason: 'candidate_exhausted'
     }]);
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => requestIndex === 2 && service.getSnapshot()?.hamMode.enabled === false, 5000);
-    expect(service.getSnapshot()?.hamMode.lastError).toContain('surface parser:decode-boundary is still on cooldown');
     expect(service.getSnapshot()?.hamMode.surfaceCooldowns).toMatchObject([{
       key: 'parser:decode-boundary',
       sourceRunId: completedRunId,
       reason: 'surface_recently_explored'
     }]);
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
     expect(service.getSnapshot()?.hamMode.activeSelection).toMatchObject({
       candidateKey: 'parser:state-confusion',
       surfaceKey: 'parser:state-machine'
     });
+    expect(service.getSnapshot()?.hamMode.lastExploration?.candidates).toMatchObject([
+      {
+        candidateKey: 'parser:length-overflow',
+        survivedPreliminaryReview: false,
+        hostRejectionReasons: ['The candidate identity is on cooldown.', 'The attack surface is on cooldown.']
+      },
+      { candidateKey: 'parser:integer-truncation', survivedPreliminaryReview: false, hostRejectionReasons: ['The attack surface is on cooldown.'] },
+      { candidateKey: 'parser:state-confusion', survivedPreliminaryReview: true, hostRejectionReasons: [] }
+    ]);
     expect(JSON.stringify(requests[0])).toContain('activeCandidateCooldowns');
     expect(JSON.stringify(requests[0])).toContain('parser:length-overflow');
+    const closurePayload = JSON.stringify(hamRequestPayload(requests[1]));
+    expect(closurePayload).not.toContain('parser:length-overflow');
+    expect(closurePayload).not.toContain('parser:integer-truncation');
+    expect(closurePayload).toContain('parser:state-confusion');
     service.setHamModeEnabled(false);
     service.close();
   });
@@ -2612,28 +2679,30 @@ describe('Beale workbench skeleton', () => {
     const requests: Record<string, unknown>[] = [];
     service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
-        requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        return new Response(
-          sse(
-            event('response.output_text.done', {
-              type: 'response.output_text.done',
-              text: JSON.stringify({
-                promptMarkdown: '# Validate the blocked account boundary\nUse the newly available authorized account to resolve one candidate.',
-                continuity: 'extend',
-                candidateKey: 'account:cross-account-boundary',
-                surfaceKey: 'account:authorization-api'
-              })
-            }) + event('response.completed', { type: 'response.completed', response: { id: `resp_ham_prerequisite_${requests.length}` } })
-          ),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
-        );
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        requests.push(request);
+        const task = (request.metadata as Record<string, unknown>)?.beale_task;
+        if (task === 'ham_exploration') {
+          return hamJsonResponse(hamExplorationResult(request, [
+            { candidateKey: 'account:cross-account-boundary', surfaceKey: 'account:authorization-api', continuity: 'extend' },
+            { candidateKey: 'account:role-confusion', surfaceKey: 'account:authorization-api', continuity: 'extend' },
+            { candidateKey: 'account:tenant-switch', surfaceKey: 'account:session-state', continuity: 'extend' }
+          ]), `resp_ham_prerequisite_exploration_${requests.length}`);
+        }
+        return hamJsonResponse({
+          selectedCandidateKey: 'account:cross-account-boundary',
+          promptMarkdown: '# Validate the blocked account boundary\nUse the newly available authorized account to resolve one candidate.'
+        }, 'resp_ham_prerequisite_closure');
       }
     });
     service.openWorkspace(workspace);
 
     service.setHamModeEnabled(true);
     await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
-    expect(service.getSnapshot()?.hamMode.lastError).toContain('prerequisite state has not changed');
+    expect(service.getSnapshot()?.hamMode.lastError).toContain('no candidates that survived preliminary review');
+    expect(service.getSnapshot()?.hamMode.lastExploration?.candidates.every((candidate) =>
+      candidate.hostRejectionReasons.includes('The candidate extends a blocked session whose prerequisite state is unchanged.')
+    )).toBe(true);
     const firstRequestText = (requests[0]?.input as Array<{ content: Array<{ text: string }> }>)[0]?.content[0]?.text ?? '';
     expect(firstRequestText).toContain('"prerequisiteChanged": false');
     expect(service.getSnapshot()?.runs).toHaveLength(1);
@@ -2673,6 +2742,7 @@ describe('Beale workbench skeleton', () => {
     await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
     const credentialEditRequestText = (requests[2]?.input as Array<{ content: Array<{ text: string }> }>)[0]?.content[0]?.text ?? '';
     expect(credentialEditRequestText).toContain('"prerequisiteChanged": true');
+    expect((requests[3]?.metadata as Record<string, unknown>)?.beale_task).toBe('ham_closure');
     expect(service.getSnapshot()?.runs[0]?.run.promptMarkdown).toContain('newly available authorized account');
     service.setHamModeEnabled(false);
     service.close();
@@ -2805,22 +2875,19 @@ describe('Beale workbench skeleton', () => {
     service.close();
 
     service = new WorkspaceService(() => undefined, {
-      openAiFetch: async () => {
+      openAiFetch: async (_url, init) => {
         promptRequests += 1;
-        return new Response(
-          sse(
-            event('response.output_text.done', {
-              type: 'response.output_text.done',
-              text: JSON.stringify({
-                promptMarkdown: '# Resume with a new session\nUse the paused transcript as prior context and pursue one bounded outcome.',
-                continuity: 'pivot',
-                candidateKey: 'parser:alternate-bounds-check',
-                surfaceKey: 'parser:validation-layer'
-              })
-            }) + event('response.completed', { type: 'response.completed', response: { id: 'resp_paused_ham_start' } })
-          ),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
-        );
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        const task = (request.metadata as Record<string, unknown>)?.beale_task;
+        if (task === 'ham_exploration') {
+          return hamJsonResponse(hamExplorationResult(request, [
+            { candidateKey: 'parser:alternate-bounds-check', surfaceKey: 'parser:validation-layer' }
+          ]), 'resp_paused_ham_exploration');
+        }
+        return hamJsonResponse({
+          selectedCandidateKey: 'parser:alternate-bounds-check',
+          promptMarkdown: '# Resume with a new session\nUse the paused transcript as prior context and pursue one bounded outcome.'
+        }, 'resp_paused_ham_closure');
       }
     });
     service.openWorkspace(workspace);
@@ -2835,7 +2902,7 @@ describe('Beale workbench skeleton', () => {
 
     await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
     const next = service.getSnapshot();
-    expect(promptRequests).toBe(1);
+    expect(promptRequests).toBe(2);
     expect(next?.runs[0]?.run.id).not.toBe(pausedRunId);
     expect(next?.runs[0]?.run.promptMarkdown).toContain('Resume with a new session');
     expect(next?.hamMode.startRequestedAt).toBeNull();
@@ -3372,6 +3439,61 @@ function sse(text: string): ReadableStream<Uint8Array> {
       controller.close();
     }
   });
+}
+
+function hamRequestPayload(request: Record<string, unknown>): Record<string, unknown> {
+  const input = request.input as Array<{ content: Array<{ text: string }> }>;
+  return JSON.parse(input[0]?.content[0]?.text ?? '{}') as Record<string, unknown>;
+}
+
+function hamExplorationResult(
+  request: Record<string, unknown>,
+  candidates: Array<Partial<Record<string, unknown>>> = []
+): Record<string, unknown> {
+  const payload = hamRequestPayload(request);
+  const hamMode = payload.hamMode as Record<string, unknown> | null;
+  const previousSession = hamMode?.previousSession as Record<string, unknown> | null;
+  const workspace = payload.workspace as Record<string, unknown>;
+  const assets = workspace?.assets as Array<Record<string, unknown>> | undefined;
+  const evidenceRef = typeof previousSession?.runId === 'string'
+    ? `run:${previousSession.runId}`
+    : `scope-asset:${String(assets?.[0]?.assetId ?? '')}`;
+  const defaults = [
+    { candidateKey: 'parser:length-conversion-boundary', surfaceKey: 'parser:decode-boundary', title: 'Length conversion boundary', rank: 1 },
+    { candidateKey: 'parser:state-confusion', surfaceKey: 'parser:state-machine', title: 'Parser state confusion', rank: 2 },
+    { candidateKey: 'parser:cleanup-reentrancy', surfaceKey: 'parser:cleanup-path', title: 'Cleanup reentrancy', rank: 3 }
+  ];
+  return {
+    subsystemKey: 'parser:decode-subsystem',
+    subsystemTitle: 'Parser decode subsystem',
+    subsystemBoundary: 'Only decoder entry points, length conversion, parser state transitions, and their immediate cleanup paths.',
+    underexploredRationale: 'Recent sessions identified decoder boundaries but did not close the adjacent candidate set.',
+    candidates: defaults.map((candidate, index) => ({
+      ...candidate,
+      hypothesis: `${candidate.title} may violate an attacker-reachable parser invariant.`,
+      continuity: 'pivot',
+      attackerControl: 'An authorized remote input controls parser bytes and declared lengths.',
+      trustBoundary: 'Untrusted encoded input crosses into privileged parser state.',
+      securityImpact: 'Memory corruption or authorization-relevant state confusion could result.',
+      evidenceRefs: [evidenceRef],
+      preliminaryReview: 'survived',
+      preliminaryReviewSummary: 'The threat model and supplied preliminary evidence justify closure.',
+      ...(candidates[index] ?? {})
+    }))
+  };
+}
+
+function hamJsonResponse(value: Record<string, unknown>, id: string, reasoningSummary = ''): Response {
+  return new Response(
+    sse(
+      (reasoningSummary
+        ? event('response.reasoning_summary_text.delta', { type: 'response.reasoning_summary_text.delta', delta: reasoningSummary })
+        : '') +
+      event('response.output_text.done', { type: 'response.output_text.done', text: JSON.stringify(value) }) +
+      event('response.completed', { type: 'response.completed', response: { id } })
+    ),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } }
+  );
 }
 
 async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise<void> {

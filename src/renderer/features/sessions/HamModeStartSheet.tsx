@@ -23,7 +23,7 @@ export function HamModeStartSheet({
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const promptPreviewRef = useRef<HTMLElement | null>(null);
   const started = hamMode.enabled;
-  const working = started && (hamMode.phase === 'reviewing_research' || hamMode.phase === 'starting_session');
+  const working = started && ['exploring_subsystem', 'closing_candidates', 'reviewing_research', 'starting_session'].includes(hamMode.phase);
   const status = hamMode.lastError
     ? hamModeStatus(hamMode)
     : generationUpdate?.reasoningSummary?.trim() || hamModeStatus(hamMode);
@@ -70,12 +70,33 @@ export function HamModeStartSheet({
         </button>
         <section className="ham-mode-generation-status" aria-live="polite">
           <div className="ham-mode-generation-heading">
-            <span>Agent Status</span>
+            <span>{generationUpdate?.phase === 'exploration' ? 'Exploration Status' : generationUpdate?.phase === 'closure' ? 'Closure Status' : 'Agent Status'}</span>
             {working ? <Loader2 className="ham-mode-spinner" size={14} /> : null}
           </div>
           <div className="ham-mode-reasoning-summary">
             {renderTraceProseText(status, 'reasoning')}
           </div>
+        </section>
+        <section className="ham-mode-exploration-candidates" aria-label="Exploration candidates">
+          <div className="ham-mode-generation-heading">
+            <span>Exploration Candidates</span>
+            {hamMode.lastExploration ? <span>{hamMode.lastExploration.subsystemTitle}</span> : null}
+          </div>
+          {hamMode.lastExploration ? (
+            <div className="ham-mode-candidate-list">
+              {hamMode.lastExploration.candidates.map((candidate) => (
+                <article key={`${candidate.rank}:${candidate.candidateKey}`} className={`ham-mode-candidate ${candidate.survivedPreliminaryReview ? 'survived' : 'rejected'}`}>
+                  <div>
+                    <strong>{candidate.rank}. {candidate.title}</strong>
+                    <span>{candidate.survivedPreliminaryReview ? 'Survived' : 'Rejected'}</span>
+                  </div>
+                  <p>{candidate.survivedPreliminaryReview
+                    ? candidate.preliminaryReviewSummary
+                    : candidate.hostRejectionReasons.join(' ') || candidate.preliminaryReviewSummary}</p>
+                </article>
+              ))}
+            </div>
+          ) : <div className="ham-mode-candidate-empty">Ranked candidates will appear after exploration.</div>}
         </section>
         <section ref={promptPreviewRef} className="ham-mode-prompt-preview" aria-live="polite">
           <div className="ham-mode-generation-heading">
@@ -100,6 +121,8 @@ function hamModeStatus(state: HamModeState): string {
     : 'The current session failed and HAM Mode is waiting to retry it.';
   if (state.phase === 'session_active') return 'The HAM research session has started.';
   if (state.phase === 'starting_session') return 'The prompt is ready. Starting the next research session…';
+  if (state.phase === 'exploring_subsystem') return 'Exploring one bounded underexplored subsystem and ranking candidates…';
+  if (state.phase === 'closing_candidates') return 'Closing only the candidates that survived preliminary review…';
   if (state.phase === 'reviewing_research') return 'Reviewing the previous transcript and subject memories…';
   if (state.enabled) return state.activeRunId
     ? 'Waiting for the current session to end naturally before preparing the next prompt.'

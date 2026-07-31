@@ -794,6 +794,8 @@ export function nowIso(): string {
 const HAM_MODE_PHASES = new Set<HamModePhase>([
   'disabled',
   'waiting_for_session',
+  'exploring_subsystem',
+  'closing_candidates',
   'reviewing_research',
   'starting_session',
   'retrying_session',
@@ -813,6 +815,7 @@ function emptyHamModeState(): HamModeState {
     activeSelection: null,
     candidateCooldowns: [],
     surfaceCooldowns: [],
+    lastExploration: null,
     lastError: null,
     updatedAt: null
   };
@@ -874,6 +877,65 @@ function parseHamModeState(value: unknown): HamModeState {
           startedAt: activeSelectionRecord.startedAt.trim()
         }
       : null;
+  const explorationRecord = record.lastExploration && typeof record.lastExploration === 'object' && !Array.isArray(record.lastExploration)
+    ? record.lastExploration as Record<string, unknown>
+    : null;
+  const explorationCandidates = explorationRecord && Array.isArray(explorationRecord.candidates)
+    ? explorationRecord.candidates.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const candidate = item as Record<string, unknown>;
+        const continuity = candidate.continuity === 'extend' || candidate.continuity === 'pivot' ? candidate.continuity : null;
+        const preliminaryReview = candidate.preliminaryReview === 'survived' || candidate.preliminaryReview === 'rejected'
+          ? candidate.preliminaryReview
+          : null;
+        const strings = ['candidateKey', 'surfaceKey', 'title', 'hypothesis', 'attackerControl', 'trustBoundary', 'securityImpact', 'preliminaryReviewSummary'] as const;
+        if (
+          typeof candidate.rank !== 'number' || !Number.isInteger(candidate.rank) || candidate.rank < 1 ||
+          !continuity || !preliminaryReview ||
+          strings.some((key) => typeof candidate[key] !== 'string' || !candidate[key].trim())
+        ) return [];
+        return [{
+          rank: candidate.rank,
+          candidateKey: String(candidate.candidateKey).trim().slice(0, 180),
+          surfaceKey: String(candidate.surfaceKey).trim().slice(0, 180),
+          title: String(candidate.title).trim().slice(0, 300),
+          hypothesis: String(candidate.hypothesis).trim().slice(0, 2000),
+          continuity: continuity as 'extend' | 'pivot',
+          attackerControl: String(candidate.attackerControl).trim().slice(0, 1000),
+          trustBoundary: String(candidate.trustBoundary).trim().slice(0, 1000),
+          securityImpact: String(candidate.securityImpact).trim().slice(0, 1000),
+          evidenceRefs: Array.isArray(candidate.evidenceRefs)
+            ? candidate.evidenceRefs.filter((ref): ref is string => typeof ref === 'string' && Boolean(ref.trim())).map((ref) => ref.trim().slice(0, 500)).slice(0, 12)
+            : [],
+          preliminaryReview: preliminaryReview as 'survived' | 'rejected',
+          preliminaryReviewSummary: String(candidate.preliminaryReviewSummary).trim().slice(0, 1500),
+          survivedPreliminaryReview: candidate.survivedPreliminaryReview === true,
+          hostRejectionReasons: Array.isArray(candidate.hostRejectionReasons)
+            ? candidate.hostRejectionReasons.filter((reason): reason is string => typeof reason === 'string' && Boolean(reason.trim())).map((reason) => reason.trim().slice(0, 500)).slice(0, 8)
+            : []
+        }];
+      }).slice(0, 6)
+    : [];
+  const lastExploration = explorationRecord &&
+    typeof explorationRecord.requestId === 'string' && explorationRecord.requestId.trim() &&
+    typeof explorationRecord.subsystemKey === 'string' && explorationRecord.subsystemKey.trim() &&
+    typeof explorationRecord.subsystemTitle === 'string' && explorationRecord.subsystemTitle.trim() &&
+    typeof explorationRecord.subsystemBoundary === 'string' && explorationRecord.subsystemBoundary.trim() &&
+    typeof explorationRecord.underexploredRationale === 'string' && explorationRecord.underexploredRationale.trim() &&
+    typeof explorationRecord.createdAt === 'string' && explorationRecord.createdAt.trim()
+      ? {
+          requestId: explorationRecord.requestId.trim(),
+          subsystemKey: explorationRecord.subsystemKey.trim().slice(0, 180),
+          subsystemTitle: explorationRecord.subsystemTitle.trim().slice(0, 300),
+          subsystemBoundary: explorationRecord.subsystemBoundary.trim().slice(0, 1500),
+          underexploredRationale: explorationRecord.underexploredRationale.trim().slice(0, 1500),
+          candidates: explorationCandidates,
+          survivorCandidateKeys: Array.isArray(explorationRecord.survivorCandidateKeys)
+            ? explorationRecord.survivorCandidateKeys.filter((key): key is string => typeof key === 'string' && Boolean(key.trim())).map((key) => key.trim().slice(0, 180)).slice(0, 6)
+            : [],
+          createdAt: explorationRecord.createdAt.trim()
+        }
+      : null;
   return {
     enabled,
     phase,
@@ -887,6 +949,7 @@ function parseHamModeState(value: unknown): HamModeState {
     activeSelection,
     candidateCooldowns: parseCooldowns(record.candidateCooldowns),
     surfaceCooldowns: parseCooldowns(record.surfaceCooldowns),
+    lastExploration,
     lastError: nullableString('lastError'),
     updatedAt
   };

@@ -183,6 +183,8 @@ function sessionStatusLabel(value: string): string {
 
 function hamModeButtonTitle(state: HamModeState | null): string {
   if (!state?.enabled) return state?.lastError ? `HAM Mode stopped: ${state.lastError}` : 'Enable HAM Mode';
+  if (state.phase === 'exploring_subsystem') return 'HAM Mode is exploring a bounded underexplored subsystem';
+  if (state.phase === 'closing_candidates') return 'HAM Mode is closing candidates that survived preliminary review';
   if (state.phase === 'reviewing_research') return 'HAM Mode is reviewing the previous session and subject memory';
   if (state.phase === 'starting_session') return 'HAM Mode is starting the next research session';
   if (state.phase === 'retrying_session') return `HAM Mode is retrying the current session${state.lastError ? `: ${state.lastError}` : ''}`;

@@ -1026,11 +1026,41 @@ export interface ResearchPromptGenerationInput {
 export type HamModePhase =
   | 'disabled'
   | 'waiting_for_session'
+  | 'exploring_subsystem'
+  | 'closing_candidates'
   | 'reviewing_research'
   | 'starting_session'
   | 'retrying_session'
   | 'session_active'
   | 'error';
+
+export interface HamExplorationCandidate {
+  rank: number;
+  candidateKey: string;
+  surfaceKey: string;
+  title: string;
+  hypothesis: string;
+  continuity: 'extend' | 'pivot';
+  attackerControl: string;
+  trustBoundary: string;
+  securityImpact: string;
+  evidenceRefs: string[];
+  preliminaryReview: 'survived' | 'rejected';
+  preliminaryReviewSummary: string;
+  survivedPreliminaryReview: boolean;
+  hostRejectionReasons: string[];
+}
+
+export interface HamExplorationRecord {
+  requestId: string;
+  subsystemKey: string;
+  subsystemTitle: string;
+  subsystemBoundary: string;
+  underexploredRationale: string;
+  candidates: HamExplorationCandidate[];
+  survivorCandidateKeys: string[];
+  createdAt: string;
+}
 
 export interface HamResearchSelection {
   runId: string;
@@ -1060,6 +1090,7 @@ export interface HamModeState {
   activeSelection: HamResearchSelection | null;
   candidateCooldowns: HamResearchCooldown[];
   surfaceCooldowns: HamResearchCooldown[];
+  lastExploration: HamExplorationRecord | null;
   lastError: string | null;
   updatedAt: string | null;
 }
@@ -1069,6 +1100,7 @@ export interface HamModeGenerationUpdate {
   requestId: string;
   promptMarkdown: string;
   reasoningSummary: string | null;
+  phase?: 'exploration' | 'closure';
 }
 
 export interface RunRecord {

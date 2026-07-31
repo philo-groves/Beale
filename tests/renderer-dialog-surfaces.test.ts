@@ -190,7 +190,7 @@ describe('renderer dialog surfaces', () => {
         busy: false,
         hamMode: {
           enabled: true,
-          phase: 'reviewing_research',
+          phase: 'exploring_subsystem',
           promptGuidance: 'Favor parser boundaries.',
           startRequestedAt: '2026-07-28T10:00:00.000Z',
           activeRunId: null,
@@ -199,6 +199,31 @@ describe('renderer dialog surfaces', () => {
           activeSelection: null,
           candidateCooldowns: [],
           surfaceCooldowns: [],
+          lastExploration: {
+            requestId: 'ham_request',
+            subsystemKey: 'parser:decoder',
+            subsystemTitle: 'Parser decoder',
+            subsystemBoundary: 'Decoder entry points only.',
+            underexploredRationale: 'Decoder variants remain open.',
+            candidates: [{
+              rank: 1,
+              candidateKey: 'parser:length-conversion',
+              surfaceKey: 'parser:decode-boundary',
+              title: 'Length conversion boundary',
+              hypothesis: 'A length may truncate.',
+              continuity: 'pivot',
+              attackerControl: 'Remote bytes control length.',
+              trustBoundary: 'Bytes enter parser state.',
+              securityImpact: 'Memory corruption.',
+              evidenceRefs: ['run:run_seed'],
+              preliminaryReview: 'survived',
+              preliminaryReviewSummary: 'Plausible and supported.',
+              survivedPreliminaryReview: true,
+              hostRejectionReasons: []
+            }],
+            survivorCandidateKeys: ['parser:length-conversion'],
+            createdAt: '2026-07-28T10:00:00.000Z'
+          },
           lastError: null,
           updatedAt: '2026-07-28T10:00:00.000Z'
         },
@@ -206,7 +231,8 @@ describe('renderer dialog surfaces', () => {
           workspaceId: 'workspace_one',
           requestId: 'ham_request',
           reasoningSummary: '**Extending** the strongest unresolved path.',
-          promptMarkdown: '# Parser boundary\n\nEstablish one verifier-backed result.'
+          promptMarkdown: '# Parser boundary\n\nEstablish one verifier-backed result.',
+          phase: 'exploration'
         },
         onClose: () => undefined,
         onStart: () => undefined
@@ -219,8 +245,11 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('ham-mode-start-button is-running');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toMatch(/<textarea[^>]*disabled=""[^>]*>Favor parser boundaries\.<\/textarea>/);
-    expect(html).toContain('Agent Status');
+    expect(html).toContain('Exploration Status');
     expect(html).toContain('<strong>Extending</strong>');
+    expect(html).toContain('Exploration Candidates');
+    expect(html).toContain('Length conversion boundary');
+    expect(html).toContain('Survived');
     expect(html).toContain('Generated Prompt');
     expect(html).toContain('<h1>Parser boundary</h1>');
   });
@@ -240,6 +269,7 @@ describe('renderer dialog surfaces', () => {
           activeSelection: null,
           candidateCooldowns: [],
           surfaceCooldowns: [],
+          lastExploration: null,
           lastError: null,
           updatedAt: null
         },
@@ -269,6 +299,7 @@ describe('renderer dialog surfaces', () => {
           activeSelection: null,
           candidateCooldowns: [],
           surfaceCooldowns: [],
+          lastExploration: null,
           lastError: 'Prompt generation failed.',
           updatedAt: '2026-07-29T10:00:00.000Z'
         },
