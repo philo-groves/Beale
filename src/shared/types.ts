@@ -998,9 +998,6 @@ export interface StartRunInput {
 
 export interface GeneratedResearchPrompt {
   promptMarkdown: string;
-  continuity?: 'extend' | 'pivot';
-  candidateKey?: string;
-  surfaceKey?: string;
 }
 
 export interface ResearchPromptGenerationUpdate {
@@ -1021,86 +1018,6 @@ export interface ResearchPromptGenerationInput {
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;
-}
-
-export type HamModePhase =
-  | 'disabled'
-  | 'waiting_for_session'
-  | 'exploring_subsystem'
-  | 'closing_candidates'
-  | 'reviewing_research'
-  | 'starting_session'
-  | 'retrying_session'
-  | 'session_active'
-  | 'error';
-
-export interface HamExplorationCandidate {
-  rank: number;
-  candidateKey: string;
-  surfaceKey: string;
-  title: string;
-  hypothesis: string;
-  continuity: 'extend' | 'pivot';
-  attackerControl: string;
-  trustBoundary: string;
-  securityImpact: string;
-  evidenceRefs: string[];
-  preliminaryReview: 'survived' | 'rejected';
-  preliminaryReviewSummary: string;
-  survivedPreliminaryReview: boolean;
-  hostRejectionReasons: string[];
-}
-
-export interface HamExplorationRecord {
-  requestId: string;
-  subsystemKey: string;
-  subsystemTitle: string;
-  subsystemBoundary: string;
-  underexploredRationale: string;
-  candidates: HamExplorationCandidate[];
-  survivorCandidateKeys: string[];
-  createdAt: string;
-}
-
-export interface HamResearchSelection {
-  runId: string;
-  continuity: 'extend' | 'pivot';
-  candidateKey: string;
-  surfaceKey: string;
-  startedAt: string;
-}
-
-export interface HamResearchCooldown {
-  key: string;
-  sourceRunId: string;
-  reason: 'candidate_exhausted' | 'surface_recently_explored' | 'blocked_prerequisite';
-  prerequisiteFingerprint: string | null;
-  createdAt: string;
-  expiresAt: string | null;
-}
-
-export interface HamModeState {
-  enabled: boolean;
-  phase: HamModePhase;
-  promptGuidance: string;
-  startRequestedAt: string | null;
-  activeRunId: string | null;
-  lastHandledRunId: string | null;
-  lastStartedRunId: string | null;
-  activeSelection: HamResearchSelection | null;
-  candidateCooldowns: HamResearchCooldown[];
-  surfaceCooldowns: HamResearchCooldown[];
-  lastExploration: HamExplorationRecord | null;
-  lastError: string | null;
-  updatedAt: string | null;
-}
-
-export interface HamModeGenerationUpdate {
-  workspaceId: string;
-  requestId: string;
-  promptMarkdown: string;
-  reasoningSummary: string | null;
-  phase?: 'exploration' | 'closure';
 }
 
 export interface RunRecord {
@@ -1381,7 +1298,6 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: WorkspaceScopeVersion;
-  hamMode: HamModeState;
   honeycrispMemory: HoneycrispMemorySummary;
   projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;
@@ -1455,9 +1371,7 @@ export interface BealeApi {
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;
-  onHamModeGenerationUpdate(listener: (update: HamModeGenerationUpdate) => void): () => void;
   saveScope(scope: WorkspaceScopeDraft): Promise<WorkspaceSnapshot>;
-  setHamModeEnabled(enabled: boolean, promptGuidance?: string): Promise<WorkspaceSnapshot>;
   startRun(input: StartRunInput): Promise<WorkspaceSnapshot>;
   exportWorkspaceBackup(note?: string): Promise<WorkspaceSnapshot>;
   getRunDetail(runId: string): Promise<RunDetail>;

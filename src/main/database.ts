@@ -14,8 +14,6 @@ import type {
   ContextCompactionRecord,
   ExportRecord,
   ExportReviewDecision,
-  HamModePhase,
-  HamModeState,
   ModelSessionRecord,
   NotificationRecord,
   NotificationStatus,
@@ -806,170 +804,6 @@ export function createId(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
-}
-
-const HAM_MODE_PHASES = new Set<HamModePhase>([
-  'disabled',
-  'waiting_for_session',
-  'exploring_subsystem',
-  'closing_candidates',
-  'reviewing_research',
-  'starting_session',
-  'retrying_session',
-  'session_active',
-  'error'
-]);
-
-function emptyHamModeState(): HamModeState {
-  return {
-    enabled: false,
-    phase: 'disabled',
-    promptGuidance: '',
-    startRequestedAt: null,
-    activeRunId: null,
-    lastHandledRunId: null,
-    lastStartedRunId: null,
-    activeSelection: null,
-    candidateCooldowns: [],
-    surfaceCooldowns: [],
-    lastExploration: null,
-    lastError: null,
-    updatedAt: null
-  };
-}
-
-function parseHamModeState(value: unknown): HamModeState {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyHamModeState();
-  const record = value as Record<string, unknown>;
-  const enabled = record.enabled === true;
-  const rawPhase = typeof record.phase === 'string' ? record.phase : '';
-  const phase = enabled && HAM_MODE_PHASES.has(rawPhase as HamModePhase) && rawPhase !== 'disabled'
-    ? rawPhase as HamModePhase
-    : enabled
-      ? 'waiting_for_session'
-      : 'disabled';
-  const nullableString = (key: string): string | null => typeof record[key] === 'string' && record[key].trim() ? record[key].trim() : null;
-  const updatedAt = nullableString('updatedAt');
-  const parseCooldowns = (value: unknown): HamModeState['candidateCooldowns'] => {
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-      const cooldown = item as Record<string, unknown>;
-      const key = typeof cooldown.key === 'string' ? cooldown.key.trim().slice(0, 180) : '';
-      const sourceRunId = typeof cooldown.sourceRunId === 'string' ? cooldown.sourceRunId.trim() : '';
-      const reason = cooldown.reason;
-      const createdAt = typeof cooldown.createdAt === 'string' ? cooldown.createdAt.trim() : '';
-      if (
-        !key ||
-        !sourceRunId ||
-        !createdAt ||
-        !['candidate_exhausted', 'surface_recently_explored', 'blocked_prerequisite'].includes(String(reason))
-      ) return [];
-      return [{
-        key,
-        sourceRunId,
-        reason: reason as HamModeState['candidateCooldowns'][number]['reason'],
-        prerequisiteFingerprint: typeof cooldown.prerequisiteFingerprint === 'string' && cooldown.prerequisiteFingerprint.trim()
-          ? cooldown.prerequisiteFingerprint.trim()
-          : null,
-        createdAt,
-        expiresAt: typeof cooldown.expiresAt === 'string' && cooldown.expiresAt.trim() ? cooldown.expiresAt.trim() : null
-      }];
-    }).slice(-64);
-  };
-  const activeSelectionRecord = record.activeSelection && typeof record.activeSelection === 'object' && !Array.isArray(record.activeSelection)
-    ? record.activeSelection as Record<string, unknown>
-    : null;
-  const activeSelection = activeSelectionRecord &&
-    typeof activeSelectionRecord.runId === 'string' && activeSelectionRecord.runId.trim() &&
-    (activeSelectionRecord.continuity === 'extend' || activeSelectionRecord.continuity === 'pivot') &&
-    typeof activeSelectionRecord.candidateKey === 'string' && activeSelectionRecord.candidateKey.trim() &&
-    typeof activeSelectionRecord.surfaceKey === 'string' && activeSelectionRecord.surfaceKey.trim() &&
-    typeof activeSelectionRecord.startedAt === 'string' && activeSelectionRecord.startedAt.trim()
-      ? {
-          runId: activeSelectionRecord.runId.trim(),
-          continuity: activeSelectionRecord.continuity as 'extend' | 'pivot',
-          candidateKey: activeSelectionRecord.candidateKey.trim().slice(0, 180),
-          surfaceKey: activeSelectionRecord.surfaceKey.trim().slice(0, 180),
-          startedAt: activeSelectionRecord.startedAt.trim()
-        }
-      : null;
-  const explorationRecord = record.lastExploration && typeof record.lastExploration === 'object' && !Array.isArray(record.lastExploration)
-    ? record.lastExploration as Record<string, unknown>
-    : null;
-  const explorationCandidates = explorationRecord && Array.isArray(explorationRecord.candidates)
-    ? explorationRecord.candidates.flatMap((item) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-        const candidate = item as Record<string, unknown>;
-        const continuity = candidate.continuity === 'extend' || candidate.continuity === 'pivot' ? candidate.continuity : null;
-        const preliminaryReview = candidate.preliminaryReview === 'survived' || candidate.preliminaryReview === 'rejected'
-          ? candidate.preliminaryReview
-          : null;
-        const strings = ['candidateKey', 'surfaceKey', 'title', 'hypothesis', 'attackerControl', 'trustBoundary', 'securityImpact', 'preliminaryReviewSummary'] as const;
-        if (
-          typeof candidate.rank !== 'number' || !Number.isInteger(candidate.rank) || candidate.rank < 1 ||
-          !continuity || !preliminaryReview ||
-          strings.some((key) => typeof candidate[key] !== 'string' || !candidate[key].trim())
-        ) return [];
-        return [{
-          rank: candidate.rank,
-          candidateKey: String(candidate.candidateKey).trim().slice(0, 180),
-          surfaceKey: String(candidate.surfaceKey).trim().slice(0, 180),
-          title: String(candidate.title).trim().slice(0, 300),
-          hypothesis: String(candidate.hypothesis).trim().slice(0, 2000),
-          continuity: continuity as 'extend' | 'pivot',
-          attackerControl: String(candidate.attackerControl).trim().slice(0, 1000),
-          trustBoundary: String(candidate.trustBoundary).trim().slice(0, 1000),
-          securityImpact: String(candidate.securityImpact).trim().slice(0, 1000),
-          evidenceRefs: Array.isArray(candidate.evidenceRefs)
-            ? candidate.evidenceRefs.filter((ref): ref is string => typeof ref === 'string' && Boolean(ref.trim())).map((ref) => ref.trim().slice(0, 500)).slice(0, 12)
-            : [],
-          preliminaryReview: preliminaryReview as 'survived' | 'rejected',
-          preliminaryReviewSummary: String(candidate.preliminaryReviewSummary).trim().slice(0, 1500),
-          survivedPreliminaryReview: candidate.survivedPreliminaryReview === true,
-          hostRejectionReasons: Array.isArray(candidate.hostRejectionReasons)
-            ? candidate.hostRejectionReasons.filter((reason): reason is string => typeof reason === 'string' && Boolean(reason.trim())).map((reason) => reason.trim().slice(0, 500)).slice(0, 8)
-            : []
-        }];
-      }).slice(0, 6)
-    : [];
-  const lastExploration = explorationRecord &&
-    typeof explorationRecord.requestId === 'string' && explorationRecord.requestId.trim() &&
-    typeof explorationRecord.subsystemKey === 'string' && explorationRecord.subsystemKey.trim() &&
-    typeof explorationRecord.subsystemTitle === 'string' && explorationRecord.subsystemTitle.trim() &&
-    typeof explorationRecord.subsystemBoundary === 'string' && explorationRecord.subsystemBoundary.trim() &&
-    typeof explorationRecord.underexploredRationale === 'string' && explorationRecord.underexploredRationale.trim() &&
-    typeof explorationRecord.createdAt === 'string' && explorationRecord.createdAt.trim()
-      ? {
-          requestId: explorationRecord.requestId.trim(),
-          subsystemKey: explorationRecord.subsystemKey.trim().slice(0, 180),
-          subsystemTitle: explorationRecord.subsystemTitle.trim().slice(0, 300),
-          subsystemBoundary: explorationRecord.subsystemBoundary.trim().slice(0, 1500),
-          underexploredRationale: explorationRecord.underexploredRationale.trim().slice(0, 1500),
-          candidates: explorationCandidates,
-          survivorCandidateKeys: Array.isArray(explorationRecord.survivorCandidateKeys)
-            ? explorationRecord.survivorCandidateKeys.filter((key): key is string => typeof key === 'string' && Boolean(key.trim())).map((key) => key.trim().slice(0, 180)).slice(0, 6)
-            : [],
-          createdAt: explorationRecord.createdAt.trim()
-        }
-      : null;
-  return {
-    enabled,
-    phase,
-    promptGuidance: typeof record.promptGuidance === 'string' ? record.promptGuidance.trim().slice(0, 6000) : '',
-    startRequestedAt:
-      nullableString('startRequestedAt') ??
-      (enabled && phase === 'waiting_for_session' && !Object.hasOwn(record, 'startRequestedAt') ? updatedAt : null),
-    activeRunId: nullableString('activeRunId'),
-    lastHandledRunId: nullableString('lastHandledRunId'),
-    lastStartedRunId: nullableString('lastStartedRunId'),
-    activeSelection,
-    candidateCooldowns: parseCooldowns(record.candidateCooldowns),
-    surfaceCooldowns: parseCooldowns(record.surfaceCooldowns),
-    lastExploration,
-    lastError: nullableString('lastError'),
-    updatedAt
-  };
 }
 
 function toJson(value: Record<string, unknown> | unknown[] | null | undefined): string {
@@ -3797,22 +3631,6 @@ export class WorkspaceDatabase {
 
   public recordWorkspaceBackup(result: WorkspaceExportResult): void {
     this.setMetaValue('last_workspace_backup_json', JSON.stringify(result), result.createdAt);
-  }
-
-  public getHamModeState(): HamModeState {
-    const value = this.getMetaValue('ham_mode_state_json');
-    if (!value) return emptyHamModeState();
-    try {
-      return parseHamModeState(JSON.parse(value) as unknown);
-    } catch {
-      return emptyHamModeState();
-    }
-  }
-
-  public setHamModeState(state: HamModeState): HamModeState {
-    const next = parseHamModeState(state);
-    this.setMetaValue('ham_mode_state_json', JSON.stringify(next), next.updatedAt ?? nowIso());
-    return next;
   }
 
   public recoverInterruptedState(reason = 'workspace_open'): WorkspaceRecoveryReport {
@@ -7540,6 +7358,13 @@ export class WorkspaceDatabase {
             );
             update.run(toJson(dispositionMetadata(disposition)), '[]', 0, text(row, 'id'));
           }
+        }
+      },
+      {
+        version: 9,
+        name: 'remove_ham_mode_state',
+        up: (database) => {
+          database.prepare("DELETE FROM workspace_meta WHERE key = 'ham_mode_state_json' OR key LIKE '%:ham_mode_state_json'").run();
         }
       }
     ]);

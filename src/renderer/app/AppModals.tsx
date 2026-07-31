@@ -5,7 +5,6 @@ import type {
   NotificationRecord,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
-  HamModeGenerationUpdate,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
@@ -26,7 +25,6 @@ import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboar
 import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
-import { HamModeStartSheet } from '../features/sessions/HamModeStartSheet';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
@@ -42,8 +40,6 @@ export function AppModals({
   developerSettings,
   shellOptions,
   newResearchOpen,
-  hamModeStartOpen,
-  hamModeGenerationUpdate,
   openAiOAuthResult,
   openAiStatus,
   researchProviderOAuthResults,
@@ -68,7 +64,6 @@ export function AppModals({
   traceFilterOpen,
   visibleTraceCategories,
   onCancelNewResearch,
-  onCloseHamModeStart,
   onCancelWorkspaceOnboarding,
   onChangeWorkspaceDraft,
   onChangeSettingsSection,
@@ -92,7 +87,6 @@ export function AppModals({
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
   onStartedNewResearch,
-  onStartHamMode,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
   onSkipWorkspaceOnboardingRepository,
@@ -106,8 +100,6 @@ export function AppModals({
   developerSettings: DeveloperSettings | null;
   shellOptions: ShellOptions | null;
   newResearchOpen: boolean;
-  hamModeStartOpen: boolean;
-  hamModeGenerationUpdate: HamModeGenerationUpdate | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
@@ -132,7 +124,6 @@ export function AppModals({
   traceFilterOpen: boolean;
   visibleTraceCategories: TraceCategoryId[];
   onCancelNewResearch: () => void;
-  onCloseHamModeStart: () => void;
   onCancelWorkspaceOnboarding: () => void;
   onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
   onChangeSettingsSection: (section: SettingsSection) => void;
@@ -156,7 +147,6 @@ export function AppModals({
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onStartedNewResearch: (runId: string) => void;
-  onStartHamMode: (promptGuidance: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
   onSkipWorkspaceOnboardingRepository: (repositoryUrl: string, stage: 'clone' | 'index') => Promise<void>;
@@ -188,15 +178,6 @@ export function AppModals({
           runAction={runAction}
           onCancel={onCancelNewResearch}
           onStarted={onStartedNewResearch}
-        />
-      ) : null}
-      {hamModeStartOpen && snapshot ? (
-        <HamModeStartSheet
-          busy={busy}
-          hamMode={snapshot.hamMode}
-          generationUpdate={hamModeGenerationUpdate}
-          onClose={onCloseHamModeStart}
-          onStart={onStartHamMode}
         />
       ) : null}
       {settingsOpen ? (

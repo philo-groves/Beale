@@ -7,15 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
-import { hamRunRetryDelayMs, startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 
 const createdDirs: string[] = [];
-
-describe('HAM run retry timing', () => {
-  it('retries immediately, then after one and two minutes, capped at three minutes', () => {
-    expect([1, 2, 3, 4, 8].map(hamRunRetryDelayMs)).toEqual([0, 60_000, 120_000, 180_000, 180_000]);
-  });
-});
 
 beforeEach(() => {
   process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempWorkspace();
@@ -409,6 +403,9 @@ describe('Beale workbench skeleton', () => {
     expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 8").get()).toEqual({
       name: 'structured_session_final_disposition'
     });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 9").get()).toEqual({
+      name: 'remove_ham_mode_state'
+    });
     expect(
       verified
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('memory_dreaming_runs', 'memory_dreaming_changes') ORDER BY name")
@@ -500,6 +497,32 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('removes retired autonomous-mode metadata during migration', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+    const snapshot = service.createWorkspace(workspace);
+    service.close();
+
+    const database = new DatabaseSync(globalDatabasePath());
+    const metadataKey = `${snapshot.workspace.workspaceId}:ham_mode_state_json`;
+    database
+      .prepare('INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
+      .run(metadataKey, JSON.stringify({ enabled: true }), new Date().toISOString());
+    database.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 9").run();
+    database.close();
+
+    const reopened = new WorkspaceService();
+    reopened.openWorkspace(workspace);
+    reopened.close();
+
+    const migrated = new DatabaseSync(globalDatabasePath());
+    expect(migrated.prepare('SELECT value FROM workspace_meta WHERE key = ?').get(metadataKey)).toBeUndefined();
+    expect(migrated.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 9").get()).toEqual({
+      name: 'remove_ham_mode_state'
+    });
+    migrated.close();
+  });
+
   it('resolves existing Honeycrisp memory directories for host file manager actions', () => {
     const dir = tempWorkspace();
     const service = new WorkspaceService();
@@ -509,86 +532,6 @@ describe('Beale workbench skeleton', () => {
     expect(service.resolveHoneycrispMemoryDirectoryPath('artifacts')).toBe(artifactsPath);
     expect(() => service.resolveHoneycrispMemoryDirectoryPath('unknown' as never)).toThrow(/Unknown Honeycrisp memory directory/);
     service.close();
-  });
-
-  it('persists HAM Mode state in workspace-owned metadata', () => {
-    const workspace = tempWorkspace();
-    const databasePath = globalDatabasePath();
-    const artifactRoot = join(workspace, '.beale', 'artifacts');
-    const first = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath: workspace });
-    first.initialize();
-    const lastExploration = {
-      requestId: 'ham_request',
-      subsystemKey: 'parser:decode-subsystem',
-      subsystemTitle: 'Parser decode subsystem',
-      subsystemBoundary: 'Decoder entry points and immediate state transitions.',
-      underexploredRationale: 'Prior sessions did not close decoder candidates.',
-      candidates: [{
-        rank: 1,
-        candidateKey: 'parser:length-conversion',
-        surfaceKey: 'parser:decode-boundary',
-        title: 'Length conversion boundary',
-        hypothesis: 'An attacker-controlled length may truncate before allocation.',
-        continuity: 'pivot' as const,
-        attackerControl: 'Remote input controls the encoded length.',
-        trustBoundary: 'Untrusted bytes enter privileged parser state.',
-        securityImpact: 'A size mismatch could cause memory corruption.',
-        evidenceRefs: ['run:run_previous'],
-        preliminaryReview: 'survived' as const,
-        preliminaryReviewSummary: 'The candidate has plausible control and impact.',
-        survivedPreliminaryReview: true,
-        hostRejectionReasons: []
-      }],
-      survivorCandidateKeys: ['parser:length-conversion'],
-      createdAt: '2026-07-28T10:00:00.000Z'
-    };
-    first.setHamModeState({
-      enabled: true,
-      phase: 'waiting_for_session',
-      promptGuidance: 'Favor parser boundaries.',
-      startRequestedAt: '2026-07-28T10:00:00.000Z',
-      activeRunId: null,
-      lastHandledRunId: 'run_previous',
-      lastStartedRunId: 'run_ham',
-      activeSelection: {
-        runId: 'run_ham',
-        continuity: 'pivot',
-        candidateKey: 'parser:length-conversion',
-        surfaceKey: 'parser:decode-boundary',
-        startedAt: '2026-07-28T10:00:00.000Z'
-      },
-      candidateCooldowns: [],
-      surfaceCooldowns: [],
-      lastExploration,
-      lastError: null,
-      updatedAt: '2026-07-28T10:00:00.000Z'
-    });
-    first.close();
-
-    const reopened = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath: workspace });
-    reopened.initialize();
-    expect(reopened.getHamModeState()).toEqual({
-      enabled: true,
-      phase: 'waiting_for_session',
-      promptGuidance: 'Favor parser boundaries.',
-      startRequestedAt: '2026-07-28T10:00:00.000Z',
-      activeRunId: null,
-      lastHandledRunId: 'run_previous',
-      lastStartedRunId: 'run_ham',
-      activeSelection: {
-        runId: 'run_ham',
-        continuity: 'pivot',
-        candidateKey: 'parser:length-conversion',
-        surfaceKey: 'parser:decode-boundary',
-        startedAt: '2026-07-28T10:00:00.000Z'
-      },
-      candidateCooldowns: [],
-      surfaceCooldowns: [],
-      lastExploration,
-      lastError: null,
-      updatedAt: '2026-07-28T10:00:00.000Z'
-    });
-    reopened.close();
   });
 
   it('onboards workspaces into the global registry and mirrors run summaries', () => {
@@ -2432,9 +2375,9 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        const payload = hamRequestPayload(request);
+        const payload = modelRequestPayload(request);
         capturedCoverage.push((payload.coverageHints as Record<string, unknown>).sourceCoverage as Record<string, unknown>);
-        return hamJsonResponse({ promptMarkdown: '# Structural coverage prompt\nReview an unreviewed entry-point-to-sink path.' }, 'resp_source_coverage');
+        return modelJsonResponse({ promptMarkdown: '# Structural coverage prompt\nReview an unreviewed entry-point-to-sink path.' }, 'resp_source_coverage');
       }
     });
     service.createWorkspace(workspace);
@@ -2543,551 +2486,6 @@ describe('Beale workbench skeleton', () => {
     expect(shellCoverage.unreviewedFunctions).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'uploadArchive', reviewed: false })
     ]));
-    service.close();
-  });
-
-  it('runs persisted HAM sessions one at a time from the previous transcript and subject memory', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-mode';
-    const workspace = tempWorkspace();
-    const modelRequests: Record<string, unknown>[] = [];
-    const generationUpdates: Array<{ promptMarkdown: string; reasoningSummary: string | null; phase?: 'exploration' | 'closure' }> = [];
-    const service = new WorkspaceService(() => undefined, {
-      onHamModeGenerationUpdate: (update) => generationUpdates.push({
-        promptMarkdown: update.promptMarkdown,
-        reasoningSummary: update.reasoningSummary,
-        phase: update.phase
-      }),
-      openAiFetch: async (_url, init) => {
-        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        modelRequests.push(request);
-        const task = (request.metadata as Record<string, unknown>)?.beale_task;
-        if (task === 'ham_exploration') {
-          return hamJsonResponse(
-            hamExplorationResult(request, [
-              { continuity: 'extend' },
-              {},
-              { preliminaryReview: 'rejected', preliminaryReviewSummary: 'Cleanup is already guarded by an ownership bit.' }
-            ]),
-            'resp_ham_exploration',
-            'Ranking candidates in the bounded decoder subsystem.'
-          );
-        }
-        return hamJsonResponse({
-          selectedCandidateKey: 'parser:length-conversion-boundary',
-          promptMarkdown: '# One parser outcome\nFind one evidence-backed parser boundary violation under the recorded threat model.'
-        }, 'resp_ham_closure', 'Closing the strongest surviving parser candidate.');
-      }
-    });
-
-    service.createWorkspace(workspace);
-    const scoped = service.saveScope({
-      workspaceName: 'HAM Parser Workspace',
-      scopeOwner: 'Example Subject',
-      descriptionMarkdown: 'Authorized parser source review.',
-      rulesMarkdown: 'Treat remote input as attacker controlled and require a safe proof.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [asset('in_scope', 'repo', '/src/parser')]
-    });
-    const seed = startRunForTest(service, {
-      ...runInput('source_review'),
-      promptMarkdown: '# Seed parser review\nMap the parser boundary and record unresolved paths.'
-    });
-    const seedRunId = seed.runs[0]?.run.id ?? '';
-    const memoryDb = new DatabaseSync(scoped.workspace.databasePath);
-    memoryDb.exec(`
-      CREATE TABLE IF NOT EXISTS memory_nodes (id TEXT PRIMARY KEY, tier TEXT NOT NULL, scope_key TEXT NOT NULL, session_id TEXT, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS memory_node_assets (node_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY(node_id, asset_id));
-      CREATE TABLE IF NOT EXISTS memory_node_tags (node_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(node_id, tag));
-    `);
-    const subjectId = scoped.honeycrispMemory.contextSubjectId ?? '';
-    memoryDb.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      'trajectory_ham_subject',
-      'subject',
-      subjectId,
-      null,
-      scoped.workspace.workspaceId,
-      'HAM Parser Workspace',
-      subjectId,
-      'Example Subject',
-      'trajectory',
-      'Promising parser boundary',
-      'promising parser boundary',
-      'The previous session reached an unresolved length conversion.',
-      'Extend only if the attacker-controlled length reaches allocation arithmetic.',
-      'suspected',
-      0.7,
-      '{}',
-      '2026-07-28T10:00:00.000Z',
-      '2026-07-28T10:00:00.000Z',
-      1
-    );
-    memoryDb.close();
-
-    const enabled = service.setHamModeEnabled(true, 'Favor remotely reachable parser length conversions.');
-    expect(enabled.hamMode.enabled).toBe(true);
-    expect(enabled.hamMode.promptGuidance).toBe('Favor remotely reachable parser length conversions.');
-    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
-
-    const running = service.getSnapshot();
-    const hamRun = running?.runs[0]?.run;
-    expect(hamRun?.id).not.toBe(seedRunId);
-    expect(hamRun?.status).toBe('active');
-    expect(hamRun?.promptMarkdown).toContain('One parser outcome');
-    expect(running?.hamMode).toMatchObject({
-      enabled: true,
-      phase: 'session_active',
-      activeRunId: hamRun?.id,
-      lastHandledRunId: seedRunId,
-      lastStartedRunId: hamRun?.id,
-      lastError: null
-    });
-    expect(modelRequests).toHaveLength(2);
-    const serialized = JSON.stringify(modelRequests[0]);
-    expect(serialized).toContain('HAM exploration reviewer');
-    expect(serialized).toContain('3 to 6 distinct ranked vulnerability candidates');
-    expect(serialized).toContain('Seed parser review');
-    expect(serialized).toContain('Promising parser boundary');
-    expect(serialized).toContain('subjectMemories');
-    expect(serialized).toContain('transcript');
-    expect(serialized).toContain('Favor remotely reachable parser length conversions.');
-    expect(generationUpdates.some((update) => update.phase === 'exploration' && update.reasoningSummary === 'Ranking candidates in the bounded decoder subsystem.')).toBe(true);
-    expect(generationUpdates.some((update) => update.phase === 'closure' && update.reasoningSummary === 'Closing the strongest surviving parser candidate.')).toBe(true);
-    expect(generationUpdates.at(-1)?.promptMarkdown).toContain('One parser outcome');
-    expect(running?.hamMode.lastExploration).toMatchObject({
-      subsystemKey: 'parser:decode-subsystem',
-      survivorCandidateKeys: ['parser:length-conversion-boundary', 'parser:state-confusion']
-    });
-    const closurePayload = hamRequestPayload(modelRequests[1]);
-    expect(JSON.stringify(closurePayload)).toContain('parser:length-conversion-boundary');
-    expect(JSON.stringify(closurePayload)).not.toContain('parser:cleanup-reentrancy');
-
-    const disabled = service.setHamModeEnabled(false);
-    expect(disabled.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
-    expect(service.getRunDetail(hamRun?.id ?? '').run.status).toBe('active');
-    expect(service.getSnapshot()?.runs).toHaveLength(2);
-    service.close();
-
-    const reopened = new WorkspaceService();
-    const reopenedSnapshot = reopened.openWorkspace(workspace);
-    expect(reopenedSnapshot.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
-    reopened.close();
-  });
-
-  it('rejects closure attempts to restore a candidate that failed preliminary review', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-closure-gate';
-    const requests: Record<string, unknown>[] = [];
-    const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        requests.push(request);
-        const task = (request.metadata as Record<string, unknown>)?.beale_task;
-        if (task === 'ham_exploration') {
-          return hamJsonResponse(hamExplorationResult(request, [
-            {},
-            {},
-            { preliminaryReview: 'rejected', preliminaryReviewSummary: 'The required attacker control is not plausible.' }
-          ]), 'resp_ham_gate_exploration');
-        }
-        return hamJsonResponse({
-          selectedCandidateKey: 'parser:cleanup-reentrancy',
-          promptMarkdown: '# Invalid closure\nAttempt to restore a rejected candidate.'
-        }, 'resp_ham_gate_closure');
-      }
-    });
-    service.createWorkspace(tempWorkspace());
-    const seed = startRunForTest(service, runInput('source_review'));
-    const seedRunId = seed.runs[0]?.run.id ?? '';
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
-
-    expect(service.getSnapshot()?.hamMode.lastError).toContain('did not survive preliminary review');
-    expect(service.getSnapshot()?.runs.map((row) => row.run.id)).toEqual([seedRunId]);
-    expect(service.getSnapshot()?.hamMode.lastExploration?.survivorCandidateKeys).not.toContain('parser:cleanup-reentrancy');
-    expect(JSON.stringify(hamRequestPayload(requests[1]))).not.toContain('parser:cleanup-reentrancy');
-    service.close();
-  });
-
-  it('enforces persisted candidate and surface cooldowns before starting another HAM session', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-cooldowns';
-    const workspace = tempWorkspace();
-    let service = new WorkspaceService();
-    service.createWorkspace(workspace);
-    const completed = startRunForTest(service, runInput('multi_branch_trace'));
-    const completedRunId = completed.runs[0]?.run.id ?? '';
-    service.close();
-
-    const db = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
-    db.initialize();
-    db.setHamModeState({
-      ...db.getHamModeState(),
-      activeSelection: {
-        runId: completedRunId,
-        continuity: 'pivot',
-        candidateKey: 'parser:length-overflow',
-        surfaceKey: 'parser:decode-boundary',
-        startedAt: '2026-07-30T10:00:00.000Z'
-      }
-    });
-    db.close();
-
-    const requests: Record<string, unknown>[] = [];
-    service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        requests.push(request);
-        const task = (request.metadata as Record<string, unknown>)?.beale_task;
-        if (task === 'ham_exploration') {
-          return hamJsonResponse(hamExplorationResult(request, [
-            { candidateKey: 'parser:length-overflow', surfaceKey: 'parser:decode-boundary' },
-            { candidateKey: 'parser:integer-truncation', surfaceKey: 'parser:decode-boundary' },
-            { candidateKey: 'parser:state-confusion', surfaceKey: 'parser:state-machine' }
-          ]), 'resp_ham_cooldown_exploration');
-        }
-        return hamJsonResponse({
-          selectedCandidateKey: 'parser:state-confusion',
-          promptMarkdown: '# Cooldown-aware parser research\nPursue one distinct verifier-backed parser outcome.'
-        }, 'resp_ham_cooldown_closure');
-      }
-    });
-    service.openWorkspace(workspace);
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
-    expect(service.getSnapshot()?.hamMode.candidateCooldowns).toMatchObject([{
-      key: 'parser:length-overflow',
-      sourceRunId: completedRunId,
-      reason: 'candidate_exhausted'
-    }]);
-    expect(service.getSnapshot()?.hamMode.surfaceCooldowns).toMatchObject([{
-      key: 'parser:decode-boundary',
-      sourceRunId: completedRunId,
-      reason: 'surface_recently_explored'
-    }]);
-    expect(service.getSnapshot()?.hamMode.activeSelection).toMatchObject({
-      candidateKey: 'parser:state-confusion',
-      surfaceKey: 'parser:state-machine'
-    });
-    expect(service.getSnapshot()?.hamMode.lastExploration?.candidates).toMatchObject([
-      {
-        candidateKey: 'parser:length-overflow',
-        survivedPreliminaryReview: false,
-        hostRejectionReasons: ['The candidate identity is on cooldown.', 'The attack surface is on cooldown.']
-      },
-      { candidateKey: 'parser:integer-truncation', survivedPreliminaryReview: false, hostRejectionReasons: ['The attack surface is on cooldown.'] },
-      { candidateKey: 'parser:state-confusion', survivedPreliminaryReview: true, hostRejectionReasons: [] }
-    ]);
-    expect(JSON.stringify(requests[0])).toContain('activeCandidateCooldowns');
-    expect(JSON.stringify(requests[0])).toContain('parser:length-overflow');
-    const closurePayload = JSON.stringify(hamRequestPayload(requests[1]));
-    expect(closurePayload).not.toContain('parser:length-overflow');
-    expect(closurePayload).not.toContain('parser:integer-truncation');
-    expect(closurePayload).toContain('parser:state-confusion');
-    service.setHamModeEnabled(false);
-    service.close();
-  });
-
-  it('allows a blocked HAM candidate only after its relevant prerequisite state changes', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-prerequisites';
-    const workspace = tempWorkspace();
-    let service = new WorkspaceService();
-    service.createWorkspace(workspace);
-    service.saveScope({
-      workspaceName: 'Blocked Candidate Workspace',
-      scopeOwner: 'Example Org',
-      descriptionMarkdown: 'Authorized parser research.',
-      rulesMarkdown: 'Stay inside the recorded scope.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [asset('in_scope', 'repo', '/src/parser')]
-    });
-    const completed = startRunForTest(service, runInput('multi_branch_trace'));
-    const blockedRunId = completed.runs[0]?.run.id ?? '';
-    service.close();
-
-    const db = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
-    db.initialize();
-    db.updateRunStatus(blockedRunId, 'blocked', 'Live cross-account validation requires an authorized account.', {
-      outcome: 'blocked',
-      summary: 'Live cross-account validation requires an authorized account.',
-      blockerDependencies: [{
-        kind: 'credentials',
-        description: 'No authorized test account is available.',
-        requiredState: 'Add an authorized test account credential reference to scope.',
-        external: true
-      }],
-      externalStateRequired: true,
-      source: 'agent'
-    });
-    db.close();
-
-    const requests: Record<string, unknown>[] = [];
-    service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        requests.push(request);
-        const task = (request.metadata as Record<string, unknown>)?.beale_task;
-        if (task === 'ham_exploration') {
-          return hamJsonResponse(hamExplorationResult(request, [
-            { candidateKey: 'account:cross-account-boundary', surfaceKey: 'account:authorization-api', continuity: 'extend' },
-            { candidateKey: 'account:role-confusion', surfaceKey: 'account:authorization-api', continuity: 'extend' },
-            { candidateKey: 'account:tenant-switch', surfaceKey: 'account:session-state', continuity: 'extend' }
-          ]), `resp_ham_prerequisite_exploration_${requests.length}`);
-        }
-        return hamJsonResponse({
-          selectedCandidateKey: 'account:cross-account-boundary',
-          promptMarkdown: '# Validate the blocked account boundary\nUse the newly available authorized account to resolve one candidate.'
-        }, 'resp_ham_prerequisite_closure');
-      }
-    });
-    service.openWorkspace(workspace);
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
-    expect(service.getSnapshot()?.hamMode.lastError).toContain('no candidates that survived preliminary review');
-    expect(service.getSnapshot()?.hamMode.lastExploration?.candidates.every((candidate) =>
-      candidate.hostRejectionReasons.includes('The candidate extends a blocked session whose prerequisite state is unchanged.')
-    )).toBe(true);
-    const firstRequestText = (requests[0]?.input as Array<{ content: Array<{ text: string }> }>)[0]?.content[0]?.text ?? '';
-    expect(firstRequestText).toContain('"prerequisiteChanged": false');
-    expect(service.getSnapshot()?.runs).toHaveLength(1);
-
-    service.saveScope({
-      workspaceName: 'Blocked Candidate Workspace',
-      scopeOwner: 'Example Org',
-      descriptionMarkdown: 'Authorized parser research with an additional source reference.',
-      rulesMarkdown: 'Stay inside the recorded scope.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [
-        asset('in_scope', 'repo', '/src/parser'),
-        asset('in_scope', 'documentation', '/docs/parser-format.md')
-      ]
-    });
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => requests.length === 2 && service.getSnapshot()?.hamMode.enabled === false, 5000);
-    const unrelatedEditRequestText = (requests[1]?.input as Array<{ content: Array<{ text: string }> }>)[0]?.content[0]?.text ?? '';
-    expect(unrelatedEditRequestText).toContain('"prerequisiteChanged": false');
-    expect(service.getSnapshot()?.runs).toHaveLength(1);
-
-    service.saveScope({
-      workspaceName: 'Blocked Candidate Workspace',
-      scopeOwner: 'Example Org',
-      descriptionMarkdown: 'Authorized parser research with an additional source reference.',
-      rulesMarkdown: 'Stay inside the recorded scope.',
-      networkProfile: 'offline',
-      expiresAt: null,
-      assets: [
-        asset('in_scope', 'repo', '/src/parser'),
-        asset('in_scope', 'documentation', '/docs/parser-format.md'),
-        asset('in_scope', 'credential_ref', 'authorized-test-account')
-      ]
-    });
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
-    const credentialEditRequestText = (requests[2]?.input as Array<{ content: Array<{ text: string }> }>)[0]?.content[0]?.text ?? '';
-    expect(credentialEditRequestText).toContain('"prerequisiteChanged": true');
-    expect((requests[3]?.metadata as Record<string, unknown>)?.beale_task).toBe('ham_closure');
-    expect(service.getSnapshot()?.runs[0]?.run.promptMarkdown).toContain('newly available authorized account');
-    service.setHamModeEnabled(false);
-    service.close();
-  });
-
-  it('disables HAM Mode when next-session prompt generation fails', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-prompt-error';
-    const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async () =>
-        new Response(
-          sse(
-            event('error', {
-              type: 'error',
-              status: 500,
-              error: {
-                message: 'The prompt generation service is temporarily unavailable.',
-                code: 'server_error'
-              }
-            })
-          ),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
-        )
-    });
-    service.createWorkspace(tempWorkspace());
-    const seed = startRunForTest(service, runInput('source_review'));
-    const seedRunId = seed.runs[0]?.run.id ?? '';
-
-    service.setHamModeEnabled(true);
-    await waitForCondition(() => service.getSnapshot()?.hamMode.enabled === false, 5000);
-
-    expect(service.getSnapshot()?.hamMode).toMatchObject({
-      enabled: false,
-      phase: 'disabled',
-      activeRunId: null,
-      lastError: 'The prompt generation service is temporarily unavailable.'
-    });
-    expect(service.getSnapshot()?.runs.map((row) => row.run.id)).toEqual([seedRunId]);
-    service.close();
-  });
-
-  it('retries a failed HAM run in the same session before generating the next one', async () => {
-    const workspace = tempWorkspace();
-    const fakeHoneycrisp = join(workspace, 'fake-ham-retry-honeycrisp.mjs');
-    const invocationLogPath = join(workspace, 'ham-retry-invocations.jsonl');
-    let promptRequests = 0;
-    writeFileSync(
-      fakeHoneycrisp,
-      [
-        '#!/usr/bin/env node',
-        "import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
-        "import { dirname } from 'node:path';",
-        'const [invocationLogPath, ...args] = process.argv.slice(2);',
-        "const capturePath = args[args.indexOf('--capture') + 1];",
-        "const prompt = args[args.indexOf('-p') + 1];",
-        "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
-        'const invocation = priorCount + 1;',
-        "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ invocation, prompt }) + '\\n');",
-        'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);',
-        'const now = new Date().toISOString();',
-        "const status = invocation === 1 ? 'error' : 'complete';",
-        'const capture = {',
-        '  schemaVersion: 4,',
-        '  capturedAt: now,',
-        '  request: { prompt },',
-        "  agent: { id: `agent_${invocation}`, status, executorName: 'ham-retry-fixture', startedAt: now, completedAt: now, outputText: invocation === 1 ? 'Unexpected server error.' : 'Recovered in the same session.' },",
-        '  eventTimeline: []',
-        '};',
-        "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');",
-        'if (invocation > 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);'
-      ].join('\n')
-    );
-    chmodSync(fakeHoneycrisp, 0o700);
-    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
-    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLogPath]);
-
-    const service = new WorkspaceService(() => undefined, {
-      hamRunRetryDelayMs: () => 0,
-      openAiFetch: async () => {
-        promptRequests += 1;
-        throw new Error('HAM should recover the failed run before generating another prompt.');
-      }
-    });
-    try {
-      service.createWorkspace(workspace);
-      const started = service.startRun({
-        ...runInput('multi_branch_trace'),
-        runEngine: 'honeycrisp',
-        promptMarkdown: 'Continue this HAM-owned parser investigation after transient failures.'
-      });
-      const runId = started.runs[0]?.run.id ?? '';
-      service.setHamModeEnabled(true);
-
-      await waitForCondition(() => {
-        if (!existsSync(invocationLogPath)) return false;
-        return readFileSync(invocationLogPath, 'utf8').trim().split('\n').filter(Boolean).length === 2;
-      }, 5000);
-      const retrying = service.getRunDetail(runId);
-      const invocations = readFileSync(invocationLogPath, 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { invocation: number; prompt: string });
-
-      expect(service.getSnapshot()?.runs).toHaveLength(1);
-      expect(retrying.attempts).toHaveLength(2);
-      expect(retrying.run.status).toBe('active');
-      expect(invocations[1]?.prompt).toContain('HAM Mode recovery retry 1');
-      expect(invocations[1]?.prompt).toContain('Unexpected server error');
-      expect(promptRequests).toBe(0);
-
-      service.setHamModeEnabled(false);
-      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
-      expect(service.getSnapshot()?.runs).toHaveLength(1);
-      expect(service.getRunDetail(runId).transcriptMessages.map((message) => message.contentMarkdown)).toContain('Recovered in the same session.');
-    } finally {
-      service.close();
-    }
-  });
-
-  it('starts HAM explicitly from a dormant paused session instead of waiting indefinitely', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-paused-ham-start';
-    let promptRequests = 0;
-    const workspace = tempWorkspace();
-    let service = new WorkspaceService();
-    service.createWorkspace(workspace);
-    const pausedSnapshot = service.startRun(runInput('source_review'), 'scheduled');
-    const pausedRunId = pausedSnapshot.runs[0]?.run.id ?? '';
-    service.steerRun({ type: 'pause', runId: pausedRunId });
-    expect(service.getRunDetail(pausedRunId).run.status).toBe('paused');
-    service.close();
-
-    service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        promptRequests += 1;
-        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
-        const task = (request.metadata as Record<string, unknown>)?.beale_task;
-        if (task === 'ham_exploration') {
-          return hamJsonResponse(hamExplorationResult(request, [
-            { candidateKey: 'parser:alternate-bounds-check', surfaceKey: 'parser:validation-layer' }
-          ]), 'resp_paused_ham_exploration');
-        }
-        return hamJsonResponse({
-          selectedCandidateKey: 'parser:alternate-bounds-check',
-          promptMarkdown: '# Resume with a new session\nUse the paused transcript as prior context and pursue one bounded outcome.'
-        }, 'resp_paused_ham_closure');
-      }
-    });
-    service.openWorkspace(workspace);
-
-    const enabled = service.setHamModeEnabled(true);
-    expect(enabled.hamMode).toMatchObject({
-      enabled: true,
-      phase: 'waiting_for_session',
-      activeRunId: null
-    });
-    expect(enabled.hamMode.startRequestedAt).toBeTruthy();
-
-    await waitForCondition(() => (service.getSnapshot()?.runs.length ?? 0) === 2, 5000);
-    const next = service.getSnapshot();
-    expect(promptRequests).toBe(2);
-    expect(next?.runs[0]?.run.id).not.toBe(pausedRunId);
-    expect(next?.runs[0]?.run.promptMarkdown).toContain('Resume with a new session');
-    expect(next?.hamMode.startRequestedAt).toBeNull();
-    service.setHamModeEnabled(false);
-    service.close();
-  });
-
-  it('cancels HAM prompt preparation without interrupting the current session when disabled', async () => {
-    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-ham-disable';
-    let fetchStarted: (() => void) | null = null;
-    let fetchAborted = false;
-    const started = new Promise<void>((resolve) => {
-      fetchStarted = resolve;
-    });
-    const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async (_url, init) => {
-        fetchStarted?.();
-        return await new Promise<Response>((_resolve, reject) => {
-          const signal = init.signal;
-          if (!signal) throw new Error('Expected HAM prompt generation to pass an AbortSignal.');
-          signal.addEventListener('abort', () => {
-            fetchAborted = true;
-            reject(new DOMException('Aborted', 'AbortError'));
-          }, { once: true });
-        });
-      }
-    });
-    service.createWorkspace(tempWorkspace());
-    const seed = startRunForTest(service, runInput('source_review'));
-    const seedRunId = seed.runs[0]?.run.id ?? '';
-
-    service.setHamModeEnabled(true);
-    await started;
-    const disabled = service.setHamModeEnabled(false);
-    await waitForCondition(() => fetchAborted);
-
-    expect(disabled.hamMode).toMatchObject({ enabled: false, phase: 'disabled' });
-    expect(service.getRunDetail(seedRunId).run.status).toBe('completed');
-    expect(service.getSnapshot()?.runs).toHaveLength(1);
     service.close();
   });
 
@@ -3370,14 +2768,11 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run paused by user.');
 
     service.steerRun({ type: 'resume', runId });
-    const hamSnapshot = service.setHamModeEnabled(true);
-    expect(hamSnapshot.hamMode).toMatchObject({ enabled: true, phase: 'session_active', activeRunId: runId });
-    const stopped = service.steerRun({ type: 'stop', runId });
+    service.steerRun({ type: 'stop', runId });
     detail = service.getRunDetail(runId);
     expect(detail.run.status).toBe('stopped');
     expect(detail.run.finalDisposition).toMatchObject({ outcome: 'stopped', blockerDependencies: [], externalStateRequired: false, source: 'host' });
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run stopped by user.');
-    expect(stopped.hamMode).toMatchObject({ enabled: false, phase: 'disabled', activeRunId: null });
 
     service.close();
   });
@@ -3587,49 +2982,12 @@ function sse(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-function hamRequestPayload(request: Record<string, unknown>): Record<string, unknown> {
+function modelRequestPayload(request: Record<string, unknown>): Record<string, unknown> {
   const input = request.input as Array<{ content: Array<{ text: string }> }>;
   return JSON.parse(input[0]?.content[0]?.text ?? '{}') as Record<string, unknown>;
 }
 
-function hamExplorationResult(
-  request: Record<string, unknown>,
-  candidates: Array<Partial<Record<string, unknown>>> = []
-): Record<string, unknown> {
-  const payload = hamRequestPayload(request);
-  const hamMode = payload.hamMode as Record<string, unknown> | null;
-  const previousSession = hamMode?.previousSession as Record<string, unknown> | null;
-  const workspace = payload.workspace as Record<string, unknown>;
-  const assets = workspace?.assets as Array<Record<string, unknown>> | undefined;
-  const evidenceRef = typeof previousSession?.runId === 'string'
-    ? `run:${previousSession.runId}`
-    : `scope-asset:${String(assets?.[0]?.assetId ?? '')}`;
-  const defaults = [
-    { candidateKey: 'parser:length-conversion-boundary', surfaceKey: 'parser:decode-boundary', title: 'Length conversion boundary', rank: 1 },
-    { candidateKey: 'parser:state-confusion', surfaceKey: 'parser:state-machine', title: 'Parser state confusion', rank: 2 },
-    { candidateKey: 'parser:cleanup-reentrancy', surfaceKey: 'parser:cleanup-path', title: 'Cleanup reentrancy', rank: 3 }
-  ];
-  return {
-    subsystemKey: 'parser:decode-subsystem',
-    subsystemTitle: 'Parser decode subsystem',
-    subsystemBoundary: 'Only decoder entry points, length conversion, parser state transitions, and their immediate cleanup paths.',
-    underexploredRationale: 'Recent sessions identified decoder boundaries but did not close the adjacent candidate set.',
-    candidates: defaults.map((candidate, index) => ({
-      ...candidate,
-      hypothesis: `${candidate.title} may violate an attacker-reachable parser invariant.`,
-      continuity: 'pivot',
-      attackerControl: 'An authorized remote input controls parser bytes and declared lengths.',
-      trustBoundary: 'Untrusted encoded input crosses into privileged parser state.',
-      securityImpact: 'Memory corruption or authorization-relevant state confusion could result.',
-      evidenceRefs: [evidenceRef],
-      preliminaryReview: 'survived',
-      preliminaryReviewSummary: 'The threat model and supplied preliminary evidence justify closure.',
-      ...(candidates[index] ?? {})
-    }))
-  };
-}
-
-function hamJsonResponse(value: Record<string, unknown>, id: string, reasoningSummary = ''): Response {
+function modelJsonResponse(value: Record<string, unknown>, id: string, reasoningSummary = ''): Response {
   return new Response(
     sse(
       (reasoningSummary

@@ -6,21 +6,18 @@
 
 - Memory Dreaming now allocates model context fairly across every workspace node and up to 100 recent sessions, retries with a smaller profile after context-window rejection, and retries transient provider failures before surfacing an error.
 - Honeycrisp continuations now restore compatible provider context from the prior flow capture and send only the new steering instruction, while retaining the bounded transcript reconstruction as a fallback for missing, legacy, or incompatible captures.
-- HAM Mode now disables itself after prompt-generation errors and retries failed HAM-owned runs as continuation attempts in the same session before generating a new session.
 - Steering a completed Honeycrisp session now continues root trace turn numbering and carries prior root reasoning summaries, responses, and steering into the continuation context.
 - Subagent counts and catalog statuses now follow only Honeycrisp lifecycle activity, prevent child tool result statuses from making running or interrupted agents appear complete, and mark unresolved agents from superseded attempts or terminal sessions as interrupted.
 - Subagent lists now show active children by default and provide a centered Show Inactive toggle as the first list item for completed, interrupted, and errored children.
 
 ### Changed
 
-- Research prompt generation and HAM exploration now derive source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
-- HAM prompt preparation now runs as separate exploration and closure phases: exploration ranks 3–6 candidates from one bounded underexplored subsystem, Beale filters them through preliminary evidence, blocker, and cooldown checks, and closure receives only surviving candidates when writing the next session prompt.
-- HAM Mode now persists semantic candidate and attack-surface identities, applies 24-hour candidate and 6-hour surface cooldowns, and refuses to continue blocked candidates until the relevant recorded prerequisite state changes.
+- Research prompt generation now derives source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
 - Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
 - The session header context meter now presents 200k as its default context ceiling instead of 372k.
 - Beale now supplies the stable research run ID as Honeycrisp's provider session-affinity key across active turns and capture-backed continuations; Honeycrisp derives separate stable keys for subagents.
 - Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.
-- Active sessions now replace the steering Send control with Stop; stopping the HAM-owned active session also disables HAM Mode so it cannot launch a continuation.
+- Active sessions now replace the steering Send control with Stop.
 - Memory Save trace rows now show the memory type and status above a Markdown-formatted summary.
 - Memory Link trace rows now show their source, relationship, and target IDs with the recorded note beneath them.
 - Subagent catalog rows now mirror Memory row styling with status-colored names, neutral inline status labels, two-line descriptions, and shared timestamp/scrollbar behavior; rows sort by Honeycrisp spawn time and follow new agents.
@@ -70,13 +67,14 @@
 - Agent response traces now use full Markdown block rendering with preserved line breaks and language-aware syntax highlighting for fenced code.
 - SSH shell traces now show the remote command with an `SSH` transport pill instead of connection and authentication prefixes.
 
+### Removed
+
+- Removed HAM Mode, including its autonomous continuation scheduler, exploration/closure prompt workflow, retries, cooldowns, IPC and renderer surfaces, and shared contracts. Workbench migration 9 deletes persisted HAM metadata from the global database.
+
 ### Added
 
 - Added structured final dispositions for every terminal research session, including typed blocker dependencies, an explicit external-state-required flag, Honeycrisp root-agent finalization, host fallbacks, registry mirroring, and workbench migration 8.
 - Added model-reasoned workspace-memory Dreaming on the workspace dashboard. The research model synthesizes workspace memories with up to 100 past session transcripts, proposes semantic pruning, revision, and de-duplication decisions, and Beale host-validates and applies them while preserving restorable originals through workbench migrations 6 and 7.
-- Added a HAM Mode start bottom sheet with persistent optional prompt guidance, live agent reasoning status, and a Markdown preview of the generated prompt before the next session launches.
-- HAM Mode now opens the prompt-generation sheet for every continuation, automatically follows streamed prompt output at the bottom, and presents later sessions with saved guidance and an already-running Go HAM control.
-- Added persisted HAM Mode for sequential autonomous research sessions: Beale reviews the previous transcript and all subject memories, writes one outcome-focused prompt, and starts at most one next session after natural completion; disabling the mode leaves the current session untouched and suppresses continuation.
 - Added provider-native session title generation at research start using GPT-5.6 Luna Medium for OpenAI, Claude Haiku 4.5 Medium for Anthropic, and Grok 4.3 Medium for xAI.
 - Added Pi-native Anthropic (Claude) and xAI (Grok/X) provider readiness, subscription OAuth launch, environment API-key detection, and provider model selection to Beale while retaining Codex as the default. New Research now loads each provider's installed Pi model catalog and exposes the exact model-specific reasoning effort levels, including `max` where supported.
 - Added workspace-scoped Honeycrisp runbooks as revisioned Jupyter `nbformat 4` artifacts, with `runbook.list/get/create/append` tools, bounded recorded outputs, optimistic revision guards, dedicated traces, and a Beale Runbooks sidebar tab. Runbooks record procedures but execute only through `shell.run`.
@@ -383,8 +381,6 @@
 ### Fixed
 
 - Exiting Beale during an active Honeycrisp session now terminates the host process tree and suppresses late persistence callbacks before closing SQLite, preventing shutdown-time database lock errors.
-- Bounded OpenAI `prompt_cache_key`, `session_id`, and client request identifiers to 64 characters with a deterministic hash suffix so HAM prompt generation works for workspaces with long identifiers.
-- Fixed explicit Go HAM starts so a dormant paused or blocked predecessor is reviewed as prior context instead of leaving HAM Mode indefinitely in its preparation state; automatic continuation still waits on newly paused HAM sessions.
 - Fixed provider-generated session titles so active sessions update their left-sidebar registry row immediately instead of remaining `No Title Yet` until completion.
 - Fixed Windows host compatibility for workspace database teardown, Node-based Git command overrides, native verifier shell and Python selection, workspace-rooted host execution, Honeycrisp process-tree cleanup, workspace-scoped shell home variables, shell-neutral test setup, and portable durable paths.
 - Removed an unsupported temperature parameter from provider-native session title requests and retained bounded non-fatal diagnostics when title generation fails.

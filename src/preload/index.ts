@@ -19,7 +19,6 @@ import type {
   WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
-  HamModeGenerationUpdate,
   ResearchProviderId,
   ResearchProviderModelCatalog,
   ResearchProviderOAuthStartResult,
@@ -151,16 +150,8 @@ const api: BealeApi = {
     ipcRenderer.on(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.researchPromptGenerationUpdated, wrapped);
   },
-  onHamModeGenerationUpdate(listener: (update: HamModeGenerationUpdate) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, update: HamModeGenerationUpdate): void => listener(update);
-    ipcRenderer.on(IPC_CHANNELS.hamModeGenerationUpdated, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.hamModeGenerationUpdated, wrapped);
-  },
   saveScope(scope: WorkspaceScopeDraft) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveScope, scope);
-  },
-  setHamModeEnabled(enabled: boolean, promptGuidance?: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.setHamModeEnabled, enabled, promptGuidance);
   },
   startRun(input: StartRunInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.startRun, input);

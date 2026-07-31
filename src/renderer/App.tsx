@@ -4,7 +4,6 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   DeveloperSettings,
-  HamModeGenerationUpdate,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
@@ -56,8 +55,6 @@ import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpd
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
-  const autoSelectedHamRunIdRef = useRef<string | null>(null);
-  const lastHamGenerationRequestIdRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const handleError = useCallback((message: string) => setError(message), []);
   const {
@@ -85,8 +82,6 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
-  const [hamModeStartOpen, setHamModeStartOpen] = useState(false);
-  const [hamModeGenerationUpdate, setHamModeGenerationUpdate] = useState<HamModeGenerationUpdate | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
@@ -125,31 +120,6 @@ export function App(): JSX.Element {
     selectedRunState,
     onError: handleRunDetailError
   });
-  const hamStartedRunId = snapshot?.hamMode.enabled && snapshot.hamMode.activeRunId === snapshot.hamMode.lastStartedRunId
-    ? snapshot.hamMode.lastStartedRunId
-    : null;
-
-  useEffect(() => {
-    if (!hamStartedRunId || autoSelectedHamRunIdRef.current === hamStartedRunId) return;
-    autoSelectedHamRunIdRef.current = hamStartedRunId;
-    if (hamModeStartOpen && hamModeGenerationUpdate) setHamModeStartOpen(false);
-    if (selectedRunId === hamStartedRunId) return;
-    clearRunDetail();
-    setSelectedRunId(hamStartedRunId);
-  }, [clearRunDetail, hamModeGenerationUpdate, hamModeStartOpen, hamStartedRunId, selectedRunId, setSelectedRunId]);
-
-  useEffect(() => {
-    return window.beale.onHamModeGenerationUpdate((update) => {
-      if (update.workspaceId === snapshot?.workspace.workspaceId) {
-        if (lastHamGenerationRequestIdRef.current !== update.requestId) {
-          lastHamGenerationRequestIdRef.current = update.requestId;
-          setHamModeStartOpen(true);
-        }
-        setHamModeGenerationUpdate(update);
-      }
-    });
-  }, [snapshot?.workspace.workspaceId]);
-
   useDevRenderProbe('app.shell', () => ({
     selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
     workspaces: workspaceRegistry?.workspaces.length ?? 0,
@@ -560,18 +530,6 @@ export function App(): JSX.Element {
     [clearRunDetail, setSelectedRunId]
   );
   const openSearch = useCallback(() => setSearchOpen(true), []);
-  const toggleHamMode = useCallback((): void => {
-    if (!snapshot) return;
-    if (snapshot.hamMode.enabled) {
-      void runAction(() => window.beale.setHamModeEnabled(false));
-      return;
-    }
-    setHamModeGenerationUpdate(null);
-    setHamModeStartOpen(true);
-  }, [runAction, snapshot]);
-  const startHamMode = useCallback((promptGuidance: string): void => {
-    void runAction(() => window.beale.setHamModeEnabled(true, promptGuidance));
-  }, [runAction]);
   const openSearchResult = useCallback(
     (result: SessionTranscriptSearchResult, query: string): void => {
       setPendingSearchTarget(result);
@@ -631,7 +589,6 @@ export function App(): JSX.Element {
         busy={busy}
         collapsed={sidebarCollapsed}
         error={error}
-        hamMode={snapshot?.hamMode ?? null}
         openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
         workspaceRegistry={workspaceRegistry}
         selectedRunId={selectedRunId}
@@ -651,7 +608,6 @@ export function App(): JSX.Element {
         onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
         onShowMoreSessions={setSessionHistoryWorkspaceId}
         onSearch={openSearch}
-        onToggleHamMode={toggleHamMode}
         onStartNewResearch={startNewResearch}
       />
 
@@ -709,8 +665,6 @@ export function App(): JSX.Element {
         developerSettings={developerSettings}
         shellOptions={shellOptions}
         newResearchOpen={newResearchOpen}
-        hamModeStartOpen={hamModeStartOpen}
-        hamModeGenerationUpdate={hamModeGenerationUpdate}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
         researchProviderOAuthResults={researchProviderOAuthResults}
@@ -735,7 +689,6 @@ export function App(): JSX.Element {
         traceFilterOpen={traceFilterOpen}
         visibleTraceCategories={visibleTraceCategories}
         onCancelNewResearch={() => setNewResearchOpen(false)}
-        onCloseHamModeStart={() => setHamModeStartOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeSettingsSection={setSettingsSection}
@@ -762,7 +715,6 @@ export function App(): JSX.Element {
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartResearchProviderOAuth={startResearchProviderOAuth}
         onStartedNewResearch={handleResearchStarted}
-        onStartHamMode={startHamMode}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {
           void runAction(() => window.beale.steerRun({ type: 'steer', runId: notification.runId, instruction }));

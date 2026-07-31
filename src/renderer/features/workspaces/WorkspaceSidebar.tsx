@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, MoreVertical, Play, Radio, RefreshCw, Search, Terminal } from 'lucide-react';
-import type { HamModeState, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
+import { FolderPlus, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
+import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
@@ -11,7 +11,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   busy,
   collapsed,
   error,
-  hamMode,
   openRegisteredWorkspaceMenuId,
   workspaceRegistry,
   selectedRunId,
@@ -25,13 +24,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSetOpenWorkspaceMenuId,
   onShowMoreSessions,
   onSearch,
-  onToggleHamMode,
   onStartNewResearch
 }: {
   busy: boolean;
   collapsed: boolean;
   error: string | null;
-  hamMode: HamModeState | null;
   openRegisteredWorkspaceMenuId: string | null;
   workspaceRegistry: WorkspaceRegistryState | null;
   selectedRunId: string | null;
@@ -45,7 +42,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
   onShowMoreSessions: (registryWorkspaceId: string) => void;
   onSearch: () => void;
-  onToggleHamMode: () => void;
   onStartNewResearch: () => void;
 }): JSX.Element {
   useDevRenderProbe('sidebar.workspaces', () => ({
@@ -65,19 +61,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
           <Search size={15} />
           <span>Search</span>
-        </button>
-        <button
-          type="button"
-          className={`sidebar-utility-button sidebar-ham-mode ${hamMode?.enabled ? 'active' : ''} ${
-            hamMode?.phase === 'error' || (!hamMode?.enabled && hamMode?.lastError) ? 'error' : ''
-          }`}
-          title={hamModeButtonTitle(hamMode)}
-          aria-pressed={hamMode?.enabled ?? false}
-          disabled={busy || !snapshot}
-          onClick={onToggleHamMode}
-        >
-          <Radio size={15} />
-          <span>HAM Mode</span>
         </button>
       </div>
       <div className="sidebar-section workspace-list">
@@ -179,16 +162,4 @@ function sessionStatusLabel(value: string): string {
     .split('_')
     .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
     .join(' ');
-}
-
-function hamModeButtonTitle(state: HamModeState | null): string {
-  if (!state?.enabled) return state?.lastError ? `HAM Mode stopped: ${state.lastError}` : 'Enable HAM Mode';
-  if (state.phase === 'exploring_subsystem') return 'HAM Mode is exploring a bounded underexplored subsystem';
-  if (state.phase === 'closing_candidates') return 'HAM Mode is closing candidates that survived preliminary review';
-  if (state.phase === 'reviewing_research') return 'HAM Mode is reviewing the previous session and subject memory';
-  if (state.phase === 'starting_session') return 'HAM Mode is starting the next research session';
-  if (state.phase === 'retrying_session') return `HAM Mode is retrying the current session${state.lastError ? `: ${state.lastError}` : ''}`;
-  if (state.phase === 'session_active') return 'HAM Mode is active; disable it to let this session finish without starting another';
-  if (state.phase === 'error') return `HAM Mode needs attention${state.lastError ? `: ${state.lastError}` : ''}`;
-  return 'HAM Mode is waiting for the current session to finish';
 }
