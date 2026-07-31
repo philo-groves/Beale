@@ -810,6 +810,9 @@ function emptyHamModeState(): HamModeState {
     activeRunId: null,
     lastHandledRunId: null,
     lastStartedRunId: null,
+    activeSelection: null,
+    candidateCooldowns: [],
+    surfaceCooldowns: [],
     lastError: null,
     updatedAt: null
   };
@@ -827,6 +830,50 @@ function parseHamModeState(value: unknown): HamModeState {
       : 'disabled';
   const nullableString = (key: string): string | null => typeof record[key] === 'string' && record[key].trim() ? record[key].trim() : null;
   const updatedAt = nullableString('updatedAt');
+  const parseCooldowns = (value: unknown): HamModeState['candidateCooldowns'] => {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const cooldown = item as Record<string, unknown>;
+      const key = typeof cooldown.key === 'string' ? cooldown.key.trim().slice(0, 180) : '';
+      const sourceRunId = typeof cooldown.sourceRunId === 'string' ? cooldown.sourceRunId.trim() : '';
+      const reason = cooldown.reason;
+      const createdAt = typeof cooldown.createdAt === 'string' ? cooldown.createdAt.trim() : '';
+      if (
+        !key ||
+        !sourceRunId ||
+        !createdAt ||
+        !['candidate_exhausted', 'surface_recently_explored', 'blocked_prerequisite'].includes(String(reason))
+      ) return [];
+      return [{
+        key,
+        sourceRunId,
+        reason: reason as HamModeState['candidateCooldowns'][number]['reason'],
+        prerequisiteFingerprint: typeof cooldown.prerequisiteFingerprint === 'string' && cooldown.prerequisiteFingerprint.trim()
+          ? cooldown.prerequisiteFingerprint.trim()
+          : null,
+        createdAt,
+        expiresAt: typeof cooldown.expiresAt === 'string' && cooldown.expiresAt.trim() ? cooldown.expiresAt.trim() : null
+      }];
+    }).slice(-64);
+  };
+  const activeSelectionRecord = record.activeSelection && typeof record.activeSelection === 'object' && !Array.isArray(record.activeSelection)
+    ? record.activeSelection as Record<string, unknown>
+    : null;
+  const activeSelection = activeSelectionRecord &&
+    typeof activeSelectionRecord.runId === 'string' && activeSelectionRecord.runId.trim() &&
+    (activeSelectionRecord.continuity === 'extend' || activeSelectionRecord.continuity === 'pivot') &&
+    typeof activeSelectionRecord.candidateKey === 'string' && activeSelectionRecord.candidateKey.trim() &&
+    typeof activeSelectionRecord.surfaceKey === 'string' && activeSelectionRecord.surfaceKey.trim() &&
+    typeof activeSelectionRecord.startedAt === 'string' && activeSelectionRecord.startedAt.trim()
+      ? {
+          runId: activeSelectionRecord.runId.trim(),
+          continuity: activeSelectionRecord.continuity as 'extend' | 'pivot',
+          candidateKey: activeSelectionRecord.candidateKey.trim().slice(0, 180),
+          surfaceKey: activeSelectionRecord.surfaceKey.trim().slice(0, 180),
+          startedAt: activeSelectionRecord.startedAt.trim()
+        }
+      : null;
   return {
     enabled,
     phase,
@@ -837,6 +884,9 @@ function parseHamModeState(value: unknown): HamModeState {
     activeRunId: nullableString('activeRunId'),
     lastHandledRunId: nullableString('lastHandledRunId'),
     lastStartedRunId: nullableString('lastStartedRunId'),
+    activeSelection,
+    candidateCooldowns: parseCooldowns(record.candidateCooldowns),
+    surfaceCooldowns: parseCooldowns(record.surfaceCooldowns),
     lastError: nullableString('lastError'),
     updatedAt
   };

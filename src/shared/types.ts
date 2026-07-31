@@ -998,6 +998,9 @@ export interface StartRunInput {
 
 export interface GeneratedResearchPrompt {
   promptMarkdown: string;
+  continuity?: 'extend' | 'pivot';
+  candidateKey?: string;
+  surfaceKey?: string;
 }
 
 export interface ResearchPromptGenerationUpdate {
@@ -1029,6 +1032,23 @@ export type HamModePhase =
   | 'session_active'
   | 'error';
 
+export interface HamResearchSelection {
+  runId: string;
+  continuity: 'extend' | 'pivot';
+  candidateKey: string;
+  surfaceKey: string;
+  startedAt: string;
+}
+
+export interface HamResearchCooldown {
+  key: string;
+  sourceRunId: string;
+  reason: 'candidate_exhausted' | 'surface_recently_explored' | 'blocked_prerequisite';
+  prerequisiteFingerprint: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
 export interface HamModeState {
   enabled: boolean;
   phase: HamModePhase;
@@ -1037,6 +1057,9 @@ export interface HamModeState {
   activeRunId: string | null;
   lastHandledRunId: string | null;
   lastStartedRunId: string | null;
+  activeSelection: HamResearchSelection | null;
+  candidateCooldowns: HamResearchCooldown[];
+  surfaceCooldowns: HamResearchCooldown[];
   lastError: string | null;
   updatedAt: string | null;
 }

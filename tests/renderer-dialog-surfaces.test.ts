@@ -196,6 +196,9 @@ describe('renderer dialog surfaces', () => {
           activeRunId: null,
           lastHandledRunId: 'run_seed',
           lastStartedRunId: null,
+          activeSelection: null,
+          candidateCooldowns: [],
+          surfaceCooldowns: [],
           lastError: null,
           updatedAt: '2026-07-28T10:00:00.000Z'
         },
@@ -234,6 +237,9 @@ describe('renderer dialog surfaces', () => {
           activeRunId: null,
           lastHandledRunId: null,
           lastStartedRunId: null,
+          activeSelection: null,
+          candidateCooldowns: [],
+          surfaceCooldowns: [],
           lastError: null,
           updatedAt: null
         },
@@ -260,6 +266,9 @@ describe('renderer dialog surfaces', () => {
           activeRunId: null,
           lastHandledRunId: 'run_seed',
           lastStartedRunId: null,
+          activeSelection: null,
+          candidateCooldowns: [],
+          surfaceCooldowns: [],
           lastError: 'Prompt generation failed.',
           updatedAt: '2026-07-29T10:00:00.000Z'
         },
