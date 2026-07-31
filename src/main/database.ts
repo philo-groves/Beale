@@ -425,6 +425,23 @@ export interface ProjectStructureRelationRecord {
   indexedAt: string;
 }
 
+export interface ProjectSourceReviewObservation {
+  runId: string;
+  traceEventId: string;
+  toolName: string;
+  path: string;
+  symbol: string | null;
+  lineStart: number | null;
+  lineEnd: number | null;
+}
+
+export interface ProjectSourceCoveragePathRecord {
+  assetId: string;
+  path: string;
+  language: string;
+  indexedAt: string;
+}
+
 export interface ProjectGraphNodeRecord {
   id: string;
   scopeVersionId: string;
@@ -1003,6 +1020,96 @@ function nullableNumber(row: SqlRow, key: string): number | null {
 
 function stringFromUnknown(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nestedValue(records: Record<string, unknown>[], keys: string[]): unknown {
+  const wanted = new Set(keys);
+  const visit = (value: unknown, depth: number): unknown => {
+    if (depth > 4 || !value || typeof value !== 'object') return undefined;
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 40)) {
+        const found = visit(item, depth + 1);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of keys) {
+      if (wanted.has(key) && record[key] !== undefined) return record[key];
+    }
+    for (const child of Object.values(record).slice(0, 80)) {
+      const found = visit(child, depth + 1);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  for (const record of records) {
+    const found = visit(record, 0);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function nestedString(records: Record<string, unknown>[], keys: string[]): string | null {
+  return stringFromUnknown(nestedValue(records, keys));
+}
+
+function nestedNumber(records: Record<string, unknown>[], keys: string[]): number | null {
+  const value = nestedValue(records, keys);
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1, Math.floor(value));
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Math.max(1, Number.parseInt(value, 10));
+  return null;
+}
+
+function nestedStringArray(records: Record<string, unknown>[], keys: string[]): string[] {
+  const value = nestedValue(records, keys);
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function shellSourceReviewLocations(
+  records: Record<string, unknown>[]
+): Array<{ path: string; symbol: string | null; lineStart: number | null; lineEnd: number | null }> {
+  const utilityValue = nestedString(records, ['utility', 'command']);
+  const utility = utilityValue ? basename(utilityValue).toLowerCase() : '';
+  const args = nestedStringArray(records, ['args', 'arguments']);
+  const sourceReadUtilities = new Set(['awk', 'cat', 'grep', 'head', 'rg', 'sed', 'tail']);
+  const gitSourceRead = utility === 'git' && ['blame', 'diff', 'show'].includes(args[0]?.toLowerCase() ?? '');
+  if ((!sourceReadUtilities.has(utility) && !gitSourceRead) || args.length === 0) return [];
+
+  const paths = args.filter((argument) => {
+    if (!argument || argument === '-' || argument.startsWith('-')) return false;
+    const resourceKind = classifyProjectResourceKind(argument, false);
+    return resourceKind === 'source' || resourceKind === 'manifest';
+  });
+  if (paths.length === 0) return [];
+
+  let lineStart: number | null = null;
+  let lineEnd: number | null = null;
+  if (utility === 'sed') {
+    const range = args.map((argument) => argument.trim()).find((argument) => /^\d+(?:,\d+)?p$/.test(argument));
+    const match = range?.match(/^(\d+)(?:,(\d+))?p$/);
+    if (match) {
+      lineStart = Math.max(1, Number.parseInt(match[1], 10));
+      lineEnd = Math.max(lineStart, Number.parseInt(match[2] ?? match[1], 10));
+    }
+  } else if (utility === 'head') {
+    const countIndex = args.findIndex((argument) => argument === '-n' || argument === '--lines');
+    const countValue = countIndex >= 0 ? args[countIndex + 1] : args.find((argument) => /^-\d+$/.test(argument))?.slice(1);
+    if (countValue && /^\d+$/.test(countValue)) {
+      lineStart = 1;
+      lineEnd = Math.max(1, Number.parseInt(countValue, 10));
+    }
+  } else if (utility === 'awk') {
+    const expression = args.find((argument) => /NR\s*(?:>=|==)/.test(argument));
+    const startMatch = expression?.match(/NR\s*(?:>=|==)\s*(\d+)/);
+    const endMatch = expression?.match(/NR\s*<=\s*(\d+)/);
+    if (startMatch) {
+      lineStart = Math.max(1, Number.parseInt(startMatch[1], 10));
+      lineEnd = endMatch ? Math.max(lineStart, Number.parseInt(endMatch[1], 10)) : lineStart;
+    }
+  }
+
+  return paths.map((path) => ({ path, symbol: null, lineStart, lineEnd }));
 }
 
 function stringValueForJson(value: unknown): string {
@@ -5192,6 +5299,126 @@ export class WorkspaceDatabase {
     };
   }
 
+  public getProjectStructureCoverageRecords(
+    scopeVersionId = this.getActiveScope().id,
+    limits: { entities?: number; relations?: number } = {}
+  ): {
+    index: { rootCount: number; skippedCount: number; truncated: boolean };
+    paths: ProjectSourceCoveragePathRecord[];
+    entities: ProjectStructureEntityRecord[];
+    relations: ProjectStructureRelationRecord[];
+  } {
+    this.ensureProjectStructureCoverageIndex(scopeVersionId);
+    const entityLimit = Math.max(1, Math.min(25_000, Math.floor(limits.entities ?? 10_000)));
+    const relationLimit = Math.max(1, Math.min(50_000, Math.floor(limits.relations ?? 25_000)));
+    const paths = rows(
+      this.db
+        .prepare(
+          `SELECT asset_id, path, language, indexed_at
+           FROM project_inventory_items
+           WHERE scope_version_id = ?
+             AND item_kind = 'file'
+             AND resource_kind IN ('source', 'manifest')
+           ORDER BY path ASC
+           LIMIT 25000`
+        )
+        .all(scopeVersionId)
+    ).map((row) => ({
+      assetId: text(row, 'asset_id'),
+      path: text(row, 'path'),
+      language: text(row, 'language'),
+      indexedAt: text(row, 'indexed_at')
+    }));
+    const entities = rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_entities
+           WHERE scope_version_id = ?
+           ORDER BY path ASC, line_start ASC, entity_kind ASC, name ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, entityLimit)
+    ).map((row) => this.mapProjectStructureEntity(row));
+    const relations = rows(
+      this.db
+        .prepare(
+          `SELECT *
+           FROM project_structure_relations
+           WHERE scope_version_id = ?
+           ORDER BY source_entity_id ASC, relation_kind ASC, target_name ASC
+           LIMIT ?`
+        )
+        .all(scopeVersionId, relationLimit)
+    ).map((row) => this.mapProjectStructureRelation(row));
+    const indexReport = parseJson(this.getMetaValue(`project_source_coverage:${scopeVersionId}:indexed_at`));
+    return {
+      index: {
+        rootCount: typeof indexReport.rootCount === 'number' ? Math.max(0, Math.floor(indexReport.rootCount)) : 0,
+        skippedCount: typeof indexReport.skippedCount === 'number' ? Math.max(0, Math.floor(indexReport.skippedCount)) : 0,
+        truncated: indexReport.truncated === true
+      },
+      paths,
+      entities,
+      relations
+    };
+  }
+
+  public listProjectSourceReviewObservations(scopeVersionId = this.getActiveScope().id): ProjectSourceReviewObservation[] {
+    const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
+    const observations: ProjectSourceReviewObservation[] = [];
+    const seen = new Set<string>();
+    const reviewRows = rows(
+      this.db
+        .prepare(
+          `SELECT te.id, te.run_id, te.payload_json, tc.tool_name, tc.input_json, tc.result_json
+           FROM trace_events te
+           JOIN runs r ON r.id = te.run_id
+           LEFT JOIN tool_calls tc ON tc.id = te.tool_call_id
+           WHERE ${joinedLineageRunSql}
+             AND te.type = 'tool_result'
+           ORDER BY te.created_at ASC, te.sequence ASC`
+        )
+        .all(scopeVersionId)
+    );
+    for (const row of reviewRows) {
+      const payload = parseJson(row.payload_json);
+      const input = parseJson(row.input_json);
+      const result = parseJson(row.result_json);
+      const records = [input, payload, result];
+      const toolName = nullableText(row, 'tool_name') ?? nestedString(records, ['toolName', 'tool_name']) ?? '';
+      const toolStatus = nestedString(records, ['status']);
+      const toolError = nestedValue(records, ['error']);
+      const hasToolError = toolError !== undefined && toolError !== null && toolError !== false && toolError !== '';
+      if ((toolStatus && /^(?:blocked|canceled|denied|error|failed|interrupted|rejected)$/i.test(toolStatus)) || hasToolError) {
+        continue;
+      }
+      const structuredRead = /(?:^|\.)(?:code_browser|file\.read|repository\.(?:read|open)|source\.(?:read|open))$/i.test(toolName);
+      const directPath = nestedString(records, ['sourcePath', 'filePath', 'resolvedPath', 'requestedPath', 'path']);
+      const directSymbol = nestedString(records, ['symbol', 'functionName', 'methodName']);
+      const directLineStart = nestedNumber(records, ['lineStart', 'startLine', 'line']);
+      const directLineEnd = nestedNumber(records, ['lineEnd', 'endLine']) ?? directLineStart;
+      const locations = [
+        ...(directPath && (structuredRead || directSymbol || directLineStart !== null)
+          ? [{ path: directPath, symbol: directSymbol, lineStart: directLineStart, lineEnd: directLineEnd }]
+          : []),
+        ...(/^shell\.run$/i.test(toolName) ? shellSourceReviewLocations(records) : [])
+      ];
+      for (const location of locations) {
+        const key = `${text(row, 'run_id')}\n${location.path}\n${location.symbol ?? ''}\n${location.lineStart ?? ''}\n${location.lineEnd ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        observations.push({
+          runId: text(row, 'run_id'),
+          traceEventId: text(row, 'id'),
+          toolName: toolName || 'structured_source_read',
+          ...location
+        });
+      }
+    }
+    return observations.slice(-5000);
+  }
+
   public getProjectGraphSummary(scopeVersionId = this.getActiveScope().id): ProjectGraphSummary {
     this.db.exec(PROJECT_GRAPH_STATUS_SCHEMA_SQL);
     const nodeRow = rowOrUndefined(
@@ -7492,6 +7719,39 @@ export class WorkspaceDatabase {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(createId('scope_asset'), scopeVersionId, asset.direction, asset.kind, asset.value, toJson(asset.attributes), asset.sensitivity, createdAt);
+  }
+
+  private ensureProjectStructureCoverageIndex(scopeVersionId: string): void {
+    const inventory = this.getProjectInventorySummary(scopeVersionId);
+    const indexed = this.getMetaValue(`project_source_coverage:${scopeVersionId}:indexed_at`) !== null;
+    if (!indexed || (inventory.itemCount > 0 && this.projectInventoryLooksStale(scopeVersionId))) {
+      this.refreshProjectStructureCoverageIndex(scopeVersionId);
+    }
+  }
+
+  private refreshProjectStructureCoverageIndex(scopeVersionId: string): void {
+    const scope = this.getScopeVersion(scopeVersionId);
+    const indexedAt = nowIso();
+    const state: ProjectInventoryScanState = { indexedAt, scannedFiles: 0, skippedCount: 0, truncated: false };
+    const localAssets = scope.assets.filter((asset) => asset.direction === 'in_scope' && isAbsolute(asset.value) && !looksLikeProjectUrl(asset.value));
+
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM project_inventory_items WHERE scope_version_id = ?').run(scopeVersionId);
+      this.db.prepare('DELETE FROM project_structure_relations WHERE scope_version_id = ?').run(scopeVersionId);
+      this.db.prepare('DELETE FROM project_structure_entities WHERE scope_version_id = ?').run(scopeVersionId);
+      this.deleteProjectSearchDocuments("scope_version_id = ? AND entity_type IN ('inventory_item', 'structure_entity')", [scopeVersionId]);
+
+      for (const asset of localAssets) {
+        this.scanProjectInventoryPath(normalizedProjectPath(asset.value), asset, state);
+      }
+      this.resolveProjectStructureRelationTargets(scopeVersionId);
+    });
+
+    this.setMetaValue(
+      `project_source_coverage:${scopeVersionId}:indexed_at`,
+      JSON.stringify({ indexedAt, rootCount: localAssets.length, skippedCount: state.skippedCount, truncated: state.truncated }),
+      indexedAt
+    );
   }
 
   private projectInventoryLooksStale(scopeVersionId: string): boolean {

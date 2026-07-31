@@ -2347,7 +2347,9 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('Kernel Audit Workspace');
         expect(serialized).toContain('/src/kernel');
         expect(serialized).toContain('previousResearch');
-        expect(serialized).toContain('likelyUnderexploredInScopeAssets');
+        expect(serialized).toContain('sourceCoverage');
+        expect(serialized).not.toContain('likelyUnderexploredInScopeAssets');
+        expect(serialized).not.toContain('mentionCount');
         expect(serialized).toContain('Honeycrisp primitives');
         expect(serialized).toContain('promptQualityRules');
         expect(serialized).toContain('one-time preflight gate');
@@ -2397,6 +2399,150 @@ describe('Beale workbench skeleton', () => {
     });
     expect(result.promptMarkdown).toBe('# Kernel parser audit\nFocus on the least explored kernel parser surface and collect verifier-backed evidence.');
     expect(modelRequests).toHaveLength(1);
+    service.close();
+  });
+
+  it('builds source coverage from indexed structure and exact function reviews instead of prose mentions', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-source-coverage';
+    const workspace = tempWorkspace();
+    mkdirSync(join(workspace, 'src', 'imports'), { recursive: true });
+    mkdirSync(join(workspace, 'src', 'api'), { recursive: true });
+    mkdirSync(join(workspace, 'src', 'storage'), { recursive: true });
+    writeFileSync(join(workspace, 'src', 'imports', 'importProject.ts'), [
+      'export function handleImport(projectId: string) {',
+      '  return validateOwner(projectId);',
+      '}',
+      'function validateOwner(projectId: string) {',
+      '  return Boolean(projectId);',
+      '}'
+    ].join('\n'));
+    writeFileSync(join(workspace, 'src', 'api', 'routes.ts'), [
+      "router.post('/upload', uploadArchive);",
+      'export function uploadArchive(command: string) {',
+      '  return exec(command);',
+      '}'
+    ].join('\n'));
+    writeFileSync(join(workspace, 'src', 'storage', 'readBlob.ts'), [
+      'export function readBlob(path: string) {',
+      '  return readFile(path);',
+      '}'
+    ].join('\n'));
+
+    const capturedCoverage: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        const payload = hamRequestPayload(request);
+        capturedCoverage.push((payload.coverageHints as Record<string, unknown>).sourceCoverage as Record<string, unknown>);
+        return hamJsonResponse({ promptMarkdown: '# Structural coverage prompt\nReview an unreviewed entry-point-to-sink path.' }, 'resp_source_coverage');
+      }
+    });
+    service.createWorkspace(workspace);
+    service.saveScope({
+      workspaceName: 'Structural Coverage Workspace',
+      scopeOwner: 'Example Org',
+      descriptionMarkdown: 'Authorized local source review.',
+      rulesMarkdown: 'Review only the local fixture source.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'repo', workspace)]
+    });
+    const reviewedRun = startRunForTest(service, {
+      ...runInput('source_review'),
+      promptMarkdown: '# Prose-only leads\nConsider uploadArchive and readBlob; these names alone do not constitute source review.'
+    });
+    const reviewedRunId = reviewedRun.runs[0]?.run.id ?? '';
+
+    await service.generateResearchPrompt({
+      mode: 'source_review',
+      attemptStrategy: 'iterative_research',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      networkProfile: 'offline',
+      sandboxProfile: 'host',
+      targetAssetId: null,
+      targetPath: workspace
+    });
+
+    const coverage = capturedCoverage[0];
+    expect(coverage).toBeTruthy();
+    expect(coverage.status).toBe('ready');
+    expect(coverage.totals).toMatchObject({ paths: 3, components: 3 });
+    expect(coverage.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ component: 'src/api', entryPointCount: 2, sinkCount: 1 }),
+      expect.objectContaining({ component: 'src/imports', reviewedFunctionCount: 1 }),
+      expect.objectContaining({ component: 'src/storage', sinkCount: 1 })
+    ]));
+    expect(coverage.entryPoints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'route', path: expect.stringContaining('/src/api/routes.ts'), reviewed: false })
+    ]));
+    expect(coverage.sinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'exec', reviewed: false }),
+      expect.objectContaining({ name: 'readFile', reviewed: false })
+    ]));
+    expect(coverage.reviewedFunctions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'handleImport', path: expect.stringContaining('/src/imports/importProject.ts'), reviewed: true })
+    ]));
+    expect(coverage.unreviewedFunctions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'uploadArchive', reviewed: false }),
+      expect.objectContaining({ name: 'readBlob', reviewed: false })
+    ]));
+    expect(JSON.stringify(coverage)).not.toContain('mentionCount');
+
+    service.close();
+    const db = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    db.initialize();
+    db.appendTraceEvent({
+      runId: reviewedRunId,
+      attemptId: null,
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Honeycrisp tool.observed: shell.run',
+      payload: {
+        honeycrispKind: 'tool.observed',
+        payload: {
+          toolName: 'shell.run',
+          status: 'complete',
+          normalizedInputs: { utility: 'sed', args: ['-n', '1,3p', 'src/storage/readBlob.ts'] },
+          result: { stdout: 'export function readBlob(path: string) {\n  return readFile(path);\n}' }
+        }
+      }
+    });
+    db.appendTraceEvent({
+      runId: reviewedRunId,
+      attemptId: null,
+      type: 'tool_result',
+      source: 'tool',
+      summary: 'Honeycrisp tool.observed: shell.run failed',
+      payload: {
+        honeycrispKind: 'tool.observed',
+        payload: {
+          toolName: 'shell.run',
+          status: 'error',
+          normalizedInputs: { utility: 'sed', args: ['-n', '1,4p', 'src/api/routes.ts'] },
+          error: { message: 'Source read failed.' }
+        }
+      }
+    });
+    db.close();
+    service.openWorkspace(workspace);
+    await service.generateResearchPrompt({
+      mode: 'source_review',
+      attemptStrategy: 'iterative_research',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      networkProfile: 'offline',
+      sandboxProfile: 'host',
+      targetAssetId: null,
+      targetPath: workspace
+    });
+    const shellCoverage = capturedCoverage[1];
+    expect(shellCoverage.reviewedFunctions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'readBlob', reviewed: true, reviewRunIds: [reviewedRunId] })
+    ]));
+    expect(shellCoverage.unreviewedFunctions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'uploadArchive', reviewed: false })
+    ]));
     service.close();
   });
 

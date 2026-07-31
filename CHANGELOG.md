@@ -13,6 +13,7 @@
 
 ### Changed
 
+- Research prompt generation and HAM exploration now derive source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
 - HAM prompt preparation now runs as separate exploration and closure phases: exploration ranks 3–6 candidates from one bounded underexplored subsystem, Beale filters them through preliminary evidence, blocker, and cooldown checks, and closure receives only surviving candidates when writing the next session prompt.
 - HAM Mode now persists semantic candidate and attack-surface identities, applies 24-hour candidate and 6-hour surface cooldowns, and refuses to continue blocked candidates until the relevant recorded prerequisite state changes.
 - Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
