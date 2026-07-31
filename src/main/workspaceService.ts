@@ -1472,6 +1472,7 @@ export class WorkspaceService {
         });
         const scenario = fixtureScenarioFromBudget(run.budget);
         const forkInput: StartRunInput = {
+          goalEnabled: run.budget.goalEnabled === true,
           promptMarkdown: `${run.promptMarkdown}\n\n## Fork instruction\n${action.instruction}`,
           mode: run.mode,
           attemptStrategy: run.attemptStrategy,

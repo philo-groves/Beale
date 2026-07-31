@@ -36,7 +36,7 @@ export class FixtureRunEngine {
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
-      budget: { ...input.budget, fixtureScenario: scenario, runEngine: 'fixture' },
+      budget: { ...input.budget, fixtureScenario: scenario, runEngine: 'fixture', goalEnabled: input.goalEnabled },
       vmBackend: 'fixture',
       vmImageId: 'fixture-beale-toolchain',
       vmSnapshotId: 'fixture-clean-snapshot',

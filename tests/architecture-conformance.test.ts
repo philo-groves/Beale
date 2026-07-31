@@ -303,6 +303,7 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
+    goalEnabled: false,
     promptMarkdown: '# Architecture conformance\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'iterative_research',

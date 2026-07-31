@@ -88,7 +88,7 @@ interface ActiveHoneycrispRun {
 }
 
 interface HoneycrispFlowCapture {
-  schemaVersion?: 4;
+  schemaVersion?: 4 | 5;
   capturedAt?: string;
   request?: {
     prompt?: string;
@@ -101,6 +101,14 @@ interface HoneycrispFlowCapture {
     completedAt?: string;
     outputText?: string;
     finalDisposition?: unknown;
+    goal?: {
+      objective?: string;
+      status?: 'active' | 'complete' | 'blocked';
+      turnsUsed?: number;
+      consecutiveBlockedTurns?: number;
+      createdAt?: string;
+      updatedAt?: string;
+    };
     nextPromptSuggestions?: HoneycrispNextPromptSuggestion[];
     researchTrace?: {
       observations?: HoneycrispTraceItem[];
@@ -227,7 +235,12 @@ export class HoneycrispRunEngine {
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
-      budget: { ...input.budget, runEngine: 'honeycrisp', modelProvider: input.provider?.trim() || null },
+      budget: {
+        ...input.budget,
+        runEngine: 'honeycrisp',
+        modelProvider: input.provider?.trim() || null,
+        goalEnabled: input.goalEnabled
+      },
       vmBackend: 'host',
       vmImageId: 'host-machine',
       vmSnapshotId: 'none',
@@ -247,7 +260,8 @@ export class HoneycrispRunEngine {
       metadata: {
         provider: input.provider?.trim() || null,
         model: input.model,
-        reasoningEffort: input.reasoningEffort
+        reasoningEffort: input.reasoningEffort,
+        goalEnabled: input.goalEnabled
       }
     });
     this.db.appendTraceEvent({
@@ -259,6 +273,7 @@ export class HoneycrispRunEngine {
       payload: {
         runEngine: 'honeycrisp',
         provider: input.provider?.trim() || null,
+        goalEnabled: input.goalEnabled,
         sandboxProfile: input.sandboxProfile
       },
       vmContextId: context.vmContext.id
@@ -1044,16 +1059,18 @@ export class HoneycrispRunEngine {
       const capture = parseHoneycrispCapture(captureText);
       const contextUsage = this.importCapture(context, capture, capturePath, captureText, active.liveHoneycrispEventIds);
       const summary = honeycrispCompletionSummary(capture);
-      const completed = capture.agent?.status === 'complete';
-      this.db.updateAttemptState(context.attempt.id, completed ? 'completed' : 'failed', summary);
+      const goalStatus = honeycrispGoalStatus(capture);
+      const completed = capture.agent?.status === 'complete' && goalStatus !== 'active';
+      const terminalStatus = completed && goalStatus === 'blocked' ? 'blocked' : completed ? 'completed' : 'failed';
+      this.db.updateAttemptState(context.attempt.id, terminalStatus, summary);
       this.db.updateRunStatus(
         context.run.id,
-        completed ? 'completed' : 'failed',
+        terminalStatus,
         summary,
         completed ? honeycrispFinalDisposition(capture) ?? undefined : undefined
       );
       this.db.updateModelSessionByRun(context.run.id, {
-        status: completed ? 'completed' : 'failed',
+        status: terminalStatus,
         metadata: {
           capturePath,
           agentStatus: capture.agent?.status ?? null,
@@ -1387,6 +1404,9 @@ function honeycrispRunArgs(
   if (resumeFallbackPrompt) {
     args.push('--resume-fallback-prompt', resumeFallbackPrompt);
   }
+  if (input.goalEnabled) {
+    args.push('--goal');
+  }
   if (honeycrispMockModeEnabled()) {
     args.push('--mock');
   }
@@ -1418,6 +1438,7 @@ function honeycrispRunArgs(
 function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunInput {
   return {
     provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
+    goalEnabled: run.budget.goalEnabled === true,
     promptMarkdown,
     mode: run.mode,
     attemptStrategy: run.attemptStrategy,
@@ -2187,6 +2208,9 @@ function honeycrispAgentMetadata(capture: HoneycrispFlowCapture): Record<string,
     honeycrispAgentStatus: capture.agent?.status ?? null,
     honeycrispAgentStartedAt: capture.agent?.startedAt ?? null,
     honeycrispAgentCompletedAt: capture.agent?.completedAt ?? null,
+    honeycrispGoalStatus: honeycrispGoalStatus(capture),
+    honeycrispGoalTurnsUsed: capture.agent?.goal?.turnsUsed ?? null,
+    honeycrispGoalBlockedTurnStreak: capture.agent?.goal?.consecutiveBlockedTurns ?? null,
     honeycrispRequestPrompt: capture.request?.prompt ?? null,
     honeycrispSubagentCount: subagents.length,
     honeycrispSubagentCompletedCount: subagents.filter((agent) => agent.status === 'completed').length,
@@ -2202,7 +2226,8 @@ function honeycrispAgentPayload(capture: HoneycrispFlowCapture): Record<string, 
     status: capture.agent?.status ?? null,
     executorName: capture.agent?.executorName ?? null,
     startedAt: capture.agent?.startedAt ?? null,
-    completedAt: capture.agent?.completedAt ?? null
+    completedAt: capture.agent?.completedAt ?? null,
+    goal: capture.agent?.goal ?? null
   };
 }
 
@@ -2259,7 +2284,18 @@ function positiveNumber(value: unknown): number | null {
 
 function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
   const status = capture.agent?.status ?? 'unknown';
+  if (status === 'complete' && honeycrispGoalStatus(capture) === 'blocked') {
+    return 'Honeycrisp stopped because the research goal is genuinely blocked on external state.';
+  }
+  if (status === 'complete' && honeycrispGoalStatus(capture) === 'active') {
+    return 'Honeycrisp exited while the research goal was still active.';
+  }
   return status === 'complete' ? 'Honeycrisp completed the research session.' : `Honeycrisp process finished with agent status ${status}.`;
+}
+
+function honeycrispGoalStatus(capture: HoneycrispFlowCapture): 'active' | 'complete' | 'blocked' | null {
+  const status = capture.agent?.goal?.status;
+  return status === 'active' || status === 'complete' || status === 'blocked' ? status : null;
 }
 
 function honeycrispFinalDisposition(

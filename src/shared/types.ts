@@ -979,6 +979,7 @@ export interface ResearchProviderOAuthStartResult {
 export interface StartRunInput {
   runEngine: RunEngineKind;
   provider?: string;
+  goalEnabled: boolean;
   promptMarkdown: string;
   mode: string;
   attemptStrategy: string;

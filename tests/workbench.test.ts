@@ -27,7 +27,6 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_COMMAND;
   delete process.env.BEALE_HONEYCRISP_CONFIG;
   delete process.env.BEALE_HONEYCRISP_CWD;
-  delete process.env.BEALE_HONEYCRISP_GOAL_LOOPS;
   delete process.env.BEALE_HONEYCRISP_MOCK;
   delete process.env.BEALE_HONEYCRISP_NODE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
@@ -1232,6 +1231,7 @@ describe('Beale workbench skeleton', () => {
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const contextPath = args[args.indexOf('--workspace-context') + 1];",
         "if (!contextPath) throw new Error('Missing --workspace-context');",
+        "if (!args.includes('--goal')) throw new Error('Goal mode was not enabled');",
         "if (args.includes('--repo-root') || args.includes('--file-read-root')) throw new Error('Old repository guard args must not be passed');",
         "if (args.includes('--skill-dir') || args.includes('beale-skeptical-triage')) throw new Error('Removed Beale triage guidance was passed');",
         "const workspaceContext = JSON.parse(readFileSync(contextPath, 'utf8'));",
@@ -1284,6 +1284,7 @@ describe('Beale workbench skeleton', () => {
     const runSnapshot = service.startRun({
       ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
+      goalEnabled: true,
       promptMarkdown: '# Honeycrisp node fixture\nRun through the default CLI path.'
     });
     const runId = runSnapshot.runs[0]?.run.id ?? '';
@@ -1302,6 +1303,7 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--file-read-root');
     const launchArgs = (launchEvent?.payload as { args?: string[] } | undefined)?.args ?? [];
     expect(launchArgs).toContain('--shell-options');
+    expect(launchArgs).toContain('--goal');
     expect(launchArgs).toContain('shell');
     expect(launchArgs).toContain('--no-default-tool-config');
     expect(launchArgs).toContain('repository-search');
@@ -1355,6 +1357,7 @@ describe('Beale workbench skeleton', () => {
       estimated: false
     });
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
+    expect(detail.run.budget.goalEnabled).toBe(true);
     service.close();
   });
 
@@ -3012,6 +3015,7 @@ async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise
 function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunInput {
   return {
     runEngine: 'fixture',
+    goalEnabled: false,
     promptMarkdown: '# Test run\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'iterative_research',

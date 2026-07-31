@@ -73,6 +73,7 @@
 
 ### Added
 
+- Added a default-on Goal option to New Research. Beale persists and forwards the choice, while Honeycrisp owns the flat persistent objective, same-session continuation, completion audit, and repeated external-blocker validation.
 - Added structured final dispositions for every terminal research session, including typed blocker dependencies, an explicit external-state-required flag, Honeycrisp root-agent finalization, host fallbacks, registry mirroring, and workbench migration 8.
 - Added model-reasoned workspace-memory Dreaming on the workspace dashboard. The research model synthesizes workspace memories with up to 100 past session transcripts, proposes semantic pruning, revision, and de-duplication decisions, and Beale host-validates and applies them while preserving restorable originals through workbench migrations 6 and 7.
 - Added provider-native session title generation at research start using GPT-5.6 Luna Medium for OpenAI, Claude Haiku 4.5 Medium for Anthropic, and Grok 4.3 Medium for xAI.

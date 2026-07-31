@@ -7,6 +7,7 @@ export const UNBOUNDED_ATTEMPTS = 999_999;
 export const defaultRunInput: StartRunInput = {
   runEngine: 'honeycrisp',
   provider: 'openai-codex',
+  goalEnabled: true,
   promptMarkdown: '',
   mode: 'dynamic',
   attemptStrategy: 'iterative_research',

@@ -184,6 +184,17 @@ export function StartRunForm({
           value={input.promptMarkdown}
           onChange={(event) => update('promptMarkdown', event.target.value)}
         />
+        <label className="goal-option">
+          <input
+            type="checkbox"
+            checked={input.goalEnabled}
+            onChange={(event) => update('goalEnabled', event.target.checked)}
+          />
+          <span>
+            <strong>Goal</strong>
+            <small>Keep working across turns until the objective is complete or genuinely blocked.</small>
+          </span>
+        </label>
         <div className="start-grid">
           <label>
             Network

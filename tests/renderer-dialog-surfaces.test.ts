@@ -1,11 +1,12 @@
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry } from '@shared/types';
+import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailSheet } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
+import { StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 
 describe('renderer dialog surfaces', () => {
@@ -47,6 +48,25 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="modal-backdrop"');
     expect(html).toContain('class="modal-panel"');
     expect(html).not.toContain('bottom-sheet');
+  });
+
+  it('shows goal mode enabled by default in New Research', () => {
+    const html = renderToStaticMarkup(
+      createElement(StartRunForm, {
+        snapshot: { activeScope: { id: 'scope_one' } } as WorkspaceSnapshot,
+        openAiStatus: null,
+        researchProviderStatuses: [],
+        providerModelCatalog: [],
+        busy: false,
+        runAction: async () => undefined,
+        onCancel: () => undefined,
+        onStarted: () => undefined
+      })
+    );
+
+    expect(html).toContain('class="goal-option"');
+    expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
+    expect(html).toContain('Keep working across turns until the objective is complete or genuinely blocked.');
   });
 
   it('shows the structured final disposition and blocker dependencies in session summaries', () => {

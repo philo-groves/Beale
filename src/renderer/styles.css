@@ -6323,6 +6323,43 @@ body.is-resizing-research-side .main-session-grid {
   gap: 10px;
 }
 
+.goal-option {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #101010;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.goal-option input {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  accent-color: var(--text);
+}
+
+.goal-option span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.goal-option strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.goal-option small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .generate-prompt-error-box {
   display: grid;
   grid-template-columns: auto 1fr;
