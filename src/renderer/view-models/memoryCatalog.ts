@@ -32,9 +32,9 @@ export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], f
 
 function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: MemoryCatalogFilters): boolean {
   if (filters.scope === 'all') return true;
-  if (filters.scope === 'session') return node.sessionId === filters.sessionId;
-  if (filters.scope === 'workspace') return filters.workspaceId !== null && node.workspaceId === filters.workspaceId;
-  return filters.subjectId !== null && node.subjectId === filters.subjectId;
+  if (filters.scope === 'session') return node.tier === 'session' && node.sessionId === filters.sessionId;
+  if (filters.scope === 'workspace') return node.tier === 'workspace' && filters.workspaceId !== null && node.workspaceId === filters.workspaceId;
+  return node.tier === 'subject' && filters.subjectId !== null && node.subjectId === filters.subjectId;
 }
 
 export function groupMemoryRelationships(edges: HoneycrispMemoryEdgeSummary[]): Map<string, HoneycrispMemoryEdgeSummary[]> {

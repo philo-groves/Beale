@@ -36,7 +36,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 }): JSX.Element {
   const [activeView, setActiveView] = useState<ResearchSideView>('memory');
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<MemoryLevelFilter>('session');
+  const [scope, setScope] = useState<MemoryLevelFilter>('workspace');
   const [type, setType] = useState('all');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showInactiveSubagents, setShowInactiveSubagents] = useState(false);

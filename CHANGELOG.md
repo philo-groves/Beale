@@ -13,6 +13,7 @@
 
 ### Changed
 
+- Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
 - The session header context meter now presents 200k as its default context ceiling instead of 372k.
 - Beale now supplies the stable research run ID as Honeycrisp's provider session-affinity key across active turns and capture-backed continuations; Honeycrisp derives separate stable keys for subagents.
 - Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.

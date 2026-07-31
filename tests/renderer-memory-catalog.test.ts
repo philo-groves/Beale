@@ -1,5 +1,8 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary } from '@shared/types';
+import { ResearchSidePanel } from '../src/renderer/features/research/MemorySidePanel';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
@@ -24,8 +27,24 @@ describe('renderer memory catalog', () => {
     ])).toBe(3);
   });
 
+  it('defaults the interactive memory catalog to workspace scope', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
+      events: [],
+      memory: null,
+      runId: 'run_current',
+      runStatus: null,
+      selectedSubagentPath: null,
+      selectedRunbookId: null,
+      onOpenRunbook: () => undefined,
+      onSelectSubagent: () => undefined
+    }));
+
+    expect(html).toMatch(/aria-label="Memory level filter"[\s\S]*?floating-text-picker-label">Workspace<\/span>/);
+  });
+
   it('filters across context identities, types, node text, tags, and references', () => {
-    const sessionPrimitive = memoryNode({ id: 'session_primitive', sessionId: 'run_current', type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
+    const sessionPrimitive = memoryNode({ id: 'session_primitive', tier: 'session', sessionId: 'run_current', type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
+    const workspacePrimitive = memoryNode({ id: 'workspace_primitive', type: 'primitive', title: 'ZFTP workspace boundary', tags: ['parser'] });
     const subjectInvariant = memoryNode({
       id: 'subject_invariant',
       tier: 'subject',
@@ -34,15 +53,19 @@ describe('renderer memory catalog', () => {
       title: 'Apple parser boundary',
       evidenceRefs: [{ id: 'ref_one', kind: 'code', pathBase: 'repository', path: 'Src/Modules/zftp.c', locator: {}, summary: 'Length check', createdAt: '2026-07-19T12:00:00.000Z' }]
     });
-    const nodes = [sessionPrimitive, subjectInvariant];
+    const nodes = [sessionPrimitive, workspacePrimitive, subjectInvariant];
     const context = { sessionId: 'run_current', workspaceId: 'workspace_zsh', subjectId: 'subject_apple' };
 
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'session', type: 'all', ...context })).toEqual([sessionPrimitive]);
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'workspace', type: 'all', ...context })).toEqual(nodes);
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'subject', type: 'all', ...context })).toEqual(nodes);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'workspace', type: 'all', ...context })).toEqual([workspacePrimitive]);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'subject', type: 'all', ...context })).toEqual([subjectInvariant]);
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'all', type: 'invariant', ...context })).toEqual([subjectInvariant]);
     expect(filterMemoryCatalogNodes(nodes, { query: 'zftp.c', scope: 'all', type: 'all', ...context })).toEqual([subjectInvariant]);
-    expect(filterMemoryCatalogNodes(nodes, { query: 'parser', scope: 'all', type: 'all', ...context })).toEqual(nodes);
+    expect(filterMemoryCatalogNodes(nodes, { query: 'parser', scope: 'all', type: 'all', ...context })).toEqual([
+      sessionPrimitive,
+      subjectInvariant,
+      workspacePrimitive
+    ]);
   });
 
   it('indexes relationships at both endpoints and versions visible rows', () => {
