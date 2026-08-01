@@ -4,6 +4,7 @@ import type {
   BealeApi,
   DeveloperSettings,
   ShellOptions,
+  GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
   HostEnvironment,
   HackerOneScopeLookupResult,
@@ -19,6 +20,7 @@ import type {
   WorkspaceScopeDraft,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
+  ResearchGoalSuggestionInput,
   ResearchProviderId,
   ResearchProviderModelCatalog,
   ResearchProviderOAuthStartResult,
@@ -138,6 +140,9 @@ const api: BealeApi = {
   },
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate) {
     return ipcRenderer.invoke(IPC_CHANNELS.updateHoneycrispToolingConfig, update);
+  },
+  generateResearchGoalSuggestions(input?: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions> {
+    return ipcRenderer.invoke(IPC_CHANNELS.generateResearchGoalSuggestions, input);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchPrompt, input);

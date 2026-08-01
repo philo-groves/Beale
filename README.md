@@ -141,7 +141,7 @@ Beale does not create a managed execution sandbox. Honeycrisp runs with the curr
 
 ## Model Provider Notes
 
-Codex remains the default. Honeycrisp's Pi runtime also supports Anthropic and xAI through subscription OAuth in Settings > Providers or through `ANTHROPIC_API_KEY` and `XAI_API_KEY` in Beale's host environment. New Research reads the installed Pi catalog and presents provider-specific model and reasoning-effort dropdowns, so availability stays aligned with the Honeycrisp runtime rather than a duplicated Beale list.
+Codex remains the default. Honeycrisp's Pi runtime also supports Anthropic and xAI through subscription OAuth in Settings > Providers or through `ANTHROPIC_API_KEY` and `XAI_API_KEY` in Beale's host environment. Beale preloads three model-generated directions grounded in prior workspace research when a workspace becomes active; New Research presents those directions as multiline choices, selecting one expands it into a full editable prompt, and Something Else opens direct prompt entry. The dialog reads the installed Pi catalog and presents provider-specific model and reasoning-effort dropdowns, so run availability stays aligned with the Honeycrisp runtime rather than a duplicated Beale list.
 
 Provider credentials stay in the trusted host runtime and are not copied into model-visible context, traces, or the global database.
 

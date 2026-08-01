@@ -45,6 +45,9 @@ export function AppModals({
   researchProviderOAuthResults,
   researchProviderModelCatalog,
   researchProviderStatuses,
+  researchGoalSuggestions,
+  researchGoalSuggestionsLoading,
+  researchGoalSuggestionError,
   profilingOpen,
   profilingState,
   lastProfilingReport,
@@ -86,6 +89,7 @@ export function AppModals({
   onSaveShellOptions,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
+  onRetryResearchGoalSuggestions,
   onStartedNewResearch,
   onSteerNotification,
   onSubmitWorkspaceOnboarding,
@@ -105,6 +109,9 @@ export function AppModals({
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
+  researchGoalSuggestions: [string, string, string] | null;
+  researchGoalSuggestionsLoading: boolean;
+  researchGoalSuggestionError: string | null;
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
@@ -146,6 +153,7 @@ export function AppModals({
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
+  onRetryResearchGoalSuggestions: () => void;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
@@ -174,9 +182,13 @@ export function AppModals({
           openAiStatus={openAiStatus}
           researchProviderStatuses={researchProviderStatuses}
           providerModelCatalog={researchProviderModelCatalog}
+          researchGoalSuggestions={researchGoalSuggestions}
+          researchGoalSuggestionsLoading={researchGoalSuggestionsLoading}
+          researchGoalSuggestionError={researchGoalSuggestionError}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}
+          onRetryResearchGoalSuggestions={onRetryResearchGoalSuggestions}
           onStarted={onStartedNewResearch}
         />
       ) : null}

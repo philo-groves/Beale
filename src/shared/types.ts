@@ -1001,6 +1001,14 @@ export interface GeneratedResearchPrompt {
   promptMarkdown: string;
 }
 
+export interface GeneratedResearchGoalSuggestions {
+  suggestions: [string, string, string];
+}
+
+export interface ResearchGoalSuggestionInput {
+  requestId?: string | null;
+}
+
 export interface ResearchPromptGenerationUpdate {
   requestId: string;
   promptMarkdown: string;
@@ -1009,7 +1017,8 @@ export interface ResearchPromptGenerationUpdate {
 
 export interface ResearchPromptGenerationInput {
   requestId?: string | null;
-  operation?: 'generate' | 'refine';
+  operation?: 'generate' | 'refine' | 'expand_goal';
+  goalSentence?: string | null;
   draftPromptMarkdown?: string | null;
   mode: string;
   attemptStrategy: string;
@@ -1369,6 +1378,7 @@ export interface BealeApi {
   restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
+  generateResearchGoalSuggestions(input?: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

@@ -12,6 +12,7 @@ import type {
   WorkspaceOnboardingInput,
   WorkspaceOnboardingSkipInput,
   WorkspaceScopeDraft,
+  ResearchGoalSuggestionInput,
   ResearchPromptGenerationInput,
   ResearchProviderId,
   RunDetailUpdateCursor,
@@ -441,6 +442,9 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.updateHoneycrispToolingConfig, (_event, update: HoneycrispToolingConfigUpdate) =>
     timedMainIpc('updateHoneycrispToolingConfig', { type: update.type }, () => workspaceService.updateHoneycrispToolingConfig(update))
+  );
+  ipcMain.handle(IPC_CHANNELS.generateResearchGoalSuggestions, (_event, input?: ResearchGoalSuggestionInput) =>
+    timedMainIpcAsync('generateResearchGoalSuggestions', {}, () => workspaceService.generateResearchGoalSuggestions(input))
   );
   ipcMain.handle(IPC_CHANNELS.generateResearchPrompt, (event, input?: ResearchPromptGenerationInput) =>
     timedMainIpcAsync('generateResearchPrompt', { hasInput: Boolean(input) }, () =>

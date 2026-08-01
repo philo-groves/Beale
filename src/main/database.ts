@@ -221,6 +221,27 @@ export interface StartRunRecordInput {
   vmMetadata?: Record<string, unknown>;
 }
 
+export interface ResearchRecommendationRunContext {
+  run: RunRecord;
+  verifierContracts: Array<{
+    memoryNodeId: string | null;
+    mode: string;
+    status: string;
+    passCriteria: Record<string, unknown>;
+  }>;
+  verifierRuns: Array<{
+    status: string;
+    result: Record<string, unknown>;
+    blockedIssue: string;
+  }>;
+  notableTraceEvents: Array<{
+    type: TraceEventType;
+    source: TraceSource;
+    summary: string;
+    modelVisible: boolean;
+  }>;
+}
+
 export interface CreateExportInput {
   runId: string;
   memoryNodeId?: string | null;
@@ -4842,6 +4863,75 @@ export class WorkspaceDatabase {
     });
   }
 
+  public listResearchRecommendationRuns(limit = 12): ResearchRecommendationRunContext[] {
+    const requestedLimit = Math.floor(limit);
+    const boundedLimit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(24, requestedLimit)) : 12;
+    const runRows = rows(
+      this.db
+        .prepare(
+          `SELECT r.*
+           FROM runs r
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?
+           ORDER BY r.created_at DESC
+           LIMIT ?`
+        )
+        .all(this.workspaceId, boundedLimit)
+    );
+    return runRows.map((runRow) => {
+      const run = this.mapRun(runRow);
+      const verifierContracts = rows(
+        this.db
+          .prepare(
+            `SELECT memory_node_id, mode, status, pass_criteria_json
+             FROM verifier_contracts
+             WHERE run_id = ?
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT 8`
+          )
+          .all(run.id)
+      ).reverse().map((row) => ({
+        memoryNodeId: nullableText(row, 'memory_node_id'),
+        mode: text(row, 'mode'),
+        status: text(row, 'status'),
+        passCriteria: parseJson(row.pass_criteria_json)
+      }));
+      const verifierRuns = rows(
+        this.db
+          .prepare(
+            `SELECT status, result_json, blocked_issue
+             FROM verifier_runs
+             WHERE run_id = ?
+             ORDER BY started_at DESC, rowid DESC
+             LIMIT 8`
+          )
+          .all(run.id)
+      ).reverse().map((row) => ({
+        status: text(row, 'status'),
+        result: parseJson(row.result_json),
+        blockedIssue: text(row, 'blocked_issue')
+      }));
+      const notableTraceEvents = rows(
+        this.db
+          .prepare(
+            `SELECT type, source, summary, model_visible
+             FROM trace_events
+             WHERE run_id = ?
+               AND type IN ('tool_result', 'verifier_result', 'artifact_created', 'approval_event', 'research_event')
+             ORDER BY sequence DESC
+             LIMIT 10`
+          )
+          .all(run.id)
+      ).reverse().map((row) => ({
+        type: text(row, 'type') as TraceEventType,
+        source: text(row, 'source') as TraceSource,
+        summary: text(row, 'summary'),
+        modelVisible: booleanValue(row, 'model_visible')
+      }));
+      return { run, verifierContracts, verifierRuns, notableTraceEvents };
+    });
+  }
+
   public getRunDetail(runId: string): RunDetail {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
@@ -5119,14 +5209,14 @@ export class WorkspaceDatabase {
 
   public getProjectStructureCoverageRecords(
     scopeVersionId = this.getActiveScope().id,
-    limits: { entities?: number; relations?: number } = {}
+    limits: { entities?: number; relations?: number; refreshIndex?: boolean } = {}
   ): {
     index: { rootCount: number; skippedCount: number; truncated: boolean };
     paths: ProjectSourceCoveragePathRecord[];
     entities: ProjectStructureEntityRecord[];
     relations: ProjectStructureRelationRecord[];
   } {
-    this.ensureProjectStructureCoverageIndex(scopeVersionId);
+    if (limits.refreshIndex === true) this.ensureProjectStructureCoverageIndex(scopeVersionId);
     const entityLimit = Math.max(1, Math.min(25_000, Math.floor(limits.entities ?? 10_000)));
     const relationLimit = Math.max(1, Math.min(50_000, Math.floor(limits.relations ?? 25_000)));
     const paths = rows(
@@ -5182,8 +5272,13 @@ export class WorkspaceDatabase {
     };
   }
 
-  public listProjectSourceReviewObservations(scopeVersionId = this.getActiveScope().id): ProjectSourceReviewObservation[] {
+  public listProjectSourceReviewObservations(
+    scopeVersionId = this.getActiveScope().id,
+    maxTraceRows = 2_000
+  ): ProjectSourceReviewObservation[] {
     const joinedLineageRunSql = this.scopeVersionLineagePredicate('r.scope_version_id');
+    const requestedLimit = Math.floor(maxTraceRows);
+    const traceRowLimit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(5_000, requestedLimit)) : 2_000;
     const observations: ProjectSourceReviewObservation[] = [];
     const seen = new Set<string>();
     const reviewRows = rows(
@@ -5195,10 +5290,11 @@ export class WorkspaceDatabase {
            LEFT JOIN tool_calls tc ON tc.id = te.tool_call_id
            WHERE ${joinedLineageRunSql}
              AND te.type = 'tool_result'
-           ORDER BY te.created_at ASC, te.sequence ASC`
+           ORDER BY te.created_at DESC, te.sequence DESC
+           LIMIT ?`
         )
-        .all(scopeVersionId)
-    );
+        .all(scopeVersionId, traceRowLimit)
+    ).reverse();
     for (const row of reviewRows) {
       const payload = parseJson(row.payload_json);
       const input = parseJson(row.input_json);

@@ -6,7 +6,7 @@ import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailSheet } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
-import { StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
+import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 
 describe('renderer dialog surfaces', () => {
@@ -50,16 +50,52 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet');
   });
 
+  it('shows three prior-research goal sentences and a fourth custom option', () => {
+    const suggestions: [string, string, string] = [
+      'Determine whether the parser length primitive reaches an attacker-controlled allocation sink.',
+      'Close the verifier gap around cross-tenant object lookup using the existing local fixtures.',
+      'Inspect the unreviewed archive import boundary for a source-to-sink path with concrete impact.'
+    ];
+    const html = renderToStaticMarkup(
+      createElement(ResearchGoalChooser, {
+        suggestions,
+        loading: false,
+        error: null,
+        onSelect: () => undefined,
+        onSomethingElse: () => undefined,
+        onRetry: () => undefined
+      })
+    );
+
+    expect(html.match(/aria-label="Goal \d:/g)).toHaveLength(3);
+    expect(html.match(/<button/g)).toHaveLength(4);
+    for (const suggestion of suggestions) expect(html).toContain(suggestion);
+    expect(html).toContain('<strong>Something Else</strong>');
+    expect(html).toContain('Write your own research prompt.');
+  });
+
   it('shows goal mode enabled by default in New Research', () => {
+    const suggestions: [string, string, string] = [
+      'Inspect the unreviewed parser boundary.',
+      'Validate the unresolved tenant-isolation path.',
+      'Revisit the archive extraction sink with stronger evidence.'
+    ];
     const html = renderToStaticMarkup(
       createElement(StartRunForm, {
-        snapshot: { activeScope: { id: 'scope_one' } } as WorkspaceSnapshot,
+        snapshot: {
+          workspace: { workspaceId: 'workspace_one' },
+          activeScope: { id: 'scope_one' }
+        } as WorkspaceSnapshot,
         openAiStatus: null,
         researchProviderStatuses: [],
         providerModelCatalog: [],
+        researchGoalSuggestions: suggestions,
+        researchGoalSuggestionsLoading: false,
+        researchGoalSuggestionError: null,
         busy: false,
         runAction: async () => undefined,
         onCancel: () => undefined,
+        onRetryResearchGoalSuggestions: () => undefined,
         onStarted: () => undefined
       })
     );
@@ -67,6 +103,10 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="goal-option"');
     expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
     expect(html).toContain('Keep working across turns until the objective is complete or genuinely blocked.');
+    for (const suggestion of suggestions) expect(html).toContain(suggestion);
+    expect(html).not.toContain('Reviewing prior research…');
+    expect(html).toContain('<strong>Something Else</strong>');
+    expect(html).not.toContain('<textarea');
   });
 
   it('shows the structured final disposition and blocker dependencies in session summaries', () => {

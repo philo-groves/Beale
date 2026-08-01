@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- New Research goal tiles now grow and wrap long model-generated suggestions within their card bounds.
+- New Research recommendations now read persisted structural coverage without synchronously rescanning local repositories, and load bounded trace and verifier projections instead of full prior run details.
 - Memory Dreaming now allocates model context fairly across every workspace node and up to 100 recent sessions, retries with a smaller profile after context-window rejection, and retries transient provider failures before surfacing an error.
 - Honeycrisp continuations now restore compatible provider context from the prior flow capture and send only the new steering instruction, while retaining the bounded transcript reconstruction as a fallback for missing, legacy, or incompatible captures.
 - Steering a completed Honeycrisp session now continues root trace turn numbering and carries prior root reasoning summaries, responses, and steering into the continuation context.
@@ -12,6 +14,7 @@
 
 ### Changed
 
+- New Research goal suggestions now prefetch in the background when a workspace or scope becomes active, refresh on later workspace activations and terminal research results, and remain cached for dialog reuse between research changes.
 - Research prompt generation now derives source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
 - Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
 - The session header context meter now presents 200k as its default context ceiling instead of 372k.
@@ -73,6 +76,7 @@
 
 ### Added
 
+- Added a previous-research goal chooser to New Research. Beale proposes three distinct one-sentence directions from bounded workspace memory, session outcomes, verifier state, and source coverage; selecting one generates a full editable research prompt, while Something Else opens direct prompt entry.
 - Added a default-on Goal option to New Research. Beale persists and forwards the choice, while Honeycrisp owns the flat persistent objective, same-session continuation, completion audit, and repeated external-blocker validation.
 - Added structured final dispositions for every terminal research session, including typed blocker dependencies, an explicit external-state-required flag, Honeycrisp root-agent finalization, host fallbacks, registry mirroring, and workbench migration 8.
 - Added model-reasoned workspace-memory Dreaming on the workspace dashboard. The research model synthesizes workspace memories with up to 100 past session transcripts, proposes semantic pruning, revision, and de-duplication decisions, and Beale host-validates and applies them while preserving restorable originals through workbench migrations 6 and 7.

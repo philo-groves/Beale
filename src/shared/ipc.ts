@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
   restoreMemoryDreamingChange: 'beale:restore-memory-dreaming-change',
   getHoneycrispToolingSummary: 'beale:get-honeycrisp-tooling-summary',
   updateHoneycrispToolingConfig: 'beale:update-honeycrisp-tooling-config',
+  generateResearchGoalSuggestions: 'beale:generate-research-goal-suggestions',
   generateResearchPrompt: 'beale:generate-research-prompt',
   cancelResearchPromptGeneration: 'beale:cancel-research-prompt-generation',
   researchPromptGenerationUpdated: 'beale:research-prompt-generation-updated',

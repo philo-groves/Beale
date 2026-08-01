@@ -36,6 +36,7 @@ import { useWorkspaceOverlayState } from './hooks/useWorkspaceOverlayState';
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
+import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
@@ -71,6 +72,10 @@ export function App(): JSX.Element {
     loadSnapshot,
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
+  const researchGoalSuggestionState = useResearchGoalSuggestions(
+    snapshot,
+    openAiStatus?.configured ?? snapshot?.openAi.configured ?? false
+  );
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
@@ -670,6 +675,9 @@ export function App(): JSX.Element {
         researchProviderOAuthResults={researchProviderOAuthResults}
         researchProviderModelCatalog={researchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
+        researchGoalSuggestions={researchGoalSuggestionState.suggestions}
+        researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
+        researchGoalSuggestionError={researchGoalSuggestionState.error}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}
@@ -714,6 +722,7 @@ export function App(): JSX.Element {
         onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartResearchProviderOAuth={startResearchProviderOAuth}
+        onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}
         onSteerNotification={(notification, instruction) => {

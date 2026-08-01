@@ -8,6 +8,7 @@ import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput }
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
 
 const createdDirs: string[] = [];
 
@@ -2279,6 +2280,210 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('generates exactly three distinct research goal suggestions grounded in prior workspace research', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-suggestions';
+    const suggestions = [
+      'Verify whether the unreviewed parser length path reaches the recorded allocation sink.',
+      'Build a verifier for the suspected cross-boundary import ownership primitive.',
+      'Determine the practical impact of the confirmed archive extraction traversal chain.'
+    ] as const;
+    const modelRequests: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
+        return modelJsonResponse({ suggestions: [...suggestions] }, 'resp_goal_suggestions');
+      }
+    });
+
+    const workspace = tempWorkspace();
+    mkdirSync(join(workspace, 'src'), { recursive: true });
+    writeFileSync(join(workspace, 'src', 'parser.ts'), 'export function parseLength(value: number) { return Buffer.alloc(value); }\n');
+    service.createWorkspace(workspace);
+    service.saveScope({
+      workspaceName: 'Parser Continuity Workspace',
+      scopeOwner: 'Parser Org',
+      descriptionMarkdown: 'Authorized review of parser and archive boundaries.',
+      rulesMarkdown: 'Use only local fixtures and recorded repositories.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: [asset('in_scope', 'repo', workspace), asset('in_scope', 'binary', '/bin/parserd')]
+    });
+    const previous = startRunForTest(service, {
+      ...runInput('verifier_pass'),
+      promptMarkdown: '# Prior parser research\nTrace the parser length into its allocation boundary.'
+    });
+
+    const result = await service.generateResearchGoalSuggestions({ requestId: 'goal_suggestions_grounded' });
+    const request = modelRequests[0];
+    expect(request).toBeTruthy();
+    if (!request) throw new Error('Expected a captured goal suggestion request.');
+    const payload = modelRequestPayload(request);
+    const previousResearch = payload.previousResearch as Array<Record<string, unknown>>;
+    const coverageHints = payload.coverageHints as Record<string, unknown>;
+
+    expect(result.suggestions).toEqual(suggestions);
+    expect(result.suggestions).toHaveLength(3);
+    expect(new Set(result.suggestions)).toHaveProperty('size', 3);
+    expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
+    expect(request.tools).toEqual([]);
+    expect(request.reasoning).toEqual({ effort: 'medium' });
+    expect(request.text).toEqual({ verbosity: 'low' });
+    expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions' });
+    expect(payload.task).toBe('suggest_next_research_goals');
+    expect(payload.workspace).toMatchObject({
+      workspaceName: 'Parser Continuity Workspace',
+      networkProfile: 'offline'
+    });
+    expect(previousResearch).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        runId: previous.runs[0]?.run.id,
+        promptMarkdown: expect.stringContaining('Prior parser research'),
+        finalDisposition: expect.objectContaining({ outcome: 'inconclusive' })
+      })
+    ]));
+    expect(coverageHints).toHaveProperty('sourceCoverage');
+    expect(coverageHints.sourceCoverage).toMatchObject({ status: 'empty' });
+    expect(coverageHints).toHaveProperty('activeMemoryNodes');
+    expect(coverageHints).toHaveProperty('recentMemoryEvidenceRefs');
+    service.close();
+
+    const coverageDb = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    coverageDb.initialize();
+    expect(coverageDb.getProjectInventorySummary().itemCount).toBe(0);
+    expect(coverageDb.getProjectStructureSummary().entityCount).toBe(0);
+    coverageDb.close();
+  });
+
+  it.each([
+    {
+      name: 'the wrong number of suggestions',
+      suggestions: [
+        'Inspect the parser ownership boundary for a reusable authorization primitive.',
+        'Verify the archive extraction boundary with a durable reproduction harness.'
+      ],
+      error: /exactly three suggestions/i
+    },
+    {
+      name: 'duplicate suggestions',
+      suggestions: [
+        'Inspect the parser ownership boundary for a reusable authorization primitive.',
+        'Inspect the parser ownership boundary for a reusable authorization primitive!',
+        'Verify the archive extraction boundary with a durable reproduction harness.'
+      ],
+      error: /must be distinct/i
+    },
+    {
+      name: 'multiple sentences',
+      suggestions: [
+        'Inspect the parser ownership boundary. Then verify the reachable authorization sink.',
+        'Verify the archive extraction boundary with a durable reproduction harness.',
+        'Measure the impact of the recorded cache-key confusion primitive.'
+      ],
+      error: /exactly one sentence/i
+    },
+    {
+      name: 'a lowercase second sentence',
+      suggestions: [
+        'Inspect the parser ownership boundary. then verify the reachable authorization sink.',
+        'Verify the archive extraction boundary with a durable reproduction harness.',
+        'Measure the impact of the recorded cache-key confusion primitive.'
+      ],
+      error: /exactly one sentence/i
+    }
+  ])('rejects $name in research goal suggestions', async ({ suggestions, error }) => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-invalid-goal-suggestions';
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async () => modelJsonResponse({ suggestions }, 'resp_invalid_goal_suggestions')
+    });
+    service.createWorkspace(tempWorkspace());
+
+    await expect(service.generateResearchGoalSuggestions()).rejects.toThrow(error);
+    service.close();
+  });
+
+  it('loads only the latest bounded trace projections for research recommendations', () => {
+    const workspace = tempWorkspace();
+    const service = new WorkspaceService();
+    const snapshot = service.createWorkspace(workspace);
+    const run = startRunForTest(service, runInput('source_review')).runs[0]?.run;
+    expect(run).toBeTruthy();
+    if (!run) throw new Error('Expected a fixture research run.');
+    service.close();
+
+    const db = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    db.initialize();
+    for (let index = 0; index < 12; index += 1) {
+      db.appendTraceEvent({
+        runId: run.id,
+        type: 'research_event',
+        source: 'model',
+        summary: `Recommendation context event ${index}`,
+        payload: { deliberatelyUnusedPayload: 'x'.repeat(2_000), workspaceId: snapshot.workspace.workspaceId }
+      });
+    }
+
+    const context = db.listResearchRecommendationRuns(1)[0];
+    expect(context?.notableTraceEvents).toHaveLength(10);
+    expect(context?.notableTraceEvents[0]?.summary).toBe('Recommendation context event 2');
+    expect(context?.notableTraceEvents.at(-1)?.summary).toBe('Recommendation context event 11');
+    expect(context?.notableTraceEvents[0]).not.toHaveProperty('payload');
+    db.close();
+  });
+
+  it.each(['claude-sonnet-4-6', 'grok-4.3'])('expands a selected goal with the host OpenAI model when the session model is %s', async (sessionModel) => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-expansion';
+    const goalSentence = 'Verify whether the import boundary permits one workspace to replace another workspace\'s project metadata.';
+    const expandedPrompt = [
+      '# Import ownership boundary verification',
+      '',
+      'Trace the complete import path from the recorded project archive entry point through workspace lookup, ownership validation, and metadata replacement.',
+      'Use the existing Honeycrisp memory and prior session evidence to identify the exact primitive being challenged, then build a local two-workspace fixture that preserves the authorized boundary.',
+      'Collect source locations, tool-backed observations, and a repeatable verifier result; stop after confirming the invariant or recording the precise missing prerequisite without claiming unsupported impact.'
+    ].join('\n');
+    const modelRequests: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
+        return modelJsonResponse({ promptMarkdown: expandedPrompt }, 'resp_goal_expansion');
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+
+    const result = await service.generateResearchPrompt({
+      requestId: `expand_${sessionModel}`,
+      operation: 'expand_goal',
+      goalSentence,
+      draftPromptMarkdown: null,
+      mode: 'dynamic',
+      attemptStrategy: 'iterative_research',
+      model: sessionModel,
+      reasoningEffort: 'high',
+      networkProfile: 'scoped',
+      sandboxProfile: 'host',
+      targetAssetId: null,
+      targetPath: null
+    });
+    const request = modelRequests[0];
+    expect(request).toBeTruthy();
+    if (!request) throw new Error('Expected a captured goal expansion request.');
+    const payload = modelRequestPayload(request);
+
+    expect(result.promptMarkdown).toBe(expandedPrompt);
+    expect(result.promptMarkdown.length).toBeGreaterThan(goalSentence.length + 120);
+    expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
+    expect(request.model).not.toBe(sessionModel);
+    expect(payload.task).toBe('expand_selected_goal_into_research_session_prompt');
+    expect(payload.goalSentence).toBe(goalSentence);
+    expect(payload.draftPromptMarkdown).toBeNull();
+    expect(payload.requestedSession).toMatchObject({
+      operation: 'expand_goal',
+      model: sessionModel,
+      reasoningEffort: 'high',
+      networkProfile: 'scoped'
+    });
+    service.close();
+  });
+
   it('generates a recommended research prompt from workspace scope and prior research', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-prompt-generation';
     const modelRequests: Record<string, unknown>[] = [];
@@ -2287,7 +2492,7 @@ describe('Beale workbench skeleton', () => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         modelRequests.push(request);
         const serialized = JSON.stringify(request);
-        expect(request.model).toBe('gpt-5.4');
+        expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
         expect(request.tools).toEqual([]);
         expect(request.reasoning).toEqual({ effort: 'medium' });
         expect(serialized).toContain('Kernel Audit Workspace');
@@ -2384,7 +2589,7 @@ describe('Beale workbench skeleton', () => {
       }
     });
     service.createWorkspace(workspace);
-    service.saveScope({
+    const scoped = service.saveScope({
       workspaceName: 'Structural Coverage Workspace',
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Authorized local source review.',
@@ -2393,6 +2598,10 @@ describe('Beale workbench skeleton', () => {
       expiresAt: null,
       assets: [asset('in_scope', 'repo', workspace)]
     });
+    const coverageDb = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    coverageDb.initialize();
+    coverageDb.getProjectStructureCoverageRecords(scoped.activeScope.id, { refreshIndex: true });
+    coverageDb.close();
     const reviewedRun = startRunForTest(service, {
       ...runInput('source_review'),
       promptMarkdown: '# Prose-only leads\nConsider uploadArchive and readBlob; these names alone do not constitute source review.'
