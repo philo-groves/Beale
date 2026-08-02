@@ -152,6 +152,7 @@ function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
     goalEnabled: false,
+    goalObjective: null,
     promptMarkdown: `# Exercise the Dreaming session fixture\nRecord the parser boundary and exhausted legacy route.\n${'Detailed session context. '.repeat(5_000)}`,
     mode: 'open_discovery',
     attemptStrategy: 'iterative_research',

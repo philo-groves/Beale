@@ -304,6 +304,7 @@ function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
     goalEnabled: false,
+    goalObjective: null,
     promptMarkdown: '# Architecture conformance\nExercise the fixture workbench path.',
     mode: 'open_discovery',
     attemptStrategy: 'iterative_research',

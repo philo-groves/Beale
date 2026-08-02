@@ -980,6 +980,7 @@ export interface StartRunInput {
   runEngine: RunEngineKind;
   provider?: string;
   goalEnabled: boolean;
+  goalObjective: string | null;
   promptMarkdown: string;
   mode: string;
   attemptStrategy: string;

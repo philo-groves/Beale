@@ -8,6 +8,7 @@ export const defaultRunInput: StartRunInput = {
   runEngine: 'honeycrisp',
   provider: 'openai-codex',
   goalEnabled: true,
+  goalObjective: null,
   promptMarkdown: '',
   mode: 'dynamic',
   attemptStrategy: 'iterative_research',

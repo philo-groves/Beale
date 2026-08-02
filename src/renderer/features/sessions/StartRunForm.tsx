@@ -11,6 +11,7 @@ import type {
   StartRunInput,
   WorkspaceSnapshot
 } from '@shared/types';
+import { deriveGoalObjective, resolveGoalObjective } from '../../../shared/goalObjective';
 import { Modal } from '../../app/Modal';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { networkProfileLabel } from '../../lib/formatting';
@@ -151,7 +152,11 @@ export function StartRunForm({
     setSelectedGoalSentence(sentence);
     setEntryMode('expanded');
     setGenerationError(null);
-    setPromptMarkdown('');
+    setInput((current) => {
+      const next = { ...current, goalObjective: sentence, promptMarkdown: '' };
+      inputRef.current = next;
+      return next;
+    });
     setGeneratingPrompt(true);
     promptStreamAutoScrollRef.current = true;
     void window.beale.generateResearchPrompt({
@@ -190,7 +195,13 @@ export function StartRunForm({
   useEffect(() => {
     cancelPromptGeneration();
     setInput((current) => {
-      const next = { ...current, networkProfile: 'elevated', sandboxProfile: 'host', promptMarkdown: '' };
+      const next = {
+        ...current,
+        networkProfile: 'elevated',
+        sandboxProfile: 'host',
+        goalObjective: null,
+        promptMarkdown: ''
+      };
       inputRef.current = next;
       return next;
     });
@@ -242,7 +253,10 @@ export function StartRunForm({
 
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => {
-      const next = { ...current, [key]: value };
+      const next: StartRunInput = { ...current, [key]: value };
+      if (key === 'promptMarkdown' && entryMode === 'custom') {
+        next.goalObjective = deriveGoalObjective(String(value));
+      }
       inputRef.current = next;
       return next;
     });
@@ -276,7 +290,12 @@ export function StartRunForm({
   };
 
   const start = (): void => {
-    startWithInput(input);
+    startWithInput({
+      ...input,
+      goalObjective: input.goalEnabled
+        ? resolveGoalObjective(input.goalObjective, input.promptMarkdown)
+        : null
+    });
   };
 
   const selectProvider = (providerId: ResearchModelProviderId): void => {
@@ -311,7 +330,11 @@ export function StartRunForm({
     cancelPromptGeneration();
     setSelectedGoalSentence(null);
     setGenerationError(null);
-    setPromptMarkdown('');
+    setInput((current) => {
+      const next = { ...current, goalObjective: null, promptMarkdown: '' };
+      inputRef.current = next;
+      return next;
+    });
     setEntryMode('custom');
   };
 
@@ -319,7 +342,11 @@ export function StartRunForm({
     cancelPromptGeneration();
     setSelectedGoalSentence(null);
     setGenerationError(null);
-    setPromptMarkdown('');
+    setInput((current) => {
+      const next = { ...current, goalObjective: null, promptMarkdown: '' };
+      inputRef.current = next;
+      return next;
+    });
     setEntryMode('chooser');
   };
 

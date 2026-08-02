@@ -1,6 +1,7 @@
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { FixtureScenario, StartRunInput } from '@shared/types';
 import { generateSessionTitle } from '../shared/sessionTitle';
+import { resolveGoalObjective } from '../shared/goalObjective';
 
 type ScenarioStep = (context: CreatedRunContext) => void;
 
@@ -24,6 +25,9 @@ export class FixtureRunEngine {
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): CreatedRunContext {
     const scope = this.db.getActiveScope();
     const scenario = input.fixtureScenario ?? 'multi_branch_trace';
+    const goalObjective = input.goalEnabled
+      ? resolveGoalObjective(input.goalObjective, input.promptMarkdown)
+      : null;
     const context = attachDatabase(this.db.createRun({
       scopeVersionId: scope.id,
       title: generateSessionTitle(input.promptMarkdown),
@@ -36,7 +40,13 @@ export class FixtureRunEngine {
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
-      budget: { ...input.budget, fixtureScenario: scenario, runEngine: 'fixture', goalEnabled: input.goalEnabled },
+      budget: {
+        ...input.budget,
+        fixtureScenario: scenario,
+        runEngine: 'fixture',
+        goalEnabled: input.goalEnabled,
+        goalObjective
+      },
       vmBackend: 'fixture',
       vmImageId: 'fixture-beale-toolchain',
       vmSnapshotId: 'fixture-clean-snapshot',

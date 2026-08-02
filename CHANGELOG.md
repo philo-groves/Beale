@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Honeycrisp controls now carry acknowledged request IDs, record rejected or unacknowledged delivery, and defer safe steering recovery until the prior agent process exits while retaining bounded subagent results.
+- Research traces now preserve Honeycrisp goal lifecycle, post-compaction checkpoints, and repeated-read/tool-loop recovery events from both live streams and flow-capture recovery without duplicating shared event IDs.
+- Custom goal-objective derivation now preserves security-relevant identifier and glob syntax, joins hard-wrapped objective sentences, and distinguishes missing dispositions from disposition-driven continuations in the trace.
 - New Research goal tiles now grow and wrap long model-generated suggestions within their card bounds.
 - New Research recommendations now read persisted structural coverage without synchronously rescanning local repositories, and load bounded trace and verifier projections instead of full prior run details.
 - Memory Dreaming now allocates model context fairly across every workspace node and up to 100 recent sessions, retries with a smaller profile after context-window rejection, and retries transient provider failures before surfacing an error.
@@ -14,6 +17,8 @@
 
 ### Changed
 
+- Reframed generated research directions around world-class researcher capability and broad subsystem-and-bug-class pairings, with prior findings used as context instead of binary prove-or-disprove objectives or prescribed workflows; host validation retries one nonconforming suggestion response.
+- Goal-enabled research now persists and forwards the concise selected direction separately from the expanded research prompt, preserves it across continuations and forks, and derives a bounded objective directly from user-authored custom prompts when needed.
 - New Research goal suggestions now prefetch in the background when a workspace or scope becomes active, refresh on later workspace activations and terminal research results, and remain cached for dialog reuse between research changes.
 - Research prompt generation now derives source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
 - Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
