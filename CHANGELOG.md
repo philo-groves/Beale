@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.
 - Changed the header workspace name and memory-list type labels to regular font weight.
