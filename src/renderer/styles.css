@@ -67,6 +67,7 @@
   --shadow: none;
   --sidebar-width: 292px;
   --app-window-radius: 12px;
+  --content-surface-radius: 16px;
   --app-window-border: rgba(255, 255, 255, 0.16);
   --inset-scrollbar-thumb: rgba(255, 255, 255, 0.24);
   --inset-scrollbar-thumb-strong: rgba(255, 255, 255, 0.34);
@@ -1424,7 +1425,7 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   padding: 0 12px;
   background: var(--chrome-soft);
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--content-surface-radius);
   transition:
     margin 180ms ease,
     border-radius 180ms ease;
@@ -1653,7 +1654,7 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
   background: var(--panel);
 }
 
@@ -2551,13 +2552,13 @@ body.is-resizing-research-side .main-session-grid {
   position: relative;
   display: grid;
   --trace-footer-input-min-height: 54px;
-  --trace-footer-actions-height: 39px;
+  --trace-footer-actions-height: 35px;
   --trace-footer-composer-row-gap: 0;
   --trace-footer-min-height: calc(var(--trace-footer-input-min-height) + var(--trace-footer-actions-height) + var(--trace-footer-composer-row-gap));
   --trace-footer-height: var(--trace-footer-min-height);
-  --trace-footer-radius: 12px;
+  --trace-footer-radius: var(--content-surface-radius);
   grid-template-rows: minmax(0, 1fr) auto;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
   background: linear-gradient(
     to bottom,
     var(--panel-column) 0 calc(100% - var(--trace-footer-height)),
@@ -2803,7 +2804,7 @@ body.is-resizing-research-side .main-session-grid {
   position: relative;
   overflow: hidden;
   margin: 0;
-  border-top-right-radius: 12px;
+  border-top-right-radius: var(--content-surface-radius);
   background: var(--panel);
 }
 
@@ -3713,7 +3714,7 @@ body.is-resizing-research-side .main-session-grid {
   overflow: visible;
   border-radius: var(--trace-footer-radius);
   background: var(--panel-raised);
-  padding: 0 8px 0 0;
+  padding: 0 4px 0 0;
 }
 
 .main-steer-input-row textarea {

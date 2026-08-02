@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Increased the content-surface and steering-composer corner radius to a shared 16px value, and tightened the steering action shelf to matching 4px bottom and right insets without leaving space beneath the composer.
 - Reframed generated research directions around world-class researcher capability and broad subsystem-and-bug-class pairings, with prior findings used as context instead of binary prove-or-disprove objectives or prescribed workflows; host validation retries one nonconforming suggestion response.
 - Goal-enabled research now persists and forwards the concise selected direction separately from the expanded research prompt, preserves it across continuations and forks, and derives a bounded objective directly from user-authored custom prompts when needed.
 - New Research goal suggestions now prefetch in the background when a workspace or scope becomes active, refresh on later workspace activations and terminal research results, and remain cached for dialog reuse between research changes.
