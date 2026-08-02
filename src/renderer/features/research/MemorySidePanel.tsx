@@ -11,6 +11,7 @@ import { activeFindingTypeSummary, activeMemoryCount, filterMemoryCatalogNodes, 
 import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, visibleSubagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
 
 type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
@@ -137,6 +138,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
           </div>
+          {detail ? (
+            <>
+              <hr className="session-summary-divider" />
+              <SessionUsageSummary detail={detail} />
+            </>
+          ) : null}
         </section>
       </aside>
     );

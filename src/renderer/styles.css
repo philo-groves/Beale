@@ -1474,21 +1474,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   }
 }
 
-.session-header-metrics {
-  min-width: 0;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 400;
-  text-transform: none;
-  white-space: nowrap;
-  -webkit-app-region: no-drag;
-}
-
 .back-to-main-button {
   height: 28px;
   display: inline-flex;
@@ -1518,24 +1503,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   top: 12px;
   right: 12px;
   z-index: 4;
-}
-
-.session-header-metric {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding-left: 3px;
-  color: #b0b0b0;
-  font-size: 0.94rem;
-  font-weight: 400;
-  line-height: 1;
-}
-
-.session-header-metric svg {
-  width: 15px;
-  height: 15px;
-  color: #a6a6a6;
 }
 
 .session-stat-tooltip {
@@ -1575,14 +1542,6 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   opacity: 1;
   transform: translateY(0);
   transition-delay: 180ms;
-}
-
-.top-bar:has(.session-stat-tooltip:hover) {
-  z-index: 5;
-}
-
-.app-header-title:has(.session-stat-tooltip) {
-  overflow: visible;
 }
 
 .session-duration-metric span {
@@ -2255,6 +2214,18 @@ body.is-resizing-research-side .main-session-grid {
   color: var(--muted-strong);
 }
 
+.session-summary-divider {
+  width: calc(100% - 4px);
+  height: 0;
+  margin: 4px 2px;
+  border: 0;
+  border-top: 1px solid var(--panel-border);
+}
+
+.session-usage-summary {
+  min-width: 0;
+}
+
 .session-summary-items {
   min-width: 0;
   display: grid;
@@ -2281,11 +2252,16 @@ body.is-resizing-research-side .main-session-grid {
   text-align: left;
 }
 
-.session-summary-item:hover:not(:disabled),
+button.session-summary-item:hover:not(:disabled),
 .session-summary-item:focus-visible {
   border: 0;
   background: #242424;
   outline: none;
+}
+
+.session-usage-item {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  cursor: default;
 }
 
 .session-summary-item svg {
@@ -8083,25 +8059,6 @@ button.research-goal-choice:focus-visible {
   }
 }
 
-.session-usage-status {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: auto;
-  color: #b0b0b0;
-  font-size: 0.94rem;
-  font-weight: 400;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.session-token-usage,
-.session-cache-hit-rate {
-  color: #b0b0b0;
-}
-
 .status-settings-button {
   width: 100%;
 }
@@ -8500,9 +8457,6 @@ button.research-goal-choice:focus-visible {
     display: none;
   }
 
-  .session-header-metrics {
-    display: none;
-  }
 
   .fork-row {
     flex-wrap: wrap;

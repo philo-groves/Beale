@@ -1,8 +1,5 @@
-import type { RunDetail, TraceEventRecord } from '@shared/types';
+import type { RunDetail } from '@shared/types';
 import { formatDurationHms, formatSessionDateTime, formatSessionStart, traceLabel } from '../lib/formatting';
-import { traceCategoryForEvent } from '../traceClassification';
-import type { TraceCategoryId } from '../traceClassification';
-import { latestTraceTurnNumber, pendingHoneycrispToolRequestEventIds, traceEventVisibleInTimeline } from './traceDisplay';
 
 export interface SessionConfigPill {
   label: string;
@@ -15,47 +12,12 @@ export interface SessionDurationTiming {
   durationTooltip: string;
 }
 
-export interface SessionHeaderTiming extends SessionDurationTiming {
-  latestTurn: number;
-  visibleEventCount: number;
-  totalEventCount: number;
-  eventMetric: string;
-  turnTooltip: string;
-}
-
 export function sessionConfigPills(detail: RunDetail): SessionConfigPill[] {
   return [
     { label: traceLabel(detail.run.mode), tooltip: `Mode: ${traceLabel(detail.run.mode)}` },
     { label: traceLabel(detail.run.attemptStrategy), tooltip: `Strategy: ${traceLabel(detail.run.attemptStrategy)}` },
     { label: traceLabel(detail.run.networkProfile), tooltip: `Network: ${traceLabel(detail.run.networkProfile)}` }
   ];
-}
-
-export function sessionHeaderTiming(
-  detail: RunDetail,
-  events: TraceEventRecord[],
-  visibleTraceCategories: TraceCategoryId[],
-  nowMs: number
-): SessionHeaderTiming | null {
-  const duration = sessionDurationTiming(detail, nowMs);
-  if (!duration) return null;
-
-  const latestTurn = latestTraceTurnNumber(events) ?? 0;
-  const pendingToolRequestEventIds = pendingHoneycrispToolRequestEventIds(events);
-  const visibleEventCount = events.filter((event) =>
-    traceEventVisibleInTimeline(event, traceCategoryForEvent(event), visibleTraceCategories, pendingToolRequestEventIds.has(event.id))
-  ).length;
-  const totalEventCount = events.length;
-  const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
-
-  return {
-    ...duration,
-    latestTurn,
-    visibleEventCount,
-    totalEventCount,
-    eventMetric: totalEventCount.toLocaleString(),
-    turnTooltip
-  };
 }
 
 export function sessionDurationTiming(detail: RunDetail, nowMs: number): SessionDurationTiming | null {

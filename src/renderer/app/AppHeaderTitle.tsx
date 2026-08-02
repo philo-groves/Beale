@@ -1,26 +1,20 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import type { WorkspaceRegistryEntry, RunDetail, TraceEventRecord } from '@shared/types';
+import type { WorkspaceRegistryEntry, RunDetail } from '@shared/types';
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
-import type { TraceCategoryId } from '../traceClassification';
-import { SessionMetrics } from '../features/sessions/SessionMetrics';
 import { displayWorkspaceHeaderName } from '../view-models/appHeader';
 
 export const AppHeaderTitle = memo(function AppHeaderTitle({
   workspaceName,
   activeWorkspace,
   detail,
-  events,
-  visibleTraceCategories,
   onOpenWorkspaceInfo,
   onOpenSessionSummary
 }: {
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
   detail: RunDetail | null;
-  events: TraceEventRecord[];
-  visibleTraceCategories: TraceCategoryId[];
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenSessionSummary: (detail: RunDetail) => void;
 }): JSX.Element {
@@ -48,7 +42,6 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
           </button>
         ) : null}
       </div>
-      {detail ? <SessionMetrics detail={detail} events={events} visibleTraceCategories={visibleTraceCategories} /> : null}
     </div>
   );
 });

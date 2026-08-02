@@ -72,6 +72,16 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="session-summary-title">Session</h2>');
     expect(html).toContain('class="session-duration-metric session-stat-tooltip session-summary-duration"');
     expect(html).toContain('aria-label="Session duration 00:05:00"');
+    expect(html).toContain('class="session-summary-divider"');
+    expect(html).toContain('60k Tokens');
+    expect(html).toContain('50k In, 10k Out');
+    expect(html).toContain('80% Hit Rate');
+    expect(html).toContain('40k Cached');
+    expect(html).toContain('25% Context');
+    expect(html).toContain('50k Used');
+    expect(html).toContain('lucide-coins');
+    expect(html).toContain('lucide-badge-percent');
+    expect(html).toContain('lucide-gauge');
     expect(html).toContain('<span>3 Memories</span>');
     expect(html).toContain('class="session-summary-meta">1 Chain, 2 Primitives</span>');
     expect(html).toContain('<span>2 Runbooks</span>');
@@ -144,7 +154,23 @@ function summaryDetail(): RunDetail {
       promptMarkdown: ''
     },
     attempts: [],
-    traceEvents: [],
+    traceEvents: [
+      {
+        id: 'trace_usage',
+        type: 'model_message',
+        createdAt: '2026-07-19T12:04:00.000Z',
+        payload: {
+          usage: {
+            input_tokens: 10_000,
+            prompt_tokens: 50_000,
+            cache_read_tokens: 40_000,
+            total_tokens: 60_000,
+            output_tokens: 10_000,
+            source: 'reported input tokens'
+          }
+        }
+      }
+    ],
     transcriptMessages: [],
     hypotheses: [],
     artifacts: [],
@@ -159,6 +185,7 @@ function summaryDetail(): RunDetail {
     exports: []
   } as unknown as RunDetail;
 }
+
 function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): HoneycrispMemoryNodeSummary {
   return {
     id: 'node_one',

@@ -1,9 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
-import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, TraceEventRecord, ZoomState } from '@shared/types';
+import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
-import type { TraceCategoryId } from '../traceClassification';
 import { AppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
@@ -15,9 +14,7 @@ export const TopBar = memo(function TopBar({
   workspaceName,
   activeWorkspace,
   activeRunDetail,
-  events,
   profilingEnabled,
-  visibleTraceCategories,
   onOpenSessionSummary,
   onOpenWorkspaceInfo,
   onOpenProfiling,
@@ -29,9 +26,7 @@ export const TopBar = memo(function TopBar({
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
   activeRunDetail: RunDetail | null;
-  events: TraceEventRecord[];
   profilingEnabled: boolean;
-  visibleTraceCategories: TraceCategoryId[];
   onOpenSessionSummary: (detail: RunDetail) => void;
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenProfiling: () => void;
@@ -244,8 +239,6 @@ export const TopBar = memo(function TopBar({
         workspaceName={workspaceName}
         activeWorkspace={activeWorkspace}
         detail={activeRunDetail}
-        events={events}
-        visibleTraceCategories={visibleTraceCategories}
         onOpenWorkspaceInfo={onOpenWorkspaceInfo}
         onOpenSessionSummary={onOpenSessionSummary}
       />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { contextMeterForDetail, visibleCacheHitRateLabel, visibleContextMeterLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
+import { contextMeterForDetail, visibleCacheHitRateLabel, visibleContextMeterLabel, visibleCurrentContextTokenLabel, visibleContextWindowPercentageLabel, visibleSessionCachedTokenLabel, visibleSessionTokenBreakdownLabel, visibleSessionTokenUsageLabel } from '../src/renderer/features/momentum/contextMeter';
 
 describe('renderer session usage view models', () => {
   it('formats context usage against the default 200k limit', () => {
@@ -20,6 +20,8 @@ describe('renderer session usage view models', () => {
 
     expect(meter.label).toBe('136k/200k');
     expect(visibleContextMeterLabel(meter)).toBe('136k/200k');
+    expect(visibleContextWindowPercentageLabel(meter)).toBe('68%');
+    expect(visibleCurrentContextTokenLabel(meter)).toBe('136k Used');
     expect(visibleSessionTokenUsageLabel(meter)).toBe('136k');
     expect(meter.fraction).toBeCloseTo(136 / 200);
   });
@@ -37,6 +39,9 @@ describe('renderer session usage view models', () => {
 
     expect(meter.totalSessionTokens).toBe(1_302_000);
     expect(visibleSessionTokenUsageLabel(meter)).toBe('1.3m');
+    expect(meter.sessionInputTokens).toBeNull();
+    expect(meter.sessionOutputTokens).toBeNull();
+    expect(visibleSessionTokenBreakdownLabel(meter)).toBe('');
     expect(sessionTokenLabelForTotal(50_000)).toBe('50k');
     expect(sessionTokenLabelForTotal(10_500_000)).toBe('10.5m');
     expect(sessionTokenLabelForTotal(1_100_000_000)).toBe('1.1b');
@@ -116,6 +121,9 @@ describe('renderer session usage view models', () => {
 
     expect(meter.label).toBe('12k/200k');
     expect(meter.totalSessionTokens).toBe(12_800);
+    expect(meter.sessionInputTokens).toBe(12_000);
+    expect(meter.sessionOutputTokens).toBe(800);
+    expect(visibleSessionTokenBreakdownLabel(meter)).toBe('12k In, 800 Out');
     expect(meter.source).toBe('Honeycrisp reported model usage');
   });
 
@@ -145,6 +153,7 @@ describe('renderer session usage view models', () => {
     expect(meter.cachePromptTokens).toBe(1_000);
     expect(meter.cacheHitRate).toBe(0.8);
     expect(visibleCacheHitRateLabel(meter)).toBe('80%');
+    expect(visibleSessionCachedTokenLabel(meter)).toBe('800 Cached');
   });
 
   it('weights cache hit rate by prompt tokens across model turns', () => {

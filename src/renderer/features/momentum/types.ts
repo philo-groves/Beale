@@ -13,6 +13,8 @@ export interface ContextMeter {
   tokenLimit: number;
   totalSessionTokens: number;
   totalSessionTokensLabel: string;
+  sessionInputTokens: number | null;
+  sessionOutputTokens: number | null;
   cacheReadTokens: number;
   cachePromptTokens: number;
   cacheHitRate: number | null;

@@ -17,7 +17,7 @@
 
 ### Changed
 
-- Moved the live session duration from the main app header to the Session summary card header.
+- Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
 - Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero primitive and chain counts, runbook and revision totals, and subagent totals with nonzero active and completed counts at standard text size; compact summary rows use right-edge chevrons and open the corresponding detailed catalog.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.

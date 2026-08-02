@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { sessionConfigPills, sessionDurationTiming, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
+import { sessionConfigPills, sessionDurationTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
@@ -14,26 +14,6 @@ describe('renderer session header view models', () => {
     ]);
   });
 
-  it('builds session timing metrics from trace filters and latest run detail timestamp', () => {
-    const events = [
-      traceEvent({ id: 'trace_agent', sequence: 1, payload: { transcriptRole: 'assistant', turn: 1 }, summary: 'Agent response.' }),
-      traceEvent({ id: 'trace_tool', sequence: 2, source: 'tool', type: 'tool_result', payload: { turn: '2' }, summary: 'Tool returned output.' })
-    ];
-    const detail = runDetail({ traceEvents: events });
-
-    const timing = sessionHeaderTiming(detail, events, ['agent_output'], Date.parse('2026-04-30T12:00:00.000Z'));
-
-    expect(timing).toMatchObject({
-      latestTurn: 2,
-      visibleEventCount: 1,
-      totalEventCount: 2,
-      eventMetric: '2',
-      durationLabel: '00:05:00',
-      turnTooltip: 'Current model turn.'
-    });
-    expect(timing?.durationTooltip).toBe('Created Apr 30, 6:00a\nUpdated Apr 30, 6:05a');
-  });
-
   it('isolates the session duration timing used outside the main header', () => {
     const detail = runDetail({ traceEvents: [traceEvent()] });
 
@@ -42,6 +22,7 @@ describe('renderer session header view models', () => {
       durationLabel: '00:05:00'
     });
   });
+
   it('extracts trace turn numbers and latest group keys', () => {
     const events = [
       traceEvent({ id: 'trace_setup', sequence: 1, payload: {}, summary: 'Setup.' }),

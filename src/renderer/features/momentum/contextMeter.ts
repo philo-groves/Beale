@@ -9,14 +9,16 @@ export function contextMeterForDetail(detail: RunDetail | null): ContextMeter {
   const candidate = latestContextTokenCandidate(detail);
   const inputTokens = candidate?.tokens ?? null;
   const fraction = inputTokens === null ? 0 : Math.max(0, Math.min(1, inputTokens / tokenLimit));
-  const totalSessionTokens = totalSessionTokensForDetail(detail);
+  const sessionTokenUsage = sessionTokenUsageForDetail(detail);
   const cacheUsage = cacheUsageForDetail(detail);
   return {
     fraction,
     inputTokens,
     tokenLimit,
-    totalSessionTokens,
-    totalSessionTokensLabel: formatCompactSessionTokenNumber(totalSessionTokens),
+    totalSessionTokens: sessionTokenUsage.totalTokens,
+    totalSessionTokensLabel: formatCompactSessionTokenNumber(sessionTokenUsage.totalTokens),
+    sessionInputTokens: sessionTokenUsage.inputTokens,
+    sessionOutputTokens: sessionTokenUsage.outputTokens,
     cacheReadTokens: cacheUsage.cacheReadTokens,
     cachePromptTokens: cacheUsage.promptTokens,
     cacheHitRate: cacheUsage.cacheHitRate,
@@ -30,10 +32,25 @@ export function visibleContextMeterLabel(contextMeter: ContextMeter): string {
   return `${formatCompactContextKilobytes(inputTokens)}/${formatCompactContextKilobytes(contextMeter.tokenLimit)}`;
 }
 
+export function visibleContextWindowPercentageLabel(contextMeter: ContextMeter): string {
+  return `${Math.round(contextMeter.fraction * 100)}%`;
+}
+
+export function visibleCurrentContextTokenLabel(contextMeter: ContextMeter): string {
+  return `${formatCompactSessionTokenNumber(contextMeter.inputTokens ?? 0)} Used`;
+}
 export function visibleSessionTokenUsageLabel(contextMeter: ContextMeter): string {
   return contextMeter.totalSessionTokensLabel;
 }
 
+export function visibleSessionTokenBreakdownLabel(contextMeter: ContextMeter): string {
+  if (contextMeter.sessionInputTokens === null || contextMeter.sessionOutputTokens === null) return '';
+  return `${formatCompactSessionTokenNumber(contextMeter.sessionInputTokens)} In, ${formatCompactSessionTokenNumber(contextMeter.sessionOutputTokens)} Out`;
+}
+
+export function visibleSessionCachedTokenLabel(contextMeter: ContextMeter): string {
+  return `${formatCompactSessionTokenNumber(contextMeter.cacheReadTokens)} Cached`;
+}
 export function visibleCacheHitRateLabel(contextMeter: ContextMeter): string {
   return contextMeter.cacheHitRate === null ? '—' : `${Math.round(contextMeter.cacheHitRate * 100)}%`;
 }
@@ -80,18 +97,41 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
   return candidates.sort((left, right) => right.timestamp - left.timestamp)[0] ?? null;
 }
 
-function totalSessionTokensForDetail(detail: RunDetail | null): number {
-  if (!detail) return 0;
-  const reportedTurnTotal = detail.traceEvents.reduce((total, event) => {
-    if (event.type === 'artifact_created') return total;
-    const usage = tracePayloadRecord(event.payload, 'usage');
-    return total + (usageTotalTokens(usage) ?? 0);
-  }, 0);
-  if (reportedTurnTotal > 0) return reportedTurnTotal;
-  return detail.traceEvents.reduce((total, event) => {
-    if (event.type !== 'artifact_created') return total;
-    return total + (usageTotalTokens(tracePayloadRecord(event.payload, 'usage')) ?? 0);
-  }, 0);
+function sessionTokenUsageForDetail(detail: RunDetail | null): { totalTokens: number; inputTokens: number | null; outputTokens: number | null } {
+  if (!detail) return { totalTokens: 0, inputTokens: null, outputTokens: null };
+
+  const turnUsage = detail.traceEvents
+    .filter((event) => event.type !== 'artifact_created')
+    .map((event) => tracePayloadRecord(event.payload, 'usage'));
+  const aggregateUsage = detail.traceEvents
+    .filter((event) => event.type === 'artifact_created')
+    .map((event) => tracePayloadRecord(event.payload, 'usage'));
+  const turnTotal = turnUsage.reduce((total, usage) => total + (usageTotalTokens(usage) ?? 0), 0);
+  const usageRecords = turnTotal > 0 ? turnUsage : aggregateUsage;
+  const classifiedRecords = usageRecords
+    .map((usage) => ({ total: usageTotalTokens(usage), breakdown: usageTokenBreakdown(usage) }))
+    .filter((entry) => entry.total !== null && entry.total > 0);
+  const totalTokens = classifiedRecords.reduce((total, entry) => total + (entry.total ?? 0), 0);
+  const hasCompleteBreakdown = totalTokens > 0 && classifiedRecords.every((entry) =>
+    entry.breakdown !== null && entry.breakdown.inputTokens + entry.breakdown.outputTokens === entry.total
+  );
+
+  return {
+    totalTokens,
+    inputTokens: hasCompleteBreakdown
+      ? classifiedRecords.reduce((total, entry) => total + (entry.breakdown?.inputTokens ?? 0), 0)
+      : null,
+    outputTokens: hasCompleteBreakdown
+      ? classifiedRecords.reduce((total, entry) => total + (entry.breakdown?.outputTokens ?? 0), 0)
+      : null
+  };
+}
+
+function usageTokenBreakdown(usage: Record<string, unknown> | null): { inputTokens: number; outputTokens: number } | null {
+  if (booleanRecordValue(usage, 'estimated')) return null;
+  const inputTokens = inputTokensFromUsage(usage);
+  const outputTokens = outputTokensFromUsage(usage);
+  return inputTokens === null || outputTokens === null ? null : { inputTokens, outputTokens };
 }
 
 function cacheUsageForDetail(detail: RunDetail | null): { cacheReadTokens: number; promptTokens: number; cacheHitRate: number | null } {
@@ -175,14 +215,19 @@ function usageTotalTokens(usage: Record<string, unknown> | null): number | null 
   if (booleanRecordValue(usage, 'estimated')) return null;
 
   const inputTokens = inputTokensFromUsage(usage);
-  const outputTokens =
+  const outputTokens = outputTokensFromUsage(usage);
+  if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
+  return null;
+}
+
+function outputTokensFromUsage(usage: Record<string, unknown> | null): number | null {
+  return (
     numberRecordValue(usage, 'output_tokens') ??
     numberRecordValue(usage, 'completion_tokens') ??
     numberRecordValue(usage, 'outputTokens') ??
     numberRecordValue(usage, 'completionTokens') ??
-    numberRecordValue(usage, 'output');
-  if (inputTokens !== null || outputTokens !== null) return (inputTokens ?? 0) + (outputTokens ?? 0);
-  return null;
+    numberRecordValue(usage, 'output')
+  );
 }
 
 function inputTokensFromUsage(usage: Record<string, unknown> | null): number | null {

@@ -579,9 +579,7 @@ export function App(): JSX.Element {
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
         activeRunDetail={activeRunDetail}
-        events={visibleSessionTraceEvents}
         profilingEnabled={profilingState?.enabled ?? false}
-        visibleTraceCategories={visibleTraceCategories}
         onOpenSessionSummary={setSessionSummaryDetail}
         onOpenWorkspaceInfo={setWorkspaceInfo}
         onOpenProfiling={openProfiling}
