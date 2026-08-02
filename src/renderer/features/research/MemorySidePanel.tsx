@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { BookOpen, Database, GitFork, Search } from 'lucide-react';
+import { BookOpen, ChevronLeft, Database, GitFork, Search } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunStatus } from '@shared/types';
 import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
@@ -35,6 +35,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onSelectSubagent: (path: string) => void;
 }): JSX.Element {
   const [activeView, setActiveView] = useState<ResearchSideView>('memory');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>('workspace');
   const [type, setType] = useState('all');
@@ -44,6 +45,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
   const runbooks = memory?.runbooks ?? [];
   const activeRunbooks = useMemo(() => runbooks.filter((runbook) => runbook.status !== 'archived').length, [runbooks]);
+  const sessionMemories = useMemo(
+    () => activeMemoryCount(nodes.filter((node) => node.sessionId === runId)),
+    [nodes, runId]
+  );
+  const sessionRunbooks = useMemo(
+    () => runbooks.filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived').length,
+    [runbooks, runId]
+  );
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events, runStatus), [events, runStatus]);
@@ -66,6 +75,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   useEffect(() => {
     setActiveView('memory');
+    setDetailsOpen(false);
     setSelectedNodeId(null);
     setShowInactiveSubagents(false);
   }, [runId]);
@@ -82,10 +92,49 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     type
   }));
 
+  const openDetails = (view: ResearchSideView): void => {
+    setActiveView(view);
+    setDetailsOpen(true);
+  };
+
+  if (!detailsOpen) {
+    return (
+      <aside className="main-session-side session-summary-panel" aria-label="Session summary">
+        <section className="session-summary-card">
+          <h2 className="session-summary-title">Session</h2>
+          <div className="session-summary-items">
+            <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
+              <Database size={15} aria-hidden="true" />
+              <span>{sessionMemories} Memories</span>
+            </button>
+            <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
+              <BookOpen size={15} aria-hidden="true" />
+              <span>{sessionRunbooks} Runbooks</span>
+            </button>
+            <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
+              <GitFork size={15} aria-hidden="true" />
+              <span>{subagents.length} Subagents</span>
+              <span className="session-summary-meta">{activeSubagents} Active</span>
+            </button>
+          </div>
+        </section>
+      </aside>
+    );
+  }
+
   return (
     <>
       <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
       <header className="research-side-tabs">
+        <button
+          type="button"
+          className="research-side-overview-button"
+          title="Back to session summary"
+          aria-label="Back to session summary"
+          onClick={() => setDetailsOpen(false)}
+        >
+          <ChevronLeft size={15} />
+        </button>
         <div className="research-side-tab-buttons" role="tablist" aria-label="Session details">
           <button
             type="button"

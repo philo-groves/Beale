@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Replaced the default right-side research catalog with a borderless session summary card showing session memory, runbook, subagent, and active-subagent counts at standard text size; compact summary rows open the corresponding detailed catalog.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.

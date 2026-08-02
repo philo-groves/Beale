@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary } from '@shared/types';
 import { ResearchSidePanel } from '../src/renderer/features/research/MemorySidePanel';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../src/renderer/view-models/memoryCatalog';
 
@@ -27,10 +27,27 @@ describe('renderer memory catalog', () => {
     ])).toBe(3);
   });
 
-  it('defaults the interactive memory catalog to workspace scope', () => {
+  it('shows a session-scoped summary card before the detailed catalog', () => {
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       events: [],
-      memory: null,
+      memory: {
+        contextWorkspaceId: 'workspace_zsh',
+        contextSubjectId: 'subject_apple',
+        nodes: [
+          memoryNode({ id: 'session_one', tier: 'session', sessionId: 'run_current' }),
+          memoryNode({ id: 'session_two', tier: 'session', sessionId: 'run_current' }),
+          memoryNode({ id: 'session_stale', tier: 'session', sessionId: 'run_current', status: 'stale' }),
+          memoryNode({ id: 'workspace_one' })
+        ],
+        edges: [],
+        runbooks: [
+          runbook({ id: 'runbook_one', sessionId: 'run_current' }),
+          runbook({ id: 'runbook_two', sessionId: 'run_current' }),
+          runbook({ id: 'runbook_archived', sessionId: 'run_current', status: 'archived' }),
+          runbook({ id: 'runbook_workspace', sessionId: null })
+        ],
+        lastError: null
+      } as unknown as HoneycrispMemorySummary,
       runId: 'run_current',
       runStatus: null,
       selectedSubagentPath: null,
@@ -39,7 +56,13 @@ describe('renderer memory catalog', () => {
       onSelectSubagent: () => undefined
     }));
 
-    expect(html).toMatch(/aria-label="Memory level filter"[\s\S]*?floating-text-picker-label">Workspace<\/span>/);
+    expect(html).toContain('aria-label="Session summary"');
+    expect(html).toContain('class="session-summary-title">Session</h2>');
+    expect(html).toContain('<span>2 Memories</span>');
+    expect(html).toContain('<span>2 Runbooks</span>');
+    expect(html).toContain('<span>0 Subagents</span>');
+    expect(html).toContain('class="session-summary-meta">0 Active</span>');
+    expect(html).not.toContain('aria-label="Search memory"');
   });
 
   it('filters across context identities, types, node text, tags, and references', () => {
@@ -110,6 +133,25 @@ function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): Honey
     createdAt: '2026-07-19T12:00:00.000Z',
     updatedAt: '2026-07-19T12:00:00.000Z',
     revision: 1,
+    ...overrides
+  };
+}
+
+function runbook(overrides: Partial<HoneycrispRunbookSummary> = {}): HoneycrispRunbookSummary {
+  return {
+    id: 'runbook_one',
+    workspaceId: 'workspace_zsh',
+    workspaceName: 'Zsh',
+    subjectId: 'subject_apple',
+    subjectName: 'Apple',
+    sessionId: 'run_current',
+    title: 'Runbook title',
+    purpose: 'Runbook purpose',
+    status: 'active',
+    artifactId: 'artifact_one',
+    revision: 1,
+    createdAt: '2026-07-19T12:00:00.000Z',
+    updatedAt: '2026-07-19T12:00:00.000Z',
     ...overrides
   };
 }

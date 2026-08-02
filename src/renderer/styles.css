@@ -2203,6 +2203,83 @@ body.is-resizing-research-side .main-session-grid {
   padding-left: 0;
 }
 
+.session-summary-panel {
+  align-items: stretch;
+  padding: 12px 8px 0 6px;
+}
+
+.session-summary-card {
+  min-width: 0;
+  width: 100%;
+  align-self: flex-start;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--content-surface-radius);
+  background: var(--panel-raised);
+  padding: 12px;
+  box-shadow: none;
+}
+
+.session-summary-title {
+  margin: 0;
+  color: var(--muted);
+  padding: 0 2px 4px;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.session-summary-items {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+
+.session-summary-item {
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 2px;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.session-summary-item:hover:not(:disabled),
+.session-summary-item:focus-visible {
+  border: 0;
+  background: #242424;
+  outline: none;
+}
+
+.session-summary-item svg {
+  color: var(--muted-strong);
+}
+
+.session-summary-item > span:not(.session-summary-meta) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-summary-meta {
+  color: var(--muted);
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
 .memory-catalog {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -2232,14 +2309,15 @@ body.is-resizing-research-side .main-session-grid {
 
 .research-side-tab-buttons {
   min-width: 0;
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   gap: 6px;
 }
 
-.research-side-tabs button {
+.research-side-tab-buttons button {
   min-width: 0;
   width: 100%;
   height: 30px;
@@ -2256,22 +2334,42 @@ body.is-resizing-research-side .main-session-grid {
   font-weight: 400;
 }
 
-.research-side-tabs button:hover,
-.research-side-tabs button.active {
+.research-side-tab-buttons button:hover,
+.research-side-tab-buttons button.active {
   background: var(--panel-raised);
   color: var(--text);
 }
 
-.research-side-tabs button:focus-visible {
+.research-side-tab-buttons button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
   outline-offset: 1px;
 }
 
-.research-side-tabs button span {
+.research-side-tab-buttons button span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.research-side-overview-button {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+}
+
+.research-side-overview-button:hover:not(:disabled),
+.research-side-overview-button:focus-visible {
+  border: 0;
+  background: var(--panel-raised);
+  color: var(--text);
+  outline: none;
 }
 
 .memory-catalog-header {
