@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.
 - Changed the header workspace name and memory-list type labels to regular font weight.
 - Increased the content-surface and steering-composer corner radius to a shared 16px value, and tightened the steering action shelf to matching 4px bottom and right insets without leaving space beneath the composer.
