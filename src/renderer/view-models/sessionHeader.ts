@@ -9,15 +9,18 @@ export interface SessionConfigPill {
   tooltip: string;
 }
 
-export interface SessionHeaderTiming {
+export interface SessionDurationTiming {
+  durationMs: number;
+  durationLabel: string;
+  durationTooltip: string;
+}
+
+export interface SessionHeaderTiming extends SessionDurationTiming {
   latestTurn: number;
   visibleEventCount: number;
   totalEventCount: number;
   eventMetric: string;
   turnTooltip: string;
-  durationMs: number;
-  durationLabel: string;
-  durationTooltip: string;
 }
 
 export function sessionConfigPills(detail: RunDetail): SessionConfigPill[] {
@@ -34,13 +37,9 @@ export function sessionHeaderTiming(
   visibleTraceCategories: TraceCategoryId[],
   nowMs: number
 ): SessionHeaderTiming | null {
-  const updated = latestRunDetailDate(detail);
-  if (!updated) return null;
+  const duration = sessionDurationTiming(detail, nowMs);
+  if (!duration) return null;
 
-  const active = detail.run.status === 'active';
-  const createdMs = Date.parse(detail.run.createdAt);
-  const durationEndMs = active ? nowMs : updated.getTime();
-  const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
   const latestTurn = latestTraceTurnNumber(events) ?? 0;
   const pendingToolRequestEventIds = pendingHoneycrispToolRequestEventIds(events);
   const visibleEventCount = events.filter((event) =>
@@ -50,11 +49,24 @@ export function sessionHeaderTiming(
   const turnTooltip = latestTurn === 0 ? 'Current model turn. 0 means setup before the first model turn.' : 'Current model turn.';
 
   return {
+    ...duration,
     latestTurn,
     visibleEventCount,
     totalEventCount,
     eventMetric: totalEventCount.toLocaleString(),
-    turnTooltip,
+    turnTooltip
+  };
+}
+
+export function sessionDurationTiming(detail: RunDetail, nowMs: number): SessionDurationTiming | null {
+  const updated = latestRunDetailDate(detail);
+  if (!updated) return null;
+
+  const createdMs = Date.parse(detail.run.createdAt);
+  const durationEndMs = detail.run.status === 'active' ? nowMs : updated.getTime();
+  const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
+
+  return {
     durationMs,
     durationLabel: formatDurationHms(durationMs),
     durationTooltip: `Created ${formatSessionDateTime(detail.run.createdAt)}\nUpdated ${formatSessionStart(updated)}`

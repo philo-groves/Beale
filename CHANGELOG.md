@@ -17,7 +17,8 @@
 
 ### Changed
 
-- Replaced the default right-side research catalog with a borderless session summary card showing session memory, runbook, subagent, and active-subagent counts at standard text size; compact summary rows open the corresponding detailed catalog.
+- Moved the live session duration from the main app header to the Session summary card header.
+- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero primitive and chain counts, runbook and revision totals, and subagent totals with nonzero active and completed counts at standard text size; compact summary rows use right-edge chevrons and open the corresponding detailed catalog.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.

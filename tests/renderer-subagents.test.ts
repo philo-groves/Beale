@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, subagentStatusLabel, subagentSummaries, traceEventsForSubagent, visibleSubagentSummaries } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent, visibleSubagentSummaries } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -144,6 +144,24 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/interrupted', status: 'interrupted' },
       { ...base, path: '/root/errored', status: 'errored' }
     ])).toBe(2);
+  });
+
+  it('formats only nonzero active and completed counts', () => {
+    const base = {
+      id: null,
+      path: '/root/worker',
+      name: 'worker',
+      latestMessage: '',
+      createdAt: '2026-07-20T10:00:00.000Z',
+      lastActiveAt: '2026-07-20T10:00:00.000Z'
+    };
+    expect(subagentStatusCountSummary([])).toBe('');
+    expect(subagentStatusCountSummary([
+      { ...base, path: '/root/running', status: 'running' },
+      { ...base, path: '/root/completed-one', status: 'completed' },
+      { ...base, path: '/root/completed-two', status: 'completed' },
+      { ...base, path: '/root/interrupted', status: 'interrupted' }
+    ])).toBe('1 Active, 2 Completed');
   });
 
   it('hides inactive subagents unless explicitly requested', () => {

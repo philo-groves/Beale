@@ -139,6 +139,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onPointerDown={beginResize}
       />
       <ResearchSidePanel
+        detail={detail}
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}
         runId={selectedRunId}

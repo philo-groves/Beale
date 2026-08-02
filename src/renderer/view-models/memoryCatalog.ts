@@ -16,7 +16,17 @@ export function researchSideTabLabel(view: 'memory' | 'runbooks' | 'subagents', 
 }
 
 export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[]): number {
-  return nodes.filter((node) => node.status.trim().toLowerCase() !== 'stale').length;
+  return nodes.filter(isActiveMemoryNode).length;
+}
+
+export function activeFindingTypeSummary(nodes: readonly HoneycrispMemoryNodeSummary[]): string {
+  const activeNodes = nodes.filter(isActiveMemoryNode);
+  const chainCount = activeNodes.filter((node) => node.type.trim().toLowerCase() === 'chain').length;
+  const primitiveCount = activeNodes.filter((node) => node.type.trim().toLowerCase() === 'primitive').length;
+  return [
+    findingTypeCountLabel(chainCount, 'Chain'),
+    findingTypeCountLabel(primitiveCount, 'Primitive')
+  ].filter((label): label is string => label !== null).join(', ');
 }
 
 export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], filters: MemoryCatalogFilters): HoneycrispMemoryNodeSummary[] {
@@ -35,6 +45,15 @@ function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: Memo
   if (filters.scope === 'session') return node.tier === 'session' && node.sessionId === filters.sessionId;
   if (filters.scope === 'workspace') return node.tier === 'workspace' && filters.workspaceId !== null && node.workspaceId === filters.workspaceId;
   return node.tier === 'subject' && filters.subjectId !== null && node.subjectId === filters.subjectId;
+}
+
+function isActiveMemoryNode(node: HoneycrispMemoryNodeSummary): boolean {
+  return node.status.trim().toLowerCase() !== 'stale';
+}
+
+function findingTypeCountLabel(count: number, label: string): string | null {
+  if (count === 0) return null;
+  return `${count} ${label}${count === 1 ? '' : 's'}`;
 }
 
 export function groupMemoryRelationships(edges: HoneycrispMemoryEdgeSummary[]): Map<string, HoneycrispMemoryEdgeSummary[]> {

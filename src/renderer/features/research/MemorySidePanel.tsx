@@ -1,21 +1,23 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { BookOpen, ChevronLeft, Database, GitFork, Search } from 'lucide-react';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunStatus } from '@shared/types';
+import { BookOpen, ChevronLeft, ChevronRight, Database, GitFork, Search } from 'lucide-react';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, RunStatus } from '@shared/types';
 import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
-import { activeSubagentCount, subagentStatusLabel, subagentSummaries, visibleSubagentSummaries } from '../../view-models/subagents';
+import { activeFindingTypeSummary, activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../../view-models/memoryCatalog';
+import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, visibleSubagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { SessionDurationMetric } from '../sessions/SessionMetrics';
 
 type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
 type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
 
 export const ResearchSidePanel = memo(function ResearchSidePanel({
+  detail,
   events,
   memory,
   runId,
@@ -25,6 +27,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onOpenRunbook,
   onSelectSubagent
 }: {
+  detail: RunDetail | null;
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
   runId: string;
@@ -45,18 +48,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const activeMemories = useMemo(() => activeMemoryCount(nodes), [nodes]);
   const runbooks = memory?.runbooks ?? [];
   const activeRunbooks = useMemo(() => runbooks.filter((runbook) => runbook.status !== 'archived').length, [runbooks]);
-  const sessionMemories = useMemo(
-    () => activeMemoryCount(nodes.filter((node) => node.sessionId === runId)),
+  const sessionMemoryNodes = useMemo(
+    () => nodes.filter((node) => node.sessionId === runId),
     [nodes, runId]
   );
+  const sessionMemories = useMemo(() => activeMemoryCount(sessionMemoryNodes), [sessionMemoryNodes]);
+  const sessionFindingTypes = useMemo(() => activeFindingTypeSummary(sessionMemoryNodes), [sessionMemoryNodes]);
   const sessionRunbooks = useMemo(
     () => runbooks.filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived').length,
+    [runbooks, runId]
+  );
+  const sessionRunbookRevisions = useMemo(
+    () => runbooks
+      .filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived')
+      .reduce((count, runbook) => count + runbook.revision, 0),
     [runbooks, runId]
   );
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events, runStatus), [events, runStatus]);
   const activeSubagents = useMemo(() => activeSubagentCount(subagents), [subagents]);
+  const subagentStatusCounts = useMemo(() => subagentStatusCountSummary(subagents), [subagents]);
   const inactiveSubagents = subagents.length - activeSubagents;
   const visibleSubagents = useMemo(
     () => visibleSubagentSummaries(subagents, showInactiveSubagents),
@@ -101,20 +113,28 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     return (
       <aside className="main-session-side session-summary-panel" aria-label="Session summary">
         <section className="session-summary-card">
-          <h2 className="session-summary-title">Session</h2>
+          <header className="session-summary-heading">
+            <h2 className="session-summary-title">Session</h2>
+            {detail ? <SessionDurationMetric detail={detail} className="session-summary-duration" /> : null}
+          </header>
           <div className="session-summary-items">
             <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
               <Database size={15} aria-hidden="true" />
               <span>{sessionMemories} Memories</span>
+              {sessionFindingTypes ? <span className="session-summary-meta">{sessionFindingTypes}</span> : null}
+              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
             <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
               <BookOpen size={15} aria-hidden="true" />
               <span>{sessionRunbooks} Runbooks</span>
+              <span className="session-summary-meta">{sessionRunbookRevisions} Revisions</span>
+              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
             <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
               <GitFork size={15} aria-hidden="true" />
               <span>{subagents.length} Subagents</span>
-              <span className="session-summary-meta">{activeSubagents} Active</span>
+              {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
+              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
           </div>
         </section>

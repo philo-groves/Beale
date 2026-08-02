@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { sessionConfigPills, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
+import { sessionConfigPills, sessionDurationTiming, sessionHeaderTiming } from '../src/renderer/view-models/sessionHeader';
 import { latestTraceGroupKey, latestTraceTurnNumber, traceTurnNumber } from '../src/renderer/view-models/traceDisplay';
 
 describe('renderer session header view models', () => {
@@ -34,6 +34,14 @@ describe('renderer session header view models', () => {
     expect(timing?.durationTooltip).toBe('Created Apr 30, 6:00a\nUpdated Apr 30, 6:05a');
   });
 
+  it('isolates the session duration timing used outside the main header', () => {
+    const detail = runDetail({ traceEvents: [traceEvent()] });
+
+    expect(sessionDurationTiming(detail, Date.parse('2026-04-30T12:00:00.000Z'))).toMatchObject({
+      durationMs: 300_000,
+      durationLabel: '00:05:00'
+    });
+  });
   it('extracts trace turn numbers and latest group keys', () => {
     const events = [
       traceEvent({ id: 'trace_setup', sequence: 1, payload: {}, summary: 'Setup.' }),

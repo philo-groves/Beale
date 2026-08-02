@@ -3,7 +3,7 @@ import type { JSX } from 'react';
 import { Clock, FileText, GitFork } from 'lucide-react';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import type { TraceCategoryId } from '../../traceClassification';
-import { sessionHeaderTiming } from '../../view-models/sessionHeader';
+import { sessionDurationTiming, sessionHeaderTiming } from '../../view-models/sessionHeader';
 import { SessionUsageStatus } from '../momentum/SessionUsageStatus';
 
 export function SessionMetrics({
@@ -15,17 +15,7 @@ export function SessionMetrics({
   events: TraceEventRecord[];
   visibleTraceCategories: TraceCategoryId[];
 }): JSX.Element | null {
-  const active = detail.run.status === 'active';
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!active) return undefined;
-    setNowMs(Date.now());
-    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [active, detail.run.id]);
-
-  const timing = sessionHeaderTiming(detail, events, visibleTraceCategories, nowMs);
+  const timing = sessionHeaderTiming(detail, events, visibleTraceCategories, Date.now());
   if (!timing) return null;
 
   return (
@@ -47,14 +37,32 @@ export function SessionMetrics({
         <FileText size={13} />
         <span>{timing.eventMetric}</span>
       </span>
-      <span
-        className="session-header-metric session-duration-metric session-stat-tooltip"
-        data-tooltip={`Session duration\n${timing.durationLabel}\n${timing.durationTooltip}`}
-        aria-label={`Session duration ${timing.durationLabel}`}
-      >
-        <Clock size={13} />
-        <span>{timing.durationLabel}</span>
-      </span>
     </div>
+  );
+}
+
+export function SessionDurationMetric({ detail, className = '' }: { detail: RunDetail; className?: string }): JSX.Element | null {
+  const active = detail.run.status === 'active';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) return undefined;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [active, detail.run.id]);
+
+  const timing = sessionDurationTiming(detail, nowMs);
+  if (!timing) return null;
+
+  return (
+    <span
+      className={`session-duration-metric session-stat-tooltip ${className}`.trim()}
+      data-tooltip={`Session duration\n${timing.durationLabel}\n${timing.durationTooltip}`}
+      aria-label={`Session duration ${timing.durationLabel}`}
+    >
+      <Clock size={13} />
+      <span>{timing.durationLabel}</span>
+    </span>
   );
 }
