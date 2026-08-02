@@ -13,12 +13,12 @@
 - Honeycrisp continuations now restore compatible provider context from the prior flow capture and send only the new steering instruction, while retaining the bounded transcript reconstruction as a fallback for missing, legacy, or incompatible captures.
 - Steering a completed Honeycrisp session now continues root trace turn numbering and carries prior root reasoning summaries, responses, and steering into the continuation context.
 - Subagent counts and catalog statuses now follow only Honeycrisp lifecycle activity, prevent child tool result statuses from making running or interrupted agents appear complete, and mark unresolved agents from superseded attempts or terminal sessions as interrupted.
-- Subagent lists now show active children by default and provide a centered Show Inactive toggle as the first list item for completed, interrupted, and errored children.
+- Subagent lists now always show every child from the current session regardless of status.
 
 ### Changed
 
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
-- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero primitive and chain counts, runbook and revision totals, and subagent totals with nonzero active and completed counts at standard text size; compact summary rows use right-edge chevrons and open the corresponding detailed catalog.
+- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts, runbook and revision totals, and subagent totals with nonzero active and completed counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent, visibleSubagentSummaries } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -162,30 +162,6 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/completed-two', status: 'completed' },
       { ...base, path: '/root/interrupted', status: 'interrupted' }
     ])).toBe('1 Active, 2 Completed');
-  });
-
-  it('hides inactive subagents unless explicitly requested', () => {
-    const base = {
-      id: null,
-      path: '/root/worker',
-      name: 'worker',
-      latestMessage: '',
-      createdAt: '2026-07-20T10:00:00.000Z',
-      lastActiveAt: '2026-07-20T10:00:00.000Z'
-    };
-    const subagents = [
-      { ...base, path: '/root/pending', status: 'pending' as const },
-      { ...base, path: '/root/running', status: 'running' as const },
-      { ...base, path: '/root/completed', status: 'completed' as const },
-      { ...base, path: '/root/interrupted', status: 'interrupted' as const },
-      { ...base, path: '/root/errored', status: 'errored' as const }
-    ];
-
-    expect(visibleSubagentSummaries(subagents, false).map((subagent) => subagent.path)).toEqual([
-      '/root/pending',
-      '/root/running'
-    ]);
-    expect(visibleSubagentSummaries(subagents, true)).toEqual(subagents);
   });
 
   it('does not replace lifecycle state with child tool result status', () => {

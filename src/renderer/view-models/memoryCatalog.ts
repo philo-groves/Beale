@@ -1,4 +1,5 @@
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, TraceEventRecord } from '@shared/types';
+import { honeycrispToolEventKind, honeycrispToolName, honeycrispToolPairingKey, honeycrispToolPayload, stringRecordValue } from '../traceClassification';
 
 export interface MemoryCatalogFilters {
   query: string;
@@ -9,26 +10,45 @@ export interface MemoryCatalogFilters {
   type: string;
 }
 
-export function researchSideTabLabel(view: 'memory' | 'runbooks' | 'subagents', count: number): string {
-  if (view === 'memory') return `${count} ${count === 1 ? 'Memory' : 'Memories'}`;
-  if (view === 'runbooks') return `${count} ${count === 1 ? 'Runbook' : 'Runbooks'}`;
-  return `${count} ${count === 1 ? 'Subagent' : 'Subagents'}`;
-}
-
 export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[]): number {
   return nodes.filter(isActiveMemoryNode).length;
 }
 
-export function activeFindingTypeSummary(nodes: readonly HoneycrispMemoryNodeSummary[]): string {
-  const activeNodes = nodes.filter(isActiveMemoryNode);
-  const chainCount = activeNodes.filter((node) => node.type.trim().toLowerCase() === 'chain').length;
-  const primitiveCount = activeNodes.filter((node) => node.type.trim().toLowerCase() === 'primitive').length;
+export function sessionMemoryActivitySummary(events: readonly TraceEventRecord[]): string {
+  const counts = {
+    search: { paired: new Set<string>(), requested: 0, observed: 0 },
+    update: { paired: new Set<string>(), requested: 0, observed: 0 }
+  };
+
+  for (const event of events) {
+    const toolName = honeycrispToolName(event);
+    const activity = toolName === 'memory.search'
+      ? 'search'
+      : toolName && ['memory.save', 'memory.correct', 'memory.link'].includes(toolName)
+        ? 'update'
+        : null;
+    if (!activity) continue;
+
+    const kind = honeycrispToolEventKind(event);
+    if (!kind) continue;
+    const payload = honeycrispToolPayload(event);
+    const actionId = payload ? stringRecordValue(payload, 'toolActionId') : null;
+    if (actionId) {
+      counts[activity].paired.add(honeycrispToolPairingKey(event) ?? `${activity}:${actionId}`);
+    } else if (kind === 'tool.requested') {
+      counts[activity].requested += 1;
+    } else {
+      counts[activity].observed += 1;
+    }
+  }
+
+  const searchCount = counts.search.paired.size + Math.max(counts.search.requested, counts.search.observed);
+  const updateCount = counts.update.paired.size + Math.max(counts.update.requested, counts.update.observed);
   return [
-    findingTypeCountLabel(chainCount, 'Chain'),
-    findingTypeCountLabel(primitiveCount, 'Primitive')
+    activityCountLabel(searchCount, 'Search', 'Searches'),
+    activityCountLabel(updateCount, 'Update')
   ].filter((label): label is string => label !== null).join(', ');
 }
-
 export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], filters: MemoryCatalogFilters): HoneycrispMemoryNodeSummary[] {
   const query = filters.query.trim().toLocaleLowerCase();
   return nodes
@@ -51,9 +71,9 @@ function isActiveMemoryNode(node: HoneycrispMemoryNodeSummary): boolean {
   return node.status.trim().toLowerCase() !== 'stale';
 }
 
-function findingTypeCountLabel(count: number, label: string): string | null {
+function activityCountLabel(count: number, label: string, pluralLabel = `${label}s`): string | null {
   if (count === 0) return null;
-  return `${count} ${label}${count === 1 ? '' : 's'}`;
+  return `${count} ${count === 1 ? label : pluralLabel}`;
 }
 
 export function groupMemoryRelationships(edges: HoneycrispMemoryEdgeSummary[]): Map<string, HoneycrispMemoryEdgeSummary[]> {

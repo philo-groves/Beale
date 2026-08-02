@@ -1,23 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
 import { ResearchSidePanel } from '../src/renderer/features/research/MemorySidePanel';
-import { activeFindingTypeSummary, activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, researchSideTabLabel } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
-  it('labels sidebar tabs with live memory and subagent counts', () => {
-    expect(researchSideTabLabel('memory', 0)).toBe('0 Memories');
-    expect(researchSideTabLabel('memory', 1)).toBe('1 Memory');
-    expect(researchSideTabLabel('memory', 42)).toBe('42 Memories');
-    expect(researchSideTabLabel('runbooks', 0)).toBe('0 Runbooks');
-    expect(researchSideTabLabel('runbooks', 1)).toBe('1 Runbook');
-    expect(researchSideTabLabel('runbooks', 2)).toBe('2 Runbooks');
-    expect(researchSideTabLabel('subagents', 0)).toBe('0 Subagents');
-    expect(researchSideTabLabel('subagents', 1)).toBe('1 Subagent');
-    expect(researchSideTabLabel('subagents', 2)).toBe('2 Subagents');
-  });
-
   it('excludes stale memories from the active sidebar count', () => {
     expect(activeMemoryCount([
       memoryNode({ id: 'confirmed', status: 'confirmed' }),
@@ -27,20 +15,33 @@ describe('renderer memory catalog', () => {
     ])).toBe(3);
   });
 
-  it('formats only nonzero active primitive and chain counts', () => {
-    expect(activeFindingTypeSummary([])).toBe('');
-    expect(activeFindingTypeSummary([
-      memoryNode({ id: 'chain', type: 'chain' }),
-      memoryNode({ id: 'primitive_one', type: 'primitive' }),
-      memoryNode({ id: 'primitive_two', type: 'primitive' }),
-      memoryNode({ id: 'stale_chain', type: 'chain', status: 'stale' })
-    ])).toBe('1 Chain, 2 Primitives');
+  it('counts paired memory searches and updates once', () => {
+    expect(sessionMemoryActivitySummary([])).toBe('');
+    expect(sessionMemoryActivitySummary([
+      memoryToolEvent('tool.requested', 'search_one', 'memory.search', 1),
+      memoryToolEvent('tool.observed', 'search_one', 'memory.search', 2),
+      memoryToolEvent('tool.requested', 'save_one', 'memory.save', 3),
+      memoryToolEvent('tool.observed', 'save_one', 'memory.save', 4),
+      memoryToolEvent('tool.requested', 'correct_one', 'memory.correct', 5)
+    ])).toBe('1 Search, 2 Updates');
+    expect(sessionMemoryActivitySummary([
+      memoryToolEvent('tool.requested', 'search_one', 'memory.search', 1),
+      memoryToolEvent('tool.observed', 'search_one', 'memory.search', 2),
+      memoryToolEvent('tool.requested', 'search_two', 'memory.search', 3),
+      memoryToolEvent('tool.observed', 'search_two', 'memory.search', 4)
+    ])).toBe('2 Searches');
   });
 
   it('shows a session-scoped summary card before the detailed catalog', () => {
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       detail: summaryDetail(),
-      events: [],
+      events: [
+        memoryToolEvent('tool.requested', 'search_one', 'memory.search', 1),
+        memoryToolEvent('tool.observed', 'search_one', 'memory.search', 2),
+        memoryToolEvent('tool.requested', 'save_one', 'memory.save', 3),
+        memoryToolEvent('tool.observed', 'save_one', 'memory.save', 4),
+        memoryToolEvent('tool.requested', 'correct_one', 'memory.correct', 5)
+      ],
       memory: {
         contextWorkspaceId: 'workspace_zsh',
         contextSubjectId: 'subject_apple',
@@ -83,7 +84,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('lucide-badge-percent');
     expect(html).toContain('lucide-gauge');
     expect(html).toContain('<span>3 Memories</span>');
-    expect(html).toContain('class="session-summary-meta">1 Chain, 2 Primitives</span>');
+    expect(html).toContain('class="session-summary-meta">1 Search, 2 Updates</span>');
     expect(html).toContain('<span>2 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">5 Revisions</span>');
     expect(html).toContain('<span>0 Subagents</span>');
@@ -139,6 +140,34 @@ describe('renderer memory catalog', () => {
   });
 });
 
+function memoryToolEvent(
+  kind: 'tool.requested' | 'tool.observed',
+  actionId: string,
+  toolName: string,
+  sequence: number
+): TraceEventRecord {
+  return {
+    id: `trace_memory_${sequence}`,
+    runId: 'run_current',
+    attemptId: 'attempt_current',
+    sequence,
+    source: kind === 'tool.requested' ? 'model' : 'tool',
+    type: kind === 'tool.requested' ? 'tool_call' : 'tool_result',
+    summary: `Honeycrisp ${kind}: ${toolName}`,
+    payload: {
+      agentPath: '/root',
+      honeycrispKind: kind,
+      payload: { toolActionId: actionId, toolName, normalizedInputs: {} }
+    },
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: `2026-07-19T12:0${sequence}:00.000Z`,
+    vmContextId: null,
+    artifactId: null,
+    toolCallId: actionId,
+    approvalId: null
+  };
+}
 function summaryDetail(): RunDetail {
   return {
     run: {
