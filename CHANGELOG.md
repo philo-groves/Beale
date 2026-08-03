@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Honeycrisp sessions now automatically apply Codex-compatible `AGENTS.md` guidance from the selected Beale workspace to root agents, subagents, and compatible continuations instead of depending on manual file reads.
 - macOS fullscreen windows now remove the header space reserved for unavailable traffic-light controls while retaining it in normal windowed mode.
 - Honeycrisp controls now carry acknowledged request IDs, record rejected or unacknowledged delivery, and defer safe steering recovery until the prior agent process exits while retaining bounded subagent results.
 - Research traces now preserve Honeycrisp goal lifecycle, post-compaction checkpoints, and repeated-read/tool-loop recovery events from both live streams and flow-capture recovery without duplicating shared event IDs.
