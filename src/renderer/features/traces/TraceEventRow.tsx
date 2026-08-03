@@ -36,7 +36,7 @@ import {
 import { traceDisplayEventIds, type TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { highlightPythonCode, renderTraceProseText } from './traceMarkup';
-import { traceCategoryBadgeLabel, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
+import { traceCategoryBadgeLabel, traceCategoryIcon, traceEventIcon, traceEventMarkerToneClass } from './traceVisuals';
 
 interface TraceEventRowProps {
   detail: RunDetail | null;
@@ -410,6 +410,9 @@ function ReasoningTraceContinuation({
         const description = reasoningSummaryDescription(summary);
         return (
           <span className="main-trace-reasoning-summary" key={`${heading}-${index}`}>
+            <span className="main-trace-reasoning-marker" aria-hidden="true">
+              {traceCategoryIcon('reasoning')}
+            </span>
             <span className="main-trace-reasoning-line">
               <span className="main-trace-title-text">
                 {hasSearchHighlight ? renderSearchHighlightedText(heading, searchHighlightQuery) : heading}

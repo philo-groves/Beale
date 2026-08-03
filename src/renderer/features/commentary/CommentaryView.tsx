@@ -196,28 +196,50 @@ function CommentaryMessageRow({
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
+  const reasoningTraceLines = message.kind === 'progress'
+    ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
+    : [];
   return (
     <article
       className={`main-commentary-message kind-${message.kind} ${selected ? 'selected' : ''}`}
       data-commentary-event-id={message.id}
       data-commentary-trace-id={message.traceEventId ?? undefined}
     >
-      {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
-      {label ? <span className="main-commentary-message-label">{label}</span> : null}
-      <div className="main-commentary-message-content">
-        {message.kind === 'tool' ? (
-          <CommentaryToolMessageContent
-            message={message}
-            autoExpandKey={autoExpandToolKey}
-            hasSearchHighlight={hasSearchHighlight}
-            searchHighlightQuery={searchHighlightQuery}
-          />
-        ) : hasSearchHighlight ? (
-          renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
-        ) : (
-          renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' || message.kind === 'progress' ? 'reasoning' : 'agent_output')
-        )}
-      </div>
+      {message.kind === 'progress' ? (
+        <div className="main-commentary-reasoning-lines">
+          {reasoningTraceLines.map((line, index) => (
+            <div className="main-commentary-reasoning-line" key={`${index}:${line}`}>
+              <span className="main-commentary-message-icon" aria-hidden="true">
+                <Brain size={16} />
+              </span>
+              <div className="main-commentary-message-content">
+                {hasSearchHighlight
+                  ? renderSearchHighlightedText(line, searchHighlightQuery)
+                  : renderTraceProseText(line, 'reasoning')}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
+          {label ? <span className="main-commentary-message-label">{label}</span> : null}
+          <div className="main-commentary-message-content">
+            {message.kind === 'tool' ? (
+              <CommentaryToolMessageContent
+                message={message}
+                autoExpandKey={autoExpandToolKey}
+                hasSearchHighlight={hasSearchHighlight}
+                searchHighlightQuery={searchHighlightQuery}
+              />
+            ) : hasSearchHighlight ? (
+              renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+            ) : (
+              renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' ? 'reasoning' : 'agent_output')
+            )}
+          </div>
+        </>
+      )}
     </article>
   );
 }

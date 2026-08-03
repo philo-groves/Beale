@@ -7,7 +7,8 @@ import {
   honeycrispToolEventKind,
   honeycrispToolName,
   honeycrispToolPayload,
-  honeycrispToolPairingKey
+  honeycrispToolPairingKey,
+  tracePayloadArray
 } from '../traceClassification';
 import { honeycrispToolTraceSubtext } from './traceContent';
 import type { TraceDisplayEvent } from './traceDisplay';
@@ -22,6 +23,7 @@ export interface CommentaryMessage {
   toolName?: string;
   toolCount?: number;
   toolCalls?: CommentaryToolCall[];
+  reasoningTraceLines?: string[];
   contentMarkdown: string;
   createdAt: string;
 }
@@ -60,6 +62,7 @@ export function commentaryMessagesForSession(
       id: event.id,
       traceEventId: linkedTraceEventId(event),
       kind,
+      ...(kind === 'progress' ? { reasoningTraceLines: reasoningTraceLinesForEvent(event, contentMarkdown) } : {}),
       contentMarkdown,
       createdAt: event.createdAt
     } satisfies CommentaryMessage];
@@ -87,6 +90,23 @@ export function commentaryMessagesForSession(
     contentMarkdown: detail.run.promptMarkdown.trim(),
     createdAt: detail.run.createdAt
   }, ...messages];
+}
+
+function reasoningTraceLinesForEvent(event: TraceDisplayEvent, fallback: string): string[] {
+  const coalescedLines = (tracePayloadArray(event.payload, 'reasoningSummaryTexts') ?? [])
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return coalescedLines.length > 0 ? coalescedLines : reasoningTraceLinesFromText(fallback);
+}
+
+function reasoningTraceLinesFromText(text: string): string[] {
+  const lines = text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length > 0 ? lines : [text];
 }
 
 function coalesceConsecutiveToolMessages(messages: readonly CommentaryMessage[]): CommentaryMessage[] {
@@ -346,6 +366,7 @@ function fixtureProgressMessages(events: readonly TraceDisplayEvent[]): Commenta
       id: `fixture-progress:${event.id}`,
       traceEventId: event.id,
       kind: 'progress',
+      reasoningTraceLines: reasoningTraceLinesForEvent(event, contentMarkdown),
       contentMarkdown,
       createdAt: event.createdAt
     } satisfies CommentaryMessage];

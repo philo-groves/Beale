@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
+  CommentaryView,
   commentaryMessageIcon,
   commentaryMessageLabel,
   commentaryScrollFadeClasses,
@@ -247,6 +249,56 @@ describe('renderer commentary projection', () => {
       ['commentary', 'Native commentary for the first response.'],
       ['progress', 'Completed fallback snapshot.']
     ]);
+  });
+
+  it('preserves each coalesced reasoning trace as its own commentary line', () => {
+    const messages = commentaryMessagesForSession(runDetail('Review the parser.'), [
+      displayEvent('reasoning-group', {
+        agentPath: '/root',
+        responseId: 'response_group',
+        transcriptRole: 'assistant',
+        transcriptSource: 'openai_reasoning_summary',
+        text: '**Inspecting the parser**\n\n**Checking bounds**',
+        reasoningSummaryTexts: ['**Inspecting the parser**', '**Checking bounds**']
+      })
+    ]);
+
+    expect(messages.find((message) => message.kind === 'progress')?.reasoningTraceLines).toEqual([
+      '**Inspecting the parser**',
+      '**Checking bounds**'
+    ]);
+  });
+
+  it('renders a brain icon for every plain-text fixture reasoning line', () => {
+    const fixtureReasoning = displayEvent('fixture-reasoning', {
+      fixtureOnly: true,
+      text: 'Planning synthetic fixture mode\nDesigning password input via stdin'
+    });
+    const detail = runDetail('Exercise the fixture.');
+    const messages = commentaryMessagesForSession(detail, [fixtureReasoning]);
+
+    expect(messages.find((message) => message.kind === 'progress')?.reasoningTraceLines).toEqual([
+      'Planning synthetic fixture mode',
+      'Designing password input via stdin'
+    ]);
+
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: false,
+        detail,
+        events: [fixtureReasoning],
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: true,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html.match(/lucide-brain/g)).toHaveLength(2);
   });
 
   it('pairs native commentary with reasoning by turn when a provider omits the response ID', () => {

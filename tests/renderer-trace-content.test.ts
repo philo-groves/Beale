@@ -162,6 +162,30 @@ describe('renderer trace content view models', () => {
     ]);
   });
 
+  it('renders a brain icon for every coalesced reasoning trace', () => {
+    const reasoning = traceEvent({
+      source: 'model',
+      type: 'model_message',
+      summary: 'Reasoning.',
+      payload: {
+        transcriptSource: 'openai_reasoning_summary',
+        reasoningSummaryTexts: ['**Inspecting parser**', '**Checking bounds**', '**Reviewing call sites**']
+      }
+    });
+    const html = renderToStaticMarkup(
+      createElement(TraceEventRow, {
+        detail: null,
+        entering: false,
+        event: reasoning,
+        searchHighlightQuery: '',
+        selected: false,
+        onSelect: () => undefined
+      })
+    );
+
+    expect(html.match(/lucide-brain/g)).toHaveLength(3);
+  });
+
   it('formats key trace detail content without raw JSON noise', () => {
     const search = traceEvent({
       type: 'tool_result',
