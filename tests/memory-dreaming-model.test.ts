@@ -151,6 +151,7 @@ function temporaryDirectory(): string {
 function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
+    shellSafetyMode: 'auto_review',
     goalEnabled: false,
     goalObjective: null,
     promptMarkdown: `# Exercise the Dreaming session fixture\nRecord the parser boundary and exhausted legacy route.\n${'Detailed session context. '.repeat(5_000)}`,

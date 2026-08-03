@@ -18,6 +18,7 @@
 
 ### Changed
 
+- Combined the session composer's model and reasoning controls into one hierarchical picker with provider, model, and effort flyout menus, with redundant `GPT-` prefixes omitted from OpenAI model-name labels.
 - Centered trace-list content and the steering composer within a shared 750px maximum width while keeping the trace scrollbar on the right edge of the full main content area, matching the composer's side inset to the right sidenav padding and its bottom inset to the main content's window-edge spacing.
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
 - Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
@@ -90,6 +91,7 @@
 
 ### Added
 
+- Added per-session shell safety modes in the steering composer: Manual Approval requires a researcher decision for every shell command, Auto-Review uses the active provider's assigned small model and is the default, and Danger Mode permits shell execution without per-command review.
 - Added a previous-research goal chooser to New Research. Beale proposes three distinct one-sentence directions from bounded workspace memory, session outcomes, verifier state, and source coverage; selecting one generates a full editable research prompt, while Something Else opens direct prompt entry.
 - Added a default-on Goal option to New Research. Beale persists and forwards the choice, while Honeycrisp owns the flat persistent objective, same-session continuation, completion audit, and repeated external-blocker validation.
 - Added structured final dispositions for every terminal research session, including typed blocker dependencies, an explicit external-state-required flag, Honeycrisp root-agent finalization, host fallbacks, registry mirroring, and workbench migration 8.
@@ -199,6 +201,7 @@
 
 ### Security
 
+- Shell safety authorization now occurs inside Honeycrisp before process spawn, records bounded redacted decision evidence, fails closed when review or safety-control delivery is unavailable, rejects commands that cannot be shown completely in Manual Approval, sanitizes ordinary shell lifecycle traces, surfaces background-session approvals, and keeps existing utility, protected-directory, and HOME-family guards active in every mode. Workbench migration 10 backfills existing sessions to Auto-Review.
 - Prohibited `$HOME` use in the Honeycrisp system prompt, rejected HOME-family references and assignments in shell inputs, and removed home-directory variables from spawned utility environments.
 - Added Honeycrisp pre-spawn folder deletion guards for direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations targeting filesystem roots, the current user directory, system directories, or active Beale/Honeycrisp workspace state.
 

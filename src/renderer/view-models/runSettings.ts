@@ -1,5 +1,6 @@
 import type { StartRunInput } from '@shared/types';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../../shared/modelDefaults';
+import { DEFAULT_SHELL_SAFETY_MODE } from '../../shared/shellSafety';
 
 export const UNBOUNDED_MINUTES = 999_999;
 export const UNBOUNDED_ATTEMPTS = 999_999;
@@ -7,6 +8,7 @@ export const UNBOUNDED_ATTEMPTS = 999_999;
 export const defaultRunInput: StartRunInput = {
   runEngine: 'honeycrisp',
   provider: 'openai-codex',
+  shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
   goalEnabled: true,
   goalObjective: null,
   promptMarkdown: '',

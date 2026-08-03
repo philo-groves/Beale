@@ -1,3 +1,5 @@
+import type { ResearchModelProviderId } from '@shared/types';
+
 const SESSION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MAX_PRIORITY_SCORE = 64;
 
@@ -11,6 +13,10 @@ export function traceLabel(value: string): string {
     .split('_')
     .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
     .join(' ');
+}
+
+export function researchModelNameLabel(providerId: ResearchModelProviderId, name: string): string {
+  return providerId === 'openai-codex' ? name.replace(/^GPT-/u, '') : name;
 }
 
 export function formatSessionStart(date: Date): string {

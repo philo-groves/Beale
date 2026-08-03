@@ -10,6 +10,7 @@ export interface DialogSurfaceProps {
   children: ReactNode;
   footer?: ReactNode;
   onClose: () => void;
+  closeDisabled?: boolean;
   wide?: boolean;
   className?: string;
 }
@@ -54,6 +55,7 @@ function DialogSurface({
   children,
   footer,
   onClose,
+  closeDisabled = false,
   wide = false,
   className = '',
   presentation,
@@ -89,7 +91,7 @@ function DialogSurface({
       <section className={panelClassName} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" title="Close" aria-label={`Close ${title}`} onClick={onClose}>
+          <button type="button" title="Close" aria-label={`Close ${title}`} disabled={closeDisabled} onClick={onClose}>
             <XCircle size={16} />
           </button>
         </header>

@@ -8,12 +8,15 @@ import type {
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   RunDetail,
+  ShellSafetyMode,
   SteeringAction
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
 import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
+import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
-import { traceLabel } from '../../lib/formatting';
+import { researchModelNameLabel, traceLabel } from '../../lib/formatting';
+import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import type { TraceCategoryId } from '../../traceClassification';
 import {
   buildTraceTimelineEntries,
@@ -44,6 +47,12 @@ const TRACE_REVEAL_INTERVAL_MS = 64;
 const STEER_TEXTAREA_MAX_LINES = 6;
 const STEER_ACTION_ROW_HEIGHT = 35;
 const STEER_COMPOSER_ROW_GAP = 0;
+
+export const SHELL_SAFETY_MODE_OPTIONS: Array<{ value: ShellSafetyMode; label: string }> = [
+  { value: 'manual_approval', label: 'Manual Approval' },
+  { value: 'auto_review', label: 'Auto-Review' },
+  { value: 'danger', label: 'Danger Mode' }
+];
 
 export const TraceView = memo(function TraceView({
   busy,
@@ -544,6 +553,8 @@ const MainSteerArea = memo(function MainSteerArea({
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element {
   const [instruction, setInstruction] = useState('');
+  const runProviderId = runModelProvider(detail, providerModelCatalog);
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(runProviderId);
   const [selectedModelId, setSelectedModelId] = useState(detail?.run.model ?? '');
   const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
   const footerRef = useRef<HTMLElement | null>(null);
@@ -553,15 +564,26 @@ const MainSteerArea = memo(function MainSteerArea({
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
   const status = detail?.run.status ?? null;
+  const shellSafetyMode = normalizeShellSafetyMode(detail?.run.shellSafetyMode);
   const controlsDisabled = busy || !runId;
-  const providerId = runModelProvider(detail, providerModelCatalog);
-  const providerCatalog = providerModelCatalog.find((catalog) => catalog.providerId === providerId) ?? null;
+  const fallbackModel = detail ? fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort)) : null;
+  const providerOptions = detail && !providerModelCatalog.some((catalog) => catalog.providerId === runProviderId)
+    ? [
+        ...providerModelCatalog,
+        {
+          providerId: runProviderId,
+          providerName: researchProviderLabel(runProviderId, runProviderId),
+          models: fallbackModel ? [fallbackModel] : []
+        }
+      ]
+    : providerModelCatalog;
+  const providerCatalog = providerOptions.find((catalog) => catalog.providerId === selectedProviderId) ?? null;
   const modelOptions = providerCatalog?.models.length
     ? providerCatalog.models
-    : detail ? [fallbackResearchModel(detail.run.model, researchEffort(detail.run.reasoningEffort))] : [];
+    : fallbackModel && selectedProviderId === runProviderId ? [fallbackModel] : [];
   const selectedModel = modelOptions.find((model) => model.id === selectedModelId) ?? modelOptions[0] ?? null;
   const modelSelection: ResearchModelSelection = {
-    provider: providerId,
+    provider: selectedProviderId,
     model: selectedModel?.id ?? detail?.run.model ?? '',
     reasoningEffort: selectedEffort
   };
@@ -572,6 +594,7 @@ const MainSteerArea = memo(function MainSteerArea({
       .find((catalog) => catalog.providerId === runModelProvider(detail, providerModelCatalog))
       ?.models.find((model) => model.id === detail.run.model);
     const nextEffort = preferredResearchEffort(nextModel?.effortLevels ?? [researchEffort(detail.run.reasoningEffort)], researchEffort(detail.run.reasoningEffort));
+    setSelectedProviderId(runModelProvider(detail, providerModelCatalog));
     setSelectedModelId(nextModel?.id ?? detail.run.model);
     setSelectedEffort(nextEffort);
   }, [detail?.run.id, detail?.run.model, detail?.run.reasoningEffort, providerModelCatalog]);
@@ -684,27 +707,52 @@ const MainSteerArea = memo(function MainSteerArea({
           <SlidersHorizontal size={14} />
         </button>
         <FloatingTextPicker
-          className="main-steer-model-picker"
-          value={selectedModel?.id ?? ''}
-          title="Model for the next agent turn"
-          ariaLabel="Model for the next agent turn"
-          disabled={!selectedModel || controlsDisabled}
-          options={modelOptions.map((model) => ({ value: model.id, label: model.name }))}
+          className={`main-steer-safety-mode-picker mode-${shellSafetyMode}`}
+          value={shellSafetyMode}
+          options={SHELL_SAFETY_MODE_OPTIONS}
+          title="Shell safety mode"
+          ariaLabel="Shell safety mode"
+          disabled={controlsDisabled || status === 'paused'}
           onChange={(value) => {
+            const nextMode = normalizeShellSafetyMode(value);
+            if (!runId || nextMode === shellSafetyMode) return;
+            onSessionAction({ type: 'set_shell_safety_mode', runId, shellSafetyMode: nextMode });
+          }}
+        />
+        <ModelSelectionPicker
+          className="main-steer-model-selection-picker"
+          providerValue={selectedProviderId}
+          modelValue={selectedModel?.id ?? ''}
+          effortValue={selectedEffort}
+          title="Model settings for the next agent turn"
+          ariaLabel="Model settings for the next agent turn"
+          disabled={!selectedModel || controlsDisabled}
+          providerOptions={providerOptions.map((provider) => ({
+            value: provider.providerId,
+            label: researchProviderLabel(provider.providerId, provider.providerName),
+            disabled: provider.models.length === 0
+          }))}
+          modelOptions={modelOptions.map((model) => ({
+            value: model.id,
+            label: researchModelNameLabel(selectedProviderId, model.name)
+          }))}
+          effortOptions={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
+          onSelectProvider={(value) => {
+            const providerId = value as ResearchModelProviderId;
+            const nextProvider = providerOptions.find((provider) => provider.providerId === providerId);
+            const nextModel = nextProvider?.models.find((model) => model.id === selectedModelId) ?? nextProvider?.models[0];
+            if (!nextModel) return;
+            setSelectedProviderId(providerId);
+            setSelectedModelId(nextModel.id);
+            setSelectedEffort((current) => preferredResearchEffort(nextModel.effortLevels, current));
+          }}
+          onSelectModel={(value) => {
             const model = modelOptions.find((candidate) => candidate.id === value);
             if (!model) return;
             setSelectedModelId(model.id);
             setSelectedEffort((current) => preferredResearchEffort(model.effortLevels, current));
           }}
-        />
-        <FloatingTextPicker
-          className="main-steer-effort-picker"
-          value={selectedEffort}
-          title="Reasoning effort for the next agent turn"
-          ariaLabel="Reasoning effort for the next agent turn"
-          disabled={!selectedModel || controlsDisabled}
-          options={(selectedModel?.effortLevels ?? []).map((effort) => ({ value: effort, label: researchEffortLabel(effort) }))}
-          onChange={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
+          onSelectEffort={(value) => setSelectedEffort(value as ResearchModelEffortLevel)}
         />
         {sessionActive ? (
           <button type="button" className="main-steer-send main-steer-stop" title="Stop session" aria-label="Stop session" disabled={controlsDisabled} onClick={stopSession}>
@@ -746,6 +794,13 @@ function preferredResearchEffort(
 
 function fallbackResearchModel(model: string, effort: ResearchModelEffortLevel): ResearchProviderModel {
   return { id: model, name: model, reasoning: effort !== 'off', effortLevels: [effort], contextWindow: 0, maxTokens: 0 };
+}
+
+function researchProviderLabel(providerId: ResearchModelProviderId, fallback: string): string {
+  if (providerId === 'openai-codex') return 'OpenAI (Codex)';
+  if (providerId === 'anthropic') return 'Anthropic (Claude)';
+  if (providerId === 'xai') return 'xAI (Grok/X)';
+  return fallback;
 }
 
 function researchEffortLabel(effort: ResearchModelEffortLevel): string {

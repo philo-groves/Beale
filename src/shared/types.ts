@@ -78,6 +78,8 @@ export type FixtureScenario = 'multi_branch_trace' | 'source_review' | 'crash_ar
 
 export type RunEngineKind = 'honeycrisp' | 'fixture';
 
+export type ShellSafetyMode = 'manual_approval' | 'auto_review' | 'danger';
+
 export type OpenAiAuthSource = 'oauth_command' | 'oauth_bearer_env' | 'codex_oauth_file' | 'api_key_env' | 'not_configured';
 
 export type OpenAiTransport = 'websocket' | 'sse_http' | 'host_process';
@@ -979,6 +981,7 @@ export interface ResearchProviderOAuthStartResult {
 export interface StartRunInput {
   runEngine: RunEngineKind;
   provider?: string;
+  shellSafetyMode: ShellSafetyMode;
   goalEnabled: boolean;
   goalObjective: string | null;
   promptMarkdown: string;
@@ -1034,6 +1037,7 @@ export interface ResearchPromptGenerationInput {
 export interface RunRecord {
   id: string;
   scopeVersionId: string;
+  shellSafetyMode: ShellSafetyMode;
   mode: string;
   status: RunStatus;
   title: string;
@@ -1315,6 +1319,7 @@ export interface WorkspaceSnapshot {
   recovery: WorkspaceRecoveryReport;
   policyReview: WorkspacePolicyReview;
   runs: RunRow[];
+  pendingShellApprovals: ApprovalRecord[];
   notifications: NotificationRecord[];
 }
 
@@ -1330,6 +1335,15 @@ export type SteeringAction =
   | { type: 'resume'; runId: string; instruction?: string; modelSelection?: ResearchModelSelection; note?: string }
   | { type: 'stop'; runId: string; note?: string }
   | { type: 'steer'; runId: string; instruction: string; modelSelection?: ResearchModelSelection }
+  | { type: 'set_shell_safety_mode'; runId: string; shellSafetyMode: ShellSafetyMode }
+  | {
+      type: 'review_shell_command';
+      workspacePath: string;
+      runId: string;
+      approvalId: string;
+      decision: PolicyReviewDecision;
+      note?: string;
+    }
   | { type: 'fork'; runId: string; instruction: string }
   | { type: 'restart_from_snapshot'; runId: string; snapshotRef?: string; note?: string }
   | { type: 'update_run_budget'; runId: string; budgetPatch: Partial<StartRunInput['budget']>; note?: string }

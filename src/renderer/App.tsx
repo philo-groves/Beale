@@ -3,12 +3,14 @@ import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
+  ApprovalRecord,
   DeveloperSettings,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
   NotificationRecord,
   OpenAiOAuthStartResult,
+  PolicyReviewDecision,
   ResearchModelSelection,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
@@ -27,6 +29,7 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
+import { pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import type { SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
@@ -102,6 +105,8 @@ export function App(): JSX.Element {
   const [runbookLoading, setRunbookLoading] = useState(false);
   const [runbookError, setRunbookError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
+  const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
   const {
     openRegisteredWorkspaceMenuId,
@@ -119,10 +124,20 @@ export function App(): JSX.Element {
     flushProfilingReport
   } = useProfilingRuntime(handleError, { observeReports: profilingOpen || settingsOpen });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
+  const selectedRunRefreshKey = useMemo(() => {
+    const selected = snapshot?.runs.find((row) => row.run.id === selectedRunId)?.run;
+    if (!selected) return null;
+    const pendingApprovalIds = snapshot?.pendingShellApprovals
+      .filter((approval) => approval.runId === selected.id)
+      .map((approval) => approval.id)
+      .join(',') ?? '';
+    return `${selected.status}:${selected.shellSafetyMode}:${pendingApprovalIds}`;
+  }, [selectedRunId, snapshot?.pendingShellApprovals, snapshot?.runs]);
   const handleRunDetailError = useCallback((message: string) => setError(message), []);
   const { runDetail, clearRunDetail } = useRunDetailPolling({
     selectedRunId,
     selectedRunState,
+    refreshKey: selectedRunRefreshKey,
     onError: handleRunDetailError
   });
   useDevRenderProbe('app.shell', () => ({
@@ -432,6 +447,48 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
+  const activeShellApproval = useMemo(() => {
+    if (!snapshot) return pendingShellApproval(activeRunDetail);
+    return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId)
+      ?? snapshot.pendingShellApprovals[0]
+      ?? null;
+  }, [activeRunDetail?.policyEvents, selectedRunId, snapshot?.pendingShellApprovals]);
+  useEffect(() => {
+    if (shellApprovalDecisionRef.current === activeShellApproval?.id) return;
+    shellApprovalDecisionRef.current = null;
+    setShellApprovalDecisionInFlight(null);
+  }, [activeShellApproval?.id]);
+
+  const handleShellApprovalDecision = useCallback((
+    approval: ApprovalRecord,
+    decision: PolicyReviewDecision
+  ): void => {
+    if (shellApprovalDecisionRef.current) return;
+    shellApprovalDecisionRef.current = approval.id;
+    setShellApprovalDecisionInFlight(approval.id);
+    void (async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const next = await window.beale.steerRun({
+          type: 'review_shell_command',
+          workspacePath: shellApprovalWorkspacePath(approval),
+          runId: approval.runId,
+          approvalId: approval.id,
+          decision
+        });
+        if (next) applySnapshot(next);
+        await loadSnapshot();
+        await loadWorkspaceRegistry();
+      } catch (caught) {
+        shellApprovalDecisionRef.current = null;
+        setShellApprovalDecisionInFlight(null);
+        setError(errorMessage(caught));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [applySnapshot, loadSnapshot, loadWorkspaceRegistry]);
   const activeWorkspaceEntry = useMemo(() => {
     if (!snapshot || !workspaceRegistry) return null;
     return (
@@ -731,8 +788,23 @@ export function App(): JSX.Element {
         onSkipWorkspaceOnboardingRepository={skipWorkspaceOnboardingRepository}
         runAction={runAction}
       />
+      {activeShellApproval ? (
+        <ShellApprovalModal
+          approval={activeShellApproval}
+          busy={busy || shellApprovalDecisionInFlight === activeShellApproval.id}
+          onDecision={(decision) => handleShellApprovalDecision(activeShellApproval, decision)}
+        />
+      ) : null}
     </div>
   );
+}
+
+function shellApprovalWorkspacePath(approval: ApprovalRecord): string {
+  const workspacePath = approval.requestedAction.workspacePath;
+  if (typeof workspacePath !== 'string' || !workspacePath.trim()) {
+    throw new Error('Shell approval is missing its originating workspace.');
+  }
+  return workspacePath;
 }
 
 

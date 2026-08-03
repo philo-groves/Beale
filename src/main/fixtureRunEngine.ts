@@ -32,6 +32,7 @@ export class FixtureRunEngine {
       scopeVersionId: scope.id,
       title: generateSessionTitle(input.promptMarkdown),
       promptMarkdown: input.promptMarkdown,
+      shellSafetyMode: input.shellSafetyMode,
       mode: input.mode,
       model: input.model,
       reasoningEffort: input.reasoningEffort,

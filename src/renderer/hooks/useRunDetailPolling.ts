@@ -15,10 +15,12 @@ const ACTIVE_RUN_DETAIL_POLL_MS = 750;
 export function useRunDetailPolling({
   selectedRunId,
   selectedRunState,
+  refreshKey,
   onError
 }: {
   selectedRunId: string | null;
   selectedRunState: RunStatus | null;
+  refreshKey: string | null;
   onError: (message: string) => void;
 }): {
   runDetail: RunDetail | null;
@@ -128,7 +130,7 @@ export function useRunDetailPolling({
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [clearRunDetail, onError, selectedRunId, selectedRunState]);
+  }, [clearRunDetail, onError, refreshKey, selectedRunId, selectedRunState]);
 
   return { runDetail, clearRunDetail };
 }

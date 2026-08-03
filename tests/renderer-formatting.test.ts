@@ -8,6 +8,7 @@ import {
   formatSessionStart,
   formatSessionTime,
   networkProfileLabel,
+  researchModelNameLabel,
   shortDate,
   stateClass,
   traceLabel,
@@ -30,6 +31,13 @@ describe('renderer formatting helpers', () => {
     expect(clampPriorityScoreForDisplay(Number.NaN)).toBe(0);
     expect(networkProfileLabel('scoped')).toBe('Scoped');
     expect(networkProfileLabel('custom_lab')).toBe('custom_lab');
+  });
+
+  it('omits only the leading GPT prefix from OpenAI model names', () => {
+    expect(researchModelNameLabel('openai-codex', 'GPT-5.6 Sol')).toBe('5.6 Sol');
+    expect(researchModelNameLabel('openai-codex', 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
+    expect(researchModelNameLabel('openai-codex', 'Legacy GPT-5.6')).toBe('Legacy GPT-5.6');
+    expect(researchModelNameLabel('anthropic', 'GPT-Compatible Claude')).toBe('GPT-Compatible Claude');
   });
 
   it('formats small utility labels consistently', () => {

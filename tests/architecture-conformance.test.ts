@@ -185,6 +185,7 @@ describe('architecture conformance', () => {
       scopeVersionId: db.getActiveScope().id,
       title: 'Architecture conformance run',
       promptMarkdown: '# Architecture conformance',
+      shellSafetyMode: 'auto_review',
       mode: 'open_discovery',
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
@@ -303,6 +304,7 @@ function asset(direction: 'in_scope' | 'out_of_scope', kind: ScopeAssetKind, val
 function runInput(): StartRunInput {
   return {
     runEngine: 'fixture',
+    shellSafetyMode: 'auto_review',
     goalEnabled: false,
     goalObjective: null,
     promptMarkdown: '# Architecture conformance\nExercise the fixture workbench path.',

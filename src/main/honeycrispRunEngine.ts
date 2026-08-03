@@ -7,6 +7,7 @@ import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   ResearchModelSelection,
   RunRecord,
+  ShellSafetyMode,
   TranscriptMessageRecord,
   WorkspaceScopeVersion,
   ScopeAsset,
@@ -20,9 +21,14 @@ import type {
   TraceSource
 } from '@shared/types';
 import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
-import { SESSION_TITLE_REASONING_EFFORT, sessionTitleModelForProvider } from '../shared/modelDefaults';
+import {
+  SESSION_TITLE_REASONING_EFFORT,
+  SHELL_SAFETY_REVIEW_REASONING_EFFORT,
+  SMALL_MODEL_BY_PROVIDER,
+  sessionTitleModelForProvider
+} from '../shared/modelDefaults';
 import { resolveGoalObjective } from '../shared/goalObjective';
-import { redactForModelText } from './redaction';
+import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
 
 export interface HoneycrispRunHandle {
   context: CreatedRunContext;
@@ -81,21 +87,31 @@ interface ActiveHoneycrispRun {
   rootTurnOffset: number;
   paused: boolean;
   stopped: boolean;
-  stopReason: 'user' | 'time_limit' | null;
+  stopReason: 'user' | 'time_limit' | 'safety_control' | null;
   budgetTimer: NodeJS.Timeout | null;
   forceStopTimer: NodeJS.Timeout | null;
   liveHoneycrispEventIds: Set<string>;
   liveReasoningSummaries: Map<string, HoneycrispLiveReasoningSummaryState>;
   pendingControls: Map<string, PendingHoneycrispControl>;
   queuedContinuations: Map<string, PendingHoneycrispControl>;
+  shellApprovalRecords: Map<string, string>;
+  shellApprovalDecisionsInFlight: Map<string, {
+    decision: 'approved' | 'denied';
+    dispatch: HoneycrispControlDispatch;
+    resolutionTimeout: NodeJS.Timeout | null;
+  }>;
+  resolvedShellApprovalRequestIds: Set<string>;
 }
 
 interface PendingHoneycrispControl {
   requestId: string;
-  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer';
+  type: 'pause' | 'resume' | 'stop' | 'configure' | 'steer' | 'configure_shell_safety' | 'resolve_shell_approval';
   sentAt: string;
   instruction?: string;
   modelSelection?: ResearchModelSelection;
+  shellSafetyMode?: ShellSafetyMode;
+  approvalRequestId?: string;
+  shellApprovalDecision?: 'approved' | 'denied';
   timeout: NodeJS.Timeout | null;
   timedOut: boolean;
 }
@@ -240,7 +256,7 @@ export class HoneycrispRunEngine {
   public constructor(
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
-    private readonly onChange: (change?: { workspaceRegistryChanged?: boolean }) => void = () => undefined,
+    private readonly onChange: (change?: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean }) => void = () => undefined,
     private readonly shellOptionsPath?: string
   ) {}
 
@@ -257,6 +273,7 @@ export class HoneycrispRunEngine {
       scopeVersionId: scope.id,
       title: SESSION_TITLE_FALLBACK,
       promptMarkdown: input.promptMarkdown,
+      shellSafetyMode: input.shellSafetyMode,
       mode: input.mode,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
@@ -484,7 +501,10 @@ export class HoneycrispRunEngine {
       liveHoneycrispEventIds: new Set(),
       liveReasoningSummaries: new Map(),
       pendingControls: new Map(),
-      queuedContinuations: new Map()
+      queuedContinuations: new Map(),
+      shellApprovalRecords: new Map(),
+      shellApprovalDecisionsInFlight: new Map(),
+      resolvedShellApprovalRequestIds: new Set()
     };
     this.activeRuns.set(context.run.id, active);
     this.armTimeLimit(active, input.budget.maxMinutes);
@@ -536,7 +556,7 @@ export class HoneycrispRunEngine {
     return this.activeRuns.has(runId);
   }
 
-  private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit'): void {
+  private stopActiveRun(active: ActiveHoneycrispRun, reason: 'user' | 'time_limit' | 'safety_control'): void {
     if (active.stopped) return;
     active.stopped = true;
     active.stopReason = reason;
@@ -595,6 +615,12 @@ export class HoneycrispRunEngine {
     const active = this.activeRuns.get(runId);
     if (!active) return false;
     if (active.paused) return true;
+    if (active.shellApprovalRecords.size > 0) {
+      throw new Error('Resolve pending shell approvals before pausing the Honeycrisp process.');
+    }
+    if ([...active.pendingControls.values()].some((control) => isSafetyControlType(control.type))) {
+      throw new Error('Wait for the pending shell safety control before pausing the Honeycrisp process.');
+    }
     this.sendControl(active, { schemaVersion: 1, type: 'pause' });
     if (process.platform !== 'win32' && !signalHoneycrispProcess(active.child, 'SIGSTOP')) {
       throw new Error(`Unable to pause Honeycrisp process for run ${runId}.`);
@@ -633,6 +659,46 @@ export class HoneycrispRunEngine {
     return true;
   }
 
+  public configureShellSafety(runId: string, shellSafetyMode: ShellSafetyMode): HoneycrispControlDispatch | null {
+    const active = this.activeRuns.get(runId);
+    if (!active) return null;
+    if (active.paused) {
+      throw new Error('Resume the Honeycrisp process before changing its shell safety mode.');
+    }
+    const pending = [...active.pendingControls.values()].find((control) => control.type === 'configure_shell_safety');
+    if (pending) {
+      if (pending.shellSafetyMode !== shellSafetyMode) {
+        throw new Error('A conflicting shell safety mode change is already in flight.');
+      }
+      return { requestId: pending.requestId, deliveryStatus: 'pending' };
+    }
+    return this.sendControl(active, { schemaVersion: 1, type: 'configure_shell_safety', shellSafetyMode });
+  }
+
+  public resolveShellApproval(
+    runId: string,
+    approvalRequestId: string,
+    decision: 'approved' | 'denied'
+  ): HoneycrispControlDispatch | null {
+    const active = this.activeRuns.get(runId);
+    if (!active || !active.shellApprovalRecords.has(approvalRequestId)) return null;
+    const inFlight = active.shellApprovalDecisionsInFlight.get(approvalRequestId);
+    if (inFlight) {
+      if (inFlight.decision !== decision) {
+        throw new Error(`Shell approval ${approvalRequestId} already has a conflicting decision in flight.`);
+      }
+      return inFlight.dispatch;
+    }
+    const dispatch = this.sendControl(active, {
+      schemaVersion: 1,
+      type: 'resolve_shell_approval',
+      approvalRequestId,
+      decision
+    });
+    active.shellApprovalDecisionsInFlight.set(approvalRequestId, { decision, dispatch, resolutionTimeout: null });
+    return dispatch;
+  }
+
   public dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -667,11 +733,14 @@ export class HoneycrispRunEngine {
       sentAt: new Date().toISOString(),
       ...(typeof message.instruction === 'string' ? { instruction: message.instruction } : {}),
       ...(isResearchModelSelection(message.modelSelection) ? { modelSelection: message.modelSelection } : {}),
+      ...(isShellSafetyMode(message.shellSafetyMode) ? { shellSafetyMode: message.shellSafetyMode } : {}),
+      ...(typeof message.approvalRequestId === 'string' ? { approvalRequestId: message.approvalRequestId } : {}),
+      ...(isShellApprovalDecision(message.decision) ? { shellApprovalDecision: message.decision } : {}),
       timeout: null,
       timedOut: false
     };
     active.pendingControls.set(requestId, pending);
-    if (message.type === 'steer') {
+    if (message.type === 'steer' || isSafetyControlType(message.type)) {
       pending.timeout = setTimeout(() => this.handleControlAckTimeout(active, requestId), controlAckTimeoutMs());
       pending.timeout.unref();
     }
@@ -690,13 +759,16 @@ export class HoneycrispRunEngine {
     const accepted = typeof payload.accepted === 'boolean' ? payload.accepted : false;
     const reportedType = stringPayload(payload, 'type') ?? 'invalid';
     const reportedRequestId = stringPayload(payload, 'requestId');
-    const pending = active
-      ? reportedRequestId
-        ? active.pendingControls.get(reportedRequestId)
-        : accepted
-          ? [...active.pendingControls.values()].find((candidate) => candidate.type === reportedType)
-          : undefined
+    const pendingById = active && reportedRequestId
+      ? active.pendingControls.get(reportedRequestId)
       : undefined;
+    const pending = pendingById
+      ? accepted && isSafetyControlType(pendingById.type) && reportedType !== pendingById.type
+        ? undefined
+        : pendingById
+      : active && accepted && !isSafetyControlType(reportedType)
+        ? [...active.pendingControls.values()].find((candidate) => candidate.type === reportedType)
+        : undefined;
     const controlRequestId = pending?.requestId ?? reportedRequestId;
     const controlType = pending?.type ?? reportedType;
     if (active && pending) {
@@ -705,7 +777,34 @@ export class HoneycrispRunEngine {
       } else if (pending.type === 'steer' && !active.stopped) {
         active.queuedContinuations.set(pending.requestId, pending);
       }
+      if (pending.type === 'resolve_shell_approval' && pending.approvalRequestId) {
+        if (accepted) {
+          this.armShellApprovalResolutionTimeout(active, pending.approvalRequestId);
+        } else {
+          this.clearShellApprovalDecisionInFlight(active, pending.approvalRequestId);
+        }
+      }
       this.removePendingControl(active, pending);
+    }
+    if (accepted && pending?.type === 'configure_shell_safety' && pending.shellSafetyMode) {
+      const updated = this.db.updateRunShellSafetyMode(context.run.id, pending.shellSafetyMode);
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'user',
+        summary: updated.shellSafetyMode === 'danger'
+          ? 'Danger Mode enabled for shell commands.'
+          : `Shell safety mode changed to ${updated.shellSafetyMode}.`,
+        payload: {
+          shellSafetyMode: updated.shellSafetyMode,
+          controlRequestId: pending.requestId,
+          acknowledgedByHoneycrisp: true,
+          explicitRiskAcceptance: updated.shellSafetyMode === 'danger'
+        },
+        vmContextId: context.vmContext.id,
+        modelVisible: false
+      });
     }
     this.db.appendTraceEvent({
       runId: context.run.id,
@@ -731,18 +830,77 @@ export class HoneycrispRunEngine {
     if (!accepted && pending?.type === 'steer' && active && !active.stopped) {
       this.markRunContinuationQueued(active, pending, 'rejected');
     }
-    this.onChange();
+    const rejectedSafetyControl = Boolean(active && pending && !accepted && isSafetyControlType(pending.type));
+    this.onChange({
+      forceSnapshot: Boolean(
+        pending?.type === 'configure_shell_safety'
+        || rejectedSafetyControl
+      )
+    });
+    if (rejectedSafetyControl && active) {
+      this.stopActiveRun(active, 'safety_control');
+    }
+  }
+
+  private armShellApprovalResolutionTimeout(active: ActiveHoneycrispRun, approvalRequestId: string): void {
+    const inFlight = active.shellApprovalDecisionsInFlight.get(approvalRequestId);
+    if (!inFlight || inFlight.resolutionTimeout) return;
+    inFlight.resolutionTimeout = setTimeout(() => {
+      if (this.disposed || this.activeRuns.get(active.context.run.id) !== active) return;
+      if (!active.shellApprovalDecisionsInFlight.has(approvalRequestId)) return;
+      this.db.appendTraceEvent({
+        runId: active.context.run.id,
+        attemptId: active.context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Honeycrisp accepted a shell decision but did not confirm its resolution; the session was stopped fail closed.',
+        payload: { approvalRequestId, timeoutMs: controlAckTimeoutMs() },
+        vmContextId: active.context.vmContext.id,
+        modelVisible: false
+      });
+      this.onChange({ forceSnapshot: true });
+      this.stopActiveRun(active, 'safety_control');
+    }, controlAckTimeoutMs());
+    inFlight.resolutionTimeout.unref();
+  }
+
+  private clearShellApprovalDecisionInFlight(active: ActiveHoneycrispRun, approvalRequestId: string): void {
+    const inFlight = active.shellApprovalDecisionsInFlight.get(approvalRequestId);
+    if (inFlight?.resolutionTimeout) clearTimeout(inFlight.resolutionTimeout);
+    active.shellApprovalDecisionsInFlight.delete(approvalRequestId);
   }
 
   private handleControlAckTimeout(active: ActiveHoneycrispRun, requestId: string): void {
     if (this.disposed || this.activeRuns.get(active.context.run.id) !== active) return;
     const pending = active.pendingControls.get(requestId);
-    if (!pending || pending.type !== 'steer' || pending.timedOut) return;
+    if (!pending || pending.timedOut) return;
     pending.timeout = null;
     pending.timedOut = true;
-    active.queuedContinuations.set(requestId, pending);
-    this.markRunContinuationQueued(active, pending, 'timeout');
-    this.onChange();
+    if (pending.type === 'steer') {
+      active.queuedContinuations.set(requestId, pending);
+      this.markRunContinuationQueued(active, pending, 'timeout');
+      this.onChange();
+      return;
+    }
+    if (!isSafetyControlType(pending.type)) return;
+    this.removePendingControl(active, pending);
+    this.db.appendTraceEvent({
+      runId: active.context.run.id,
+      attemptId: active.context.attempt.id,
+      type: 'approval_event',
+      source: 'policy',
+      summary: 'Honeycrisp did not acknowledge a shell safety control; the session was stopped fail closed.',
+      payload: {
+        controlRequestId: pending.requestId,
+        controlType: pending.type,
+        timeoutMs: controlAckTimeoutMs(),
+        deliveryStatus: 'unacknowledged'
+      },
+      vmContextId: active.context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange({ forceSnapshot: true });
+    this.stopActiveRun(active, 'safety_control');
   }
 
   private markRunContinuationQueued(
@@ -794,6 +952,31 @@ export class HoneycrispRunEngine {
     }
     active.pendingControls.clear();
     if (reason === 'engine_disposed' || active.stopped) active.queuedContinuations.clear();
+    for (const [approvalRequestId, approvalId] of active.shellApprovalRecords) {
+      this.db.updateApprovalDecision(
+        approvalId,
+        active.context.run.id,
+        'denied',
+        reason === 'engine_disposed'
+          ? 'Shell approval was denied because the Honeycrisp engine closed.'
+          : 'Shell approval was denied because the Honeycrisp process exited.'
+      );
+      this.db.appendTraceEvent({
+        runId: active.context.run.id,
+        attemptId: active.context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Pending shell command denied when Honeycrisp closed.',
+        payload: { approvalId, approvalRequestId, decision: 'denied', reason },
+        approvalId,
+        vmContextId: active.context.vmContext.id,
+        modelVisible: false
+      });
+    }
+    active.shellApprovalRecords.clear();
+    for (const approvalRequestId of active.shellApprovalDecisionsInFlight.keys()) {
+      this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
+    }
   }
 
   private removePendingControl(active: ActiveHoneycrispRun, pending: PendingHoneycrispControl): void {
@@ -928,6 +1111,14 @@ export class HoneycrispRunEngine {
         return;
       }
       const eventType = stringPayload(event.payload ?? {}, 'type');
+      if (eventType === 'shell_authorization_requested') {
+        this.recordShellAuthorizationRequested(context, event, active);
+        return;
+      }
+      if (eventType === 'shell_authorization_resolved') {
+        this.recordShellAuthorizationResolved(context, event, active);
+        return;
+      }
       if (eventType === 'subagent.activity') {
         this.recordSubagentActivity(context, event);
         return;
@@ -1007,6 +1198,125 @@ export class HoneycrispRunEngine {
       });
       this.onChange();
     }
+  }
+
+  private recordShellAuthorizationRequested(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent,
+    active: ActiveHoneycrispRun | undefined
+  ): void {
+    const payload = event.payload ?? {};
+    const approvalRequestId = stringPayload(payload, 'approvalRequestId');
+    if (
+      !active
+      || !approvalRequestId
+      || approvalRequestId.length > 200
+      || active.shellApprovalRecords.has(approvalRequestId)
+      || active.resolvedShellApprovalRequestIds.has(approvalRequestId)
+    ) return;
+    const requestedAction = shellAuthorizationAuditPayload(payload);
+    const executableAuditMismatches = shellAuthorizationExecutableAuditMismatches(payload, requestedAction);
+    if (executableAuditMismatches.length > 0) {
+      active.resolvedShellApprovalRequestIds.add(approvalRequestId);
+      this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'approval_event',
+        source: 'policy',
+        summary: 'Shell approval was not surfaced because its executable audit changed during safety projection.',
+        payload: {
+          approvalRequestId,
+          mismatchFields: executableAuditMismatches,
+          decision: 'denied',
+          reason: 'executable_audit_projection_mismatch'
+        },
+        vmContextId: context.vmContext.id,
+        modelVisible: false
+      });
+      this.onChange({ forceSnapshot: true });
+      this.stopActiveRun(active, 'safety_control');
+      return;
+    }
+    const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const approval = this.db.createApproval({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      requestKind: 'shell_command',
+      requestedAction: { approvalRequestId, runTitle, ...requestedAction },
+      decision: 'pending',
+      reason: 'Waiting for manual researcher approval before shell execution.',
+      pending: true
+    });
+    active.shellApprovalRecords.set(approvalRequestId, approval.id);
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'approval_event',
+      source: 'policy',
+      summary: 'Shell command is waiting for manual approval.',
+      payload: {
+        approvalId: approval.id,
+        approvalRequestId,
+        decision: 'pending',
+        ...requestedAction
+      },
+      approvalId: approval.id,
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange({ forceSnapshot: true });
+  }
+
+  private recordShellAuthorizationResolved(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent,
+    active: ActiveHoneycrispRun | undefined
+  ): void {
+    const payload = event.payload ?? {};
+    const approvalRequestId = stringPayload(payload, 'approvalRequestId');
+    const decision = stringPayload(payload, 'decision');
+    if (!approvalRequestId || approvalRequestId.length > 200 || (decision !== 'approved' && decision !== 'denied')) return;
+    if (active?.resolvedShellApprovalRequestIds.has(approvalRequestId)) return;
+    const reportedSource = stringPayload(payload, 'source');
+    const source = reportedSource === 'human' || reportedSource === 'small_model' || reportedSource === 'danger'
+      ? reportedSource
+      : 'unknown';
+    const reason = redactForModelText(stringPayload(payload, 'reason') ?? `${source} ${decision} the shell command.`).slice(0, 1_000);
+    const requestedAction = shellAuthorizationAuditPayload(payload);
+    const runTitle = (this.db.getRun(context.run.id)?.title ?? context.run.title).slice(0, 240);
+    const existingApprovalId = active?.shellApprovalRecords.get(approvalRequestId) ?? null;
+    const approval = existingApprovalId
+      ? this.db.updateApprovalDecision(existingApprovalId, context.run.id, decision, reason)
+      : this.db.createApproval({
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          requestKind: 'shell_command',
+          requestedAction: { approvalRequestId, runTitle, ...requestedAction },
+          decision,
+          reason
+        });
+    active?.shellApprovalRecords.delete(approvalRequestId);
+    if (active) this.clearShellApprovalDecisionInFlight(active, approvalRequestId);
+    active?.resolvedShellApprovalRequestIds.add(approvalRequestId);
+    this.db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'approval_event',
+      source: 'policy',
+      summary: `Shell command ${decision} by ${shellAuthorizationSourceLabel(source)}.`,
+      payload: {
+        approvalId: approval.id,
+        approvalRequestId,
+        decision,
+        source,
+        reason,
+        ...requestedAction
+      },
+      approvalId: approval.id,
+      vmContextId: context.vmContext.id,
+      modelVisible: false
+    });
+    this.onChange({ forceSnapshot: Boolean(existingApprovalId) });
   }
 
   private recordAgentContextCompaction(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
@@ -1325,9 +1635,12 @@ export class HoneycrispRunEngine {
     const processPayload = { code, signal, capturePath, stopReason: active.stopReason };
     if (active.stopped) {
       const timeLimitReached = active.stopReason === 'time_limit';
+      const safetyControlFailed = active.stopReason === 'safety_control';
       const stoppedSummary = timeLimitReached
         ? 'Honeycrisp host process stopped at the session time limit.'
-        : 'Honeycrisp host process was stopped by Beale.';
+        : safetyControlFailed
+          ? 'Honeycrisp host process stopped because a shell safety decision could not be confirmed.'
+          : 'Honeycrisp host process was stopped by Beale.';
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
@@ -1533,6 +1846,7 @@ export class HoneycrispRunEngine {
 
   private appendHoneycrispTimelineEvent(context: CreatedRunContext, event: HoneycrispCaptureEvent): void {
     const mapped = mapHoneycrispEvent(event.kind);
+    const shellToolEvent = isShellToolCaptureEvent(event);
     this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
@@ -1547,10 +1861,11 @@ export class HoneycrispRunEngine {
         honeycrispKind: event.kind ?? 'unknown',
         honeycrispSequence: event.sequence ?? null,
         honeycrispTimestamp: event.timestamp ?? null,
-        payload: event.payload ?? null,
+        payload: shellToolEvent ? sanitizedShellToolEventPayload(event.payload) : event.payload ?? null,
         artifactRefs: event.artifactRefs ?? null
       },
-      vmContextId: context.vmContext.id
+      vmContextId: context.vmContext.id,
+      ...(shellToolEvent ? { modelVisible: false } : {})
     });
   }
 
@@ -1750,8 +2065,13 @@ function honeycrispRunArgs(
   if (input.reasoningEffort.trim()) {
     args.push('--effort', input.reasoningEffort.trim());
   }
-  args.push('--tool-max-bytes', String(toolMaxBytes()));
   args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath));
+  // Keep Beale-owned safety settings after extension arguments so the host's
+  // persisted mode and reviewer assignment remain authoritative.
+  args.push('--shell-safety-mode', input.shellSafetyMode);
+  args.push('--shell-review-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
+  args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
+  args.push('--tool-max-bytes', String(toolMaxBytes()));
   return args;
 }
 
@@ -1761,6 +2081,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     : null;
   return {
     provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
+    shellSafetyMode: run.shellSafetyMode,
     goalEnabled: run.budget.goalEnabled === true,
     goalObjective: run.budget.goalEnabled === true
       ? resolveGoalObjective(persistedGoalObjective, run.promptMarkdown)
@@ -2277,6 +2598,151 @@ function isResearchModelSelection(value: unknown): value is ResearchModelSelecti
   return typeof value.provider === 'string'
     && typeof value.model === 'string'
     && typeof value.reasoningEffort === 'string';
+}
+
+function isShellSafetyMode(value: unknown): value is ShellSafetyMode {
+  return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
+}
+
+function isShellApprovalDecision(value: unknown): value is 'approved' | 'denied' {
+  return value === 'approved' || value === 'denied';
+}
+
+function isSafetyControlType(value: string): value is 'configure_shell_safety' | 'resolve_shell_approval' {
+  return value === 'configure_shell_safety' || value === 'resolve_shell_approval';
+}
+
+function shellAuthorizationAuditPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const command = recordValue(payload.command) ?? {};
+  const reviewer = recordValue(payload.reviewer);
+  const rawArgs = Array.isArray(command.args) ? command.args : [];
+  const audit = {
+    mode: boundedAuditString(payload.mode, 64),
+    actionId: boundedAuditString(payload.actionId, 256),
+    agentId: boundedAuditString(payload.agentId, 256),
+    agentPath: boundedAuditString(payload.agentPath, 1_024),
+    command: {
+      commandHash: boundedAuditString(command.commandHash, 128),
+      utility: boundedAuditString(command.utility, 2_048),
+      args: redactCommandArgumentsForModel(
+        rawArgs
+          .filter((value): value is string => typeof value === 'string')
+          .slice(0, 256)
+          .map((value) => value.slice(0, 2_048))
+      ),
+      cwd: boundedAuditString(command.cwd, 4_096),
+      timeoutMs: boundedAuditNumber(command.timeoutMs),
+      stdinPresent: command.stdinPresent === true,
+      stdinBytes: boundedAuditNumber(command.stdinBytes),
+      stdinHash: boundedAuditString(command.stdinHash, 128)
+    },
+    ...(reviewer
+      ? {
+          reviewer: {
+            provider: boundedAuditString(reviewer.provider, 128),
+            model: boundedAuditString(reviewer.model, 256),
+            reasoningEffort: boundedAuditString(reviewer.reasoningEffort, 64)
+          }
+        }
+      : {})
+  };
+  const redacted = redactJsonForModel(audit);
+  return recordValue(redacted) ?? {};
+}
+
+function shellAuthorizationExecutableAuditMismatches(
+  payload: Record<string, unknown>,
+  projectedAudit: Record<string, unknown>
+): string[] {
+  const rawCommand = recordValue(payload.command);
+  const projectedCommand = recordValue(projectedAudit.command);
+  if (!rawCommand || !projectedCommand) return ['command'];
+
+  const mismatches: string[] = [];
+  if (typeof rawCommand.utility !== 'string' || projectedCommand.utility !== rawCommand.utility) {
+    mismatches.push('utility');
+  }
+  if (typeof rawCommand.cwd !== 'string' || projectedCommand.cwd !== rawCommand.cwd) {
+    mismatches.push('cwd');
+  }
+
+  const rawArgs = rawCommand.args;
+  const projectedArgs = projectedCommand.args;
+  if (!Array.isArray(rawArgs) || !Array.isArray(projectedArgs)) {
+    mismatches.push('args');
+    return mismatches;
+  }
+  if (rawArgs.length !== projectedArgs.length) {
+    mismatches.push('arg_count');
+  }
+  if (
+    rawArgs.some((arg, index) => typeof arg !== 'string' || projectedArgs[index] !== arg)
+    || projectedArgs.some((arg) => typeof arg !== 'string')
+  ) {
+    mismatches.push('args');
+  }
+  return mismatches;
+}
+
+function boundedAuditString(value: unknown, maxChars: number): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxChars) : null;
+}
+
+function boundedAuditNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : null;
+}
+
+function shellAuthorizationSourceLabel(source: string): string {
+  if (source === 'human') return 'the researcher';
+  if (source === 'small_model') return 'Auto-Review';
+  if (source === 'danger') return 'Danger Mode';
+  return 'the shell safety policy';
+}
+
+function isShellToolCaptureEvent(event: HoneycrispCaptureEvent): boolean {
+  if (event.kind !== 'tool.requested' && event.kind !== 'tool.observed') return false;
+  const payload = recordValue(event.payload);
+  const toolName = payload ? stringPayload(payload, 'toolName') : null;
+  return toolName === 'shell.run' || toolName === 'shell_run';
+}
+
+function sanitizedShellToolEventPayload(value: unknown): Record<string, unknown> {
+  const payload = recordValue(value) ?? {};
+  const inputs = recordValue(payload.normalizedInputs) ?? {};
+  const stdin = typeof inputs.stdin === 'string' ? inputs.stdin : undefined;
+  const rawArgs = Array.isArray(inputs.args)
+    ? inputs.args.filter((item): item is string => typeof item === 'string')
+    : [];
+  const args = rawArgs.slice(0, 256);
+  const recordedArgCount = boundedAuditNumber(inputs.argCount);
+  const argCount = Math.max(recordedArgCount ?? 0, rawArgs.length);
+  const stdinPresent = stdin !== undefined || inputs.stdinPresent === true;
+  const stdinBytes = stdin === undefined
+    ? (boundedAuditNumber(inputs.stdinBytes) ?? 0)
+    : Buffer.byteLength(stdin, 'utf8');
+  const stdinHash = stdin === undefined
+    ? boundedAuditString(inputs.stdinHash, 128)
+    : `sha256:${createHash('sha256').update(stdin).digest('hex')}`;
+  const sanitizedInputs = {
+    utility: boundedAuditString(inputs.utility, 2_048),
+    args: redactCommandArgumentsForModel(args.map((arg) => arg.slice(0, 2_048))),
+    argCount,
+    argsTruncated:
+      inputs.argsTruncated === true ||
+      argCount > args.length ||
+      rawArgs.length > 256 ||
+      rawArgs.some((arg) => arg.length > 2_048),
+    cwd: boundedAuditString(inputs.cwd, 4_096),
+    timeoutMs: boundedAuditNumber(inputs.timeoutMs),
+    stdinPresent,
+    stdinBytes,
+    ...(stdinHash ? { stdinHash } : {})
+  };
+  return recordValue(redactJsonForModel({ ...payload, normalizedInputs: sanitizedInputs })) ?? {};
 }
 
 function honeycrispMockModeEnabled(): boolean {

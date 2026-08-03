@@ -14,7 +14,7 @@ import type {
 import { deriveGoalObjective, resolveGoalObjective } from '../../../shared/goalObjective';
 import { Modal } from '../../app/Modal';
 import { userFacingErrorMessage } from '../../lib/errors';
-import { networkProfileLabel } from '../../lib/formatting';
+import { networkProfileLabel, researchModelNameLabel } from '../../lib/formatting';
 import {
   clientRequestId,
   defaultRunInput,
@@ -585,7 +585,7 @@ export function SessionSettingsFields({
         Model
         <select value={selectedModel?.id ?? ''} disabled={!selectedModel} onChange={(event) => onSelectModel(event.target.value)}>
           {(providerOptions.find((provider) => provider.id === selectedProviderId)?.models ?? []).map((model) => (
-            <option value={model.id} key={model.id}>{modelOptionLabel(model)}</option>
+            <option value={model.id} key={model.id}>{modelOptionLabel(selectedProviderId, model)}</option>
           ))}
         </select>
       </label>
@@ -617,8 +617,9 @@ function providerDefaultModel(
   return statuses.find((provider) => provider.id === providerId)?.defaultModel ?? null;
 }
 
-function modelOptionLabel(model: ResearchProviderModel): string {
-  return model.name === model.id ? model.name : `${model.name} — ${model.id}`;
+function modelOptionLabel(providerId: ResearchModelProviderId, model: ResearchProviderModel): string {
+  const name = researchModelNameLabel(providerId, model.name);
+  return model.name === model.id ? name : `${name} — ${model.id}`;
 }
 
 function effortLevelFromInput(value: string): ResearchModelEffortLevel {

@@ -39,7 +39,9 @@ import { redactForModelText, redactJsonForModel } from './redaction';
 import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import { resolveGoalObjective } from '../shared/goalObjective';
+import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import type {
+  ApprovalRecord,
   AttemptRecord,
   ArtifactRecord,
   DeveloperSettings,
@@ -1249,13 +1251,21 @@ export class WorkspaceService {
   }
 
   public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): WorkspaceSnapshot {
-    if (input.runEngine === 'honeycrisp') {
-      this.requireHoneycrispEngine().startRun(input);
-    } else if (input.runEngine === 'fixture') {
+    const requestedShellSafetyMode = (input as { shellSafetyMode?: unknown }).shellSafetyMode;
+    if (requestedShellSafetyMode !== undefined && !isShellSafetyMode(requestedShellSafetyMode)) {
+      throw new Error(`Unsupported shell safety mode: ${String(requestedShellSafetyMode)}`);
+    }
+    const normalizedInput: StartRunInput = {
+      ...input,
+      shellSafetyMode: requestedShellSafetyMode ?? DEFAULT_SHELL_SAFETY_MODE
+    };
+    if (normalizedInput.runEngine === 'honeycrisp') {
+      this.requireHoneycrispEngine().startRun(normalizedInput);
+    } else if (normalizedInput.runEngine === 'fixture') {
       requireFixtureRunEngineEnabled();
-      this.requireFixtureEngine().startRun(input, mode);
+      this.requireFixtureEngine().startRun(normalizedInput, mode);
     } else {
-      throw new Error(`Unsupported research run engine: ${String(input.runEngine)}`);
+      throw new Error(`Unsupported research run engine: ${String(normalizedInput.runEngine)}`);
     }
     this.emitChangeNow();
     return this.requireSnapshot();
@@ -1455,7 +1465,21 @@ export class WorkspaceService {
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot {
-    const db = this.requireDb();
+    const foregroundRuntime = this.getForegroundRuntime();
+    if (!foregroundRuntime) throw new Error('No Beale workspace is open');
+    if (action.type === 'review_shell_command') {
+      if (typeof action.workspacePath !== 'string' || !action.workspacePath.trim()) {
+        throw new Error('Shell approval review requires an originating workspace path.');
+      }
+      const reviewRuntime = this.runtimeForWorkspacePath(action.workspacePath);
+      if (!reviewRuntime) {
+        throw new Error(`Originating workspace is no longer open: ${action.workspacePath}`);
+      }
+      this.dispatchShellApprovalReview(reviewRuntime, action);
+      this.emitRuntimeChange(reviewRuntime.workspacePath, { forceSnapshot: true });
+      return this.requireSnapshot();
+    }
+    const db = foregroundRuntime.db;
     const run = db.getRun(action.runId);
     if (!run) {
       throw new Error(`Run not found: ${action.runId}`);
@@ -1577,6 +1601,37 @@ export class WorkspaceService {
         }
         break;
       }
+      case 'set_shell_safety_mode': {
+        if (!isShellSafetyMode(action.shellSafetyMode)) {
+          throw new Error(`Unsupported shell safety mode: ${String(action.shellSafetyMode)}`);
+        }
+        const dispatch = runEngine === 'honeycrisp'
+          ? this.honeycrispEngine?.configureShellSafety(action.runId, action.shellSafetyMode) ?? null
+          : null;
+        if (runEngine === 'honeycrisp' && (run.status === 'active' || run.status === 'paused') && !dispatch) {
+          throw new Error(`Active Honeycrisp process not found for run ${action.runId}.`);
+        }
+        if (!dispatch) {
+          const updated = db.updateRunShellSafetyMode(action.runId, action.shellSafetyMode);
+          db.appendTraceEvent({
+            runId: action.runId,
+            attemptId: attempt?.id ?? null,
+            type: 'approval_event',
+            source: 'user',
+            summary: updated.shellSafetyMode === 'danger'
+              ? 'Danger Mode enabled for future shell commands.'
+              : `Shell safety mode changed to ${updated.shellSafetyMode}.`,
+            payload: {
+              shellSafetyMode: updated.shellSafetyMode,
+              acknowledgedByHoneycrisp: false,
+              inactiveSession: true,
+              explicitRiskAcceptance: updated.shellSafetyMode === 'danger'
+            },
+            modelVisible: false
+          });
+        }
+        break;
+      }
       case 'fork': {
         db.appendTraceEvent({
           runId: action.runId,
@@ -1591,6 +1646,7 @@ export class WorkspaceService {
           ? run.budget.goalObjective
           : null;
         const forkInput: StartRunInput = {
+          shellSafetyMode: run.shellSafetyMode === 'danger' ? DEFAULT_SHELL_SAFETY_MODE : run.shellSafetyMode,
           goalEnabled: run.budget.goalEnabled === true,
           goalObjective: run.budget.goalEnabled === true
             ? resolveGoalObjective(persistedGoalObjective, run.promptMarkdown)
@@ -1855,6 +1911,37 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
+  private dispatchShellApprovalReview(
+    runtime: WorkspaceRuntime,
+    action: Extract<SteeringAction, { type: 'review_shell_command' }>
+  ): void {
+    if (resolve(action.workspacePath) !== runtime.workspacePath) {
+      throw new Error('Shell approval workspace does not match the selected runtime.');
+    }
+    if (action.decision !== 'approved' && action.decision !== 'denied') {
+      throw new Error(`Unsupported shell approval decision: ${String(action.decision)}`);
+    }
+    const approval = runtime.db
+      .getRunDetail(action.runId)
+      .policyEvents.find((candidate) => candidate.id === action.approvalId);
+    if (!approval || approval.runId !== action.runId || approval.requestKind !== 'shell_command') {
+      throw new Error(`Pending shell approval not found for run ${action.runId}.`);
+    }
+    if (approval.decision !== 'pending' || approval.decidedAt !== null) {
+      throw new Error(`Shell approval ${action.approvalId} has already been decided.`);
+    }
+    const approvalRequestId = typeof approval.requestedAction.approvalRequestId === 'string'
+      ? approval.requestedAction.approvalRequestId.trim()
+      : '';
+    if (!approvalRequestId) throw new Error(`Shell approval ${action.approvalId} has no runtime request ID.`);
+    const dispatch = runtime.honeycrispEngine.resolveShellApproval(
+      action.runId,
+      approvalRequestId,
+      action.decision
+    );
+    if (!dispatch) throw new Error(`Honeycrisp is no longer waiting for shell approval ${action.approvalId}.`);
+  }
+
   public openNotification(notificationId: string): WorkspaceSnapshot {
     this.requireDb().markNotificationOpened(notificationId);
     this.emitChangeNow();
@@ -2063,12 +2150,19 @@ export class WorkspaceService {
     runtime.db.close();
   }
 
-  private emitRuntimeChange(workspacePath: string, change: { workspaceRegistryChanged?: boolean } = {}): void {
+  private emitRuntimeChange(
+    workspacePath: string,
+    change: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean } = {}
+  ): void {
     if (this.workspacePath === workspacePath) {
       const runtime = this.getForegroundRuntime();
       if (runtime && change.workspaceRegistryChanged) {
         this.syncWorkspaceRegistryForRuntime(runtime, false);
         this.onChange({ workspaceRegistryChanged: true });
+        return;
+      }
+      if (runtime && change.forceSnapshot) {
+        this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
         return;
       }
       if (runtime && this.hasActiveRuntimeWork(runtime)) {
@@ -2082,6 +2176,10 @@ export class WorkspaceService {
     }
     const runtime = this.backgroundRuntimes.get(workspacePath);
     if (runtime) {
+      if (change.forceSnapshot) {
+        this.onChange({ workspaceRegistryChanged: false });
+        return;
+      }
       if (change.workspaceRegistryChanged || !this.hasActiveRuntimeWork(runtime)) {
         this.syncWorkspaceRegistryForRuntime(runtime, false);
         this.onChange({ workspaceRegistryChanged: true });
@@ -2164,8 +2262,35 @@ export class WorkspaceService {
       recovery: runtime.lastRecovery ?? emptyRecoveryReport(runtime.openedAt),
       policyReview: this.profileMainTiming('snapshot.policyReview', detail, () => buildPolicyReview(activeScope)),
       runs: this.profileMainTiming('snapshot.runs', detail, () => runtime.db.listRunRows()),
+      pendingShellApprovals: this.profileMainTiming(
+        'snapshot.pendingShellApprovals',
+        detail,
+        () => this.pendingShellApprovalsForSnapshot(runtime)
+      ),
       notifications: this.profileMainTiming('snapshot.notifications', detail, () => runtime.db.listNotifications())
     };
+  }
+
+  private pendingShellApprovalsForSnapshot(runtime: WorkspaceRuntime): ApprovalRecord[] {
+    const approvals = this.pendingShellApprovalsForRuntime(runtime);
+    const foreground = this.getForegroundRuntime();
+    if (foreground?.workspacePath !== runtime.workspacePath) return approvals;
+    for (const background of this.backgroundRuntimes.values()) {
+      approvals.push(...this.pendingShellApprovalsForRuntime(background));
+    }
+    return approvals.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  private pendingShellApprovalsForRuntime(runtime: WorkspaceRuntime): ApprovalRecord[] {
+    const workspaceName = runtime.db.getActiveScope().workspaceName;
+    return runtime.db.listPendingShellApprovals().map((approval) => ({
+      ...approval,
+      requestedAction: {
+        ...approval.requestedAction,
+        workspaceName,
+        workspacePath: runtime.workspacePath
+      }
+    }));
   }
 
   private getWorkspaceSummary(runtime = this.getForegroundRuntime()): WorkspaceSummary {
@@ -4145,6 +4270,10 @@ function fixtureScenarioFromBudget(budget: Record<string, unknown>): FixtureScen
     return value;
   }
   return 'multi_branch_trace';
+}
+
+function isShellSafetyMode(value: unknown): value is StartRunInput['shellSafetyMode'] {
+  return value === 'manual_approval' || value === 'auto_review' || value === 'danger';
 }
 
 function requireFixtureRunEngineEnabled(): void {

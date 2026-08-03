@@ -442,6 +442,7 @@ describe('Beale workbench skeleton', () => {
       scopeVersionId: first.getActiveScope().id,
       title: 'Zsh session',
       promptMarkdown: 'Inspect Zsh.',
+      shellSafetyMode: 'auto_review',
       mode: 'open_discovery',
       model: 'gpt-5.6-sol',
       reasoningEffort: 'high',
@@ -502,6 +503,8 @@ describe('Beale workbench skeleton', () => {
     const workspace = tempWorkspace();
     const service = new WorkspaceService();
     const snapshot = service.createWorkspace(workspace);
+    const runSnapshot = startRunForTest(service, runInput('source_review'));
+    const runId = runSnapshot.runs[0]?.run.id ?? '';
     service.close();
 
     const database = new DatabaseSync(globalDatabasePath());
@@ -509,7 +512,8 @@ describe('Beale workbench skeleton', () => {
     database
       .prepare('INSERT OR REPLACE INTO workspace_meta (key, value, updated_at) VALUES (?, ?, ?)')
       .run(metadataKey, JSON.stringify({ enabled: true }), new Date().toISOString());
-    database.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 9").run();
+    database.exec('ALTER TABLE runs DROP COLUMN shell_safety_mode;');
+    database.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 9").run();
     database.close();
 
     const reopened = new WorkspaceService();
@@ -521,6 +525,17 @@ describe('Beale workbench skeleton', () => {
     expect(migrated.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 9").get()).toEqual({
       name: 'remove_ham_mode_state'
     });
+    expect(migrated.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 10").get()).toEqual({
+      name: 'session_shell_safety_modes'
+    });
+    expect(migrated.prepare('SELECT shell_safety_mode FROM runs WHERE id = ?').get(runId)).toEqual({
+      shell_safety_mode: 'auto_review'
+    });
+    expect(
+      (migrated.prepare('PRAGMA table_info(runs)').all() as Array<{ name: string; notnull: number; dflt_value: string | null }>)
+        .find((column) => column.name === 'shell_safety_mode')
+    ).toMatchObject({ notnull: 1, dflt_value: "'auto_review'" });
+    expect(() => migrated.prepare("UPDATE runs SET shell_safety_mode = 'unsafe' WHERE id = ?").run(runId)).toThrow(/CHECK constraint failed/);
     migrated.close();
   });
 
@@ -612,6 +627,10 @@ describe('Beale workbench skeleton', () => {
         "if (args[args.indexOf('--provider') + 1] !== 'xai') throw new Error('missing xAI provider');",
         "if (args[args.indexOf('--title-model') + 1] !== 'grok-4.3') throw new Error('missing xAI title model');",
         "if (args[args.indexOf('--title-effort') + 1] !== 'medium') throw new Error('missing title effort');",
+        "if (args[args.indexOf('--shell-safety-mode') + 1] !== 'auto_review') throw new Error('missing default shell safety mode');",
+        "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
+        "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4.3') throw new Error('missing provider small-model map');",
+        "if (args[args.indexOf('--shell-review-effort') + 1] !== 'medium') throw new Error('missing shell review effort');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
@@ -715,6 +734,16 @@ describe('Beale workbench skeleton', () => {
     await waitForCondition(() => service.getSnapshot()?.runs[0]?.run.status === 'completed', 5000);
 
     const detail = service.getRunDetail(runId ?? '');
+    const launchArgs = (detail.traceEvents.find((event) => event.summary === 'Honeycrisp host process launched.')?.payload as {
+      args?: string[];
+    } | undefined)?.args ?? [];
+    expect(launchArgs[launchArgs.indexOf('--shell-safety-mode') + 1]).toBe('auto_review');
+    expect(JSON.parse(launchArgs[launchArgs.indexOf('--shell-review-models') + 1] ?? '{}')).toEqual({
+      'openai-codex': 'gpt-5.6-luna',
+      anthropic: 'claude-haiku-4-5',
+      xai: 'grok-4.3'
+    });
+    expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
     expect(detail.run.title).toBe('Zsh Host Adapter Validation');
     expect(detail.run.finalDisposition).toEqual({
       outcome: 'blocked',
@@ -1018,6 +1047,246 @@ describe('Beale workbench skeleton', () => {
       expect(
         service.getRunDetail(runId).traceEvents.find((event) => event.summary === 'Honeycrisp acknowledged resume control.')?.payload
       ).toMatchObject({ accepted: true, matchedPendingControl: true, controlRequestId: controls[1]?.requestId });
+    } finally {
+      service.close();
+    }
+  });
+
+  it('gates manual shell approval and persists Danger Mode only after Honeycrisp acknowledges it', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-shell-safety-honeycrisp.mjs');
+    const controlLogPath = join(workspace, 'shell-safety-controls.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [controlLogPath, ...args] = process.argv.slice(2);',
+        "if (!args.includes('--control-stream')) throw new Error('missing --control-stream');",
+        "if (args[args.indexOf('--shell-safety-mode') + 1] !== 'manual_approval') throw new Error('missing manual shell safety mode');",
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        "const emit = (payload) => console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload }));",
+        "const emitResearch = (event) => console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: new Date().toISOString(), payload: { event } }));",
+        "const command = { commandHash: 'sha256:fixture', utility: 'rm', args: ['-r', '/tmp/beale-safe-fixture'], cwd: '/tmp', timeoutMs: 1000, stdinPresent: false, stdinBytes: 0 };",
+        "emitResearch({ id: 'shell_tool_request_fixture', sequence: 1, kind: 'tool.requested', timestamp: new Date().toISOString(), summary: 'Requested shell.run.', payload: { toolName: 'shell.run', normalizedInputs: { utility: 'bash', args: ['--password', 'split-shell-secret'], cwd: '/tmp', timeoutMs: 1000, stdin: 'raw-shell-stdin-secret' } } });",
+        "setTimeout(() => emit({ type: 'shell_authorization_requested', approvalRequestId: 'shell_request_fixture', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command, rawStdin: 'must-not-be-persisted' }), 40);",
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', (chunk) => {",
+        '  buffer += chunk;',
+        "  let newlineIndex = buffer.indexOf('\\n');",
+        '  while (newlineIndex !== -1) {',
+        "    const line = buffer.slice(0, newlineIndex).replace(/\\r$/, '');",
+        '    buffer = buffer.slice(newlineIndex + 1);',
+        '    const message = JSON.parse(line);',
+        "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'configure_shell_safety') {",
+        "      setTimeout(() => emit({ eventType: 'control.received', type: message.type, accepted: true, requestId: message.requestId }), 250);",
+        '    }',
+        "    if (message.type === 'resolve_shell_approval') {",
+        "      emit({ eventType: 'control.received', type: message.type, accepted: true, requestId: message.requestId });",
+        '      setTimeout(() => {',
+        "        emit({ type: 'shell_authorization_resolved', approvalRequestId: message.approvalRequestId, decision: message.decision, source: 'human', reason: 'Approved by the fixture researcher.', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command });",
+        "        emit({ type: 'shell_authorization_resolved', approvalRequestId: message.approvalRequestId, decision: 'denied', source: 'human', reason: 'Contradictory replay must be ignored.', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command });",
+        '        const now = new Date().toISOString();',
+        "        writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Shell safety fixture' }, agent: { id: 'agent_shell_safety', status: 'complete', executorName: 'shell-safety-fixture', startedAt: now, completedAt: now, outputText: 'Shell safety decision received.' }, eventTimeline: [] }) + '\\n');",
+        '        setTimeout(() => process.exit(0), 30);',
+        '      }, 150);',
+        '    }',
+        "    newlineIndex = buffer.indexOf('\\n');",
+        '  }',
+        '});',
+        'process.stdin.resume();'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        shellSafetyMode: 'manual_approval',
+        provider: 'openai-codex',
+        promptMarkdown: '# Shell safety fixture'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getSnapshot()?.pendingShellApprovals.length === 1, 5000);
+      expect(existsSync(controlLogPath)).toBe(false);
+      const pendingApproval = service.getSnapshot()?.pendingShellApprovals[0];
+      expect(pendingApproval).toMatchObject({
+        runId,
+        requestKind: 'shell_command',
+        decision: 'pending',
+        decidedAt: null,
+        requestedAction: {
+          approvalRequestId: 'shell_request_fixture',
+          workspaceName: 'Untitled Workspace',
+          workspacePath: workspace,
+          mode: 'manual_approval',
+          command: {
+            utility: 'rm',
+            args: ['-r', '/tmp/beale-safe-fixture'],
+            stdinPresent: false,
+            stdinBytes: 0
+          }
+        }
+      });
+      expect(JSON.stringify(pendingApproval)).not.toContain('must-not-be-persisted');
+      const pendingDetail = service.getRunDetail(runId);
+      expect(pendingDetail.policyEvents).toHaveLength(1);
+      const shellRequestTrace = pendingDetail.traceEvents.find(
+        (event) => event.payload.honeycrispEventId === 'shell_tool_request_fixture'
+      );
+      expect(shellRequestTrace?.modelVisible).toBe(false);
+      expect(JSON.stringify(shellRequestTrace?.payload)).not.toMatch(/split-shell-secret|raw-shell-stdin-secret/);
+      expect(shellRequestTrace?.payload).toMatchObject({
+        payload: {
+          normalizedInputs: {
+            utility: 'bash',
+            args: ['--password', '...redacted'],
+            stdinPresent: true,
+            stdinBytes: 22
+          }
+        }
+      });
+
+      const unacknowledgedSnapshot = service.steerRun({
+        type: 'set_shell_safety_mode',
+        runId,
+        shellSafetyMode: 'danger'
+      });
+      expect(unacknowledgedSnapshot.runs.find((row) => row.run.id === runId)?.run.shellSafetyMode).toBe('manual_approval');
+      await waitForCondition(() => existsSync(controlLogPath));
+      expect(service.getRunDetail(runId).run.shellSafetyMode).toBe('manual_approval');
+      await waitForCondition(() => service.getRunDetail(runId).run.shellSafetyMode === 'danger', 5000);
+
+      const approvalId = pendingApproval?.id ?? '';
+      const foregroundWorkspace = tempWorkspace();
+      const switched = service.createWorkspace(foregroundWorkspace);
+      expect(switched.workspace.workspacePath).toBe(foregroundWorkspace);
+      expect(switched.pendingShellApprovals).toMatchObject([{ id: approvalId, runId }]);
+      service.steerRun({ type: 'review_shell_command', workspacePath: workspace, runId, approvalId, decision: 'approved' });
+      service.steerRun({ type: 'review_shell_command', workspacePath: workspace, runId, approvalId, decision: 'approved' });
+      expect(() => service.steerRun({ type: 'review_shell_command', workspacePath: workspace, runId, approvalId, decision: 'denied' })).toThrow(
+        /conflicting decision in flight/
+      );
+
+      await waitForCondition(
+        () => readFileSync(controlLogPath, 'utf8').trim().split('\n').filter(Boolean).length === 2,
+        5000
+      );
+      const controls = readFileSync(controlLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(controls).toHaveLength(2);
+      expect(controls[0]).toMatchObject({ type: 'configure_shell_safety', shellSafetyMode: 'danger' });
+      expect(controls[1]).toMatchObject({
+        type: 'resolve_shell_approval',
+        approvalRequestId: 'shell_request_fixture',
+        decision: 'approved'
+      });
+      expect(controls.every((control) => /^control_[0-9a-f-]+$/i.test(String(control.requestId ?? '')))).toBe(true);
+
+      await waitForCondition(() => service.getSnapshot()?.pendingShellApprovals.length === 0, 5000);
+      service.openWorkspace(workspace);
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+      const detail = service.getRunDetail(runId);
+      const shellApprovals = detail.policyEvents.filter((event) => event.requestKind === 'shell_command');
+      expect(shellApprovals).toHaveLength(1);
+      expect(shellApprovals[0]).toMatchObject({ id: approvalId, decision: 'approved', reason: 'Approved by the fixture researcher.' });
+      expect(detail.run.shellSafetyMode).toBe('danger');
+      expect(service.getSnapshot()?.pendingShellApprovals).toEqual([]);
+      expect(
+        detail.traceEvents.find((event) => event.summary === 'Honeycrisp acknowledged configure_shell_safety control.')?.payload
+      ).toMatchObject({ accepted: true, matchedPendingControl: true, controlRequestId: controls[0]?.requestId });
+      expect(detail.traceEvents.filter((event) => event.summary === 'Shell command approved by the researcher.')).toHaveLength(1);
+      expect(detail.traceEvents.some((event) => event.summary === 'Shell command denied by the researcher.')).toBe(false);
+    } finally {
+      service.close();
+    }
+  });
+
+  it('stops fail closed instead of surfacing a shell approval whose argv is redacted', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-redacted-shell-approval-honeycrisp.mjs');
+    const controlLogPath = join(workspace, 'redacted-shell-approval-controls.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync } from 'node:fs';",
+        'const [controlLogPath] = process.argv.slice(2);',
+        "const emit = (payload) => console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload }));",
+        "const command = { commandHash: 'sha256:redacted-fixture', utility: 'curl', args: ['--token', 'shell-secret-value-123456789'], cwd: '/tmp', timeoutMs: 1000, stdinPresent: false, stdinBytes: 0 };",
+        "setTimeout(() => emit({ type: 'shell_authorization_requested', approvalRequestId: 'shell_request_redacted_fixture', mode: 'manual_approval', actionId: 'action_redacted_fixture', agentId: 'root', agentPath: '/root', command }), 40);",
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', (chunk) => {",
+        '  buffer += chunk;',
+        "  let newlineIndex = buffer.indexOf('\\n');",
+        '  while (newlineIndex !== -1) {',
+        "    const line = buffer.slice(0, newlineIndex).replace(/\\r$/, '');",
+        '    buffer = buffer.slice(newlineIndex + 1);',
+        '    const message = JSON.parse(line);',
+        "    appendFileSync(controlLogPath, JSON.stringify(message) + '\\n');",
+        "    if (message.type === 'stop') setImmediate(() => process.exit(0));",
+        "    newlineIndex = buffer.indexOf('\\n');",
+        '  }',
+        '});',
+        'process.stdin.resume();'
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, controlLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const started = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        shellSafetyMode: 'manual_approval',
+        provider: 'openai-codex',
+        promptMarkdown: '# Redacted shell approval fixture'
+      });
+      const runId = started.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'stopped', 5000);
+      const detail = service.getRunDetail(runId);
+      expect(detail.policyEvents).toEqual([]);
+      expect(service.getSnapshot()?.pendingShellApprovals).toEqual([]);
+      const safetyTrace = detail.traceEvents.find(
+        (event) => event.summary === 'Shell approval was not surfaced because its executable audit changed during safety projection.'
+      );
+      expect(safetyTrace).toMatchObject({
+        source: 'policy',
+        modelVisible: false,
+        approvalId: null,
+        payload: {
+          approvalRequestId: 'shell_request_redacted_fixture',
+          mismatchFields: ['args'],
+          decision: 'denied',
+          reason: 'executable_audit_projection_mismatch'
+        }
+      });
+      expect(JSON.stringify(detail)).not.toContain('shell-secret-value-123456789');
+      const controls = readFileSync(controlLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(controls.map((control) => control.type)).toEqual(['stop']);
+      expect(controls.some((control) => control.type === 'resolve_shell_approval')).toBe(false);
+      expect(detail.run.summary).toBe('Honeycrisp host process stopped because a shell safety decision could not be confirmed.');
     } finally {
       service.close();
     }
@@ -3292,6 +3561,7 @@ describe('Beale workbench skeleton', () => {
       scopeVersionId: db.getActiveScope().id,
       title: 'Verifier failure run',
       promptMarkdown: '# Verifier failure run',
+      shellSafetyMode: 'auto_review',
       mode: 'open_discovery',
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
@@ -3474,6 +3744,7 @@ async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise
 function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunInput {
   return {
     runEngine: 'fixture',
+    shellSafetyMode: 'auto_review',
     goalEnabled: false,
     goalObjective: null,
     promptMarkdown: '# Test run\nExercise the fixture workbench path.',

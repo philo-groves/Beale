@@ -137,6 +137,8 @@ Live OpenAI tests are opt-in because they require local credentials.
 
 Beale does not create a managed execution sandbox. Honeycrisp runs with the current user's host privileges and persists durable artifacts through its storage/memory layout. If a research target needs OS isolation, launch Beale and Honeycrisp inside the VM, container, or lab environment you want to use.
 
+Each research session has a shell safety mode in the steering composer. Auto-Review is the default and asks the active provider's assigned small model to review every normalized shell command before execution. Manual Approval waits for the researcher to approve or deny every command, while Danger Mode skips per-command review. Manual Approval denies commands with non-empty stdin, oversized command tuples, or executable fields that require redaction instead of presenting an incomplete or altered command for approval. All three modes retain Honeycrisp's hard shell guards; none provides process isolation or reduces the privileges of commands that are allowed to run.
+
 ---
 
 ## Model Provider Notes

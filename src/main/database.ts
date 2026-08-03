@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import { MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
+import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import type {
   ApprovalRecord,
   ArtifactRecord,
@@ -40,6 +41,7 @@ import type {
   RunStatus,
   ScopeAsset,
   ScopeAssetInput,
+  ShellSafetyMode,
   SessionBlockerDependency,
   SessionBlockerDependencyKind,
   SessionFinalDisposition,
@@ -143,6 +145,7 @@ export interface CreateApprovalInput {
   requestedAction: Record<string, unknown>;
   decision: string;
   reason: string;
+  pending?: boolean;
   scopeAmendmentId?: string | null;
 }
 
@@ -205,6 +208,7 @@ export interface StartRunRecordInput {
   scopeVersionId: string;
   title: string;
   promptMarkdown: string;
+  shellSafetyMode: ShellSafetyMode;
   mode: string;
   model: string;
   reasoningEffort: string;
@@ -3681,6 +3685,13 @@ export class WorkspaceDatabase {
         .prepare("SELECT v.id, v.result_json, v.status FROM verifier_runs v JOIN runs r ON r.id = v.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND v.status IN ('queued', 'running')")
         .all(this.workspaceId)
     );
+    const interruptedApprovalRows = rows(
+      this.db
+        .prepare(
+          "SELECT p.id FROM approvals p JOIN runs r ON r.id = p.run_id JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? AND p.request_kind = 'shell_command' AND p.decision = 'pending' AND p.decided_at IS NULL"
+        )
+        .all(this.workspaceId)
+    );
     const interruptedVmRows = rows(
       this.db
         .prepare(
@@ -3713,7 +3724,8 @@ export class WorkspaceDatabase {
       report.interruptedModelSessions +
       report.interruptedToolCalls +
       report.interruptedVerifierRuns +
-      report.interruptedVmContexts;
+      report.interruptedVmContexts +
+      interruptedApprovalRows.length;
     if (total === 0) {
       report.notes.push('No interrupted authoritative state found.');
       this.setMetaValue('last_recovery_json', JSON.stringify(report), recoveredAt);
@@ -3723,6 +3735,9 @@ export class WorkspaceDatabase {
     report.notes.push('Interrupted active work was paused or marked for review on workspace open.');
     if (report.interruptedVmContexts > 0) {
       report.notes.push('VM contexts that were not known destroyed were marked recovery_pending for user review.');
+    }
+    if (interruptedApprovalRows.length > 0) {
+      report.notes.push(`${interruptedApprovalRows.length} pending shell approval request${interruptedApprovalRows.length === 1 ? '' : 's'} denied during recovery.`);
     }
     this.transaction(() => {
       for (const row of interruptedRunRows) {
@@ -3769,6 +3784,11 @@ export class WorkspaceDatabase {
         this.db
           .prepare('UPDATE verifier_runs SET status = ?, result_json = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?')
           .run('error', toJson(result), recoveredAt, text(row, 'id'));
+      }
+      for (const row of interruptedApprovalRows) {
+        this.db
+          .prepare("UPDATE approvals SET decision = 'denied', reason = ?, decided_at = ? WHERE id = ? AND decision = 'pending' AND decided_at IS NULL")
+          .run('Shell approval denied because the prior Honeycrisp process was interrupted.', recoveredAt, text(row, 'id'));
       }
       for (const row of interruptedVmRows) {
         const metadata = {
@@ -3910,14 +3930,15 @@ export class WorkspaceDatabase {
       this.db
         .prepare(
           `INSERT INTO runs (
-            id, scope_version_id, mode, status, title, prompt_markdown, model, reasoning_effort,
+            id, scope_version_id, shell_safety_mode, mode, status, title, prompt_markdown, model, reasoning_effort,
             attempt_strategy, network_profile, sandbox_profile, target_asset_id, target_path,
             budget_json, summary, created_at, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           runId,
           input.scopeVersionId,
+          input.shellSafetyMode,
           input.mode,
           'active',
           input.title,
@@ -4381,6 +4402,16 @@ export class WorkspaceDatabase {
     return updated;
   }
 
+  public updateRunShellSafetyMode(runId: string, shellSafetyMode: ShellSafetyMode): RunRecord {
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    this.db.prepare('UPDATE runs SET shell_safety_mode = ? WHERE id = ?').run(shellSafetyMode, runId);
+    const updated = this.getRun(runId);
+    if (!updated) throw new Error(`Run not found after shell safety mode update: ${runId}`);
+    this.indexRunSearchDocument(updated);
+    return updated;
+  }
+
   public updateRunBudget(runId: string, budgetPatch: Partial<StartRunInput['budget']>): RunRecord {
     const run = this.getRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
@@ -4837,15 +4868,48 @@ export class WorkspaceDatabase {
         input.attemptId ?? null,
         input.requestKind,
         toJson(input.requestedAction),
-        input.decision,
+        input.pending ? 'pending' : input.decision,
         input.reason,
         input.scopeAmendmentId ?? null,
         createdAt,
-        createdAt
+        input.pending ? null : createdAt
       );
     const approval = this.getApproval(id);
     if (!approval) throw new Error('Failed to create approval');
     return approval;
+  }
+
+  public updateApprovalDecision(approvalId: string, runId: string, decision: string, reason: string): ApprovalRecord {
+    const decidedAt = nowIso();
+    const result = this.db
+      .prepare("UPDATE approvals SET decision = ?, reason = ?, decided_at = ? WHERE id = ? AND run_id = ? AND decision = 'pending' AND decided_at IS NULL")
+      .run(decision, reason, decidedAt, approvalId, runId);
+    if (result.changes === 0) {
+      const existing = this.getApproval(approvalId);
+      if (!existing || existing.runId !== runId) throw new Error(`Approval not found for run ${runId}: ${approvalId}`);
+      if (existing.decision !== decision) throw new Error(`Approval ${approvalId} has already been decided.`);
+      return existing;
+    }
+    const approval = this.getApproval(approvalId);
+    if (!approval) throw new Error(`Approval not found: ${approvalId}`);
+    return approval;
+  }
+
+  public listPendingShellApprovals(): ApprovalRecord[] {
+    return rows(
+      this.db
+        .prepare(
+          `SELECT p.* FROM approvals p
+           JOIN runs r ON r.id = p.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?
+             AND p.request_kind = 'shell_command'
+             AND p.decision = 'pending'
+             AND p.decided_at IS NULL
+           ORDER BY p.created_at ASC`
+        )
+        .all(this.workspaceId)
+    ).map((row) => this.mapApproval(row));
   }
 
   public listRunRows(): RunRow[] {
@@ -6821,6 +6885,7 @@ export class WorkspaceDatabase {
         run.title,
         run.summary,
         run.mode,
+        run.shellSafetyMode,
         run.model,
         run.reasoningEffort,
         run.attemptStrategy,
@@ -7461,6 +7526,15 @@ export class WorkspaceDatabase {
         name: 'remove_ham_mode_state',
         up: (database) => {
           database.prepare("DELETE FROM workspace_meta WHERE key = 'ham_mode_state_json' OR key LIKE '%:ham_mode_state_json'").run();
+        }
+      },
+      {
+        version: 10,
+        name: 'session_shell_safety_modes',
+        up: (database) => {
+          if (!tableHasColumn(database, 'runs', 'shell_safety_mode')) {
+            database.exec("ALTER TABLE runs ADD COLUMN shell_safety_mode TEXT NOT NULL DEFAULT 'auto_review' CHECK (shell_safety_mode IN ('manual_approval', 'auto_review', 'danger'));");
+          }
         }
       }
     ]);
@@ -9352,6 +9426,7 @@ export class WorkspaceDatabase {
     return {
       id: text(row, 'id'),
       scopeVersionId: text(row, 'scope_version_id'),
+      shellSafetyMode: normalizeShellSafetyMode(text(row, 'shell_safety_mode')),
       mode: text(row, 'mode'),
       status: text(row, 'status') as RunStatus,
       title: text(row, 'title'),
@@ -9898,6 +9973,7 @@ CREATE TABLE IF NOT EXISTS scope_assets (
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
+  shell_safety_mode TEXT NOT NULL DEFAULT 'auto_review' CHECK (shell_safety_mode IN ('manual_approval', 'auto_review', 'danger')),
   mode TEXT NOT NULL,
   status TEXT NOT NULL,
   title TEXT NOT NULL,
