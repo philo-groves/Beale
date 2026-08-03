@@ -35,6 +35,13 @@ describe('renderer memory catalog', () => {
       currentSession,
       priorSession
     ]);
+    expect(filterRunbookCatalog(runbooks, 'workspace', 'run_current', 'workspace_zsh', 'prior')).toEqual([
+      priorSession
+    ]);
+    expect(filterRunbookCatalog(runbooks, 'workspace', 'run_current', 'workspace_zsh', 'runbook purpose')).toEqual([
+      currentSession,
+      priorSession
+    ]);
   });
 
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {

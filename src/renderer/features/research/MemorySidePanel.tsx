@@ -17,7 +17,7 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
-import { subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
+import { filterSubagentSummaries, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -143,6 +143,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const runIdRef = useRef(runId);
   const [query, setQuery] = useState('');
+  const [runbookQuery, setRunbookQuery] = useState('');
+  const [subagentQuery, setSubagentQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>(DEFAULT_MEMORY_LEVEL_FILTER);
   const [runbookScope, setRunbookScope] = useState<RunbookScopeFilter>(DEFAULT_RUNBOOK_SCOPE_FILTER);
   const [type, setType] = useState('all');
@@ -171,6 +173,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const subagents = useMemo(() => subagentSummaries(events, runStatus, chatView), [chatView, events, runStatus]);
+  const filteredSubagents = useMemo(
+    () => filterSubagentSummaries(subagents, subagentQuery),
+    [subagentQuery, subagents]
+  );
   const selectedSubagentName = subagentDisplayName(selectedSubagentPath
     ? subagents.find((subagent) => subagent.path === selectedSubagentPath)?.name
       ?? selectedSubagentPath.split('/').filter(Boolean).at(-1)
@@ -190,8 +196,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
   const filteredRunbooks = useMemo(
-    () => filterRunbookCatalog(runbooks, runbookScope, runId, workspaceId),
-    [runbookScope, runbooks, runId, workspaceId]
+    () => filterRunbookCatalog(runbooks, runbookScope, runId, workspaceId, runbookQuery),
+    [runbookQuery, runbookScope, runbooks, runId, workspaceId]
   );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
@@ -426,40 +432,48 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             ) : null}
           </>
         ) : activeView === 'runbooks' ? (
-          filteredRunbooks.length > 0 ? (
-            <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
-              {filteredRunbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
-            </MainSideScrollRegion>
-          ) : (
-            <div className="memory-catalog-empty">No runbooks in this {runbookScope}.</div>
-          )
-        ) : subagents.length > 0 ? (
-          <MainSideScrollRegion
-            listClassName="subagent-catalog-list"
-            stickToEnd
-            updateKey={subagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
-          >
-            {subagents.map((agent) => (
-              <button
-                type="button"
-                className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
-                aria-pressed={selectedSubagentPath === agent.path}
-                key={agent.path}
-                onClick={() => onSelectSubagent(agent.path)}
-              >
-                <span className="subagent-catalog-heading">
-                  <span className="subagent-catalog-labels">
-                    <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{subagentDisplayName(agent.name)}</strong>
-                    <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
-                  </span>
-                  <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
-                </span>
-                <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
-              </button>
-            ))}
-          </MainSideScrollRegion>
+          <>
+            <CatalogSearch value={runbookQuery} placeholder="Find a Runbook" ariaLabel="Search runbooks" onChange={setRunbookQuery} />
+            {filteredRunbooks.length > 0 ? (
+              <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
+                {filteredRunbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
+              </MainSideScrollRegion>
+            ) : (
+              <div className="memory-catalog-empty">{runbookQuery.trim() ? 'No runbooks match this search.' : `No runbooks in this ${runbookScope}.`}</div>
+            )}
+          </>
         ) : (
-          <div className="memory-catalog-empty">No subagents in this session.</div>
+          <>
+            <CatalogSearch value={subagentQuery} placeholder="Find a Subagent" ariaLabel="Search subagents" onChange={setSubagentQuery} />
+            {filteredSubagents.length > 0 ? (
+              <MainSideScrollRegion
+                listClassName="subagent-catalog-list"
+                stickToEnd
+                updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+              >
+                {filteredSubagents.map((agent) => (
+                  <button
+                    type="button"
+                    className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
+                    aria-pressed={selectedSubagentPath === agent.path}
+                    key={agent.path}
+                    onClick={() => onSelectSubagent(agent.path)}
+                  >
+                    <span className="subagent-catalog-heading">
+                      <span className="subagent-catalog-labels">
+                        <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{subagentDisplayName(agent.name)}</strong>
+                        <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
+                      </span>
+                      <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+                    </span>
+                    <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
+                  </button>
+                ))}
+              </MainSideScrollRegion>
+            ) : (
+              <div className="memory-catalog-empty">{subagentQuery.trim() ? 'No subagents match this search.' : 'No subagents in this session.'}</div>
+            )}
+          </>
         )}
       </aside>
       {selectedNode ? (
@@ -478,10 +492,55 @@ export function filterRunbookCatalog(
   runbooks: readonly HoneycrispRunbookSummary[],
   scope: RunbookScopeFilter,
   sessionId: string,
-  workspaceId: string | null
+  workspaceId: string | null,
+  query = ''
 ): HoneycrispRunbookSummary[] {
-  if (scope === 'session') return runbooks.filter((runbook) => runbook.sessionId === sessionId);
-  return workspaceId === null ? [] : runbooks.filter((runbook) => runbook.workspaceId === workspaceId);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return runbooks.filter((runbook) => {
+    const inScope = scope === 'session'
+      ? runbook.sessionId === sessionId
+      : workspaceId !== null && runbook.workspaceId === workspaceId;
+    if (!inScope || !normalizedQuery) return inScope;
+    return [
+      runbook.id,
+      runbook.title,
+      runbook.purpose,
+      runbook.status,
+      runbook.workspaceId,
+      runbook.workspaceName,
+      runbook.subjectId ?? '',
+      runbook.subjectName ?? '',
+      runbook.sessionId ?? '',
+      runbook.artifactId
+    ].join('\n').toLocaleLowerCase().includes(normalizedQuery);
+  });
+}
+
+function CatalogSearch({
+  value,
+  placeholder,
+  ariaLabel,
+  onChange
+}: {
+  value: string;
+  placeholder: string;
+  ariaLabel: string;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <div className="memory-catalog-controls">
+      <div className="memory-catalog-search search-only">
+        <Search size={14} aria-hidden="true" />
+        <input
+          type="search"
+          value={value}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+    </div>
+  );
 }
 
 export function ResearchSideNestedHeader({

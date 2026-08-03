@@ -2346,7 +2346,7 @@ button.session-summary-item:hover:not(:disabled),
 
 .memory-catalog.view-subagents,
 .memory-catalog.view-runbooks {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .memory-catalog.has-nested-view {
@@ -2540,6 +2540,7 @@ button.session-summary-item:hover:not(:disabled),
   display: flex;
   align-items: center;
   margin-left: auto;
+  padding-right: 9px;
 }
 
 .research-side-view-picker-trigger {
@@ -2634,6 +2635,10 @@ button.session-summary-item:hover:not(:disabled),
   background: var(--panel);
   color: var(--muted);
   font-size: 1rem;
+}
+
+.memory-catalog-search.search-only {
+  --memory-catalog-filter-inset: 10px;
 }
 
 .memory-catalog-search:focus-within {

@@ -51,6 +51,22 @@ export function subagentDisplayName(name: string): string {
     .replace(/\S+/g, (word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`);
 }
 
+export function filterSubagentSummaries(
+  subagents: readonly SubagentSummary[],
+  query: string
+): SubagentSummary[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [...subagents];
+  return subagents.filter((subagent) => [
+    subagent.id ?? '',
+    subagent.path,
+    subagent.name,
+    subagentDisplayName(subagent.name),
+    subagent.status,
+    subagent.latestMessage
+  ].join('\n').toLocaleLowerCase().includes(normalizedQuery));
+}
+
 export function subagentSummaries(
   events: TraceEventRecord[],
   runStatus?: RunStatus | null,

@@ -1,12 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, filterSubagentSummaries, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('formats raw subagent names for display without changing their identity', () => {
     expect(subagentDisplayName('parser_review')).toBe('Parser Review');
     expect(subagentDisplayName('deep_input_parser')).toBe('Deep Input Parser');
     expect(subagentDisplayName('HTTP_worker')).toBe('HTTP Worker');
+  });
+
+  it('filters subagents by display name, status, and latest message', () => {
+    const parser = {
+      id: 'agent_parser',
+      path: '/root/parser_review',
+      name: 'parser_review',
+      status: 'running' as const,
+      latestMessage: 'Checking the length boundary.',
+      createdAt: '2026-07-20T10:00:00.000Z',
+      lastActiveAt: '2026-07-20T10:01:00.000Z'
+    };
+    const verifier = {
+      ...parser,
+      id: 'agent_verifier',
+      path: '/root/proof_verifier',
+      name: 'proof_verifier',
+      status: 'completed' as const,
+      latestMessage: 'Reproduction confirmed.'
+    };
+    expect(filterSubagentSummaries([parser, verifier], 'Parser Review')).toEqual([parser]);
+    expect(filterSubagentSummaries([parser, verifier], 'completed')).toEqual([verifier]);
+    expect(filterSubagentSummaries([parser, verifier], 'length boundary')).toEqual([parser]);
   });
 
   it('summarizes child identity, latest message, state, and activity', () => {
