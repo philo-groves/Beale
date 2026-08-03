@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, ChevronRight, Database, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, CheckCircle2, ChevronRight, Database, LoaderCircle, Plus, Search, X, XCircle } from 'lucide-react';
 import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
@@ -16,7 +16,8 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
-import { filterSubagentSummaries, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
+import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
+import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -176,6 +177,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterSubagentSummaries(subagents, subagentQuery),
     [subagentQuery, subagents]
   );
+  const groupedSubagents = useMemo(() => subagentCatalogGroups(filteredSubagents), [filteredSubagents]);
   const selectedSubagentName = subagentDisplayName(selectedSubagentPath
     ? subagents.find((subagent) => subagent.path === selectedSubagentPath)?.name
       ?? selectedSubagentPath.split('/').filter(Boolean).at(-1)
@@ -458,34 +460,24 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         ) : (
           <>
             <CatalogSearch value={subagentQuery} placeholder="Find a Subagent" ariaLabel="Search subagents" onChange={setSubagentQuery} />
-            {filteredSubagents.length > 0 ? (
-              <MainSideScrollRegion
-                listClassName="subagent-catalog-list"
-                stickToEnd
-                updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
-              >
-                {filteredSubagents.map((agent) => (
-                  <button
-                    type="button"
-                    className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
-                    aria-pressed={selectedSubagentPath === agent.path}
-                    key={agent.path}
-                    onClick={() => onSelectSubagent(agent.path)}
-                  >
-                    <span className="subagent-catalog-heading">
-                      <span className="subagent-catalog-labels">
-                        <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{subagentDisplayName(agent.name)}</strong>
-                        <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
-                      </span>
-                      <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
-                    </span>
-                    <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
-                  </button>
-                ))}
-              </MainSideScrollRegion>
-            ) : (
-              <div className="memory-catalog-empty">{subagentQuery.trim() ? 'No subagents match this search.' : 'No subagents in this session.'}</div>
-            )}
+            <MainSideScrollRegion
+              listClassName="subagent-catalog-list"
+              stickToEnd
+              updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+            >
+              <SubagentCatalogSection
+                agents={groupedSubagents.active}
+                label="Active"
+                onSelect={onSelectSubagent}
+                selectedPath={selectedSubagentPath}
+              />
+              <SubagentCatalogSection
+                agents={groupedSubagents.completed}
+                label="Completed"
+                onSelect={onSelectSubagent}
+                selectedPath={selectedSubagentPath}
+              />
+            </MainSideScrollRegion>
           </>
         )}
       </aside>
@@ -714,6 +706,64 @@ function RunbookCatalogItem({
         <span>{runbook.sessionId ? 'Session-linked' : 'Workspace'}</span>
       </span>
     </button>
+  );
+}
+
+function SubagentCatalogSection({
+  agents,
+  label,
+  selectedPath,
+  onSelect
+}: {
+  agents: readonly SubagentSummary[];
+  label: 'Active' | 'Completed';
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}): JSX.Element {
+  return (
+    <section className="subagent-catalog-section" aria-label={`${agents.length} ${label}`}>
+      <h3>{agents.length} {label}</h3>
+      <div className={`subagent-catalog-items ${agents.length === 0 ? 'is-empty' : ''}`}>
+        {agents.length > 0 ? (
+          agents.map((agent) => (
+            <button
+              type="button"
+              className={`subagent-catalog-item ${selectedPath === agent.path ? 'selected' : ''}`}
+              aria-pressed={selectedPath === agent.path}
+              key={agent.path}
+              onClick={() => onSelect(agent.path)}
+            >
+              <SubagentStatusIcon status={agent.status} />
+              <span className="subagent-catalog-heading">
+                <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
+                <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+              </span>
+              <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
+            </button>
+          ))
+        ) : (
+          <p className="subagent-catalog-empty">
+            {label === 'Active' ? 'No active subagents right now.' : 'No completed subagents yet.'}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SubagentStatusIcon({ status }: { status: SubagentSummary['status'] }): JSX.Element {
+  const kind = subagentStatusIconKind(status);
+  const label = subagentStatusLabel(status);
+  return (
+    <span className={`subagent-status-icon is-${kind}`} aria-label={label} title={label}>
+      {kind === 'active' ? (
+        <LoaderCircle size={15} aria-hidden="true" />
+      ) : kind === 'error' ? (
+        <XCircle size={15} aria-hidden="true" />
+      ) : (
+        <CheckCircle2 size={15} aria-hidden="true" />
+      )}
+    </span>
   );
 }
 

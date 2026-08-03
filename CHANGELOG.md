@@ -20,6 +20,8 @@
 
 ### Changed
 
+- Flattened Subagent catalog rows into divider-separated items with neutral names and leading spinner, error, or success status icons instead of card backgrounds and text status labels.
+- Split the Subagents catalog into counted Active and Completed lists, grouping interrupted and errored subagents with completed work and showing a dedicated empty state for either list.
 - Memory selections now drill into the right sidenav with Back-to-Memories navigation and the selected memory title, matching Runbook and Subagent detail behavior instead of opening a bottom sheet.
 - Added Find a Runbook and Find a Subagent inputs to their detailed sidenav catalogs without additional type controls.
 - Added a Session/Workspace scope picker to the Runbooks sidenav, defaulting the detailed catalog to the current session.

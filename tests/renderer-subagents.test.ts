@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, filterSubagentSummaries, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
   it('formats raw subagent names for display without changing their identity', () => {
@@ -173,6 +173,35 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/interrupted', status: 'interrupted' },
       { ...base, path: '/root/errored', status: 'errored' }
     ])).toBe(2);
+  });
+
+  it('groups errors and interruptions with completed subagents', () => {
+    const base = {
+      id: null,
+      path: '/root/worker',
+      name: 'worker',
+      latestMessage: '',
+      createdAt: '2026-07-20T10:00:00.000Z',
+      lastActiveAt: '2026-07-20T10:00:00.000Z'
+    };
+    const pending = { ...base, path: '/root/pending', status: 'pending' as const };
+    const running = { ...base, path: '/root/running', status: 'running' as const };
+    const completed = { ...base, path: '/root/completed', status: 'completed' as const };
+    const interrupted = { ...base, path: '/root/interrupted', status: 'interrupted' as const };
+    const errored = { ...base, path: '/root/errored', status: 'errored' as const };
+
+    expect(subagentCatalogGroups([pending, completed, running, interrupted, errored])).toEqual({
+      active: [pending, running],
+      completed: [completed, interrupted, errored]
+    });
+  });
+
+  it('maps subagent states to active, error, and success icons', () => {
+    expect(subagentStatusIconKind('pending')).toBe('active');
+    expect(subagentStatusIconKind('running')).toBe('active');
+    expect(subagentStatusIconKind('completed')).toBe('success');
+    expect(subagentStatusIconKind('errored')).toBe('error');
+    expect(subagentStatusIconKind('interrupted')).toBe('error');
   });
 
   it('formats only nonzero active, completed, and error counts', () => {

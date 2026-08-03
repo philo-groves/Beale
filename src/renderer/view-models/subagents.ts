@@ -29,6 +29,18 @@ export function activeSubagentCount(subagents: readonly SubagentSummary[]): numb
   return subagents.filter((subagent) => ACTIVE_SUBAGENT_STATUSES.has(subagent.status)).length;
 }
 
+export function subagentCatalogGroups(subagents: readonly SubagentSummary[]): {
+  active: SubagentSummary[];
+  completed: SubagentSummary[];
+} {
+  const active: SubagentSummary[] = [];
+  const completed: SubagentSummary[] = [];
+  for (const subagent of subagents) {
+    (ACTIVE_SUBAGENT_STATUSES.has(subagent.status) ? active : completed).push(subagent);
+  }
+  return { active, completed };
+}
+
 export function subagentStatusCountSummary(subagents: readonly SubagentSummary[]): string {
   const activeCount = activeSubagentCount(subagents);
   const completedCount = subagents.filter((subagent) => subagent.status === 'completed').length;
@@ -43,6 +55,11 @@ export function subagentStatusCountSummary(subagents: readonly SubagentSummary[]
 export function subagentStatusLabel(status: SubagentStatus): string {
   if (status === 'errored') return 'Error';
   return `${status[0]?.toUpperCase() ?? ''}${status.slice(1)}`;
+}
+
+export function subagentStatusIconKind(status: SubagentStatus): 'active' | 'error' | 'success' {
+  if (ACTIVE_SUBAGENT_STATUSES.has(status)) return 'active';
+  return status === 'completed' ? 'success' : 'error';
 }
 
 export function subagentDisplayName(name: string): string {

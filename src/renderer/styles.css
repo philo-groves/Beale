@@ -2735,31 +2735,68 @@ button.session-summary-item:hover:not(:disabled),
   grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: max-content;
   align-content: start;
+  gap: 18px;
+  padding: 0 10px 12px 0;
+}
+
+.subagent-catalog-section,
+.subagent-catalog-items {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: 7px;
-  padding: 0 4px 12px 0;
+}
+
+.subagent-catalog-items {
+  gap: 0;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.subagent-catalog-section > h3 {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.subagent-catalog-empty {
+  margin: 0;
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.4;
 }
 
 .subagent-catalog-item {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 6px 7px;
   border: 0;
-  border-radius: 9px;
-  background: var(--panel);
+  border-radius: 0;
+  background: transparent;
   color: var(--muted-strong);
-  padding: 10px;
+  padding: 8px 0;
   text-align: left;
+}
+
+.subagent-catalog-item:not(:last-child) {
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.subagent-catalog-item:not(:last-child):hover:not(:disabled),
+.subagent-catalog-item:not(:last-child):focus-visible {
+  border-bottom-color: var(--panel-border);
 }
 
 .subagent-catalog-item:hover,
 .subagent-catalog-item.selected {
-  background: #181818;
-}
-
-.subagent-catalog-item.selected {
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: transparent;
 }
 
 .subagent-catalog-item:focus-visible {
@@ -2768,63 +2805,68 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .subagent-catalog-heading {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.subagent-catalog-labels {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  overflow: hidden;
+.subagent-status-icon {
+  grid-column: 1;
+  grid-row: 1;
+  width: 16px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  margin-left: 3px;
+}
+
+.subagent-status-icon.is-active {
+  color: var(--accent);
+}
+
+.subagent-status-icon.is-active svg {
+  animation: subagent-status-spin 850ms linear infinite;
+}
+
+.subagent-status-icon.is-error {
+  color: var(--red);
+}
+
+.subagent-status-icon.is-success {
+  color: var(--green);
+}
+
+@keyframes subagent-status-spin {
+  to { transform: rotate(360deg); }
 }
 
 .subagent-catalog-name {
   min-width: 0;
   overflow: hidden;
   background: transparent;
-  color: var(--muted);
+  color: var(--muted-strong);
   font-size: 1rem;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.subagent-catalog-name.status-running,
-.subagent-catalog-name.status-pending {
-  background: transparent;
-  color: var(--accent);
-}
-
-.subagent-catalog-name.status-completed {
-  background: transparent;
-  color: var(--green);
-}
-
-.subagent-catalog-name.status-interrupted {
-  background: transparent;
-  color: var(--amber);
-}
-
-.subagent-catalog-name.status-errored,
-.subagent-catalog-name.status-error,
-.subagent-catalog-name.status-failed {
-  background: transparent;
-  color: var(--red);
-}
-
 .subagent-catalog-heading time {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 0.78rem;
+  margin-right: 3px;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 
 .subagent-catalog-preview {
+  grid-column: 2;
+  grid-row: 2;
   width: 100%;
   min-width: 0;
   display: -webkit-box;
@@ -2836,10 +2878,6 @@ button.session-summary-item:hover:not(:disabled),
   white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-.subagent-catalog-status {
-  flex: 0 1 auto;
 }
 
 .main-trace-view {
