@@ -2,9 +2,22 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, RunStatus } from '@shared/types';
-import { SHELL_SAFETY_MODE_OPTIONS, TraceView } from '../src/renderer/features/traces/TraceView';
+import {
+  SHELL_SAFETY_MODE_OPTIONS,
+  STEER_TEXTAREA_DEFAULT_EXTRA_LINES,
+  STEER_TEXTAREA_MAX_LINES,
+  TraceView
+} from '../src/renderer/features/traces/TraceView';
 
 describe('renderer trace composer', () => {
+  it('allows the steering input to grow through seven typed lines', () => {
+    expect(STEER_TEXTAREA_MAX_LINES).toBe(7);
+  });
+
+  it('adds one typed row to the steering input resting height', () => {
+    expect(STEER_TEXTAREA_DEFAULT_EXTRA_LINES).toBe(1);
+  });
+
   it('replaces Send with Stop while the session is active', () => {
     const html = renderTraceComposer('active');
 

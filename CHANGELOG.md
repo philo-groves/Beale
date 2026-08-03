@@ -18,6 +18,7 @@
 
 ### Changed
 
+- Increased the steering input's resting height by one typed row and its auto-growing limit from six lines to seven.
 - Combined the session composer's model and reasoning controls into one hierarchical picker with provider, model, and effort flyout menus, with redundant `GPT-` prefixes omitted from OpenAI model-name labels.
 - Centered trace-list content and the steering composer within a shared 750px maximum width while keeping the trace scrollbar on the right edge of the full main content area, matching the composer's side inset to the right sidenav padding and its bottom inset to the main content's window-edge spacing.
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
