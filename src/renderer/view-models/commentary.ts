@@ -274,32 +274,32 @@ type ToolUsageCopy = {
 };
 
 const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
-  'analysis.transform': { singular: 'Analyzed Data', plural: (count) => `Ran ${count} Analyses` },
-  'code.call_candidates': { singular: 'Found Call Candidates', plural: (count) => `Found Call Candidates ${count} Times` },
-  'code.detect': { singular: 'Detected the Codebase', plural: (count) => `Detected the Codebase ${count} Times` },
-  'code.node_context': { singular: 'Inspected Code Context', plural: (count) => `Inspected Code Context ${count} Times` },
-  'code.outline': { singular: 'Outlined a File', plural: (count) => `Outlined ${count} Files` },
-  'code.query': { singular: 'Queried Code', plural: (count) => `Ran ${count} Code Queries` },
-  'code.references': { singular: 'Found References', plural: (count) => `Ran ${count} Reference Searches` },
-  'experiment.run': { singular: 'Ran an Experiment', plural: (count) => `Ran ${count} Experiments` },
-  'file.read': { singular: 'Read a File', plural: (count) => `Read ${count} Files` },
-  'list_agents': { singular: 'Checked Subagents', plural: (count) => `Checked Subagents ${count} Times` },
-  'local.inspection': { singular: 'Inspected the Target', plural: (count) => `Inspected the Target ${count} Times` },
-  'memory.correct': { singular: 'Corrected a Memory', plural: (count) => `Corrected ${count} Memories` },
-  'memory.get': { singular: 'Read a Memory', plural: (count) => `Read ${count} Memories` },
-  'memory.link': { singular: 'Linked Memories', plural: (count) => `Linked Memories ${count} Times` },
-  'memory.save': { singular: 'Saved a Memory', plural: (count) => `Saved ${count} Memories` },
-  'memory.search': { singular: 'Searched Memory', plural: (count) => `Ran ${count} Memory Searches` },
-  'repository.search': { singular: 'Searched the Repository', plural: (count) => `Ran ${count} Repository Searches` },
-  'runbook.append': { singular: 'Updated a Runbook', plural: (count) => `Updated ${count} Runbooks` },
-  'runbook.create': { singular: 'Created a Runbook', plural: (count) => `Created ${count} Runbooks` },
-  'runbook.get': { singular: 'Read a Runbook', plural: (count) => `Read ${count} Runbooks` },
-  'runbook.list': { singular: 'Checked Runbooks', plural: (count) => `Checked Runbooks ${count} Times` },
-  'session.disposition': { singular: 'Recorded the Session Outcome', plural: (count) => `Recorded ${count} Session Outcomes` },
-  'shell.run': { singular: 'Ran a Command', plural: (count) => `Ran ${count} Commands` },
-  'storage.list': { singular: 'Checked Artifacts', plural: (count) => `Checked Artifacts ${count} Times` },
-  'synthesis.compose': { singular: 'Composed a Report', plural: (count) => `Composed ${count} Reports` },
-  'wait_agent': { singular: 'Waited for Subagents', plural: (count) => `Waited for Subagents ${count} Times` }
+  'analysis.transform': { singular: 'Analyzing Data', plural: (count) => `Running ${count} Analyses` },
+  'code.call_candidates': { singular: 'Finding Call Candidates', plural: (count) => `Finding Call Candidates ${count} Times` },
+  'code.detect': { singular: 'Detecting the Codebase', plural: (count) => `Detecting the Codebase ${count} Times` },
+  'code.node_context': { singular: 'Inspecting Code Context', plural: (count) => `Inspecting Code Context ${count} Times` },
+  'code.outline': { singular: 'Outlining a File', plural: (count) => `Outlining ${count} Files` },
+  'code.query': { singular: 'Querying Code', plural: (count) => `Running ${count} Code Queries` },
+  'code.references': { singular: 'Finding References', plural: (count) => `Running ${count} Reference Searches` },
+  'experiment.run': { singular: 'Running an Experiment', plural: (count) => `Running ${count} Experiments` },
+  'file.read': { singular: 'Reading a File', plural: (count) => `Reading ${count} Files` },
+  'list_agents': { singular: 'Checking Subagents', plural: (count) => `Checking Subagents ${count} Times` },
+  'local.inspection': { singular: 'Inspecting the Target', plural: (count) => `Inspecting the Target ${count} Times` },
+  'memory.correct': { singular: 'Correcting a Memory', plural: (count) => `Correcting ${count} Memories` },
+  'memory.get': { singular: 'Reading a Memory', plural: (count) => `Reading ${count} Memories` },
+  'memory.link': { singular: 'Linking Memories', plural: (count) => `Linking Memories ${count} Times` },
+  'memory.save': { singular: 'Saving a Memory', plural: (count) => `Saving ${count} Memories` },
+  'memory.search': { singular: 'Searching Memory', plural: (count) => `Running ${count} Memory Searches` },
+  'repository.search': { singular: 'Searching the Repository', plural: (count) => `Running ${count} Repository Searches` },
+  'runbook.append': { singular: 'Updating a Runbook', plural: (count) => `Updating ${count} Runbooks` },
+  'runbook.create': { singular: 'Creating a Runbook', plural: (count) => `Creating ${count} Runbooks` },
+  'runbook.get': { singular: 'Reading a Runbook', plural: (count) => `Reading ${count} Runbooks` },
+  'runbook.list': { singular: 'Checking Runbooks', plural: (count) => `Checking Runbooks ${count} Times` },
+  'session.disposition': { singular: 'Recording the Session Outcome', plural: (count) => `Recording ${count} Session Outcomes` },
+  'shell.run': { singular: 'Running a Command', plural: (count) => `Running ${count} Commands` },
+  'storage.list': { singular: 'Checking Artifacts', plural: (count) => `Checking Artifacts ${count} Times` },
+  'synthesis.compose': { singular: 'Composing a Report', plural: (count) => `Composing ${count} Reports` },
+  'wait_agent': { singular: 'Waiting for Subagents', plural: (count) => `Waiting for Subagents ${count} Times` }
 };
 
 export function commentaryToolUsageText(toolName: string, count: number): string {
@@ -307,7 +307,7 @@ export function commentaryToolUsageText(toolName: string, count: number): string
   const copy = TOOL_USAGE_COPY[toolName];
   if (copy) return normalizedCount === 1 ? copy.singular : copy.plural(normalizedCount);
   const displayName = humanizeToolName(toolName);
-  return normalizedCount === 1 ? `Used ${displayName}` : `Used ${displayName} ${normalizedCount} Times`;
+  return normalizedCount === 1 ? `Using ${displayName}` : `Using ${displayName} ${normalizedCount} Times`;
 }
 
 function humanizeToolName(toolName: string): string {

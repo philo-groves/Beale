@@ -1,6 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, Brain, ChevronRight, Wrench } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, Terminal, Wrench } from 'lucide-react';
 import type {
   ResearchModelSelection,
   ResearchProviderModelCatalog,
@@ -149,7 +149,7 @@ function CommentaryMessageRow({
 }): JSX.Element {
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
-  const icon = commentaryMessageIcon(message.kind);
+  const icon = commentaryMessageIcon(message.kind, message.toolName);
   return (
     <article
       className={`main-commentary-message kind-${message.kind} ${selected ? 'selected' : ''}`}
@@ -283,10 +283,38 @@ export function commentaryToolValueText(value: unknown): string {
   }
 }
 
-export function commentaryMessageIcon(kind: CommentaryMessage['kind']): JSX.Element | null {
+const SUBAGENT_TOOL_NAMES = new Set([
+  'followup_task',
+  'interrupt_agent',
+  'list_agents',
+  'send_message',
+  'spawn_agent',
+  'wait_agent'
+]);
+
+export function commentaryMessageIcon(
+  kind: CommentaryMessage['kind'],
+  toolName?: string
+): JSX.Element | null {
   if (kind === 'progress') return <Brain size={16} />;
-  if (kind === 'tool') return <Wrench size={16} />;
-  return null;
+  if (kind !== 'tool') return null;
+  const normalizedToolName = toolName?.trim().toLowerCase() ?? '';
+  if (SUBAGENT_TOOL_NAMES.has(normalizedToolName)) return <Bot size={16} />;
+  if (normalizedToolName.startsWith('runbook.') || normalizedToolName.startsWith('runbook_')) {
+    return <BookOpen size={16} />;
+  }
+  if (normalizedToolName.startsWith('memory.') || normalizedToolName.startsWith('memory_')) {
+    return <Database size={16} />;
+  }
+  if (
+    normalizedToolName === 'experiment.run'
+    || normalizedToolName === 'experiment_run'
+    || normalizedToolName === 'shell.run'
+    || normalizedToolName === 'shell_run'
+  ) {
+    return <Terminal size={16} />;
+  }
+  return <Wrench size={16} />;
 }
 
 export function commentaryMessageLabel(

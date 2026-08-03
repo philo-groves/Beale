@@ -22,26 +22,30 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('error')).toBe('Error');
   });
 
-  it('uses distinct icons for reasoning progress and tool usage messages', () => {
+  it('uses distinct icons for reasoning and each tool family', () => {
     const progressIcon = commentaryMessageIcon('progress');
     expect(progressIcon).not.toBeNull();
     if (progressIcon) expect(renderToStaticMarkup(progressIcon)).toContain('lucide-brain');
-    const toolIcon = commentaryMessageIcon('tool');
-    expect(toolIcon).not.toBeNull();
-    if (toolIcon) expect(renderToStaticMarkup(toolIcon)).toContain('lucide-wrench');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'list_agents')!)).toContain('lucide-bot');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'wait_agent')!)).toContain('lucide-bot');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'runbook.get')!)).toContain('lucide-book-open');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'memory.search')!)).toContain('lucide-database');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'shell.run')!)).toContain('lucide-terminal');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'experiment.run')!)).toContain('lucide-terminal');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'file.read')!)).toContain('lucide-wrench');
     expect(commentaryMessageIcon('commentary')).toBeNull();
     expect(commentaryMessageIcon('final_answer')).toBeNull();
   });
 
   it('uses concise singular and plural copy for known and fallback tools', () => {
-    expect(commentaryToolUsageText('list_agents', 1)).toBe('Checked Subagents');
-    expect(commentaryToolUsageText('list_agents', 2)).toBe('Checked Subagents 2 Times');
-    expect(commentaryToolUsageText('file.read', 1)).toBe('Read a File');
-    expect(commentaryToolUsageText('file.read', 3)).toBe('Read 3 Files');
-    expect(commentaryToolUsageText('shell.run', 1)).toBe('Ran a Command');
-    expect(commentaryToolUsageText('shell.run', 4)).toBe('Ran 4 Commands');
-    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Used Snapshot');
-    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Used Custom Scan 2 Times');
+    expect(commentaryToolUsageText('list_agents', 1)).toBe('Checking Subagents');
+    expect(commentaryToolUsageText('list_agents', 2)).toBe('Checking Subagents 2 Times');
+    expect(commentaryToolUsageText('file.read', 1)).toBe('Reading a File');
+    expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 Files');
+    expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a Command');
+    expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 Commands');
+    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using Snapshot');
+    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using Custom Scan 2 Times');
   });
 
   it('shows one activity row per tool call, coalesces repeats, and suppresses paired results', () => {
@@ -70,10 +74,10 @@ describe('renderer commentary projection', () => {
       contentMarkdown
     ])).toEqual([
       ['user', undefined, undefined, 'Inspect the parser.'],
-      ['tool', 'list_agents', 1, 'Checked Subagents'],
-      ['tool', 'file.read', 2, 'Read 2 Files'],
-      ['tool', 'shell.run', 1, 'Ran a Command'],
-      ['tool', 'repository.search', 1, 'Searched the Repository'],
+      ['tool', 'list_agents', 1, 'Checking Subagents'],
+      ['tool', 'file.read', 2, 'Reading 2 Files'],
+      ['tool', 'shell.run', 1, 'Running a Command'],
+      ['tool', 'repository.search', 1, 'Searching the Repository'],
       ['task', undefined, undefined, 'Inspect the parser boundary.']
     ]);
 
