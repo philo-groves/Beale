@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, CheckCircle2, ChevronRight, Database, LoaderCircle, Plus, Search, X, XCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
@@ -15,17 +15,20 @@ import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
+import type { MemoryStatusGroup } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
-import { runbookDescriptionText } from '../../view-models/runbooks';
+import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import type { TraceCategoryId } from '../../traceClassification';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
+import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName } from './MemoryTypeLabel';
 import { RunbookView } from './RunbookView';
+import { renderInlineCodeText } from '../traces/traceMarkup';
 import { TraceView } from '../traces/TraceView';
 
 type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
@@ -148,6 +151,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [scope, setScope] = useState<MemoryLevelFilter>(DEFAULT_MEMORY_LEVEL_FILTER);
   const [runbookScope, setRunbookScope] = useState<RunbookScopeFilter>(DEFAULT_RUNBOOK_SCOPE_FILTER);
   const [type, setType] = useState('all');
+  const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const detailsOpen = navigation.openViews.length > 0;
   const activeView = navigation.activeView ?? 'memory';
@@ -161,12 +165,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(events), [events]);
   const sessionMemoryTypes = useMemo(() => sessionMemoryTypeSummaries(sessionMemoryNodes), [sessionMemoryNodes]);
   const sessionRunbooks = useMemo(
-    () => runbooks.filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived').length,
+    () => runbooks.filter((runbook) => runbook.sessionId === runId).length,
     [runbooks, runId]
   );
   const sessionRunbookRevisions = useMemo(
     () => runbooks
-      .filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived')
+      .filter((runbook) => runbook.sessionId === runId)
       .reduce((count, runbook) => count + runbook.revision, 0),
     [runbooks, runId]
   );
@@ -196,10 +200,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
     [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
+  const groupedMemories = useMemo(() => memoryCatalogStatusGroups(filteredNodes), [filteredNodes]);
   const filteredRunbooks = useMemo(
     () => filterRunbookCatalog(runbooks, runbookScope, runId, workspaceId, runbookQuery),
     [runbookQuery, runbookScope, runbooks, runId, workspaceId]
   );
+  const groupedRunbooks = useMemo(() => runbookCatalogGroups(filteredRunbooks), [filteredRunbooks]);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
@@ -210,6 +216,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     if (runIdRef.current === runId) return;
     runIdRef.current = runId;
     dispatchNavigation({ type: 'reset' });
+    setExpandedMemoryGroups(new Set());
     setSelectedNodeId(null);
   }, [runId]);
 
@@ -422,7 +429,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     ariaLabel="Memory type filter"
                     options={[
                       { value: 'all', label: 'All Memories' },
-                      ...nodeTypes.map((nodeType) => ({ value: nodeType, label: traceLabel(nodeType) }))
+                      ...nodeTypes.map((nodeType) => ({
+                        value: nodeType,
+                        label: traceLabel(nodeType),
+                        className: `memory-type-option ${memoryTypeClassName(nodeType)}`
+                      }))
                     ]}
                     onChange={setType}
                   />
@@ -434,13 +445,16 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
             {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
             {filteredNodes.length > 0 ? (
-              <MainSideScrollRegion listClassName="memory-catalog-list" stickToEnd updateKey={updateKey}>
-                {filteredNodes.map((node) => (
-                  <MemoryCatalogItem
-                    key={node.id}
-                    node={node}
-                    selected={selectedNodeId === node.id}
-                    onOpen={() => setSelectedNodeId(node.id)}
+              <MainSideScrollRegion listClassName="memory-catalog-list memory-status-groups" stickToStart updateKey={updateKey}>
+                {(['suspected', 'confirmed', 'rejected'] as const).map((statusGroup) => (
+                  <MemoryCatalogSection
+                    expanded={expandedMemoryGroups.has(statusGroup)}
+                    key={statusGroup}
+                    label={statusGroup}
+                    nodes={groupedMemories[statusGroup]}
+                    selectedNodeId={selectedNodeId}
+                    onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusGroup))}
+                    onOpen={(nodeId) => setSelectedNodeId(nodeId)}
                   />
                 ))}
               </MainSideScrollRegion>
@@ -449,20 +463,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         ) : activeView === 'runbooks' ? (
           <>
             <CatalogSearch value={runbookQuery} placeholder="Find a Runbook" ariaLabel="Search runbooks" onChange={setRunbookQuery} />
-            {filteredRunbooks.length > 0 ? (
-              <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
-                {filteredRunbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
-              </MainSideScrollRegion>
-            ) : (
-              <div className="memory-catalog-empty">{runbookQuery.trim() ? 'No runbooks match this search.' : `No runbooks in this ${runbookScope}.`}</div>
-            )}
+            <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToStart updateKey={runbookUpdateKey}>
+              <RunbookCatalogSection
+                label="Active"
+                runbooks={groupedRunbooks.active}
+                selectedRunbookId={selectedRunbookId}
+                onOpen={onOpenRunbook}
+              />
+              <RunbookCatalogSection
+                label="Archived"
+                runbooks={groupedRunbooks.archived}
+                selectedRunbookId={selectedRunbookId}
+                onOpen={onOpenRunbook}
+              />
+            </MainSideScrollRegion>
           </>
         ) : (
           <>
             <CatalogSearch value={subagentQuery} placeholder="Find a Subagent" ariaLabel="Search subagents" onChange={setSubagentQuery} />
             <MainSideScrollRegion
               listClassName="subagent-catalog-list"
-              stickToEnd
+              stickToStart
               updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
             >
               <SubagentCatalogSection
@@ -676,7 +697,7 @@ function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element
   return <Bot size={size} aria-hidden="true" />;
 }
 
-function RunbookCatalogItem({
+export function RunbookCatalogItem({
   runbook,
   selected,
   onOpen
@@ -688,24 +709,54 @@ function RunbookCatalogItem({
   return (
     <button
       type="button"
-      className={`runbook-catalog-item ${selected ? 'selected' : ''}`}
+      className={`runbook-catalog-item runbook-status-${stateClass(runbook.status)} ${selected ? 'selected' : ''}`}
       aria-pressed={selected}
       onClick={onOpen}
     >
       <span className="runbook-catalog-heading">
-        <span className="runbook-catalog-labels">
-          <span className="runbook-catalog-type">Runbook</span>
-          <span className="memory-catalog-status">{traceLabel(runbook.status)}</span>
+        <span className="runbook-catalog-primary">
+          <BookOpen className="runbook-catalog-icon" size={16} aria-hidden="true" />
+          <span className="runbook-catalog-name">{runbook.title}</span>
         </span>
-        <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+        <span className="runbook-catalog-heading-trailing">
+          <span className="runbook-catalog-status">{traceLabel(runbook.status)}</span>
+          <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+        </span>
       </span>
-      <strong>{runbook.title}</strong>
       {runbook.purpose ? <span className="runbook-catalog-purpose">{runbookDescriptionText(runbook.purpose)}</span> : null}
-      <span className="runbook-catalog-meta">
-        <span>rev {runbook.revision}</span>
-        <span>{runbook.sessionId ? 'Session-linked' : 'Workspace'}</span>
-      </span>
     </button>
+  );
+}
+
+function RunbookCatalogSection({
+  runbooks,
+  label,
+  selectedRunbookId,
+  onOpen
+}: {
+  runbooks: readonly HoneycrispRunbookSummary[];
+  label: 'Active' | 'Archived';
+  selectedRunbookId: string | null;
+  onOpen: (runbookId: string) => void;
+}): JSX.Element {
+  return (
+    <section className="runbook-catalog-section" aria-label={`${runbooks.length} ${label}`}>
+      <h3>{runbooks.length} {label}</h3>
+      <div className={`runbook-catalog-items ${runbooks.length === 0 ? 'is-empty' : ''}`}>
+        {runbooks.length > 0 ? runbooks.map((runbook) => (
+          <RunbookCatalogItem
+            key={runbook.id}
+            runbook={runbook}
+            selected={selectedRunbookId === runbook.id}
+            onOpen={() => onOpen(runbook.id)}
+          />
+        )) : (
+          <p className="runbook-catalog-empty">
+            {label === 'Active' ? 'No active runbooks right now.' : 'No archived runbooks yet.'}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -736,7 +787,10 @@ function SubagentCatalogSection({
               <SubagentStatusIcon status={agent.status} />
               <span className="subagent-catalog-heading">
                 <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
-                <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+                <span className="subagent-catalog-heading-trailing">
+                  <span className={`subagent-catalog-status is-${subagentStatusIconKind(agent.status)}`}>{subagentStatusLabel(agent.status)}</span>
+                  <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+                </span>
               </span>
               <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
             </button>
@@ -758,10 +812,8 @@ function SubagentStatusIcon({ status }: { status: SubagentSummary['status'] }): 
     <span className={`subagent-status-icon is-${kind}`} aria-label={label} title={label}>
       {kind === 'active' ? (
         <LoaderCircle size={15} aria-hidden="true" />
-      ) : kind === 'error' ? (
-        <XCircle size={15} aria-hidden="true" />
       ) : (
-        <CheckCircle2 size={15} aria-hidden="true" />
+        <Bot size={15} aria-hidden="true" />
       )}
     </span>
   );
@@ -781,18 +833,63 @@ function MemoryCatalogItem({
       <button type="button" className="memory-catalog-toggle" aria-pressed={selected} onClick={onOpen}>
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
-            <span className="memory-catalog-item-labels">
-              <span className="memory-catalog-type">{traceLabel(node.type)}</span>
-              <span className="memory-catalog-status">{traceLabel(node.status)}</span>
+            <span className="memory-catalog-item-primary">
+              <MemoryTypeIcon type={node.type} />
+              <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
             </span>
             <span className="memory-catalog-item-trailing">
+              <MemoryTypeLabel type={node.type} showDot={false} />
               <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
             </span>
           </span>
-          <strong>{node.title}</strong>
+          {node.summary || node.body ? (
+            <span className="memory-catalog-item-description">{renderInlineCodeText(node.summary || node.body)}</span>
+          ) : null}
         </span>
       </button>
     </article>
+  );
+}
+
+export function MemoryCatalogSection({
+  nodes,
+  label,
+  expanded,
+  selectedNodeId,
+  onExpand,
+  onOpen
+}: {
+  nodes: readonly HoneycrispMemoryNodeSummary[];
+  label: MemoryStatusGroup;
+  expanded: boolean;
+  selectedNodeId: string | null;
+  onExpand: () => void;
+  onOpen: (nodeId: string) => void;
+}): JSX.Element {
+  const { visibleNodes, hiddenCount } = memoryCatalogGroupPreview(nodes, expanded);
+  const displayLabel = traceLabel(label);
+  return (
+    <section className="memory-status-section" aria-label={`${nodes.length} ${displayLabel}`}>
+      <h3>{nodes.length} {displayLabel}</h3>
+      <div className={`memory-status-items ${nodes.length === 0 ? 'is-empty' : ''}`}>
+        {visibleNodes.length > 0 ? visibleNodes.map((node) => (
+          <MemoryCatalogItem
+            key={node.id}
+            node={node}
+            selected={selectedNodeId === node.id}
+            onOpen={() => onOpen(node.id)}
+          />
+        )) : (
+          <p className="memory-status-empty">No {label} memories yet.</p>
+        )}
+      </div>
+      {hiddenCount > 0 ? (
+        <button type="button" className="memory-status-show-more" onClick={onExpand}>
+          <span>Show {hiddenCount} More</span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -809,7 +906,7 @@ export function MemoryDetailView({
     <article className={`memory-detail type-${stateClass(node.type)}`}>
       <header className="memory-detail-heading">
         <span className="memory-catalog-item-labels">
-          <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+          <MemoryTypeLabel type={node.type} />
           <span className="memory-catalog-status">{traceLabel(node.status)}</span>
         </span>
         <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>

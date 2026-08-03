@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Session summary runbook and revision totals now include archived runbooks associated with the session.
 - Session-scoped memory catalogs now show every memory linked to the current session, matching the Session summary even when a memory is reusable at workspace or subject level.
 - Honeycrisp sessions now automatically apply Codex-compatible `AGENTS.md` guidance from the selected Beale workspace to root agents, subagents, and compatible continuations instead of depending on manual file reads.
 - macOS fullscreen windows now remove the header space reserved for unavailable traffic-light controls while retaining it in normal windowed mode.
@@ -20,7 +21,12 @@
 
 ### Changed
 
-- Flattened Subagent catalog rows into divider-separated items with neutral names and leading spinner, error, or success status icons instead of card backgrounds and text status labels.
+- Reworked Memory catalog rows to align the chat's Memory icon, colored by type, with a regular-weight ellipsized title on the left, place the type label beside the standard-sized timestamp on the right, and show a two-line description preview with chat-styled inline code beneath; every memory type now has a distinct color across detailed memory surfaces while the default session summary remains neutral.
+- Simplified Runbook catalog rows to a status-colored Runbook icon, regular-weight title, two-line description preview, and matching status label beside the standard artifact-sized timestamp, removing redundant metadata labels.
+- Split the Runbooks catalog into counted Active and Archived lists with flat divider-separated rows, grouping draft and completed runbooks with active work.
+- Ordered each Memory, Runbook, and Subagent status list newest-first using the timestamp displayed by its rows, with follow-latest scroll locking at the top of each catalog.
+- Split the Memories catalog into counted Suspected, Confirmed, and Rejected lists with five-row previews, inline Show-More expansion, and flat divider-separated rows without status badges; drafts remain visible under Suspected and stale records under Rejected.
+- Flattened Subagent catalog rows into divider-separated items with neutral names, a leading spinner for active work or status-colored robot icon for finished work, and matching colored status text beside each timestamp instead of card backgrounds.
 - Split the Subagents catalog into counted Active and Completed lists, grouping interrupted and errored subagents with completed work and showing a dedicated empty state for either list.
 - Memory selections now drill into the right sidenav with Back-to-Memories navigation and the selected memory title, matching Runbook and Subagent detail behavior instead of opening a bottom sheet.
 - Added Find a Runbook and Find a Subagent inputs to their detailed sidenav catalogs without additional type controls.

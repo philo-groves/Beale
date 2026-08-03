@@ -6,6 +6,8 @@ import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, Honeycri
 import {
   ResearchSidePanel,
   ResearchSideViewTabs,
+  MemoryCatalogSection,
+  RunbookCatalogItem,
   DEFAULT_MEMORY_LEVEL_FILTER,
   DEFAULT_RUNBOOK_SCOPE_FILTER,
   availableResearchSideViews,
@@ -13,7 +15,8 @@ import {
   researchSideNavigationReducer,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { runbookCatalogGroups } from '../src/renderer/view-models/runbooks';
 
 describe('renderer memory catalog', () => {
   it('defaults the detailed memory catalog to Session scope', () => {
@@ -42,6 +45,31 @@ describe('renderer memory catalog', () => {
       currentSession,
       priorSession
     ]);
+  });
+
+  it('groups non-archived and archived runbooks newest-first', () => {
+    const draft = runbook({ id: 'draft', status: 'draft', updatedAt: '2026-07-19T13:00:00.000Z' });
+    const active = runbook({ id: 'active', status: 'active', updatedAt: '2026-07-19T15:00:00.000Z' });
+    const completed = runbook({ id: 'completed', status: 'completed', updatedAt: '2026-07-19T14:00:00.000Z' });
+    const archivedOlder = runbook({ id: 'archived_older', status: 'archived', updatedAt: '2026-07-19T12:00:00.000Z' });
+    const archivedNewer = runbook({ id: 'archived_newer', status: 'archived', updatedAt: '2026-07-19T16:00:00.000Z' });
+    expect(runbookCatalogGroups([draft, archivedOlder, completed, archivedNewer, active])).toEqual({
+      active: [active, completed, draft],
+      archived: [archivedNewer, archivedOlder]
+    });
+
+    const html = renderToStaticMarkup(createElement(RunbookCatalogItem, {
+      runbook: active,
+      selected: false,
+      onOpen: () => undefined
+    }));
+    expect(html).toContain('class="runbook-catalog-item runbook-status-active "');
+    expect(html).toContain('class="lucide lucide-book-open runbook-catalog-icon"');
+    expect(html).toContain('class="runbook-catalog-name">Runbook title</span>');
+    expect(html).toContain('class="runbook-catalog-heading-trailing"><span class="runbook-catalog-status">Active</span><time');
+    expect(html).toContain('class="runbook-catalog-purpose">Runbook purpose</span>');
+    expect(html).not.toContain('runbook-catalog-type');
+    expect(html).not.toContain('memory-catalog-status');
   });
 
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
@@ -91,6 +119,51 @@ describe('renderer memory catalog', () => {
       memoryNode({ id: 'rejected', status: 'rejected' }),
       memoryNode({ id: 'stale', status: 'stale' })
     ])).toBe(3);
+  });
+
+  it('groups memory states without dropping drafts or stale records and previews five rows', () => {
+    const draft = memoryNode({ id: 'draft', status: 'draft', updatedAt: '2026-07-19T13:00:00.000Z' });
+    const suspected = memoryNode({ id: 'suspected', status: 'suspected', updatedAt: '2026-07-19T14:00:00.000Z' });
+    const confirmed = memoryNode({ id: 'confirmed', status: 'confirmed' });
+    const rejected = memoryNode({ id: 'rejected', status: 'rejected' });
+    const stale = memoryNode({ id: 'stale', status: 'stale' });
+    expect(memoryCatalogStatusGroups([draft, suspected, confirmed, rejected, stale])).toEqual({
+      suspected: [suspected, draft],
+      confirmed: [confirmed],
+      rejected: [rejected, stale]
+    });
+
+    const nodes = [draft, suspected, confirmed, rejected, stale, draft, suspected];
+    expect(memoryCatalogGroupPreview(nodes, false)).toEqual({ visibleNodes: nodes.slice(0, 5), hiddenCount: 2 });
+    expect(memoryCatalogGroupPreview(nodes, true)).toEqual({ visibleNodes: nodes, hiddenCount: 0 });
+
+    const sectionNodes = Array.from({ length: 7 }, (_, index) => memoryNode({
+      id: `suspected_${index + 1}`,
+      title: `Suspected memory ${index + 1}`,
+      summary: index === 0 ? 'Memory uses `parse_length` before allocation' : 'Memory summary',
+      status: 'suspected'
+    }));
+    const html = renderToStaticMarkup(createElement(MemoryCatalogSection, {
+      nodes: sectionNodes,
+      label: 'suspected',
+      expanded: false,
+      selectedNodeId: null,
+      onExpand: () => undefined,
+      onOpen: () => undefined
+    }));
+    expect(html).toContain('7 Suspected');
+    expect(html).toContain('Show 2 More');
+    expect(html).toContain('lucide-chevron-down');
+    expect(html).toContain('Suspected memory 5');
+    expect(html).not.toContain('Suspected memory 6');
+    expect(html).toContain('class="memory-catalog-item-primary"><span class="memory-type-icon memory-type-primitive" aria-hidden="true"><svg');
+    expect(html).toContain('class="lucide lucide-database"');
+    expect(html).toContain('class="memory-catalog-item-name" title="Suspected memory 1">Suspected memory 1</span>');
+    expect(html).toContain('class="memory-catalog-item-trailing"><span class="memory-type-label memory-type-primitive"><span class="memory-type-text">Primitive</span></span><time');
+    expect(html).not.toContain('memory-catalog-item-separator');
+    expect(html).toContain('class="main-trace-inline-code">parse_length</code>');
+    expect(html).toContain('class="memory-catalog-item-description">Memory summary</span>');
+    expect(html).not.toContain('memory-catalog-status');
   });
 
   it('counts paired memory searches and updates once', () => {
@@ -204,15 +277,17 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="session-memory-type-item"><span>1 Chain</span><span class="session-summary-meta">1 Confirmed</span></div>');
     expect(html).toContain('class="session-memory-type-item"><span>1 Sink</span><span class="session-summary-meta">1 Suspected</span></div>');
     expect(html).toContain('class="session-memory-type-item"><span>2 Boring</span></div>');
+    expect(html).not.toContain('memory-type-label');
+    expect(html).not.toContain('memory-type-dot');
     expect(html).not.toContain('0 Confirmed');
     expect(html).not.toContain('0 Suspected');
     expect(html).not.toContain('0 Rejected');
-    expect(html.indexOf('<span>1 Sink</span>')).toBeLessThan(html.indexOf('<span>2 Primitives</span>'));
-    expect(html.indexOf('<span>2 Primitives</span>')).toBeLessThan(html.indexOf('<span>1 Chain</span>'));
-    expect(html.indexOf('<span>1 Chain</span>')).toBeLessThan(html.indexOf('<span>2 Boring</span>'));
+    expect(html.indexOf('>1 Sink</span>')).toBeLessThan(html.indexOf('>2 Primitives</span>'));
+    expect(html.indexOf('>2 Primitives</span>')).toBeLessThan(html.indexOf('>1 Chain</span>'));
+    expect(html.indexOf('>1 Chain</span>')).toBeLessThan(html.indexOf('>2 Boring</span>'));
     expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
-    expect(html).toContain('<span>2 Runbooks</span>');
-    expect(html).toContain('class="session-summary-meta">5 Revisions</span>');
+    expect(html).toContain('<span>3 Runbooks</span>');
+    expect(html).toContain('class="session-summary-meta">12 Revisions</span>');
     expect(html).toContain('<span>0 Subagents</span>');
     expect(html).not.toContain('0 Active');
     expect(html).not.toContain('0 Completed');

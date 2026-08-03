@@ -9,6 +9,7 @@ import type {
   ScopeAsset
 } from '@shared/types';
 import { formatSessionDateTime, networkProfileLabel, stateClass, traceLabel, truncateText } from '../../lib/formatting';
+import { MemoryTypeLabel } from '../research/MemoryTypeLabel';
 
 export function WorkspaceUnderstandingView({
   busy,
@@ -62,7 +63,7 @@ export function WorkspaceUnderstandingView({
             />
             {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
             <div className="workspace-understanding-list-grid">
-              <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} />
+              <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} memoryTypes />
               <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} />
             </div>
             <div className="workspace-understanding-list-grid">
@@ -228,7 +229,7 @@ function MetricCell({ label, value }: { label: string; value: string }): JSX.Ele
   );
 }
 
-function CountList({ counts, title }: { counts: Record<string, number> | null | undefined; title: string }): JSX.Element {
+function CountList({ counts, memoryTypes = false, title }: { counts: Record<string, number> | null | undefined; memoryTypes?: boolean; title: string }): JSX.Element {
   const entries = topCountEntries(counts, 6);
   return (
     <div className="workspace-understanding-count-list">
@@ -237,7 +238,7 @@ function CountList({ counts, title }: { counts: Record<string, number> | null | 
         <ul>
           {entries.map(([label, count]) => (
             <li key={label}>
-              <span>{traceLabel(label)}</span>
+              {memoryTypes ? <MemoryTypeLabel type={label} /> : <span>{traceLabel(label)}</span>}
               <strong>{formatCount(count)}</strong>
             </li>
           ))}

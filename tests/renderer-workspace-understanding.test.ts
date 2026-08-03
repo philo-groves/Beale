@@ -83,6 +83,8 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     expect(html).toContain('>Dream</button>');
     expect(html).toContain('up to 100 past session transcripts');
     expect(html).toContain('Original nodes and revisions remain stored for restoration.');
+    expect(html).toContain('class="memory-type-label memory-type-primitive"');
+    expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
     expect(html).toContain('Hidden Nodes');
     expect(html).toContain('Restorable Changes');
     expect(html).toContain('Parser mismatch');

@@ -237,6 +237,8 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet-panel');
     expect(html).toContain('Unchecked parser length');
     expect(html).toContain('Detailed parser analysis.');
+    expect(html).toContain('class="memory-type-label memory-type-primitive"');
+    expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
   });
 
 });

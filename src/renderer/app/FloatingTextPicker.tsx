@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react';
 export interface FloatingTextPickerOption {
   value: string;
   label: string;
+  className?: string;
 }
 
 export function FloatingTextPicker({
@@ -62,7 +63,7 @@ export function FloatingTextPicker({
     >
       <button
         type="button"
-        className="floating-text-picker-trigger"
+        className={`floating-text-picker-trigger ${selectedOption?.className ?? ''}`.trim()}
         title={title}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -85,7 +86,7 @@ export function FloatingTextPicker({
               type="button"
               role="option"
               aria-selected={option.value === selectedOption?.value}
-              className={option.value === selectedOption?.value ? 'is-selected' : undefined}
+              className={[option.className, option.value === selectedOption?.value ? 'is-selected' : ''].filter(Boolean).join(' ') || undefined}
               key={option.value}
               onClick={() => {
                 onChange(option.value);

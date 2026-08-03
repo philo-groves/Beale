@@ -10,6 +10,34 @@ export interface MemoryCatalogFilters {
   type: string;
 }
 
+export type MemoryStatusGroup = 'suspected' | 'confirmed' | 'rejected';
+
+export function memoryCatalogStatusGroups(nodes: readonly HoneycrispMemoryNodeSummary[]): Record<MemoryStatusGroup, HoneycrispMemoryNodeSummary[]> {
+  const groups: Record<MemoryStatusGroup, HoneycrispMemoryNodeSummary[]> = {
+    suspected: [],
+    confirmed: [],
+    rejected: []
+  };
+  for (const node of nodes) {
+    if (node.status === 'confirmed') groups.confirmed.push(node);
+    else if (node.status === 'rejected' || node.status === 'stale') groups.rejected.push(node);
+    else groups.suspected.push(node);
+  }
+  for (const group of Object.values(groups)) {
+    group.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+  }
+  return groups;
+}
+
+export function memoryCatalogGroupPreview(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  expanded: boolean,
+  limit = 5
+): { visibleNodes: HoneycrispMemoryNodeSummary[]; hiddenCount: number } {
+  if (expanded || nodes.length <= limit) return { visibleNodes: [...nodes], hiddenCount: 0 };
+  return { visibleNodes: nodes.slice(0, limit), hiddenCount: nodes.length - limit };
+}
+
 export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[]): number {
   return nodes.filter(isActiveMemoryNode).length;
 }

@@ -38,6 +38,10 @@ export function subagentCatalogGroups(subagents: readonly SubagentSummary[]): {
   for (const subagent of subagents) {
     (ACTIVE_SUBAGENT_STATUSES.has(subagent.status) ? active : completed).push(subagent);
   }
+  const newestFirst = (left: SubagentSummary, right: SubagentSummary): number =>
+    right.createdAt.localeCompare(left.createdAt) || left.path.localeCompare(right.path);
+  active.sort(newestFirst);
+  completed.sort(newestFirst);
   return { active, completed };
 }
 

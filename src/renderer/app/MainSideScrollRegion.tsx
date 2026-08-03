@@ -5,18 +5,18 @@ export function MainSideScrollRegion({
   children,
   className,
   listClassName,
-  stickToEnd = false,
+  stickToStart = false,
   updateKey
 }: {
   children: ReactNode;
   className?: string;
   listClassName: string;
-  stickToEnd?: boolean;
+  stickToStart?: boolean;
   updateKey: string;
 }): JSX.Element {
   const regionRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const followEndRef = useRef(true);
+  const followStartRef = useRef(true);
 
   const updateScrollEdges = useCallback(() => {
     const region = regionRef.current;
@@ -32,20 +32,20 @@ export function MainSideScrollRegion({
     region.classList.toggle('has-bottom-fade', showBottomFade);
   }, []);
 
-  const scrollToEnd = useCallback(() => {
+  const scrollToStart = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
-    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    list.scrollTop = 0;
     updateScrollEdges();
   }, [updateScrollEdges]);
 
   const syncScrollState = useCallback(() => {
-    if (stickToEnd && followEndRef.current) {
-      scrollToEnd();
+    if (stickToStart && followStartRef.current) {
+      scrollToStart();
       return;
     }
     updateScrollEdges();
-  }, [scrollToEnd, stickToEnd, updateScrollEdges]);
+  }, [scrollToStart, stickToStart, updateScrollEdges]);
 
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(syncScrollState);
@@ -64,12 +64,9 @@ export function MainSideScrollRegion({
 
   const handleScroll = useCallback(() => {
     const list = listRef.current;
-    if (stickToEnd && list) {
-      const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
-      followEndRef.current = distanceFromBottom <= 12;
-    }
+    if (stickToStart && list) followStartRef.current = list.scrollTop <= 12;
     updateScrollEdges();
-  }, [stickToEnd, updateScrollEdges]);
+  }, [stickToStart, updateScrollEdges]);
 
   return (
     <div className={`main-side-scroll ${className ?? ''}`.trim()} ref={regionRef}>

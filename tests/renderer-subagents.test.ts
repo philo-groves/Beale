@@ -185,14 +185,14 @@ describe('subagent trace view models', () => {
       lastActiveAt: '2026-07-20T10:00:00.000Z'
     };
     const pending = { ...base, path: '/root/pending', status: 'pending' as const };
-    const running = { ...base, path: '/root/running', status: 'running' as const };
+    const running = { ...base, path: '/root/running', status: 'running' as const, createdAt: '2026-07-20T10:01:00.000Z' };
     const completed = { ...base, path: '/root/completed', status: 'completed' as const };
     const interrupted = { ...base, path: '/root/interrupted', status: 'interrupted' as const };
     const errored = { ...base, path: '/root/errored', status: 'errored' as const };
 
     expect(subagentCatalogGroups([pending, completed, running, interrupted, errored])).toEqual({
-      active: [pending, running],
-      completed: [completed, interrupted, errored]
+      active: [running, pending],
+      completed: [completed, errored, interrupted]
     });
   });
 
