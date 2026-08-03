@@ -21,7 +21,7 @@
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
 - Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
-- Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
+- Changed the session composer placeholders to `Your move` for inactive sessions and `Steer the research` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.
 - Changed the header workspace name and memory-list type labels to regular font weight.
 - Increased the content-surface and steering-composer corner radius to a shared 16px value, and tightened the steering action shelf to matching 4px bottom and right insets without leaving space beneath the composer.

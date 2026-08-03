@@ -10,7 +10,7 @@ describe('renderer trace composer', () => {
 
     expect(html).toContain('aria-label="Stop session"');
     expect(html).not.toContain('aria-label="Send steering instruction"');
-    expect(html).toContain('placeholder="Steer the agent..."');
+    expect(html).toContain('placeholder="Steer the research"');
   });
 
   it('shows Send after the session is no longer active', () => {
@@ -18,7 +18,7 @@ describe('renderer trace composer', () => {
 
     expect(html).toContain('aria-label="Send steering instruction"');
     expect(html).not.toContain('aria-label="Stop session"');
-    expect(html).toContain('placeholder="Your move..."');
+    expect(html).toContain('placeholder="Your move"');
   });
 });
 

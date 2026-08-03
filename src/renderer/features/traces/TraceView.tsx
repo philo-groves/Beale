@@ -663,7 +663,7 @@ const MainSteerArea = memo(function MainSteerArea({
           ref={textareaRef}
           rows={1}
           value={instruction}
-          placeholder={sessionActive ? 'Steer the agent...' : 'Your move...'}
+          placeholder={sessionActive ? 'Steer the research' : 'Your move'}
           onChange={(event) => setInstruction(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
