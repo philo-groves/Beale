@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
 import { ResearchSidePanel } from '../src/renderer/features/research/MemorySidePanel';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
   it('excludes stale memories from the active sidebar count', () => {
@@ -32,6 +32,29 @@ describe('renderer memory catalog', () => {
     ])).toBe('2 Searches');
   });
 
+  it('groups active memories into primitive, chain, sink, and other summaries', () => {
+    expect(sessionMemoryTypeSummaries([
+      memoryNode({ id: 'primitive_confirmed', type: 'primitive', status: 'confirmed' }),
+      memoryNode({ id: 'primitive_suspected', type: 'primitive', status: 'suspected' }),
+      memoryNode({ id: 'primitive_rejected', type: 'primitive', status: 'rejected' }),
+      memoryNode({ id: 'chain_confirmed', type: 'chain', status: 'confirmed' }),
+      memoryNode({ id: 'sink_confirmed', type: 'sink', status: 'confirmed' }),
+      memoryNode({ id: 'sink_suspected', type: 'sink', status: 'suspected' }),
+      memoryNode({ id: 'trajectory_confirmed', type: 'trajectory', status: 'confirmed' }),
+      memoryNode({ id: 'trajectory_suspected', type: 'trajectory', status: 'suspected' }),
+      memoryNode({ id: 'evidence_confirmed', type: 'evidence', status: 'confirmed' }),
+      memoryNode({ id: 'evidence_suspected', type: 'evidence', status: 'suspected' }),
+      memoryNode({ id: 'custom_signal', type: 'custom_signal', status: 'suspected' }),
+      memoryNode({ id: 'custom_rejected', type: 'custom_signal', status: 'rejected' }),
+      memoryNode({ id: 'stale_type', type: 'sink', status: 'stale' })
+    ])).toEqual([
+      { type: 'sink', count: 2, confirmedCount: 1, suspectedCount: 1, rejectedCount: 0, countLabel: '2 Sinks', statusLabel: '1 Confirmed, 1 Suspected' },
+      { type: 'primitive', count: 3, confirmedCount: 1, suspectedCount: 1, rejectedCount: 1, countLabel: '3 Primitives', statusLabel: '1 Confirmed, 1 Suspected, 1 Rejected' },
+      { type: 'chain', count: 1, confirmedCount: 1, suspectedCount: 0, rejectedCount: 0, countLabel: '1 Chain', statusLabel: '1 Confirmed' },
+      { type: 'other', count: 6, confirmedCount: 2, suspectedCount: 3, rejectedCount: 1, countLabel: '6 Boring', statusLabel: '' }
+    ]);
+  });
+
   it('shows a session-scoped summary card before the detailed catalog', () => {
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       detail: summaryDetail(),
@@ -46,9 +69,12 @@ describe('renderer memory catalog', () => {
         contextWorkspaceId: 'workspace_zsh',
         contextSubjectId: 'subject_apple',
         nodes: [
-          memoryNode({ id: 'session_one', tier: 'session', sessionId: 'run_current' }),
+          memoryNode({ id: 'session_one', tier: 'session', sessionId: 'run_current', status: 'confirmed' }),
           memoryNode({ id: 'session_two', tier: 'session', sessionId: 'run_current' }),
-          memoryNode({ id: 'session_chain', tier: 'session', sessionId: 'run_current', type: 'chain' }),
+          memoryNode({ id: 'session_chain', tier: 'session', sessionId: 'run_current', type: 'chain', status: 'confirmed' }),
+          memoryNode({ id: 'session_sink', tier: 'session', sessionId: 'run_current', type: 'sink' }),
+          memoryNode({ id: 'session_other', tier: 'session', sessionId: 'run_current', type: 'invariant' }),
+          memoryNode({ id: 'session_other_rejected', tier: 'session', sessionId: 'run_current', type: 'invariant', status: 'rejected' }),
           memoryNode({ id: 'session_stale', tier: 'session', sessionId: 'run_current', status: 'stale' }),
           memoryNode({ id: 'workspace_one' })
         ],
@@ -83,8 +109,19 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('lucide-coins');
     expect(html).toContain('lucide-badge-percent');
     expect(html).toContain('lucide-gauge');
-    expect(html).toContain('<span>3 Memories</span>');
+    expect(html).toContain('<span>6 Memories</span>');
     expect(html).toContain('class="session-summary-meta">1 Search, 2 Updates</span>');
+    expect(html).toContain('class="session-memory-type-item"><span>2 Primitives</span><span class="session-summary-meta">1 Confirmed, 1 Suspected</span></div>');
+    expect(html).toContain('class="session-memory-type-item"><span>1 Chain</span><span class="session-summary-meta">1 Confirmed</span></div>');
+    expect(html).toContain('class="session-memory-type-item"><span>1 Sink</span><span class="session-summary-meta">1 Suspected</span></div>');
+    expect(html).toContain('class="session-memory-type-item"><span>2 Boring</span></div>');
+    expect(html).not.toContain('0 Confirmed');
+    expect(html).not.toContain('0 Suspected');
+    expect(html).not.toContain('0 Rejected');
+    expect(html.indexOf('<span>1 Sink</span>')).toBeLessThan(html.indexOf('<span>2 Primitives</span>'));
+    expect(html.indexOf('<span>2 Primitives</span>')).toBeLessThan(html.indexOf('<span>1 Chain</span>'));
+    expect(html.indexOf('<span>1 Chain</span>')).toBeLessThan(html.indexOf('<span>2 Boring</span>'));
+    expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
     expect(html).toContain('<span>2 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">5 Revisions</span>');
     expect(html).toContain('<span>0 Subagents</span>');

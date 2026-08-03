@@ -7,7 +7,7 @@ import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary } from '../../view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import { subagentStatusCountSummary, subagentStatusLabel, subagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -52,6 +52,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const sessionMemories = useMemo(() => activeMemoryCount(sessionMemoryNodes), [sessionMemoryNodes]);
   const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(events), [events]);
+  const sessionMemoryTypes = useMemo(() => sessionMemoryTypeSummaries(sessionMemoryNodes), [sessionMemoryNodes]);
   const sessionRunbooks = useMemo(
     () => runbooks.filter((runbook) => runbook.sessionId === runId && runbook.status !== 'archived').length,
     [runbooks, runId]
@@ -115,6 +116,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
               <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
+            {sessionMemoryTypes.map((memoryType) => (
+              <div className="session-memory-type-item" key={memoryType.type}>
+                <span>{memoryType.countLabel}</span>
+                {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
+              </div>
+            ))}
+
             <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
               <BookOpen size={15} aria-hidden="true" />
               <span>{sessionRunbooks} Runbooks</span>
@@ -150,7 +158,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           onClick={() => setDetailsOpen(false)}
         >
           <ChevronLeft size={15} aria-hidden="true" />
-          <span>Back to Session</span>
+          <span>Back</span>
         </button>
         </header>
 

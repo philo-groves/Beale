@@ -14,6 +14,50 @@ export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[])
   return nodes.filter(isActiveMemoryNode).length;
 }
 
+export interface SessionMemoryTypeSummary {
+  type: 'primitive' | 'chain' | 'sink' | 'other';
+  count: number;
+  confirmedCount: number;
+  suspectedCount: number;
+  rejectedCount: number;
+  countLabel: string;
+  statusLabel: string;
+}
+
+export function sessionMemoryTypeSummaries(nodes: readonly HoneycrispMemoryNodeSummary[]): SessionMemoryTypeSummary[] {
+  const summaries: SessionMemoryTypeSummary[] = [
+    { type: 'sink', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
+    { type: 'primitive', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
+    { type: 'chain', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
+    { type: 'other', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' }
+  ];
+
+  for (const node of nodes) {
+    if (!isActiveMemoryNode(node)) continue;
+    const type = node.type.trim();
+    if (!type) continue;
+    const normalizedType = type.toLocaleLowerCase();
+    const category = normalizedType === 'primitive' || normalizedType === 'chain' || normalizedType === 'sink'
+      ? normalizedType
+      : 'other';
+    const current = summaries.find((summary) => summary.type === category);
+    if (!current) continue;
+    current.count += 1;
+    const status = node.status.trim().toLocaleLowerCase();
+    if (status === 'confirmed') current.confirmedCount += 1;
+    if (status === 'suspected') current.suspectedCount += 1;
+    if (status === 'rejected') current.rejectedCount += 1;
+  }
+
+  return summaries
+    .filter((summary) => summary.count > 0)
+    .map((summary) => ({
+      ...summary,
+      countLabel: memoryTypeCountLabel(summary.type, summary.count),
+      statusLabel: memoryTypeStatusLabel(summary)
+    }));
+}
+
 export function sessionMemoryActivitySummary(events: readonly TraceEventRecord[]): string {
   const counts = {
     search: { paired: new Set<string>(), requested: 0, observed: 0 },
@@ -74,6 +118,21 @@ function isActiveMemoryNode(node: HoneycrispMemoryNodeSummary): boolean {
 function activityCountLabel(count: number, label: string, pluralLabel = `${label}s`): string | null {
   if (count === 0) return null;
   return `${count} ${count === 1 ? label : pluralLabel}`;
+}
+
+function memoryTypeCountLabel(type: SessionMemoryTypeSummary['type'], count: number): string {
+  if (type === 'other') return `${count} Boring`;
+  const label = `${type[0].toUpperCase()}${type.slice(1)}`;
+  return `${count} ${count === 1 ? label : `${label}s`}`;
+}
+
+function memoryTypeStatusLabel(summary: SessionMemoryTypeSummary): string {
+  if (summary.type === 'other') return '';
+  return [
+    summary.confirmedCount > 0 ? `${summary.confirmedCount} Confirmed` : null,
+    summary.suspectedCount > 0 ? `${summary.suspectedCount} Suspected` : null,
+    summary.rejectedCount > 0 ? `${summary.rejectedCount} Rejected` : null
+  ].filter((label): label is string => label !== null).join(', ');
 }
 
 export function groupMemoryRelationships(edges: HoneycrispMemoryEdgeSummary[]): Map<string, HoneycrispMemoryEdgeSummary[]> {
