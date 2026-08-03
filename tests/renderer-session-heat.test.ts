@@ -12,7 +12,8 @@ describe('renderer session heat view models', () => {
   });
 
   it.each([
-    ['primitive', 'suspected', 'low'],
+    ['sink', 'confirmed', 'low'],
+    ['primitive', 'suspected', 'medium'],
     ['primitive', 'confirmed', 'medium'],
     ['chain', 'suspected', 'high'],
     ['chain', 'confirmed', 'critical']
@@ -23,7 +24,7 @@ describe('renderer session heat view models', () => {
   it('ignores triggering memories from other sessions', () => {
     const memory = honeycrispMemory([
       memoryNode({ sessionId: 'run_older', type: 'chain', status: 'confirmed' }),
-      memoryNode({ sessionId: 'run_current', type: 'primitive', status: 'suspected' })
+      memoryNode({ sessionId: 'run_current', type: 'sink', status: 'confirmed' })
     ]);
 
     expect(sessionHeatForHoneycrispMemory(memory, 'run_current')).toBe('low');

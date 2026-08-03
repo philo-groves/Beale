@@ -32,8 +32,10 @@ function sessionHeatForMemoryNode(type: string, status: string): SessionHeat {
     if (normalizedStatus === 'suspected') return 'high';
   }
   if (normalizedType === 'primitive') {
-    if (normalizedStatus === 'confirmed') return 'medium';
-    if (normalizedStatus === 'suspected') return 'low';
+    if (normalizedStatus === 'suspected' || normalizedStatus === 'confirmed') return 'medium';
+  }
+  if (normalizedType === 'sink') {
+    if (normalizedStatus === 'confirmed') return 'low';
   }
   return 'none';
 }
