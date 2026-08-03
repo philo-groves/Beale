@@ -27,9 +27,11 @@ export function activeSubagentCount(subagents: readonly SubagentSummary[]): numb
 export function subagentStatusCountSummary(subagents: readonly SubagentSummary[]): string {
   const activeCount = activeSubagentCount(subagents);
   const completedCount = subagents.filter((subagent) => subagent.status === 'completed').length;
+  const errorCount = subagents.filter((subagent) => subagent.status === 'errored').length;
   return [
     activeCount > 0 ? `${activeCount} Active` : null,
-    completedCount > 0 ? `${completedCount} Completed` : null
+    completedCount > 0 ? `${completedCount} Completed` : null,
+    errorCount > 0 ? `${errorCount} Error` : null
   ].filter((label): label is string => label !== null).join(', ');
 }
 

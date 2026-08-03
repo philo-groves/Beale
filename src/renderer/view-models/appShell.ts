@@ -33,6 +33,7 @@ export function appShellClassName(input: {
     `platform-${input.platform}`,
     input.sessionActive ? 'session-active' : '',
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
+    input.windowChromeState.isFullScreen ? 'window-full-screen' : '',
     input.sidebarCollapsed ? 'sidebar-collapsed' : ''
   ]
     .filter(Boolean)

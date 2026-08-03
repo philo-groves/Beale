@@ -146,7 +146,7 @@ describe('subagent trace view models', () => {
     ])).toBe(2);
   });
 
-  it('formats only nonzero active and completed counts', () => {
+  it('formats only nonzero active, completed, and error counts', () => {
     const base = {
       id: null,
       path: '/root/worker',
@@ -160,8 +160,9 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/running', status: 'running' },
       { ...base, path: '/root/completed-one', status: 'completed' },
       { ...base, path: '/root/completed-two', status: 'completed' },
-      { ...base, path: '/root/interrupted', status: 'interrupted' }
-    ])).toBe('1 Active, 2 Completed');
+      { ...base, path: '/root/interrupted', status: 'interrupted' },
+      { ...base, path: '/root/errored', status: 'errored' }
+    ])).toBe('1 Active, 2 Completed, 1 Error');
   });
 
   it('does not replace lifecycle state with child tool result status', () => {

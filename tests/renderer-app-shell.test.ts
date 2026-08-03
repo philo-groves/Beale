@@ -30,6 +30,17 @@ describe('renderer app shell view model', () => {
         sidebarCollapsed: true
       })
     ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed');
+
+    expect(
+      appShellClassName({
+        sessionHeat: 'none',
+        momentumState: 'idle',
+        sessionActive: false,
+        platform: 'darwin',
+        windowChromeState: { isMaximized: false, isFullScreen: true },
+        sidebarCollapsed: false
+      })
+    ).toBe('app-shell session-heat-none momentum-idle platform-darwin window-edge-flush window-full-screen');
   });
 
   it('resolves window control platform fallbacks', () => {

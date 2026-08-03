@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- macOS fullscreen windows now remove the header space reserved for unavailable traffic-light controls while retaining it in normal windowed mode.
 - Honeycrisp controls now carry acknowledged request IDs, record rejected or unacknowledged delivery, and defer safe steering recovery until the prior agent process exits while retaining bounded subagent results.
 - Research traces now preserve Honeycrisp goal lifecycle, post-compaction checkpoints, and repeated-read/tool-loop recovery events from both live streams and flow-capture recovery without duplicating shared event IDs.
 - Custom goal-objective derivation now preserves security-relevant identifier and glob syntax, joins hard-wrapped objective sentences, and distinguishes missing dispositions from disposition-driven continuations in the trace.
@@ -18,7 +19,7 @@
 ### Changed
 
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
-- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active and completed counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
+- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the inactive session composer placeholder to `Your move...` while retaining `Steer the agent...` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.
