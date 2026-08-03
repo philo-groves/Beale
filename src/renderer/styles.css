@@ -2643,6 +2643,7 @@ button.session-summary-item:hover:not(:disabled),
   width: 100%;
   min-width: 0;
   min-height: 0;
+  position: relative;
   overflow: hidden;
   border-top-right-radius: var(--content-surface-radius);
   background: var(--panel);
@@ -3169,6 +3170,8 @@ button.session-summary-item:hover:not(:disabled),
   background: var(--panel);
 }
 
+.main-commentary-scroll::before,
+.main-commentary-scroll::after,
 .main-trace-scroll::before,
 .main-trace-scroll::after {
   content: "";
@@ -3182,16 +3185,20 @@ button.session-summary-item:hover:not(:disabled),
   transition: opacity 140ms ease;
 }
 
+.main-commentary-scroll::before,
 .main-trace-scroll::before {
   top: 0;
   background: linear-gradient(to bottom, var(--panel) 0%, color-mix(in srgb, var(--panel) 74%, transparent) 52%, transparent 100%);
 }
 
+.main-commentary-scroll::after,
 .main-trace-scroll::after {
   bottom: 0;
   background: linear-gradient(to top, var(--panel) 0%, color-mix(in srgb, var(--panel) 74%, transparent) 52%, transparent 100%);
 }
 
+.main-commentary-scroll.has-top-fade::before,
+.main-commentary-scroll.has-bottom-fade::after,
 .main-trace-scroll.has-top-fade::before,
 .main-trace-scroll.has-bottom-fade::after {
   opacity: 1;

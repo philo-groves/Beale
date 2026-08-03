@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, Terminal, Wrench } from 'lucide-react';
 import type {
@@ -49,20 +49,51 @@ export const CommentaryView = memo(function CommentaryView({
     () => messages.map((message) => `${message.id}:${message.contentMarkdown.length}`).join('|'),
     [messages]
   );
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
+  const selectedRunIdRef = useRef(selectedRunId);
+
+  const updateScrollEdges = useCallback((): void => {
+    const scroll = scrollRef.current;
+    const list = listRef.current;
+    if (!scroll) return;
+    if (!list) {
+      scroll.classList.remove('has-top-fade', 'has-bottom-fade');
+      return;
+    }
+    const fadeClasses = commentaryScrollFadeClasses({
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+      scrollTop: list.scrollTop
+    });
+    scroll.classList.toggle('has-top-fade', fadeClasses['has-top-fade']);
+    scroll.classList.toggle('has-bottom-fade', fadeClasses['has-bottom-fade']);
+  }, []);
 
   const scrollToLatest = useCallback((): void => {
     const list = listRef.current;
     if (!list) return;
     list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-  }, []);
+    updateScrollEdges();
+  }, [updateScrollEdges]);
+
+  const syncScrollState = useCallback((): void => {
+    if (followLatestRef.current) {
+      scrollToLatest();
+      return;
+    }
+    updateScrollEdges();
+  }, [scrollToLatest, updateScrollEdges]);
 
   useLayoutEffect(() => {
-    if (!followLatestRef.current) return undefined;
-    const frame = window.requestAnimationFrame(scrollToLatest);
+    if (selectedRunIdRef.current !== selectedRunId) {
+      selectedRunIdRef.current = selectedRunId;
+      followLatestRef.current = true;
+    }
+    const frame = window.requestAnimationFrame(syncScrollState);
     return () => window.cancelAnimationFrame(frame);
-  }, [messageUpdateKey, scrollToLatest, selectedRunId]);
+  }, [messageUpdateKey, selectedRunId, syncScrollState]);
 
   useLayoutEffect(() => {
     if (!selectedTraceEventId) return;
@@ -74,7 +105,26 @@ export const CommentaryView = memo(function CommentaryView({
     if (!selected) return;
     followLatestRef.current = false;
     selected.scrollIntoView({ block: 'center' });
-  }, [messageUpdateKey, selectedTraceEventId]);
+    const frame = window.requestAnimationFrame(updateScrollEdges);
+    return () => window.cancelAnimationFrame(frame);
+  }, [messageUpdateKey, selectedTraceEventId, updateScrollEdges]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(syncScrollState);
+    observer.observe(list);
+    Array.from(list.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [messageUpdateKey, selectedRunId, syncScrollState]);
+
+  const handleScroll = useCallback((): void => {
+    const list = listRef.current;
+    if (!list) return;
+    const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+    followLatestRef.current = distanceFromBottom <= 24;
+    updateScrollEdges();
+  }, [updateScrollEdges]);
 
   if (!selectedRunId) return null;
 
@@ -94,15 +144,11 @@ export const CommentaryView = memo(function CommentaryView({
       {!detail ? <div className="main-trace-empty">Loading commentary.</div> : null}
       {detail && messages.length === 0 ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
       {detail && messages.length > 0 ? (
-        <div className="main-commentary-scroll">
+        <div className="main-commentary-scroll" ref={scrollRef}>
           <div
             className="main-commentary-list"
             ref={listRef}
-            onScroll={() => {
-              const list = listRef.current;
-              if (!list) return;
-              followLatestRef.current = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
-            }}
+            onScroll={handleScroll}
           >
             {messages.map((message, index) => (
               <CommentaryMessageRow
@@ -256,6 +302,23 @@ export function shouldAutoExpandToolMessage(
   index: number
 ): boolean {
   return index === messages.length - 1 && messages[index]?.kind === 'tool';
+}
+
+export function commentaryScrollFadeClasses({
+  scrollHeight,
+  clientHeight,
+  scrollTop
+}: {
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+}): { 'has-top-fade': boolean; 'has-bottom-fade': boolean } {
+  const scrollableDistance = scrollHeight - clientHeight;
+  const canScroll = scrollableDistance > 8;
+  return {
+    'has-top-fade': canScroll && scrollTop > 8,
+    'has-bottom-fade': canScroll && scrollTop < scrollableDistance - 8
+  };
 }
 
 function ToolCallValue({ label, value }: { label: string; value: unknown }): JSX.Element {

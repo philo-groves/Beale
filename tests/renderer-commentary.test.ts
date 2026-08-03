@@ -4,6 +4,7 @@ import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   commentaryMessageIcon,
   commentaryMessageLabel,
+  commentaryScrollFadeClasses,
   commentaryToolValueText,
   shouldAutoExpandToolMessage
 } from '../src/renderer/features/commentary/CommentaryView';
@@ -144,6 +145,25 @@ describe('renderer commentary projection', () => {
     ]);
     expect(shouldAutoExpandToolMessage(followedToolMessages, 1)).toBe(false);
     expect(shouldAutoExpandToolMessage(followedToolMessages, 2)).toBe(false);
+  });
+
+  it('shows chat scroll fades only where more content remains', () => {
+    expect(commentaryScrollFadeClasses({ scrollHeight: 100, clientHeight: 100, scrollTop: 0 })).toEqual({
+      'has-top-fade': false,
+      'has-bottom-fade': false
+    });
+    expect(commentaryScrollFadeClasses({ scrollHeight: 300, clientHeight: 100, scrollTop: 0 })).toEqual({
+      'has-top-fade': false,
+      'has-bottom-fade': true
+    });
+    expect(commentaryScrollFadeClasses({ scrollHeight: 300, clientHeight: 100, scrollTop: 100 })).toEqual({
+      'has-top-fade': true,
+      'has-bottom-fade': true
+    });
+    expect(commentaryScrollFadeClasses({ scrollHeight: 300, clientHeight: 100, scrollTop: 200 })).toEqual({
+      'has-top-fade': true,
+      'has-bottom-fade': false
+    });
   });
 
   it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {
