@@ -2606,11 +2606,15 @@ button.session-summary-item:hover:not(:disabled),
   height: 100%;
   position: relative;
   display: grid;
+  --trace-content-max-width: 750px;
   --trace-footer-input-min-height: 54px;
   --trace-footer-actions-height: 35px;
   --trace-footer-composer-row-gap: 0;
+  --trace-footer-composer-inset: 10px;
+  --trace-footer-composer-bottom-inset: 10px;
   --trace-footer-min-height: calc(var(--trace-footer-input-min-height) + var(--trace-footer-actions-height) + var(--trace-footer-composer-row-gap));
-  --trace-footer-height: var(--trace-footer-min-height);
+  --trace-footer-content-height: var(--trace-footer-min-height);
+  --trace-footer-height: calc(var(--trace-footer-content-height) + var(--trace-footer-composer-bottom-inset));
   --trace-footer-radius: var(--content-surface-radius);
   grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
@@ -2905,9 +2909,12 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .main-trace-turn {
+  width: 100%;
+  max-width: var(--trace-content-max-width);
   min-width: 0;
   display: grid;
   gap: 0;
+  margin-inline: auto;
 }
 
 .main-trace-turn-header {
@@ -3756,12 +3763,14 @@ button.session-summary-item:hover:not(:disabled),
   align-items: stretch;
   overflow: visible;
   margin-left: 0;
-  padding: 0;
+  padding: 0 var(--trace-footer-composer-inset) var(--trace-footer-composer-bottom-inset);
   border-radius: var(--trace-footer-radius);
   background: var(--panel);
 }
 
 .main-steer-input-row {
+  width: 100%;
+  max-width: var(--trace-content-max-width);
   min-width: 0;
   min-height: var(--trace-footer-min-height);
   display: grid;
@@ -3770,7 +3779,9 @@ button.session-summary-item:hover:not(:disabled),
   column-gap: 14px;
   row-gap: var(--trace-footer-composer-row-gap);
   align-items: center;
+  justify-self: center;
   overflow: visible;
+  margin: 0;
   border-radius: var(--trace-footer-radius);
   background: var(--panel-raised);
   padding: 0 4px 0 0;

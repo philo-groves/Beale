@@ -593,7 +593,9 @@ const MainSteerArea = memo(function MainSteerArea({
 
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-    footer.parentElement?.style.setProperty('--trace-footer-height', `${nextFooterHeight}px`);
+    const traceView = footer.parentElement;
+    traceView?.style.removeProperty('--trace-footer-height');
+    traceView?.style.setProperty('--trace-footer-content-height', `${nextFooterHeight}px`);
   }, []);
 
   useLayoutEffect(() => {

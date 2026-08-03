@@ -18,6 +18,7 @@
 
 ### Changed
 
+- Centered trace-list content and the steering composer within a shared 750px maximum width while keeping the trace scrollbar on the right edge of the full main content area, matching the composer's side inset to the right sidenav padding and its bottom inset to the main content's window-edge spacing.
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
 - Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; compact summary rows use right-edge chevrons and are the sole routes into their corresponding detailed catalogs, which use a single full-width back button.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
