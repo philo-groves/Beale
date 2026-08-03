@@ -19,6 +19,7 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
+import type { ChatView } from '../view-models/chatView';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceInformationModal, WorkspaceSessionHistorySheet } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
@@ -39,6 +40,7 @@ export function AppModals({
   busy,
   developerSettings,
   shellOptions,
+  chatView,
   newResearchOpen,
   openAiOAuthResult,
   openAiStatus,
@@ -86,6 +88,7 @@ export function AppModals({
   onRefreshOpenAi,
   onFlushProfilingReport,
   onSetDeveloperModeEnabled,
+  onChangeChatView,
   onSaveShellOptions,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
@@ -103,6 +106,7 @@ export function AppModals({
   busy: boolean;
   developerSettings: DeveloperSettings | null;
   shellOptions: ShellOptions | null;
+  chatView: ChatView;
   newResearchOpen: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
@@ -150,6 +154,7 @@ export function AppModals({
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+  onChangeChatView: (chatView: ChatView) => void;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
@@ -197,6 +202,7 @@ export function AppModals({
           section={settingsSection}
           developerSettings={developerSettings}
           shellOptions={shellOptions}
+          chatView={chatView}
           workspaceName={activeWorkspaceName}
           openAiOAuthResult={openAiOAuthResult}
           openAiStatus={openAiStatus}
@@ -206,6 +212,7 @@ export function AppModals({
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
+          onChangeChatView={onChangeChatView}
           onSaveShellOptions={onSaveShellOptions}
           onRefreshOpenAi={onRefreshOpenAi}
           onStartOpenAiOAuth={onStartOpenAiOAuth}

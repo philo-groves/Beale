@@ -691,9 +691,14 @@ describe('Beale workbench skeleton', () => {
         "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', messagePhase: 'commentary', eventType: 'text_end', agentId: 'agent_fixture', agentPath: '/root', turn: 1, responseId: 'fixture-response', itemId: 'commentary:root', text: 'I am checking the parser boundary and its callers.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Inspect parser boundary.' } }));",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', eventType: 'text_end', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, responseId: 'child_response', itemId: 'text:0', text: 'Parser boundary inspected.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', messagePhase: 'commentary', eventType: 'text_end', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, responseId: 'child_response', itemId: 'commentary:child', text: 'I found the allocation boundary and am checking the length guard.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', messagePhase: 'final_answer', eventType: 'text_end', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, responseId: 'child_response', itemId: 'final:child', text: 'Parser boundary inspected.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', messagePhase: 'final_answer', eventType: 'text_end', agentId: 'agent_fixture', agentPath: '/root', turn: 1, responseId: 'fixture-response', itemId: 'final:root', text: 'Fixture Honeycrisp answer.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', turn: 1, usage: { input: 1000, output: 100, totalTokens: 1100 } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'followup', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'running', message: 'Recheck the parser boundary.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'agent_child', agentPath: '/root/parser_review', parentId: 'root', status: 'completed', message: 'Parser boundary inspected.' } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'context_compacted', reason: 'context_window_error', retry: true, agentId: 'root', agentPath: '/root', tokensBefore: 280000, tokensAfter: 120000 } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { eventId: 'evt_control_checkpoint', type: 'research_checkpoint', reason: 'native', turn: 7, hasProgress: true, agentId: 'root', agentPath: '/root' } }));",
@@ -807,6 +812,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review started.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review turn 1 completed.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review completed.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp extended subagent /root/parser_review.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary.includes('fixture honeycrisp stdout'))).toBe(true);
     expect(detail.traceEvents.find((event) => event.summary === 'OpenAI context window pressure triggered compacted retry.')?.payload).toMatchObject({
       agentPath: '/root',
@@ -863,14 +869,33 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.find((event) => event.payload.honeycrispEventId === 'evt_tool_result')?.payload.agentPath).toBe('/root/parser_review');
     expect(detail.traceEvents.some((event) => event.type === 'research_event' && event.summary.includes('Fixture hypothesis'))).toBe(true);
     expect(detail.artifacts.find((artifact) => artifact.kind === 'honeycrisp_flow_capture')).toMatchObject({ modelVisible: false });
-    expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context'))).toBe(true);
+    expect(detail.transcriptMessages.find(
+      (message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Inspect fixture context')
+    )).toMatchObject({ phase: null });
     expect(detail.transcriptMessages.some((message) => message.source === 'openai_reasoning_summary' && message.contentMarkdown.includes('Live repository search completed'))).toBe(false);
-    expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Fixture Honeycrisp answer.'))).toBe(true);
+    expect(detail.transcriptMessages.find(
+      (message) => message.source === 'honeycrisp_commentary' && message.metadata.agentPath === '/root'
+    )).toMatchObject({ phase: 'commentary', contentMarkdown: 'I am checking the parser boundary and its callers.' });
+    expect(detail.transcriptMessages.find(
+      (message) => message.source === 'honeycrisp_commentary' && message.metadata.agentPath === '/root/parser_review'
+    )).toMatchObject({ phase: 'commentary', contentMarkdown: 'I found the allocation boundary and am checking the length guard.' });
     expect(
-      detail.transcriptMessages.some(
-        (message) => message.source === 'honeycrisp' && message.metadata.agentPath === '/root/parser_review' && message.contentMarkdown === 'Parser boundary inspected.'
+      detail.transcriptMessages.filter(
+        (message) => message.source === 'honeycrisp' && message.contentMarkdown === 'Fixture Honeycrisp answer.'
       )
-    ).toBe(true);
+    ).toHaveLength(1);
+    expect(detail.transcriptMessages.find(
+      (message) => message.source === 'honeycrisp' && message.contentMarkdown === 'Fixture Honeycrisp answer.'
+    )?.phase).toBe('final_answer');
+    expect(
+      detail.transcriptMessages.filter(
+        (message) =>
+          message.source === 'honeycrisp' &&
+          message.phase === 'final_answer' &&
+          message.metadata.agentPath === '/root/parser_review' &&
+          message.contentMarkdown === 'Parser boundary inspected.'
+      )
+    ).toHaveLength(2);
     const honeycrispTranscript = detail.transcriptMessages.find(
       (message) => message.source === 'honeycrisp' && Array.isArray(message.metadata.nextPromptSuggestions)
     );
@@ -1319,7 +1344,7 @@ describe('Beale workbench skeleton', () => {
         "  const now = new Date().toISOString();",
         "  console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', eventType: 'text_end', agentId: 'child_parser', agentPath: '/root/parser', parentAgentId: 'root', turn: 1, responseId: 'child_old', itemId: 'text:0', text: 'Earlier parser result.' } }));",
         "  console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { phase: 'completed', eventType: 'text_end', agentId: 'child_parser', agentPath: '/root/parser', parentAgentId: 'root', turn: 2, responseId: 'child_latest', itemId: 'text:0', text: 'Latest parser result: the length reaches the allocation boundary.' } }));",
-        "  console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'child_parser', agentPath: '/root/parser', parentId: 'root', status: 'completed' } }));",
+        "  console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'subagent.activity', action: 'completed', agentId: 'child_parser', agentPath: '/root/parser', parentId: 'root', status: 'completed', message: 'Latest parser result: the length reaches the allocation boundary.' } }));",
         '  setTimeout(() => {',
         '    writeCapture();',
         "    writeFileSync(firstExitedPath, 'exited');",
@@ -1390,6 +1415,14 @@ describe('Beale workbench skeleton', () => {
       expect(invocations[1]?.resumeFallbackPrompt).toContain('Latest parser result: the length reaches the allocation boundary.');
       expect(invocations[1]?.resumeFallbackPrompt).not.toContain('Earlier parser result.');
       expect(invocations[1]?.resumeFallbackPrompt?.match(/Continue safely from the preserved subagent results\./g)).toHaveLength(1);
+      expect(detail.transcriptMessages.some(
+        (message) => message.metadata.agentPath === '/root/parser' && message.contentMarkdown === 'Earlier parser result.'
+      )).toBe(false);
+      expect(detail.transcriptMessages.find(
+        (message) =>
+          message.metadata.agentPath === '/root/parser' &&
+          message.contentMarkdown === 'Latest parser result: the length reaches the allocation boundary.'
+      )).toMatchObject({ phase: 'final_answer', source: 'honeycrisp' });
       expect(steeringMessages).toHaveLength(1);
       expect(detail.attempts).toHaveLength(2);
       expect(detail.traceEvents.some(
@@ -1572,6 +1605,7 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', messagePhase: 'commentary', responseId: `response_${turn}`, itemId: `commentary_${turn}`, text: `Retained commentary from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, responseId: `response_${turn}`, stopReason: 'stop' } }));",
         'const capture = {',
@@ -1640,6 +1674,7 @@ describe('Beale workbench skeleton', () => {
       expect(invocations[1]?.prompt).toBe('Now inspect integer truncation paths.');
       expect(invocations[1]?.resumeCapturePath).toBe(invocations[0]?.capturePath);
       expect(invocations[1]?.resumeFallbackPrompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
+      expect(invocations[1]?.resumeFallbackPrompt).toContain('Agent commentary:\nRetained commentary from invocation 1.');
       expect(invocations[1]?.resumeFallbackPrompt).toContain('Turn 1 response.');
       const continuationLaunch = detail.traceEvents.find(
         (event) => event.summary === 'Honeycrisp host process launched to continue the current session.'

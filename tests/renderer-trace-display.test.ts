@@ -250,6 +250,46 @@ describe('renderer trace display view models', () => {
       'transcript:message_unkeyed_duplicate'
     ]);
   });
+
+  it('keeps equal transcript items distinct across agents and preserves metadata attribution', () => {
+    const detail = runDetail({
+      transcriptMessages: [
+        transcriptMessage({
+          id: 'message_root',
+          phase: 'commentary',
+          source: 'honeycrisp_commentary',
+          contentMarkdown: 'Checking the boundary.',
+          metadata: {
+            agentPath: '/root',
+            responseId: 'shared_response',
+            itemId: 'shared_item',
+            messagePhase: 'commentary'
+          }
+        }),
+        transcriptMessage({
+          id: 'message_child',
+          phase: 'commentary',
+          source: 'honeycrisp_commentary',
+          contentMarkdown: 'Checking the boundary.',
+          metadata: {
+            agentPath: '/root/parser_review',
+            responseId: 'shared_response',
+            itemId: 'shared_item',
+            messagePhase: 'commentary'
+          }
+        })
+      ]
+    });
+
+    expect(buildTraceDisplayEvents(detail).map((event) => ({
+      id: event.id,
+      agentPath: event.payload.agentPath,
+      messagePhase: event.payload.messagePhase
+    }))).toEqual([
+      { id: 'transcript:message_root', agentPath: '/root', messagePhase: 'commentary' },
+      { id: 'transcript:message_child', agentPath: '/root/parser_review', messagePhase: 'commentary' }
+    ]);
+  });
 });
 
 function group(input: Partial<TraceTimelineGroup> = {}): TraceTimelineGroup {

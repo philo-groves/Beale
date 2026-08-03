@@ -14,6 +14,7 @@ import type {
 import { BottomSheet } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
 import { stateClass } from '../../lib/formatting';
+import type { ChatView } from '../../view-models/chatView';
 
 export type SettingsSection = 'general' | 'providers' | 'shell' | 'developer';
 
@@ -21,6 +22,7 @@ export function SettingsModal({
   section,
   developerSettings,
   shellOptions,
+  chatView,
   workspaceName,
   openAiStatus,
   openAiOAuthResult,
@@ -30,6 +32,7 @@ export function SettingsModal({
   onChangeSection,
   onClose,
   onSetDeveloperModeEnabled,
+  onChangeChatView,
   onSaveShellOptions,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
@@ -38,6 +41,7 @@ export function SettingsModal({
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
   shellOptions: ShellOptions | null;
+  chatView: ChatView;
   workspaceName: string | null;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -47,6 +51,7 @@ export function SettingsModal({
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+  onChangeChatView: (chatView: ChatView) => void;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -71,7 +76,7 @@ export function SettingsModal({
         </nav>
         <section className="settings-view">
           {activeSection === 'general' ? (
-            <GeneralSettingsView workspaceName={workspaceName} />
+            <GeneralSettingsView chatView={chatView} workspaceName={workspaceName} onChangeChatView={onChangeChatView} />
           ) : activeSection === 'providers' ? (
             <ProvidersSettingsView
               busy={busy}
@@ -206,12 +211,52 @@ function boundedConcurrency(value: number): number {
   return Math.max(0, Math.min(64, Math.trunc(value)));
 }
 
-function GeneralSettingsView({ workspaceName }: { workspaceName: string | null }): JSX.Element {
+export function GeneralSettingsView({
+  chatView,
+  workspaceName,
+  onChangeChatView
+}: {
+  chatView: ChatView;
+  workspaceName: string | null;
+  onChangeChatView: (chatView: ChatView) => void;
+}): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
       <div className="settings-page-header">
         <h3>General</h3>
       </div>
+      <fieldset className="provider-card chat-view-settings">
+        <legend>Chat View</legend>
+        <p>Choose how Beale presents agent activity in research sessions.</p>
+        <div className="chat-view-options">
+          <label className={`chat-view-option ${chatView === 'commentary' ? 'selected' : ''}`}>
+            <input
+              type="radio"
+              name="chat-view"
+              value="commentary"
+              checked={chatView === 'commentary'}
+              onChange={() => onChangeChatView('commentary')}
+            />
+            <span>
+              <strong>Commentary</strong>
+              <small>Follow concise research updates and agent responses.</small>
+            </span>
+          </label>
+          <label className={`chat-view-option ${chatView === 'traces' ? 'selected' : ''}`}>
+            <input
+              type="radio"
+              name="chat-view"
+              value="traces"
+              checked={chatView === 'traces'}
+              onChange={() => onChangeChatView('traces')}
+            />
+            <span>
+              <strong>Traces</strong>
+              <small>Inspect the detailed agent event timeline and tool activity.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
       <section className="provider-card readiness-enabled">
         <div className="provider-heading">
           <div>

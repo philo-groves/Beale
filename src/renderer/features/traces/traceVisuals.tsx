@@ -1,8 +1,8 @@
 import type { JSX } from 'react';
 import {
+  Brain,
   CheckCircle2,
   FileOutput,
-  GitFork,
   Lightbulb,
   Search,
   Server,
@@ -65,6 +65,7 @@ export function traceCategoryBadgeLabel(category: TraceCategoryId): string {
 
 export function traceEventIcon(event: TraceEventRecord, category: TraceCategoryId): JSX.Element {
   if (honeycrispToolEventKind(event)) return traceCategoryIcon('tools');
+  if (category === 'reasoning') return traceCategoryIcon('reasoning');
   const outcome = traceEventOutcome(event);
   if (isVerifierFailureResult(event)) return <XCircle size={13} />;
   if (outcome === 'success') return <CheckCircle2 size={13} />;
@@ -80,7 +81,7 @@ export function traceEventMarkerToneClass(event: TraceEventRecord): string {
 
 export function traceCategoryIcon(category: TraceCategoryId): JSX.Element {
   if (category === 'agent_output') return <Sparkles size={13} />;
-  if (category === 'reasoning') return <GitFork size={13} />;
+  if (category === 'reasoning') return <Brain size={13} />;
   if (category === 'tools') return <Terminal size={13} />;
   if (category === 'vm_execution') return <Server size={13} />;
   if (category === 'research') return <Lightbulb size={13} />;

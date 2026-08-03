@@ -532,13 +532,14 @@ export const TraceView = memo(function TraceView({
   );
 });
 
-const MainSteerArea = memo(function MainSteerArea({
+export const MainSteerArea = memo(function MainSteerArea({
   runId,
   detail,
   providerModelCatalog,
   busy,
   traceFilterCount,
   totalTraceFilterCount,
+  showTraceFilters = true,
   onOpenTraceFilters,
   onSessionAction,
   onSteerInstruction
@@ -549,6 +550,7 @@ const MainSteerArea = memo(function MainSteerArea({
   busy: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
+  showTraceFilters?: boolean;
   onOpenTraceFilters: () => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
@@ -685,7 +687,7 @@ const MainSteerArea = memo(function MainSteerArea({
 
   return (
     <footer className="main-trace-footer" ref={footerRef} aria-label="Steer research session">
-      <div className="main-steer-input-row">
+      <div className={`main-steer-input-row${showTraceFilters ? '' : ' without-trace-filters'}`}>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -699,15 +701,17 @@ const MainSteerArea = memo(function MainSteerArea({
             }
           }}
         />
-        <button
-          type="button"
-          className="main-steer-filter-button"
-          title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
-          onClick={onOpenTraceFilters}
-        >
-          <SlidersHorizontal size={14} />
-        </button>
+        {showTraceFilters ? (
+          <button
+            type="button"
+            className="main-steer-filter-button"
+            title={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            aria-label={`Trace filters (${traceFilterCount}/${totalTraceFilterCount} shown)`}
+            onClick={onOpenTraceFilters}
+          >
+            <SlidersHorizontal size={14} />
+          </button>
+        ) : null}
         <FloatingTextPicker
           className={`main-steer-safety-mode-picker mode-${shellSafetyMode}`}
           value={shellSafetyMode}

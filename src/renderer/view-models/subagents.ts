@@ -1,4 +1,9 @@
 import type { RunStatus, TraceEventRecord } from '@shared/types';
+import {
+  chatMessageCorrelationKey,
+  nativeCommentaryCorrelationKeys,
+  type ChatView
+} from './chatView';
 
 export type SubagentStatus = 'pending' | 'running' | 'completed' | 'interrupted' | 'errored';
 
@@ -40,9 +45,14 @@ export function subagentStatusLabel(status: SubagentStatus): string {
   return `${status[0]?.toUpperCase() ?? ''}${status.slice(1)}`;
 }
 
-export function subagentSummaries(events: TraceEventRecord[], runStatus?: RunStatus | null): SubagentSummary[] {
+export function subagentSummaries(
+  events: TraceEventRecord[],
+  runStatus?: RunStatus | null,
+  chatView: ChatView = 'traces'
+): SubagentSummary[] {
   const summaries = new Map<string, SubagentAccumulator>();
   const currentAttemptId = latestRootAttemptId(events);
+  const nativeCommentaryKeys = chatView === 'commentary' ? nativeCommentaryCorrelationKeys(events) : new Set<string>();
 
   for (const event of events) {
     const path = traceAgentPath(event);
@@ -63,7 +73,9 @@ export function subagentSummaries(events: TraceEventRecord[], runStatus?: RunSta
       attemptId: event.attemptId,
       spawnedAt: null
     };
-    const message = subagentMessage(event);
+    const message = chatView === 'commentary'
+      ? subagentAssistantPreview(event, nativeCommentaryKeys) ?? subagentActivityMessage(event)
+      : subagentMessage(event);
     summaries.set(path, {
       ...current,
       id: subagentPayloadValue(event, 'agentId') ?? current.id,
@@ -107,12 +119,44 @@ export function traceAgentPath(event: TraceEventRecord): string | null {
 }
 
 function subagentMessage(event: TraceEventRecord): string | null {
+  const activityMessage = subagentActivityMessage(event);
+  if (activityMessage) return activityMessage;
+  return normalizedPreview(
+    subagentPayloadValue(event, 'text') ??
+      subagentPayloadValue(event, 'outputText') ??
+      subagentPayloadValue(event, 'message')
+  );
+}
+
+function subagentActivityMessage(event: TraceEventRecord): string | null {
   const eventType = subagentPayloadValue(event, 'type');
   const action = subagentPayloadValue(event, 'action');
   if (eventType === 'subagent.activity') {
-    if (!action || ['spawned', 'message', 'followup', 'completed', 'errored'].includes(action)) {
+    if (!action || ['spawned', 'message', 'followup', 'interrupted', 'completed', 'errored'].includes(action)) {
       return normalizedPreview(subagentPayloadValue(event, 'message'));
     }
+  }
+  return null;
+}
+
+function subagentAssistantPreview(
+  event: TraceEventRecord,
+  nativeCommentaryKeys: ReadonlySet<string>
+): string | null {
+  const transcriptRole = subagentPayloadValue(event, 'transcriptRole');
+  const transcriptSource = subagentPayloadValue(event, 'transcriptSource');
+  const messagePhase = subagentPayloadValue(event, 'messagePhase') ?? subagentMetadataValue(event, 'messagePhase');
+  const nativeCommentary = transcriptSource === 'honeycrisp_commentary' || (
+    transcriptRole === 'assistant' &&
+    messagePhase === 'commentary' &&
+    transcriptSource !== 'openai_reasoning_summary'
+  );
+  const legacyCommentary = transcriptSource === 'openai_reasoning_summary';
+  const finalAnswer = transcriptRole === 'assistant' && (messagePhase === 'final_answer' || transcriptSource === 'honeycrisp');
+  const correlationKey = chatMessageCorrelationKey(event);
+  const suppressedLegacyCommentary = legacyCommentary && correlationKey !== null && nativeCommentaryKeys.has(correlationKey);
+  if (!nativeCommentary && !finalAnswer && !(legacyCommentary && !suppressedLegacyCommentary)) {
+    return null;
   }
   return normalizedPreview(
     subagentPayloadValue(event, 'text') ??
@@ -132,6 +176,12 @@ function subagentPayloadValue(event: TraceEventRecord, key: string): string | nu
   const nested = event.payload.payload;
   if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return null;
   return stringValue((nested as Record<string, unknown>)[key]);
+}
+
+function subagentMetadataValue(event: TraceEventRecord, key: string): string | null {
+  const metadata = event.payload.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  return stringValue((metadata as Record<string, unknown>)[key]);
 }
 
 function normalizedPreview(value: string | null): string | null {

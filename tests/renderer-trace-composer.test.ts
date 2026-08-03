@@ -1,8 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { RunDetail, RunStatus } from '@shared/types';
+import type { ResearchProviderModelCatalog, RunDetail, RunStatus } from '@shared/types';
 import {
+  MainSteerArea,
   SHELL_SAFETY_MODE_OPTIONS,
   STEER_TEXTAREA_DEFAULT_EXTRA_LINES,
   STEER_TEXTAREA_MAX_LINES,
@@ -60,35 +61,32 @@ describe('renderer trace composer', () => {
       { value: 'danger', label: 'Danger Mode' }
     ]);
   });
+
+  it('keeps trace filters out of the Commentary composer', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      busy: false,
+      detail: composerDetail('stopped'),
+      providerModelCatalog: providerModelCatalog(),
+      runId: 'run_composer',
+      showTraceFilters: false,
+      traceFilterCount: 0,
+      totalTraceFilterCount: 0,
+      onOpenTraceFilters: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).not.toContain('aria-label="Trace filters');
+    expect(html).toContain('class="main-steer-input-row without-trace-filters"');
+  });
 });
 
 function renderTraceComposer(status: RunStatus): string {
   return renderToStaticMarkup(createElement(TraceView, {
     busy: false,
-    detail: {
-      run: {
-        id: 'run_composer',
-        status,
-        shellSafetyMode: 'auto_review',
-        model: 'gpt-5.6-sol',
-        reasoningEffort: 'medium',
-        budget: {}
-      },
-      traceEvents: []
-    } as unknown as RunDetail,
+    detail: composerDetail(status),
     events: [],
-    providerModelCatalog: [{
-      providerId: 'openai-codex',
-      providerName: 'OpenAI',
-      models: [{
-        id: 'gpt-5.6-sol',
-        name: 'GPT-5.6 Sol',
-        reasoning: true,
-        effortLevels: ['low', 'medium', 'high'],
-        contextWindow: 400_000,
-        maxTokens: 128_000
-      }]
-    }],
+    providerModelCatalog: providerModelCatalog(),
     selectedRunId: 'run_composer',
     traceScopeKey: 'main',
     showBackToMain: false,
@@ -103,4 +101,33 @@ function renderTraceComposer(status: RunStatus): string {
     onSessionAction: () => undefined,
     onSteerInstruction: () => undefined
   }));
+}
+
+function composerDetail(status: RunStatus): RunDetail {
+  return {
+    run: {
+      id: 'run_composer',
+      status,
+      shellSafetyMode: 'auto_review',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'medium',
+      budget: {}
+    },
+    traceEvents: []
+  } as unknown as RunDetail;
+}
+
+function providerModelCatalog(): ResearchProviderModelCatalog[] {
+  return [{
+      providerId: 'openai-codex',
+      providerName: 'OpenAI',
+      models: [{
+        id: 'gpt-5.6-sol',
+        name: 'GPT-5.6 Sol',
+        reasoning: true,
+        effortLevels: ['low', 'medium', 'high'],
+        contextWindow: 400_000,
+        maxTokens: 128_000
+      }]
+    }];
 }

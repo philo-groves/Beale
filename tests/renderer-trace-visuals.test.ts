@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { TraceEventRecord } from '../src/shared/types';
 import {
   ALL_TRACE_CATEGORY_IDS,
@@ -22,6 +23,7 @@ describe('renderer trace visual helpers', () => {
     expect(traceCategoryLabel('non_standard')).toBe('Non-standard');
     expect(traceCategoryBadgeLabel('artifacts')).toBe('Artifacts');
     expect(traceCategoryBadgeLabel('reasoning')).toBe('Reasoning');
+    expect(renderToStaticMarkup(traceCategoryIcon('reasoning'))).toContain('lucide-brain');
   });
 
   it('formats trace type labels for detail metadata', () => {
@@ -62,6 +64,11 @@ describe('renderer trace visual helpers', () => {
     expect(traceEventIcon(failure, 'failure_recovery').type).toBe(traceEventIcon(request, 'non_standard').type);
     expect(traceEventMarkerToneClass(success)).toBe('marker-tool-observation-success');
     expect(traceEventMarkerToneClass(failure)).toBe('marker-tool-observation-failure');
+  });
+
+  it('keeps the brain icon on reasoning traces regardless of generic outcome metadata', () => {
+    const reasoning = traceEvent({ payload: { status: 'complete' } });
+    expect(renderToStaticMarkup(traceEventIcon(reasoning, 'reasoning'))).toContain('lucide-brain');
   });
 });
 

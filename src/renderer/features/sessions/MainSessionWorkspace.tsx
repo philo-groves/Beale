@@ -4,8 +4,10 @@ import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunb
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { RunbookView } from '../research/RunbookView';
+import { CommentaryView } from '../commentary/CommentaryView';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
+import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import {
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
@@ -16,6 +18,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail,
   events,
   allEvents,
+  chatView,
   providerModelCatalog,
   honeycrispMemory,
   runCount,
@@ -46,6 +49,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   allEvents: TraceDisplayEvent[];
+  chatView: ChatView;
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   runCount: number;
@@ -101,31 +105,49 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       className="main-session-grid"
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
-      {selectedRunbook ? <RunbookView
-        document={selectedRunbookDocument}
-        error={runbookError}
-        loading={runbookLoading}
-        runbook={selectedRunbook}
-        onBackToMain={onBackToMain}
-      /> : <TraceView
-        busy={busy}
-        detail={detail}
-        events={events}
-        providerModelCatalog={providerModelCatalog}
-        selectedRunId={selectedRunId}
-        traceScopeKey={selectedSubagentPath ?? 'main'}
-        showBackToMain={selectedSubagentPath !== null}
-        selectedTraceEventId={selectedTraceEventId}
-        searchHighlightQuery={searchHighlightQuery}
-        traceFilterCount={traceFilterCount}
-        totalTraceFilterCount={totalTraceFilterCount}
-        visibleTraceCategories={visibleTraceCategories}
-        onOpenTraceFilters={onOpenTraceFilters}
-        onBackToMain={onBackToMain}
-        onSelectTraceEvent={onSelectTraceEvent}
-        onSessionAction={onSessionAction}
-        onSteerInstruction={onSteerInstruction}
-      />}
+      {selectedRunbook ? (
+        <RunbookView
+          document={selectedRunbookDocument}
+          error={runbookError}
+          loading={runbookLoading}
+          runbook={selectedRunbook}
+          onBackToMain={onBackToMain}
+        />
+      ) : chatView === 'commentary' ? (
+        <CommentaryView
+          busy={busy}
+          detail={detail}
+          events={events}
+          providerModelCatalog={providerModelCatalog}
+          selectedRunId={selectedRunId}
+          showBackToMain={selectedSubagentPath !== null}
+          selectedTraceEventId={selectedTraceEventId}
+          searchHighlightQuery={searchHighlightQuery}
+          onBackToMain={onBackToMain}
+          onSessionAction={onSessionAction}
+          onSteerInstruction={onSteerInstruction}
+        />
+      ) : (
+        <TraceView
+          busy={busy}
+          detail={detail}
+          events={events}
+          providerModelCatalog={providerModelCatalog}
+          selectedRunId={selectedRunId}
+          traceScopeKey={selectedSubagentPath ?? 'main'}
+          showBackToMain={selectedSubagentPath !== null}
+          selectedTraceEventId={selectedTraceEventId}
+          searchHighlightQuery={searchHighlightQuery}
+          traceFilterCount={traceFilterCount}
+          totalTraceFilterCount={totalTraceFilterCount}
+          visibleTraceCategories={visibleTraceCategories}
+          onOpenTraceFilters={onOpenTraceFilters}
+          onBackToMain={onBackToMain}
+          onSelectTraceEvent={onSelectTraceEvent}
+          onSessionAction={onSessionAction}
+          onSteerInstruction={onSteerInstruction}
+        />
+      )}
       <div
         className="research-side-resize-handle"
         role="separator"
@@ -139,6 +161,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onPointerDown={beginResize}
       />
       <ResearchSidePanel
+        chatView={chatView}
         detail={detail}
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}

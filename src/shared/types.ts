@@ -1094,12 +1094,15 @@ export interface TraceEventRecord {
 
 export type TranscriptRole = 'user' | 'assistant' | 'system';
 
+export type TranscriptMessagePhase = 'commentary' | 'final_answer';
+
 export interface TranscriptMessageRecord {
   id: string;
   runId: string;
   attemptId: string | null;
   traceEventId: string | null;
   role: TranscriptRole;
+  phase?: TranscriptMessagePhase | null;
   contentMarkdown: string;
   source: string;
   metadata: Record<string, unknown>;

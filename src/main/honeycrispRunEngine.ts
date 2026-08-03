@@ -1101,7 +1101,7 @@ export class HoneycrispRunEngine {
     }
 
     if (event.kind === 'model.output') {
-      this.recordLiveSubagentOutput(context, event);
+      this.recordLiveAgentOutput(context, event);
       return;
     }
 
@@ -1422,7 +1422,10 @@ export class HoneycrispRunEngine {
     this.onChange();
   }
 
-  private recordSubagentActivity(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+  private recordSubagentActivity(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent
+  ): void {
     const payload = event.payload ?? {};
     const action = stringPayload(payload, 'action') ?? 'updated';
     const agentPath = stringPayload(payload, 'agentPath') ?? 'unknown agent';
@@ -1434,7 +1437,7 @@ export class HoneycrispRunEngine {
       completed: `Honeycrisp subagent ${agentPath} completed.`,
       errored: `Honeycrisp subagent ${agentPath} failed.`
     };
-    this.db.appendTraceEvent({
+    const activityTrace = this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
       type: 'model_message',
@@ -1449,29 +1452,88 @@ export class HoneycrispRunEngine {
       vmContextId: context.vmContext.id,
       modelVisible: false
     });
+    const finalText = action === 'completed' ? stringPayload(payload, 'message') : null;
+    if (finalText && agentPath !== 'unknown agent') {
+      const agentId = stringPayload(payload, 'agentId');
+      const parentAgentId = stringPayload(payload, 'parentAgentId') ?? stringPayload(payload, 'parentId');
+      const responseId = `subagent-completed:${agentId ?? agentPath}`;
+      const itemId = `final:${agentId ?? agentPath}:${activityTrace.id}`;
+      const transcriptTrace = this.db.appendTraceEvent({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        type: 'model_message',
+        source: 'model',
+        summary: `Honeycrisp subagent ${agentPath} responded.`,
+        payload: {
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp',
+          transcriptKind: 'agent_output',
+          messagePhase: 'final_answer',
+          agentId,
+          agentPath,
+          parentAgentId,
+          responseId,
+          itemId,
+          text: finalText,
+          live: true,
+          lifecycleCompleted: true
+        },
+        vmContextId: context.vmContext.id
+      });
+      this.db.createTranscriptMessage({
+        runId: context.run.id,
+        attemptId: context.attempt.id,
+        traceEventId: transcriptTrace.id,
+        role: 'assistant',
+        phase: 'final_answer',
+        contentMarkdown: finalText,
+        source: 'honeycrisp',
+        metadata: {
+          agentId,
+          agentPath,
+          parentAgentId,
+          responseId,
+          itemId,
+          live: true,
+          lifecycleCompleted: true
+        }
+      });
+    }
     this.onChange();
   }
 
-  private recordLiveSubagentOutput(context: CreatedRunContext, event: HoneycrispLiveEvent): void {
+  private recordLiveAgentOutput(
+    context: CreatedRunContext,
+    event: HoneycrispLiveEvent
+  ): void {
     const payload = event.payload ?? {};
     const agentPath = stringPayload(payload, 'agentPath');
     const phase = stringPayload(payload, 'phase');
     const text = stringPayload(payload, 'text');
-    if (!agentPath || agentPath === '/root' || phase !== 'completed' || !text) return;
-    const responseId = stringPayload(payload, 'responseId') ?? `subagent:${agentPath}`;
+    const messagePhase = stringPayload(payload, 'messagePhase');
+    const commentary = messagePhase === 'commentary';
+    const subagent = Boolean(agentPath && agentPath !== '/root');
+    if (phase !== 'completed' || !text || !commentary) return;
+    const responseId = stringPayload(payload, 'responseId');
     const itemId = stringPayload(payload, 'itemId') ?? 'text:0';
+    const turn = numberPayload(payload, 'turn');
+    const provider = stringPayload(payload, 'provider');
+    const model = stringPayload(payload, 'model');
     const trace = this.db.appendTraceEvent({
       runId: context.run.id,
       attemptId: context.attempt.id,
       type: 'model_message',
       source: 'model',
-      summary: `Honeycrisp subagent ${agentPath} responded.`,
+      summary: subagent
+        ? `Honeycrisp subagent ${agentPath} shared commentary.`
+        : 'Honeycrisp shared commentary.',
       payload: {
         ...(event.payload ?? {}),
         transcriptRole: 'assistant',
-        transcriptSource: 'honeycrisp',
-        transcriptKind: 'agent_output',
-        responseId,
+        transcriptSource: 'honeycrisp_commentary',
+        transcriptKind: 'commentary',
+        messagePhase: 'commentary',
+        ...(responseId ? { responseId } : {}),
         itemId,
         live: true
       },
@@ -1482,14 +1544,19 @@ export class HoneycrispRunEngine {
       attemptId: context.attempt.id,
       traceEventId: trace.id,
       role: 'assistant',
+      phase: 'commentary',
       contentMarkdown: text,
-      source: 'honeycrisp',
+      source: 'honeycrisp_commentary',
       metadata: {
         agentId: stringPayload(payload, 'agentId'),
         agentPath,
         parentAgentId: stringPayload(payload, 'parentAgentId'),
-        responseId,
+        ...(responseId ? { responseId } : {}),
         itemId,
+        messagePhase: 'commentary',
+        turn,
+        provider,
+        model,
         live: true
       }
     });
@@ -1548,13 +1615,17 @@ export class HoneycrispRunEngine {
     const payload = event.payload ?? {};
     const text = stringPayload(payload, 'text');
     const delta = stringPayload(payload, 'delta');
-    const responseId = stringPayload(payload, 'responseId') ?? 'live-response';
-    const itemId = stringPayload(payload, 'itemId') ?? `reasoning-summary:${responseId}`;
+    const responseId = stringPayload(payload, 'responseId');
+    const turn = numberPayload(payload, 'turn');
+    const provider = stringPayload(payload, 'provider');
+    const model = stringPayload(payload, 'model');
+    const responseKey = responseId ?? `turn:${provider ?? ''}:${model ?? ''}:${turn ?? ''}`;
+    const itemId = stringPayload(payload, 'itemId') ?? `reasoning-summary:${responseKey}`;
     const agentId = stringPayload(payload, 'agentId');
     const agentPath = stringPayload(payload, 'agentPath');
     const parentAgentId = stringPayload(payload, 'parentAgentId');
     const subagent = Boolean(agentPath && agentPath !== '/root');
-    const key = `${agentPath ?? '/root'}\u0000${responseId}\u0000${itemId}`;
+    const key = `${agentPath ?? '/root'}\u0000${responseKey}\u0000${itemId}`;
     const state =
       active?.liveReasoningSummaries.get(key) ?? {
         text: '',
@@ -1587,17 +1658,17 @@ export class HoneycrispRunEngine {
         transcriptRole: 'assistant',
         transcriptSource: 'openai_reasoning_summary',
         transcriptKind: 'reasoning_summary',
-        responseId,
+        ...(responseId ? { responseId } : {}),
         itemId,
         agentId,
         agentPath,
         parentAgentId,
-        turn: numberPayload(payload, 'turn'),
+        turn,
         phase,
         live: true,
         snapshot: state.snapshotCount,
-        provider: stringPayload(payload, 'provider') ?? null,
-        model: stringPayload(payload, 'model') ?? null,
+        provider,
+        model,
         redacted: payload.redacted === true
       },
       vmContextId: context.vmContext.id
@@ -1610,16 +1681,17 @@ export class HoneycrispRunEngine {
       contentMarkdown: summaryText,
       source: 'openai_reasoning_summary',
       metadata: {
-        responseId,
+        ...(responseId ? { responseId } : {}),
         itemId,
         agentId,
         agentPath,
         parentAgentId,
+        turn,
         phase,
         live: true,
         snapshot: state.snapshotCount,
-        provider: stringPayload(payload, 'provider') ?? null,
-        model: stringPayload(payload, 'model') ?? null
+        provider,
+        model
       }
     });
     this.onChange();
@@ -1824,6 +1896,7 @@ export class HoneycrispRunEngine {
         attemptId: context.attempt.id,
         traceEventId: transcriptTrace.id,
         role: 'assistant',
+        phase: 'final_answer',
         contentMarkdown: assistantText,
         source: 'honeycrisp',
         metadata: {
@@ -2217,7 +2290,12 @@ function subagentStatusFromAction(action: string): string {
 }
 
 function isRootContinuationMessage(message: TranscriptMessageRecord): boolean {
-  if (message.source !== 'honeycrisp' && message.source !== 'user_steering' && message.source !== 'openai_reasoning_summary') {
+  if (
+    message.source !== 'honeycrisp' &&
+    message.source !== 'honeycrisp_commentary' &&
+    message.source !== 'user_steering' &&
+    message.source !== 'openai_reasoning_summary'
+  ) {
     return false;
   }
   const agentPath = stringPayload(message.metadata, 'agentPath');
@@ -2225,6 +2303,7 @@ function isRootContinuationMessage(message: TranscriptMessageRecord): boolean {
 }
 
 function continuationMessageLabel(message: TranscriptMessageRecord): string {
+  if (message.source === 'honeycrisp_commentary') return 'Agent commentary';
   if (message.source === 'openai_reasoning_summary') return 'Agent progress';
   return message.role === 'assistant' ? 'Agent' : message.role === 'system' ? 'System' : 'User';
 }

@@ -304,7 +304,19 @@ function transcriptMessageDisplayKey(message: TranscriptMessageRecord): string |
   const responseId = stringRecordValue(message.metadata, 'responseId') ?? '';
   const itemId = stringRecordValue(message.metadata, 'itemId') ?? '';
   if (!responseId && !itemId) return null;
-  return [message.source, responseId, itemId, text].join('\u0000');
+  const agentPath = stringRecordValue(message.metadata, 'agentPath') ?? '/root';
+  const messagePhase = message.phase ?? stringRecordValue(message.metadata, 'messagePhase') ?? '';
+  return [
+    message.runId,
+    message.attemptId ?? '',
+    agentPath,
+    message.role,
+    message.source,
+    messagePhase,
+    responseId,
+    itemId,
+    text
+  ].join('\u0000');
 }
 
 function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: number, linkedTraceEvent?: TraceEventRecord): TraceDisplayEvent {
@@ -320,14 +332,17 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
           : 'Record system message.';
   const linkedTurn = linkedTraceEvent?.payload.turn;
   const linkedAgentPath = linkedTraceEvent ? traceAgentPath(linkedTraceEvent) : null;
+  const metadataAgentPath = stringRecordValue(message.metadata, 'agentPath');
+  const messagePhase = message.phase ?? stringRecordValue(message.metadata, 'messagePhase');
   const payload: Record<string, unknown> = {
     text: message.contentMarkdown,
     transcriptMessageId: message.id,
     transcriptRole: message.role,
     transcriptSource: message.source,
+    ...(messagePhase ? { messagePhase } : {}),
     ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
     ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
-    ...(linkedAgentPath ? { agentPath: linkedAgentPath } : {}),
+    ...(linkedAgentPath || metadataAgentPath ? { agentPath: linkedAgentPath ?? metadataAgentPath } : {}),
     metadata: message.metadata
   };
 

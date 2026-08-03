@@ -329,6 +329,223 @@ describe('subagent trace view models', () => {
     expect(activeSubagentCount(subagents)).toBe(0);
   });
 
+  it('uses the latest assistant commentary in Commentary mode despite later tool events', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          message: 'Inspect the parser.'
+        }
+      }),
+      traceEvent({
+        id: 'commentary',
+        sequence: 2,
+        payload: {
+          agentPath: '/root/worker',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp_commentary',
+          messagePhase: 'commentary',
+          text: 'The parser boundary is promising.'
+        }
+      }),
+      traceEvent({
+        id: 'tool',
+        sequence: 3,
+        payload: {
+          agentPath: '/root/worker',
+          honeycrispKind: 'tool.observed',
+          message: 'Shell completed successfully.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events, 'active', 'commentary')[0]?.latestMessage).toBe(
+      'The parser boundary is promising.'
+    );
+  });
+
+  it('lets newer follow-up assignments and failures replace stale commentary previews', () => {
+    const baseEvents = [
+      traceEvent({
+        id: 'commentary',
+        sequence: 1,
+        payload: {
+          agentPath: '/root/worker',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp_commentary',
+          messagePhase: 'commentary',
+          text: 'The first parser pass is complete.'
+        }
+      }),
+      traceEvent({
+        id: 'followup',
+        sequence: 2,
+        payload: {
+          type: 'subagent.activity',
+          action: 'followup',
+          agentPath: '/root/worker',
+          status: 'running',
+          message: 'Now inspect integer conversion paths.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(baseEvents, 'active', 'commentary')[0]?.latestMessage).toBe(
+      'Now inspect integer conversion paths.'
+    );
+
+    const erroredEvents = [...baseEvents, traceEvent({
+      id: 'error',
+      sequence: 3,
+      payload: {
+        type: 'subagent.activity',
+        action: 'errored',
+        agentPath: '/root/worker',
+        status: 'errored',
+        message: 'Provider request failed.'
+      }
+    })];
+    expect(subagentSummaries(erroredEvents, 'active', 'commentary')[0]?.latestMessage).toBe(
+      'Provider request failed.'
+    );
+  });
+
+  it('uses a newer final response after subagent commentary', () => {
+    const events = [
+      traceEvent({
+        id: 'commentary',
+        sequence: 1,
+        payload: {
+          agentPath: '/root/worker',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp_commentary',
+          messagePhase: 'commentary',
+          text: 'Checking the final guard.'
+        }
+      }),
+      traceEvent({
+        id: 'final',
+        sequence: 2,
+        payload: {
+          agentPath: '/root/worker',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp',
+          messagePhase: 'final_answer',
+          text: 'The guard is complete.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events, 'completed', 'commentary')[0]?.latestMessage).toBe('The guard is complete.');
+  });
+
+  it('suppresses legacy reasoning only for subagents that have native commentary', () => {
+    const events = [
+      traceEvent({
+        id: 'one-legacy',
+        sequence: 1,
+        payload: {
+          agentPath: '/root/one',
+          responseId: 'response_one',
+          transcriptRole: 'assistant',
+          transcriptSource: 'openai_reasoning_summary',
+          text: 'Old preview for one.'
+        }
+      }),
+      traceEvent({
+        id: 'two-legacy',
+        sequence: 2,
+        payload: {
+          agentPath: '/root/two',
+          responseId: 'response_two',
+          transcriptRole: 'assistant',
+          transcriptSource: 'openai_reasoning_summary',
+          text: 'Legacy preview for two.'
+        }
+      }),
+      traceEvent({
+        id: 'one-native',
+        sequence: 3,
+        payload: {
+          agentPath: '/root/one',
+          responseId: 'response_one',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp_commentary',
+          messagePhase: 'commentary',
+          text: 'Native preview for one.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events, 'active', 'commentary').map(({ path, latestMessage }) => [path, latestMessage])).toEqual([
+      ['/root/one', 'Native preview for one.'],
+      ['/root/two', 'Legacy preview for two.']
+    ]);
+  });
+
+  it('uses newer fallback progress after an earlier native commentary response', () => {
+    const events = [
+      traceEvent({
+        id: 'native',
+        sequence: 1,
+        payload: {
+          agentPath: '/root/worker',
+          responseId: 'response_native',
+          transcriptRole: 'assistant',
+          transcriptSource: 'honeycrisp_commentary',
+          messagePhase: 'commentary',
+          text: 'Native commentary from the first response.'
+        }
+      }),
+      traceEvent({
+        id: 'fallback',
+        sequence: 2,
+        payload: {
+          agentPath: '/root/worker',
+          responseId: 'response_fallback',
+          transcriptRole: 'assistant',
+          transcriptSource: 'openai_reasoning_summary',
+          text: 'Newer fallback progress after a provider change.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events, 'active', 'commentary')[0]?.latestMessage).toBe(
+      'Newer fallback progress after a provider change.'
+    );
+  });
+
+  it('ignores unphased intermediate child text in Commentary mode', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          message: 'Inspect the parser.'
+        }
+      }),
+      traceEvent({
+        id: 'unphased',
+        sequence: 2,
+        payload: {
+          agentPath: '/root/worker',
+          transcriptRole: 'assistant',
+          transcriptSource: 'model_output',
+          text: 'I will run another tool now.'
+        }
+      })
+    ];
+
+    expect(subagentSummaries(events, 'active', 'commentary')[0]?.latestMessage).toBe('Inspect the parser.');
+  });
+
 });
 
 function traceEvent(input: Partial<TraceEventRecord>): TraceEventRecord {

@@ -43,6 +43,7 @@ import { useRunDetailPolling } from './hooks/useRunDetailPolling';
 import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
+import { useChatViewPreference } from './hooks/useChatViewPreference';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
@@ -87,6 +88,7 @@ export function App(): JSX.Element {
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
+  const [chatView, setChatView] = useChatViewPreference();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -555,8 +557,8 @@ export function App(): JSX.Element {
     [activeTraceEvents, selectedSubagentPath]
   );
   const activeSubagents = useMemo(
-    () => subagentSummaries(activeTraceEvents, activeRunDetail?.run.status),
-    [activeRunDetail?.run.status, activeTraceEvents]
+    () => subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView),
+    [activeRunDetail?.run.status, activeTraceEvents, chatView]
   );
   useEffect(() => {
     if (!selectedSubagentPath || activeSubagents.some((agent) => agent.path === selectedSubagentPath)) return;
@@ -686,6 +688,7 @@ export function App(): JSX.Element {
       <main className="workbench" data-session-heat={sessionHeat}>
         <div className="workspace-page">
           <MainSessionWorkspace
+            chatView={chatView}
             detail={activeRunDetail}
             events={visibleSessionTraceEvents}
             allEvents={activeTraceEvents}
@@ -736,6 +739,7 @@ export function App(): JSX.Element {
         busy={busy}
         developerSettings={developerSettings}
         shellOptions={shellOptions}
+        chatView={chatView}
         newResearchOpen={newResearchOpen}
         openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
@@ -786,6 +790,7 @@ export function App(): JSX.Element {
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
+        onChangeChatView={setChatView}
         onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}
         onStartResearchProviderOAuth={startResearchProviderOAuth}

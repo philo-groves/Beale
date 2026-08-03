@@ -10,6 +10,7 @@ import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatt
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import { subagentStatusCountSummary, subagentStatusLabel, subagentSummaries } from '../../view-models/subagents';
 import { runbookDescriptionText } from '../../view-models/runbooks';
+import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
@@ -23,6 +24,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   memory,
   runId,
   runStatus,
+  chatView = 'commentary',
   selectedSubagentPath,
   selectedRunbookId,
   onOpenRunbook,
@@ -33,6 +35,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   memory: HoneycrispMemorySummary | null;
   runId: string;
   runStatus: RunStatus | null;
+  chatView?: ChatView;
   selectedSubagentPath: string | null;
   selectedRunbookId: string | null;
   onOpenRunbook: (runbookId: string) => void;
@@ -65,7 +68,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
-  const subagents = useMemo(() => subagentSummaries(events, runStatus), [events, runStatus]);
+  const subagents = useMemo(() => subagentSummaries(events, runStatus, chatView), [chatView, events, runStatus]);
   const subagentStatusCounts = useMemo(() => subagentStatusCountSummary(subagents), [subagents]);
   const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
   const filteredNodes = useMemo(

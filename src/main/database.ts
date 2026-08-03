@@ -54,6 +54,7 @@ import type {
   TraceEventType,
   TraceSource,
   TranscriptMessageRecord,
+  TranscriptMessagePhase,
   TranscriptRole,
   VerifierContractEditInput,
   VerifierContractRecord,
@@ -95,6 +96,7 @@ export interface CreateTranscriptMessageInput {
   attemptId?: string | null;
   traceEventId?: string | null;
   role: TranscriptRole;
+  phase?: TranscriptMessagePhase | null;
   contentMarkdown: string;
   source: string;
   metadata?: Record<string, unknown>;
@@ -844,6 +846,12 @@ function parseJson(value: SqlPrimitive | undefined): Record<string, unknown> {
     return parsed as Record<string, unknown>;
   }
   return {};
+}
+
+function transcriptMessagePhase(metadata: Record<string, unknown>): TranscriptMessagePhase | null {
+  const explicitPhase = metadata.messagePhase;
+  if (explicitPhase === 'commentary' || explicitPhase === 'final_answer') return explicitPhase;
+  return null;
 }
 
 function parseStringArray(value: SqlPrimitive | undefined): string[] {
@@ -4212,6 +4220,10 @@ export class WorkspaceDatabase {
     const id = createId('transcript');
     const createdAt = nowIso();
     const contentMarkdown = input.contentMarkdown.trim();
+    const metadata = {
+      ...(input.metadata ?? {}),
+      ...(input.phase ? { messagePhase: input.phase } : {})
+    };
     this.db
       .prepare(
         `INSERT INTO transcript_messages (
@@ -4226,7 +4238,7 @@ export class WorkspaceDatabase {
         input.role,
         contentMarkdown,
         input.source,
-        toJson(input.metadata),
+        toJson(metadata),
         createdAt
       );
 
@@ -9485,15 +9497,19 @@ export class WorkspaceDatabase {
   }
 
   private mapTranscriptMessage(row: SqlRow): TranscriptMessageRecord {
+    const metadata = parseJson(row.metadata_json);
+    const role = text(row, 'role') as TranscriptRole;
+    const source = text(row, 'source');
     return {
       id: text(row, 'id'),
       runId: text(row, 'run_id'),
       attemptId: nullableText(row, 'attempt_id'),
       traceEventId: nullableText(row, 'trace_event_id'),
-      role: text(row, 'role') as TranscriptRole,
+      role,
+      phase: transcriptMessagePhase(metadata),
       contentMarkdown: text(row, 'content_markdown'),
-      source: text(row, 'source'),
-      metadata: parseJson(row.metadata_json),
+      source,
+      metadata,
       createdAt: text(row, 'created_at')
     };
   }
