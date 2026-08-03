@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
-import { commentaryMessageIcon, commentaryMessageLabel } from '../src/renderer/features/commentary/CommentaryView';
+import {
+  commentaryMessageIcon,
+  commentaryMessageLabel,
+  commentaryToolValueText,
+  shouldAutoExpandToolMessage
+} from '../src/renderer/features/commentary/CommentaryView';
 import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/renderer/view-models/commentary';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 
@@ -29,7 +34,7 @@ describe('renderer commentary projection', () => {
   });
 
   it('uses concise singular and plural copy for known and fallback tools', () => {
-    expect(commentaryToolUsageText('list_agents', 1)).toBe('Check Subagents');
+    expect(commentaryToolUsageText('list_agents', 1)).toBe('Checked Subagents');
     expect(commentaryToolUsageText('list_agents', 2)).toBe('Checked Subagents 2 Times');
     expect(commentaryToolUsageText('file.read', 1)).toBe('Read a File');
     expect(commentaryToolUsageText('file.read', 3)).toBe('Read 3 Files');
@@ -41,14 +46,14 @@ describe('renderer commentary projection', () => {
 
   it('shows one activity row per tool call, coalesces repeats, and suppresses paired results', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
-      toolEvent('agents-request', 'tool.requested', 'list_agents', 'agents'),
-      toolEvent('agents-result', 'tool.observed', 'list_agents', 'agents'),
-      toolEvent('read-one-request', 'tool.requested', 'file.read', 'read-one'),
-      toolEvent('read-one-result', 'tool.observed', 'file.read', 'read-one'),
-      toolEvent('read-two-request', 'tool.requested', 'file.read', 'read-two'),
-      toolEvent('read-two-result', 'tool.observed', 'file.read', 'read-two'),
-      toolEvent('shell-request', 'tool.requested', 'shell.run', 'shell'),
-      toolEvent('repository-result', 'tool.observed', 'repository.search', 'repository-only'),
+      toolEvent('agents-request', 'tool.requested', 'list_agents', 'agents', {}),
+      toolEvent('agents-result', 'tool.observed', 'list_agents', 'agents', {}, { agents: [{ path: '/root/parser' }] }),
+      toolEvent('read-one-request', 'tool.requested', 'file.read', 'read-one', { path: 'src/parser.ts' }),
+      toolEvent('read-one-result', 'tool.observed', 'file.read', 'read-one', { path: 'src/parser.ts' }, { text: 'first file' }),
+      toolEvent('read-two-request', 'tool.requested', 'file.read', 'read-two', { path: 'src/token.ts' }),
+      toolEvent('read-two-result', 'tool.observed', 'file.read', 'read-two', { path: 'src/token.ts' }, { text: 'second file' }),
+      toolEvent('shell-request', 'tool.requested', 'shell.run', 'shell', { utility: 'npm', args: ['test'] }),
+      toolEvent('repository-result', 'tool.observed', 'repository.search', 'repository-only', { query: 'decodeToken' }, { matches: 2 }),
       toolEvent('spawn-request', 'tool.requested', 'spawn_agent', 'spawn'),
       displayEvent('spawn', {
         type: 'subagent.activity',
@@ -65,12 +70,76 @@ describe('renderer commentary projection', () => {
       contentMarkdown
     ])).toEqual([
       ['user', undefined, undefined, 'Inspect the parser.'],
-      ['tool', 'list_agents', 1, 'Check Subagents'],
+      ['tool', 'list_agents', 1, 'Checked Subagents'],
       ['tool', 'file.read', 2, 'Read 2 Files'],
       ['tool', 'shell.run', 1, 'Ran a Command'],
       ['tool', 'repository.search', 1, 'Searched the Repository'],
       ['task', undefined, undefined, 'Inspect the parser boundary.']
     ]);
+
+    expect(messages.find((message) => message.toolName === 'file.read')?.toolCalls).toEqual([
+      {
+        id: 'read-one-request',
+        traceEventId: 'read-one-result',
+        label: 'src/parser.ts',
+        input: { path: 'src/parser.ts' },
+        output: { text: 'first file' }
+      },
+      {
+        id: 'read-two-request',
+        traceEventId: 'read-two-result',
+        label: 'src/token.ts',
+        input: { path: 'src/token.ts' },
+        output: { text: 'second file' }
+      }
+    ]);
+    expect(messages.find((message) => message.toolName === 'shell.run')?.toolCalls).toEqual([
+      {
+        id: 'shell-request',
+        traceEventId: 'shell-request',
+        label: 'npm test',
+        input: { utility: 'npm', args: ['test'] },
+        output: 'Waiting for output.'
+      }
+    ]);
+    expect(messages.find((message) => message.toolName === 'repository.search')?.toolCalls).toEqual([
+      {
+        id: 'repository-result',
+        traceEventId: 'repository-result',
+        label: 'Repository Search',
+        input: { query: 'decodeToken' },
+        output: { matches: 2 }
+      }
+    ]);
+  });
+
+  it('formats tool input and output values for expanded details', () => {
+    expect(commentaryToolValueText({ path: 'src/parser.ts', lines: [1, 2] })).toBe(
+      '{\n  "path": "src/parser.ts",\n  "lines": [\n    1,\n    2\n  ]\n}'
+    );
+    expect(commentaryToolValueText('Waiting for output.')).toBe('Waiting for output.');
+    expect(commentaryToolValueText(null)).toBe('null');
+  });
+
+  it('auto-expands a tool summary only while it is the latest chat item', () => {
+    const trailingToolMessages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      toolEvent('read-request', 'tool.requested', 'file.read', 'read', { path: 'src/parser.ts' })
+    ]);
+    expect(shouldAutoExpandToolMessage(trailingToolMessages, 0)).toBe(false);
+    expect(shouldAutoExpandToolMessage(trailingToolMessages, 1)).toBe(true);
+
+    const followedToolMessages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      toolEvent('read-request', 'tool.requested', 'file.read', 'read', { path: 'src/parser.ts' }),
+      displayEvent('commentary-after-tool', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        messagePhase: 'commentary',
+        text: 'The parser is ready for the next check.'
+      })
+    ]);
+    expect(shouldAutoExpandToolMessage(followedToolMessages, 1)).toBe(false);
+    expect(shouldAutoExpandToolMessage(followedToolMessages, 2)).toBe(false);
   });
 
   it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {
@@ -294,7 +363,9 @@ function toolEvent(
   id: string,
   kind: 'tool.requested' | 'tool.observed',
   toolName: string,
-  toolActionId: string
+  toolActionId: string,
+  normalizedInputs: Record<string, unknown> = {},
+  result?: unknown
 ): TraceDisplayEvent {
   return displayEvent(id, {
     honeycrispKind: kind,
@@ -302,7 +373,10 @@ function toolEvent(
     toolName,
     payload: {
       toolName,
-      toolActionId
+      toolActionId,
+      normalizedInputs,
+      ...(kind === 'tool.observed' ? { status: 'complete' } : {}),
+      ...(result !== undefined ? { result } : {})
     }
   }, {
     source: 'system',

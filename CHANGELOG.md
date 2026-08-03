@@ -19,7 +19,7 @@
 ### Changed
 
 - Made Commentary the default root and subagent session view, with the full event timeline retained as the optional Traces view under General settings; subagent previews now follow their latest commentary or final response in Commentary mode.
-- Added concise tool-use activity to Commentary, with tool-specific icons and labels, paired-result deduplication, and plural summaries for consecutive repeated calls.
+- Added concise tool-use activity to Commentary, with tool-specific icons and labels, paired-result deduplication, plural summaries for consecutive repeated calls, nested disclosures for each call's input and output, and automatic expansion while a tool is the latest chat item.
 - Preserved Honeycrisp `commentary` and `final_answer` message phases through live events and durable transcripts while keeping reasoning summaries as a distinct legacy progress fallback.
 - On macOS, removed the duplicate File, Edit, View, and Window menus from Beale's in-window header and moved their New Research Workspace, Copy, Paste Steering, zoom, and window actions into the native application menu bar.
 - Increased the steering input's resting height by one typed row and its auto-growing limit from six lines to seven.

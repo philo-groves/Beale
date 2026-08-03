@@ -1,6 +1,6 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, Brain, Wrench } from 'lucide-react';
+import { ArrowLeft, Brain, ChevronRight, Wrench } from 'lucide-react';
 import type {
   ResearchModelSelection,
   ResearchProviderModelCatalog,
@@ -104,10 +104,13 @@ export const CommentaryView = memo(function CommentaryView({
               followLatestRef.current = list.scrollHeight - list.clientHeight - list.scrollTop <= 24;
             }}
           >
-            {messages.map((message) => (
+            {messages.map((message, index) => (
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
+                autoExpandToolKey={shouldAutoExpandToolMessage(messages, index)
+                  ? `${message.id}:${message.toolCalls?.length ?? 0}`
+                  : null}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={selectedTraceEventId === message.id || selectedTraceEventId === message.traceEventId}
               />
@@ -135,10 +138,12 @@ export const CommentaryView = memo(function CommentaryView({
 
 function CommentaryMessageRow({
   message,
+  autoExpandToolKey,
   searchHighlightQuery,
   selected
 }: {
   message: CommentaryMessage;
+  autoExpandToolKey: string | null;
   searchHighlightQuery: string;
   selected: boolean;
 }): JSX.Element {
@@ -154,12 +159,128 @@ function CommentaryMessageRow({
       {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
       {label ? <span className="main-commentary-message-label">{label}</span> : null}
       <div className="main-commentary-message-content">
-        {hasSearchHighlight
-          ? renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
-          : renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' || message.kind === 'progress' || message.kind === 'tool' ? 'reasoning' : 'agent_output')}
+        {message.kind === 'tool' ? (
+          <CommentaryToolMessageContent
+            message={message}
+            autoExpandKey={autoExpandToolKey}
+            hasSearchHighlight={hasSearchHighlight}
+            searchHighlightQuery={searchHighlightQuery}
+          />
+        ) : hasSearchHighlight ? (
+          renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+        ) : (
+          renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' || message.kind === 'progress' ? 'reasoning' : 'agent_output')
+        )}
       </div>
     </article>
   );
+}
+
+function CommentaryToolMessageContent({
+  message,
+  autoExpandKey,
+  hasSearchHighlight,
+  searchHighlightQuery
+}: {
+  message: CommentaryMessage;
+  autoExpandKey: string | null;
+  hasSearchHighlight: boolean;
+  searchHighlightQuery: string;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(autoExpandKey !== null);
+  const [expandedCallIds, setExpandedCallIds] = useState<Set<string>>(() => new Set());
+  const previousAutoExpandKeyRef = useRef(autoExpandKey);
+  const toolCalls = message.toolCalls ?? [];
+
+  useLayoutEffect(() => {
+    const previousAutoExpandKey = previousAutoExpandKeyRef.current;
+    if (autoExpandKey !== null && autoExpandKey !== previousAutoExpandKey) {
+      setExpanded(true);
+    } else if (autoExpandKey === null && previousAutoExpandKey !== null) {
+      setExpanded(false);
+    }
+    previousAutoExpandKeyRef.current = autoExpandKey;
+  }, [autoExpandKey]);
+
+  return (
+    <div className={`main-commentary-tool-disclosure${expanded ? ' expanded' : ''}`}>
+      <button
+        type="button"
+        className="main-commentary-tool-summary"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span>
+          {hasSearchHighlight
+            ? renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+            : message.contentMarkdown}
+        </span>
+        <ChevronRight className="main-commentary-tool-summary-chevron" size={16} aria-hidden="true" />
+      </button>
+      {expanded ? (
+        <div className="main-commentary-tool-call-list" role="list">
+          {toolCalls.map((toolCall) => {
+            const callExpanded = expandedCallIds.has(toolCall.id);
+            return (
+              <div className={`main-commentary-tool-call${callExpanded ? ' expanded' : ''}`} role="listitem" key={toolCall.id}>
+                <button
+                  type="button"
+                  className="main-commentary-tool-call-summary"
+                  aria-expanded={callExpanded}
+                  onClick={() => setExpandedCallIds((current) => toggledSetValue(current, toolCall.id))}
+                >
+                  <code title={toolCall.label}>
+                    {hasSearchHighlight
+                      ? renderSearchHighlightedText(toolCall.label, searchHighlightQuery)
+                      : toolCall.label}
+                  </code>
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+                {callExpanded ? (
+                  <div className="main-commentary-tool-call-details">
+                    <ToolCallValue label="Input" value={toolCall.input} />
+                    <ToolCallValue label="Output" value={toolCall.output} />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function shouldAutoExpandToolMessage(
+  messages: readonly CommentaryMessage[],
+  index: number
+): boolean {
+  return index === messages.length - 1 && messages[index]?.kind === 'tool';
+}
+
+function ToolCallValue({ label, value }: { label: string; value: unknown }): JSX.Element {
+  return (
+    <div className="main-commentary-tool-call-value">
+      <span>{label}</span>
+      <pre>{commentaryToolValueText(value)}</pre>
+    </div>
+  );
+}
+
+function toggledSetValue(values: ReadonlySet<string>, value: string): Set<string> {
+  const next = new Set(values);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+export function commentaryToolValueText(value: unknown): string {
+  if (typeof value === 'string') return value || '""';
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export function commentaryMessageIcon(kind: CommentaryMessage['kind']): JSX.Element | null {

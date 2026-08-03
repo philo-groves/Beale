@@ -6,8 +6,10 @@ import {
 import {
   honeycrispToolEventKind,
   honeycrispToolName,
+  honeycrispToolPayload,
   honeycrispToolPairingKey
 } from '../traceClassification';
+import { honeycrispToolTraceSubtext } from './traceContent';
 import type { TraceDisplayEvent } from './traceDisplay';
 
 export type CommentaryMessageKind = 'user' | 'task' | 'commentary' | 'progress' | 'tool' | 'final_answer' | 'error';
@@ -19,8 +21,17 @@ export interface CommentaryMessage {
   taskAction?: 'spawn' | 'followup';
   toolName?: string;
   toolCount?: number;
+  toolCalls?: CommentaryToolCall[];
   contentMarkdown: string;
   createdAt: string;
+}
+
+export interface CommentaryToolCall {
+  id: string;
+  traceEventId: string;
+  label: string;
+  input: unknown;
+  output: unknown;
 }
 
 export interface CommentaryProjectionOptions {
@@ -36,11 +47,11 @@ export function commentaryMessagesForSession(
   const includeInitialPrompt = options.includeInitialPrompt ?? true;
   const nativeCommentaryKeys = nativeCommentaryCorrelationKeys(events);
   const projectedEvents = coalesceLegacyReasoningSnapshots(events);
-  const pairedToolObservationIds = pairedHoneycrispToolObservationIds(projectedEvents);
+  const toolCallsByPrimaryEventId = projectedHoneycrispToolCalls(projectedEvents, detail);
   let messages = projectedEvents.flatMap((event) => {
     const activity = subagentActivityMessage(event);
     if (activity) return [activity];
-    const toolUsage = toolUsageMessage(event, pairedToolObservationIds);
+    const toolUsage = toolUsageMessage(event, toolCallsByPrimaryEventId);
     if (toolUsage) return [toolUsage];
     const kind = commentaryMessageKind(event, nativeCommentaryKeys);
     const contentMarkdown = eventText(event);
@@ -88,6 +99,7 @@ function coalesceConsecutiveToolMessages(messages: readonly CommentaryMessage[])
         ...previous,
         traceEventId: message.traceEventId,
         toolCount,
+        toolCalls: [...(previous.toolCalls ?? []), ...(message.toolCalls ?? [])],
         contentMarkdown: commentaryToolUsageText(message.toolName ?? '', toolCount),
         createdAt: message.createdAt
       };
@@ -152,40 +164,108 @@ const LIFECYCLE_TOOL_NAMES = new Set(['spawn_agent', 'send_message', 'followup_t
 
 function toolUsageMessage(
   event: TraceDisplayEvent,
-  pairedObservationIds: ReadonlySet<string>
+  toolCallsByPrimaryEventId: ReadonlyMap<string, CommentaryToolCall>
 ): CommentaryMessage | null {
-  const toolEventKind = honeycrispToolEventKind(event);
-  if (!toolEventKind || (toolEventKind === 'tool.observed' && pairedObservationIds.has(event.id))) return null;
+  const toolCall = toolCallsByPrimaryEventId.get(event.id);
+  if (!toolCall) return null;
   const toolName = honeycrispToolName(event);
   if (!toolName || LIFECYCLE_TOOL_NAMES.has(toolName)) return null;
   return {
     id: `tool:${event.id}`,
-    traceEventId: event.id,
+    traceEventId: toolCall.traceEventId,
     kind: 'tool',
     toolName,
     toolCount: 1,
+    toolCalls: [toolCall],
     contentMarkdown: commentaryToolUsageText(toolName, 1),
     createdAt: event.createdAt
   };
 }
 
-function pairedHoneycrispToolObservationIds(events: readonly TraceDisplayEvent[]): Set<string> {
-  const requestedByKey = new Map<string, number>();
-  const pairedObservationIds = new Set<string>();
+interface MutableToolCallProjection {
+  primaryEvent: TraceDisplayEvent;
+  requestEvent: TraceDisplayEvent | null;
+  observationEvent: TraceDisplayEvent | null;
+}
+
+function projectedHoneycrispToolCalls(
+  events: readonly TraceDisplayEvent[],
+  detail: RunDetail
+): Map<string, CommentaryToolCall> {
+  const projections: MutableToolCallProjection[] = [];
+  const requestedByKey = new Map<string, MutableToolCallProjection[]>();
   for (const event of events) {
     const kind = honeycrispToolEventKind(event);
     const pairingKey = honeycrispToolPairingKey(event);
-    if (!kind || !pairingKey) continue;
+    if (!kind) continue;
     if (kind === 'tool.requested') {
-      requestedByKey.set(pairingKey, (requestedByKey.get(pairingKey) ?? 0) + 1);
+      const projection: MutableToolCallProjection = {
+        primaryEvent: event,
+        requestEvent: event,
+        observationEvent: null
+      };
+      projections.push(projection);
+      if (pairingKey) requestedByKey.set(pairingKey, [...(requestedByKey.get(pairingKey) ?? []), projection]);
       continue;
     }
-    const pendingRequests = requestedByKey.get(pairingKey) ?? 0;
-    if (pendingRequests <= 0) continue;
-    pairedObservationIds.add(event.id);
-    requestedByKey.set(pairingKey, pendingRequests - 1);
+    const pendingRequests = pairingKey ? requestedByKey.get(pairingKey) : undefined;
+    const projection = pendingRequests?.shift();
+    if (projection) {
+      projection.observationEvent = event;
+      continue;
+    }
+    projections.push({
+      primaryEvent: event,
+      requestEvent: null,
+      observationEvent: event
+    });
   }
-  return pairedObservationIds;
+
+  return new Map(projections.map((projection) => [
+    projection.primaryEvent.id,
+    commentaryToolCall(projection, detail)
+  ]));
+}
+
+function commentaryToolCall(projection: MutableToolCallProjection, detail: RunDetail): CommentaryToolCall {
+  const requestPayload = projection.requestEvent ? honeycrispToolPayload(projection.requestEvent) : null;
+  const observationPayload = projection.observationEvent ? honeycrispToolPayload(projection.observationEvent) : null;
+  const toolName = honeycrispToolName(projection.primaryEvent) ?? 'tool';
+  const observationLabel = projection.observationEvent
+    ? honeycrispToolTraceSubtext(projection.observationEvent, detail)
+    : '';
+  const requestLabel = projection.requestEvent
+    ? honeycrispToolTraceSubtext(projection.requestEvent, detail)
+    : '';
+  return {
+    id: projection.requestEvent?.id ?? projection.observationEvent?.id ?? projection.primaryEvent.id,
+    traceEventId: projection.observationEvent?.id ?? projection.primaryEvent.id,
+    label: observationLabel || requestLabel || humanizeToolName(toolName),
+    input: recordValue(requestPayload ?? observationPayload, 'normalizedInputs') ?? {},
+    output: commentaryToolCallOutput(observationPayload)
+  };
+}
+
+function commentaryToolCallOutput(observationPayload: Record<string, unknown> | null): unknown {
+  if (!observationPayload) return 'Waiting for output.';
+  if (hasOwn(observationPayload, 'result')) return observationPayload.result;
+  const fallback = Object.fromEntries(
+    ['status', 'error', 'summary', 'generatedArtifactRefs', 'rawOutputRef']
+      .filter((key) => hasOwn(observationPayload, key))
+      .map((key) => [key, observationPayload[key]])
+  );
+  return Object.keys(fallback).length > 0 ? fallback : 'Completed without output.';
+}
+
+function recordValue(record: Record<string, unknown> | null, key: string): Record<string, unknown> | null {
+  const value = record?.[key];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 type ToolUsageCopy = {
@@ -203,7 +283,7 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'code.references': { singular: 'Found References', plural: (count) => `Ran ${count} Reference Searches` },
   'experiment.run': { singular: 'Ran an Experiment', plural: (count) => `Ran ${count} Experiments` },
   'file.read': { singular: 'Read a File', plural: (count) => `Read ${count} Files` },
-  'list_agents': { singular: 'Check Subagents', plural: (count) => `Checked Subagents ${count} Times` },
+  'list_agents': { singular: 'Checked Subagents', plural: (count) => `Checked Subagents ${count} Times` },
   'local.inspection': { singular: 'Inspected the Target', plural: (count) => `Inspected the Target ${count} Times` },
   'memory.correct': { singular: 'Corrected a Memory', plural: (count) => `Corrected ${count} Memories` },
   'memory.get': { singular: 'Read a Memory', plural: (count) => `Read ${count} Memories` },
