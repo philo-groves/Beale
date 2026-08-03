@@ -3832,9 +3832,13 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .memory-detail {
-  width: min(880px, 100%);
+  width: 100%;
   min-width: 0;
-  margin: 0 auto;
+  margin: 0;
+}
+
+.memory-detail-scroll {
+  padding: 0 4px 16px 0;
 }
 
 .memory-detail-heading {

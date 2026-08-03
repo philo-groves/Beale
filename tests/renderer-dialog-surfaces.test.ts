@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
-import { MemoryDetailSheet } from '../src/renderer/features/research/MemorySidePanel';
+import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
@@ -227,16 +227,14 @@ describe('renderer dialog surfaces', () => {
       revision: 2
     };
     const html = renderToStaticMarkup(
-      createElement(MemoryDetailSheet, {
+      createElement(MemoryDetailView, {
         node,
         nodeById: new Map([[node.id, node]]),
-        relationships: [],
-        onClose: () => undefined
+        relationships: []
       })
     );
 
-    expect(html).toContain('bottom-sheet-panel');
-    expect(html).toContain('Memory Details');
+    expect(html).not.toContain('bottom-sheet-panel');
     expect(html).toContain('Unchecked parser length');
     expect(html).toContain('Detailed parser analysis.');
   });

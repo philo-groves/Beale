@@ -20,6 +20,7 @@
 
 ### Changed
 
+- Memory selections now drill into the right sidenav with Back-to-Memories navigation and the selected memory title, matching Runbook and Subagent detail behavior instead of opening a bottom sheet.
 - Added Find a Runbook and Find a Subagent inputs to their detailed sidenav catalogs without additional type controls.
 - Added a Session/Workspace scope picker to the Runbooks sidenav, defaulting the detailed catalog to the current session.
 - Replaced Honeycrisp memory storage tiers with one required subject plus accumulated session and workspace membership lists; saves and corrections append the current context automatically, search uses Session, Workspace, or Subject scope, and Beale renders those associations directly.

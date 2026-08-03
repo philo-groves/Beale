@@ -11,7 +11,6 @@ import type {
   RunDetail,
   RunStatus
 } from '@shared/types';
-import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
@@ -291,11 +290,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   return (
     <>
-      <aside className={`main-session-side memory-catalog view-${activeView} ${selectedSubagentPath || selectedRunbookId ? 'has-nested-view' : ''}`} aria-label="Session details">
+      <aside className={`main-session-side memory-catalog view-${activeView} ${selectedSubagentPath || selectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label="Session details">
         {selectedSubagentPath ? (
           <ResearchSideNestedHeader label="Subagents" name={selectedSubagentName} onBack={onBackToSubagents} />
         ) : selectedRunbookId ? (
           <ResearchSideNestedHeader label="Runbooks" name={selectedRunbookName} onBack={onBackToRunbooks} />
+        ) : selectedNode ? (
+          <ResearchSideNestedHeader label="Memories" name={selectedNode.title} onBack={() => setSelectedNodeId(null)} />
         ) : (
           <ResearchSideViewTabs
             activeView={activeView}
@@ -387,6 +388,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </div>
         ) : selectedRunbookId ? (
           <div className="memory-catalog-empty">Loading runbook.</div>
+        ) : selectedNode ? (
+          <MainSideScrollRegion
+            className="research-side-nested-content memory-detail-content"
+            listClassName="memory-catalog-list memory-detail-scroll"
+            updateKey={`${selectedNode.id}:${selectedNode.updatedAt}:${selectedNode.revision}`}
+          >
+            <MemoryDetailView
+              node={selectedNode}
+              nodeById={nodeById}
+              relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
+            />
+          </MainSideScrollRegion>
         ) : activeView === 'memory' ? (
           <>
             <div className="memory-catalog-controls">
@@ -476,14 +489,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </>
         )}
       </aside>
-      {selectedNode ? (
-        <MemoryDetailSheet
-          node={selectedNode}
-          nodeById={nodeById}
-          relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
-          onClose={() => setSelectedNodeId(null)}
-        />
-      ) : null}
     </>
   );
 });
@@ -548,7 +553,7 @@ export function ResearchSideNestedHeader({
   name,
   onBack
 }: {
-  label: 'Runbooks' | 'Subagents';
+  label: 'Memories' | 'Runbooks' | 'Subagents';
   name: string;
   onBack: () => void;
 }): JSX.Element {
@@ -723,7 +728,7 @@ function MemoryCatalogItem({
 }): JSX.Element {
   return (
     <article className={`memory-catalog-item type-${stateClass(node.type)} ${selected ? 'selected' : ''}`}>
-      <button type="button" className="memory-catalog-toggle" aria-haspopup="dialog" onClick={onOpen}>
+      <button type="button" className="memory-catalog-toggle" aria-pressed={selected} onClick={onOpen}>
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
             <span className="memory-catalog-item-labels">
@@ -741,79 +746,75 @@ function MemoryCatalogItem({
   );
 }
 
-export function MemoryDetailSheet({
+export function MemoryDetailView({
   node,
   nodeById,
-  relationships,
-  onClose
+  relationships
 }: {
   node: HoneycrispMemoryNodeSummary;
   nodeById: Map<string, HoneycrispMemoryNodeSummary>;
   relationships: HoneycrispMemoryEdgeSummary[];
-  onClose: () => void;
 }): JSX.Element {
   return (
-    <BottomSheet title="Memory Details" wide className="memory-detail-sheet" onClose={onClose}>
-      <article className={`memory-detail type-${stateClass(node.type)}`}>
-        <header className="memory-detail-heading">
-          <span className="memory-catalog-item-labels">
-            <span className="memory-catalog-type">{traceLabel(node.type)}</span>
-            <span className="memory-catalog-status">{traceLabel(node.status)}</span>
-          </span>
-          <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
-          <h3>{node.title}</h3>
-        </header>
-        <div className="memory-catalog-content">
-          {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
-          {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
-          <div className="memory-catalog-meta">
-            <span>rev {node.revision}</span>
-            <span>{node.evidenceRefs.length} refs</span>
-            <span>{relationships.length} links</span>
-          </div>
-          <dl className="memory-catalog-scope">
-            <div><dt>Subject</dt><dd>{node.subjectName}</dd></div>
-            <div><dt>Workspaces</dt><dd>{node.workspaces.map((workspace) => workspace.name).join(', ') || 'None'}</dd></div>
-            <div><dt>Sessions</dt><dd>{node.sessionIds.join(', ') || 'None'}</dd></div>
-          </dl>
-          {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
-          {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
-          {node.evidenceRefs.length > 0 ? (
-            <section className="memory-catalog-subsection" aria-label="References">
-              <h4>References</h4>
-              <div className="memory-reference-list">
-                {node.evidenceRefs.map((reference) => (
-                  <article key={reference.id}>
-                    <span>{traceLabel(reference.kind)}</span>
-                    <strong>{reference.summary || reference.path || reference.id}</strong>
-                    {reference.path ? <code>{reference.path}</code> : null}
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {relationships.length > 0 ? (
-            <section className="memory-catalog-subsection" aria-label="Relationships">
-              <h4>Relationships</h4>
-              <div className="memory-relationship-list">
-                {relationships.map((relationship) => {
-                  const outbound = relationship.fromId === node.id;
-                  const relatedId = outbound ? relationship.toId : relationship.fromId;
-                  const relatedNode = nodeById.get(relatedId);
-                  return (
-                    <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
-                      <span>{outbound ? '→' : '←'} {traceLabel(relationship.relation)}</span>
-                      <strong>{relatedNode?.title ?? relatedId}</strong>
-                      {relationship.note ? <p>{relationship.note}</p> : null}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
+    <article className={`memory-detail type-${stateClass(node.type)}`}>
+      <header className="memory-detail-heading">
+        <span className="memory-catalog-item-labels">
+          <span className="memory-catalog-type">{traceLabel(node.type)}</span>
+          <span className="memory-catalog-status">{traceLabel(node.status)}</span>
+        </span>
+        <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
+        <h3>{node.title}</h3>
+      </header>
+      <div className="memory-catalog-content">
+        {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
+        {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
+        <div className="memory-catalog-meta">
+          <span>rev {node.revision}</span>
+          <span>{node.evidenceRefs.length} refs</span>
+          <span>{relationships.length} links</span>
         </div>
-      </article>
-    </BottomSheet>
+        <dl className="memory-catalog-scope">
+          <div><dt>Subject</dt><dd>{node.subjectName}</dd></div>
+          <div><dt>Workspaces</dt><dd>{node.workspaces.map((workspace) => workspace.name).join(', ') || 'None'}</dd></div>
+          <div><dt>Sessions</dt><dd>{node.sessionIds.join(', ') || 'None'}</dd></div>
+        </dl>
+        {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
+        {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
+        {node.evidenceRefs.length > 0 ? (
+          <section className="memory-catalog-subsection" aria-label="References">
+            <h4>References</h4>
+            <div className="memory-reference-list">
+              {node.evidenceRefs.map((reference) => (
+                <article key={reference.id}>
+                  <span>{traceLabel(reference.kind)}</span>
+                  <strong>{reference.summary || reference.path || reference.id}</strong>
+                  {reference.path ? <code>{reference.path}</code> : null}
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {relationships.length > 0 ? (
+          <section className="memory-catalog-subsection" aria-label="Relationships">
+            <h4>Relationships</h4>
+            <div className="memory-relationship-list">
+              {relationships.map((relationship) => {
+                const outbound = relationship.fromId === node.id;
+                const relatedId = outbound ? relationship.toId : relationship.fromId;
+                const relatedNode = nodeById.get(relatedId);
+                return (
+                  <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
+                    <span>{outbound ? '→' : '←'} {traceLabel(relationship.relation)}</span>
+                    <strong>{relatedNode?.title ?? relatedId}</strong>
+                    {relationship.note ? <p>{relationship.note}</p> : null}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </article>
   );
 }
 
