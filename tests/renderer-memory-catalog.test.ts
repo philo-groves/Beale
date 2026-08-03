@@ -2,10 +2,56 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
-import { ResearchSidePanel } from '../src/renderer/features/research/MemorySidePanel';
+import {
+  ResearchSidePanel,
+  ResearchSideViewTabs,
+  availableResearchSideViews,
+  researchSideNavigationReducer,
+  type ResearchSideNavigationState
+} from '../src/renderer/features/research/MemorySidePanel';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
+  it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
+    let state: ResearchSideNavigationState = { openViews: [], activeView: null };
+    state = researchSideNavigationReducer(state, { type: 'open', view: 'memory' });
+    state = researchSideNavigationReducer(state, { type: 'open', view: 'runbooks' });
+    state = researchSideNavigationReducer(state, { type: 'open', view: 'subagents' });
+    state = researchSideNavigationReducer(state, { type: 'activate', view: 'runbooks' });
+
+    expect(state).toEqual({
+      openViews: ['memory', 'runbooks', 'subagents'],
+      activeView: 'runbooks'
+    });
+
+    state = researchSideNavigationReducer(state, { type: 'close', view: 'runbooks' });
+    expect(state).toEqual({ openViews: ['memory', 'subagents'], activeView: 'subagents' });
+    expect(availableResearchSideViews(state.openViews)).toEqual(['runbooks']);
+
+    state = researchSideNavigationReducer(state, { type: 'close', view: 'subagents' });
+    state = researchSideNavigationReducer(state, { type: 'close', view: 'memory' });
+    expect(state).toEqual({ openViews: [], activeView: null });
+  });
+
+  it('renders icon-and-close tabs and hides the add-view button when every view is open', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
+      activeView: 'subagents',
+      openViews: ['memory', 'runbooks', 'subagents'],
+      onActivate: () => undefined,
+      onClose: () => undefined,
+      onOpen: () => undefined
+    }));
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('lucide-database');
+    expect(html).toContain('lucide-book-open');
+    expect(html).toContain('lucide-bot');
+    expect(html).toContain('aria-label="Close Memories"');
+    expect(html).toContain('aria-label="Close Runbooks"');
+    expect(html).toContain('aria-label="Close Subagents"');
+    expect(html).not.toContain('aria-label="Add session detail view"');
+  });
+
   it('excludes stale memories from the active sidebar count', () => {
     expect(activeMemoryCount([
       memoryNode({ id: 'confirmed', status: 'confirmed' }),

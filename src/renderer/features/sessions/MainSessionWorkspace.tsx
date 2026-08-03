@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
@@ -77,6 +77,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
+  const [researchDetailsOpen, setResearchDetailsOpen] = useState(false);
   const {
     containerRef,
     panelWidth,
@@ -102,7 +103,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className="main-session-grid"
+      className={`main-session-grid ${researchDetailsOpen ? 'research-details-open' : ''}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
       {selectedRunbook ? (
@@ -156,9 +157,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
         aria-valuemax={maximumPanelWidth}
         aria-valuenow={panelWidth}
-        tabIndex={0}
-        onKeyDown={handleResizeKeyDown}
-        onPointerDown={beginResize}
+        aria-hidden={researchDetailsOpen}
+        tabIndex={researchDetailsOpen ? -1 : 0}
+        onKeyDown={researchDetailsOpen ? undefined : handleResizeKeyDown}
+        onPointerDown={researchDetailsOpen ? undefined : beginResize}
       />
       <ResearchSidePanel
         chatView={chatView}
@@ -171,6 +173,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         selectedSubagentPath={selectedSubagentPath}
         onSelectSubagent={onSelectSubagent}
         onOpenRunbook={onOpenHoneycrispRunbook}
+        onExpandedChange={setResearchDetailsOpen}
       />
     </div>
   );

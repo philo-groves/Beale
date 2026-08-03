@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Database, GitFork, Search } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, Database, Plus, Search, X } from 'lucide-react';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, RunStatus } from '@shared/types';
 import { BottomSheet } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
@@ -16,7 +16,54 @@ import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
 
 type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
-type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
+export type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
+
+export interface ResearchSideNavigationState {
+  openViews: ResearchSideView[];
+  activeView: ResearchSideView | null;
+}
+
+export type ResearchSideNavigationAction =
+  | { type: 'open'; view: ResearchSideView }
+  | { type: 'activate'; view: ResearchSideView }
+  | { type: 'close'; view: ResearchSideView }
+  | { type: 'reset' };
+
+export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'subagents'];
+
+const CLOSED_RESEARCH_SIDE_NAVIGATION: ResearchSideNavigationState = {
+  openViews: [],
+  activeView: null
+};
+
+export function researchSideNavigationReducer(
+  state: ResearchSideNavigationState,
+  action: ResearchSideNavigationAction
+): ResearchSideNavigationState {
+  if (action.type === 'reset') return CLOSED_RESEARCH_SIDE_NAVIGATION;
+  if (action.type === 'open') {
+    return {
+      openViews: state.openViews.includes(action.view) ? state.openViews : [...state.openViews, action.view],
+      activeView: action.view
+    };
+  }
+  if (action.type === 'activate') {
+    return state.openViews.includes(action.view) ? { ...state, activeView: action.view } : state;
+  }
+
+  const closingIndex = state.openViews.indexOf(action.view);
+  if (closingIndex < 0) return state;
+  const openViews = state.openViews.filter((view) => view !== action.view);
+  if (state.activeView !== action.view) return { openViews, activeView: state.activeView };
+  return {
+    openViews,
+    activeView: openViews[Math.min(closingIndex, openViews.length - 1)] ?? null
+  };
+}
+
+export function availableResearchSideViews(openViews: readonly ResearchSideView[]): ResearchSideView[] {
+  return RESEARCH_SIDE_VIEWS.filter((view) => !openViews.includes(view));
+}
 
 export const ResearchSidePanel = memo(function ResearchSidePanel({
   detail,
@@ -28,7 +75,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedSubagentPath,
   selectedRunbookId,
   onOpenRunbook,
-  onSelectSubagent
+  onSelectSubagent,
+  onExpandedChange
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
@@ -40,13 +88,15 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookId: string | null;
   onOpenRunbook: (runbookId: string) => void;
   onSelectSubagent: (path: string) => void;
+  onExpandedChange?: (expanded: boolean) => void;
 }): JSX.Element {
-  const [activeView, setActiveView] = useState<ResearchSideView>('memory');
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [navigation, dispatchNavigation] = useReducer(researchSideNavigationReducer, CLOSED_RESEARCH_SIDE_NAVIGATION);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>('workspace');
   const [type, setType] = useState('all');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const detailsOpen = navigation.openViews.length > 0;
+  const activeView = navigation.activeView ?? 'memory';
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
   const sessionMemoryNodes = useMemo(
@@ -82,10 +132,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const runbookUpdateKey = runbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
 
   useEffect(() => {
-    setActiveView('memory');
-    setDetailsOpen(false);
+    dispatchNavigation({ type: 'reset' });
     setSelectedNodeId(null);
   }, [runId]);
+
+  useEffect(() => {
+    onExpandedChange?.(detailsOpen);
+  }, [detailsOpen, onExpandedChange]);
 
   useEffect(() => {
     if (selectedNodeId && !nodeById.has(selectedNodeId)) setSelectedNodeId(null);
@@ -100,8 +153,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   }));
 
   const openDetails = (view: ResearchSideView): void => {
-    setActiveView(view);
-    setDetailsOpen(true);
+    if (view !== 'memory') setSelectedNodeId(null);
+    dispatchNavigation({ type: 'open', view });
+  };
+
+  const activateDetails = (view: ResearchSideView): void => {
+    if (view !== 'memory') setSelectedNodeId(null);
+    dispatchNavigation({ type: 'activate', view });
+  };
+
+  const closeDetails = (view: ResearchSideView): void => {
+    if (view === 'memory') setSelectedNodeId(null);
+    dispatchNavigation({ type: 'close', view });
   };
 
   if (!detailsOpen) {
@@ -133,7 +196,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
             </button>
             <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
-              <GitFork size={15} aria-hidden="true" />
+              <Bot size={15} aria-hidden="true" />
               <span>{subagents.length} Subagents</span>
               {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
               <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
@@ -153,110 +216,106 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   return (
     <>
       <aside className={`main-session-side memory-catalog view-${activeView}`} aria-label="Session details">
-      <header className="research-side-back">
-        <button
-          type="button"
-          className="research-side-back-button"
-          title="Back to session summary"
-          onClick={() => setDetailsOpen(false)}
-        >
-          <ChevronLeft size={15} aria-hidden="true" />
-          <span>Back</span>
-        </button>
-        </header>
+        <ResearchSideViewTabs
+          activeView={activeView}
+          openViews={navigation.openViews}
+          onActivate={activateDetails}
+          onClose={closeDetails}
+          onOpen={openDetails}
+        />
 
-      {activeView === 'memory' ? (
-        <>
-          <div className="memory-catalog-controls">
-            <div className="memory-catalog-search">
-              <Search size={14} aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                placeholder="Find a Memory"
-                aria-label="Search memory"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              <div className="memory-catalog-inline-filters" aria-label="Memory filters">
-                <FloatingTextPicker
-                  className="memory-catalog-filter memory-catalog-level-filter"
-                  value={scope}
-                  title="Memory level filter"
-                  ariaLabel="Memory level filter"
-                  options={[
-                    { value: 'session', label: 'Session' },
-                    { value: 'workspace', label: 'Workspace' },
-                    { value: 'subject', label: 'Subject' }
-                  ]}
-                  onChange={(value) => setScope(value as MemoryLevelFilter)}
+        {activeView === 'memory' ? (
+          <>
+            <div className="memory-catalog-controls">
+              <div className="memory-catalog-search">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={query}
+                  placeholder="Find a Memory"
+                  aria-label="Search memory"
+                  onChange={(event) => setQuery(event.target.value)}
                 />
-                <FloatingTextPicker
-                  className="memory-catalog-filter memory-catalog-type-filter"
-                  value={type}
-                  title="Memory type filter"
-                  ariaLabel="Memory type filter"
-                  options={[
-                    { value: 'all', label: 'All Memories' },
-                    ...nodeTypes.map((nodeType) => ({ value: nodeType, label: traceLabel(nodeType) }))
-                  ]}
-                  onChange={setType}
-                />
+                <div className="memory-catalog-inline-filters" aria-label="Memory filters">
+                  <FloatingTextPicker
+                    className="memory-catalog-filter memory-catalog-level-filter"
+                    value={scope}
+                    title="Memory level filter"
+                    ariaLabel="Memory level filter"
+                    options={[
+                      { value: 'session', label: 'Session' },
+                      { value: 'workspace', label: 'Workspace' },
+                      { value: 'subject', label: 'Subject' }
+                    ]}
+                    onChange={(value) => setScope(value as MemoryLevelFilter)}
+                  />
+                  <FloatingTextPicker
+                    className="memory-catalog-filter memory-catalog-type-filter"
+                    value={type}
+                    title="Memory type filter"
+                    ariaLabel="Memory type filter"
+                    options={[
+                      { value: 'all', label: 'All Memories' },
+                      ...nodeTypes.map((nodeType) => ({ value: nodeType, label: traceLabel(nodeType) }))
+                    ]}
+                    onChange={setType}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-          {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
-          {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
-          {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
-          {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
-          {filteredNodes.length > 0 ? (
-            <MainSideScrollRegion listClassName="memory-catalog-list" stickToEnd updateKey={updateKey}>
-              {filteredNodes.map((node) => (
-                <MemoryCatalogItem
-                  key={node.id}
-                  node={node}
-                  selected={selectedNodeId === node.id}
-                  onOpen={() => setSelectedNodeId(node.id)}
-                />
-              ))}
+            {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
+            {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
+            {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
+            {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
+            {filteredNodes.length > 0 ? (
+              <MainSideScrollRegion listClassName="memory-catalog-list" stickToEnd updateKey={updateKey}>
+                {filteredNodes.map((node) => (
+                  <MemoryCatalogItem
+                    key={node.id}
+                    node={node}
+                    selected={selectedNodeId === node.id}
+                    onOpen={() => setSelectedNodeId(node.id)}
+                  />
+                ))}
+              </MainSideScrollRegion>
+            ) : null}
+          </>
+        ) : activeView === 'runbooks' ? (
+          runbooks.length > 0 ? (
+            <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
+              {runbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
             </MainSideScrollRegion>
-          ) : null}
-        </>
-      ) : activeView === 'runbooks' ? (
-        runbooks.length > 0 ? (
-          <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToEnd updateKey={runbookUpdateKey}>
-            {runbooks.map((runbook) => <RunbookCatalogItem key={runbook.id} runbook={runbook} selected={selectedRunbookId === runbook.id} onOpen={() => onOpenRunbook(runbook.id)} />)}
+          ) : (
+            <div className="memory-catalog-empty">No runbooks in this workspace.</div>
+          )
+        ) : subagents.length > 0 ? (
+          <MainSideScrollRegion
+            listClassName="subagent-catalog-list"
+            stickToEnd
+            updateKey={subagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+          >
+            {subagents.map((agent) => (
+              <button
+                type="button"
+                className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
+                aria-pressed={selectedSubagentPath === agent.path}
+                key={agent.path}
+                onClick={() => onSelectSubagent(agent.path)}
+              >
+                <span className="subagent-catalog-heading">
+                  <span className="subagent-catalog-labels">
+                    <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{agent.name}</strong>
+                    <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
+                  </span>
+                  <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
+                </span>
+                <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
+              </button>
+            ))}
           </MainSideScrollRegion>
         ) : (
-          <div className="memory-catalog-empty">No runbooks in this workspace.</div>
-        )
-      ) : subagents.length > 0 ? (
-        <MainSideScrollRegion
-          listClassName="subagent-catalog-list"
-          stickToEnd
-          updateKey={subagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
-        >
-          {subagents.map((agent) => (
-            <button
-              type="button"
-              className={`subagent-catalog-item ${selectedSubagentPath === agent.path ? 'selected' : ''}`}
-              aria-pressed={selectedSubagentPath === agent.path}
-              key={agent.path}
-              onClick={() => onSelectSubagent(agent.path)}
-            >
-              <span className="subagent-catalog-heading">
-                <span className="subagent-catalog-labels">
-                  <strong className={`subagent-catalog-name status-${stateClass(agent.status)}`}>{agent.name}</strong>
-                  <span className="memory-catalog-status subagent-catalog-status">{subagentStatusLabel(agent.status)}</span>
-                </span>
-                <time dateTime={agent.createdAt} title={formatSessionDateTime(agent.createdAt)}>{formatSessionDateTime(agent.createdAt)}</time>
-              </span>
-              <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
-            </button>
-          ))}
-        </MainSideScrollRegion>
-      ) : (
-        <div className="memory-catalog-empty">No subagents in this session.</div>
-      )}
+          <div className="memory-catalog-empty">No subagents in this session.</div>
+        )}
       </aside>
       {selectedNode ? (
         <MemoryDetailSheet
@@ -269,6 +328,119 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     </>
   );
 });
+
+export function ResearchSideViewTabs({
+  activeView,
+  openViews,
+  onActivate,
+  onClose,
+  onOpen
+}: {
+  activeView: ResearchSideView;
+  openViews: readonly ResearchSideView[];
+  onActivate: (view: ResearchSideView) => void;
+  onClose: (view: ResearchSideView) => void;
+  onOpen: (view: ResearchSideView) => void;
+}): JSX.Element {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const availableViews = availableResearchSideViews(openViews);
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const closeOnPointerDown = (event: PointerEvent): void => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPickerOpen(false);
+    };
+    window.addEventListener('pointerdown', closeOnPointerDown);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [pickerOpen]);
+
+  useEffect(() => {
+    if (availableViews.length === 0) setPickerOpen(false);
+  }, [availableViews.length]);
+
+  return (
+    <header className="research-side-view-header">
+      <div className="research-side-view-tabs" role="tablist" aria-label="Open session detail views">
+        {openViews.map((view) => (
+          <div className={`research-side-view-tab ${activeView === view ? 'active' : ''}`} key={view}>
+            <button
+              type="button"
+              className="research-side-view-tab-activate"
+              role="tab"
+              aria-selected={activeView === view}
+              onClick={() => onActivate(view)}
+            >
+              {researchSideViewIcon(view, 15)}
+              <span>{researchSideViewLabel(view)}</span>
+            </button>
+            <button
+              type="button"
+              className="research-side-view-tab-close"
+              aria-label={`Close ${researchSideViewLabel(view)}`}
+              title={`Close ${researchSideViewLabel(view)}`}
+              onClick={() => onClose(view)}
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+      </div>
+      {availableViews.length > 0 ? (
+        <div className={`research-side-view-picker ${pickerOpen ? 'open' : ''}`} ref={pickerRef}>
+          <button
+            type="button"
+            className="research-side-view-picker-trigger"
+            aria-label="Add session detail view"
+            aria-haspopup="menu"
+            aria-expanded={pickerOpen}
+            title="Add session detail view"
+            onClick={() => setPickerOpen((current) => !current)}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+          {pickerOpen ? (
+            <div className="research-side-view-picker-menu" role="menu">
+              {availableViews.map((view) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  key={view}
+                  onClick={() => {
+                    onOpen(view);
+                    setPickerOpen(false);
+                  }}
+                >
+                  {researchSideViewIcon(view, 15)}
+                  <span>{researchSideViewLabel(view)}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+function researchSideViewLabel(view: ResearchSideView): string {
+  if (view === 'memory') return 'Memories';
+  if (view === 'runbooks') return 'Runbooks';
+  return 'Subagents';
+}
+
+function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element {
+  if (view === 'memory') return <Database size={size} aria-hidden="true" />;
+  if (view === 'runbooks') return <BookOpen size={size} aria-hidden="true" />;
+  return <Bot size={size} aria-hidden="true" />;
+}
 
 function RunbookCatalogItem({
   runbook,
