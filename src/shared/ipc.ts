@@ -50,6 +50,7 @@ export const IPC_CHANNELS = {
   closeWindow: 'beale:close-window',
   getWindowChromeState: 'beale:get-window-chrome-state',
   windowChromeStateUpdated: 'beale:window-chrome-state-updated',
+  nativeMenuAction: 'beale:native-menu-action',
   workspaceRegistryUpdated: 'beale:workspace-registry-updated',
   snapshotUpdated: 'beale:snapshot-updated'
 } as const;

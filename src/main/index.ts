@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispToolingConfigUpdate,
+  NativeMenuAction,
   ProfilingReport,
   WorkspaceRegistryState,
   WorkspaceOnboardingInput,
@@ -24,6 +25,7 @@ import type {
   WorkspacePickerMode
 } from '@shared/types';
 import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
+import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
 
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
@@ -77,6 +79,54 @@ function createWindow(): void {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+  }
+  installApplicationMenu();
+}
+
+function installApplicationMenu(): void {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  const window = nativeMenuWindow();
+  const zoomPercent = window && !window.isDestroyed()
+    ? Math.round(window.webContents.getZoomFactor() * 100)
+    : 100;
+  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMacApplicationMenuTemplate(zoomPercent, {
+    dispatchRendererAction: sendNativeMenuAction,
+    zoomOut: () => adjustNativeZoom(-1),
+    zoomIn: () => adjustNativeZoom(1),
+    minimizeWindow: () => nativeMenuWindow()?.minimize(),
+    maximizeWindow: toggleNativeWindowMaximize,
+    closeWindow: () => nativeMenuWindow()?.close()
+  })));
+}
+
+function nativeMenuWindow(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? mainWindow;
+}
+
+function sendNativeMenuAction(action: NativeMenuAction): void {
+  const window = nativeMenuWindow();
+  if (!window || window.isDestroyed()) return;
+  window.webContents.send(IPC_CHANNELS.nativeMenuAction, action);
+}
+
+function adjustNativeZoom(delta: -1 | 1): void {
+  const window = nativeMenuWindow();
+  if (!window || window.isDestroyed()) return;
+  const nextLevel = Math.max(-4, Math.min(6, window.webContents.getZoomLevel() + delta));
+  window.webContents.setZoomLevel(nextLevel);
+  installApplicationMenu();
+}
+
+function toggleNativeWindowMaximize(): void {
+  const window = nativeMenuWindow();
+  if (!window || window.isDestroyed()) return;
+  if (window.isMaximized()) {
+    window.unmaximize();
+  } else {
+    window.maximize();
   }
 }
 
@@ -499,7 +549,6 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
   workspaceService = new WorkspaceService(broadcastSnapshot);
   registerIpc();
   createWindow();

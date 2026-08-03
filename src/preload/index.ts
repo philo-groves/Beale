@@ -11,6 +11,7 @@ import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
   HoneycrispToolingConfigUpdate,
+  NativeMenuAction,
   WorkspaceOnboardingInput,
   WorkspaceOnboardingProgressUpdate,
   WorkspaceOnboardingSkipInput,
@@ -214,6 +215,11 @@ const api: BealeApi = {
     const wrapped = (_event: Electron.IpcRendererEvent, state: WindowChromeState): void => listener(state);
     ipcRenderer.on(IPC_CHANNELS.windowChromeStateUpdated, wrapped);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.windowChromeStateUpdated, wrapped);
+  },
+  onNativeMenuAction(listener: (action: NativeMenuAction) => void) {
+    const wrapped = (_event: Electron.IpcRendererEvent, action: NativeMenuAction): void => listener(action);
+    ipcRenderer.on(IPC_CHANNELS.nativeMenuAction, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.nativeMenuAction, wrapped);
   },
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void) {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot | null): void => listener(snapshot);

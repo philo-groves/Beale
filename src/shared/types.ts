@@ -208,6 +208,8 @@ export interface ZoomState {
   percent: number;
 }
 
+export type NativeMenuAction = 'new_research_workspace' | 'paste_steering';
+
 export type ProfilingMetricValue = string | number | boolean | null | undefined;
 export type ProfilingMetricDetail = Record<string, ProfilingMetricValue>;
 
@@ -1415,6 +1417,7 @@ export interface BealeApi {
   zoomOut(): ZoomState;
   getWindowChromeState(): Promise<WindowChromeState>;
   onWindowChromeState(listener: (state: WindowChromeState) => void): () => void;
+  onNativeMenuAction(listener: (action: NativeMenuAction) => void): () => void;
   onSnapshot(listener: (snapshot: WorkspaceSnapshot | null) => void): () => void;
   onWorkspaceRegistry(listener: (state: WorkspaceRegistryState) => void): () => void;
 }

@@ -67,11 +67,11 @@ export const TopBar = memo(function TopBar({
 
     document.addEventListener('pointerdown', closeFromPointer);
     document.addEventListener('keydown', closeFromEscape);
-    window.addEventListener('keydown', handleZoomShortcut);
+    if (platform !== 'darwin') window.addEventListener('keydown', handleZoomShortcut);
     return () => {
       document.removeEventListener('pointerdown', closeFromPointer);
       document.removeEventListener('keydown', closeFromEscape);
-      window.removeEventListener('keydown', handleZoomShortcut);
+      if (platform !== 'darwin') window.removeEventListener('keydown', handleZoomShortcut);
     };
   }, [platform]);
 
@@ -127,7 +127,7 @@ export const TopBar = memo(function TopBar({
   return (
     <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${openMenu ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
-      <nav className="window-menu" aria-label="Application menu" ref={menuRef}>
+      <nav className="window-menu" aria-label={isMac ? 'Sidebar controls' : 'Application menu'} ref={menuRef}>
         <button
           type="button"
           className="sidebar-toggle-button"
@@ -138,6 +138,7 @@ export const TopBar = memo(function TopBar({
         >
           <SidebarToggleIcon size={14} />
         </button>
+        {!isMac ? <>
         <div className="window-menu-item">
           <button
             type="button"
@@ -234,6 +235,7 @@ export const TopBar = memo(function TopBar({
             </div>
           ) : null}
         </div>
+        </> : null}
       </nav>
       <AppHeaderTitle
         workspaceName={workspaceName}
