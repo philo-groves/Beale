@@ -208,12 +208,10 @@ describe('renderer dialog surfaces', () => {
   it('renders memory record details in a bottom sheet', () => {
     const node: HoneycrispMemoryNodeSummary = {
       id: 'primitive_one',
-      tier: 'session',
-      sessionId: 'run_one',
-      workspaceId: 'workspace_one',
-      workspaceName: 'Parser Research',
-      subjectId: null,
-      subjectName: null,
+      sessionIds: ['run_one'],
+      workspaces: [{ id: 'workspace_one', name: 'Parser Research' }],
+      subjectId: 'subject_parser',
+      subjectName: 'Parser Research',
       type: 'primitive',
       title: 'Unchecked parser length',
       summary: 'The captured source multiplies a length before checking bounds.',

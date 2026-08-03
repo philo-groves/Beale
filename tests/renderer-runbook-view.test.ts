@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispRunbookDocument, HoneycrispRunbookSummary } from '../src/shared/types';
-import { RunbookView } from '../src/renderer/features/research/RunbookView';
+import { RunbookView, runbookViewUpdateKey } from '../src/renderer/features/research/RunbookView';
 
 const summary: HoneycrispRunbookSummary = {
   id: 'runbook-1',
@@ -75,5 +75,29 @@ describe('RunbookView', () => {
     expect(html).toContain('<strong>Result:</strong> pass');
     expect(html).toContain('Keep this note visible.');
     expect((html.match(/class="runbook-cell /g) ?? []).length).toBe(3);
+  });
+
+  it('supports embedded rendering and versions appended content for follow-to-bottom updates', () => {
+    const appendedDocument: HoneycrispRunbookDocument = {
+      ...document,
+      cells: document.cells.map((cell, index) => index === 1
+        ? { ...cell, outputs: [...cell.outputs, { kind: 'stream', text: 'new output\n', streamName: 'stdout', mimeType: 'text/plain' }] }
+        : cell)
+    };
+    const html = renderToStaticMarkup(createElement(RunbookView, {
+      runbook: summary,
+      document: appendedDocument,
+      loading: false,
+      error: null,
+      followLatest: true,
+      showBackButton: false,
+      onBackToMain: () => undefined
+    }));
+
+    expect(html).not.toContain('Back to Main');
+    expect(html).toContain('new output');
+    expect(runbookViewUpdateKey(summary, appendedDocument, false, null)).not.toBe(
+      runbookViewUpdateKey(summary, document, false, null)
+    );
   });
 });

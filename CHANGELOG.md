@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Session-scoped memory catalogs now show every memory linked to the current session, matching the Session summary even when a memory is reusable at workspace or subject level.
 - Honeycrisp sessions now automatically apply Codex-compatible `AGENTS.md` guidance from the selected Beale workspace to root agents, subagents, and compatible continuations instead of depending on manual file reads.
 - macOS fullscreen windows now remove the header space reserved for unavailable traffic-light controls while retaining it in normal windowed mode.
 - Honeycrisp controls now carry acknowledged request IDs, record rejected or unacknowledged delivery, and defer safe steering recovery until the prior agent process exits while retaining bounded subagent results.
@@ -19,6 +20,8 @@
 
 ### Changed
 
+- Added a Session/Workspace scope picker to the Runbooks sidenav, defaulting the detailed catalog to the current session.
+- Replaced Honeycrisp memory storage tiers with one required subject plus accumulated session and workspace membership lists; saves and corrections append the current context automatically, search uses Session, Workspace, or Subject scope, and Beale renders those associations directly.
 - Increased app-wide typography slightly, including rem-scaled text and fixed-size steering, picker, and shell-approval labels.
 - Made Commentary the default root and subagent session view, with the full event timeline retained as the optional Traces view under General settings; subagent previews now follow their latest commentary or final response in Commentary mode.
 - Added the Traces view's dynamic top and bottom scroll fades to Commentary, including updates while following new messages and expanding tool details.
@@ -29,7 +32,7 @@
 - Combined the session composer's model and reasoning controls into one hierarchical picker with provider, model, and effort flyout menus, with redundant `GPT-` prefixes omitted from OpenAI model-name labels; matched the adjacent safety selector's chevron spacing and muted styling.
 - Centered trace-list content and the steering composer within a shared 750px maximum width while keeping the trace scrollbar on the right edge of the full main content area, matching the composer's side inset to the right sidenav padding and its bottom inset to the main content's window-edge spacing.
 - Moved session duration and usage statistics from the main app header to the Session summary card, where token totals with complete in/out breakdowns, cache hit rate with cached-token totals, and context percentage with current token usage appear in a divided unlabeled section; removed the model-turn and trace-event header counters.
-- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; detailed catalogs now expand into an animated 50/50 chat split and use closable icon tabs plus a filtered add-view picker for Memories, Runbooks, and Subagents.
+- Replaced the default right-side research catalog with a borderless session summary card using balanced outer spacing and showing session memory totals with nonzero search and update activity counts plus primitive, chain, sink, and status-free Boring breakdowns with nonzero confirmed, suspected, and rejected counts on the first three categories, runbook and revision totals, and subagent totals with nonzero active, completed, and error counts at standard text size; detailed catalogs now expand into an animated 50/50 chat split and use closable icon tabs plus a filtered add-view picker for Memories, Runbooks, and Subagents, while the memory scope picker defaults to Session at the header's right edge and selected subagent chats and runbooks drill into the sidenav with Back-to-list navigation and follow new content without replacing the main agent chat.
 - Increased header title line heights without changing font sizes so letter descenders remain visible.
 - Changed the session composer placeholders to `Your move` for inactive sessions and `Steer the research` for active sessions.
 - Kept the header session-title hover surface fitted to its text and padding instead of expanding across available width.
@@ -39,7 +42,7 @@
 - Goal-enabled research now persists and forwards the concise selected direction separately from the expanded research prompt, preserves it across continuations and forks, and derives a bounded objective directly from user-authored custom prompts when needed.
 - New Research goal suggestions now prefetch in the background when a workspace or scope becomes active, refresh on later workspace activations and terminal research results, and remain cached for dialog reuse between research changes.
 - Research prompt generation now derives source coverage from a bounded local structural index of scoped paths, components, entry points, sinks, and exact function reads instead of asset mention counts.
-- Changed memory queries and the research memory catalog to default to workspace scope while retaining explicit session and subject scope overrides, and prevented exact memory identities from being accidentally copied across visible tiers.
+- Kept agent memory queries defaulted to current-workspace scope with explicit current-session and whole-subject overrides, while the detailed research memory catalog defaults to Session scope.
 - The session header context meter now presents 200k as its default context ceiling instead of 372k.
 - Beale now supplies the stable research run ID as Honeycrisp's provider session-affinity key across active turns and capture-backed continuations; Honeycrisp derives separate stable keys for subagents.
 - Honeycrisp provider failures now retry in the same session immediately, then after one and two minutes, with later attempts capped at three-minute intervals; safety or cyber guardrails add transcript-aware safer steering or continue an obvious authorized false positive.
@@ -224,7 +227,7 @@
 - Removed the redundant Honeycrisp `finding` memory type; Honeycrisp migrations convert existing nodes and their identifiers to trajectories while preserving graph references, and Beale migration 4 removes the former parallel operational finding records.
 
 - Removed the retired Honeycrisp `evidenceExtracted` and `claimsProposed` tool-observation fields and Beale's repository-search fallback; structured tool results are now the sole source of observation data.
-- Removed compatibility for Honeycrisp's retired derived-memory, proof, context-packet-v2, and pre-tier graph schemas; Beale now uses only the tiered graph-memory schema and schema-v4 capture contract.
+- Removed compatibility for Honeycrisp's retired derived-memory, proof, context-packet-v2, and early graph schemas; Beale now uses the current subject-and-membership graph-memory schema and schema-v4 capture contract.
 - Removed the footer momentum snake and strawberry, host-device label, and persistent notification icon. Context usage, session tokens, and Settings now form a compact lower-left cluster, while notifications continue to appear as transient alerts.
 - Removed Honeycrisp's retired events, episodes, claims, procedures, hypotheses, prospective, and scratch directory taxonomy from model-facing workspace context and new storage initialization.
 - Removed the right-side Evidence navigation pane, its footer toggle, and the collapsed sideways Trails/Evidence rail.
@@ -255,7 +258,7 @@
 - Honeycrisp sessions keep model tools available unless an explicit tool-call limit is configured, enforce their wall-clock session limit, and present compact turn/tool progress instead of raw agent lifecycle streams.
 - Active-session controls now expose Pause and Stop; continuing an inactive session extends it in place.
 
-- Replaced the always-visible hypothesis/finding/evidence trail column with a list-only Honeycrisp memory catalog supporting search, tier/type filters, inline record details, references, and textual relationships.
+- Replaced the always-visible hypothesis/finding/evidence trail column with a list-only Honeycrisp memory catalog supporting search, scope/type filters, inline record details, references, and textual relationships.
 
 - Changed steering for inactive Honeycrisp sessions to continue the existing run with a new attempt and bounded prior-session context instead of implicitly forking a new run.
 - Changed Honeycrisp session import to schema-v2 `request` and `agent` captures produced by Pi's native agent loop. Context views now show the request, workspace context, selected skills, and available tools without controller decisions or generated subgoals.
@@ -418,7 +421,7 @@
 - Fixed subagent turns appearing inline between root-agent turns with raw `/root/...` timeline headers; the main trace now shows root and setup events while child traces remain in the Subagents view.
 - Reserved bug memories for confirmed historical flaw precedents with affected assets and precedent evidence; current-research flaws remain primitives or chains, and exact correction can reclassify a node without losing its graph relationships.
 - Fixed broad Honeycrisp memory queries being treated as one literal substring, added bounded retries for transient model-provider failures before substantive output, and made Beale mark errored Honeycrisp captures as failed even when the host process exits normally. A database migration repairs affected persisted run, attempt, and model-session statuses.
-- Fixed Memory sidebar context filters so Session, Workspace, and Subject use stored identity dimensions instead of the mutually exclusive reuse tier.
+- Fixed Memory sidebar context filters so Session, Workspace, and Subject use stored identity dimensions instead of inferred storage categories.
 - Fixed duplicate Honeycrisp tool lifecycle traces, doubled session token totals, event-stream stdout noise, nested repository source-root discovery, misleading tool byte schemas, and Memory/Subagents lists shrinking instead of scrolling.
 
 - Hidden host-only traces are no longer shown by default and can be restored through the Non-standard trace filter.

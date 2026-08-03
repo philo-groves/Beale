@@ -111,7 +111,7 @@ function hasMomentumHotLead(detail: RunDetail, heat: SessionHeat, recent: TraceE
   if (recentProgress) return true;
 
   return detail.honeycrispMemory?.nodes.some((node) =>
-    node.sessionId === detail.run.id &&
+    node.sessionIds.includes(detail.run.id) &&
     node.type === 'chain' &&
     (node.status === 'suspected' || node.status === 'confirmed') &&
     isMomentumRecentIso(node.updatedAt)

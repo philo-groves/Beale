@@ -514,12 +514,10 @@ export interface HoneycrispMemoryEvidenceRefSummary {
 
 export interface HoneycrispMemoryNodeSummary {
   id: string;
-  tier: 'session' | 'workspace' | 'subject';
-  sessionId: string | null;
-  workspaceId: string;
-  workspaceName: string;
-  subjectId: string | null;
-  subjectName: string | null;
+  sessionIds: string[];
+  workspaces: Array<{ id: string; name: string }>;
+  subjectId: string;
+  subjectName: string;
   type: string;
   title: string;
   summary: string;
@@ -629,7 +627,7 @@ export interface HoneycrispMemorySummary {
   status: HoneycrispMemoryStatus;
   source: HoneycrispMemorySource;
   contextWorkspaceId: string;
-  contextSubjectId: string | null;
+  contextSubjectId: string;
   databasePath: string;
   storageRoot: string;
   artifactDirectoryPath: string;
@@ -642,7 +640,6 @@ export interface HoneycrispMemorySummary {
   latestNodeUpdatedAt: string | null;
   nodeTypeCounts: Record<string, number>;
   nodeStatusCounts: Record<string, number>;
-  nodeTierCounts: Record<string, number>;
   nodes: HoneycrispMemoryNodeSummary[];
   edges: HoneycrispMemoryEdgeSummary[];
   runbooks: HoneycrispRunbookSummary[];

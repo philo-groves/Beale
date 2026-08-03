@@ -3,7 +3,6 @@ import type { CSSProperties, JSX } from 'react';
 import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
-import { RunbookView } from '../research/RunbookView';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { TraceView } from '../traces/TraceView';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -24,6 +23,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount,
   scope,
   selectedRunId,
+  selectedRunbookId,
   selectedRunbook,
   selectedRunbookDocument,
   runbookLoading,
@@ -40,7 +40,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRestoreMemoryDreamingChange,
   onRunMemoryDreaming,
   onOpenHoneycrispRunbook,
-  onBackToMain,
+  onBackToRunbooks,
+  onBackToSubagents,
   onSelectTraceEvent,
   onSelectSubagent,
   onSessionAction,
@@ -55,6 +56,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
+  selectedRunbookId: string | null;
   selectedRunbook: HoneycrispRunbookSummary | null;
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
   runbookLoading: boolean;
@@ -71,7 +73,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRestoreMemoryDreamingChange: (changeId: string) => void;
   onRunMemoryDreaming: () => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
-  onBackToMain: () => void;
+  onBackToRunbooks: () => void;
+  onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
   onSessionAction: (action: SteeringAction) => void;
@@ -106,25 +109,17 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       className={`main-session-grid ${researchDetailsOpen ? 'research-details-open' : ''}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
-      {selectedRunbook ? (
-        <RunbookView
-          document={selectedRunbookDocument}
-          error={runbookError}
-          loading={runbookLoading}
-          runbook={selectedRunbook}
-          onBackToMain={onBackToMain}
-        />
-      ) : chatView === 'commentary' ? (
+      {chatView === 'commentary' ? (
         <CommentaryView
           busy={busy}
           detail={detail}
           events={events}
           providerModelCatalog={providerModelCatalog}
           selectedRunId={selectedRunId}
-          showBackToMain={selectedSubagentPath !== null}
+          showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
-          onBackToMain={onBackToMain}
+          onBackToMain={() => undefined}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
         />
@@ -135,15 +130,15 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           events={events}
           providerModelCatalog={providerModelCatalog}
           selectedRunId={selectedRunId}
-          traceScopeKey={selectedSubagentPath ?? 'main'}
-          showBackToMain={selectedSubagentPath !== null}
+          traceScopeKey="main"
+          showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
           traceFilterCount={traceFilterCount}
           totalTraceFilterCount={totalTraceFilterCount}
           visibleTraceCategories={visibleTraceCategories}
           onOpenTraceFilters={onOpenTraceFilters}
-          onBackToMain={onBackToMain}
+          onBackToMain={() => undefined}
           onSelectTraceEvent={onSelectTraceEvent}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
@@ -167,12 +162,23 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         detail={detail}
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}
+        providerModelCatalog={providerModelCatalog}
         runId={selectedRunId}
         runStatus={detail?.run.status ?? null}
-        selectedRunbookId={selectedRunbook?.id ?? null}
+        selectedRunbook={selectedRunbook}
+        selectedRunbookDocument={selectedRunbookDocument}
+        selectedRunbookId={selectedRunbookId}
+        runbookLoading={runbookLoading}
+        runbookError={runbookError}
         selectedSubagentPath={selectedSubagentPath}
+        selectedTraceEventId={selectedTraceEventId}
+        searchHighlightQuery={searchHighlightQuery}
+        visibleTraceCategories={visibleTraceCategories}
         onSelectSubagent={onSelectSubagent}
         onOpenRunbook={onOpenHoneycrispRunbook}
+        onBackToRunbooks={onBackToRunbooks}
+        onBackToSubagents={onBackToSubagents}
+        onSelectTraceEvent={onSelectTraceEvent}
         onExpandedChange={setResearchDetailsOpen}
       />
     </div>

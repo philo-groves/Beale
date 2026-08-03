@@ -1,17 +1,42 @@
 import { createElement } from 'react';
+import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
 import {
   ResearchSidePanel,
   ResearchSideViewTabs,
+  DEFAULT_MEMORY_LEVEL_FILTER,
+  DEFAULT_RUNBOOK_SCOPE_FILTER,
   availableResearchSideViews,
+  filterRunbookCatalog,
   researchSideNavigationReducer,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 
 describe('renderer memory catalog', () => {
+  it('defaults the detailed memory catalog to Session scope', () => {
+    expect(DEFAULT_MEMORY_LEVEL_FILTER).toBe('session');
+  });
+
+  it('defaults runbooks to Session scope and filters by recorded context', () => {
+    expect(DEFAULT_RUNBOOK_SCOPE_FILTER).toBe('session');
+    const currentSession = runbook({ id: 'current_session', sessionId: 'run_current' });
+    const priorSession = runbook({ id: 'prior_session', sessionId: 'run_prior' });
+    const otherWorkspace = runbook({ id: 'other_workspace', workspaceId: 'workspace_mdns', sessionId: 'run_current' });
+    const runbooks = [currentSession, priorSession, otherWorkspace];
+
+    expect(filterRunbookCatalog(runbooks, 'session', 'run_current', 'workspace_zsh')).toEqual([
+      currentSession,
+      otherWorkspace
+    ]);
+    expect(filterRunbookCatalog(runbooks, 'workspace', 'run_current', 'workspace_zsh')).toEqual([
+      currentSession,
+      priorSession
+    ]);
+  });
+
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
     let state: ResearchSideNavigationState = { openViews: [], activeView: null };
     state = researchSideNavigationReducer(state, { type: 'open', view: 'memory' });
@@ -115,13 +140,13 @@ describe('renderer memory catalog', () => {
         contextWorkspaceId: 'workspace_zsh',
         contextSubjectId: 'subject_apple',
         nodes: [
-          memoryNode({ id: 'session_one', tier: 'session', sessionId: 'run_current', status: 'confirmed' }),
-          memoryNode({ id: 'session_two', tier: 'session', sessionId: 'run_current' }),
-          memoryNode({ id: 'session_chain', tier: 'session', sessionId: 'run_current', type: 'chain', status: 'confirmed' }),
-          memoryNode({ id: 'session_sink', tier: 'session', sessionId: 'run_current', type: 'sink' }),
-          memoryNode({ id: 'session_other', tier: 'session', sessionId: 'run_current', type: 'invariant' }),
-          memoryNode({ id: 'session_other_rejected', tier: 'session', sessionId: 'run_current', type: 'invariant', status: 'rejected' }),
-          memoryNode({ id: 'session_stale', tier: 'session', sessionId: 'run_current', status: 'stale' }),
+          memoryNode({ id: 'session_one', sessionIds: ['run_current'], status: 'confirmed' }),
+          memoryNode({ id: 'session_two', sessionIds: ['run_current'] }),
+          memoryNode({ id: 'session_chain', sessionIds: ['run_current'], type: 'chain', status: 'confirmed' }),
+          memoryNode({ id: 'session_sink', sessionIds: ['run_current'], type: 'sink' }),
+          memoryNode({ id: 'session_other', sessionIds: ['run_current'], type: 'invariant' }),
+          memoryNode({ id: 'session_other_rejected', sessionIds: ['run_current'], type: 'invariant', status: 'rejected' }),
+          memoryNode({ id: 'session_stale', sessionIds: ['run_current'], status: 'stale' }),
           memoryNode({ id: 'workspace_one' })
         ],
         edges: [],
@@ -133,11 +158,22 @@ describe('renderer memory catalog', () => {
         ],
         lastError: null
       } as unknown as HoneycrispMemorySummary,
+      providerModelCatalog: [],
       runId: 'run_current',
       runStatus: null,
+      selectedRunbook: null,
+      selectedRunbookDocument: null,
+      runbookLoading: false,
+      runbookError: null,
       selectedSubagentPath: null,
       selectedRunbookId: null,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      visibleTraceCategories: [],
+      onBackToRunbooks: () => undefined,
+      onBackToSubagents: () => undefined,
       onOpenRunbook: () => undefined,
+      onSelectTraceEvent: () => undefined,
       onSelectSubagent: () => undefined
     }));
 
@@ -177,26 +213,74 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('aria-label="Search memory"');
   });
 
+  it('replaces detail tabs with Back to Subagents and renders the selected subagent chat', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      events: [subagentCommentaryEvent()],
+      selectedSubagentPath: '/root/parser_review'
+    })));
+
+    expect(html).toContain('Back to Subagents');
+    expect(html).toContain('class="research-side-nested-name" title="Parser Review">Parser Review</span>');
+    expect(html).toContain('Checking the parser boundary now.');
+    expect(html).not.toContain('Open session detail views');
+    expect(html).not.toContain('Add session detail view');
+    expect(html).not.toContain('Back to Main');
+  });
+
+  it('replaces detail tabs with Back to Runbooks and renders the selected runbook', () => {
+    const selectedRunbook = runbook({ title: 'Live parser validation' });
+    const selectedRunbookDocument: HoneycrispRunbookDocument = {
+      runbookId: selectedRunbook.id,
+      nbformat: 4,
+      nbformatMinor: 5,
+      language: 'typescript',
+      cells: [{
+        id: 'cell_one',
+        type: 'markdown',
+        source: 'Latest runbook step.',
+        language: null,
+        executionCount: null,
+        outputs: []
+      }]
+    };
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      selectedRunbook,
+      selectedRunbookDocument,
+      selectedRunbookId: selectedRunbook.id
+    })));
+
+    expect(html).toContain('Back to Runbooks');
+    expect(html).toContain('class="research-side-nested-name" title="Live parser validation">Live parser validation</span>');
+    expect(html).toContain('Live parser validation');
+    expect(html).toContain('Latest runbook step.');
+    expect(html).not.toContain('Open session detail views');
+    expect(html).not.toContain('Add session detail view');
+    expect(html).not.toContain('Back to Main');
+  });
+
   it('filters across context identities, types, node text, tags, and references', () => {
-    const sessionPrimitive = memoryNode({ id: 'session_primitive', tier: 'session', sessionId: 'run_current', type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
-    const workspacePrimitive = memoryNode({ id: 'workspace_primitive', type: 'primitive', title: 'ZFTP workspace boundary', tags: ['parser'] });
+    const sessionPrimitive = memoryNode({ id: 'session_primitive', sessionIds: ['run_current'], type: 'primitive', title: 'ZFTP length confusion', tags: ['parser'] });
+    const workspacePrimitive = memoryNode({ id: 'workspace_primitive', sessionIds: ['run_older'], type: 'primitive', title: 'ZFTP workspace boundary', tags: ['parser'] });
+    const currentSessionWorkspacePrimitive = memoryNode({ id: 'current_session_workspace_primitive', sessionIds: ['run_current'], type: 'primitive', title: 'Current parser state' });
     const subjectInvariant = memoryNode({
       id: 'subject_invariant',
-      tier: 'subject',
-      sessionId: 'run_older',
+      sessionIds: ['run_older'],
+      workspaces: [{ id: 'workspace_mdns', name: 'mDNSResponder' }],
       type: 'invariant',
       title: 'Apple parser boundary',
       evidenceRefs: [{ id: 'ref_one', kind: 'code', pathBase: 'repository', path: 'Src/Modules/zftp.c', locator: {}, summary: 'Length check', createdAt: '2026-07-19T12:00:00.000Z' }]
     });
-    const nodes = [sessionPrimitive, workspacePrimitive, subjectInvariant];
+    const nodes = [sessionPrimitive, workspacePrimitive, currentSessionWorkspacePrimitive, subjectInvariant];
     const context = { sessionId: 'run_current', workspaceId: 'workspace_zsh', subjectId: 'subject_apple' };
 
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'session', type: 'all', ...context })).toEqual([sessionPrimitive]);
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'workspace', type: 'all', ...context })).toEqual([workspacePrimitive]);
-    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'subject', type: 'all', ...context })).toEqual([subjectInvariant]);
+    expect(sessionMemoryCatalogNodes(nodes, 'run_current')).toEqual([sessionPrimitive, currentSessionWorkspacePrimitive]);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'session', type: 'all', ...context })).toEqual([currentSessionWorkspacePrimitive, sessionPrimitive]);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'workspace', type: 'all', ...context })).toEqual([currentSessionWorkspacePrimitive, sessionPrimitive, workspacePrimitive]);
+    expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'subject', type: 'all', ...context })).toEqual([currentSessionWorkspacePrimitive, sessionPrimitive, subjectInvariant, workspacePrimitive]);
     expect(filterMemoryCatalogNodes(nodes, { query: '', scope: 'all', type: 'invariant', ...context })).toEqual([subjectInvariant]);
     expect(filterMemoryCatalogNodes(nodes, { query: 'zftp.c', scope: 'all', type: 'all', ...context })).toEqual([subjectInvariant]);
     expect(filterMemoryCatalogNodes(nodes, { query: 'parser', scope: 'all', type: 'all', ...context })).toEqual([
+      currentSessionWorkspacePrimitive,
       sessionPrimitive,
       subjectInvariant,
       workspacePrimitive
@@ -298,13 +382,65 @@ function summaryDetail(): RunDetail {
   } as unknown as RunDetail;
 }
 
+function researchSidePanelProps(
+  overrides: Partial<ComponentProps<typeof ResearchSidePanel>> = {}
+): ComponentProps<typeof ResearchSidePanel> {
+  return {
+    detail: summaryDetail(),
+    events: [],
+    memory: null,
+    providerModelCatalog: [],
+    runId: 'run_current',
+    runStatus: 'active',
+    selectedRunbook: null,
+    selectedRunbookDocument: null,
+    selectedRunbookId: null,
+    runbookLoading: false,
+    runbookError: null,
+    selectedSubagentPath: null,
+    selectedTraceEventId: null,
+    searchHighlightQuery: '',
+    visibleTraceCategories: [],
+    onBackToRunbooks: () => undefined,
+    onBackToSubagents: () => undefined,
+    onOpenRunbook: () => undefined,
+    onSelectSubagent: () => undefined,
+    onSelectTraceEvent: () => undefined,
+    ...overrides
+  };
+}
+
+function subagentCommentaryEvent(): TraceEventRecord {
+  return {
+    id: 'subagent_commentary',
+    runId: 'run_current',
+    attemptId: 'attempt_one',
+    sequence: 1,
+    source: 'model',
+    type: 'model_message',
+    summary: 'Subagent commentary.',
+    payload: {
+      agentPath: '/root/parser_review',
+      transcriptRole: 'assistant',
+      transcriptSource: 'honeycrisp_commentary',
+      messagePhase: 'commentary',
+      text: 'Checking the parser boundary now.'
+    },
+    sensitivity: 'internal',
+    modelVisible: true,
+    createdAt: '2026-07-19T12:01:00.000Z',
+    vmContextId: null,
+    artifactId: null,
+    toolCallId: null,
+    approvalId: null
+  };
+}
+
 function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): HoneycrispMemoryNodeSummary {
   return {
     id: 'node_one',
-    tier: 'workspace',
-    sessionId: null,
-    workspaceId: 'workspace_zsh',
-    workspaceName: 'Zsh',
+    sessionIds: [],
+    workspaces: [{ id: 'workspace_zsh', name: 'Zsh' }],
     subjectId: 'subject_apple',
     subjectName: 'Apple',
     type: 'primitive',

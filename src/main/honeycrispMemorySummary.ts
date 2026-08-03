@@ -25,15 +25,16 @@ export interface HoneycrispMemorySummaryOptions {
 
 export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptions): HoneycrispMemorySummary {
   const { databasePath, artifactDirectoryPath, sessionId, workspaceId, subjectId } = options;
+  const contextSubjectId = subjectId ?? fallbackMemorySubjectId(workspaceId);
   const storageRoot = dirname(databasePath);
-  const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, subjectId);
+  const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, contextSubjectId);
   if (!existsSync(databasePath)) return base;
 
   let database: DatabaseSync | null = null;
   try {
     database = new DatabaseSync(databasePath, { readOnly: true });
     const hasNodes = tableExists(database, 'memory_nodes');
-    const nodes = hasNodes ? readNodes(database, { sessionId, workspaceId, subjectId }) : [];
+    const nodes = hasNodes ? readNodes(database, { sessionId, workspaceId, subjectId: contextSubjectId }) : [];
     const visibleNodeIds = new Set(nodes.map((node) => node.id));
     const edges = tableExists(database, 'memory_edges') ? readEdges(database, visibleNodeIds) : [];
     const evidenceRefCount = nodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
@@ -51,7 +52,6 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       latestNodeUpdatedAt: nodes[0]?.updatedAt ?? null,
       nodeTypeCounts: groupedNodeCounts(nodes, (node) => node.type),
       nodeStatusCounts: groupedNodeCounts(nodes, (node) => node.status),
-      nodeTierCounts: groupedNodeCounts(nodes, (node) => node.tier),
       nodes,
       edges,
       runbooks,
@@ -74,7 +74,7 @@ function emptySummary(
   storageRoot: string,
   artifactDirectoryPath: string,
   contextWorkspaceId: string,
-  contextSubjectId: string | null
+  contextSubjectId: string
 ): HoneycrispMemorySummary {
   return {
     status: 'missing',
@@ -93,7 +93,6 @@ function emptySummary(
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
-    nodeTierCounts: {},
     nodes: [],
     edges: [],
     runbooks: [],
@@ -125,11 +124,18 @@ function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRu
 
 function readNodes(
   database: DatabaseSync,
-  context: { sessionId?: string; workspaceId: string; subjectId: string | null }
+  context: { sessionId?: string; workspaceId: string; subjectId: string }
 ): HoneycrispMemoryNodeSummary[] {
-  const visibility = memoryVisibility(context);
+  const membershipSchema = tableExists(database, 'memory_node_sessions') && tableExists(database, 'memory_node_workspaces');
+  const visibility = memoryVisibility(context, membershipSchema);
   const rows = database.prepare(`SELECT * FROM memory_nodes WHERE ${visibility.sql} ORDER BY updated_at DESC, id ASC`).all(...visibility.params) as SqlRow[];
   const visibleNodeIds = new Set(rows.map((row) => requiredString(row.id)));
+  const sessions = membershipSchema
+    ? groupedStrings(database, 'SELECT node_id, session_id AS value FROM memory_node_sessions ORDER BY session_id', visibleNodeIds)
+    : new Map<string, string[]>();
+  const workspaces = membershipSchema
+    ? groupedWorkspaceMemberships(database, visibleNodeIds)
+    : new Map<string, Array<{ id: string; name: string }>>();
   const assets = groupedStrings(database, 'SELECT node_id, asset_id AS value FROM memory_node_assets ORDER BY asset_id', visibleNodeIds);
   const tags = groupedStrings(database, 'SELECT node_id, tag AS value FROM memory_node_tags ORDER BY tag', visibleNodeIds);
   const evidence = readEvidence(database, visibleNodeIds);
@@ -137,12 +143,14 @@ function readNodes(
     const id = requiredString(row.id);
     return {
       id,
-      tier: requiredMemoryTier(row.tier),
-      sessionId: optionalString(row.session_id),
-      workspaceId: requiredString(row.workspace_id),
-      workspaceName: requiredString(row.workspace_name),
-      subjectId: optionalString(row.subject_id),
-      subjectName: optionalString(row.subject_name),
+      sessionIds: membershipSchema
+        ? sessions.get(id) ?? []
+        : optionalString(row.session_id) ? [requiredString(row.session_id)] : [],
+      workspaces: membershipSchema
+        ? workspaces.get(id) ?? []
+        : [{ id: requiredString(row.workspace_id), name: requiredString(row.workspace_name) }],
+      subjectId: optionalString(row.subject_id) ?? fallbackMemorySubjectId(requiredString(row.workspace_id ?? context.workspaceId)),
+      subjectName: optionalString(row.subject_name) ?? requiredString(row.workspace_name ?? 'Workspace'),
       type: requiredString(row.type),
       title: requiredString(row.title),
       summary: requiredString(row.summary),
@@ -158,6 +166,22 @@ function readNodes(
       revision: requiredNumber(row.revision)
     };
   });
+}
+
+function groupedWorkspaceMemberships(
+  database: DatabaseSync,
+  visibleNodeIds: ReadonlySet<string>
+): Map<string, Array<{ id: string; name: string }>> {
+  const grouped = new Map<string, Array<{ id: string; name: string }>>();
+  for (const row of database.prepare('SELECT node_id, workspace_id, workspace_name FROM memory_node_workspaces ORDER BY workspace_name, workspace_id').all() as SqlRow[]) {
+    const nodeId = requiredString(row.node_id);
+    if (!visibleNodeIds.has(nodeId)) continue;
+    grouped.set(nodeId, [...(grouped.get(nodeId) ?? []), {
+      id: requiredString(row.workspace_id),
+      name: requiredString(row.workspace_name)
+    }]);
+  }
+  return grouped;
 }
 
 function readEvidence(database: DatabaseSync, visibleNodeIds: ReadonlySet<string>): Map<string, HoneycrispMemoryEvidenceRefSummary[]> {
@@ -209,17 +233,24 @@ function groupedStrings(database: DatabaseSync, sql: string, visibleNodeIds: Rea
   return grouped;
 }
 
-function memoryVisibility(context: { sessionId?: string; workspaceId: string; subjectId: string | null }): { sql: string; params: string[] } {
+function memoryVisibility(
+  context: { sessionId?: string; workspaceId: string; subjectId: string },
+  membershipSchema: boolean
+): { sql: string; params: string[] } {
+  if (membershipSchema) {
+    return {
+      sql: 'subject_id = ? AND EXISTS (SELECT 1 FROM memory_node_workspaces visible_workspace WHERE visible_workspace.node_id = memory_nodes.id)',
+      params: [context.subjectId]
+    };
+  }
   const clauses = ["(tier = 'workspace' AND scope_key = ?)"];
   const params = [context.workspaceId];
   if (context.sessionId) {
     clauses.push("(tier = 'session' AND scope_key = ?)");
     params.push(context.sessionId);
   }
-  if (context.subjectId) {
-    clauses.push("(tier = 'subject' AND scope_key = ?)");
-    params.push(context.subjectId);
-  }
+  clauses.push("(tier = 'subject' AND scope_key = ?)");
+  params.push(context.subjectId);
   return { sql: `(${clauses.join(' OR ')})`, params };
 }
 
@@ -282,9 +313,8 @@ function requiredNumber(value: unknown): number {
   return value;
 }
 
-function requiredMemoryTier(value: unknown): HoneycrispMemoryNodeSummary['tier'] {
-  if (value === 'session' || value === 'workspace' || value === 'subject') return value;
-  throw new Error('Expected a Honeycrisp memory tier.');
+function fallbackMemorySubjectId(workspaceId: string): string {
+  return `subject_workspace:${workspaceId}`;
 }
 
 function requiredRunbookStatus(value: unknown): HoneycrispRunbookSummary['status'] {

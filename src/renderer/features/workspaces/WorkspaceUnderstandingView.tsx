@@ -62,7 +62,6 @@ export function WorkspaceUnderstandingView({
             />
             {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
             <div className="workspace-understanding-list-grid">
-              <CountList title="Memory Tiers" counts={honeycrispMemory?.nodeTierCounts} />
               <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} />
               <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} />
             </div>
@@ -140,7 +139,7 @@ function DreamingSection({
         }
       />
       <p className="workspace-understanding-dreaming-copy">
-        The research model reviews workspace-tier memory with up to 100 past session transcripts, then prunes, revises, and consolidates semantically redundant knowledge. Original nodes and revisions remain stored for restoration.
+        The research model reviews memories associated with this workspace alongside up to 100 past session transcripts, then prunes, revises, and consolidates semantically redundant knowledge. Original nodes and revisions remain stored for restoration.
       </p>
       <div className="workspace-understanding-metric-grid compact">
         <MetricCell label="Hidden Nodes" value={formatCount(dreaming?.hiddenNodeCount ?? 0)} />
@@ -259,8 +258,8 @@ function MemoryNodeList({ nodes, title }: { nodes: HoneycrispMemoryNodeSummary[]
           {nodes.slice(0, 5).map((node) => (
             <li key={node.id}>
               <span title={node.summary || node.body}>{truncateText(node.title || node.summary || node.id, 64)}</span>
-              <strong title={`${traceLabel(node.tier)} memory · ${traceLabel(node.status)}`}>
-                {traceLabel(node.tier)} · {traceLabel(node.status)}
+              <strong title={`${node.workspaces.length} workspace associations · ${traceLabel(node.status)}`}>
+                {node.workspaces.length} workspace{node.workspaces.length === 1 ? '' : 's'} · {traceLabel(node.status)}
               </strong>
             </li>
           ))}

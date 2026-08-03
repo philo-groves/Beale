@@ -2349,6 +2349,10 @@ button.session-summary-item:hover:not(:disabled),
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.memory-catalog.has-nested-view {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .memory-catalog > .main-side-scroll {
   width: calc(100% + 8px);
 }
@@ -2363,8 +2367,79 @@ button.session-summary-item:hover:not(:disabled),
   gap: 5px;
 }
 
+.research-side-nested-header {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.research-side-nested-header button {
+  min-width: 0;
+  width: auto;
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 0 9px;
+  font-size: 1rem;
+  font-weight: 400;
+  text-align: left;
+}
+
+.research-side-nested-header button:hover:not(:disabled),
+.research-side-nested-header button:focus-visible {
+  border: 0;
+  background: var(--panel-raised);
+  color: var(--text);
+  outline: none;
+}
+
+.research-side-nested-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-side-nested-content {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.research-side-nested-content > .main-trace-view {
+  border-radius: var(--content-surface-radius) 0 0 0;
+  background: transparent;
+}
+
+.research-side-nested-content.subagent-chat-content .main-commentary-scroll,
+.research-side-nested-content.subagent-chat-content .main-trace-scroll,
+.research-side-nested-content.runbook-detail-content .runbook-view {
+  background: transparent;
+}
+
+.research-side-nested-content.runbook-detail-content .runbook-view-scroll {
+  padding: 0;
+}
+
 .research-side-view-tabs {
   min-width: 0;
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2446,7 +2521,10 @@ button.session-summary-item:hover:not(:disabled),
   outline: none;
 }
 
-.research-side-view-tab:focus-within {
+.research-side-view-tab:not(.active):has(
+  .research-side-view-tab-activate:focus-visible,
+  .research-side-view-tab-close:focus-visible
+) {
   outline: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
   outline-offset: -1px;
 }
@@ -2454,6 +2532,14 @@ button.session-summary-item:hover:not(:disabled),
 .research-side-view-picker {
   flex: 0 0 auto;
   position: relative;
+}
+
+.research-side-view-trailing {
+  min-width: 0;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
 }
 
 .research-side-view-picker-trigger {
@@ -2472,7 +2558,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .research-side-view-picker-menu {
-  min-width: 156px;
+  min-width: 132px;
   position: absolute;
   z-index: 20;
   top: calc(100% + 6px);
@@ -2482,7 +2568,8 @@ button.session-summary-item:hover:not(:disabled),
   border: 1px solid var(--panel-border);
   border-radius: 9px;
   background: var(--panel-raised);
-  padding: 5px;
+  padding: 0;
+  overflow: hidden;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
 }
 
@@ -2491,6 +2578,7 @@ button.session-summary-item:hover:not(:disabled),
   height: 32px;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   border-radius: 6px;
   padding: 0 8px;
@@ -2536,7 +2624,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .memory-catalog-search {
-  --memory-catalog-filter-inset: 210px;
+  --memory-catalog-filter-inset: 124px;
   min-width: 0;
   width: 100%;
   height: 32px;
@@ -2597,7 +2685,7 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .memory-catalog-level-filter {
-  max-width: 82px;
+  max-width: 96px;
 }
 
 .memory-catalog-type-filter {
@@ -2610,6 +2698,12 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .memory-catalog-type-filter .floating-text-picker-menu {
+  right: 0;
+  left: auto;
+}
+
+.research-side-memory-scope .floating-text-picker-menu,
+.research-side-runbook-scope .floating-text-picker-menu {
   right: 0;
   left: auto;
 }

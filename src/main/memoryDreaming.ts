@@ -12,6 +12,8 @@ type SqlRow = Record<string, SqlValue>;
 
 interface MemoryRecordsSnapshot {
   nodes: SqlRow[];
+  sessions: SqlRow[];
+  workspaces: SqlRow[];
   assets: SqlRow[];
   tags: SqlRow[];
   evidence: SqlRow[];
@@ -93,11 +95,6 @@ interface DreamingChangeRow {
 
 const NODE_COLUMNS = [
   'id',
-  'tier',
-  'scope_key',
-  'session_id',
-  'workspace_id',
-  'workspace_name',
   'subject_id',
   'subject_name',
   'type',
@@ -172,16 +169,14 @@ export function emptyMemoryDreamingSummary(): MemoryDreamingSummary {
 }
 
 export function getMemoryDreamingSummary(database: DatabaseSync, workspaceId: string): MemoryDreamingSummary {
-  if (!tableExists(database, 'memory_nodes') || !tableExists(database, 'memory_dreaming_runs') || !tableExists(database, 'memory_dreaming_changes')) {
+  if (!tableExists(database, 'memory_nodes')
+    || !tableExists(database, 'memory_node_sessions')
+    || !tableExists(database, 'memory_node_workspaces')
+    || !tableExists(database, 'memory_dreaming_runs')
+    || !tableExists(database, 'memory_dreaming_changes')) {
     return emptyMemoryDreamingSummary();
   }
 
-  const prefix = dreamingScopePrefix(workspaceId);
-  const hiddenRow = asRow(
-    database
-      .prepare('SELECT COUNT(*) AS count FROM memory_nodes WHERE substr(scope_key, 1, length(?)) = ?')
-      .get(prefix, prefix)
-  );
   const runRow = asOptionalRow(
     database
       .prepare('SELECT * FROM memory_dreaming_runs WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT 1')
@@ -199,10 +194,14 @@ export function getMemoryDreamingSummary(database: DatabaseSync, workspaceId: st
   );
   const changes = changeRows.map(mapDreamingChangeRow);
   const summaries = changes.map((change) => dreamingChangeSummary(database, change));
+  const hiddenNodeIds = new Set(changes
+    .filter((change) => change.restoredAt === null)
+    .flatMap((change) => change.hiddenNodeIds));
+  const hiddenNodeCount = [...hiddenNodeIds].filter((nodeId) => !isNodeAssociatedWithWorkspace(database, nodeId, workspaceId)).length;
   return {
     available: true,
     scope: 'workspace',
-    hiddenNodeCount: numberField(hiddenRow, 'count'),
+    hiddenNodeCount,
     restorableChangeCount: summaries.filter((change) => change.canRestore).length,
     lastRun: runRow ? mapDreamingRunSummary(runRow) : null,
     changes: summaries
@@ -217,7 +216,9 @@ export function runMemoryDreaming(
 ): MemoryDreamingRunSummary {
   const database = openDreamingDatabase(databasePath);
   try {
-    if (!tableExists(database, 'memory_nodes')) {
+    if (!tableExists(database, 'memory_nodes')
+      || !tableExists(database, 'memory_node_sessions')
+      || !tableExists(database, 'memory_node_workspaces')) {
       throw new Error('Honeycrisp memory is not initialized for this workspace.');
     }
     const candidates = readDreamingCandidates(database, workspaceId);
@@ -425,7 +426,10 @@ function readDreamingCandidates(database: DatabaseSync, workspaceId: string): Dr
                 n.confidence, n.revision, n.updated_at,
                 (SELECT COUNT(*) FROM memory_evidence_refs e WHERE e.node_id = n.id) AS evidence_count
          FROM memory_nodes n
-         WHERE n.tier = 'workspace' AND n.scope_key = ?
+         WHERE EXISTS (
+           SELECT 1 FROM memory_node_workspaces workspace_membership
+           WHERE workspace_membership.node_id = n.id AND workspace_membership.workspace_id = ?
+         )
          ORDER BY n.updated_at DESC, n.id`
       )
       .all(workspaceId)
@@ -543,6 +547,12 @@ function mergeDuplicateMemories(
 
   for (const duplicate of duplicates) {
     database
+      .prepare('INSERT OR IGNORE INTO memory_node_sessions (node_id, session_id) SELECT ?, session_id FROM memory_node_sessions WHERE node_id = ?')
+      .run(survivor.id, duplicate.id);
+    database
+      .prepare('INSERT OR IGNORE INTO memory_node_workspaces (node_id, workspace_id, workspace_name) SELECT ?, workspace_id, workspace_name FROM memory_node_workspaces WHERE node_id = ?')
+      .run(survivor.id, duplicate.id);
+    database
       .prepare('INSERT OR IGNORE INTO memory_node_assets (node_id, asset_id) SELECT ?, asset_id FROM memory_node_assets WHERE node_id = ?')
       .run(survivor.id, duplicate.id);
     database
@@ -645,13 +655,9 @@ function normalizeText(value: string): string {
 }
 
 function hideMemoryNode(database: DatabaseSync, nodeId: string, workspaceId: string, runId: string, now: string): void {
-  database
-    .prepare(
-      `UPDATE memory_nodes
-       SET scope_key = ?, revision = revision + 1, updated_at = ?
-       WHERE id = ? AND tier = 'workspace' AND scope_key = ?`
-    )
-    .run(`${dreamingScopePrefix(workspaceId)}${runId}`, now, nodeId, workspaceId);
+  void runId;
+  database.prepare('DELETE FROM memory_node_workspaces WHERE node_id = ? AND workspace_id = ?').run(nodeId, workspaceId);
+  database.prepare('UPDATE memory_nodes SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now, nodeId);
 }
 
 function insertDreamingChange(
@@ -696,12 +702,22 @@ function insertDreamingChange(
 
 function snapshotMemoryRecords(database: DatabaseSync, nodeIds: string[]): MemoryRecordsSnapshot {
   const uniqueIds = [...new Set(nodeIds)].sort();
-  if (uniqueIds.length === 0) return { nodes: [], assets: [], tags: [], evidence: [], edges: [] };
+  if (uniqueIds.length === 0) return { nodes: [], sessions: [], workspaces: [], assets: [], tags: [], evidence: [], edges: [] };
   const placeholders = uniqueIds.map(() => '?').join(', ');
   return {
     nodes: asRows(
       database
         .prepare(`SELECT ${NODE_COLUMNS.join(', ')} FROM memory_nodes WHERE id IN (${placeholders}) ORDER BY id`)
+        .all(...uniqueIds)
+    ),
+    sessions: asRows(
+      database
+        .prepare(`SELECT node_id, session_id FROM memory_node_sessions WHERE node_id IN (${placeholders}) ORDER BY node_id, session_id`)
+        .all(...uniqueIds)
+    ),
+    workspaces: asRows(
+      database
+        .prepare(`SELECT node_id, workspace_id, workspace_name FROM memory_node_workspaces WHERE node_id IN (${placeholders}) ORDER BY node_id, workspace_id`)
         .all(...uniqueIds)
     ),
     assets: asRows(
@@ -735,6 +751,8 @@ function snapshotMemoryRecords(database: DatabaseSync, nodeIds: string[]): Memor
 function applyMemorySnapshot(database: DatabaseSync, snapshot: MemoryRecordsSnapshot, nodeIds: string[]): void {
   const uniqueIds = [...new Set(nodeIds)].sort();
   const placeholders = uniqueIds.map(() => '?').join(', ');
+  database.prepare(`DELETE FROM memory_node_sessions WHERE node_id IN (${placeholders})`).run(...uniqueIds);
+  database.prepare(`DELETE FROM memory_node_workspaces WHERE node_id IN (${placeholders})`).run(...uniqueIds);
   database.prepare(`DELETE FROM memory_node_assets WHERE node_id IN (${placeholders})`).run(...uniqueIds);
   database.prepare(`DELETE FROM memory_node_tags WHERE node_id IN (${placeholders})`).run(...uniqueIds);
   database.prepare(`DELETE FROM memory_evidence_refs WHERE node_id IN (${placeholders})`).run(...uniqueIds);
@@ -749,6 +767,8 @@ function applyMemorySnapshot(database: DatabaseSync, snapshot: MemoryRecordsSnap
        ${NODE_COLUMNS.filter((column) => column !== 'id').map((column) => `${column} = excluded.${column}`).join(', ')}`
   );
   for (const row of snapshot.nodes) nodeInsert.run(...NODE_COLUMNS.map((column) => row[column] ?? null));
+  insertSnapshotRows(database, 'memory_node_sessions', ['node_id', 'session_id'], snapshot.sessions);
+  insertSnapshotRows(database, 'memory_node_workspaces', ['node_id', 'workspace_id', 'workspace_name'], snapshot.workspaces);
   insertSnapshotRows(database, 'memory_node_assets', ['node_id', 'asset_id'], snapshot.assets);
   insertSnapshotRows(database, 'memory_node_tags', ['node_id', 'tag'], snapshot.tags);
   insertSnapshotRows(database, 'memory_evidence_refs', [...EVIDENCE_COLUMNS], snapshot.evidence);
@@ -820,6 +840,8 @@ function parseSnapshot(value: string): MemoryRecordsSnapshot {
   const parsed = JSON.parse(value) as Partial<MemoryRecordsSnapshot>;
   return {
     nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : [],
     assets: Array.isArray(parsed.assets) ? parsed.assets : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],
     evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
@@ -846,8 +868,8 @@ function evidenceSignature(row: SqlRow): string {
   ].join('\u0000');
 }
 
-function dreamingScopePrefix(workspaceId: string): string {
-  return `dreaming_hidden:${workspaceId}:`;
+function isNodeAssociatedWithWorkspace(database: DatabaseSync, nodeId: string, workspaceId: string): boolean {
+  return Boolean(database.prepare('SELECT 1 FROM memory_node_workspaces WHERE node_id = ? AND workspace_id = ?').get(nodeId, workspaceId));
 }
 
 function tableExists(database: DatabaseSync, table: string): boolean {

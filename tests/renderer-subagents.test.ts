@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
-import { activeSubagentCount, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
+import { activeSubagentCount, subagentDisplayName, subagentStatusCountSummary, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
+  it('formats raw subagent names for display without changing their identity', () => {
+    expect(subagentDisplayName('parser_review')).toBe('Parser Review');
+    expect(subagentDisplayName('deep_input_parser')).toBe('Deep Input Parser');
+    expect(subagentDisplayName('HTTP_worker')).toBe('HTTP Worker');
+  });
+
   it('summarizes child identity, latest message, state, and activity', () => {
     const events = [
       traceEvent({ id: 'root', sequence: 1, payload: { agentPath: '/root', text: 'Root output.' } }),

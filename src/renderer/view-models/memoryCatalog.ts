@@ -14,6 +14,13 @@ export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[])
   return nodes.filter(isActiveMemoryNode).length;
 }
 
+export function sessionMemoryCatalogNodes(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  sessionId: string
+): HoneycrispMemoryNodeSummary[] {
+  return nodes.filter((node) => node.sessionIds.includes(sessionId));
+}
+
 export interface SessionMemoryTypeSummary {
   type: 'primitive' | 'chain' | 'sink' | 'other';
   count: number;
@@ -106,9 +113,9 @@ export function filterMemoryCatalogNodes(nodes: HoneycrispMemoryNodeSummary[], f
 
 function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: MemoryCatalogFilters): boolean {
   if (filters.scope === 'all') return true;
-  if (filters.scope === 'session') return node.tier === 'session' && node.sessionId === filters.sessionId;
-  if (filters.scope === 'workspace') return node.tier === 'workspace' && filters.workspaceId !== null && node.workspaceId === filters.workspaceId;
-  return node.tier === 'subject' && filters.subjectId !== null && node.subjectId === filters.subjectId;
+  if (filters.scope === 'session') return node.sessionIds.includes(filters.sessionId);
+  if (filters.scope === 'workspace') return filters.workspaceId !== null && node.workspaces.some((workspace) => workspace.id === filters.workspaceId);
+  return filters.subjectId !== null && node.subjectId === filters.subjectId;
 }
 
 function isActiveMemoryNode(node: HoneycrispMemoryNodeSummary): boolean {
@@ -155,9 +162,9 @@ function memoryNodeSearchText(node: HoneycrispMemoryNodeSummary): string {
     node.summary,
     node.body,
     node.status,
-    node.tier,
-    node.workspaceName,
-    node.subjectName ?? '',
+    ...node.sessionIds,
+    ...node.workspaces.flatMap((workspace) => [workspace.id, workspace.name]),
+    node.subjectName,
     ...node.assetIds,
     ...node.tags,
     ...node.evidenceRefs.flatMap((reference) => [reference.kind, reference.summary, reference.path ?? ''])

@@ -23,12 +23,15 @@ describe('memory Dreaming', () => {
   it('hides stale and exact duplicate workspace memories without deleting them, then restores each change', () => {
     const databasePath = createMemoryDatabase();
     const database = new DatabaseSync(databasePath);
-    const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    insertNode.run('stale_node', 'workspace', workspaceId, null, workspaceId, 'Security', 'subject_openai', 'OpenAI', 'hypothesis', 'Old lead', 'old lead', 'Old lead.', '', 'stale', 0.4, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
-    insertNode.run('duplicate_survivor', 'workspace', workspaceId, null, workspaceId, 'Security', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Short summary.', 'Short body.', 'confirmed', 0.95, '{}', '2026-07-21T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 3);
-    insertNode.run('duplicate_hidden', 'workspace', workspaceId, null, workspaceId, 'Security', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Short summary. With more detail.', 'Short body. With reproduction notes.', 'suspected', 0.7, '{}', '2026-07-22T10:00:00.000Z', '2026-07-23T10:00:00.000Z', 2);
-    insertNode.run('unique_node', 'workspace', workspaceId, null, workspaceId, 'Security', 'subject_openai', 'OpenAI', 'invariant', 'Unique boundary', 'unique boundary', 'Keep this.', '', 'confirmed', 0.9, '{}', '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 1);
-    insertNode.run('subject_duplicate', 'subject', 'subject_openai', null, workspaceId, 'Security', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Subject-tier memory.', '', 'confirmed', 0.99, '{}', '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 1);
+    const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    insertNode.run('stale_node', 'subject_openai', 'OpenAI', 'hypothesis', 'Old lead', 'old lead', 'Old lead.', '', 'stale', 0.4, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
+    insertNode.run('duplicate_survivor', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Short summary.', 'Short body.', 'confirmed', 0.95, '{}', '2026-07-21T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 3);
+    insertNode.run('duplicate_hidden', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Short summary. With more detail.', 'Short body. With reproduction notes.', 'suspected', 0.7, '{}', '2026-07-22T10:00:00.000Z', '2026-07-23T10:00:00.000Z', 2);
+    insertNode.run('unique_node', 'subject_openai', 'OpenAI', 'invariant', 'Unique boundary', 'unique boundary', 'Keep this.', '', 'confirmed', 0.9, '{}', '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 1);
+    insertNode.run('other_workspace_duplicate', 'subject_openai', 'OpenAI', 'primitive', 'Parser mismatch', 'parser mismatch', 'Other workspace memory.', '', 'confirmed', 0.99, '{}', '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z', 1);
+    const associateWorkspace = database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)');
+    for (const nodeId of ['stale_node', 'duplicate_survivor', 'duplicate_hidden', 'unique_node']) associateWorkspace.run(nodeId, workspaceId, 'Security');
+    associateWorkspace.run('other_workspace_duplicate', 'workspace_other', 'Other Workspace');
     database.prepare('INSERT INTO memory_node_assets VALUES (?, ?)').run('duplicate_hidden', 'asset_parser');
     database.prepare('INSERT INTO memory_node_tags VALUES (?, ?)').run('duplicate_survivor', 'confirmed');
     database.prepare('INSERT INTO memory_node_tags VALUES (?, ?)').run('duplicate_hidden', 'parser');
@@ -64,13 +67,13 @@ describe('memory Dreaming', () => {
     const dreamed = new DatabaseSync(databasePath);
     expect(dreamed.prepare('SELECT COUNT(*) AS count FROM memory_nodes').get()).toEqual({ count: 5 });
     expect(
-      dreamed.prepare("SELECT id FROM memory_nodes WHERE tier = 'workspace' AND scope_key = ? ORDER BY id").all(workspaceId)
+      dreamed.prepare('SELECT node_id AS id FROM memory_node_workspaces WHERE workspace_id = ? ORDER BY node_id').all(workspaceId)
     ).toEqual([{ id: 'duplicate_survivor' }, { id: 'unique_node' }]);
     expect(
-      dreamed.prepare("SELECT id FROM memory_nodes WHERE scope_key LIKE 'dreaming_hidden:%' ORDER BY id").all()
+      dreamed.prepare('SELECT id FROM memory_nodes WHERE id IN (?, ?) AND NOT EXISTS (SELECT 1 FROM memory_node_workspaces w WHERE w.node_id = memory_nodes.id AND w.workspace_id = ?) ORDER BY id').all('duplicate_hidden', 'stale_node', workspaceId)
     ).toEqual([{ id: 'duplicate_hidden' }, { id: 'stale_node' }]);
-    expect(dreamed.prepare('SELECT scope_key FROM memory_nodes WHERE id = ?').get('subject_duplicate')).toEqual({
-      scope_key: 'subject_openai'
+    expect(dreamed.prepare('SELECT workspace_id FROM memory_node_workspaces WHERE node_id = ?').get('other_workspace_duplicate')).toEqual({
+      workspace_id: 'workspace_other'
     });
     expect(dreamed.prepare('SELECT summary, body, revision FROM memory_nodes WHERE id = ?').get('duplicate_survivor')).toEqual({
       summary: 'Short summary. With more detail.',
@@ -113,8 +116,8 @@ describe('memory Dreaming', () => {
       body: 'Short body.',
       revision: 3
     });
-    expect(partlyRestored.prepare('SELECT scope_key, revision FROM memory_nodes WHERE id = ?').get('duplicate_hidden')).toEqual({
-      scope_key: workspaceId,
+    expect(partlyRestored.prepare('SELECT w.workspace_id, n.revision FROM memory_nodes n JOIN memory_node_workspaces w ON w.node_id = n.id WHERE n.id = ?').get('duplicate_hidden')).toEqual({
+      workspace_id: workspaceId,
       revision: 2
     });
     expect(partlyRestored.prepare('SELECT tag FROM memory_node_tags WHERE node_id = ?').all('duplicate_survivor')).toEqual([
@@ -130,7 +133,7 @@ describe('memory Dreaming', () => {
 
     restoreMemoryDreamingChange(databasePath, workspaceId, staleChange!.id);
     const restored = new DatabaseSync(databasePath);
-    expect(restored.prepare("SELECT COUNT(*) AS count FROM memory_nodes WHERE tier = 'workspace' AND scope_key = ?").get(workspaceId)).toEqual({
+    expect(restored.prepare('SELECT COUNT(*) AS count FROM memory_node_workspaces WHERE workspace_id = ?').get(workspaceId)).toEqual({
       count: 4
     });
     expect(getMemoryDreamingSummary(restored, workspaceId)).toMatchObject({
@@ -144,9 +147,11 @@ describe('memory Dreaming', () => {
   it('refuses to overwrite memory changed after Dreaming', () => {
     const databasePath = createMemoryDatabase();
     const database = new DatabaseSync(databasePath);
-    const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    insertNode.run('duplicate_one', 'workspace', workspaceId, null, workspaceId, 'Security', null, null, 'primitive', 'Same primitive', 'same primitive', 'First.', '', 'confirmed', 0.9, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
-    insertNode.run('duplicate_two', 'workspace', workspaceId, null, workspaceId, 'Security', null, null, 'primitive', 'Same primitive', 'same primitive', 'Second.', '', 'suspected', 0.7, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
+    const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    insertNode.run('duplicate_one', 'subject_security', 'Security', 'primitive', 'Same primitive', 'same primitive', 'First.', '', 'confirmed', 0.9, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
+    insertNode.run('duplicate_two', 'subject_security', 'Security', 'primitive', 'Same primitive', 'same primitive', 'Second.', '', 'suspected', 0.7, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
+    database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)').run('duplicate_one', workspaceId, 'Security');
+    database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)').run('duplicate_two', workspaceId, 'Security');
     database.close();
 
     runMemoryDreaming(databasePath, workspaceId, {
@@ -180,15 +185,10 @@ describe('memory Dreaming', () => {
   it('preserves and restores the original revision when the model revises a memory', () => {
     const databasePath = createMemoryDatabase();
     const database = new DatabaseSync(databasePath);
-    database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       'boundary_note',
-      'workspace',
-      workspaceId,
-      null,
-      workspaceId,
+      'subject_security',
       'Security',
-      null,
-      null,
       'invariant',
       'Boundary reachability',
       'boundary reachability',
@@ -201,6 +201,7 @@ describe('memory Dreaming', () => {
       '2026-07-20T10:00:00.000Z',
       4
     );
+    database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)').run('boundary_note', workspaceId, 'Security');
     database.close();
 
     runMemoryDreaming(databasePath, workspaceId, {
@@ -252,7 +253,9 @@ function createMemoryDatabase(): string {
   const databasePath = join(directory, 'memory.sqlite');
   const database = new DatabaseSync(databasePath);
   database.exec(`
-    CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, tier TEXT NOT NULL, scope_key TEXT NOT NULL, session_id TEXT, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
+    CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, subject_name TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
+    CREATE TABLE memory_node_sessions (node_id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(node_id, session_id));
+    CREATE TABLE memory_node_workspaces (node_id TEXT NOT NULL, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, PRIMARY KEY(node_id, workspace_id));
     CREATE TABLE memory_node_assets (node_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY(node_id, asset_id));
     CREATE TABLE memory_node_tags (node_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(node_id, tag));
     CREATE TABLE memory_edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(from_id, to_id, relation));

@@ -91,12 +91,12 @@ describe('renderer research momentum view model', () => {
     detail.honeycrispMemory = {
       status: 'ready',
       nodes: [{
-        sessionId: 'run_test',
+        sessionIds: ['run_test'],
         type: 'chain',
         status: 'confirmed',
         updatedAt: '2026-07-21T11:59:45.000Z'
       }]
-    } as RunDetail['honeycrispMemory'];
+    } as unknown as RunDetail['honeycrispMemory'];
 
     const momentum = researchMomentumForDetail(detail, 'critical');
 

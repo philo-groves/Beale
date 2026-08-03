@@ -23,6 +23,8 @@ export const CommentaryView = memo(function CommentaryView({
   providerModelCatalog,
   selectedRunId,
   showBackToMain,
+  showBackButton = showBackToMain,
+  scrollScopeKey = selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
   onBackToMain,
@@ -35,6 +37,8 @@ export const CommentaryView = memo(function CommentaryView({
   providerModelCatalog: ResearchProviderModelCatalog[];
   selectedRunId: string | null;
   showBackToMain: boolean;
+  showBackButton?: boolean;
+  scrollScopeKey?: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   onBackToMain: () => void;
@@ -52,7 +56,7 @@ export const CommentaryView = memo(function CommentaryView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
-  const selectedRunIdRef = useRef(selectedRunId);
+  const scrollScopeKeyRef = useRef(scrollScopeKey);
 
   const updateScrollEdges = useCallback((): void => {
     const scroll = scrollRef.current;
@@ -87,13 +91,13 @@ export const CommentaryView = memo(function CommentaryView({
   }, [scrollToLatest, updateScrollEdges]);
 
   useLayoutEffect(() => {
-    if (selectedRunIdRef.current !== selectedRunId) {
-      selectedRunIdRef.current = selectedRunId;
+    if (scrollScopeKeyRef.current !== scrollScopeKey) {
+      scrollScopeKeyRef.current = scrollScopeKey;
       followLatestRef.current = true;
     }
     const frame = window.requestAnimationFrame(syncScrollState);
     return () => window.cancelAnimationFrame(frame);
-  }, [messageUpdateKey, selectedRunId, syncScrollState]);
+  }, [messageUpdateKey, scrollScopeKey, syncScrollState]);
 
   useLayoutEffect(() => {
     if (!selectedTraceEventId) return;
@@ -116,7 +120,7 @@ export const CommentaryView = memo(function CommentaryView({
     observer.observe(list);
     Array.from(list.children).forEach((child) => observer.observe(child));
     return () => observer.disconnect();
-  }, [messageUpdateKey, selectedRunId, syncScrollState]);
+  }, [messageUpdateKey, scrollScopeKey, syncScrollState]);
 
   const handleScroll = useCallback((): void => {
     const list = listRef.current;
@@ -130,7 +134,7 @@ export const CommentaryView = memo(function CommentaryView({
 
   return (
     <section className={`main-trace-view main-commentary-view${showBackToMain ? ' is-subagent-trace' : ''}`} aria-label="Agent commentary">
-      {showBackToMain ? (
+      {showBackButton ? (
         <button
           type="button"
           className="back-to-main-button trace-back-to-main-button"

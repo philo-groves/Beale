@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { ArrowLeft, BookOpen, CircleAlert, LoaderCircle } from 'lucide-react';
 import type {
@@ -16,21 +16,70 @@ export const RunbookView = memo(function RunbookView({
   document,
   loading,
   error,
-  onBackToMain
+  onBackToMain,
+  showBackButton = true,
+  followLatest = false
 }: {
   runbook: HoneycrispRunbookSummary;
   document: HoneycrispRunbookDocument | null;
   loading: boolean;
   error: string | null;
   onBackToMain: () => void;
+  showBackButton?: boolean;
+  followLatest?: boolean;
 }): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const followLatestRef = useRef(true);
+  const runbookIdRef = useRef(runbook.id);
+  const updateKey = useMemo(
+    () => runbookViewUpdateKey(runbook, document, loading, error),
+    [document, error, loading, runbook]
+  );
+
+  const scrollToLatest = useCallback((): void => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+  }, []);
+
+  const syncScroll = useCallback((): void => {
+    if (followLatest && followLatestRef.current) scrollToLatest();
+  }, [followLatest, scrollToLatest]);
+
+  useLayoutEffect(() => {
+    if (runbookIdRef.current !== runbook.id) {
+      runbookIdRef.current = runbook.id;
+      followLatestRef.current = true;
+    }
+    const frame = window.requestAnimationFrame(syncScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [runbook.id, syncScroll, updateKey]);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(syncScroll);
+    observer.observe(scroll);
+    Array.from(scroll.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [syncScroll, updateKey]);
+
+  const handleScroll = useCallback((): void => {
+    const scroll = scrollRef.current;
+    if (!followLatest || !scroll) return;
+    const distanceFromBottom = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop;
+    followLatestRef.current = distanceFromBottom <= 24;
+  }, [followLatest]);
+
   return (
     <section className="main-trace-view runbook-view" aria-label={`Runbook: ${runbook.title}`}>
-      <button type="button" className="back-to-main-button trace-back-to-main-button" onClick={onBackToMain}>
-        <ArrowLeft size={15} aria-hidden="true" />
-        Back to Main
-      </button>
-      <div className="runbook-view-scroll">
+      {showBackButton ? (
+        <button type="button" className="back-to-main-button trace-back-to-main-button" onClick={onBackToMain}>
+          <ArrowLeft size={15} aria-hidden="true" />
+          Back to Main
+        </button>
+      ) : null}
+      <div className="runbook-view-scroll" ref={scrollRef} onScroll={handleScroll}>
         <header className="runbook-view-header">
           <span className="runbook-view-eyebrow"><BookOpen size={15} aria-hidden="true" /> Runbook</span>
           <h2>{runbook.title}</h2>
@@ -57,6 +106,22 @@ export const RunbookView = memo(function RunbookView({
     </section>
   );
 });
+
+export function runbookViewUpdateKey(
+  runbook: HoneycrispRunbookSummary,
+  document: HoneycrispRunbookDocument | null,
+  loading: boolean,
+  error: string | null
+): string {
+  const cells = document?.cells.map((cell) => [
+    cell.id,
+    cell.type,
+    cell.source.length,
+    cell.executionCount ?? '',
+    ...cell.outputs.flatMap((output) => [output.kind, output.streamName ?? '', output.mimeType ?? '', output.text.length])
+  ].join(':')).join('|') ?? '';
+  return `${runbook.id}:${runbook.revision}:${loading ? 'loading' : 'ready'}:${error ?? ''}:${cells}`;
+}
 
 function RunbookCellView({ cell, index }: { cell: HoneycrispRunbookCell; index: number }): JSX.Element {
   return (

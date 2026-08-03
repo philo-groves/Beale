@@ -45,6 +45,12 @@ export function subagentStatusLabel(status: SubagentStatus): string {
   return `${status[0]?.toUpperCase() ?? ''}${status.slice(1)}`;
 }
 
+export function subagentDisplayName(name: string): string {
+  return name
+    .replace(/_/g, ' ')
+    .replace(/\S+/g, (word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`);
+}
+
 export function subagentSummaries(
   events: TraceEventRecord[],
   runStatus?: RunStatus | null,

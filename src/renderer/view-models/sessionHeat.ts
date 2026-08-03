@@ -18,7 +18,7 @@ export function sessionHeatForHoneycrispMemory(
 
   let heat: SessionHeat = 'none';
   for (const node of memory.nodes) {
-    if (node.sessionId !== sessionId) continue;
+    if (!node.sessionIds.includes(sessionId)) continue;
     heat = maxSessionHeat(heat, sessionHeatForMemoryNode(node.type, node.status));
   }
   return heat;

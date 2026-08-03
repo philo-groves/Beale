@@ -1746,8 +1746,8 @@ describe('Beale workbench skeleton', () => {
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
         "if (workspaceContext.authorization?.networkProfile !== 'offline') throw new Error('Per-session network profile missing from authorization context');",
         "if (!workspaceContext.projectNotes?.includes('Network access profile: offline')) throw new Error('Per-session network profile missing from project notes');",
-        "if (!workspaceContext.memoryTierContext?.sessionId || !workspaceContext.memoryTierContext?.workspaceId) throw new Error('Memory tier session/workspace context missing');",
-        "if (workspaceContext.memoryTierContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
+        "if (!workspaceContext.memoryContext?.sessionId || !workspaceContext.memoryContext?.workspaceId) throw new Error('Memory session/workspace context missing');",
+        "if (workspaceContext.memoryContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
@@ -1825,7 +1825,7 @@ describe('Beale workbench skeleton', () => {
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string; contentRoots?: string[] }>;
       projectNotes?: string[];
-      memoryTierContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string };
+      memoryContext?: { sessionId?: string; workspaceId?: string; workspaceName?: string; subjectId?: string; subjectName?: string };
     };
     expect(workspaceContext.materializedSourcePaths).toContain(nestedSourceRoot);
     expect(workspaceContext.authorization).toMatchObject({
@@ -1834,13 +1834,13 @@ describe('Beale workbench skeleton', () => {
       scopeName: 'ZSH Fixture',
       networkProfile: 'offline'
     });
-    expect(workspaceContext.memoryTierContext).toMatchObject({
+    expect(workspaceContext.memoryContext).toMatchObject({
       sessionId: runId,
       workspaceName: 'ZSH Fixture',
       subjectName: 'Apple Security Bounty',
     });
-    expect(workspaceContext.memoryTierContext?.workspaceId).toBeTruthy();
-    expect(workspaceContext.memoryTierContext?.subjectId).toMatch(/^subject_/);
+    expect(workspaceContext.memoryContext?.workspaceId).toBeTruthy();
+    expect(workspaceContext.memoryContext?.subjectId).toMatch(/^subject_/);
     expect(workspaceContext.materializedSourcePaths).not.toContain(workspace);
     expect(workspaceContext.knownRepositories?.some((repository) => repository.rootPath === nestedSourceRoot)).toBe(true);
     expect(workspaceContext.knownRepositories?.find((repository) => repository.rootPath === nestedSourceRoot)?.contentRoots).toEqual([nestedContentRoot]);
@@ -1927,9 +1927,9 @@ describe('Beale workbench skeleton', () => {
     const launch = runDetail.traceEvents.find((event) => event.summary === 'Honeycrisp host process launched.');
     const contextPath = (launch?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const context = JSON.parse(readFileSync(contextPath, 'utf8')) as {
-      memoryTierContext?: { workspaceId?: string; subjectName?: string };
+      memoryContext?: { workspaceId?: string; subjectName?: string };
     };
-    expect(context.memoryTierContext).toMatchObject({ workspaceId: expect.any(String), subjectName: 'Apple' });
+    expect(context.memoryContext).toMatchObject({ workspaceId: expect.any(String), subjectName: 'Apple' });
     service.close();
   });
 

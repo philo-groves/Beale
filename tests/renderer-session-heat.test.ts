@@ -23,8 +23,8 @@ describe('renderer session heat view models', () => {
 
   it('ignores triggering memories from other sessions', () => {
     const memory = honeycrispMemory([
-      memoryNode({ sessionId: 'run_older', type: 'chain', status: 'confirmed' }),
-      memoryNode({ sessionId: 'run_current', type: 'sink', status: 'confirmed' })
+      memoryNode({ sessionIds: ['run_older'], type: 'chain', status: 'confirmed' }),
+      memoryNode({ sessionIds: ['run_current'], type: 'sink', status: 'confirmed' })
     ]);
 
     expect(sessionHeatForHoneycrispMemory(memory, 'run_current')).toBe('low');
@@ -58,10 +58,8 @@ function honeycrispMemory(nodes: HoneycrispMemoryNodeSummary[]): HoneycrispMemor
 function memoryNode(overrides: Partial<HoneycrispMemoryNodeSummary> = {}): HoneycrispMemoryNodeSummary {
   return {
     id: 'memory_test',
-    tier: 'workspace',
-    sessionId: 'run_current',
-    workspaceId: 'workspace_zsh',
-    workspaceName: 'Zsh',
+    sessionIds: ['run_current'],
+    workspaces: [{ id: 'workspace_zsh', name: 'Zsh' }],
     subjectId: 'subject_apple',
     subjectName: 'Apple',
     type: 'primitive',

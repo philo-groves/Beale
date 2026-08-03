@@ -100,17 +100,24 @@ describe('model-reasoned memory Dreaming', () => {
       const sessionId = session.runs[0]?.run.id ?? '';
       const database = new DatabaseSync(opened.workspace.databasePath);
       database.exec(`
-        CREATE TABLE IF NOT EXISTS memory_nodes (id TEXT PRIMARY KEY, tier TEXT NOT NULL, scope_key TEXT NOT NULL, session_id TEXT, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS memory_nodes (id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, subject_name TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, title_norm TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, attributes_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS memory_node_sessions (node_id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(node_id, session_id));
+        CREATE TABLE IF NOT EXISTS memory_node_workspaces (node_id TEXT NOT NULL, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, PRIMARY KEY(node_id, workspace_id));
         CREATE TABLE IF NOT EXISTS memory_node_assets (node_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY(node_id, asset_id));
         CREATE TABLE IF NOT EXISTS memory_node_tags (node_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(node_id, tag));
         CREATE TABLE IF NOT EXISTS memory_edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(from_id, to_id, relation));
         CREATE TABLE IF NOT EXISTS memory_evidence_refs (id TEXT PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL, path_base TEXT, path TEXT, locator_json TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       `);
-      const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      insertNode.run('parser_primitive', 'workspace', opened.workspace.workspaceId, null, opened.workspace.workspaceId, 'Security', null, null, 'primitive', 'Parser allocation mismatch', 'parser allocation mismatch', 'A parser allocation mismatch exists.', '', 'confirmed', 0.9, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
-      insertNode.run('length_conversion', 'workspace', opened.workspace.workspaceId, null, opened.workspace.workspaceId, 'Security', null, null, 'primitive', 'Signed length reaches allocation', 'signed length reaches allocation', 'A signed length reaches allocation.', '', 'suspected', 0.7, '{}', '2026-07-21T10:00:00.000Z', '2026-07-21T10:00:00.000Z', 1);
-      insertNode.run('obsolete_route', 'workspace', opened.workspace.workspaceId, null, opened.workspace.workspaceId, 'Security', null, null, 'trajectory', 'Try the legacy decoder', 'try the legacy decoder', 'A once-promising route.', '', 'suspected', 0.5, '{}', '2026-07-19T10:00:00.000Z', '2026-07-19T10:00:00.000Z', 1);
-      insertNode.run('boundary_note', 'workspace', opened.workspace.workspaceId, null, opened.workspace.workspaceId, 'Security', null, null, 'invariant', 'Boundary reachability', 'boundary reachability', 'The boundary may be remotely reachable.', '', 'suspected', 0.6, '{}', '2026-07-22T10:00:00.000Z', '2026-07-22T10:00:00.000Z', 1);
+      const insertNode = database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      const subjectId = `subject_workspace:${opened.workspace.workspaceId}`;
+      insertNode.run('parser_primitive', subjectId, 'Security', 'primitive', 'Parser allocation mismatch', 'parser allocation mismatch', 'A parser allocation mismatch exists.', '', 'confirmed', 0.9, '{}', '2026-07-20T10:00:00.000Z', '2026-07-20T10:00:00.000Z', 1);
+      insertNode.run('length_conversion', subjectId, 'Security', 'primitive', 'Signed length reaches allocation', 'signed length reaches allocation', 'A signed length reaches allocation.', '', 'suspected', 0.7, '{}', '2026-07-21T10:00:00.000Z', '2026-07-21T10:00:00.000Z', 1);
+      insertNode.run('obsolete_route', subjectId, 'Security', 'trajectory', 'Try the legacy decoder', 'try the legacy decoder', 'A once-promising route.', '', 'suspected', 0.5, '{}', '2026-07-19T10:00:00.000Z', '2026-07-19T10:00:00.000Z', 1);
+      insertNode.run('boundary_note', subjectId, 'Security', 'invariant', 'Boundary reachability', 'boundary reachability', 'The boundary may be remotely reachable.', '', 'suspected', 0.6, '{}', '2026-07-22T10:00:00.000Z', '2026-07-22T10:00:00.000Z', 1);
+      const associateWorkspace = database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)');
+      for (const nodeId of ['parser_primitive', 'length_conversion', 'obsolete_route', 'boundary_note']) {
+        associateWorkspace.run(nodeId, opened.workspace.workspaceId, 'Security');
+      }
       database.close();
 
       const dreamed = await service.runMemoryDreaming();

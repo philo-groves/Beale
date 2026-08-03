@@ -302,11 +302,14 @@ export function App(): JSX.Element {
     setSelectedSubagentPath(path);
   }, []);
 
-  const backToMain = useCallback((): void => {
-    setSelectedSubagentPath(null);
+  const backToRunbooks = useCallback((): void => {
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
+  }, []);
+
+  const backToSubagents = useCallback((): void => {
+    setSelectedSubagentPath(null);
   }, []);
 
   const refreshOpenAiProvider = useCallback(async () => {
@@ -552,9 +555,9 @@ export function App(): JSX.Element {
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
     [activeRunDetail]
   );
-  const visibleSessionTraceEvents = useMemo(
-    () => traceEventsForSubagent(activeTraceEvents, selectedSubagentPath),
-    [activeTraceEvents, selectedSubagentPath]
+  const mainSessionTraceEvents = useMemo(
+    () => traceEventsForSubagent(activeTraceEvents, null),
+    [activeTraceEvents]
   );
   const activeSubagents = useMemo(
     () => subagentSummaries(activeTraceEvents, activeRunDetail?.run.status, chatView),
@@ -572,7 +575,7 @@ export function App(): JSX.Element {
     focusTraceEvent,
     closeTraceDetail
   } = useTraceSelection({
-    events: visibleSessionTraceEvents,
+    events: activeTraceEvents,
     selectedRunId
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
@@ -690,13 +693,14 @@ export function App(): JSX.Element {
           <MainSessionWorkspace
             chatView={chatView}
             detail={activeRunDetail}
-            events={visibleSessionTraceEvents}
+            events={mainSessionTraceEvents}
             allEvents={activeTraceEvents}
             providerModelCatalog={researchProviderModelCatalog}
             honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
+            selectedRunbookId={selectedRunbookId}
             selectedRunbook={selectedRunbook}
             selectedRunbookDocument={selectedRunbookDocument}
             runbookLoading={runbookLoading}
@@ -713,7 +717,8 @@ export function App(): JSX.Element {
             onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
             onRunMemoryDreaming={runMemoryDreaming}
             onOpenHoneycrispRunbook={openHoneycrispRunbook}
-            onBackToMain={backToMain}
+            onBackToRunbooks={backToRunbooks}
+            onBackToSubagents={backToSubagents}
             onSelectTraceEvent={selectTraceEvent}
             onSelectSubagent={selectSubagent}
             onSessionAction={handleSessionAction}

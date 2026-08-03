@@ -46,18 +46,18 @@ interface HoneycrispWorkspaceContextFile {
   schemaVersion: 1;
   workspaceRoot: string;
   authorization?: HoneycrispWorkspaceAuthorizationContext;
-  memoryTierContext: HoneycrispMemoryTierContext;
+  memoryContext: HoneycrispMemoryContext;
   knownRepositories: HoneycrispWorkspaceRepositoryContext[];
   materializedSourcePaths: string[];
   projectNotes: string[];
 }
 
-interface HoneycrispMemoryTierContext {
+interface HoneycrispMemoryContext {
   sessionId: string;
   workspaceId: string;
   workspaceName: string;
-  subjectId?: string;
-  subjectName?: string;
+  subjectId: string;
+  subjectName: string;
 }
 
 interface HoneycrispWorkspaceAuthorizationContext {
@@ -2516,16 +2516,14 @@ function honeycrispWorkspaceContext(
   return {
     schemaVersion: 1,
     workspaceRoot: workspacePath,
-    memoryTierContext: {
+    memoryContext: {
       sessionId,
       workspaceId,
       workspaceName: scope.workspaceName,
-      ...(scope.scopeOwner.trim()
-        ? {
-            subjectId: honeycrispMemorySubjectId(scope.scopeOwner),
-            subjectName: scope.scopeOwner.trim()
-          }
-        : {}),
+      subjectId: scope.scopeOwner.trim()
+        ? honeycrispMemorySubjectId(scope.scopeOwner)
+        : `subject_workspace:${workspaceId}`,
+      subjectName: scope.scopeOwner.trim() || scope.workspaceName,
     },
     ...(isRecordedWorkspaceScope(scope)
       ? {

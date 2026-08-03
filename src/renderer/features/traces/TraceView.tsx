@@ -63,6 +63,7 @@ export const TraceView = memo(function TraceView({
   selectedRunId,
   traceScopeKey,
   showBackToMain,
+  showBackButton = showBackToMain,
   selectedTraceEventId,
   searchHighlightQuery,
   traceFilterCount,
@@ -81,6 +82,7 @@ export const TraceView = memo(function TraceView({
   selectedRunId: string | null;
   traceScopeKey: string;
   showBackToMain: boolean;
+  showBackButton?: boolean;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   traceFilterCount: number;
@@ -479,7 +481,7 @@ export const TraceView = memo(function TraceView({
 
   return (
     <section className={`main-trace-view${showBackToMain ? ' is-subagent-trace' : ''}`} aria-label="Agent trace">
-      {showBackToMain ? (
+      {showBackButton ? (
         <button
           type="button"
           className="back-to-main-button trace-back-to-main-button"
