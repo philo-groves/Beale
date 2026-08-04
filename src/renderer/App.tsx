@@ -581,6 +581,7 @@ export function App(): JSX.Element {
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = appShellClassName({
     sessionHeat,
+    sessionActive: activeRunDetail?.run.status === 'active',
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed

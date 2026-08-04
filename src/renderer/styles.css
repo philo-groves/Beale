@@ -458,6 +458,11 @@ code {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  visibility: hidden;
+}
+
+.app-shell.session-active .app-background-pulses {
+  visibility: visible;
 }
 
 .app-background-pulse {
@@ -476,8 +481,13 @@ code {
   transform: translate3d(-50%, -50%, 0) scale(0.18);
   animation: app-background-pulse 12s linear infinite both;
   animation-delay: var(--pulse-delay);
+  animation-play-state: paused;
   backface-visibility: hidden;
   will-change: opacity, transform;
+}
+
+.app-shell.session-active .app-background-pulse {
+  animation-play-state: running;
 }
 
 .app-background-pulse:nth-child(1) {

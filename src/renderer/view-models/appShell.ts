@@ -19,6 +19,7 @@ export function activeRunDetailForSelection(runDetail: RunDetail | null, selecte
 
 export function appShellClassName(input: {
   sessionHeat: SessionHeat;
+  sessionActive: boolean;
   platform: HostEnvironment['platform'];
   windowChromeState: WindowChromeState;
   sidebarCollapsed: boolean;
@@ -27,6 +28,7 @@ export function appShellClassName(input: {
     'app-shell',
     `session-heat-${input.sessionHeat}`,
     `platform-${input.platform}`,
+    input.sessionActive ? 'session-active' : '',
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     input.windowChromeState.isFullScreen ? 'window-full-screen' : '',
     input.sidebarCollapsed ? 'sidebar-collapsed' : ''
