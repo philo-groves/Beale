@@ -22,20 +22,39 @@ describe('renderer top bar', () => {
     expect(html).toMatch(/>View<\/button>/);
     expect(html).toMatch(/>Window<\/button>/);
   });
+
+  it('reflects the right sidenav expansion state in the session header toggle', () => {
+    const collapsed = renderTopBar('darwin', true, false);
+    const expanded = renderTopBar('darwin', true, true);
+
+    expect(collapsed).toContain('aria-label="Show detailed sidebar"');
+    expect(collapsed).toContain('aria-pressed="false"');
+    expect(collapsed).toContain('lucide-panel-right-open');
+    expect(expanded).toContain('aria-label="Show summary sidebar"');
+    expect(expanded).toContain('aria-pressed="true"');
+    expect(expanded).toContain('lucide-panel-right-close');
+  });
 });
 
-function renderTopBar(platform: HostEnvironment['platform']): string {
+function renderTopBar(
+  platform: HostEnvironment['platform'],
+  rightSidenavAvailable = false,
+  rightSidenavExpanded = false
+): string {
   return renderToStaticMarkup(createElement(TopBar, {
     sidebarCollapsed: false,
     platform,
     workspaceName: 'Security',
     activeWorkspace: null,
     activeRunDetail: null,
+    rightSidenavAvailable,
+    rightSidenavExpanded,
     profilingEnabled: false,
     onOpenSessionSummary: () => undefined,
     onOpenWorkspaceInfo: () => undefined,
     onOpenProfiling: () => undefined,
     onAddWorkspace: () => undefined,
+    onToggleRightSidenav: () => undefined,
     onToggleSidebar: () => undefined
   }));
 }

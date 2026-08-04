@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
@@ -23,6 +23,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount,
   scope,
   selectedRunId,
+  researchDetailsOpen,
   selectedRunbookId,
   selectedRunbook,
   selectedRunbookDocument,
@@ -39,6 +40,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenHoneycrispMemoryDirectory,
   onRestoreMemoryDreamingChange,
   onRunMemoryDreaming,
+  onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
   onBackToRunbooks,
   onBackToSubagents,
@@ -56,6 +58,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
+  researchDetailsOpen: boolean;
   selectedRunbookId: string | null;
   selectedRunbook: HoneycrispRunbookSummary | null;
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
@@ -72,6 +75,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
   onRestoreMemoryDreamingChange: (changeId: string) => void;
   onRunMemoryDreaming: () => void;
+  onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToRunbooks: () => void;
   onBackToSubagents: () => void;
@@ -80,7 +84,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
-  const [researchDetailsOpen, setResearchDetailsOpen] = useState(false);
   const {
     containerRef,
     panelWidth,
@@ -165,6 +168,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         providerModelCatalog={providerModelCatalog}
         runId={selectedRunId}
         runStatus={detail?.run.status ?? null}
+        expanded={researchDetailsOpen}
         selectedRunbook={selectedRunbook}
         selectedRunbookDocument={selectedRunbookDocument}
         selectedRunbookId={selectedRunbookId}
@@ -179,7 +183,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onBackToRunbooks={onBackToRunbooks}
         onBackToSubagents={onBackToSubagents}
         onSelectTraceEvent={onSelectTraceEvent}
-        onExpandedChange={setResearchDetailsOpen}
+        onExpandedChange={onResearchDetailsOpenChange}
       />
     </div>
   );

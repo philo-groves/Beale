@@ -104,6 +104,7 @@ export function App(): JSX.Element {
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
+  const [rightSidenavExpanded, setRightSidenavExpanded] = useState(false);
   const [selectedRunbookDocument, setSelectedRunbookDocument] = useState<HoneycrispRunbookDocument | null>(null);
   const [runbookLoading, setRunbookLoading] = useState(false);
   const [runbookError, setRunbookError] = useState<string | null>(null);
@@ -155,6 +156,7 @@ export function App(): JSX.Element {
   useInsetScrollbarActivation();
 
   useEffect(() => {
+    setRightSidenavExpanded(false);
     setSelectedSubagentPath(null);
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
@@ -290,11 +292,13 @@ export function App(): JSX.Element {
   }, [runAction]);
 
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
+    setRightSidenavExpanded(true);
     setSelectedSubagentPath(null);
     setSelectedRunbookId(runbookId);
   }, []);
 
   const selectSubagent = useCallback((path: string): void => {
+    setRightSidenavExpanded(true);
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
@@ -646,6 +650,8 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
+        rightSidenavAvailable={selectedRunId !== null}
+        rightSidenavExpanded={rightSidenavExpanded}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
@@ -657,6 +663,7 @@ export function App(): JSX.Element {
         onAddWorkspace={() => {
           addWorkspace();
         }}
+        onToggleRightSidenav={() => setRightSidenavExpanded((current) => !current)}
         onToggleSidebar={toggleSidebar}
       />
       <WorkspaceSidebar
@@ -697,6 +704,7 @@ export function App(): JSX.Element {
             runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
             scope={selectedRunId ? null : snapshot?.activeScope ?? null}
             selectedRunId={selectedRunId}
+            researchDetailsOpen={rightSidenavExpanded}
             selectedRunbookId={selectedRunbookId}
             selectedRunbook={selectedRunbook}
             selectedRunbookDocument={selectedRunbookDocument}
@@ -713,6 +721,7 @@ export function App(): JSX.Element {
             onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
             onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
             onRunMemoryDreaming={runMemoryDreaming}
+            onResearchDetailsOpenChange={setRightSidenavExpanded}
             onOpenHoneycrispRunbook={openHoneycrispRunbook}
             onBackToRunbooks={backToRunbooks}
             onBackToSubagents={backToSubagents}

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
-import { Minus, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
+import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle } from './AppHeaderTitle';
@@ -10,6 +10,8 @@ type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
+  rightSidenavAvailable,
+  rightSidenavExpanded,
   platform,
   workspaceName,
   activeWorkspace,
@@ -19,9 +21,12 @@ export const TopBar = memo(function TopBar({
   onOpenWorkspaceInfo,
   onOpenProfiling,
   onAddWorkspace,
+  onToggleRightSidenav,
   onToggleSidebar
 }: {
   sidebarCollapsed: boolean;
+  rightSidenavAvailable: boolean;
+  rightSidenavExpanded: boolean;
   platform: HostEnvironment['platform'];
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
@@ -31,10 +36,12 @@ export const TopBar = memo(function TopBar({
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenProfiling: () => void;
   onAddWorkspace: () => void;
+  onToggleRightSidenav: () => void;
   onToggleSidebar: () => void;
 }): JSX.Element {
   useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, workspaceName, run: activeRunDetail?.run.id ?? 'none' }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+  const RightSidenavToggleIcon = rightSidenavExpanded ? PanelRightClose : PanelRightOpen;
   const isMac = platform === 'darwin';
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [zoomState, setZoomState] = useState<ZoomState>(() => ({ level: 0, percent: 100 }));
@@ -125,7 +132,7 @@ export const TopBar = memo(function TopBar({
   }, [onAddWorkspace]);
 
   return (
-    <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${openMenu ? 'menu-open' : ''}`}>
+    <header className={`top-bar ${isMac ? 'top-bar-darwin' : 'top-bar-custom-controls'} ${profilingEnabled ? 'profiling-enabled' : ''} ${rightSidenavAvailable ? 'right-sidenav-available' : ''} ${openMenu ? 'menu-open' : ''}`}>
       {isMac ? <div className="mac-window-control-spacer" aria-hidden="true" /> : null}
       <nav className="window-menu" aria-label={isMac ? 'Sidebar controls' : 'Application menu'} ref={menuRef}>
         <button
@@ -244,11 +251,23 @@ export const TopBar = memo(function TopBar({
         onOpenWorkspaceInfo={onOpenWorkspaceInfo}
         onOpenSessionSummary={onOpenSessionSummary}
       />
-      {profilingEnabled || !isMac ? (
-        <div className="window-controls" aria-label="Window controls">
+      {profilingEnabled || rightSidenavAvailable || !isMac ? (
+        <div className="window-controls" aria-label="Header controls">
           {profilingEnabled ? (
             <button type="button" className="window-debug-button" title="Open profiling overview" onClick={onOpenProfiling}>
               Debug
+            </button>
+          ) : null}
+          {rightSidenavAvailable ? (
+            <button
+              type="button"
+              className="window-control-button right-sidenav-toggle-button"
+              title={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
+              aria-label={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
+              aria-pressed={rightSidenavExpanded}
+              onClick={onToggleRightSidenav}
+            >
+              <RightSidenavToggleIcon size={16} aria-hidden="true" />
             </button>
           ) : null}
           {!isMac ? (

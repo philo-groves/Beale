@@ -84,6 +84,13 @@ export function availableResearchSideViews(openViews: readonly ResearchSideView[
   return RESEARCH_SIDE_VIEWS.filter((view) => !openViews.includes(view));
 }
 
+export function isLastOpenResearchSideView(
+  openViews: readonly ResearchSideView[],
+  view: ResearchSideView
+): boolean {
+  return openViews.length === 1 && openViews[0] === view;
+}
+
 function initialResearchSideNavigation(
   selectedSubagentPath: string | null,
   selectedRunbookId: string | null
@@ -115,6 +122,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToRunbooks,
   onBackToSubagents,
   onSelectTraceEvent,
+  expanded,
   onExpandedChange
 }: {
   detail: RunDetail | null;
@@ -138,6 +146,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToRunbooks: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
+  expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
 }): JSX.Element {
   const [navigation, dispatchNavigation] = useReducer(
@@ -153,8 +162,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [type, setType] = useState('all');
   const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const detailsOpen = navigation.openViews.length > 0;
-  const activeView = navigation.activeView ?? 'memory';
+  const detailsOpen = expanded ?? navigation.openViews.length > 0;
+  const activeView = navigation.activeView;
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
   const sessionMemoryNodes = useMemo(
@@ -221,10 +230,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   }, [runId]);
 
   useEffect(() => {
-    onExpandedChange?.(detailsOpen);
-  }, [detailsOpen, onExpandedChange]);
-
-  useEffect(() => {
     if (selectedNodeId && !nodeById.has(selectedNodeId)) setSelectedNodeId(null);
   }, [nodeById, selectedNodeId]);
 
@@ -239,6 +244,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const openDetails = (view: ResearchSideView): void => {
     if (view !== 'memory') setSelectedNodeId(null);
     dispatchNavigation({ type: 'open', view });
+    onExpandedChange?.(true);
   };
 
   const activateDetails = (view: ResearchSideView): void => {
@@ -248,7 +254,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   const closeDetails = (view: ResearchSideView): void => {
     if (view === 'memory') setSelectedNodeId(null);
+    const closingLastView = isLastOpenResearchSideView(navigation.openViews, view);
     dispatchNavigation({ type: 'close', view });
+    if (closingLastView) onExpandedChange?.(false);
   };
 
   if (!detailsOpen) {
@@ -293,6 +301,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             </>
           ) : null}
         </section>
+      </aside>
+    );
+  }
+
+  if (!activeView) {
+    return (
+      <aside className="main-session-side memory-catalog view-empty" aria-label="Session details">
+        <ResearchSideViewChooser onOpen={openDetails} />
       </aside>
     );
   }
@@ -682,6 +698,19 @@ export function ResearchSideViewTabs({
       ) : null}
       {trailing ? <div className="research-side-view-trailing">{trailing}</div> : null}
     </header>
+  );
+}
+
+export function ResearchSideViewChooser({ onOpen }: { onOpen: (view: ResearchSideView) => void }): JSX.Element {
+  return (
+    <nav className="research-side-view-chooser" aria-label="Choose a session detail view">
+      {RESEARCH_SIDE_VIEWS.map((view) => (
+        <button type="button" key={view} onClick={() => onOpen(view)}>
+          {researchSideViewIcon(view, 16)}
+          <span>{researchSideViewLabel(view)}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 

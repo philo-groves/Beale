@@ -115,6 +115,7 @@
 
 ### Added
 
+- Added a synchronized right-sidenav toggle to the session header; it switches between the compact summary and detailed 50/50 sidebar, shows an empty first-view chooser for Memories, Runbooks, or Subagents, and returns to the summary when the final open view closes.
 - Added per-session shell safety modes in the steering composer: Manual Approval requires a researcher decision for every shell command, Auto-Review uses the active provider's assigned small model and is the default, and Danger Mode permits shell execution without per-command review.
 - Added a previous-research goal chooser to New Research. Beale proposes three distinct one-sentence directions from bounded workspace memory, session outcomes, verifier state, and source coverage; selecting one generates a full editable research prompt, while Something Else opens direct prompt entry.
 - Added a default-on Goal option to New Research. Beale persists and forwards the choice, while Honeycrisp owns the flat persistent objective, same-session continuation, completion audit, and repeated external-blocker validation.

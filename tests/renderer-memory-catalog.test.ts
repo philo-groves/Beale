@@ -11,6 +11,7 @@ import {
   DEFAULT_MEMORY_LEVEL_FILTER,
   DEFAULT_RUNBOOK_SCOPE_FILTER,
   availableResearchSideViews,
+  isLastOpenResearchSideView,
   filterRunbookCatalog,
   researchSideNavigationReducer,
   type ResearchSideNavigationState
@@ -91,6 +92,12 @@ describe('renderer memory catalog', () => {
     state = researchSideNavigationReducer(state, { type: 'close', view: 'subagents' });
     state = researchSideNavigationReducer(state, { type: 'close', view: 'memory' });
     expect(state).toEqual({ openViews: [], activeView: null });
+  });
+
+  it('collapses only when the final detailed side view is closed', () => {
+    expect(isLastOpenResearchSideView(['memory', 'runbooks'], 'memory')).toBe(false);
+    expect(isLastOpenResearchSideView(['memory'], 'memory')).toBe(true);
+    expect(isLastOpenResearchSideView([], 'memory')).toBe(false);
   });
 
   it('renders icon-and-close tabs and hides the add-view button when every view is open', () => {
@@ -293,6 +300,21 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('0 Completed');
     expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
     expect(html).not.toContain('aria-label="Search memory"');
+  });
+
+  it('shows a centered first-view chooser when the detailed sidenav has no open views', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({ expanded: true })));
+
+    expect(html).toContain('class="main-session-side memory-catalog view-empty"');
+    expect(html).toContain('aria-label="Choose a session detail view"');
+    expect(html).toContain('lucide-database');
+    expect(html).toContain('<span>Memories</span>');
+    expect(html).toContain('lucide-book-open');
+    expect(html).toContain('<span>Runbooks</span>');
+    expect(html).toContain('lucide-bot');
+    expect(html).toContain('<span>Subagents</span>');
+    expect(html).not.toContain('aria-label="Session summary"');
+    expect(html).not.toContain('aria-label="Open session detail views"');
   });
 
   it('replaces detail tabs with Back to Subagents and renders the selected subagent chat', () => {
