@@ -4,9 +4,10 @@
 
 ### Fixed
 
+- Commentary follow-latest scrolling now survives layout-driven tool expansion, collapse, and output resizing while still disengaging for explicit user scrolling.
 - Session summary runbook and revision totals now include archived runbooks associated with the session.
 - Session-scoped memory catalogs now show every memory linked to the current session, matching the Session summary even when a memory is reusable at workspace or subject level.
-- Honeycrisp sessions now automatically apply Codex-compatible `AGENTS.md` guidance from the selected Beale workspace to root agents, subagents, and compatible continuations instead of depending on manual file reads.
+- Honeycrisp sessions now automatically apply Codex-compatible `AGENTS.md` guidance from the selected Beale workspace to root agents, subagents, and compatible continuations, while Beale also supplies bounded guidance to goal suggestions and generated-prompt construction so operational environment requirements are preserved.
 - macOS fullscreen windows now remove the header space reserved for unavailable traffic-light controls while retaining it in normal windowed mode.
 - Honeycrisp controls now carry acknowledged request IDs, record rejected or unacknowledged delivery, and defer safe steering recovery until the prior agent process exits while retaining bounded subagent results.
 - Research traces now preserve Honeycrisp goal lifecycle, post-compaction checkpoints, and repeated-read/tool-loop recovery events from both live streams and flow-capture recovery without duplicating shared event IDs.

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
   CommentaryView,
+  commentaryFollowLatestAfterScroll,
   commentaryMessageIcon,
   commentaryMessageLabel,
   commentaryScrollFadeClasses,
@@ -166,6 +167,29 @@ describe('renderer commentary projection', () => {
       'has-top-fade': true,
       'has-bottom-fade': false
     });
+  });
+
+  it('preserves bottom stickiness across layout-driven tool expansion and collapse', () => {
+    expect(commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: true,
+      distanceFromBottom: 180,
+      userInitiated: false
+    })).toBe(true);
+    expect(commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: true,
+      distanceFromBottom: 180,
+      userInitiated: true
+    })).toBe(false);
+    expect(commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: false,
+      distanceFromBottom: 180,
+      userInitiated: false
+    })).toBe(false);
+    expect(commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: false,
+      distanceFromBottom: 12,
+      userInitiated: false
+    })).toBe(true);
   });
 
   it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {

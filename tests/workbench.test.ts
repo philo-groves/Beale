@@ -2986,6 +2986,7 @@ describe('Beale workbench skeleton', () => {
       'Research the project import and workspace ownership subsystem for authorization, confused-deputy, and cross-workspace isolation vulnerabilities.',
       'Relevant context includes archive ingestion, workspace lookup, ownership validation, metadata replacement, and transitions between imported project identity and existing workspace state.',
       'Prior Honeycrisp evidence around import ownership should inform the research without constraining it to a single proposition or previously considered path.',
+      'Run dynamic validation in the workspace-configured Tart VM and keep test fixtures under /tmp/beale-tests.',
       'The recorded target is scoped to local project fixtures and repository source; no authenticated external accounts are available.'
     ].join('\n');
     const modelRequests: Record<string, unknown>[] = [];
@@ -2995,7 +2996,12 @@ describe('Beale workbench skeleton', () => {
         return modelJsonResponse({ promptMarkdown: expandedPrompt }, 'resp_goal_expansion');
       }
     });
-    service.createWorkspace(tempWorkspace());
+    const workspace = tempWorkspace();
+    writeFileSync(
+      join(workspace, 'AGENTS.md'),
+      '# Test environment\nRun dynamic validation in the Tart VM named security-test-vm and keep test fixtures under `/tmp/beale-tests`.\n'
+    );
+    service.createWorkspace(workspace);
 
     const result = await service.generateResearchPrompt({
       requestId: `expand_${sessionModel}`,
@@ -3023,6 +3029,8 @@ describe('Beale workbench skeleton', () => {
     expect(request.instructions).toMatch(/^You are a world-class security researcher/);
     expect(request.instructions).toContain('Keep that pairing open-ended enough for creative vulnerability discovery');
     expect(request.instructions).toContain('Do not prescribe phases, ordered steps, commands, verifier construction');
+    expect(request.instructions).toContain('host-discovered AGENTS.md guidance');
+    expect(request.instructions).toContain('test locations, VM or container requirements');
     expect(payload.task).toBe('expand_selected_goal_into_research_session_prompt');
     expect(payload.goalSentence).toBe(goalSentence);
     expect(payload.draftPromptMarkdown).toBeNull();
@@ -3031,6 +3039,13 @@ describe('Beale workbench skeleton', () => {
       model: sessionModel,
       reasoningEffort: 'high',
       networkProfile: 'scoped'
+    });
+    expect(payload.workspace).toMatchObject({
+      hostDiscoveredAgentInstructions: {
+        sourceFile: 'AGENTS.md',
+        content: expect.stringContaining('security-test-vm'),
+        truncated: false
+      }
     });
     service.close();
   });

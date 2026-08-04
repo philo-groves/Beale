@@ -56,6 +56,9 @@ export const CommentaryView = memo(function CommentaryView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
+  const userScrollIntentRef = useRef(false);
+  const userScrollIntentTimerRef = useRef<number | null>(null);
+  const scrollbarDragRef = useRef(false);
   const scrollScopeKeyRef = useRef(scrollScopeKey);
 
   const updateScrollEdges = useCallback((): void => {
@@ -90,10 +93,27 @@ export const CommentaryView = memo(function CommentaryView({
     updateScrollEdges();
   }, [scrollToLatest, updateScrollEdges]);
 
+  const markUserScrollIntent = useCallback((): void => {
+    userScrollIntentRef.current = true;
+    if (userScrollIntentTimerRef.current !== null) {
+      window.clearTimeout(userScrollIntentTimerRef.current);
+    }
+    userScrollIntentTimerRef.current = window.setTimeout(() => {
+      userScrollIntentRef.current = false;
+      userScrollIntentTimerRef.current = null;
+    }, 200);
+  }, []);
+
   useLayoutEffect(() => {
     if (scrollScopeKeyRef.current !== scrollScopeKey) {
       scrollScopeKeyRef.current = scrollScopeKey;
       followLatestRef.current = true;
+      userScrollIntentRef.current = false;
+      scrollbarDragRef.current = false;
+      if (userScrollIntentTimerRef.current !== null) {
+        window.clearTimeout(userScrollIntentTimerRef.current);
+        userScrollIntentTimerRef.current = null;
+      }
     }
     const frame = window.requestAnimationFrame(syncScrollState);
     return () => window.cancelAnimationFrame(frame);
@@ -122,11 +142,35 @@ export const CommentaryView = memo(function CommentaryView({
     return () => observer.disconnect();
   }, [messageUpdateKey, scrollScopeKey, syncScrollState]);
 
+  useEffect(() => {
+    const endScrollbarDrag = (): void => {
+      scrollbarDragRef.current = false;
+    };
+    window.addEventListener('pointerup', endScrollbarDrag);
+    window.addEventListener('pointercancel', endScrollbarDrag);
+    return () => {
+      window.removeEventListener('pointerup', endScrollbarDrag);
+      window.removeEventListener('pointercancel', endScrollbarDrag);
+      if (userScrollIntentTimerRef.current !== null) {
+        window.clearTimeout(userScrollIntentTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleScroll = useCallback((): void => {
     const list = listRef.current;
     if (!list) return;
     const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
-    followLatestRef.current = distanceFromBottom <= 24;
+    followLatestRef.current = commentaryFollowLatestAfterScroll({
+      wasFollowingLatest: followLatestRef.current,
+      distanceFromBottom,
+      userInitiated: userScrollIntentRef.current || scrollbarDragRef.current
+    });
+    userScrollIntentRef.current = false;
+    if (userScrollIntentTimerRef.current !== null) {
+      window.clearTimeout(userScrollIntentTimerRef.current);
+      userScrollIntentTimerRef.current = null;
+    }
     updateScrollEdges();
   }, [updateScrollEdges]);
 
@@ -153,6 +197,19 @@ export const CommentaryView = memo(function CommentaryView({
             className="main-commentary-list"
             ref={listRef}
             onScroll={handleScroll}
+            onWheel={(event) => {
+              if (event.deltaY < 0) markUserScrollIntent();
+            }}
+            onTouchMove={markUserScrollIntent}
+            onPointerDown={(event) => {
+              const list = listRef.current;
+              if (!list || event.pointerType === 'touch') return;
+              const bounds = list.getBoundingClientRect();
+              const scrollbarWidth = Math.max(12, list.offsetWidth - list.clientWidth + 4);
+              if (event.clientX < bounds.right - scrollbarWidth) return;
+              scrollbarDragRef.current = true;
+              markUserScrollIntent();
+            }}
           >
             {messages.map((message, index) => (
               <CommentaryMessageRow
@@ -345,6 +402,20 @@ export function commentaryScrollFadeClasses({
     'has-top-fade': canScroll && scrollTop > 8,
     'has-bottom-fade': canScroll && scrollTop < scrollableDistance - 8
   };
+}
+
+export function commentaryFollowLatestAfterScroll({
+  wasFollowingLatest,
+  distanceFromBottom,
+  userInitiated
+}: {
+  wasFollowingLatest: boolean;
+  distanceFromBottom: number;
+  userInitiated: boolean;
+}): boolean {
+  if (distanceFromBottom <= 24) return true;
+  if (userInitiated) return false;
+  return wasFollowingLatest;
 }
 
 function ToolCallValue({ label, value }: { label: string; value: unknown }): JSX.Element {
