@@ -22,11 +22,13 @@ describe('native macOS application menu', () => {
     expect(template[0]).toMatchObject({ role: 'appMenu' });
     expect(menuLabels(template)).toEqual(['File', 'Edit', 'View', 'Window']);
     expect(submenuLabels(template, 'File')).toEqual(['New Research Workspace']);
-    expect(submenuLabels(template, 'Edit')).toEqual(['Copy', 'Paste Steering']);
+    expect(submenuLabels(template, 'Edit')).toEqual(['Copy', 'Paste', 'Paste Steering']);
     expect(submenuLabels(template, 'View')).toEqual(['Zoom Level', 'Zoom Out', 'Zoom In']);
     expect(submenuLabels(template, 'Window')).toEqual(['Minimize', 'Maximize', 'Close']);
     expect(submenuItem(template, 'View', 'Zoom Level')).toMatchObject({ sublabel: '125%', enabled: false });
     expect(submenuItem(template, 'Edit', 'Copy')).toMatchObject({ role: 'copy', accelerator: 'CommandOrControl+C' });
+    expect(submenuItem(template, 'Edit', 'Paste')).toMatchObject({ role: 'paste', accelerator: 'CommandOrControl+V' });
+    expect(submenuItem(template, 'Edit', 'Paste Steering')).not.toHaveProperty('accelerator');
 
     invokeMenuItem(template, 'File', 'New Research Workspace');
     invokeMenuItem(template, 'Edit', 'Paste Steering');

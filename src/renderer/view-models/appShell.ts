@@ -5,7 +5,6 @@ import type {
   WindowChromeState,
   WorkspaceSnapshot
 } from '@shared/types';
-import type { ResearchMomentumState } from '../features/momentum/types';
 import type { SessionHeat } from './sessionHeat';
 
 export function selectedRunStatus(snapshot: WorkspaceSnapshot | null, selectedRunId: string | null): RunStatus | null {
@@ -20,8 +19,6 @@ export function activeRunDetailForSelection(runDetail: RunDetail | null, selecte
 
 export function appShellClassName(input: {
   sessionHeat: SessionHeat;
-  momentumState: ResearchMomentumState;
-  sessionActive: boolean;
   platform: HostEnvironment['platform'];
   windowChromeState: WindowChromeState;
   sidebarCollapsed: boolean;
@@ -29,9 +26,7 @@ export function appShellClassName(input: {
   return [
     'app-shell',
     `session-heat-${input.sessionHeat}`,
-    `momentum-${input.momentumState}`,
     `platform-${input.platform}`,
-    input.sessionActive ? 'session-active' : '',
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     input.windowChromeState.isFullScreen ? 'window-full-screen' : '',
     input.sidebarCollapsed ? 'sidebar-collapsed' : ''

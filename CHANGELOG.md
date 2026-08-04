@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Rounded-square window pulses now use a fixed compositor-friendly loop instead of random per-cycle rerolls or session momentum, preventing animation jumps and timing changes as research state updates.
+- macOS now reserves Command-V for native paste into the focused editable field, including repository URLs in New Workspace, while retaining Paste Steering as a separate explicit menu action.
 - Commentary follow-latest scrolling now survives layout-driven tool expansion, collapse, and output resizing while still disengaging for explicit user scrolling.
 - Session summary runbook and revision totals now include archived runbooks associated with the session.
 - Session-scoped memory catalogs now show every memory linked to the current session, matching the Session summary even when a memory is reusable at workspace or subject level.

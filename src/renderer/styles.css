@@ -392,8 +392,6 @@ code {
   --session-heat-edge: rgba(255, 255, 255, 0.1);
   --session-heat-accent: transparent;
   --session-heat-opacity: 1;
-  --app-pulse-duration: 12s;
-  --app-pulse-opacity: 0;
   height: 100%;
   position: relative;
   isolation: isolate;
@@ -475,50 +473,11 @@ code {
     0 0 18px rgba(226, 226, 219, 0.08),
     inset 0 0 18px rgba(226, 226, 219, 0.04);
   opacity: 0;
-  transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(0.18);
-  animation: app-background-pulse var(--pulse-duration, var(--app-pulse-duration)) ease-out both;
+  transform: translate3d(-50%, -50%, 0) scale(0.18);
+  animation: app-background-pulse 12s linear infinite both;
   animation-delay: var(--pulse-delay);
-  animation-play-state: paused;
+  backface-visibility: hidden;
   will-change: opacity, transform;
-}
-
-.app-shell.session-active {
-  --app-pulse-duration: 11s;
-  --app-pulse-opacity: 0.16;
-}
-
-.app-shell.momentum-exploring {
-  --app-pulse-duration: 9.5s;
-  --app-pulse-opacity: 0.17;
-}
-
-.app-shell.momentum-building {
-  --app-pulse-duration: 7.2s;
-  --app-pulse-opacity: 0.2;
-}
-
-.app-shell.momentum-verifying {
-  --app-pulse-duration: 5.4s;
-  --app-pulse-opacity: 0.23;
-}
-
-.app-shell.momentum-hot {
-  --app-pulse-duration: 3.8s;
-  --app-pulse-opacity: 0.28;
-}
-
-.app-shell.momentum-stuck {
-  --app-pulse-duration: 4.8s;
-  --app-pulse-opacity: 0.22;
-}
-
-.app-shell.session-active .app-background-pulse,
-.app-shell.momentum-exploring .app-background-pulse,
-.app-shell.momentum-building .app-background-pulse,
-.app-shell.momentum-verifying .app-background-pulse,
-.app-shell.momentum-hot .app-background-pulse,
-.app-shell.momentum-stuck .app-background-pulse {
-  animation-play-state: running;
 }
 
 .app-background-pulse:nth-child(1) {
@@ -662,21 +621,21 @@ code {
 @keyframes app-background-pulse {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(0.18);
+    transform: translate3d(-50%, -50%, 0) scale(0.18);
   }
 
   18% {
-    opacity: var(--app-pulse-opacity);
+    opacity: 0.18;
   }
 
   72% {
-    opacity: var(--app-pulse-opacity);
-    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(1);
+    opacity: 0.18;
+    transform: translate3d(-50%, -50%, 0) scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) rotate(var(--pulse-rotation, 0deg)) scale(1.55);
+    transform: translate3d(-50%, -50%, 0) scale(1.55);
   }
 }
 

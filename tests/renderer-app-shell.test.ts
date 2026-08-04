@@ -19,28 +19,24 @@ describe('renderer app shell view model', () => {
     expect(activeRunDetailForSelection(detail, 'run_other')).toBeNull();
   });
 
-  it('builds shell classes from heat, momentum, chrome, and pane state', () => {
+  it('builds shell classes from heat, chrome, and pane state without animation state', () => {
     expect(
       appShellClassName({
         sessionHeat: 'high',
-        momentumState: 'verifying',
-        sessionActive: true,
         platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
         sidebarCollapsed: true
       })
-    ).toBe('app-shell session-heat-high momentum-verifying platform-linux session-active window-edge-flush sidebar-collapsed');
+    ).toBe('app-shell session-heat-high platform-linux window-edge-flush sidebar-collapsed');
 
     expect(
       appShellClassName({
         sessionHeat: 'none',
-        momentumState: 'idle',
-        sessionActive: false,
         platform: 'darwin',
         windowChromeState: { isMaximized: false, isFullScreen: true },
         sidebarCollapsed: false
       })
-    ).toBe('app-shell session-heat-none momentum-idle platform-darwin window-edge-flush window-full-screen');
+    ).toBe('app-shell session-heat-none platform-darwin window-edge-flush window-full-screen');
   });
 
   it('resolves window control platform fallbacks', () => {

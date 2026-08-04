@@ -55,7 +55,6 @@ import {
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
-import { researchMomentumForDetail } from './view-models/researchMomentum';
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
@@ -579,12 +578,9 @@ export function App(): JSX.Element {
     selectedRunId
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
-  const researchMomentum = useMemo(() => researchMomentumForDetail(activeRunDetail, sessionHeat), [activeRunDetail, sessionHeat]);
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = appShellClassName({
     sessionHeat,
-    momentumState: researchMomentum.state,
-    sessionActive: activeRunDetail?.run.status === 'active',
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
