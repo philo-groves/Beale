@@ -961,6 +961,127 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
+  it('automatically resumes a Honeycrisp session after a terminal WebSocket error', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-websocket-recovery.mjs');
+    const invocationLogPath = join(workspace, 'websocket-recovery-invocations.jsonl');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [invocationLogPath, ...args] = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const resumeCapturePath = args.includes('--resume-capture') ? args[args.indexOf('--resume-capture') + 1] : null;",
+        "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
+        'const invocation = priorCount + 1;',
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        'appendFileSync(invocationLogPath, JSON.stringify({ invocation, capturePath, resumeCapturePath }) + \'\\n\');',
+        'const now = new Date().toISOString();',
+        'const failed = invocation === 1;',
+        'const capture = {',
+        '  schemaVersion: 4,',
+        '  capturedAt: now,',
+        "  request: { prompt: failed ? 'Initial WebSocket fixture' : 'Automatic continuation fixture' },",
+        '  agent: {',
+        '    id: `agent_${invocation}`,',
+        "    status: failed ? 'error' : 'complete',",
+        "    executorName: 'fixture-honeycrisp',",
+        '    startedAt: now,',
+        '    completedAt: now,',
+        "    outputText: failed ? 'WebSocket error' : 'Recovered session response.'",
+        '  },',
+        '  eventTimeline: failed ? [{ kind: \'error.observed\', summary: \'Research agent failed: WebSocket error\', payload: {} }] : []',
+        '};',
+        "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationLogPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const snapshot = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Exercise automatic WebSocket recovery.'
+      });
+      const runId = snapshot.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'completed', 5000);
+
+      const detail = service.getRunDetail(runId);
+      const invocations = readFileSync(invocationLogPath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { invocation: number; capturePath: string; resumeCapturePath: string | null });
+      expect(invocations).toHaveLength(2);
+      expect(invocations[1]?.resumeCapturePath).toBe(invocations[0]?.capturePath);
+      expect(detail.attempts.map((attempt) => attempt.status)).toEqual(['failed', 'completed']);
+      expect(detail.modelSessions.map((session) => session.status)).toEqual(['failed', 'completed']);
+      expect(detail.transcriptMessages.some((message) => message.contentMarkdown === 'WebSocket error')).toBe(false);
+      expect(detail.transcriptMessages.some((message) => message.contentMarkdown === 'Recovered session response.')).toBe(true);
+      expect(detail.traceEvents.some((event) => event.summary === 'User steering extended the current research session.')).toBe(false);
+      expect(
+        detail.traceEvents.find((event) => event.summary === 'Honeycrisp automatically continued after a transient WebSocket failure.')?.payload
+      ).toMatchObject({ retry: 1, maxRetries: 2, resumeMode: 'capture' });
+      expect(
+        detail.traceEvents.findLast((event) => event.summary === 'Honeycrisp host process launched to continue the current session.')?.payload
+      ).toMatchObject({ nativeResumeRequested: true, automaticWebSocketRetryCount: 1 });
+    } finally {
+      service.close();
+    }
+  });
+
+  it('stops automatic WebSocket continuation after two consecutive retries', async () => {
+    const workspace = tempWorkspace();
+    const fakeHoneycrisp = join(workspace, 'fake-honeycrisp-websocket-exhaustion.mjs');
+    const invocationCountPath = join(workspace, 'websocket-exhaustion-count.txt');
+    writeFileSync(
+      fakeHoneycrisp,
+      [
+        '#!/usr/bin/env node',
+        "import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+        "import { dirname } from 'node:path';",
+        'const [invocationCountPath, ...args] = process.argv.slice(2);',
+        "const capturePath = args[args.indexOf('--capture') + 1];",
+        "const invocation = existsSync(invocationCountPath) ? Number(readFileSync(invocationCountPath, 'utf8')) + 1 : 1;",
+        'writeFileSync(invocationCountPath, String(invocation));',
+        "mkdirSync(dirname(capturePath), { recursive: true });",
+        'const now = new Date().toISOString();',
+        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Repeated WebSocket fixture' }, agent: { id: `agent_${invocation}`, status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'WebSocket error' }, eventTimeline: [] }) + '\\n');"
+      ].join('\n')
+    );
+    chmodSync(fakeHoneycrisp, 0o700);
+    process.env.BEALE_HONEYCRISP_COMMAND = process.execPath;
+    process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp, invocationCountPath]);
+
+    const service = new WorkspaceService();
+    try {
+      service.createWorkspace(workspace);
+      const snapshot = service.startRun({
+        ...runInput('multi_branch_trace'),
+        runEngine: 'honeycrisp',
+        promptMarkdown: 'Exercise bounded WebSocket recovery.'
+      });
+      const runId = snapshot.runs[0]?.run.id ?? '';
+
+      await waitForCondition(() => service.getRunDetail(runId).run.status === 'failed', 5000);
+
+      const detail = service.getRunDetail(runId);
+      expect(readFileSync(invocationCountPath, 'utf8')).toBe('3');
+      expect(detail.attempts.map((attempt) => attempt.status)).toEqual(['failed', 'failed', 'failed']);
+      expect(detail.traceEvents.filter(
+        (event) => event.summary === 'Honeycrisp automatically continued after a transient WebSocket failure.'
+      )).toHaveLength(2);
+    } finally {
+      service.close();
+    }
+  });
+
   it('pauses, resumes, and steers an active Honeycrisp process', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-controlled-honeycrisp.mjs');

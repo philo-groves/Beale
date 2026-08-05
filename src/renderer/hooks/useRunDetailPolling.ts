@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunDetail, RunStatus } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
@@ -98,7 +98,12 @@ export function useRunDetailPolling({
               const applyDetail = runDetailApplyMetricDetail(detail, update);
               versionRef.current = version;
               detailRef.current = detail;
-              startTransition(() => setRunDetail(detail));
+              // Live detail is also the source of session usage telemetry. Deferring
+              // every poll lets continuous snapshot/stream updates starve the pending
+              // transition while the incremental cursor keeps advancing in detailRef.
+              // Commit the merged detail normally so usage and chat state cannot remain
+              // visually stuck behind an indefinitely interrupted transition.
+              setRunDetail(detail);
               devInstrumentation.recordEvent(update ? 'trace.runDetail.incrementalApply' : 'trace.runDetail.fullApply', applyDetail);
               recordNextFrameTiming('trace.runDetail.apply.nextFrameLatency', applyStartedAt, applyDetail);
             } else {

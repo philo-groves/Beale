@@ -47,7 +47,7 @@ export function subagentCatalogGroups(subagents: readonly SubagentSummary[]): {
 
 export function subagentStatusCountSummary(subagents: readonly SubagentSummary[]): string {
   const activeCount = activeSubagentCount(subagents);
-  const completedCount = subagents.filter((subagent) => subagent.status === 'completed').length;
+  const completedCount = subagents.filter((subagent) => !ACTIVE_SUBAGENT_STATUSES.has(subagent.status)).length;
   const errorCount = subagents.filter((subagent) => subagent.status === 'errored').length;
   return [
     activeCount > 0 ? `${activeCount} Active` : null,

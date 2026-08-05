@@ -101,6 +101,7 @@ interface ActiveHoneycrispRun {
     resolutionTimeout: NodeJS.Timeout | null;
   }>;
   resolvedShellApprovalRequestIds: Set<string>;
+  automaticWebSocketRetryCount: number;
 }
 
 interface PendingHoneycrispControl {
@@ -124,6 +125,7 @@ export interface HoneycrispControlDispatch {
 interface HoneycrispContinuationOptions {
   steeringAlreadyRecorded?: boolean;
   controlRequestIds?: readonly string[];
+  automaticWebSocketRetryCount?: number;
 }
 
 interface HoneycrispFlowCapture {
@@ -248,6 +250,9 @@ const CONTINUATION_SUBAGENT_OUTPUT_MAX_CHARS = 600;
 const UNBOUNDED_RUN_MINUTES = 999_999;
 const HONEYCRISP_STOP_GRACE_MS = 1_500;
 const DEFAULT_HONEYCRISP_CONTROL_ACK_TIMEOUT_MS = 2_000;
+const MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS = 2;
+const AUTOMATIC_WEBSOCKET_CONTINUATION_INSTRUCTION =
+  'Continue the active research goal from the latest checkpoint. The previous provider WebSocket disconnected unexpectedly; resume without repeating completed work.';
 export class HoneycrispRunEngine {
   private readonly activeRuns = new Map<string, ActiveHoneycrispRun>();
   private readonly completions = new Map<string, Promise<void>>();
@@ -359,6 +364,9 @@ export class HoneycrispRunEngine {
         targetExecution: false,
         hostProcess: true,
         continuation: true,
+        ...(options.automaticWebSocketRetryCount
+          ? { automaticWebSocketRetryCount: options.automaticWebSocketRetryCount }
+          : {}),
         honeycrispWorkspaceRoot: this.workspacePath
       }
     });
@@ -393,7 +401,10 @@ export class HoneycrispRunEngine {
         model: run.model,
         reasoningEffort: run.reasoningEffort,
         continuation: true,
-        parentAttemptId: parentAttempt?.id ?? null
+        parentAttemptId: parentAttempt?.id ?? null,
+        ...(options.automaticWebSocketRetryCount
+          ? { automaticWebSocketRetryCount: options.automaticWebSocketRetryCount }
+          : {})
       }
     });
     if (!options.steeringAlreadyRecorded) {
@@ -420,7 +431,8 @@ export class HoneycrispRunEngine {
 
     return this.launchRun(context, continuationInput, scope, true, {
       resumeCapturePath,
-      fallbackPrompt: continuationFallbackPrompt
+      fallbackPrompt: continuationFallbackPrompt,
+      automaticWebSocketRetryCount: options.automaticWebSocketRetryCount
     });
   }
 
@@ -429,7 +441,7 @@ export class HoneycrispRunEngine {
     input: StartRunInput,
     scope: WorkspaceScopeVersion,
     continuation: boolean,
-    resume?: { resumeCapturePath?: string; fallbackPrompt: string }
+    resume?: { resumeCapturePath?: string; fallbackPrompt: string; automaticWebSocketRetryCount?: number }
   ): HoneycrispRunHandle {
     const invocation = resolveHoneycrispInvocation();
     const rootTurnOffset = continuation ? latestRootTurn(this.db.getRunDetail(context.run.id).traceEvents) : 0;
@@ -474,7 +486,8 @@ export class HoneycrispRunEngine {
         workspaceContextPath,
         continuation,
         resumeCapturePath: resume?.resumeCapturePath ?? null,
-        nativeResumeRequested: Boolean(resume?.resumeCapturePath)
+        nativeResumeRequested: Boolean(resume?.resumeCapturePath),
+        automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
       },
       vmContextId: context.vmContext.id
     });
@@ -504,7 +517,8 @@ export class HoneycrispRunEngine {
       queuedContinuations: new Map(),
       shellApprovalRecords: new Map(),
       shellApprovalDecisionsInFlight: new Map(),
-      resolvedShellApprovalRequestIds: new Set()
+      resolvedShellApprovalRequestIds: new Set(),
+      automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
     };
     this.activeRuns.set(context.run.id, active);
     this.armTimeLimit(active, input.budget.maxMinutes);
@@ -1737,8 +1751,78 @@ export class HoneycrispRunEngine {
     try {
       const captureText = readTextFile(capturePath);
       const capture = parseHoneycrispCapture(captureText);
-      const contextUsage = this.importCapture(context, capture, capturePath, captureText, active.liveHoneycrispEventIds);
+      const webSocketError = retryableHoneycrispWebSocketError(capture);
+      const automaticWebSocketRetryCount = active.automaticWebSocketRetryCount + 1;
+      const automaticallyRetrying = Boolean(
+        webSocketError
+        && automaticWebSocketRetryCount <= MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS
+      );
+      const contextUsage = this.importCapture(
+        context,
+        capture,
+        capturePath,
+        captureText,
+        active.liveHoneycrispEventIds,
+        { includeFinalResponse: !automaticallyRetrying }
+      );
       const summary = honeycrispCompletionSummary(capture);
+      if (automaticallyRetrying && webSocketError) {
+        const retrySummary = `Honeycrisp is automatically continuing after a transient WebSocket failure (${automaticWebSocketRetryCount}/${MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS}).`;
+        this.db.updateAttemptState(context.attempt.id, 'failed', summary);
+        this.db.updateRunStatus(context.run.id, 'active', retrySummary);
+        this.db.updateModelSessionByRun(context.run.id, {
+          status: 'failed',
+          metadata: {
+            capturePath,
+            agentStatus: capture.agent?.status ?? null,
+            automaticWebSocketRetryCount,
+            automaticContinuationScheduled: true,
+            ...honeycrispAgentMetadata(capture),
+            ...honeycrispContextUsageMetadata(contextUsage)
+          }
+        });
+        this.db.appendTraceEvent({
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          type: 'vm_event',
+          source: 'executor',
+          summary: 'Honeycrisp automatically continued after a transient WebSocket failure.',
+          payload: {
+            retry: automaticWebSocketRetryCount,
+            maxRetries: MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS,
+            errorMessage: webSocketError,
+            capturePath,
+            resumeMode: 'capture'
+          },
+          vmContextId: context.vmContext.id,
+          modelVisible: false
+        });
+        this.onChange();
+        try {
+          this.extendRun(context.run.id, AUTOMATIC_WEBSOCKET_CONTINUATION_INSTRUCTION, {
+            steeringAlreadyRecorded: true,
+            automaticWebSocketRetryCount
+          });
+        } catch (error) {
+          const failureSummary = 'Beale could not automatically continue after a transient WebSocket failure.';
+          this.db.appendTraceEvent({
+            runId: context.run.id,
+            attemptId: context.attempt.id,
+            type: 'approval_event',
+            source: 'system',
+            summary: failureSummary,
+            payload: {
+              retry: automaticWebSocketRetryCount,
+              error: errorMessage(error)
+            },
+            vmContextId: context.vmContext.id,
+            modelVisible: false
+          });
+          this.db.updateRunStatus(context.run.id, 'failed', failureSummary);
+          this.onChange();
+        }
+        return;
+      }
       const goalStatus = honeycrispGoalStatus(capture);
       const completed = capture.agent?.status === 'complete' && goalStatus !== 'active';
       const terminalStatus = completed && goalStatus === 'blocked' ? 'blocked' : completed ? 'completed' : 'failed';
@@ -1773,7 +1857,8 @@ export class HoneycrispRunEngine {
     capture: HoneycrispFlowCapture,
     capturePath: string,
     captureText: string,
-    liveHoneycrispEventIds: ReadonlySet<string> = new Set()
+    liveHoneycrispEventIds: ReadonlySet<string> = new Set(),
+    options: { includeFinalResponse?: boolean } = {}
   ): HoneycrispContextUsageSummary | null {
     const contextUsage = summarizeHoneycrispContextUsage(capture, captureText);
     const importedEventIds = new Set(liveHoneycrispEventIds);
@@ -1875,7 +1960,7 @@ export class HoneycrispRunEngine {
       }
     }
 
-    const assistantText = renderHoneycrispAssistantMessage(capture);
+    const assistantText = options.includeFinalResponse === false ? '' : renderHoneycrispAssistantMessage(capture);
     const nextPromptSuggestions = honeycrispNextPromptSuggestions(capture);
     if (assistantText) {
       const transcriptTrace = this.db.appendTraceEvent({
@@ -3249,6 +3334,30 @@ function honeycrispCompletionSummary(capture: HoneycrispFlowCapture): string {
     return 'Honeycrisp exited while the research goal was still active.';
   }
   return status === 'complete' ? 'Honeycrisp completed the research session.' : `Honeycrisp process finished with agent status ${status}.`;
+}
+
+function retryableHoneycrispWebSocketError(capture: HoneycrispFlowCapture): string | null {
+  if (capture.agent?.status !== 'error') return null;
+  const disposition = recordValue(capture.agent.finalDisposition);
+  const candidates = [
+    capture.agent.outputText,
+    disposition ? stringPayload(disposition, 'summary') : null,
+    ...(capture.eventTimeline ?? []).flatMap((event) => {
+      const payload = recordValue(event.payload);
+      return [
+        event.summary,
+        payload ? stringPayload(payload, 'errorMessage') : null,
+        payload ? stringPayload(payload, 'error') : null,
+        payload ? stringPayload(payload, 'message') : null
+      ];
+    })
+  ];
+  const match = candidates.find((candidate) =>
+    typeof candidate === 'string'
+    && /\bwebsocket\b/i.test(candidate)
+    && /\b(error|failed|failure|closed|disconnect(?:ed|ion)?)\b/i.test(candidate)
+  );
+  return match ? redactForModelText(match).slice(0, 1_000) : null;
 }
 
 function honeycrispGoalStatus(capture: HoneycrispFlowCapture): 'active' | 'complete' | 'blocked' | null {

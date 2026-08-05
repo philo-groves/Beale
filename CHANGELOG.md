@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Long-running sessions now commit incremental detail updates without transition starvation, keeping token totals, cache hit rate, and context usage current during sustained agent activity.
+- Honeycrisp sessions now automatically resume from their latest capture after a terminal provider WebSocket error, suppress the transient error as a final response, and cap consecutive host-level continuation attempts at two.
+- Session summary Completed subagent totals now include completed, errored, and interrupted agents, matching the detailed Completed list while retaining Error as a subset count.
 - Active-session rounded-square window pulses now use a fixed compositor-friendly loop instead of random per-cycle rerolls or research momentum, preventing animation jumps and timing changes as research state updates while remaining hidden when no session is active.
 - macOS now reserves Command-V for native paste into the focused editable field, including repository URLs in New Workspace, while retaining Paste Steering as a separate explicit menu action.
 - Commentary follow-latest scrolling now survives layout-driven tool expansion, collapse, and output resizing while still disengaging for explicit user scrolling.

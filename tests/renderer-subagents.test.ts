@@ -204,7 +204,7 @@ describe('subagent trace view models', () => {
     expect(subagentStatusIconKind('interrupted')).toBe('error');
   });
 
-  it('formats only nonzero active, completed, and error counts', () => {
+  it('includes interrupted and errored agents in the completed summary count', () => {
     const base = {
       id: null,
       path: '/root/worker',
@@ -220,7 +220,7 @@ describe('subagent trace view models', () => {
       { ...base, path: '/root/completed-two', status: 'completed' },
       { ...base, path: '/root/interrupted', status: 'interrupted' },
       { ...base, path: '/root/errored', status: 'errored' }
-    ])).toBe('1 Active, 2 Completed, 1 Error');
+    ])).toBe('1 Active, 4 Completed, 1 Error');
   });
 
   it('does not replace lifecycle state with child tool result status', () => {
