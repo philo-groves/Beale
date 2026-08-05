@@ -4,8 +4,11 @@ import type {
   MemoryDreamingAction,
   MemoryDreamingChangeSummary,
   MemoryDreamingRunSummary,
-  MemoryDreamingSummary
+  MemoryDreamingSummary,
+  MemoryNodeType
 } from '@shared/types';
+import { MEMORY_NODE_TYPES } from '../shared/types';
+import { redactForModelText } from './redaction';
 
 type SqlValue = string | number | null;
 type SqlRow = Record<string, SqlValue>;
@@ -18,10 +21,13 @@ interface MemoryRecordsSnapshot {
   tags: SqlRow[];
   evidence: SqlRow[];
   edges: SqlRow[];
+  verifierContracts: SqlRow[];
+  exports: SqlRow[];
 }
 
 interface DreamingCandidate {
   id: string;
+  subjectId: string;
   type: string;
   title: string;
   titleNorm: string;
@@ -31,7 +37,18 @@ interface DreamingCandidate {
   confidence: number;
   revision: number;
   updatedAt: string;
+  attributes: Record<string, unknown>;
+  assetCount: number;
   evidenceCount: number;
+  neighborTypes: Set<string>;
+}
+
+export interface MemoryDreamingAttributesPatch {
+  rootCause?: string;
+  rootCauseKey?: string;
+  impact?: string;
+  reachability?: string;
+  historicalPrecedent?: boolean;
 }
 
 export interface MemoryDreamingPlan {
@@ -44,12 +61,20 @@ export interface MemoryDreamingPlan {
     duplicateNodeIds: string[];
     summary: string | null;
     body: string | null;
+    attributes?: MemoryDreamingAttributesPatch;
     reason: string;
   }>;
   revise: Array<{
     nodeId: string;
     summary: string | null;
     body: string | null;
+    attributes?: MemoryDreamingAttributesPatch;
+    reason: string;
+  }>;
+  reclassify: Array<{
+    nodeId: string;
+    type: MemoryNodeType;
+    attributes?: MemoryDreamingAttributesPatch;
     reason: string;
   }>;
 }
@@ -61,6 +86,16 @@ export interface MemoryDreamingRunContext {
   inputSessionCount: number;
 }
 
+export class MemoryDreamingPlanError extends Error {
+  public constructor(
+    message: string,
+    public readonly phase: 'output' | 'validation'
+  ) {
+    super(message);
+    this.name = 'MemoryDreamingPlanError';
+  }
+}
+
 interface ValidatedMemoryDreamingPlan {
   prune: Array<{ node: DreamingCandidate; reason: string }>;
   merge: Array<{
@@ -68,12 +103,20 @@ interface ValidatedMemoryDreamingPlan {
     duplicates: DreamingCandidate[];
     summary: string | null;
     body: string | null;
+    attributes: Record<string, unknown>;
     reason: string;
   }>;
   revise: Array<{
     node: DreamingCandidate;
     summary: string | null;
     body: string | null;
+    attributes: Record<string, unknown>;
+    reason: string;
+  }>;
+  reclassify: Array<{
+    node: DreamingCandidate;
+    type: MemoryNodeType;
+    attributes: Record<string, unknown>;
     reason: string;
   }>;
 }
@@ -109,6 +152,20 @@ const NODE_COLUMNS = [
   'updated_at',
   'revision'
 ] as const;
+const MEMORY_DREAMING_ATTRIBUTE_KEYS = [
+  'rootCause',
+  'rootCauseKey',
+  'impact',
+  'reachability',
+  'historicalPrecedent'
+] as const;
+const MEMORY_DREAMING_ATTRIBUTE_STRING_LIMITS = {
+  rootCause: 4_000,
+  rootCauseKey: 200,
+  impact: 4_000,
+  reachability: 4_000
+} as const;
+const MEMORY_DREAMING_ATTRIBUTE_PATCH_MAX_CHARS = 16_000;
 
 const EVIDENCE_COLUMNS = ['id', 'node_id', 'kind', 'path_base', 'path', 'locator_json', 'summary', 'created_at'] as const;
 const EDGE_COLUMNS = ['from_id', 'to_id', 'relation', 'note', 'created_at', 'updated_at'] as const;
@@ -117,10 +174,11 @@ export const MEMORY_DREAMING_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memory_dreaming_runs (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('completed', 'restored')),
+  status TEXT NOT NULL CHECK (status IN ('completed', 'restored', 'failed')),
   stale_hidden_count INTEGER NOT NULL DEFAULT 0,
   duplicate_hidden_count INTEGER NOT NULL DEFAULT 0,
   duplicate_group_count INTEGER NOT NULL DEFAULT 0,
+  reclassified_node_count INTEGER NOT NULL DEFAULT 0,
   edited_node_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   completed_at TEXT NOT NULL,
@@ -128,14 +186,15 @@ CREATE TABLE IF NOT EXISTS memory_dreaming_runs (
   model TEXT NOT NULL DEFAULT 'unknown',
   reasoning_effort TEXT NOT NULL DEFAULT 'unknown',
   input_node_count INTEGER NOT NULL DEFAULT 0,
-  input_session_count INTEGER NOT NULL DEFAULT 0
+  input_session_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT
 );
 
 CREATE TABLE IF NOT EXISTS memory_dreaming_changes (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise')),
+  action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise', 'reclassify')),
   title TEXT NOT NULL,
   node_type TEXT NOT NULL,
   hidden_node_ids_json TEXT NOT NULL,
@@ -222,12 +281,19 @@ export function runMemoryDreaming(
       throw new Error('Honeycrisp memory is not initialized for this workspace.');
     }
     const candidates = readDreamingCandidates(database, workspaceId);
-    const plan = validateMemoryDreamingPlan(requestedPlan, candidates);
+    let plan: ValidatedMemoryDreamingPlan;
+    try {
+      plan = validateMemoryDreamingPlan(requestedPlan, candidates);
+    } catch (error) {
+      if (error instanceof MemoryDreamingPlanError) throw error;
+      throw new MemoryDreamingPlanError(memoryDreamingErrorMessage(error), 'validation');
+    }
     const runId = `dream_${randomUUID()}`;
     const now = new Date().toISOString();
     let prunedNodeCount = 0;
     let duplicateHiddenCount = 0;
     let duplicateGroupCount = 0;
+    let reclassifiedNodeCount = 0;
     let editedNodeCount = 0;
 
     database.exec('BEGIN IMMEDIATE;');
@@ -236,9 +302,9 @@ export function runMemoryDreaming(
         .prepare(
           `INSERT INTO memory_dreaming_runs (
              id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
-             duplicate_group_count, edited_node_count, created_at, completed_at, restored_at,
+             duplicate_group_count, reclassified_node_count, edited_node_count, created_at, completed_at, restored_at,
              model, reasoning_effort, input_node_count, input_session_count
-           ) VALUES (?, ?, 'completed', 0, 0, 0, 0, ?, ?, NULL, ?, ?, ?, ?)`
+           ) VALUES (?, ?, 'completed', 0, 0, 0, 0, 0, ?, ?, NULL, ?, ?, ?, ?)`
         )
         .run(
           runId,
@@ -286,7 +352,8 @@ export function runMemoryDreaming(
           changeId,
           now,
           decision.summary,
-          decision.body
+          decision.body,
+          decision.attributes
         );
         const after = snapshotMemoryRecords(database, affectedNodeIds);
         insertDreamingChange(database, {
@@ -311,7 +378,7 @@ export function runMemoryDreaming(
       for (const decision of plan.revise) {
         const changeId = `dream_change_${randomUUID()}`;
         const before = snapshotMemoryRecords(database, [decision.node.id]);
-        reviseMemoryNode(database, decision.node, decision.summary, decision.body, now);
+        reviseMemoryNode(database, decision.node, decision.summary, decision.body, decision.attributes, now);
         const after = snapshotMemoryRecords(database, [decision.node.id]);
         insertDreamingChange(database, {
           id: changeId,
@@ -330,17 +397,47 @@ export function runMemoryDreaming(
         editedNodeCount += 1;
       }
 
+      for (const decision of plan.reclassify) {
+        const changeId = `dream_change_${randomUUID()}`;
+        const reclassifiedNodeId = stableMemoryNodeId(
+          decision.node.subjectId,
+          decision.type,
+          normalizeMemoryTitle(decision.node.title)
+        );
+        const affectedNodeIds = [decision.node.id, reclassifiedNodeId];
+        const before = snapshotMemoryRecords(database, affectedNodeIds);
+        reclassifyMemoryNode(database, decision.node, decision.type, decision.attributes, reclassifiedNodeId, now);
+        const after = snapshotMemoryRecords(database, affectedNodeIds);
+        insertDreamingChange(database, {
+          id: changeId,
+          runId,
+          workspaceId,
+          action: 'reclassify',
+          title: decision.node.title,
+          nodeType: decision.type,
+          hiddenNodeIds: [],
+          survivorNodeId: reclassifiedNodeId,
+          reason: decision.reason,
+          before,
+          after,
+          createdAt: now
+        });
+        reclassifiedNodeCount += 1;
+        editedNodeCount += 1;
+      }
+
       database
         .prepare(
           `UPDATE memory_dreaming_runs
            SET stale_hidden_count = ?,
                duplicate_hidden_count = ?,
                duplicate_group_count = ?,
+               reclassified_node_count = ?,
                edited_node_count = ?,
                completed_at = ?
            WHERE id = ?`
         )
-        .run(prunedNodeCount, duplicateHiddenCount, duplicateGroupCount, editedNodeCount, now, runId);
+        .run(prunedNodeCount, duplicateHiddenCount, duplicateGroupCount, reclassifiedNodeCount, editedNodeCount, now, runId);
       database.exec('COMMIT;');
     } catch (error) {
       database.exec('ROLLBACK;');
@@ -357,10 +454,67 @@ export function runMemoryDreaming(
       prunedNodeCount,
       duplicateHiddenCount,
       duplicateGroupCount,
+      reclassifiedNodeCount,
       editedNodeCount,
       createdAt: now,
       completedAt: now,
-      restoredAt: null
+      restoredAt: null,
+      errorMessage: null
+    };
+  } finally {
+    database.close();
+  }
+}
+
+export function recordFailedMemoryDreaming(
+  databasePath: string,
+  workspaceId: string,
+  context: MemoryDreamingRunContext,
+  error: unknown
+): MemoryDreamingRunSummary {
+  const database = openDreamingDatabase(databasePath);
+  try {
+    if (!tableExists(database, 'memory_dreaming_runs')) {
+      throw new Error('Honeycrisp memory Dreaming is not initialized for this workspace.');
+    }
+    const runId = `dream_${randomUUID()}`;
+    const now = new Date().toISOString();
+    const errorMessage = sanitizeMemoryDreamingFailure(error);
+    database
+      .prepare(
+        `INSERT INTO memory_dreaming_runs (
+           id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+           duplicate_group_count, reclassified_node_count, edited_node_count, created_at, completed_at, restored_at,
+           model, reasoning_effort, input_node_count, input_session_count, error_message
+         ) VALUES (?, ?, 'failed', 0, 0, 0, 0, 0, ?, ?, NULL, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        runId,
+        workspaceId,
+        now,
+        now,
+        context.model,
+        context.reasoningEffort,
+        context.inputNodeCount,
+        context.inputSessionCount,
+        errorMessage
+      );
+    return {
+      id: runId,
+      status: 'failed',
+      model: context.model,
+      reasoningEffort: context.reasoningEffort,
+      inputNodeCount: context.inputNodeCount,
+      inputSessionCount: context.inputSessionCount,
+      prunedNodeCount: 0,
+      duplicateHiddenCount: 0,
+      duplicateGroupCount: 0,
+      reclassifiedNodeCount: 0,
+      editedNodeCount: 0,
+      createdAt: now,
+      completedAt: now,
+      restoredAt: null,
+      errorMessage
     };
   } finally {
     database.close();
@@ -378,7 +532,7 @@ export function restoreMemoryDreamingChange(databasePath: string, workspaceId: s
     if (!row) throw new Error(`Dreaming change not found: ${changeId}`);
     const change = mapDreamingChangeRow(row);
     if (change.restoredAt) return;
-    const nodeIds = change.before.nodes.map((node) => stringField(node, 'id'));
+    const nodeIds = snapshotNodeIds(change.before, change.after);
     const current = snapshotMemoryRecords(database, nodeIds);
     if (!snapshotsEqual(current, change.after)) {
       throw new Error('This memory changed after Dreaming and cannot be restored automatically.');
@@ -419,11 +573,12 @@ function openDreamingDatabase(databasePath: string): DatabaseSync {
 }
 
 function readDreamingCandidates(database: DatabaseSync, workspaceId: string): DreamingCandidate[] {
-  return asRows(
+  const rows = asRows(
     database
       .prepare(
-        `SELECT n.id, n.type, n.title, n.title_norm, n.summary, n.body, n.status,
-                n.confidence, n.revision, n.updated_at,
+        `SELECT n.id, n.subject_id, n.type, n.title, n.title_norm, n.summary, n.body, n.status,
+                n.confidence, n.revision, n.updated_at, n.attributes_json,
+                (SELECT COUNT(*) FROM memory_node_assets a WHERE a.node_id = n.id) AS asset_count,
                 (SELECT COUNT(*) FROM memory_evidence_refs e WHERE e.node_id = n.id) AS evidence_count
          FROM memory_nodes n
          WHERE EXISTS (
@@ -433,19 +588,34 @@ function readDreamingCandidates(database: DatabaseSync, workspaceId: string): Dr
          ORDER BY n.updated_at DESC, n.id`
       )
       .all(workspaceId)
-  ).map((row) => ({
-    id: stringField(row, 'id'),
-    type: stringField(row, 'type'),
-    title: stringField(row, 'title'),
-    titleNorm: stringField(row, 'title_norm'),
-    summary: stringField(row, 'summary'),
-    body: stringField(row, 'body'),
-    status: stringField(row, 'status'),
-    confidence: numberField(row, 'confidence'),
-    revision: numberField(row, 'revision'),
-    updatedAt: stringField(row, 'updated_at'),
-    evidenceCount: numberField(row, 'evidence_count')
-  }));
+  );
+  const neighborTypes = database.prepare(
+    `SELECT DISTINCT neighbor.type AS type
+     FROM memory_edges edge
+     JOIN memory_nodes neighbor
+       ON neighbor.id = CASE WHEN edge.from_id = ? THEN edge.to_id ELSE edge.from_id END
+     WHERE edge.from_id = ? OR edge.to_id = ?`
+  );
+  return rows.map((row) => {
+    const id = stringField(row, 'id');
+    return {
+      id,
+      subjectId: stringField(row, 'subject_id'),
+      type: stringField(row, 'type'),
+      title: stringField(row, 'title'),
+      titleNorm: stringField(row, 'title_norm'),
+      summary: stringField(row, 'summary'),
+      body: stringField(row, 'body'),
+      status: stringField(row, 'status'),
+      confidence: numberField(row, 'confidence'),
+      revision: numberField(row, 'revision'),
+      updatedAt: stringField(row, 'updated_at'),
+      attributes: parseAttributes(stringField(row, 'attributes_json')),
+      assetCount: numberField(row, 'asset_count'),
+      evidenceCount: numberField(row, 'evidence_count'),
+      neighborTypes: new Set(asRows(neighborTypes.all(id, id, id)).map((neighbor) => stringField(neighbor, 'type')))
+    };
+  });
 }
 
 function validateMemoryDreamingPlan(plan: MemoryDreamingPlan, candidates: DreamingCandidate[]): ValidatedMemoryDreamingPlan {
@@ -486,6 +656,19 @@ function validateMemoryDreamingPlan(plan: MemoryDreamingPlan, candidates: Dreami
     if (!compatibleDuplicateStatuses([survivor, ...duplicates])) {
       throw new Error(`Dreaming cannot merge rejected and non-rejected memories into ${survivor.id}.`);
     }
+    if (!isMemoryNodeType(survivor.type)) {
+      throw new Error(`Dreaming cannot merge an unknown memory type into ${survivor.id}: ${survivor.type}`);
+    }
+    const attributes = {
+      ...survivor.attributes,
+      ...parseMemoryDreamingAttributesPatch(decision.attributes, survivor.id)
+    };
+    validateReclassifiedNode(
+      mergedCandidateStructure(survivor, duplicates),
+      survivor.type,
+      attributes,
+      'merge'
+    );
     consume(survivor);
     duplicates.forEach(consume);
     return {
@@ -493,6 +676,7 @@ function validateMemoryDreamingPlan(plan: MemoryDreamingPlan, candidates: Dreami
       duplicates,
       summary: boundedOptionalText(decision.summary, 12_000),
       body: boundedOptionalText(decision.body, 60_000),
+      attributes,
       reason: reason(decision.reason)
     };
   });
@@ -500,13 +684,163 @@ function validateMemoryDreamingPlan(plan: MemoryDreamingPlan, candidates: Dreami
     const node = requireCandidate(decision.nodeId);
     const summary = boundedOptionalText(decision.summary, 12_000);
     const body = boundedOptionalText(decision.body, 60_000);
-    if (summary === null && body === null) {
-      throw new Error(`Dreaming revision for ${node.id} did not include a summary or body.`);
+    const patch = parseMemoryDreamingAttributesPatch(decision.attributes, node.id);
+    if (summary === null && body === null && Object.keys(patch).length === 0) {
+      throw new Error(`Dreaming revision for ${node.id} did not include a summary, body, or structural attribute patch.`);
+    }
+    const attributes = { ...node.attributes, ...patch };
+    if (Object.keys(patch).length > 0) {
+      if (!isMemoryNodeType(node.type)) {
+        throw new Error(`Dreaming cannot revise structural attributes for unknown memory type ${node.type}.`);
+      }
+      validateReclassifiedNode(node, node.type, attributes, 'revision');
     }
     consume(node);
-    return { node, summary, body, reason: reason(decision.reason) };
+    return { node, summary, body, attributes, reason: reason(decision.reason) };
   });
-  return { prune, merge, revise };
+  const reclassify = plan.reclassify.map((decision) => {
+    const node = requireCandidate(decision.nodeId);
+    if (!isMemoryNodeType(decision.type)) {
+      throw new Error(`Dreaming proposed an unknown memory type for ${node.id}: ${String(decision.type)}`);
+    }
+    if (decision.type === node.type) {
+      throw new Error(`Dreaming reclassification for ${node.id} must change its memory type.`);
+    }
+    const attributes = {
+      ...node.attributes,
+      ...parseMemoryDreamingAttributesPatch(decision.attributes, node.id)
+    };
+    validateReclassifiedNode(node, decision.type, attributes, 'reclassification');
+    consume(node);
+    return { node, type: decision.type, attributes, reason: reason(decision.reason) };
+  });
+  return { prune, merge, revise, reclassify };
+}
+
+function isMemoryNodeType(value: string): value is MemoryNodeType {
+  return (MEMORY_NODE_TYPES as readonly string[]).includes(value);
+}
+
+function validateReclassifiedNode(
+  node: DreamingCandidate,
+  type: MemoryNodeType,
+  attributes: Record<string, unknown>,
+  operation: 'merge' | 'reclassification' | 'revision'
+): void {
+  if (type === 'hypothesis' && node.status === 'confirmed') {
+    const verb = operation === 'reclassification' ? 'reclassify' : operation === 'revision' ? 'revise' : 'merge';
+    throw new Error(`Dreaming cannot ${verb} confirmed memory ${node.id} as a hypothesis.`);
+  }
+  if (type === 'primitive') {
+    const rootCause = attributes.rootCause;
+    const rootCauseKey = attributes.rootCauseKey;
+    if (typeof rootCause !== 'string' || !rootCause.trim()) {
+      throw new Error(`Dreaming primitive ${operation} for ${node.id} requires attributes.rootCause.`);
+    }
+    if (
+      typeof rootCauseKey !== 'string'
+      || !rootCauseKey.trim()
+      || normalizeRootCauseKey(rootCauseKey) !== rootCauseKey.trim()
+    ) {
+      throw new Error(`Dreaming primitive ${operation} for ${node.id} requires a lowercase hyphenated attributes.rootCauseKey.`);
+    }
+  }
+  if (type === 'bug') {
+    if (node.status !== 'confirmed' || attributes.historicalPrecedent !== true) {
+      throw new Error(`Dreaming bug ${operation} for ${node.id} requires confirmed historical precedent.`);
+    }
+    if (node.assetCount === 0 || node.evidenceCount === 0) {
+      throw new Error(`Dreaming bug ${operation} for ${node.id} requires an affected asset and precedent evidence.`);
+    }
+  }
+  if (type !== 'chain') return;
+  const impact = attributes.impact;
+  const reachability = attributes.reachability;
+  if (typeof impact !== 'string' || !impact.trim() || typeof reachability !== 'string' || !reachability.trim()) {
+    throw new Error(`Dreaming chain ${operation} for ${node.id} requires impact and reachability attributes.`);
+  }
+  if (node.status !== 'confirmed') return;
+  if (node.evidenceCount === 0) {
+    throw new Error(`Dreaming confirmed-chain ${operation} for ${node.id} requires evidence.`);
+  }
+  const missing = ['source', 'primitive', 'sink', 'asset'].filter((neighborType) => !node.neighborTypes.has(neighborType));
+  if (missing.length > 0) {
+    throw new Error(`Dreaming confirmed-chain ${operation} for ${node.id} requires graph relationships to: ${missing.join(', ')}.`);
+  }
+}
+
+function mergedCandidateStructure(
+  survivor: DreamingCandidate,
+  duplicates: DreamingCandidate[]
+): DreamingCandidate {
+  return {
+    ...survivor,
+    assetCount: survivor.assetCount + duplicates.reduce((count, candidate) => count + candidate.assetCount, 0),
+    evidenceCount: survivor.evidenceCount + duplicates.reduce((count, candidate) => count + candidate.evidenceCount, 0),
+    neighborTypes: new Set([survivor, ...duplicates].flatMap((candidate) => [...candidate.neighborTypes]))
+  };
+}
+
+export function parseMemoryDreamingAttributesPatch(
+  value: unknown,
+  nodeId = 'unknown node'
+): MemoryDreamingAttributesPatch {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Dreaming reclassification attributes for ${nodeId} must be an object.`);
+  }
+  const input = value as Record<string, unknown>;
+  const unknownKeys = Object.keys(input).filter(
+    (key) => !(MEMORY_DREAMING_ATTRIBUTE_KEYS as readonly string[]).includes(key)
+  );
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Dreaming reclassification attributes for ${nodeId} contain unsupported fields: ${unknownKeys.join(', ')}.`
+    );
+  }
+  if (JSON.stringify(input).length > MEMORY_DREAMING_ATTRIBUTE_PATCH_MAX_CHARS) {
+    throw new Error(`Dreaming reclassification attributes for ${nodeId} exceed the bounded patch size.`);
+  }
+
+  const patch: MemoryDreamingAttributesPatch = {};
+  for (const key of ['rootCause', 'rootCauseKey', 'impact', 'reachability'] as const) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+    const attribute = input[key];
+    if (typeof attribute !== 'string' || !attribute.trim()) {
+      throw new Error(`Dreaming reclassification attributes.${key} for ${nodeId} must be a non-empty string.`);
+    }
+    const normalized = attribute.trim();
+    if (normalized.length > MEMORY_DREAMING_ATTRIBUTE_STRING_LIMITS[key]) {
+      throw new Error(`Dreaming reclassification attributes.${key} for ${nodeId} exceeds its size limit.`);
+    }
+    patch[key] = normalized;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'historicalPrecedent')) {
+    if (typeof input.historicalPrecedent !== 'boolean') {
+      throw new Error(
+        `Dreaming reclassification attributes.historicalPrecedent for ${nodeId} must be a boolean.`
+      );
+    }
+    patch.historicalPrecedent = input.historicalPrecedent;
+  }
+  return patch;
+}
+
+function normalizeRootCauseKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+}
+
+function parseAttributes(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function boundedOptionalText(value: string | null, maxLength: number): string | null {
@@ -529,7 +863,8 @@ function mergeDuplicateMemories(
   changeId: string,
   now: string,
   proposedSummary: string | null,
-  proposedBody: string | null
+  proposedBody: string | null,
+  attributes: Record<string, unknown>
 ): void {
   const richerSummary = proposedSummary ?? richerSuperset(survivor.summary, duplicates.map((candidate) => candidate.summary));
   const richerBody = proposedBody ?? richerSuperset(survivor.body, duplicates.map((candidate) => candidate.body));
@@ -613,10 +948,10 @@ function mergeDuplicateMemories(
   database
     .prepare(
       `UPDATE memory_nodes
-       SET summary = ?, body = ?, revision = revision + 1, updated_at = ?
+       SET summary = ?, body = ?, attributes_json = ?, revision = revision + 1, updated_at = ?
        WHERE id = ?`
     )
-    .run(richerSummary, richerBody, now, survivor.id);
+    .run(richerSummary, richerBody, JSON.stringify(attributes), now, survivor.id);
 }
 
 function reviseMemoryNode(
@@ -624,15 +959,81 @@ function reviseMemoryNode(
   node: DreamingCandidate,
   proposedSummary: string | null,
   proposedBody: string | null,
+  attributes: Record<string, unknown>,
   now: string
 ): void {
   database
     .prepare(
       `UPDATE memory_nodes
-       SET summary = ?, body = ?, revision = revision + 1, updated_at = ?
+       SET summary = ?, body = ?, attributes_json = ?, revision = revision + 1, updated_at = ?
        WHERE id = ?`
     )
-    .run(proposedSummary ?? node.summary, proposedBody ?? node.body, now, node.id);
+    .run(proposedSummary ?? node.summary, proposedBody ?? node.body, JSON.stringify(attributes), now, node.id);
+}
+
+function reclassifyMemoryNode(
+  database: DatabaseSync,
+  node: DreamingCandidate,
+  type: MemoryNodeType,
+  attributes: Record<string, unknown>,
+  nextId: string,
+  now: string
+): void {
+  if (database.prepare('SELECT 1 FROM memory_nodes WHERE id = ?').get(nextId)) {
+    throw new Error(`Memory node reclassification conflicts with existing node: ${nextId}`);
+  }
+  database.exec('PRAGMA defer_foreign_keys = ON;');
+  database
+    .prepare(
+      'UPDATE memory_nodes SET id = ?, type = ?, attributes_json = ?, revision = revision + 1, updated_at = ? WHERE id = ?'
+    )
+    .run(nextId, type, JSON.stringify(attributes), now, node.id);
+  database.prepare('UPDATE memory_node_sessions SET node_id = ? WHERE node_id = ?').run(nextId, node.id);
+  database.prepare('UPDATE memory_node_workspaces SET node_id = ? WHERE node_id = ?').run(nextId, node.id);
+  database.prepare('UPDATE memory_node_assets SET node_id = ? WHERE node_id = ?').run(nextId, node.id);
+  database.prepare('UPDATE memory_node_tags SET node_id = ? WHERE node_id = ?').run(nextId, node.id);
+  database.prepare('UPDATE memory_evidence_refs SET node_id = ? WHERE node_id = ?').run(nextId, node.id);
+  replaceMemoryEdgeNodeId(database, node.id, nextId);
+  updateBealeMemoryNodeReferences(database, node.id, nextId);
+}
+
+function stableMemoryNodeId(subjectId: string, type: MemoryNodeType, normalizedTitle: string): string {
+  return `${type}_${createHash('sha256').update(`${subjectId}:${type}:${normalizedTitle}`).digest('hex').slice(0, 20)}`;
+}
+
+function normalizeMemoryTitle(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function replaceMemoryEdgeNodeId(database: DatabaseSync, previousId: string, nextId: string): void {
+  const edges = asRows(
+    database
+      .prepare(
+        `SELECT ${EDGE_COLUMNS.join(', ')}
+         FROM memory_edges
+         WHERE from_id = ? OR to_id = ?`
+      )
+      .all(previousId, previousId)
+  );
+  database.prepare('DELETE FROM memory_edges WHERE from_id = ? OR to_id = ?').run(previousId, previousId);
+  const insert = database.prepare(
+    `INSERT INTO memory_edges (${EDGE_COLUMNS.join(', ')}) VALUES (${EDGE_COLUMNS.map(() => '?').join(', ')})`
+  );
+  for (const edge of edges) {
+    insert.run(
+      stringField(edge, 'from_id') === previousId ? nextId : stringField(edge, 'from_id'),
+      stringField(edge, 'to_id') === previousId ? nextId : stringField(edge, 'to_id'),
+      ...EDGE_COLUMNS.slice(2).map((column) => edge[column] ?? null)
+    );
+  }
+}
+
+function updateBealeMemoryNodeReferences(database: DatabaseSync, previousId: string, nextId: string): void {
+  for (const table of ['verifier_contracts', 'exports']) {
+    if (tableExists(database, table)) {
+      database.prepare(`UPDATE ${table} SET memory_node_id = ? WHERE memory_node_id = ?`).run(nextId, previousId);
+    }
+  }
 }
 
 function richerSuperset(primary: string, alternatives: string[]): string {
@@ -702,7 +1103,19 @@ function insertDreamingChange(
 
 function snapshotMemoryRecords(database: DatabaseSync, nodeIds: string[]): MemoryRecordsSnapshot {
   const uniqueIds = [...new Set(nodeIds)].sort();
-  if (uniqueIds.length === 0) return { nodes: [], sessions: [], workspaces: [], assets: [], tags: [], evidence: [], edges: [] };
+  if (uniqueIds.length === 0) {
+    return {
+      nodes: [],
+      sessions: [],
+      workspaces: [],
+      assets: [],
+      tags: [],
+      evidence: [],
+      edges: [],
+      verifierContracts: [],
+      exports: []
+    };
+  }
   const placeholders = uniqueIds.map(() => '?').join(', ');
   return {
     nodes: asRows(
@@ -744,13 +1157,28 @@ function snapshotMemoryRecords(database: DatabaseSync, nodeIds: string[]): Memor
            ORDER BY from_id, to_id, relation`
         )
         .all(...uniqueIds, ...uniqueIds)
-    )
+    ),
+    verifierContracts: snapshotBealeMemoryNodeReferences(database, 'verifier_contracts', uniqueIds),
+    exports: snapshotBealeMemoryNodeReferences(database, 'exports', uniqueIds)
   };
+}
+
+function snapshotBealeMemoryNodeReferences(database: DatabaseSync, table: string, nodeIds: string[]): SqlRow[] {
+  if (!tableExists(database, table)) return [];
+  const placeholders = nodeIds.map(() => '?').join(', ');
+  return asRows(
+    database
+      .prepare(`SELECT id, memory_node_id FROM ${table} WHERE memory_node_id IN (${placeholders}) ORDER BY id`)
+      .all(...nodeIds)
+  );
 }
 
 function applyMemorySnapshot(database: DatabaseSync, snapshot: MemoryRecordsSnapshot, nodeIds: string[]): void {
   const uniqueIds = [...new Set(nodeIds)].sort();
+  if (uniqueIds.length === 0) return;
   const placeholders = uniqueIds.map(() => '?').join(', ');
+  clearBealeMemoryNodeReferences(database, 'verifier_contracts', uniqueIds);
+  clearBealeMemoryNodeReferences(database, 'exports', uniqueIds);
   database.prepare(`DELETE FROM memory_node_sessions WHERE node_id IN (${placeholders})`).run(...uniqueIds);
   database.prepare(`DELETE FROM memory_node_workspaces WHERE node_id IN (${placeholders})`).run(...uniqueIds);
   database.prepare(`DELETE FROM memory_node_assets WHERE node_id IN (${placeholders})`).run(...uniqueIds);
@@ -759,6 +1187,7 @@ function applyMemorySnapshot(database: DatabaseSync, snapshot: MemoryRecordsSnap
   database
     .prepare(`DELETE FROM memory_edges WHERE from_id IN (${placeholders}) OR to_id IN (${placeholders})`)
     .run(...uniqueIds, ...uniqueIds);
+  database.prepare(`DELETE FROM memory_nodes WHERE id IN (${placeholders})`).run(...uniqueIds);
 
   const nodeInsert = database.prepare(
     `INSERT INTO memory_nodes (${NODE_COLUMNS.join(', ')})
@@ -773,6 +1202,20 @@ function applyMemorySnapshot(database: DatabaseSync, snapshot: MemoryRecordsSnap
   insertSnapshotRows(database, 'memory_node_tags', ['node_id', 'tag'], snapshot.tags);
   insertSnapshotRows(database, 'memory_evidence_refs', [...EVIDENCE_COLUMNS], snapshot.evidence);
   insertSnapshotRows(database, 'memory_edges', [...EDGE_COLUMNS], snapshot.edges);
+  restoreBealeMemoryNodeReferences(database, 'verifier_contracts', snapshot.verifierContracts);
+  restoreBealeMemoryNodeReferences(database, 'exports', snapshot.exports);
+}
+
+function clearBealeMemoryNodeReferences(database: DatabaseSync, table: string, nodeIds: string[]): void {
+  if (!tableExists(database, table)) return;
+  const placeholders = nodeIds.map(() => '?').join(', ');
+  database.prepare(`UPDATE ${table} SET memory_node_id = NULL WHERE memory_node_id IN (${placeholders})`).run(...nodeIds);
+}
+
+function restoreBealeMemoryNodeReferences(database: DatabaseSync, table: string, rows: SqlRow[]): void {
+  if (!tableExists(database, table) || rows.length === 0) return;
+  const update = database.prepare(`UPDATE ${table} SET memory_node_id = ? WHERE id = ?`);
+  for (const row of rows) update.run(nullableField(row, 'memory_node_id'), stringField(row, 'id'));
 }
 
 function insertSnapshotRows(database: DatabaseSync, table: string, columns: string[], rows: SqlRow[]): void {
@@ -784,7 +1227,7 @@ function insertSnapshotRows(database: DatabaseSync, table: string, columns: stri
 }
 
 function dreamingChangeSummary(database: DatabaseSync, change: DreamingChangeRow): MemoryDreamingChangeSummary {
-  const nodeIds = change.before.nodes.map((node) => stringField(node, 'id'));
+  const nodeIds = snapshotNodeIds(change.before, change.after);
   const canRestore = change.restoredAt === null && snapshotsEqual(snapshotMemoryRecords(database, nodeIds), change.after);
   return {
     id: change.id,
@@ -829,11 +1272,26 @@ function mapDreamingRunSummary(row: SqlRow): MemoryDreamingRunSummary {
     prunedNodeCount: numberField(row, 'stale_hidden_count'),
     duplicateHiddenCount: numberField(row, 'duplicate_hidden_count'),
     duplicateGroupCount: numberField(row, 'duplicate_group_count'),
+    reclassifiedNodeCount: numberField(row, 'reclassified_node_count'),
     editedNodeCount: numberField(row, 'edited_node_count'),
     createdAt: stringField(row, 'created_at'),
     completedAt: stringField(row, 'completed_at'),
-    restoredAt: nullableField(row, 'restored_at')
+    restoredAt: nullableField(row, 'restored_at'),
+    errorMessage: nullableField(row, 'error_message')
   };
+}
+
+function sanitizeMemoryDreamingFailure(error: unknown): string {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const redacted = redactForModelText(raw)
+    .replace(/\b[A-Za-z0-9._~+/=-]{64,}\b/g, '...redacted')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (redacted || 'Memory Dreaming failed before its curation plan could be applied.').slice(0, 1_000);
+}
+
+function memoryDreamingErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : typeof error === 'string' ? error : 'Memory Dreaming plan validation failed.';
 }
 
 function parseSnapshot(value: string): MemoryRecordsSnapshot {
@@ -845,8 +1303,14 @@ function parseSnapshot(value: string): MemoryRecordsSnapshot {
     assets: Array.isArray(parsed.assets) ? parsed.assets : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],
     evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
-    edges: Array.isArray(parsed.edges) ? parsed.edges : []
+    edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+    verifierContracts: Array.isArray(parsed.verifierContracts) ? parsed.verifierContracts : [],
+    exports: Array.isArray(parsed.exports) ? parsed.exports : []
   };
+}
+
+function snapshotNodeIds(...snapshots: MemoryRecordsSnapshot[]): string[] {
+  return [...new Set(snapshots.flatMap((snapshot) => snapshot.nodes.map((node) => stringField(node, 'id'))))].sort();
 }
 
 function parseStringArray(value: string): string[] {

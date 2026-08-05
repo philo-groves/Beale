@@ -423,6 +423,136 @@ describe('Beale workbench skeleton', () => {
     verified.close();
   });
 
+  it('migrates legacy Dreaming records to the reclassification-capable schema', () => {
+    const workspace = tempWorkspace();
+    const databasePath = globalDatabasePath();
+    const initialized = new WorkspaceDatabase(databasePath, join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    initialized.initialize();
+    const workspaceId = initialized.getWorkspaceId();
+    initialized.close();
+
+    const legacy = new DatabaseSync(databasePath);
+    const now = '2026-08-05T10:00:00.000Z';
+    const emptySnapshot = JSON.stringify({ nodes: [], sessions: [], workspaces: [], assets: [], tags: [], evidence: [], edges: [] });
+    legacy
+      .prepare(
+        `INSERT INTO memory_dreaming_runs (
+           id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+           duplicate_group_count, edited_node_count, created_at, completed_at, restored_at,
+           model, reasoning_effort, input_node_count, input_session_count
+         ) VALUES ('legacy_dream', ?, 'completed', 1, 0, 0, 0, ?, ?, NULL, 'gpt-5.6-sol', 'high', 1, 1)`
+      )
+      .run(workspaceId, now, now);
+    legacy
+      .prepare(
+        `INSERT INTO memory_dreaming_changes (
+           id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+           survivor_node_id, reason, before_json, after_json, created_at, restored_at
+         ) VALUES ('legacy_change', 'legacy_dream', ?, 'prune', 'Legacy note', 'trajectory', '[]', NULL, 'Legacy cleanup.', ?, ?, ?, NULL)`
+      )
+      .run(workspaceId, emptySnapshot, emptySnapshot, now);
+    legacy.exec(`
+      PRAGMA foreign_keys = OFF;
+      ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_with_reclassification;
+      ALTER TABLE memory_dreaming_runs RENAME TO memory_dreaming_runs_with_reclassification;
+      CREATE TABLE memory_dreaming_runs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('completed', 'restored')),
+        stale_hidden_count INTEGER NOT NULL DEFAULT 0,
+        duplicate_hidden_count INTEGER NOT NULL DEFAULT 0,
+        duplicate_group_count INTEGER NOT NULL DEFAULT 0,
+        edited_node_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        restored_at TEXT,
+        model TEXT NOT NULL DEFAULT 'unknown',
+        reasoning_effort TEXT NOT NULL DEFAULT 'unknown',
+        input_node_count INTEGER NOT NULL DEFAULT 0,
+        input_session_count INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO memory_dreaming_runs (
+        id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+        duplicate_group_count, edited_node_count, created_at, completed_at, restored_at,
+        model, reasoning_effort, input_node_count, input_session_count
+      )
+      SELECT
+        id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+        duplicate_group_count, edited_node_count, created_at, completed_at, restored_at,
+        model, reasoning_effort, input_node_count, input_session_count
+      FROM memory_dreaming_runs_with_reclassification;
+      CREATE TABLE memory_dreaming_changes (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise')),
+        title TEXT NOT NULL,
+        node_type TEXT NOT NULL,
+        hidden_node_ids_json TEXT NOT NULL,
+        survivor_node_id TEXT,
+        reason TEXT NOT NULL,
+        before_json TEXT NOT NULL,
+        after_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        restored_at TEXT
+      );
+      INSERT INTO memory_dreaming_changes SELECT * FROM memory_dreaming_changes_with_reclassification;
+      DROP TABLE memory_dreaming_changes_with_reclassification;
+      DROP TABLE memory_dreaming_runs_with_reclassification;
+      CREATE INDEX idx_memory_dreaming_runs_workspace_created ON memory_dreaming_runs(workspace_id, created_at DESC);
+      CREATE INDEX idx_memory_dreaming_changes_workspace_created ON memory_dreaming_changes(workspace_id, created_at DESC);
+      CREATE INDEX idx_memory_dreaming_changes_run ON memory_dreaming_changes(run_id);
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version IN (11, 12);
+      PRAGMA foreign_keys = ON;
+    `);
+    legacy.close();
+
+    const migrated = new WorkspaceDatabase(databasePath, join(workspace, '.beale', 'artifacts'), { workspacePath: workspace });
+    migrated.initialize();
+    migrated.close();
+
+    const verified = new DatabaseSync(databasePath);
+    expect(
+      verified.prepare("SELECT name FROM pragma_table_info('memory_dreaming_runs') WHERE name = 'reclassified_node_count'").get()
+    ).toEqual({ name: 'reclassified_node_count' });
+    expect(verified.prepare('SELECT action, reason FROM memory_dreaming_changes WHERE id = ?').get('legacy_change')).toEqual({
+      action: 'prune',
+      reason: 'Legacy cleanup.'
+    });
+    expect(
+      verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 11").get()
+    ).toEqual({ name: 'memory_dreaming_reclassification' });
+    expect(
+      verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 12").get()
+    ).toEqual({ name: 'memory_dreaming_failed_runs' });
+    expect(
+      verified.prepare("SELECT name FROM pragma_table_info('memory_dreaming_runs') WHERE name = 'error_message'").get()
+    ).toEqual({ name: 'error_message' });
+    expect(() =>
+      verified
+        .prepare(
+          `INSERT INTO memory_dreaming_runs (
+             id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+             duplicate_group_count, reclassified_node_count, edited_node_count,
+             created_at, completed_at, restored_at, model, reasoning_effort,
+             input_node_count, input_session_count, error_message
+           ) VALUES ('failed_dream', ?, 'failed', 0, 0, 0, 0, 0, ?, ?, NULL, 'gpt-5.6-sol', 'high', 1, 1, 'Provider unavailable.')`
+        )
+        .run(workspaceId, now, now)
+    ).not.toThrow();
+    expect(() =>
+      verified
+        .prepare(
+          `INSERT INTO memory_dreaming_changes (
+             id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+             survivor_node_id, reason, before_json, after_json, created_at, restored_at
+           ) VALUES ('reclassified_change', 'legacy_dream', ?, 'reclassify', 'Legacy note', 'invariant', '[]', 'legacy_node', 'Corrected type.', ?, ?, ?, NULL)`
+        )
+        .run(workspaceId, emptySnapshot, emptySnapshot, now)
+    ).not.toThrow();
+    verified.close();
+  });
+
   it('keeps operational records scoped while workspaces share the global database', () => {
     const databasePath = globalDatabasePath();
     const firstWorkspace = tempWorkspace();
@@ -631,6 +761,11 @@ describe('Beale workbench skeleton', () => {
         "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
         "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4.3') throw new Error('missing provider small-model map');",
         "if (args[args.indexOf('--shell-review-effort') + 1] !== 'medium') throw new Error('missing shell review effort');",
+        "const memoryModels = JSON.parse(args[args.indexOf('--memory-models') + 1]);",
+        "if (memoryModels['openai-codex'] !== 'gpt-5.6-luna' || memoryModels.anthropic !== 'claude-haiku-4-5' || memoryModels.xai !== 'grok-4.3') throw new Error('missing memory small-model map');",
+        "if (args[args.indexOf('--memory-effort') + 1] !== 'medium') throw new Error('missing memory effort');",
+        "const memoryTypeDescriptions = JSON.parse(args[args.indexOf('--memory-type-descriptions') + 1]);",
+        "if (memoryTypeDescriptions.primitive !== 'CUSTOM TEST TAXONOMY: one independently proven root-cause flaw.') throw new Error('missing memory type descriptions');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
@@ -716,6 +851,10 @@ describe('Beale workbench skeleton', () => {
 
     const service = new WorkspaceService();
     const snapshot = service.createWorkspace(workspace);
+    service.setMemoryTypeDescriptions({
+      ...service.getMemorySettings().typeDescriptions,
+      primitive: 'CUSTOM TEST TAXONOMY: one independently proven root-cause flaw.'
+    });
     const runSnapshot = service.startRun({
       ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
@@ -749,6 +888,13 @@ describe('Beale workbench skeleton', () => {
       xai: 'grok-4.3'
     });
     expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
+    expect(JSON.parse(launchArgs[launchArgs.indexOf('--memory-models') + 1] ?? '{}')).toEqual({
+      'openai-codex': 'gpt-5.6-luna',
+      anthropic: 'claude-haiku-4-5',
+      xai: 'grok-4.3'
+    });
+    expect(launchArgs[launchArgs.indexOf('--memory-effort') + 1]).toBe('medium');
+    expect(launchArgs[launchArgs.indexOf('--memory-type-descriptions') + 1]).toBe('[configured]');
     expect(detail.run.title).toBe('Zsh Host Adapter Validation');
     expect(detail.run.finalDisposition).toEqual({
       outcome: 'blocked',
@@ -1721,10 +1867,12 @@ describe('Beale workbench skeleton', () => {
         "const resumeFallbackPrompt = args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null;",
         "const goalObjective = args.includes('--goal-objective') ? args[args.indexOf('--goal-objective') + 1] : null;",
         "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
+        "const memoryModels = args.includes('--memory-models') ? JSON.parse(args[args.indexOf('--memory-models') + 1]) : null;",
+        "const memoryEffort = args.includes('--memory-effort') ? args[args.indexOf('--memory-effort') + 1] : null;",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, turn }) + '\\n');",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, memoryModels, memoryEffort, turn }) + '\\n');",
         'const now = new Date().toISOString();',
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', messagePhase: 'commentary', responseId: `response_${turn}`, itemId: `commentary_${turn}`, text: `Retained commentary from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
@@ -1775,6 +1923,8 @@ describe('Beale workbench skeleton', () => {
           resumeFallbackPrompt: string | null;
           goalObjective: string | null;
           titleModel: string | null;
+          memoryModels: Record<string, string> | null;
+          memoryEffort: string | null;
           turn: number;
         });
       expect(detail.run.id).toBe(runId);
@@ -1786,6 +1936,11 @@ describe('Beale workbench skeleton', () => {
       );
       expect(invocations).toHaveLength(2);
       expect(invocations.map((invocation) => invocation.titleModel)).toEqual(['gpt-5.6-luna', null]);
+      expect(invocations.map((invocation) => invocation.memoryModels)).toEqual([
+        { 'openai-codex': 'gpt-5.6-luna', anthropic: 'claude-haiku-4-5', xai: 'grok-4.3' },
+        { 'openai-codex': 'gpt-5.6-luna', anthropic: 'claude-haiku-4-5', xai: 'grok-4.3' }
+      ]);
+      expect(invocations.map((invocation) => invocation.memoryEffort)).toEqual(['medium', 'medium']);
       expect(invocations.map((invocation) => invocation.sessionId)).toEqual([runId, runId]);
       expect(invocations.map((invocation) => invocation.goalObjective)).toEqual([
         'Determine whether ZFTP contains a reachable memory-safety vulnerability.',
@@ -1852,6 +2007,7 @@ describe('Beale workbench skeleton', () => {
         '#!/usr/bin/env node',
         "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
         "import { dirname } from 'node:path';",
+        "if (!process.execArgv.includes('--max-old-space-size=131072')) throw new Error('Honeycrisp Node heap limit missing');",
         'const args = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const contextPath = args[args.indexOf('--workspace-context') + 1];",
@@ -1879,6 +2035,7 @@ describe('Beale workbench skeleton', () => {
         '  eventTimeline: []',
         "}, null, 2) + '\\n');",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload: { type: 'turn_completed', turn: 1, responseId: 'response_fixture', stopReason: 'stop', usage: { input: 123, output: 45, totalTokens: 168 } } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload: { type: 'memory_curator.completed', agentId: 'memory_curator', agentPath: '/memory-curator', contextUsageEligible: false, usage: { input: 12, output: 3, cacheRead: 8, totalTokens: 23 } } }));",
         "console.log('node cli fixture stdout');"
       ].join('\n')
     );
@@ -1929,6 +2086,8 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--repo-root');
     expect(JSON.stringify(launchEvent?.payload)).not.toContain('--file-read-root');
     const launchArgs = (launchEvent?.payload as { args?: string[] } | undefined)?.args ?? [];
+    expect(launchArgs[0]).toBe('--max-old-space-size=131072');
+    expect(launchArgs[1]).toBe(cliPath);
     expect(launchArgs).toContain('--shell-options');
     expect(launchArgs).toContain('--goal');
     expect(launchArgs).toContain('--goal-objective');
@@ -1985,6 +2144,22 @@ describe('Beale workbench skeleton', () => {
       output_tokens: 45,
       total_tokens: 168,
       estimated: false
+    });
+    expect(detail.traceEvents.find(
+      (event) => event.summary === 'Honeycrisp memory curator completed turn processing.'
+    )?.payload).toMatchObject({
+      type: 'memory_curator.completed',
+      agentId: 'memory_curator',
+      agentPath: '/memory-curator',
+      contextUsageEligible: false,
+      usage: {
+        input_tokens: 12,
+        prompt_tokens: 20,
+        output_tokens: 3,
+        total_tokens: 23,
+        cache_read_tokens: 8,
+        estimated: false
+      }
     });
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
     expect(detail.run.budget.goalEnabled).toBe(true);

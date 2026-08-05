@@ -1,6 +1,8 @@
 import type { JSX } from 'react';
 import type {
   DeveloperSettings,
+  MemorySettings,
+  MemoryTypeDescriptions,
   ShellOptions,
   NotificationRecord,
   OpenAiAccountStatus,
@@ -39,6 +41,7 @@ export function AppModals({
   activeWorkspaceName,
   busy,
   developerSettings,
+  memorySettings,
   shellOptions,
   chatView,
   newResearchOpen,
@@ -88,6 +91,7 @@ export function AppModals({
   onRefreshOpenAi,
   onFlushProfilingReport,
   onSetDeveloperModeEnabled,
+  onSaveMemoryTypeDescriptions,
   onChangeChatView,
   onSaveShellOptions,
   onStartOpenAiOAuth,
@@ -105,6 +109,7 @@ export function AppModals({
   activeWorkspaceName: string;
   busy: boolean;
   developerSettings: DeveloperSettings | null;
+  memorySettings: MemorySettings | null;
   shellOptions: ShellOptions | null;
   chatView: ChatView;
   newResearchOpen: boolean;
@@ -154,6 +159,7 @@ export function AppModals({
   onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+  onSaveMemoryTypeDescriptions: (descriptions: MemoryTypeDescriptions) => Promise<void>;
   onChangeChatView: (chatView: ChatView) => void;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
@@ -201,6 +207,7 @@ export function AppModals({
         <SettingsModal
           section={settingsSection}
           developerSettings={developerSettings}
+          memorySettings={memorySettings}
           shellOptions={shellOptions}
           chatView={chatView}
           workspaceName={activeWorkspaceName}
@@ -212,6 +219,7 @@ export function AppModals({
           onChangeSection={onChangeSettingsSection}
           onClose={onCloseSettings}
           onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
+          onSaveMemoryTypeDescriptions={onSaveMemoryTypeDescriptions}
           onChangeChatView={onChangeChatView}
           onSaveShellOptions={onSaveShellOptions}
           onRefreshOpenAi={onRefreshOpenAi}

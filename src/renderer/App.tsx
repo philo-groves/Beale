@@ -5,6 +5,8 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   ApprovalRecord,
   DeveloperSettings,
+  MemorySettings,
+  MemoryTypeDescriptions,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
@@ -86,6 +88,7 @@ export function App(): JSX.Element {
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
+  const [memorySettings, setMemorySettings] = useState<MemorySettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [chatView, setChatView] = useChatViewPreference();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -109,6 +112,7 @@ export function App(): JSX.Element {
   const [runbookLoading, setRunbookLoading] = useState(false);
   const [runbookError, setRunbookError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [memoryDreamingInProgress, setMemoryDreamingInProgress] = useState(false);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
@@ -168,6 +172,13 @@ export function App(): JSX.Element {
     window.beale
       .getDeveloperSettings()
       .then(setDeveloperSettings)
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
+  }, [handleError]);
+
+  useEffect(() => {
+    window.beale
+      .getMemorySettings()
+      .then(setMemorySettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
@@ -284,7 +295,9 @@ export function App(): JSX.Element {
   );
 
   const runMemoryDreaming = useCallback((): void => {
-    void runAction(() => window.beale.runMemoryDreaming());
+    setMemoryDreamingInProgress(true);
+    void runAction(() => window.beale.runMemoryDreaming())
+      .finally(() => setMemoryDreamingInProgress(false));
   }, [runAction]);
 
   const restoreMemoryDreamingChange = useCallback((changeId: string): void => {
@@ -386,6 +399,18 @@ export function App(): JSX.Element {
     setError(null);
     try {
       setShellOptions(await window.beale.setShellOptions(options));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const saveMemoryTypeDescriptions = useCallback(async (descriptions: MemoryTypeDescriptions): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setMemorySettings(await window.beale.setMemoryTypeDescriptions(descriptions));
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -715,6 +740,7 @@ export function App(): JSX.Element {
             searchHighlightQuery={traceSearchHighlightQuery}
             visibleTraceCategories={visibleTraceCategories}
             busy={busy}
+            memoryDreamingInProgress={memoryDreamingInProgress}
             traceFilterCount={visibleTraceCategories.length}
             totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
             onOpenTraceFilters={openTraceFilters}
@@ -749,6 +775,7 @@ export function App(): JSX.Element {
         activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
         developerSettings={developerSettings}
+        memorySettings={memorySettings}
         shellOptions={shellOptions}
         chatView={chatView}
         newResearchOpen={newResearchOpen}
@@ -801,6 +828,7 @@ export function App(): JSX.Element {
         onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
         onSetDeveloperModeEnabled={setDeveloperModeEnabled}
+        onSaveMemoryTypeDescriptions={saveMemoryTypeDescriptions}
         onChangeChatView={setChatView}
         onSaveShellOptions={saveShellOptions}
         onStartOpenAiOAuth={startOpenAiOAuth}

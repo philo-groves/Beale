@@ -77,6 +77,31 @@ describe('renderer research momentum view model', () => {
     expect(momentum.supportingTraceEventIds).toEqual(['trace_memory_correct']);
   });
 
+  it('does not treat a memory request as a persisted graph mutation', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-21T12:00:00.000Z'));
+
+    const momentum = researchMomentumForDetail(
+      runDetail({
+        traceEvents: [traceEvent({
+          id: 'trace_memory_request',
+          source: 'model',
+          type: 'tool_call',
+          summary: 'Honeycrisp tool.requested: memory.request',
+          payload: {
+            honeycrispKind: 'tool.requested',
+            payload: { toolName: 'memory.request' }
+          },
+          createdAt: '2026-07-21T11:59:30.000Z'
+        })]
+      }),
+      'medium'
+    );
+
+    expect(momentum.state).toBe('exploring');
+    expect(momentum.supportingTraceEventIds).toEqual(['trace_memory_request']);
+  });
+
   it('uses a recent current-session chain memory for hot momentum', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-21T12:00:00.000Z'));

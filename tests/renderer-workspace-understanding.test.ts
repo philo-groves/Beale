@@ -43,10 +43,12 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
           prunedNodeCount: 1,
           duplicateHiddenCount: 2,
           duplicateGroupCount: 1,
-          editedNodeCount: 1,
+          reclassifiedNodeCount: 1,
+          editedNodeCount: 2,
           createdAt: '2026-07-29T11:00:00.000Z',
           completedAt: '2026-07-29T11:00:00.000Z',
-          restoredAt: null
+          restoredAt: null,
+          errorMessage: null
         },
         changes: [
           {
@@ -61,6 +63,19 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
             createdAt: '2026-07-29T11:00:00.000Z',
             restoredAt: null,
             canRestore: true
+          },
+          {
+            id: 'change_two',
+            runId: 'dream_one',
+            action: 'reclassify',
+            title: 'Mounted images synthesize quarantine state',
+            nodeType: 'invariant',
+            hiddenNodeIds: [],
+            survivorNodeId: 'quarantine_behavior',
+            reason: 'The node records platform behavior rather than a flaw.',
+            createdAt: '2026-07-29T11:00:00.000Z',
+            restoredAt: null,
+            canRestore: true
           }
         ]
       }
@@ -69,6 +84,7 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceUnderstandingView, {
         busy: false,
+        memoryDreamingInProgress: false,
         honeycrispMemory: memory,
         runCount: 2,
         scope: null,
@@ -82,13 +98,59 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     expect(html).toContain('Dreaming');
     expect(html).toContain('>Dream</button>');
     expect(html).toContain('up to 100 past session transcripts');
+    expect(html).toContain('reclassifies');
     expect(html).toContain('Original nodes and revisions remain stored for restoration.');
     expect(html).toContain('class="memory-type-label memory-type-primitive"');
     expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
     expect(html).toContain('Hidden Nodes');
     expect(html).toContain('Restorable Changes');
+    expect(html).toContain('Last Reclassified');
     expect(html).toContain('Parser mismatch');
     expect(html).toContain('2 duplicates consolidated');
+    expect(html).toContain('Memory reclassified as invariant');
     expect(html).toContain('aria-label="Restore Dreaming change for Parser mismatch"');
+
+    const inProgressHtml = renderToStaticMarkup(
+      createElement(WorkspaceUnderstandingView, {
+        busy: true,
+        memoryDreamingInProgress: true,
+        honeycrispMemory: memory,
+        runCount: 2,
+        scope: null,
+        onOpenHoneycrispMemoryDirectory: () => undefined,
+        onRestoreMemoryDreamingChange: () => undefined,
+        onRunMemoryDreaming: () => undefined
+      })
+    );
+    expect(inProgressHtml).toContain('In Progress');
+    expect(inProgressHtml).toContain('Dreaming…');
+
+    const failedMemory: HoneycrispMemorySummary = {
+      ...memory,
+      dreaming: {
+        ...memory.dreaming,
+        lastRun: {
+          ...memory.dreaming.lastRun!,
+          status: 'failed',
+          editedNodeCount: 0,
+          errorMessage: 'The provider returned a temporary error.'
+        }
+      }
+    };
+    const failedHtml = renderToStaticMarkup(
+      createElement(WorkspaceUnderstandingView, {
+        busy: false,
+        memoryDreamingInProgress: false,
+        honeycrispMemory: failedMemory,
+        runCount: 2,
+        scope: null,
+        onOpenHoneycrispMemoryDirectory: () => undefined,
+        onRestoreMemoryDreamingChange: () => undefined,
+        onRunMemoryDreaming: () => undefined
+      })
+    );
+    expect(failedHtml).toContain('Last Dreaming attempt failed before applying changes');
+    expect(failedHtml).toContain('The provider returned a temporary error.');
+    expect(failedHtml).toContain('no changes applied');
   });
 });

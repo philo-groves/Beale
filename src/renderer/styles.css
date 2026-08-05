@@ -3022,6 +3022,12 @@ button.session-summary-item:hover:not(:disabled),
   padding: 34px var(--trace-footer-composer-inset) 42px;
 }
 
+.main-commentary-spacer {
+  flex: 0 0 auto;
+  min-width: 0;
+  pointer-events: none;
+}
+
 .main-commentary-message {
   width: 100%;
   max-width: var(--trace-content-max-width);
@@ -7973,8 +7979,61 @@ button.research-goal-choice:focus-visible {
 
 .general-settings-page,
 .developer-settings-page,
+.memory-settings-page,
 .shell-options-page {
   gap: 12px;
+}
+
+.memory-settings-page > .settings-page-header {
+  align-items: flex-start;
+}
+
+.memory-settings-page > .settings-page-header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.memory-settings-page > .settings-page-header p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.memory-settings-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.memory-type-descriptions-card {
+  gap: 10px;
+}
+
+.memory-type-description-list {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.memory-type-description {
+  min-width: 0;
+  border-radius: 7px;
+  background: var(--panel);
+  padding: 9px;
+}
+
+.memory-type-description > span {
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.memory-type-description textarea {
+  min-height: 82px;
+  font-size: 0.76rem;
 }
 
 .chat-view-settings {
@@ -8988,7 +9047,8 @@ button.research-goal-choice:focus-visible {
   text-transform: uppercase;
 }
 
-.status-active {
+.status-active,
+.status-in_progress {
   background: var(--green-soft);
   color: var(--green);
 }

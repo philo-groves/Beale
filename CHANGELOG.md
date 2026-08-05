@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- Long Commentary histories now render a bounded virtual window with preserved follow-latest and search navigation, while incremental detail ingestion and repeated tool projection avoid unnecessary full-history map, sort, and array-copy work.
+- Aligned the editable memory taxonomy with curator validation by defining root-cause keys as lowercase-hyphenated and treating source, sink, and asset chain relationships as recommended rather than mandatory.
+- Memory Dreaming now requests one complete corrected plan after a model-output or pre-apply validation error, while retaining all-or-nothing application and persisting only a final failed attempt.
+- Memory Dreaming can now atomically add bounded, evidence-supported structural attributes while merging, revising, or reclassifying memories, allowing legacy primitives to gain required root-cause metadata without losing reversible history.
+- Dreaming reclassification now regenerates Honeycrisp's canonical type-derived node ID and atomically migrates or restores graph memberships, assets, tags, evidence, relationships, verifier contracts, and export references.
+- Memory Dreaming now acknowledges in-progress runs in the workspace dashboard and persists sanitized pre-apply failures so provider, parsing, and validation errors no longer appear as inert clicks.
+- Stopping a session now cancels active background memory curation and drops queued reviews without producing a burst of curator failure traces.
 - Long-running sessions now commit incremental detail updates without transition starvation, keeping token totals, cache hit rate, and context usage current during sustained agent activity.
 - Honeycrisp sessions now automatically resume from their latest capture after a terminal provider WebSocket error, suppress the transient error as a final response, and cap consecutive host-level continuation attempts at two.
 - Session summary Completed subagent totals now include completed, errored, and interrupted agents, matching the detailed Completed list while retaining Error as a subset count.
@@ -27,6 +34,10 @@
 
 ### Changed
 
+- Memory Dreaming now uses GPT-5.6 Sol with high reasoning, applies the editable memory taxonomy while consolidating root-cause duplicates, receives bounded root-cause attributes and graph relationships, and can reversibly reclassify invalid nodes only when the target type's structural invariants remain valid.
+- Launched Node-based Honeycrisp research runs with a Honeycrisp-only 128 GiB V8 old-space ceiling, without changing Beale or target-process environments.
+- Kept background memory-curator activity in the secondary trace list while hiding its synthetic tool rows from the default Commentary chat; explicit agent `memory.request` calls remain visible.
+- Moved Honeycrisp memory creation, revision, and relationship maintenance to a queued provider-matched small-model curator after each turn; research agents retain read-only memory access and can submit validated memory requests, while curator usage contributes to session totals without replacing the root agent's current-context reading.
 - Reworked Memory catalog rows to align the chat's Memory icon, colored by type, with a regular-weight ellipsized title on the left, place the type label beside the standard-sized timestamp on the right, and show a two-line description preview with chat-styled inline code beneath; every memory type now has a distinct color across detailed memory surfaces while the default session summary remains neutral.
 - Simplified Runbook catalog rows to a status-colored Runbook icon, regular-weight title, two-line description preview, and matching status label beside the standard artifact-sized timestamp, removing redundant metadata labels.
 - Split the Runbooks catalog into counted Active and Archived lists with flat divider-separated rows, grouping draft and completed runbooks with active work.
@@ -118,6 +129,7 @@
 
 ### Added
 
+- Added Settings > Memory with editable, validated descriptions for every durable memory type; Beale passes the saved taxonomy to Honeycrisp as the authoritative agent and curator definitions for each new or resumed research process.
 - Added a synchronized right-sidenav toggle to the session header; it switches between the compact summary and detailed 50/50 sidebar, shows an empty first-view chooser for Memories, Runbooks, or Subagents, and returns to the summary when the final open view closes.
 - Added per-session shell safety modes in the steering composer: Manual Approval requires a researcher decision for every shell command, Auto-Review uses the active provider's assigned small model and is the default, and Danger Mode permits shell execution without per-command review.
 - Added a previous-research goal chooser to New Research. Beale proposes three distinct one-sentence directions from bounded workspace memory, session outcomes, verifier state, and source coverage; selecting one generates a full editable research prompt, while Something Else opens direct prompt entry.

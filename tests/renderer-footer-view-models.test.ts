@@ -171,6 +171,63 @@ describe('renderer session usage view models', () => {
     expect(visibleCacheHitRateLabel(meter)).toBe('70%');
   });
 
+  it('counts memory-curator usage without replacing the root context reading', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              agentPath: '/root',
+              usage: {
+                input: 30_000,
+                output: 1_000,
+                cacheRead: 10_000,
+                totalTokens: 41_000
+              }
+            }
+          }),
+          traceEvent({
+            id: 'trace_curator',
+            sequence: 2,
+            createdAt: '2026-04-29T00:01:00.000Z',
+            payload: {
+              agentPath: '/memory-curator',
+              contextUsageEligible: false,
+              usage: {
+                input: 100,
+                output: 50,
+                cacheRead: 900,
+                totalTokens: 1_050
+              }
+            }
+          }),
+          traceEvent({
+            id: 'trace_nested_curator',
+            sequence: 3,
+            createdAt: '2026-04-29T00:02:00.000Z',
+            payload: {
+              payload: { contextUsageEligible: false },
+              usage: {
+                input: 200,
+                output: 50,
+                cacheRead: 800,
+                totalTokens: 1_050
+              }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.inputTokens).toBe(40_000);
+    expect(meter.totalSessionTokens).toBe(43_100);
+    expect(meter.sessionInputTokens).toBe(42_000);
+    expect(meter.sessionOutputTokens).toBe(1_100);
+    expect(meter.cacheReadTokens).toBe(11_700);
+    expect(meter.cachePromptTokens).toBe(42_000);
+    expect(meter.cacheHitRate).toBeCloseTo(11_700 / 42_000);
+  });
+
   it('shows unavailable cache telemetry distinctly from a zero-percent hit rate', () => {
     const meter = contextMeterForDetail(runDetail({ traceEvents: [] }));
     expect(meter.cacheHitRate).toBeNull();

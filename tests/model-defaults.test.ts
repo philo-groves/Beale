@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MEMORY_CURATOR_REASONING_EFFORT,
   SHELL_SAFETY_REVIEW_REASONING_EFFORT,
   SESSION_TITLE_REASONING_EFFORT,
   smallModelForProvider,
@@ -15,6 +16,7 @@ describe('research session title models', () => {
     expect(smallModelForProvider('anthropic')).toBe('claude-haiku-4-5');
     expect(smallModelForProvider('xai')).toBe('grok-4.3');
     expect(SESSION_TITLE_REASONING_EFFORT).toBe('medium');
+    expect(MEMORY_CURATOR_REASONING_EFFORT).toBe('medium');
     expect(SHELL_SAFETY_REVIEW_REASONING_EFFORT).toBe('medium');
   });
 

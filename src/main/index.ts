@@ -18,6 +18,7 @@ import type {
   ResearchProviderId,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
+  MemoryTypeDescriptions,
   ShellOptions,
   StartRunInput,
   SteeringAction,
@@ -435,6 +436,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () => timedMainIpc('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryState()));
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
+  ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
+  ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
   ipcMain.handle(IPC_CHANNELS.setShellOptions, (_event, options: ShellOptions) => workspaceService.setShellOptions(options));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneScope, (_event, identifier: string) => workspaceService.lookupHackerOneScope(identifier));

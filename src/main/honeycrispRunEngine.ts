@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   ResearchModelSelection,
+  MemoryTypeDescriptions,
   RunRecord,
   ShellSafetyMode,
   TranscriptMessageRecord,
@@ -22,6 +23,7 @@ import type {
 } from '@shared/types';
 import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import {
+  MEMORY_CURATOR_REASONING_EFFORT,
   SESSION_TITLE_REASONING_EFFORT,
   SHELL_SAFETY_REVIEW_REASONING_EFFORT,
   SMALL_MODEL_BY_PROVIDER,
@@ -40,6 +42,7 @@ export interface HoneycrispInvocation {
   prefixArgs: string[];
   cwd: string;
   configuredBy: 'env_command' | 'env_root' | 'sibling_root';
+  usesNodeRuntime: boolean;
 }
 
 interface HoneycrispWorkspaceContextFile {
@@ -238,6 +241,8 @@ interface NormalizedTokenUsage {
 }
 
 const DEFAULT_HONEYCRISP_TOOL_MAX_BYTES = 200_000;
+const HONEYCRISP_MAX_OLD_SPACE_MIB = 128 * 1024;
+const HONEYCRISP_MAX_OLD_SPACE_ARG = `--max-old-space-size=${HONEYCRISP_MAX_OLD_SPACE_MIB}`;
 const MAX_LIVE_OUTPUT_CHARS = 4_000;
 const MAX_SUMMARY_CHARS = 220;
 const HONEYCRISP_REPORTED_USAGE_SOURCE = 'Honeycrisp reported model usage';
@@ -262,7 +267,8 @@ export class HoneycrispRunEngine {
     private readonly db: WorkspaceDatabase,
     private readonly workspacePath: string,
     private readonly onChange: (change?: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean }) => void = () => undefined,
-    private readonly shellOptionsPath?: string
+    private readonly shellOptionsPath?: string,
+    private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions
   ) {}
 
   public startRun(input: StartRunInput): HoneycrispRunHandle {
@@ -458,6 +464,7 @@ export class HoneycrispRunEngine {
       input.networkProfile
     );
     const args = [
+      ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
       ...honeycrispRunArgs(
         input,
@@ -468,7 +475,8 @@ export class HoneycrispRunEngine {
         this.shellOptionsPath,
         !continuation,
         resume?.resumeCapturePath,
-        resume?.fallbackPrompt
+        resume?.fallbackPrompt,
+        this.getMemoryTypeDescriptions?.()
       )
     ];
     this.db.appendTraceEvent({
@@ -1150,6 +1158,28 @@ export class HoneycrispRunEngine {
         if (eventId && active?.liveHoneycrispEventIds.has(eventId)) return;
         if (eventId) active?.liveHoneycrispEventIds.add(eventId);
         this.recordAgentResearchControl(context, event);
+        return;
+      }
+      if (eventType === 'memory_curator.completed') {
+        const reportedUsage = normalizeTokenUsage(recordValue(event.payload?.usage) ?? {});
+        const usage = reportedUsage ? reportedHoneycrispTraceUsage(reportedUsage) : null;
+        this.db.appendTraceEvent({
+          runId: context.run.id,
+          attemptId: context.attempt.id,
+          type: 'model_message',
+          source: 'executor',
+          summary: 'Honeycrisp memory curator completed turn processing.',
+          payload: {
+            honeycrispLiveKind: event.kind,
+            honeycrispTimestamp: event.timestamp ?? null,
+            ...(event.payload ?? {}),
+            contextUsageEligible: false,
+            ...(usage ? { usage } : {})
+          },
+          vmContextId: context.vmContext.id,
+          modelVisible: false
+        });
+        this.onChange();
         return;
       }
       if (eventType !== 'turn_completed') return;
@@ -2171,7 +2201,8 @@ function honeycrispRunArgs(
   shellOptionsPath?: string,
   generateTitle = false,
   resumeCapturePath?: string,
-  resumeFallbackPrompt?: string
+  resumeFallbackPrompt?: string,
+  memoryTypeDescriptions?: MemoryTypeDescriptions
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2229,6 +2260,11 @@ function honeycrispRunArgs(
   args.push('--shell-safety-mode', input.shellSafetyMode);
   args.push('--shell-review-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
   args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
+  args.push('--memory-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
+  args.push('--memory-effort', MEMORY_CURATOR_REASONING_EFFORT);
+  if (memoryTypeDescriptions) {
+    args.push('--memory-type-descriptions', JSON.stringify(memoryTypeDescriptions));
+  }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
   return args;
 }
@@ -2449,7 +2485,8 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
       command,
       prefixArgs: parseEnvArgs('BEALE_HONEYCRISP_ARGS_JSON'),
       cwd: process.env.BEALE_HONEYCRISP_CWD?.trim() || process.cwd(),
-      configuredBy: 'env_command'
+      configuredBy: 'env_command',
+      usesNodeRuntime: isPlainNodeExecutable(command)
     };
   }
 
@@ -2460,14 +2497,16 @@ export function resolveHoneycrispInvocation(): HoneycrispInvocation {
       command: resolveHoneycrispNodeCommand(),
       prefixArgs: [cliPath],
       cwd: root,
-      configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root'
+      configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
+      usesNodeRuntime: true
     };
   }
   return {
     command: process.env.BEALE_HONEYCRISP_PNPM_COMMAND?.trim() || 'pnpm',
     prefixArgs: ['--dir', root, 'start'],
     cwd: root,
-    configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root'
+    configuredBy: process.env.BEALE_HONEYCRISP_ROOT ? 'env_root' : 'sibling_root',
+    usesNodeRuntime: false
   };
 }
 
@@ -2955,6 +2994,11 @@ function redactHoneycrispArgs(args: string[]): string[] {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     redacted.push(arg);
+    if (arg === '--memory-type-descriptions' && index + 1 < args.length) {
+      redacted.push('[configured]');
+      index += 1;
+      continue;
+    }
     if (sensitiveFlags.has(arg) && index + 1 < args.length) {
       redacted.push('[redacted]');
       index += 1;

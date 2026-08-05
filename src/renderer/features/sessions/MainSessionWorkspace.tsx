@@ -34,6 +34,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   searchHighlightQuery,
   visibleTraceCategories,
   busy,
+  memoryDreamingInProgress,
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
@@ -69,6 +70,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
+  memoryDreamingInProgress: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
@@ -96,6 +98,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     return (
       <WorkspaceUnderstandingView
         busy={busy}
+        memoryDreamingInProgress={memoryDreamingInProgress}
         honeycrispMemory={honeycrispMemory}
         runCount={runCount}
         scope={scope}

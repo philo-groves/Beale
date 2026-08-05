@@ -70,6 +70,7 @@ export function shortMetricId(id: string): string {
 
 function mergeTraceEvents(current: TraceEventRecord[], incoming: TraceEventRecord[]): TraceEventRecord[] {
   if (incoming.length === 0) return current;
+  if (canAppendTraceEvents(current, incoming)) return [...current, ...incoming];
   const byId = new Map(current.map((event) => [event.id, event]));
   for (const event of incoming) {
     byId.set(event.id, event);
@@ -79,14 +80,32 @@ function mergeTraceEvents(current: TraceEventRecord[], incoming: TraceEventRecor
 
 function mergeTranscriptMessages(current: TranscriptMessageRecord[], incoming: TranscriptMessageRecord[]): TranscriptMessageRecord[] {
   if (incoming.length === 0) return current;
+  if (canAppendTranscriptMessages(current, incoming)) return [...current, ...incoming];
   const byId = new Map(current.map((message) => [message.id, message]));
   for (const message of incoming) {
     byId.set(message.id, message);
   }
-  return Array.from(byId.values()).sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt);
-    const rightTime = Date.parse(right.createdAt);
-    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
-    return left.id.localeCompare(right.id);
-  });
+  return Array.from(byId.values()).sort(compareTranscriptMessages);
+}
+
+function canAppendTraceEvents(current: readonly TraceEventRecord[], incoming: readonly TraceEventRecord[]): boolean {
+  const lastSequence = current.at(-1)?.sequence;
+  if (lastSequence !== undefined && incoming[0]!.sequence <= lastSequence) return false;
+  return incoming.every((event, index) => index === 0 || incoming[index - 1]!.sequence < event.sequence);
+}
+
+function canAppendTranscriptMessages(
+  current: readonly TranscriptMessageRecord[],
+  incoming: readonly TranscriptMessageRecord[]
+): boolean {
+  const lastCurrent = current.at(-1);
+  if (lastCurrent && compareTranscriptMessages(lastCurrent, incoming[0]!) >= 0) return false;
+  return incoming.every((message, index) => index === 0 || compareTranscriptMessages(incoming[index - 1]!, message) < 0);
+}
+
+function compareTranscriptMessages(left: TranscriptMessageRecord, right: TranscriptMessageRecord): number {
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+  return left.id.localeCompare(right.id);
 }

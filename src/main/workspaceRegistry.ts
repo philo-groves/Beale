@@ -6,6 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   DeveloperSettings,
+  MemorySettings,
+  MemoryTypeDescriptions,
   ShellOptions,
   WorkspaceDirectorySelection,
   WorkspaceOnboardingDefaults,
@@ -18,6 +20,7 @@ import type {
   VmPreference,
   WorkspaceSnapshot
 } from '@shared/types';
+import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, MEMORY_NODE_TYPES } from '../shared/types';
 
 interface SqlRow {
   [key: string]: unknown;
@@ -34,6 +37,8 @@ const DEFAULT_SHELL_OPTIONS: ShellOptions = {
 };
 const MAX_SHELL_UTILITY_CONCURRENCY = 64;
 const SHELL_UTILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
+const MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS = 4_000;
+const MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS = 64_000;
 
 function defaultWorkspaceRegistryDirectory(): string {
   return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
@@ -94,6 +99,22 @@ export class WorkspaceRegistry {
   public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
     this.setMeta('developer_mode_enabled', enabled ? '1' : '0');
     return this.getDeveloperSettings();
+  }
+
+  public getMemorySettings(): MemorySettings {
+    const stored = this.getMeta('memory_type_descriptions_json');
+    if (!stored) return defaultMemorySettings();
+    try {
+      return { typeDescriptions: normalizeMemoryTypeDescriptions(JSON.parse(stored) as unknown) };
+    } catch {
+      return defaultMemorySettings();
+    }
+  }
+
+  public setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): MemorySettings {
+    const normalized = normalizeMemoryTypeDescriptions(descriptions);
+    this.setMeta('memory_type_descriptions_json', JSON.stringify(normalized));
+    return { typeDescriptions: { ...normalized } };
   }
 
   public getShellOptions(): ShellOptions {
@@ -562,6 +583,39 @@ function copyShellOptions(options: ShellOptions): ShellOptions {
     defaultConcurrency: options.defaultConcurrency,
     utilities: { ...options.utilities }
   };
+}
+
+function defaultMemorySettings(): MemorySettings {
+  return { typeDescriptions: { ...DEFAULT_MEMORY_TYPE_DESCRIPTIONS } };
+}
+
+function normalizeMemoryTypeDescriptions(value: unknown): MemoryTypeDescriptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Memory type descriptions must be an object.');
+  }
+  const input = value as Record<string, unknown>;
+  const descriptions = {} as MemoryTypeDescriptions;
+  for (const type of MEMORY_NODE_TYPES) {
+    const rawDescription = input[type];
+    if (typeof rawDescription !== 'string') {
+      throw new Error(`Memory type ${type} description must be a string.`);
+    }
+    const description = rawDescription.trim();
+    if (!description) {
+      throw new Error(`Memory type ${type} description cannot be empty.`);
+    }
+    if (description.length > MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS) {
+      throw new Error(`Memory type ${type} description cannot exceed ${MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS} characters.`);
+    }
+    descriptions[type] = description;
+  }
+  const serialized = JSON.stringify(descriptions);
+  if (serialized.length > MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS) {
+    throw new Error(
+      `Memory type descriptions cannot exceed ${MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS} serialized JSON characters.`
+    );
+  }
+  return descriptions;
 }
 
 

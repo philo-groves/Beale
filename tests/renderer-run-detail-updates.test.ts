@@ -61,6 +61,20 @@ describe('renderer run detail update view model', () => {
     expect(merged.traceEvents.map((event) => `${event.id}:${event.summary}`)).toEqual(['trace_2:new', 'trace_3:summary', 'trace_4:summary']);
     expect(merged.transcriptMessages.map((message) => `${message.id}:${message.contentMarkdown}`)).toEqual(['message_a:content', 'message_b:new']);
   });
+
+  it('appends already ordered detail rows without disturbing existing records', () => {
+    const traceOld = traceEvent({ id: 'trace_1', sequence: 1 });
+    const messageOld = transcriptMessage({ id: 'message_1', createdAt: '2026-04-30T00:01:00.000Z' });
+    const traceNew = traceEvent({ id: 'trace_2', sequence: 2 });
+    const messageNew = transcriptMessage({ id: 'message_2', createdAt: '2026-04-30T00:02:00.000Z' });
+    const merged = mergeRunDetailUpdate(
+      runDetail({ traceEvents: [traceOld], transcriptMessages: [messageOld] }),
+      runDetailUpdate({ traceEvents: [traceNew], transcriptMessages: [messageNew] })
+    );
+
+    expect(merged.traceEvents).toEqual([traceOld, traceNew]);
+    expect(merged.transcriptMessages).toEqual([messageOld, messageNew]);
+  });
 });
 
 function snapshot(runIds: string[], statuses: Record<string, string> = {}): WorkspaceSnapshot {

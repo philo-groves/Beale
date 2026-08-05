@@ -74,6 +74,7 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
   };
 
   for (const event of detail.traceEvents) {
+    if (!traceEventContextUsageEligible(event.payload)) continue;
     const usage = tracePayloadRecord(event.payload, 'usage');
     pushCandidate(inputTokensFromUsage(usage), event.createdAt, usageContextSource(usage));
     pushCandidate(numberRecordValue(event.payload, 'serializedSizeBytes') ? Math.ceil((numberRecordValue(event.payload, 'serializedSizeBytes') ?? 0) / 4) : null, event.createdAt, 'serialized replay estimate');
@@ -95,6 +96,11 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
   }
 
   return candidates.sort((left, right) => right.timestamp - left.timestamp)[0] ?? null;
+}
+
+function traceEventContextUsageEligible(payload: Record<string, unknown>): boolean {
+  if (payload.contextUsageEligible === false) return false;
+  return tracePayloadRecord(payload, 'payload')?.contextUsageEligible !== false;
 }
 
 function sessionTokenUsageForDetail(detail: RunDetail | null): { totalTokens: number; inputTokens: number | null; outputTokens: number | null } {

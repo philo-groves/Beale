@@ -7548,6 +7548,118 @@ export class WorkspaceDatabase {
             database.exec("ALTER TABLE runs ADD COLUMN shell_safety_mode TEXT NOT NULL DEFAULT 'auto_review' CHECK (shell_safety_mode IN ('manual_approval', 'auto_review', 'danger'));");
           }
         }
+      },
+      {
+        version: 11,
+        name: 'memory_dreaming_reclassification',
+        up: (database) => {
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'reclassified_node_count')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN reclassified_node_count INTEGER NOT NULL DEFAULT 0;');
+          }
+          database.exec(`
+            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_reclassification;
+            CREATE TABLE memory_dreaming_changes (
+              id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
+              workspace_id TEXT NOT NULL,
+              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise', 'reclassify')),
+              title TEXT NOT NULL,
+              node_type TEXT NOT NULL,
+              hidden_node_ids_json TEXT NOT NULL,
+              survivor_node_id TEXT,
+              reason TEXT NOT NULL,
+              before_json TEXT NOT NULL,
+              after_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              restored_at TEXT
+            );
+            INSERT INTO memory_dreaming_changes (
+              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+              survivor_node_id, reason, before_json, after_json, created_at, restored_at
+            )
+            SELECT
+              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+              survivor_node_id, reason, before_json, after_json, created_at, restored_at
+            FROM memory_dreaming_changes_pre_reclassification;
+            DROP TABLE memory_dreaming_changes_pre_reclassification;
+            CREATE INDEX idx_memory_dreaming_changes_workspace_created
+            ON memory_dreaming_changes(workspace_id, created_at DESC);
+            CREATE INDEX idx_memory_dreaming_changes_run
+            ON memory_dreaming_changes(run_id);
+          `);
+        }
+      },
+      {
+        version: 12,
+        name: 'memory_dreaming_failed_runs',
+        up: (database) => {
+          if (tableHasColumn(database, 'memory_dreaming_runs', 'error_message')) return;
+          database.exec(`
+            ALTER TABLE memory_dreaming_changes RENAME TO memory_dreaming_changes_pre_failures;
+            ALTER TABLE memory_dreaming_runs RENAME TO memory_dreaming_runs_pre_failures;
+            CREATE TABLE memory_dreaming_runs (
+              id TEXT PRIMARY KEY,
+              workspace_id TEXT NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('completed', 'restored', 'failed')),
+              stale_hidden_count INTEGER NOT NULL DEFAULT 0,
+              duplicate_hidden_count INTEGER NOT NULL DEFAULT 0,
+              duplicate_group_count INTEGER NOT NULL DEFAULT 0,
+              reclassified_node_count INTEGER NOT NULL DEFAULT 0,
+              edited_node_count INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              completed_at TEXT NOT NULL,
+              restored_at TEXT,
+              model TEXT NOT NULL DEFAULT 'unknown',
+              reasoning_effort TEXT NOT NULL DEFAULT 'unknown',
+              input_node_count INTEGER NOT NULL DEFAULT 0,
+              input_session_count INTEGER NOT NULL DEFAULT 0,
+              error_message TEXT
+            );
+            CREATE TABLE memory_dreaming_changes (
+              id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES memory_dreaming_runs(id) ON DELETE CASCADE,
+              workspace_id TEXT NOT NULL,
+              action TEXT NOT NULL CHECK (action IN ('prune', 'merge_duplicates', 'revise', 'reclassify')),
+              title TEXT NOT NULL,
+              node_type TEXT NOT NULL,
+              hidden_node_ids_json TEXT NOT NULL,
+              survivor_node_id TEXT,
+              reason TEXT NOT NULL,
+              before_json TEXT NOT NULL,
+              after_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              restored_at TEXT
+            );
+            INSERT INTO memory_dreaming_runs (
+              id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+              duplicate_group_count, reclassified_node_count, edited_node_count,
+              created_at, completed_at, restored_at, model, reasoning_effort,
+              input_node_count, input_session_count, error_message
+            )
+            SELECT
+              id, workspace_id, status, stale_hidden_count, duplicate_hidden_count,
+              duplicate_group_count, reclassified_node_count, edited_node_count,
+              created_at, completed_at, restored_at, model, reasoning_effort,
+              input_node_count, input_session_count, NULL
+            FROM memory_dreaming_runs_pre_failures;
+            INSERT INTO memory_dreaming_changes (
+              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+              survivor_node_id, reason, before_json, after_json, created_at, restored_at
+            )
+            SELECT
+              id, run_id, workspace_id, action, title, node_type, hidden_node_ids_json,
+              survivor_node_id, reason, before_json, after_json, created_at, restored_at
+            FROM memory_dreaming_changes_pre_failures;
+            DROP TABLE memory_dreaming_changes_pre_failures;
+            DROP TABLE memory_dreaming_runs_pre_failures;
+            CREATE INDEX idx_memory_dreaming_runs_workspace_created
+            ON memory_dreaming_runs(workspace_id, created_at DESC);
+            CREATE INDEX idx_memory_dreaming_changes_workspace_created
+            ON memory_dreaming_changes(workspace_id, created_at DESC);
+            CREATE INDEX idx_memory_dreaming_changes_run
+            ON memory_dreaming_changes(run_id);
+          `);
+        }
       }
     ]);
   }

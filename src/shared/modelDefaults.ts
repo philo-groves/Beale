@@ -8,6 +8,7 @@ export const SMALL_MODEL_BY_PROVIDER = {
 } as const;
 export const SESSION_TITLE_MODEL_BY_PROVIDER = SMALL_MODEL_BY_PROVIDER;
 export const SESSION_TITLE_REASONING_EFFORT = 'medium';
+export const MEMORY_CURATOR_REASONING_EFFORT = 'medium';
 export const SHELL_SAFETY_REVIEW_REASONING_EFFORT = 'medium';
 
 export function smallModelForProvider(provider: string): string | null {

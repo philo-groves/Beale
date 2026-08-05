@@ -3,6 +3,8 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   DeveloperSettings,
+  MemorySettings,
+  MemoryTypeDescriptions,
   ShellOptions,
   GeneratedResearchGoalSuggestions,
   GeneratedResearchPrompt,
@@ -58,6 +60,12 @@ const api: BealeApi = {
   },
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
+  },
+  getMemorySettings(): Promise<MemorySettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getMemorySettings);
+  },
+  setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setMemoryTypeDescriptions, descriptions);
   },
   getShellOptions(): Promise<ShellOptions> {
     return ipcRenderer.invoke(IPC_CHANNELS.getShellOptions);

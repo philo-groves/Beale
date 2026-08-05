@@ -3,12 +3,14 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { RunDetail, TraceEventRecord } from '@shared/types';
 import {
+  COMMENTARY_RENDER_WINDOW_SIZE,
   CommentaryView,
   commentaryFollowLatestAfterScroll,
   commentaryMessageIcon,
   commentaryMessageLabel,
   commentaryScrollFadeClasses,
   commentaryToolValueText,
+  commentaryWindowStartForIndex,
   shouldAutoExpandToolMessage
 } from '../src/renderer/features/commentary/CommentaryView';
 import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/renderer/view-models/commentary';
@@ -48,6 +50,9 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 Files');
     expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a Command');
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 Commands');
+    expect(commentaryToolUsageText('memory.request', 1)).toBe('Requesting a Memory');
+    expect(commentaryToolUsageText('memory.request', 3)).toBe('Requesting 3 Memories');
+    expect(commentaryToolUsageText('memory.curator', 1)).toBe('Curating Memory');
     expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using Snapshot');
     expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using Custom Scan 2 Times');
   });
@@ -121,6 +126,56 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
+  it('renders memory requests but hides background curator activity', () => {
+    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      toolEvent(
+        'memory-request',
+        'tool.requested',
+        'memory.request',
+        'memory-request',
+        {
+          intent: 'create',
+          reason: 'The primitive is missing.',
+          candidate: { type: 'primitive', title: 'Unchecked parser length', claim: 'The length is unchecked.' }
+        }
+      ),
+      toolEvent(
+        'memory-curator-request',
+        'tool.requested',
+        'memory.curator',
+        'memory-curator',
+        { kind: 'turn', agentPath: '/root', turn: 3 }
+      ),
+      toolEvent(
+        'memory-curator-result',
+        'tool.observed',
+        'memory.curator',
+        'memory-curator',
+        { kind: 'turn', agentPath: '/root', turn: 3 },
+        { changes: [] }
+      )
+    ]);
+    const request = messages.find((message) => message.toolName === 'memory.request');
+
+    expect(request).toMatchObject({
+      kind: 'tool',
+      contentMarkdown: 'Requesting a Memory',
+      toolCount: 1
+    });
+    expect(request?.toolCalls?.[0]).toMatchObject({
+      label: 'Unchecked parser length',
+      input: {
+        intent: 'create',
+        reason: 'The primitive is missing.',
+        candidate: { type: 'primitive', title: 'Unchecked parser length', claim: 'The length is unchecked.' }
+      },
+      output: 'Waiting for output.'
+    });
+    expect(messages.some((message) => message.toolName === 'memory.curator')).toBe(false);
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'memory.request')!)).toContain('lucide-database');
+    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'memory.curator')!)).toContain('lucide-database');
+  });
+
   it('formats tool input and output values for expanded details', () => {
     expect(commentaryToolValueText({ path: 'src/parser.ts', lines: [1, 2] })).toBe(
       '{\n  "path": "src/parser.ts",\n  "lines": [\n    1,\n    2\n  ]\n}'
@@ -190,6 +245,44 @@ describe('renderer commentary projection', () => {
       distanceFromBottom: 12,
       userInitiated: false
     })).toBe(true);
+  });
+
+  it('centers selected history within a bounded commentary render window', () => {
+    expect(commentaryWindowStartForIndex(140, 0)).toBe(0);
+    expect(commentaryWindowStartForIndex(140, 70)).toBe(50);
+    expect(commentaryWindowStartForIndex(140, 139)).toBe(80);
+  });
+
+  it('renders only the latest bounded window for long commentary histories', () => {
+    const detail = runDetail('Review the target.');
+    const events = Array.from({ length: 100 }, (_, index) => displayEvent(`commentary-${index}`, {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'honeycrisp_commentary',
+      messagePhase: 'commentary',
+      text: `Commentary message ${index}`
+    }, { sequence: index }));
+
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: false,
+        detail,
+        events,
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: true,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html.match(/data-commentary-event-id=/g)).toHaveLength(COMMENTARY_RENDER_WINDOW_SIZE);
+    expect(html).toContain('Commentary message 99');
+    expect(html).not.toContain('Commentary message 0<');
+    expect(html).toContain('main-commentary-spacer');
   });
 
   it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {

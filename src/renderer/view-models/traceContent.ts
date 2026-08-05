@@ -147,6 +147,12 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
   const inputs = tracePayloadRecord(payload, 'normalizedInputs');
   if (!inputs) return '';
   if (toolName === 'memory.search') return stringRecordValue(inputs, 'query') ?? '';
+  if (toolName === 'memory.request') {
+    const candidate = tracePayloadRecord(inputs, 'candidate');
+    return (candidate ? stringRecordValue(candidate, 'title') : null)
+      ?? stringRecordValue(inputs, 'reason')
+      ?? '';
+  }
   if (toolName === 'memory.save') {
     const result = tracePayloadRecord(payload, 'result');
     const memoryType = (result ? stringRecordValue(result, 'type') : null) ?? stringRecordValue(inputs, 'type');
@@ -1034,6 +1040,8 @@ function honeycrispToolTraceTitle(event: TraceEventRecord, summary: string, acti
     honeycrispToolNameFromSummary(summary);
   const collaborationLabel = toolName ? COLLABORATION_TOOL_LABELS[toolName] : undefined;
   const runbookLabel = toolName ? RUNBOOK_TOOL_LABELS[toolName] : undefined;
+  if (toolName === 'memory.request') return 'Requesting a Memory';
+  if (toolName === 'memory.curator') return 'Curating Memory';
   const label = toolName === 'shell.run'
     ? 'Shell'
     : toolName === 'memory.correct'

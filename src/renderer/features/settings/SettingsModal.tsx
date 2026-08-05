@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
-import { Bug, KeyRound, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
+import { BrainCircuit, Bug, KeyRound, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from 'lucide-react';
+import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, MEMORY_NODE_TYPES } from '../../../shared/types';
 import type {
   DeveloperSettings,
+  MemoryNodeType,
+  MemorySettings,
+  MemoryTypeDescriptions,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ResearchProviderId,
@@ -16,11 +20,12 @@ import { StatusPill } from '../../app/StatusPill';
 import { stateClass } from '../../lib/formatting';
 import type { ChatView } from '../../view-models/chatView';
 
-export type SettingsSection = 'general' | 'providers' | 'shell' | 'developer';
+export type SettingsSection = 'general' | 'providers' | 'memory' | 'shell' | 'developer';
 
 export function SettingsModal({
   section,
   developerSettings,
+  memorySettings,
   shellOptions,
   chatView,
   workspaceName,
@@ -32,6 +37,7 @@ export function SettingsModal({
   onChangeSection,
   onClose,
   onSetDeveloperModeEnabled,
+  onSaveMemoryTypeDescriptions,
   onChangeChatView,
   onSaveShellOptions,
   onRefreshOpenAi,
@@ -40,6 +46,7 @@ export function SettingsModal({
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
+  memorySettings: MemorySettings | null;
   shellOptions: ShellOptions | null;
   chatView: ChatView;
   workspaceName: string | null;
@@ -51,13 +58,14 @@ export function SettingsModal({
   onChangeSection: (section: SettingsSection) => void;
   onClose: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
+  onSaveMemoryTypeDescriptions: (descriptions: MemoryTypeDescriptions) => Promise<void>;
   onChangeChatView: (chatView: ChatView) => void;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
-  const sections: SettingsSection[] = ['general', 'providers', 'shell', 'developer'];
+  const sections: SettingsSection[] = ['general', 'providers', 'memory', 'shell', 'developer'];
   const activeSection = sections.includes(section) ? section : 'general';
 
   return (
@@ -88,6 +96,8 @@ export function SettingsModal({
               onStartOpenAiOAuth={onStartOpenAiOAuth}
               onStartResearchProviderOAuth={onStartResearchProviderOAuth}
             />
+          ) : activeSection === 'memory' ? (
+            <MemorySettingsView busy={busy} settings={memorySettings} onSave={onSaveMemoryTypeDescriptions} />
           ) : activeSection === 'shell' ? (
             <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
           ) : (
@@ -97,6 +107,86 @@ export function SettingsModal({
       </div>
     </BottomSheet>
   );
+}
+
+export function MemorySettingsView({
+  settings,
+  busy,
+  onSave
+}: {
+  settings: MemorySettings | null;
+  busy: boolean;
+  onSave: (descriptions: MemoryTypeDescriptions) => Promise<void>;
+}): JSX.Element {
+  const [draft, setDraft] = useState<MemoryTypeDescriptions>(() => copyMemoryTypeDescriptions(settings?.typeDescriptions ?? DEFAULT_MEMORY_TYPE_DESCRIPTIONS));
+  useEffect(() => {
+    if (settings) setDraft(copyMemoryTypeDescriptions(settings.typeDescriptions));
+  }, [settings]);
+  const hasEmptyDescription = MEMORY_NODE_TYPES.some((type) => !draft[type].trim());
+  const unchanged = settings ? MEMORY_NODE_TYPES.every((type) => draft[type].trim() === settings.typeDescriptions[type]) : true;
+
+  const setDescription = (type: MemoryNodeType, description: string): void => {
+    setDraft((current) => ({ ...current, [type]: description }));
+  };
+
+  return (
+    <div className="settings-page memory-settings-page">
+      <div className="settings-page-header">
+        <div>
+          <h3>Memory</h3>
+          <p>These definitions are the shared taxonomy used by the research agent and background curator.</p>
+        </div>
+        <div className="memory-settings-actions">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setDraft(copyMemoryTypeDescriptions(DEFAULT_MEMORY_TYPE_DESCRIPTIONS))}
+          >
+            <RotateCcw size={14} /> Reset Defaults
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !settings || hasEmptyDescription || unchanged}
+            onClick={() => void onSave(copyMemoryTypeDescriptions(draft))}
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+      <section className="provider-card memory-type-descriptions-card">
+        <div className="provider-heading">
+          <div className="status-icon"><BrainCircuit size={18} /></div>
+          <div>
+            <h4>Memory Type Definitions</h4>
+            <p>Describe what qualifies for each durable memory type. Every definition must remain non-empty.</p>
+          </div>
+        </div>
+        <div className="memory-type-description-list">
+          {MEMORY_NODE_TYPES.map((type) => (
+            <label className="memory-type-description" key={type}>
+              <span>{memoryTypeLabel(type)}</span>
+              <textarea
+                aria-label={`${memoryTypeLabel(type)} memory description`}
+                value={draft[type]}
+                disabled={busy}
+                maxLength={4_000}
+                onChange={(event) => setDescription(type, event.target.value)}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function copyMemoryTypeDescriptions(descriptions: Readonly<MemoryTypeDescriptions>): MemoryTypeDescriptions {
+  return Object.fromEntries(MEMORY_NODE_TYPES.map((type) => [type, descriptions[type]])) as MemoryTypeDescriptions;
+}
+
+function memoryTypeLabel(type: MemoryNodeType): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function ShellOptionsView({
@@ -521,6 +611,8 @@ function settingsSectionLabel(section: SettingsSection): string {
       return 'Providers';
     case 'developer':
       return 'Developer';
+    case 'memory':
+      return 'Memory';
     case 'shell':
       return 'Shell Options';
     default:

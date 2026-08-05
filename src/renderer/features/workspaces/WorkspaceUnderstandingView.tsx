@@ -13,6 +13,7 @@ import { MemoryTypeLabel } from '../research/MemoryTypeLabel';
 
 export function WorkspaceUnderstandingView({
   busy,
+  memoryDreamingInProgress,
   honeycrispMemory,
   onOpenHoneycrispMemoryDirectory,
   onRestoreMemoryDreamingChange,
@@ -21,6 +22,7 @@ export function WorkspaceUnderstandingView({
   scope
 }: {
   busy: boolean;
+  memoryDreamingInProgress: boolean;
   honeycrispMemory: HoneycrispMemorySummary | null;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
   onRestoreMemoryDreamingChange: (changeId: string) => void;
@@ -97,6 +99,7 @@ export function WorkspaceUnderstandingView({
 
           <DreamingSection
             busy={busy}
+            inProgress={memoryDreamingInProgress}
             dreaming={honeycrispMemory?.dreaming ?? null}
             onRestoreChange={onRestoreMemoryDreamingChange}
             onRun={onRunMemoryDreaming}
@@ -110,11 +113,13 @@ export function WorkspaceUnderstandingView({
 function DreamingSection({
   busy,
   dreaming,
+  inProgress,
   onRestoreChange,
   onRun
 }: {
   busy: boolean;
   dreaming: MemoryDreamingSummary | null;
+  inProgress: boolean;
   onRestoreChange: (changeId: string) => void;
   onRun: () => void;
 }): JSX.Element {
@@ -125,29 +130,35 @@ function DreamingSection({
       <SectionHeader
         icon={<MoonStar size={16} />}
         title="Dreaming"
-        status={lastRun?.status ?? (available ? 'ready' : 'unavailable')}
+        status={inProgress ? 'in_progress' : lastRun?.status ?? (available ? 'ready' : 'unavailable')}
         action={
           <button
             type="button"
             className="workspace-understanding-action-button"
-            disabled={busy || !available}
-            title={available ? 'Have the research model synthesize workspace memories and past sessions' : 'Honeycrisp memory is not initialized'}
+            disabled={busy || inProgress || !available}
+            title={inProgress ? 'Memory Dreaming is reviewing this workspace' : available ? 'Have the research model synthesize workspace memories and past sessions' : 'Honeycrisp memory is not initialized'}
             onClick={onRun}
           >
             <MoonStar size={13} />
-            Dream
+            {inProgress ? 'Dreaming…' : 'Dream'}
           </button>
         }
       />
       <p className="workspace-understanding-dreaming-copy">
-        The research model reviews memories associated with this workspace alongside up to 100 past session transcripts, then prunes, revises, and consolidates semantically redundant knowledge. Original nodes and revisions remain stored for restoration.
+        The research model reviews memories associated with this workspace alongside up to 100 past session transcripts, then prunes, revises, reclassifies, and consolidates semantically redundant knowledge. Original nodes and revisions remain stored for restoration.
       </p>
       <div className="workspace-understanding-metric-grid compact">
         <MetricCell label="Hidden Nodes" value={formatCount(dreaming?.hiddenNodeCount ?? 0)} />
         <MetricCell label="Restorable Changes" value={formatCount(dreaming?.restorableChangeCount ?? 0)} />
         <MetricCell label="Last Pruned" value={formatCount(lastRun?.prunedNodeCount ?? 0)} />
         <MetricCell label="Last De-duplication" value={formatCount(lastRun?.duplicateHiddenCount ?? 0)} />
+        <MetricCell label="Last Reclassified" value={formatCount(lastRun?.reclassifiedNodeCount ?? 0)} />
       </div>
+      {lastRun?.status === 'failed' && lastRun.errorMessage ? (
+        <p className="workspace-understanding-warning" role="status">
+          Last Dreaming attempt failed before applying changes: {lastRun.errorMessage}
+        </p>
+      ) : null}
       <div className="workspace-understanding-dreaming-history">
         <h4>Recent Changes</h4>
         {dreaming?.changes.length ? (
@@ -161,7 +172,9 @@ function DreamingSection({
                       ? 'Memory pruned'
                       : change.action === 'revise'
                         ? 'Memory revised'
-                        : `${formatCount(change.hiddenNodeIds.length)} duplicate${change.hiddenNodeIds.length === 1 ? '' : 's'} consolidated`}
+                        : change.action === 'reclassify'
+                          ? `Memory reclassified as ${change.nodeType}`
+                          : `${formatCount(change.hiddenNodeIds.length)} duplicate${change.hiddenNodeIds.length === 1 ? '' : 's'} consolidated`}
                     {' · '}
                     {formatNullableDate(change.createdAt)}
                   </small>
@@ -185,7 +198,7 @@ function DreamingSection({
       </div>
       {lastRun ? (
         <small className="workspace-understanding-dreaming-last-run">
-          Last run {formatNullableDate(lastRun.completedAt)} · {lastRun.model} / {traceLabel(lastRun.reasoningEffort)} · reviewed {formatCount(lastRun.inputNodeCount)} nodes and {formatCount(lastRun.inputSessionCount)} sessions · {formatCount(lastRun.editedNodeCount)} edited output{lastRun.editedNodeCount === 1 ? '' : 's'}
+          Last {lastRun.status === 'failed' ? 'attempt' : 'run'} {formatNullableDate(lastRun.completedAt)} · {lastRun.model} / {traceLabel(lastRun.reasoningEffort)} · reviewed {formatCount(lastRun.inputNodeCount)} nodes and {formatCount(lastRun.inputSessionCount)} sessions{lastRun.status === 'failed' ? ' · no changes applied' : ` · ${formatCount(lastRun.editedNodeCount)} edited output${lastRun.editedNodeCount === 1 ? '' : 's'}`}
         </small>
       ) : null}
     </section>
