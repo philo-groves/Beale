@@ -148,9 +148,8 @@ function requiredKey(value: WorkspaceSnapshot): string {
 
 function suggestions(prefix: string): GeneratedResearchGoalSuggestions {
   return {
-    discovery: [1, 2, 3, 4].map((index) => `${prefix} discovery suggestion ${index}.`) as GeneratedResearchGoalSuggestions['discovery'],
-    chaining: [1, 2, 3, 4].map((index) => `${prefix} chaining suggestion ${index}.`) as GeneratedResearchGoalSuggestions['chaining'],
-    reporting: [1, 2, 3, 4].map((index) => `${prefix} reporting suggestion ${index}.`) as GeneratedResearchGoalSuggestions['reporting']
+    phase: 'discovery',
+    suggestions: [1, 2, 3, 4].map((index) => `${prefix} discovery suggestion ${index}.`) as GeneratedResearchGoalSuggestions['suggestions']
   };
 }
 

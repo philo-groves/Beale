@@ -150,7 +150,7 @@ const api: BealeApi = {
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate) {
     return ipcRenderer.invoke(IPC_CHANNELS.updateHoneycrispToolingConfig, update);
   },
-  generateResearchGoalSuggestions(input?: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions> {
+  generateResearchGoalSuggestions(input: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions> {
     return ipcRenderer.invoke(IPC_CHANNELS.generateResearchGoalSuggestions, input);
   },
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt> {

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Chaining and Reporting goal generation now accepts natural wording variants instead of rejecting otherwise valid suggestions that omit exact validator phrases such as `primitive`, `chain`, `triage-ready PoC`, or `submission.zip`.
 - Long Commentary histories now render a bounded virtual window with preserved follow-latest and search navigation, while incremental detail ingestion and repeated tool projection avoid unnecessary full-history map, sort, and array-copy work.
 - Aligned the editable memory taxonomy with curator validation by defining root-cause keys as lowercase-hyphenated and treating source, sink, and asset chain relationships as recommended rather than mandatory.
 - Memory Dreaming now requests one complete corrected plan after a model-output or pre-apply validation error, while retaining all-or-nothing application and persisting only a final failed attempt.
@@ -34,6 +35,7 @@
 
 ### Changed
 
+- Discovery, Chaining, and Reporting goal suggestions now load through independent concurrent model requests with per-section caching, errors, and retry, so one failed phase does not hide successful suggestions from the others.
 - New Research is now a sliding bottom sheet with four model-generated goals in each of Discovery, Chaining, and Reporting, plus a custom-goal section. Selected phases carry into prompt generation; Chaining targets reportable chains with triage-ready PoCs, while Reporting requires an evidence-grounded report and `submission.zip` containing the PoC and supporting evidence.
 - Memory Dreaming now uses GPT-5.6 Sol with high reasoning, applies the editable memory taxonomy while consolidating root-cause duplicates, receives bounded root-cause attributes and graph relationships, and can reversibly reclassify invalid nodes only when the target type's structural invariants remain valid.
 - Launched Node-based Honeycrisp research runs with a Honeycrisp-only 128 GiB V8 old-space ceiling, without changing Beale or target-process environments.

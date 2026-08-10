@@ -7625,6 +7625,20 @@ button.session-summary-item:hover:not(:disabled),
   min-height: 76px;
 }
 
+.research-goal-section-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.research-goal-section-title > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
 .research-goal-section h4,
 .research-goal-custom-section h4 {
   margin: 0;
@@ -7644,6 +7658,48 @@ button.session-summary-item:hover:not(:disabled),
   min-width: 0;
   display: grid;
   gap: 7px;
+}
+
+.research-goal-section-error {
+  min-width: 0;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  border: 1px solid rgba(211, 91, 91, 0.35);
+  border-radius: 8px;
+  background: rgba(120, 38, 38, 0.1);
+  color: var(--muted-strong);
+  padding: 9px;
+}
+
+.research-goal-section-error > svg {
+  margin-top: 2px;
+  color: var(--danger);
+}
+
+.research-goal-section-error strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.research-goal-section-error p {
+  margin: 3px 0 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.research-goal-section-error button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
 }
 
 .research-goal-choice {

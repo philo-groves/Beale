@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { ArrowLeft, Play, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import type {
-  GeneratedResearchGoalSuggestions,
   OpenAiAccountStatus,
   ResearchGoalPhase,
+  ResearchGoalSuggestionsByPhase,
+  ResearchGoalSuggestionStateByPhase,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
   ResearchProviderModel,
@@ -39,11 +40,11 @@ interface SessionProviderOption {
 }
 
 interface ResearchGoalChooserProps {
-  suggestions: GeneratedResearchGoalSuggestions | null;
-  loading: boolean;
-  error: string | null;
+  suggestions: ResearchGoalSuggestionsByPhase;
+  loading: ResearchGoalSuggestionStateByPhase<boolean>;
+  errors: ResearchGoalSuggestionStateByPhase<string | null>;
   onSelect: (sentence: string, phase: ResearchGoalPhase | null) => void;
-  onRetry: () => void;
+  onRetry: (phase: ResearchGoalPhase) => void;
 }
 
 const RESEARCH_GOAL_SECTIONS: Array<{
@@ -75,7 +76,7 @@ export function StartRunForm({
   providerModelCatalog,
   researchGoalSuggestions,
   researchGoalSuggestionsLoading,
-  researchGoalSuggestionError,
+  researchGoalSuggestionErrors,
   busy,
   runAction,
   onCancel,
@@ -86,13 +87,13 @@ export function StartRunForm({
   openAiStatus: OpenAiAccountStatus | null;
   researchProviderStatuses: ResearchProviderStatus[];
   providerModelCatalog: ResearchProviderModelCatalog[];
-  researchGoalSuggestions: GeneratedResearchGoalSuggestions | null;
-  researchGoalSuggestionsLoading: boolean;
-  researchGoalSuggestionError: string | null;
+  researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
+  researchGoalSuggestionsLoading: ResearchGoalSuggestionStateByPhase<boolean>;
+  researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
-  onRetryResearchGoalSuggestions: () => void;
+  onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
   const [input, setInput] = useState<StartRunInput>(() => ({
@@ -395,7 +396,7 @@ export function StartRunForm({
           <ResearchGoalChooser
             suggestions={researchGoalSuggestions}
             loading={researchGoalSuggestionsLoading}
-            error={researchGoalSuggestionError}
+            errors={researchGoalSuggestionErrors}
             onSelect={expandGoalSentence}
             onRetry={onRetryResearchGoalSuggestions}
           />
@@ -490,12 +491,13 @@ export function StartRunForm({
 export function ResearchGoalChooser({
   suggestions,
   loading,
-  error,
+  errors,
   onSelect,
   onRetry
 }: ResearchGoalChooserProps): JSX.Element {
   const [customGoal, setCustomGoal] = useState('');
   const normalizedCustomGoal = customGoal.trim();
+  const anySectionLoading = Object.values(loading).some(Boolean);
   return (
     <section className="research-goal-chooser" aria-labelledby="research-goal-chooser-title">
       <div className="research-goal-chooser-heading">
@@ -503,36 +505,39 @@ export function ResearchGoalChooser({
           <h3 id="research-goal-chooser-title">Choose a goal</h3>
           <p>Choose the phase that matches the next research outcome. Beale will turn the selected goal into a full editable prompt.</p>
         </div>
-        {loading ? <span role="status">Reviewing prior research…</span> : null}
+        {anySectionLoading ? <span role="status">Reviewing prior research…</span> : null}
       </div>
-      {error ? (
-        <div className="generate-prompt-error-box" role="alert">
-          <ShieldAlert size={15} />
-          <div>
-            <strong>Could not suggest goals</strong>
-            <p>{error}</p>
-            <button type="button" onClick={onRetry}>
-              <RefreshCw size={13} />
-              Retry
-            </button>
-          </div>
-        </div>
-      ) : null}
       <div className="research-goal-sections">
         {RESEARCH_GOAL_SECTIONS.map(({ phase, title, description }) => (
           <section className={`research-goal-section research-goal-section-${phase}`} aria-labelledby={`research-goal-${phase}-title`} key={phase}>
             <header>
-              <h4 id={`research-goal-${phase}-title`}>{title}</h4>
+              <div className="research-goal-section-title">
+                <h4 id={`research-goal-${phase}-title`}>{title}</h4>
+                {loading[phase] ? <span role="status">Loading…</span> : null}
+              </div>
               <p>{description}</p>
             </header>
             <div className="research-goal-choice-list">
-              {loading ? [0, 1, 2, 3].map((index) => (
+              {errors[phase] ? (
+                <div className="research-goal-section-error" role="alert">
+                  <ShieldAlert size={14} />
+                  <div>
+                    <strong>Could not load {title.toLowerCase()} goals</strong>
+                    <p>{errors[phase]}</p>
+                    <button type="button" onClick={() => onRetry(phase)}>
+                      <RefreshCw size={13} />
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {loading[phase] ? [0, 1, 2, 3].map((index) => (
                 <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={index}>
                   <span />
                   <span />
                 </div>
               )) : null}
-              {suggestions?.[phase].map((sentence, index) => (
+              {suggestions[phase]?.map((sentence, index) => (
                 <button
                   type="button"
                   className="research-goal-choice"

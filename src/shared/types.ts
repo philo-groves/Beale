@@ -1046,12 +1046,16 @@ export type ResearchGoalPhase = 'discovery' | 'chaining' | 'reporting';
 export type ResearchGoalSuggestionGroup = [string, string, string, string];
 
 export interface GeneratedResearchGoalSuggestions {
-  discovery: ResearchGoalSuggestionGroup;
-  chaining: ResearchGoalSuggestionGroup;
-  reporting: ResearchGoalSuggestionGroup;
+  phase: ResearchGoalPhase;
+  suggestions: ResearchGoalSuggestionGroup;
 }
 
+export type ResearchGoalSuggestionsByPhase = Partial<Record<ResearchGoalPhase, ResearchGoalSuggestionGroup>>;
+
+export type ResearchGoalSuggestionStateByPhase<T> = Record<ResearchGoalPhase, T>;
+
 export interface ResearchGoalSuggestionInput {
+  phase: ResearchGoalPhase;
   requestId?: string | null;
 }
 
@@ -1441,7 +1445,7 @@ export interface BealeApi {
   restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
   updateHoneycrispToolingConfig(update: HoneycrispToolingConfigUpdate): Promise<HoneycrispToolingSummary>;
-  generateResearchGoalSuggestions(input?: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions>;
+  generateResearchGoalSuggestions(input: ResearchGoalSuggestionInput): Promise<GeneratedResearchGoalSuggestions>;
   generateResearchPrompt(input?: ResearchPromptGenerationInput): Promise<GeneratedResearchPrompt>;
   cancelResearchPromptGeneration(requestId: string): Promise<void>;
   onResearchPromptGenerationUpdate(listener: (update: ResearchPromptGenerationUpdate) => void): () => void;

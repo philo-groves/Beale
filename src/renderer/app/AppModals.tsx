@@ -11,7 +11,9 @@ import type {
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
-  GeneratedResearchGoalSuggestions,
+  ResearchGoalPhase,
+  ResearchGoalSuggestionsByPhase,
+  ResearchGoalSuggestionStateByPhase,
   ProfilingReport,
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
@@ -53,7 +55,7 @@ export function AppModals({
   researchProviderStatuses,
   researchGoalSuggestions,
   researchGoalSuggestionsLoading,
-  researchGoalSuggestionError,
+  researchGoalSuggestionErrors,
   profilingOpen,
   profilingState,
   lastProfilingReport,
@@ -119,9 +121,9 @@ export function AppModals({
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
-  researchGoalSuggestions: GeneratedResearchGoalSuggestions | null;
-  researchGoalSuggestionsLoading: boolean;
-  researchGoalSuggestionError: string | null;
+  researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
+  researchGoalSuggestionsLoading: ResearchGoalSuggestionStateByPhase<boolean>;
+  researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
   profilingOpen: boolean;
   profilingState: ProfilingState | null;
   lastProfilingReport: ProfilingReport | null;
@@ -165,7 +167,7 @@ export function AppModals({
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
-  onRetryResearchGoalSuggestions: () => void;
+  onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
   onSubmitWorkspaceOnboarding: () => void;
@@ -196,7 +198,7 @@ export function AppModals({
           providerModelCatalog={researchProviderModelCatalog}
           researchGoalSuggestions={researchGoalSuggestions}
           researchGoalSuggestionsLoading={researchGoalSuggestionsLoading}
-          researchGoalSuggestionError={researchGoalSuggestionError}
+          researchGoalSuggestionErrors={researchGoalSuggestionErrors}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}

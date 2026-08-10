@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { GeneratedResearchGoalSuggestions, WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
+import type { ResearchGoalPhase, ResearchGoalSuggestionGroup, ResearchGoalSuggestionStateByPhase, WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
@@ -3087,12 +3087,15 @@ describe('Beale workbench skeleton', () => {
 
   it('generates four distinct goals for each research phase grounded in prior workspace research', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-suggestions';
-    const suggestions = validResearchGoalSuggestions();
+    const suggestions = validResearchGoalSuggestionGroups();
     const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
-        modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        return modelJsonResponse(suggestions, 'resp_goal_suggestions');
+        const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
+        modelRequests.push(request);
+        const payload = modelRequestPayload(request);
+        const phase = payload.researchPhase as ResearchGoalPhase;
+        return modelJsonResponse({ suggestions: suggestions[phase] }, `resp_goal_suggestions_${phase}`);
       }
     });
 
@@ -3114,31 +3117,34 @@ describe('Beale workbench skeleton', () => {
       promptMarkdown: '# Prior parser research\nTrace the parser length into its allocation boundary.'
     });
 
-    const result = await service.generateResearchGoalSuggestions({ requestId: 'goal_suggestions_grounded' });
-    const request = modelRequests[0];
-    expect(request).toBeTruthy();
-    if (!request) throw new Error('Expected a captured goal suggestion request.');
-    const payload = modelRequestPayload(request);
+    const phases: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
+    const results = await Promise.all(phases.map((phase) => service.generateResearchGoalSuggestions({
+      phase,
+      requestId: `goal_suggestions_grounded_${phase}`
+    })));
+    const discoveryRequest = modelRequests.find((request) => modelRequestPayload(request).researchPhase === 'discovery');
+    expect(discoveryRequest).toBeTruthy();
+    if (!discoveryRequest) throw new Error('Expected a captured Discovery goal suggestion request.');
+    const payload = modelRequestPayload(discoveryRequest);
     const previousResearch = payload.previousResearch as Array<Record<string, unknown>>;
     const coverageHints = payload.coverageHints as Record<string, unknown>;
 
-    expect(result).toEqual(suggestions);
-    expect(result.discovery).toHaveLength(4);
-    expect(result.chaining).toHaveLength(4);
-    expect(result.reporting).toHaveLength(4);
-    expect(new Set(Object.values(result).flat())).toHaveProperty('size', 12);
-    expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
-    expect(request.tools).toEqual([]);
-    expect(request.reasoning).toEqual({ effort: 'medium' });
-    expect(request.text).toEqual({ verbosity: 'low' });
-    expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions' });
-    expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-    expect(request.instructions).toContain('arrays named discovery, chaining, and reporting');
-    expect(request.instructions).toContain('A primitive is a flaw, but it does not by itself prove reachability, exploitability, or reportability');
-    expect(request.instructions).toContain('triage-ready PoC');
-    expect(request.instructions).toContain('submission.zip');
-    expect(request.instructions).not.toContain('Each direction must seek a falsifiable security conclusion');
-    expect(payload.task).toBe('suggest_next_research_goals');
+    expect(results).toEqual(phases.map((phase) => ({ phase, suggestions: suggestions[phase] })));
+    expect(modelRequests).toHaveLength(3);
+    expect(new Set(modelRequests.map((request) => modelRequestPayload(request).researchPhase))).toEqual(new Set(phases));
+    for (const request of modelRequests) {
+      const requestPayload = modelRequestPayload(request);
+      const phase = requestPayload.researchPhase as ResearchGoalPhase;
+      expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
+      expect(request.tools).toEqual([]);
+      expect(request.reasoning).toEqual({ effort: 'medium' });
+      expect(request.text).toEqual({ verbosity: 'low' });
+      expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions', beale_research_phase: phase });
+      expect(request.instructions).toMatch(/^You are a world-class security researcher/);
+      expect(request.instructions).toContain('an array named suggestions containing exactly four');
+      expect(request.instructions).toContain(`Generate ${phase[0]?.toUpperCase()}${phase.slice(1)} goals`);
+      expect(requestPayload.task).toBe(`suggest_next_${phase}_research_goals`);
+    }
     expect(payload.workspace).toMatchObject({
       workspaceName: 'Parser Continuity Workspace',
       networkProfile: 'offline'
@@ -3165,34 +3171,31 @@ describe('Beale workbench skeleton', () => {
 
   it('retries goal suggestions that fall back to binary hypothesis framing', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-framing-retry';
-    const broad = validResearchGoalSuggestions();
-    const narrow = {
-      ...broad,
-      discovery: [
-        'Verify whether the parser length reaches the allocation sink.',
-        'Determine whether the project importer crosses the ownership check.',
-        'Build a verifier for the suspected archive traversal primitive.',
-        'Confirm whether metadata decoding reaches the suspected memory sink.'
-      ]
-    };
+    const broad = validResearchGoalSuggestionGroups().discovery;
+    const narrow = [
+      'Verify whether the parser length reaches the allocation sink.',
+      'Determine whether the project importer crosses the ownership check.',
+      'Build a verifier for the suspected archive traversal primitive.',
+      'Confirm whether metadata decoding reaches the suspected memory sink.'
+    ];
     const requests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
         return modelJsonResponse(
-          requests.length === 1 ? narrow : broad,
+          { suggestions: requests.length === 1 ? narrow : broad },
           `resp_goal_framing_${requests.length}`
         );
       }
     });
     service.createWorkspace(tempWorkspace());
 
-    const result = await service.generateResearchGoalSuggestions();
+    const result = await service.generateResearchGoalSuggestions({ phase: 'discovery' });
 
-    expect(result).toEqual(broad);
+    expect(result).toEqual({ phase: 'discovery', suggestions: broad });
     expect(requests).toHaveLength(2);
-    expect(requests[1]?.instructions).toContain('The previous response was rejected by the host validator');
-    expect(requests[1]?.instructions).toContain('four valid goals in each phase');
+    expect(requests[1]?.instructions).toContain('The previous Discovery response was rejected by the host validator');
+    expect(requests[1]?.instructions).toContain('Return exactly four distinct one-sentence suggestions');
     service.close();
   });
 
@@ -3200,8 +3203,7 @@ describe('Beale workbench skeleton', () => {
     {
       name: 'the wrong number of suggestions',
       payload: {
-        ...validResearchGoalSuggestions(),
-        discovery: [
+        suggestions: [
           'Research parser allocation boundaries for integer-overflow vulnerabilities.',
           'Explore archive extraction for path-confusion vulnerabilities.'
         ]
@@ -3211,8 +3213,7 @@ describe('Beale workbench skeleton', () => {
     {
       name: 'duplicate suggestions',
       payload: {
-        ...validResearchGoalSuggestions(),
-        discovery: [
+        suggestions: [
           'Research parser allocation boundaries for integer-overflow vulnerabilities.',
           'Research parser allocation boundaries for integer-overflow vulnerabilities!',
           'Explore archive extraction for path-confusion vulnerabilities.',
@@ -3224,10 +3225,9 @@ describe('Beale workbench skeleton', () => {
     {
       name: 'multiple sentences',
       payload: {
-        ...validResearchGoalSuggestions(),
-        discovery: [
+        suggestions: [
           'Research the parser ownership boundary. Then examine authorization flaws.',
-          ...validResearchGoalSuggestions().discovery.slice(1)
+          ...validResearchGoalSuggestionGroups().discovery.slice(1)
         ]
       },
       error: /exactly one sentence/i
@@ -3235,35 +3235,12 @@ describe('Beale workbench skeleton', () => {
     {
       name: 'a lowercase second sentence',
       payload: {
-        ...validResearchGoalSuggestions(),
-        discovery: [
+        suggestions: [
           'Research the parser ownership boundary. then examine authorization flaws.',
-          ...validResearchGoalSuggestions().discovery.slice(1)
+          ...validResearchGoalSuggestionGroups().discovery.slice(1)
         ]
       },
       error: /exactly one sentence/i
-    },
-    {
-      name: 'a chaining goal without a triage-ready PoC outcome',
-      payload: {
-        ...validResearchGoalSuggestions(),
-        chaining: [
-          'Upgrade the parser overflow primitive into a reachable exploit chain.',
-          ...validResearchGoalSuggestions().chaining.slice(1)
-        ]
-      },
-      error: /Chaining goal.*triage-ready PoC/i
-    },
-    {
-      name: 'a reporting goal without submission.zip',
-      payload: {
-        ...validResearchGoalSuggestions(),
-        reporting: [
-          'Report the parser exploit chain, its bugs and security impact, with a triage-ready PoC.',
-          ...validResearchGoalSuggestions().reporting.slice(1)
-        ]
-      },
-      error: /Reporting goal.*submission\.zip/i
     }
   ])('rejects $name in research goal suggestions', async ({ payload, error }) => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-invalid-goal-suggestions';
@@ -3272,7 +3249,42 @@ describe('Beale workbench skeleton', () => {
     });
     service.createWorkspace(tempWorkspace());
 
-    await expect(service.generateResearchGoalSuggestions()).rejects.toThrow(error);
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' })).rejects.toThrow(error);
+    service.close();
+  });
+
+  it('accepts natural wording variants in Chaining and Reporting goals', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-natural-goal-wording';
+    const validSuggestions = validResearchGoalSuggestionGroups();
+    const suggestions: Pick<ResearchGoalSuggestionStateByPhase<ResearchGoalSuggestionGroup>, 'chaining' | 'reporting'> = {
+      chaining: [
+        'Develop the recorded parser flaws into an end-to-end exploit with a triage-ready proof of concept.',
+        validSuggestions.chaining[1],
+        validSuggestions.chaining[2],
+        validSuggestions.chaining[3]
+      ],
+      reporting: [
+        'Prepare the parser security report with its demonstrated impact, reproducible test case, and supporting evidence archive.',
+        validSuggestions.reporting[1],
+        validSuggestions.reporting[2],
+        validSuggestions.reporting[3]
+      ]
+    };
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        const phase = modelRequestPayload(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>).researchPhase as 'chaining' | 'reporting';
+        return modelJsonResponse({ suggestions: suggestions[phase] }, `resp_natural_goal_wording_${phase}`);
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+
+    await expect(Promise.all([
+      service.generateResearchGoalSuggestions({ phase: 'chaining' }),
+      service.generateResearchGoalSuggestions({ phase: 'reporting' })
+    ])).resolves.toEqual([
+      { phase: 'chaining', suggestions: suggestions.chaining },
+      { phase: 'reporting', suggestions: suggestions.reporting }
+    ]);
     service.close();
   });
 
@@ -4158,7 +4170,7 @@ function modelJsonResponse(value: unknown, id: string, reasoningSummary = ''): R
   );
 }
 
-function validResearchGoalSuggestions(): GeneratedResearchGoalSuggestions {
+function validResearchGoalSuggestionGroups(): ResearchGoalSuggestionStateByPhase<ResearchGoalSuggestionGroup> {
   return {
     discovery: [
       'Research parser allocation and buffer management for integer-overflow and memory-corruption vulnerabilities.',

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GeneratedResearchGoalSuggestions, WorkspaceSnapshot } from '@shared/types';
+import type { Dispatch, SetStateAction } from 'react';
+import type {
+  ResearchGoalPhase,
+  ResearchGoalSuggestionsByPhase,
+  ResearchGoalSuggestionStateByPhase,
+  WorkspaceSnapshot
+} from '@shared/types';
 import { userFacingErrorMessage } from '../lib/errors';
 import {
   ResearchGoalSuggestionCache,
@@ -9,9 +15,11 @@ import {
 import { clientRequestId } from '../view-models/runSettings';
 
 const OPENAI_NOT_CONFIGURED_MESSAGE = 'Connect OpenAI in Settings to load suggested goals.';
+const RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
 
 interface ActiveSuggestionRequest {
   key: string;
+  phase: ResearchGoalPhase;
   requestId: string;
   token: symbol;
 }
@@ -23,10 +31,10 @@ interface SuggestionRequestState {
 }
 
 export interface ResearchGoalSuggestionsState {
-  suggestions: GeneratedResearchGoalSuggestions | null;
-  loading: boolean;
-  error: string | null;
-  retry: () => void;
+  suggestions: ResearchGoalSuggestionsByPhase;
+  loading: ResearchGoalSuggestionStateByPhase<boolean>;
+  errors: ResearchGoalSuggestionStateByPhase<string | null>;
+  retry: (phase: ResearchGoalPhase) => void;
 }
 
 export function useResearchGoalSuggestions(
@@ -34,118 +42,133 @@ export function useResearchGoalSuggestions(
   openAiConfigured: boolean
 ): ResearchGoalSuggestionsState {
   const cache = useMemo(() => new ResearchGoalSuggestionCache(), []);
-  const activeRequestRef = useRef<ActiveSuggestionRequest | null>(null);
-  const [requestState, setRequestState] = useState<SuggestionRequestState>({
-    key: null,
-    loading: false,
-    error: null
-  });
+  const activeRequestsRef = useRef(new Map<ResearchGoalPhase, ActiveSuggestionRequest>());
+  const [requestStates, setRequestStates] = useState<ResearchGoalSuggestionStateByPhase<SuggestionRequestState>>(
+    () => phaseRecord(() => ({ key: null, loading: false, error: null }))
+  );
   const activeKey = researchGoalSuggestionCacheKey(snapshot);
   const researchRevision = researchGoalSuggestionRevision(snapshot);
 
   const cancelRequest = useCallback((request: ActiveSuggestionRequest): void => {
-    if (activeRequestRef.current?.token === request.token) activeRequestRef.current = null;
+    if (activeRequestsRef.current.get(request.phase)?.token === request.token) {
+      activeRequestsRef.current.delete(request.phase);
+    }
     cache.invalidate(request.key);
     void window.beale.cancelResearchPromptGeneration(request.requestId).catch(() => undefined);
   }, [cache]);
 
-  const loadSuggestions = useCallback((force = false): void => {
-    if (!activeKey) {
-      const activeRequest = activeRequestRef.current;
+  const loadSuggestions = useCallback((phase: ResearchGoalPhase, force = false): void => {
+    const key = phaseCacheKey(activeKey, phase);
+    if (!key) {
+      const activeRequest = activeRequestsRef.current.get(phase);
       if (activeRequest) cancelRequest(activeRequest);
-      setRequestState({ key: null, loading: false, error: null });
+      updatePhaseState(setRequestStates, phase, { key: null, loading: false, error: null });
       return;
     }
 
     if (!openAiConfigured) {
-      const activeRequest = activeRequestRef.current;
+      const activeRequest = activeRequestsRef.current.get(phase);
       if (activeRequest) cancelRequest(activeRequest);
-      setRequestState({ key: activeKey, loading: false, error: OPENAI_NOT_CONFIGURED_MESSAGE });
+      updatePhaseState(setRequestStates, phase, { key, loading: false, error: OPENAI_NOT_CONFIGURED_MESSAGE });
       return;
     }
 
-    const cached = cache.read(activeKey);
+    const cached = cache.read(key);
     if (!force && cached.status === 'ready') {
-      setRequestState({ key: activeKey, loading: false, error: null });
+      updatePhaseState(setRequestStates, phase, { key, loading: false, error: null });
       return;
     }
 
-    const activeRequest = activeRequestRef.current;
-    if (!force && activeRequest?.key === activeKey) return;
+    const activeRequest = activeRequestsRef.current.get(phase);
+    if (!force && activeRequest?.key === key) return;
     if (activeRequest) cancelRequest(activeRequest);
-    if (cached.status === 'loading') cache.invalidate(activeKey);
+    if (cached.status === 'loading') cache.invalidate(key);
 
     const request: ActiveSuggestionRequest = {
-      key: activeKey,
-      requestId: clientRequestId('goal_suggestions'),
-      token: Symbol(activeKey)
+      key,
+      phase,
+      requestId: clientRequestId(`goal_suggestions_${phase}`),
+      token: Symbol(key)
     };
-    activeRequestRef.current = request;
-    setRequestState({ key: activeKey, loading: true, error: null });
+    activeRequestsRef.current.set(phase, request);
+    updatePhaseState(setRequestStates, phase, { key, loading: true, error: null });
 
     void cache
       .load(
-        activeKey,
-        () => window.beale.generateResearchGoalSuggestions({ requestId: request.requestId }),
+        key,
+        () => window.beale.generateResearchGoalSuggestions({ phase, requestId: request.requestId }),
         { force }
       )
       .then(() => {
-        if (activeRequestRef.current?.token !== request.token) return;
-        setRequestState({ key: activeKey, loading: false, error: null });
+        if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
+        updatePhaseState(setRequestStates, phase, { key, loading: false, error: null });
       })
       .catch((caught: unknown) => {
-        if (activeRequestRef.current?.token !== request.token) return;
+        if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
         const message = userFacingErrorMessage(caught);
-        setRequestState({
-          key: activeKey,
+        updatePhaseState(setRequestStates, phase, {
+          key,
           loading: false,
           error: /canceled/i.test(message) ? null : message
         });
       })
       .finally(() => {
-        if (activeRequestRef.current?.token === request.token) activeRequestRef.current = null;
+        if (activeRequestsRef.current.get(phase)?.token === request.token) {
+          activeRequestsRef.current.delete(phase);
+        }
       });
   }, [activeKey, cache, cancelRequest, openAiConfigured]);
 
   useEffect(() => {
-    const activeRequest = activeRequestRef.current;
-    if (activeRequest && (activeRequest.key !== activeKey || !openAiConfigured)) cancelRequest(activeRequest);
-
-    if (!activeKey) {
-      loadSuggestions();
-      return;
+    for (const phase of RESEARCH_GOAL_PHASES) {
+      const activeRequest = activeRequestsRef.current.get(phase);
+      if (activeRequest && (activeRequest.key !== phaseCacheKey(activeKey, phase) || !openAiConfigured)) {
+        cancelRequest(activeRequest);
+      }
     }
 
-    if (!openAiConfigured) {
-      setRequestState({ key: activeKey, loading: false, error: OPENAI_NOT_CONFIGURED_MESSAGE });
-      return;
-    }
-
-    const timer = window.setTimeout(() => loadSuggestions(true), 0);
-    return () => window.clearTimeout(timer);
+    const timers = RESEARCH_GOAL_PHASES.map((phase) => window.setTimeout(() => loadSuggestions(phase, true), 0));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [activeKey, cancelRequest, loadSuggestions, openAiConfigured, researchRevision]);
 
   useEffect(() => () => {
-    const activeRequest = activeRequestRef.current;
-    if (activeRequest) cancelRequest(activeRequest);
+    for (const request of activeRequestsRef.current.values()) cancelRequest(request);
   }, [cancelRequest]);
 
-  const retry = useCallback(() => loadSuggestions(true), [loadSuggestions]);
-  const cached = cache.read(activeKey);
-  if (cached.status === 'ready') {
-    return {
-      suggestions: cached.result,
-      loading: false,
-      error: null,
-      retry
-    };
+  const retry = useCallback((phase: ResearchGoalPhase) => loadSuggestions(phase, true), [loadSuggestions]);
+  const suggestions: ResearchGoalSuggestionsByPhase = {};
+  const loading = phaseRecord(() => false);
+  const errors = phaseRecord<string | null>(() => null);
+
+  for (const phase of RESEARCH_GOAL_PHASES) {
+    const key = phaseCacheKey(activeKey, phase);
+    const cached = cache.read(key);
+    if (cached.status === 'ready') suggestions[phase] = cached.result.suggestions;
+    const requestState = requestStates[phase];
+    const stateMatchesKey = requestState.key === key;
+    loading[phase] = Boolean(key) && cached.status !== 'ready' && (stateMatchesKey ? requestState.loading : true);
+    errors[phase] = stateMatchesKey ? requestState.error : null;
   }
 
-  const stateMatchesActiveKey = requestState.key === activeKey;
+  return { suggestions, loading, errors, retry };
+}
+
+function phaseCacheKey(activeKey: string | null, phase: ResearchGoalPhase): string | null {
+  return activeKey ? `${activeKey}::${phase}` : null;
+}
+
+function phaseRecord<T>(value: (phase: ResearchGoalPhase) => T): ResearchGoalSuggestionStateByPhase<T> {
   return {
-    suggestions: null,
-    loading: Boolean(activeKey) && (stateMatchesActiveKey ? requestState.loading : true),
-    error: stateMatchesActiveKey ? requestState.error : null,
-    retry
+    discovery: value('discovery'),
+    chaining: value('chaining'),
+    reporting: value('reporting')
   };
+}
+
+function updatePhaseState(
+  setState: Dispatch<SetStateAction<ResearchGoalSuggestionStateByPhase<SuggestionRequestState>>>,
+  phase: ResearchGoalPhase,
+  state: SuggestionRequestState
+): void {
+  setState((current) => ({ ...current, [phase]: state }));
 }

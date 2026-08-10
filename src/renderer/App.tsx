@@ -786,7 +786,7 @@ export function App(): JSX.Element {
         researchProviderStatuses={researchProviderStatuses}
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}
         researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
-        researchGoalSuggestionError={researchGoalSuggestionState.error}
+        researchGoalSuggestionErrors={researchGoalSuggestionState.errors}
         profilingOpen={profilingOpen}
         profilingState={profilingState}
         lastProfilingReport={lastProfilingReport}

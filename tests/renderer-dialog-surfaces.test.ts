@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { GeneratedResearchGoalSuggestions, HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
+import type { HoneycrispMemoryNodeSummary, ResearchGoalSuggestionsByPhase, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
@@ -55,8 +55,8 @@ describe('renderer dialog surfaces', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchGoalChooser, {
         suggestions,
-        loading: false,
-        error: null,
+        loading: phaseValues(false),
+        errors: phaseValues(null),
         onSelect: () => undefined,
         onRetry: () => undefined
       })
@@ -84,8 +84,8 @@ describe('renderer dialog surfaces', () => {
         researchProviderStatuses: [],
         providerModelCatalog: [],
         researchGoalSuggestions: suggestions,
-        researchGoalSuggestionsLoading: false,
-        researchGoalSuggestionError: null,
+        researchGoalSuggestionsLoading: phaseValues(false),
+        researchGoalSuggestionErrors: phaseValues(null),
         busy: false,
         runAction: async () => undefined,
         onCancel: () => undefined,
@@ -102,6 +102,24 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
     expect(html).toContain('<textarea');
     expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
+  });
+
+  it('keeps successful goal sections usable when another section fails', () => {
+    const suggestions = phaseSuggestions();
+    const html = renderToStaticMarkup(
+      createElement(ResearchGoalChooser, {
+        suggestions: { discovery: suggestions.discovery },
+        loading: { discovery: false, chaining: false, reporting: true },
+        errors: { discovery: null, chaining: 'Chaining request failed.', reporting: null },
+        onSelect: () => undefined,
+        onRetry: () => undefined
+      })
+    );
+
+    expect(html.match(/aria-label="Discovery goal \d:/g)).toHaveLength(4);
+    expect(html).toContain('Could not load chaining goals');
+    expect(html).toContain('Chaining request failed.');
+    expect(html.match(/research-goal-choice-loading/g)).toHaveLength(4);
   });
 
   it('shows the structured final disposition and blocker dependencies in session summaries', () => {
@@ -238,7 +256,7 @@ describe('renderer dialog surfaces', () => {
 
 });
 
-function phaseSuggestions(): GeneratedResearchGoalSuggestions {
+function phaseSuggestions(): ResearchGoalSuggestionsByPhase {
   return {
     discovery: [
       'Research parser allocation boundaries for integer-overflow vulnerabilities.',
@@ -259,4 +277,8 @@ function phaseSuggestions(): GeneratedResearchGoalSuggestions {
       'Document the metadata chain with its bugs, impact, triage-ready PoC, and submission.zip.'
     ]
   };
+}
+
+function phaseValues<T>(value: T): { discovery: T; chaining: T; reporting: T } {
+  return { discovery: value, chaining: value, reporting: value };
 }
