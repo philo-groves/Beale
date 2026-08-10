@@ -17,7 +17,8 @@ import type {
 import { resolveGoalObjective } from '../../../shared/goalObjective';
 import { BottomSheet } from '../../app/Modal';
 import { userFacingErrorMessage } from '../../lib/errors';
-import { networkProfileLabel, researchModelNameLabel } from '../../lib/formatting';
+import { researchModelNameLabel } from '../../lib/formatting';
+import { DEFAULT_SHELL_SAFETY_MODE, normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 import {
   clientRequestId,
   defaultRunInput,
@@ -25,7 +26,6 @@ import {
   UNBOUNDED_MINUTES
 } from '../../view-models/runSettings';
 
-const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 
 type PromptEntryMode = 'chooser' | 'expanded';
@@ -98,7 +98,7 @@ export function StartRunForm({
 }): JSX.Element {
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
-    networkProfile: 'elevated',
+    networkProfile: snapshot.activeScope.networkProfile,
     sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
@@ -195,7 +195,6 @@ export function StartRunForm({
       attemptStrategy: sessionInput.attemptStrategy,
       model: sessionInput.model,
       reasoningEffort: sessionInput.reasoningEffort,
-      networkProfile: sessionInput.networkProfile,
       sandboxProfile: sessionInput.sandboxProfile,
       targetAssetId: sessionInput.targetAssetId ?? null,
       targetPath: sessionInput.targetPath ?? null
@@ -224,7 +223,8 @@ export function StartRunForm({
     setInput((current) => {
       const next = {
         ...current,
-        networkProfile: 'elevated',
+        shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
+        networkProfile: snapshot.activeScope.networkProfile,
         sandboxProfile: 'host',
         goalObjective: null,
         promptMarkdown: ''
@@ -459,11 +459,14 @@ export function StartRunForm({
         </label>
         <div className="start-grid">
           <label>
-            Network
-            <select value={input.networkProfile} onChange={(event) => update('networkProfile', event.target.value)}>
-              {NETWORK_PROFILE_OPTIONS.map((profile) => (
-                <option value={profile} key={profile}>
-                  {networkProfileLabel(profile)}
+            Safety Mode
+            <select
+              value={input.shellSafetyMode}
+              onChange={(event) => update('shellSafetyMode', normalizeShellSafetyMode(event.target.value))}
+            >
+              {SHELL_SAFETY_MODE_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

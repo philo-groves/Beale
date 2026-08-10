@@ -1075,7 +1075,6 @@ export interface ResearchPromptGenerationInput {
   attemptStrategy: string;
   model: string;
   reasoningEffort: string;
-  networkProfile: string;
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;

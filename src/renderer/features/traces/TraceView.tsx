@@ -8,7 +8,6 @@ import type {
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   RunDetail,
-  ShellSafetyMode,
   SteeringAction
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
@@ -16,7 +15,8 @@ import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail 
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { researchModelNameLabel, traceLabel } from '../../lib/formatting';
-import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
+import { normalizeShellSafetyMode, SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
+export { SHELL_SAFETY_MODE_OPTIONS } from '../../../shared/shellSafety';
 import type { TraceCategoryId } from '../../traceClassification';
 import {
   buildTraceTimelineEntries,
@@ -48,12 +48,6 @@ export const STEER_TEXTAREA_MAX_LINES = 7;
 export const STEER_TEXTAREA_DEFAULT_EXTRA_LINES = 1;
 const STEER_ACTION_ROW_HEIGHT = 35;
 const STEER_COMPOSER_ROW_GAP = 0;
-
-export const SHELL_SAFETY_MODE_OPTIONS: Array<{ value: ShellSafetyMode; label: string }> = [
-  { value: 'manual_approval', label: 'Manual Approval' },
-  { value: 'auto_review', label: 'Auto-Review' },
-  { value: 'danger', label: 'Danger Mode' }
-];
 
 export const TraceView = memo(function TraceView({
   busy,

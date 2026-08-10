@@ -2021,8 +2021,8 @@ describe('Beale workbench skeleton', () => {
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
-        "if (workspaceContext.authorization?.networkProfile !== 'offline') throw new Error('Per-session network profile missing from authorization context');",
-        "if (!workspaceContext.projectNotes?.includes('Network access profile: offline')) throw new Error('Per-session network profile missing from project notes');",
+        "if (workspaceContext.authorization?.networkProfile !== 'elevated') throw new Error('Workspace network profile missing from authorization context');",
+        "if (!workspaceContext.projectNotes?.includes('Network access profile: elevated')) throw new Error('Workspace network profile missing from project notes');",
         "if (!workspaceContext.memoryContext?.sessionId || !workspaceContext.memoryContext?.workspaceId) throw new Error('Memory session/workspace context missing');",
         "if (workspaceContext.memoryContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
@@ -2112,7 +2112,7 @@ describe('Beale workbench skeleton', () => {
       recorded: true,
       source: 'beale',
       scopeName: 'ZSH Fixture',
-      networkProfile: 'offline'
+      networkProfile: 'elevated'
     });
     expect(workspaceContext.memoryContext).toMatchObject({
       sessionId: runId,
@@ -2129,7 +2129,7 @@ describe('Beale workbench skeleton', () => {
         expect.stringMatching(/^Authorization:/),
         expect.stringContaining('Scope: ZSH Fixture'),
         expect.stringContaining('Rules and constraints: Use local context provided by the operator.'),
-        'Network access profile: offline',
+        'Network access profile: elevated',
         expect.stringContaining(`In scope (path, internal): ${nestedSourceRoot}`),
         expect.stringContaining('Out of scope (domain, internal): excluded.example.test'),
         expect.stringContaining('In scope (credential_ref, internal): [host-held credential reference; value withheld from agent context]')
@@ -3353,7 +3353,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'iterative_research',
       model: sessionModel,
       reasoningEffort: 'high',
-      networkProfile: 'scoped',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
@@ -3379,9 +3378,9 @@ describe('Beale workbench skeleton', () => {
       operation: 'expand_goal',
       researchPhase: 'discovery',
       model: sessionModel,
-      reasoningEffort: 'high',
-      networkProfile: 'scoped'
+      reasoningEffort: 'high'
     });
+    expect(payload.requestedSession).not.toHaveProperty('networkProfile');
     expect(payload.workspace).toMatchObject({
       hostDiscoveredAgentInstructions: {
         sourceFile: 'AGENTS.md',
@@ -3425,7 +3424,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'iterative_research',
       model: 'gpt-5.6-sol',
       reasoningEffort: 'high',
-      networkProfile: 'offline',
       sandboxProfile: 'host'
     });
 
@@ -3466,7 +3464,7 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('recentMemoryEvidenceRefs');
         expect(serialized).toContain('requestedSession');
         expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
-        expect(serialized).toContain('\\"networkProfile\\": \\"scoped\\"');
+        expect(serialized).toContain('\\"networkProfile\\": \\"offline\\"');
         expect(serialized).toContain('\\"sandboxProfile\\": \\"host\\"');
         return new Response(
           sse(
@@ -3499,7 +3497,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'single_path',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
-      networkProfile: 'scoped',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
@@ -3570,7 +3567,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'iterative_research',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: workspace
@@ -3643,7 +3639,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'iterative_research',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: workspace
@@ -3687,7 +3682,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'single_path',
       model: 'gpt-5.5',
       reasoningEffort: 'medium',
-      networkProfile: 'scoped',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
@@ -3728,7 +3722,6 @@ describe('Beale workbench skeleton', () => {
         attemptStrategy: 'single_path',
         model: 'gpt-5.5',
         reasoningEffort: 'medium',
-        networkProfile: 'scoped',
         sandboxProfile: 'host',
         targetAssetId: null,
         targetPath: null
@@ -3760,7 +3753,6 @@ describe('Beale workbench skeleton', () => {
       attemptStrategy: 'single_path',
       model: 'gpt-5.5',
       reasoningEffort: 'medium',
-      networkProfile: 'scoped',
       sandboxProfile: 'host',
       targetAssetId: null,
       targetPath: null
@@ -3805,7 +3797,6 @@ describe('Beale workbench skeleton', () => {
         attemptStrategy: 'single_path',
         model: 'gpt-5.5',
         reasoningEffort: 'medium',
-        networkProfile: 'scoped',
         sandboxProfile: 'host',
         targetAssetId: null,
         targetPath: null

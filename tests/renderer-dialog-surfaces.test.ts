@@ -97,6 +97,12 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="goal-option"');
     expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
     expect(html).toContain('Keep working across turns until the objective is complete or genuinely blocked.');
+    expect(html).toContain('Safety Mode');
+    expect(html).toContain('Manual Approval');
+    expect(html).toContain('Auto-Review');
+    expect(html).toContain('Danger Mode');
+    expect(html).toContain('<option value="auto_review" selected="">Auto-Review</option>');
+    expect(html).not.toContain('<label>Network');
     for (const suggestion of Object.values(suggestions).flat()) expect(html).toContain(suggestion);
     expect(html).not.toContain('Reviewing prior research…');
     expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');

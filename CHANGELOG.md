@@ -35,6 +35,7 @@
 
 ### Changed
 
+- Replaced the New Research network-profile selector with the same Manual Approval, Auto-Review, and Danger Mode shell-safety choices used by session steering. Auto-Review remains the default, while a session's network boundary now comes only from its recorded workspace scope.
 - Discovery, Chaining, and Reporting goal suggestions now load through independent concurrent model requests with per-section caching, errors, and retry, so one failed phase does not hide successful suggestions from the others.
 - New Research is now a sliding bottom sheet with four model-generated goals in each of Discovery, Chaining, and Reporting, plus a custom-goal section. Selected phases carry into prompt generation; Chaining targets reportable chains with triage-ready PoCs, while Reporting requires an evidence-grounded report and `submission.zip` containing the PoC and supporting evidence.
 - Memory Dreaming now uses GPT-5.6 Sol with high reasoning, applies the editable memory taxonomy while consolidating root-cause duplicates, receives bounded root-cause attributes and graph relationships, and can reversibly reclassify invalid nodes only when the target type's structural invariants remain valid.
