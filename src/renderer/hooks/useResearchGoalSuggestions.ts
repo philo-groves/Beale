@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkspaceSnapshot } from '@shared/types';
+import type { GeneratedResearchGoalSuggestions, WorkspaceSnapshot } from '@shared/types';
 import { userFacingErrorMessage } from '../lib/errors';
 import {
   ResearchGoalSuggestionCache,
@@ -23,7 +23,7 @@ interface SuggestionRequestState {
 }
 
 export interface ResearchGoalSuggestionsState {
-  suggestions: [string, string, string] | null;
+  suggestions: GeneratedResearchGoalSuggestions | null;
   loading: boolean;
   error: string | null;
   retry: () => void;
@@ -134,7 +134,7 @@ export function useResearchGoalSuggestions(
   const cached = cache.read(activeKey);
   if (cached.status === 'ready') {
     return {
-      suggestions: cached.result.suggestions,
+      suggestions: cached.result,
       loading: false,
       error: null,
       retry

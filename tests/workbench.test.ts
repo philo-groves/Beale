@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
+import type { GeneratedResearchGoalSuggestions, WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
@@ -3085,18 +3085,14 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('generates exactly three distinct research goal suggestions grounded in prior workspace research', async () => {
+  it('generates four distinct goals for each research phase grounded in prior workspace research', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-suggestions';
-    const suggestions = [
-      'Research the parser allocation and buffer-management subsystem for integer-overflow and memory-corruption vulnerabilities.',
-      'Explore the project import and ownership subsystem for authorization and confused-deputy flaws.',
-      'Examine archive extraction and path normalization for traversal and filesystem-boundary vulnerabilities.'
-    ] as const;
+    const suggestions = validResearchGoalSuggestions();
     const modelRequests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
-        return modelJsonResponse({ suggestions: [...suggestions] }, 'resp_goal_suggestions');
+        return modelJsonResponse(suggestions, 'resp_goal_suggestions');
       }
     });
 
@@ -3126,18 +3122,21 @@ describe('Beale workbench skeleton', () => {
     const previousResearch = payload.previousResearch as Array<Record<string, unknown>>;
     const coverageHints = payload.coverageHints as Record<string, unknown>;
 
-    expect(result.suggestions).toEqual(suggestions);
-    expect(result.suggestions).toHaveLength(3);
-    expect(new Set(result.suggestions)).toHaveProperty('size', 3);
+    expect(result).toEqual(suggestions);
+    expect(result.discovery).toHaveLength(4);
+    expect(result.chaining).toHaveLength(4);
+    expect(result.reporting).toHaveLength(4);
+    expect(new Set(Object.values(result).flat())).toHaveProperty('size', 12);
     expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
     expect(request.tools).toEqual([]);
     expect(request.reasoning).toEqual({ effort: 'medium' });
     expect(request.text).toEqual({ verbosity: 'low' });
     expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions' });
     expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-    expect(request.instructions).toContain('pairs a bounded subsystem, component, or attack surface with a relevant bug class');
-    expect(request.instructions).toContain('Do not use prove-or-disprove framing');
-    expect(request.instructions).toContain('Do not include workflow guidance');
+    expect(request.instructions).toContain('arrays named discovery, chaining, and reporting');
+    expect(request.instructions).toContain('A primitive is a flaw, but it does not by itself prove reachability, exploitability, or reportability');
+    expect(request.instructions).toContain('triage-ready PoC');
+    expect(request.instructions).toContain('submission.zip');
     expect(request.instructions).not.toContain('Each direction must seek a falsifiable security conclusion');
     expect(payload.task).toBe('suggest_next_research_goals');
     expect(payload.workspace).toMatchObject({
@@ -3166,22 +3165,22 @@ describe('Beale workbench skeleton', () => {
 
   it('retries goal suggestions that fall back to binary hypothesis framing', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-framing-retry';
-    const narrow = [
-      'Verify whether the parser length reaches the allocation sink.',
-      'Determine whether the project importer crosses the ownership check.',
-      'Build a verifier for the suspected archive traversal primitive.'
-    ];
-    const broad = [
-      'Research parser allocation and buffer management for integer-overflow and memory-corruption vulnerabilities.',
-      'Explore project import and workspace ownership for authorization and confused-deputy flaws.',
-      'Examine archive extraction and path normalization for traversal and filesystem-boundary vulnerabilities.'
-    ] as [string, string, string];
+    const broad = validResearchGoalSuggestions();
+    const narrow = {
+      ...broad,
+      discovery: [
+        'Verify whether the parser length reaches the allocation sink.',
+        'Determine whether the project importer crosses the ownership check.',
+        'Build a verifier for the suspected archive traversal primitive.',
+        'Confirm whether metadata decoding reaches the suspected memory sink.'
+      ]
+    };
     const requests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
         return modelJsonResponse(
-          { suggestions: requests.length === 1 ? narrow : broad },
+          requests.length === 1 ? narrow : broad,
           `resp_goal_framing_${requests.length}`
         );
       }
@@ -3190,53 +3189,86 @@ describe('Beale workbench skeleton', () => {
 
     const result = await service.generateResearchGoalSuggestions();
 
-    expect(result.suggestions).toEqual(broad);
+    expect(result).toEqual(broad);
     expect(requests).toHaveLength(2);
     expect(requests[1]?.instructions).toContain('The previous response was rejected by the host validator');
-    expect(requests[1]?.instructions).toContain('broad subsystem-and-bug-class directions only');
+    expect(requests[1]?.instructions).toContain('four valid goals in each phase');
     service.close();
   });
 
   it.each([
     {
       name: 'the wrong number of suggestions',
-      suggestions: [
-        'Inspect the parser ownership boundary for a reusable authorization primitive.',
-        'Verify the archive extraction boundary with a durable reproduction harness.'
-      ],
-      error: /exactly three suggestions/i
+      payload: {
+        ...validResearchGoalSuggestions(),
+        discovery: [
+          'Research parser allocation boundaries for integer-overflow vulnerabilities.',
+          'Explore archive extraction for path-confusion vulnerabilities.'
+        ]
+      },
+      error: /exactly four suggestions/i
     },
     {
       name: 'duplicate suggestions',
-      suggestions: [
-        'Inspect the parser ownership boundary for a reusable authorization primitive.',
-        'Inspect the parser ownership boundary for a reusable authorization primitive!',
-        'Research archive extraction and path normalization for traversal vulnerabilities.'
-      ],
+      payload: {
+        ...validResearchGoalSuggestions(),
+        discovery: [
+          'Research parser allocation boundaries for integer-overflow vulnerabilities.',
+          'Research parser allocation boundaries for integer-overflow vulnerabilities!',
+          'Explore archive extraction for path-confusion vulnerabilities.',
+          'Examine workspace ownership for authorization vulnerabilities.'
+        ]
+      },
       error: /must be distinct/i
     },
     {
       name: 'multiple sentences',
-      suggestions: [
-        'Inspect the parser ownership boundary. Then verify the reachable authorization sink.',
-        'Verify the archive extraction boundary with a durable reproduction harness.',
-        'Measure the impact of the recorded cache-key confusion primitive.'
-      ],
+      payload: {
+        ...validResearchGoalSuggestions(),
+        discovery: [
+          'Research the parser ownership boundary. Then examine authorization flaws.',
+          ...validResearchGoalSuggestions().discovery.slice(1)
+        ]
+      },
       error: /exactly one sentence/i
     },
     {
       name: 'a lowercase second sentence',
-      suggestions: [
-        'Inspect the parser ownership boundary. then verify the reachable authorization sink.',
-        'Verify the archive extraction boundary with a durable reproduction harness.',
-        'Measure the impact of the recorded cache-key confusion primitive.'
-      ],
+      payload: {
+        ...validResearchGoalSuggestions(),
+        discovery: [
+          'Research the parser ownership boundary. then examine authorization flaws.',
+          ...validResearchGoalSuggestions().discovery.slice(1)
+        ]
+      },
       error: /exactly one sentence/i
+    },
+    {
+      name: 'a chaining goal without a triage-ready PoC outcome',
+      payload: {
+        ...validResearchGoalSuggestions(),
+        chaining: [
+          'Upgrade the parser overflow primitive into a reachable exploit chain.',
+          ...validResearchGoalSuggestions().chaining.slice(1)
+        ]
+      },
+      error: /Chaining goal.*triage-ready PoC/i
+    },
+    {
+      name: 'a reporting goal without submission.zip',
+      payload: {
+        ...validResearchGoalSuggestions(),
+        reporting: [
+          'Report the parser exploit chain, its bugs and security impact, with a triage-ready PoC.',
+          ...validResearchGoalSuggestions().reporting.slice(1)
+        ]
+      },
+      error: /Reporting goal.*submission\.zip/i
     }
-  ])('rejects $name in research goal suggestions', async ({ suggestions, error }) => {
+  ])('rejects $name in research goal suggestions', async ({ payload, error }) => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-invalid-goal-suggestions';
     const service = new WorkspaceService(() => undefined, {
-      openAiFetch: async () => modelJsonResponse({ suggestions }, 'resp_invalid_goal_suggestions')
+      openAiFetch: async () => modelJsonResponse(payload, 'resp_invalid_goal_suggestions')
     });
     service.createWorkspace(tempWorkspace());
 
@@ -3302,6 +3334,7 @@ describe('Beale workbench skeleton', () => {
     const result = await service.generateResearchPrompt({
       requestId: `expand_${sessionModel}`,
       operation: 'expand_goal',
+      researchPhase: 'discovery',
       goalSentence,
       draftPromptMarkdown: null,
       mode: 'dynamic',
@@ -3323,8 +3356,8 @@ describe('Beale workbench skeleton', () => {
     expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
     expect(request.model).not.toBe(sessionModel);
     expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-    expect(request.instructions).toContain('Keep that pairing open-ended enough for creative vulnerability discovery');
-    expect(request.instructions).toContain('Do not prescribe phases, ordered steps, commands, verifier construction');
+    expect(request.instructions).toContain('If requestedSession.researchPhase is discovery');
+    expect(request.instructions).toContain('Chaining and reporting may instead be deliberately outcome-oriented');
     expect(request.instructions).toContain('host-discovered AGENTS.md guidance');
     expect(request.instructions).toContain('test locations, VM or container requirements');
     expect(payload.task).toBe('expand_selected_goal_into_research_session_prompt');
@@ -3332,6 +3365,7 @@ describe('Beale workbench skeleton', () => {
     expect(payload.draftPromptMarkdown).toBeNull();
     expect(payload.requestedSession).toMatchObject({
       operation: 'expand_goal',
+      researchPhase: 'discovery',
       model: sessionModel,
       reasoningEffort: 'high',
       networkProfile: 'scoped'
@@ -3343,6 +3377,52 @@ describe('Beale workbench skeleton', () => {
         truncated: false
       }
     });
+    service.close();
+  });
+
+  it.each([
+    {
+      phase: 'chaining' as const,
+      goalSentence: 'Upgrade the recorded parser primitive into a reportable exploit chain with a triage-ready PoC.',
+      expectedPrimary: 'upgrade an evidence-supported primitive',
+      expectedInstruction: 'identify and investigate missing reachability, exploitability, or impact links'
+    },
+    {
+      phase: 'reporting' as const,
+      goalSentence: 'Report the parser exploit chain with its bugs, impact, triage-ready PoC, and submission.zip.',
+      expectedPrimary: 'document an evidence-supported exploit chain',
+      expectedInstruction: 'require submission.zip to contain the PoC plus necessary evidence'
+    }
+  ])('carries the $phase phase into full-prompt generation', async ({ phase, goalSentence, expectedPrimary, expectedInstruction }) => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = `oauth-token-for-${phase}-prompt`;
+    const capturedRequests: Record<string, unknown>[] = [];
+    const expandedPrompt = `# ${phase} research\n\n${goalSentence}\n\nUse the recorded evidence and workspace constraints to produce the requested outcome without inventing reachability, impact, or unsupported conclusions. Preserve controls, limitations, reproduction details, and the exact authorized boundary in the final artifact.`;
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        capturedRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
+        return modelJsonResponse({ promptMarkdown: expandedPrompt }, `resp_${phase}_expansion`);
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+
+    await service.generateResearchPrompt({
+      operation: 'expand_goal',
+      researchPhase: phase,
+      goalSentence,
+      mode: 'dynamic',
+      attemptStrategy: 'iterative_research',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      networkProfile: 'offline',
+      sandboxProfile: 'host'
+    });
+
+    const capturedRequest = capturedRequests[0];
+    expect(capturedRequest).toBeTruthy();
+    const payload = modelRequestPayload(capturedRequest ?? {});
+    expect(payload.requestedSession).toMatchObject({ researchPhase: phase });
+    expect(payload.prioritizationPolicy).toMatchObject({ primary: expect.stringContaining(expectedPrimary) });
+    expect(capturedRequest?.instructions).toContain(expectedInstruction);
     service.close();
   });
 
@@ -4065,7 +4145,7 @@ function modelRequestPayload(request: Record<string, unknown>): Record<string, u
   return JSON.parse(input[0]?.content[0]?.text ?? '{}') as Record<string, unknown>;
 }
 
-function modelJsonResponse(value: Record<string, unknown>, id: string, reasoningSummary = ''): Response {
+function modelJsonResponse(value: unknown, id: string, reasoningSummary = ''): Response {
   return new Response(
     sse(
       (reasoningSummary
@@ -4076,6 +4156,29 @@ function modelJsonResponse(value: Record<string, unknown>, id: string, reasoning
     ),
     { status: 200, headers: { 'content-type': 'text/event-stream' } }
   );
+}
+
+function validResearchGoalSuggestions(): GeneratedResearchGoalSuggestions {
+  return {
+    discovery: [
+      'Research parser allocation and buffer management for integer-overflow and memory-corruption vulnerabilities.',
+      'Explore project import and workspace ownership for authorization and confused-deputy flaws.',
+      'Examine archive extraction and path normalization for traversal and filesystem-boundary vulnerabilities.',
+      'Research metadata decoding and object lifetimes for type-confusion and use-after-free vulnerabilities.'
+    ],
+    chaining: [
+      'Upgrade the parser overflow primitive into a reachable exploit chain with a triage-ready PoC.',
+      'Develop the archive traversal primitive into an impact-bearing chain with a triage-ready PoC.',
+      'Connect the workspace-ownership primitive to a reportable authorization chain with a triage-ready PoC.',
+      'Fill the metadata-lifetime primitive chain gaps and produce a triage-ready PoC.'
+    ],
+    reporting: [
+      'Report the parser exploit chain, its bugs and security impact, with a triage-ready PoC and submission.zip.',
+      'Document the archive exploit chain, its bugs and security impact, with a triage-ready PoC and submission.zip.',
+      'Report the workspace-ownership chain, its bugs and security impact, with a triage-ready PoC and submission.zip.',
+      'Document the metadata-lifetime chain, its bugs and security impact, with a triage-ready PoC and submission.zip.'
+    ]
+  };
 }
 
 async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise<void> {

@@ -1041,8 +1041,14 @@ export interface GeneratedResearchPrompt {
   promptMarkdown: string;
 }
 
+export type ResearchGoalPhase = 'discovery' | 'chaining' | 'reporting';
+
+export type ResearchGoalSuggestionGroup = [string, string, string, string];
+
 export interface GeneratedResearchGoalSuggestions {
-  suggestions: [string, string, string];
+  discovery: ResearchGoalSuggestionGroup;
+  chaining: ResearchGoalSuggestionGroup;
+  reporting: ResearchGoalSuggestionGroup;
 }
 
 export interface ResearchGoalSuggestionInput {
@@ -1058,6 +1064,7 @@ export interface ResearchPromptGenerationUpdate {
 export interface ResearchPromptGenerationInput {
   requestId?: string | null;
   operation?: 'generate' | 'refine' | 'expand_goal';
+  researchPhase?: ResearchGoalPhase | null;
   goalSentence?: string | null;
   draftPromptMarkdown?: string | null;
   mode: string;

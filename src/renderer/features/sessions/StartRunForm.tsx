@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { ArrowLeft, Play, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import type {
+  GeneratedResearchGoalSuggestions,
   OpenAiAccountStatus,
+  ResearchGoalPhase,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
   ResearchProviderModel,
@@ -11,8 +13,8 @@ import type {
   StartRunInput,
   WorkspaceSnapshot
 } from '@shared/types';
-import { deriveGoalObjective, resolveGoalObjective } from '../../../shared/goalObjective';
-import { Modal } from '../../app/Modal';
+import { resolveGoalObjective } from '../../../shared/goalObjective';
+import { BottomSheet } from '../../app/Modal';
 import { userFacingErrorMessage } from '../../lib/errors';
 import { networkProfileLabel, researchModelNameLabel } from '../../lib/formatting';
 import {
@@ -25,7 +27,7 @@ import {
 const NETWORK_PROFILE_OPTIONS = ['offline', 'scoped', 'elevated'] as const;
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 
-type PromptEntryMode = 'chooser' | 'expanded' | 'custom';
+type PromptEntryMode = 'chooser' | 'expanded';
 
 type StartRunFieldUpdater = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]) => void;
 type StartRunBudgetUpdater = (key: keyof StartRunInput['budget'], value: number) => void;
@@ -37,13 +39,34 @@ interface SessionProviderOption {
 }
 
 interface ResearchGoalChooserProps {
-  suggestions: [string, string, string] | null;
+  suggestions: GeneratedResearchGoalSuggestions | null;
   loading: boolean;
   error: string | null;
-  onSelect: (sentence: string) => void;
-  onSomethingElse: () => void;
+  onSelect: (sentence: string, phase: ResearchGoalPhase | null) => void;
   onRetry: () => void;
 }
+
+const RESEARCH_GOAL_SECTIONS: Array<{
+  phase: ResearchGoalPhase;
+  title: string;
+  description: string;
+}> = [
+  {
+    phase: 'discovery',
+    title: 'Discovery',
+    description: 'Find a new primitive by pairing a system area with a plausible bug class; reachability, exploitability, and reportability remain open.'
+  },
+  {
+    phase: 'chaining',
+    title: 'Chaining',
+    description: 'Upgrade existing primitives into a reportable exploit chain and triage-ready PoC, discovering missing links when needed.'
+  },
+  {
+    phase: 'reporting',
+    title: 'Reporting',
+    description: 'Document a supported chain, its bugs and impact, and package the triage-ready PoC and required evidence in submission.zip.'
+  }
+];
 
 export function StartRunForm({
   snapshot,
@@ -63,7 +86,7 @@ export function StartRunForm({
   openAiStatus: OpenAiAccountStatus | null;
   researchProviderStatuses: ResearchProviderStatus[];
   providerModelCatalog: ResearchProviderModelCatalog[];
-  researchGoalSuggestions: [string, string, string] | null;
+  researchGoalSuggestions: GeneratedResearchGoalSuggestions | null;
   researchGoalSuggestionsLoading: boolean;
   researchGoalSuggestionError: string | null;
   busy: boolean;
@@ -80,6 +103,7 @@ export function StartRunForm({
   const [startingRun, setStartingRun] = useState(false);
   const [entryMode, setEntryMode] = useState<PromptEntryMode>('chooser');
   const [selectedGoalSentence, setSelectedGoalSentence] = useState<string | null>(null);
+  const [selectedGoalPhase, setSelectedGoalPhase] = useState<ResearchGoalPhase | null>(null);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>('openai-codex');
@@ -144,12 +168,13 @@ export function StartRunForm({
     if (requestId) void window.beale.cancelResearchPromptGeneration(requestId).catch(() => undefined);
   };
 
-  const expandGoalSentence = (sentence: string): void => {
+  const expandGoalSentence = (sentence: string, phase: ResearchGoalPhase | null): void => {
     cancelPromptGeneration();
     const requestId = clientRequestId('research_prompt');
     const sessionInput = inputRef.current;
     generationRequestIdRef.current = requestId;
     setSelectedGoalSentence(sentence);
+    setSelectedGoalPhase(phase);
     setEntryMode('expanded');
     setGenerationError(null);
     setInput((current) => {
@@ -162,6 +187,7 @@ export function StartRunForm({
     void window.beale.generateResearchPrompt({
       requestId,
       operation: 'expand_goal',
+      researchPhase: phase,
       goalSentence: sentence,
       draftPromptMarkdown: null,
       mode: sessionInput.mode,
@@ -207,6 +233,7 @@ export function StartRunForm({
     });
     setEntryMode('chooser');
     setSelectedGoalSentence(null);
+    setSelectedGoalPhase(null);
     setGenerationError(null);
   }, [snapshot.activeScope.id, snapshot.workspace.workspaceId]);
 
@@ -254,9 +281,6 @@ export function StartRunForm({
   const update = <K extends keyof StartRunInput>(key: K, value: StartRunInput[K]): void => {
     setInput((current) => {
       const next: StartRunInput = { ...current, [key]: value };
-      if (key === 'promptMarkdown' && entryMode === 'custom') {
-        next.goalObjective = deriveGoalObjective(String(value));
-      }
       inputRef.current = next;
       return next;
     });
@@ -326,21 +350,10 @@ export function StartRunForm({
     update('reasoningEffort', inputValueForEffort(effort));
   };
 
-  const showCustomPrompt = (): void => {
-    cancelPromptGeneration();
-    setSelectedGoalSentence(null);
-    setGenerationError(null);
-    setInput((current) => {
-      const next = { ...current, goalObjective: null, promptMarkdown: '' };
-      inputRef.current = next;
-      return next;
-    });
-    setEntryMode('custom');
-  };
-
   const chooseAnotherGoal = (): void => {
     cancelPromptGeneration();
     setSelectedGoalSentence(null);
+    setSelectedGoalPhase(null);
     setGenerationError(null);
     setInput((current) => {
       const next = { ...current, goalObjective: null, promptMarkdown: '' };
@@ -356,9 +369,10 @@ export function StartRunForm({
   };
 
   return (
-    <Modal
+    <BottomSheet
       title="New Research"
       wide
+      className="start-run-sheet"
       onClose={closeModal}
       footer={
         <>
@@ -383,18 +397,17 @@ export function StartRunForm({
             loading={researchGoalSuggestionsLoading}
             error={researchGoalSuggestionError}
             onSelect={expandGoalSentence}
-            onSomethingElse={showCustomPrompt}
             onRetry={onRetryResearchGoalSuggestions}
           />
         ) : (
           <div className="research-prompt-entry">
             <button type="button" className="research-goal-back" onClick={chooseAnotherGoal}>
               <ArrowLeft size={14} />
-              Choose {entryMode === 'custom' ? 'a suggested goal' : 'another goal'}
+              Choose another goal
             </button>
             {entryMode === 'expanded' && selectedGoalSentence ? (
               <div className="selected-research-goal">
-                <span>Selected direction</span>
+                <span>{selectedGoalPhase ? `${phaseTitle(selectedGoalPhase)} goal` : 'Your goal'}</span>
                 <p>{selectedGoalSentence}</p>
               </div>
             ) : null}
@@ -405,22 +418,20 @@ export function StartRunForm({
                   <strong>Could not write the research prompt</strong>
                   <p>{generationError}</p>
                   {selectedGoalSentence ? (
-                    <button type="button" onClick={() => expandGoalSentence(selectedGoalSentence)}>Retry</button>
+                    <button type="button" onClick={() => expandGoalSentence(selectedGoalSentence, selectedGoalPhase)}>Retry</button>
                   ) : null}
                 </div>
               </div>
             ) : null}
-            {entryMode === 'custom' || generatingPrompt || input.promptMarkdown || !generationError ? (
+            {generatingPrompt || input.promptMarkdown || !generationError ? (
               <label className="research-prompt-editor">
-                {entryMode === 'custom' ? 'Research prompt' : 'Full research prompt'}
+                Full research prompt
                 <textarea
                   ref={promptBoxRef}
                   className="prompt-box"
                   rows={7}
                   disabled={generatingPrompt}
-                  placeholder={entryMode === 'custom'
-                    ? 'Describe the research objective, constraints, and desired outcome.'
-                    : 'Beale is expanding the selected direction into a complete research prompt…'}
+                  placeholder="Beale is expanding the selected direction into a complete research prompt…"
                   value={input.promptMarkdown}
                   onChange={(event) => update('promptMarkdown', event.target.value)}
                 />
@@ -472,7 +483,7 @@ export function StartRunForm({
           />
         </details>
       </div>
-    </Modal>
+    </BottomSheet>
   );
 }
 
@@ -481,15 +492,16 @@ export function ResearchGoalChooser({
   loading,
   error,
   onSelect,
-  onSomethingElse,
   onRetry
 }: ResearchGoalChooserProps): JSX.Element {
+  const [customGoal, setCustomGoal] = useState('');
+  const normalizedCustomGoal = customGoal.trim();
   return (
     <section className="research-goal-chooser" aria-labelledby="research-goal-chooser-title">
       <div className="research-goal-chooser-heading">
         <div>
           <h3 id="research-goal-chooser-title">Choose a goal</h3>
-          <p>These directions build on previous research. Beale will turn your selection into a full prompt before starting.</p>
+          <p>Choose the phase that matches the next research outcome. Beale will turn the selected goal into a full editable prompt.</p>
         </div>
         {loading ? <span role="status">Reviewing prior research…</span> : null}
       </div>
@@ -506,35 +518,62 @@ export function ResearchGoalChooser({
           </div>
         </div>
       ) : null}
-      <div className="research-goal-choice-grid">
-        {loading ? [0, 1, 2].map((index) => (
-          <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={index}>
-            <span />
-            <span />
-          </div>
-        )) : null}
-        {suggestions?.map((sentence, index) => (
-          <button
-            type="button"
-            className="research-goal-choice"
-            aria-label={`Goal ${index + 1}: ${sentence}`}
-            onClick={() => onSelect(sentence)}
-            key={sentence}
-          >
-            <span className="research-goal-choice-number">{index + 1}</span>
-            <span className="research-goal-choice-text">{sentence}</span>
-          </button>
+      <div className="research-goal-sections">
+        {RESEARCH_GOAL_SECTIONS.map(({ phase, title, description }) => (
+          <section className={`research-goal-section research-goal-section-${phase}`} aria-labelledby={`research-goal-${phase}-title`} key={phase}>
+            <header>
+              <h4 id={`research-goal-${phase}-title`}>{title}</h4>
+              <p>{description}</p>
+            </header>
+            <div className="research-goal-choice-list">
+              {loading ? [0, 1, 2, 3].map((index) => (
+                <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={index}>
+                  <span />
+                  <span />
+                </div>
+              )) : null}
+              {suggestions?.[phase].map((sentence, index) => (
+                <button
+                  type="button"
+                  className="research-goal-choice"
+                  aria-label={`${title} goal ${index + 1}: ${sentence}`}
+                  onClick={() => onSelect(sentence, phase)}
+                  key={sentence}
+                >
+                  <span className="research-goal-choice-number">{index + 1}</span>
+                  <span className="research-goal-choice-text">{sentence}</span>
+                </button>
+              ))}
+            </div>
+          </section>
         ))}
-        <button type="button" className="research-goal-choice research-goal-choice-custom" onClick={onSomethingElse}>
-          <span className="research-goal-choice-number">4</span>
-          <span>
-            <strong>Something Else</strong>
-            <small>Write your own research prompt.</small>
-          </span>
-        </button>
       </div>
+      <section className="research-goal-custom-section" aria-labelledby="research-goal-custom-title">
+        <div>
+          <h4 id="research-goal-custom-title">Your Goal</h4>
+          <p>Write a goal in your own words. Beale will expand it into a complete editable prompt.</p>
+        </div>
+        <textarea
+          rows={2}
+          value={customGoal}
+          placeholder="Describe the research outcome you want."
+          onChange={(event) => setCustomGoal(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && normalizedCustomGoal) {
+              onSelect(normalizedCustomGoal, null);
+            }
+          }}
+        />
+        <button type="button" className="primary-button" disabled={!normalizedCustomGoal} onClick={() => onSelect(normalizedCustomGoal, null)}>
+          Write full prompt
+        </button>
+      </section>
     </section>
   );
+}
+
+function phaseTitle(phase: ResearchGoalPhase): string {
+  return RESEARCH_GOAL_SECTIONS.find((section) => section.phase === phase)?.title ?? phase;
 }
 
 export function SessionSettingsFields({

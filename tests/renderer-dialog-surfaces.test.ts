@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
+import type { GeneratedResearchGoalSuggestions, HoneycrispMemoryNodeSummary, ResearchSessionSummary, RunDetail, WorkspaceRegistryEntry, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePanel';
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
@@ -50,36 +50,30 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet');
   });
 
-  it('shows three prior-research goal sentences and a fourth custom option', () => {
-    const suggestions: [string, string, string] = [
-      'Determine whether the parser length primitive reaches an attacker-controlled allocation sink.',
-      'Close the verifier gap around cross-tenant object lookup using the existing local fixtures.',
-      'Inspect the unreviewed archive import boundary for a source-to-sink path with concrete impact.'
-    ];
+  it('shows four goals in each research phase and a custom goal section', () => {
+    const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
       createElement(ResearchGoalChooser, {
         suggestions,
         loading: false,
         error: null,
         onSelect: () => undefined,
-        onSomethingElse: () => undefined,
         onRetry: () => undefined
       })
     );
 
-    expect(html.match(/aria-label="Goal \d:/g)).toHaveLength(3);
-    expect(html.match(/<button/g)).toHaveLength(4);
-    for (const suggestion of suggestions) expect(html).toContain(suggestion);
-    expect(html).toContain('<strong>Something Else</strong>');
-    expect(html).toContain('Write your own research prompt.');
+    expect(html.match(/aria-label="Discovery goal \d:/g)).toHaveLength(4);
+    expect(html.match(/aria-label="Chaining goal \d:/g)).toHaveLength(4);
+    expect(html.match(/aria-label="Reporting goal \d:/g)).toHaveLength(4);
+    expect(html.match(/<button/g)).toHaveLength(13);
+    for (const suggestion of Object.values(suggestions).flat()) expect(html).toContain(suggestion);
+    expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
+    expect(html).toContain('placeholder="Describe the research outcome you want."');
+    expect(html).toContain('Write full prompt');
   });
 
   it('shows goal mode enabled by default in New Research', () => {
-    const suggestions: [string, string, string] = [
-      'Inspect the unreviewed parser boundary.',
-      'Validate the unresolved tenant-isolation path.',
-      'Revisit the archive extraction sink with stronger evidence.'
-    ];
+    const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
       createElement(StartRunForm, {
         snapshot: {
@@ -103,10 +97,11 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="goal-option"');
     expect(html).toMatch(/<input type="checkbox" checked=""\/>/);
     expect(html).toContain('Keep working across turns until the objective is complete or genuinely blocked.');
-    for (const suggestion of suggestions) expect(html).toContain(suggestion);
+    for (const suggestion of Object.values(suggestions).flat()) expect(html).toContain(suggestion);
     expect(html).not.toContain('Reviewing prior research…');
-    expect(html).toContain('<strong>Something Else</strong>');
-    expect(html).not.toContain('<textarea');
+    expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
+    expect(html).toContain('<textarea');
+    expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
   });
 
   it('shows the structured final disposition and blocker dependencies in session summaries', () => {
@@ -242,3 +237,26 @@ describe('renderer dialog surfaces', () => {
   });
 
 });
+
+function phaseSuggestions(): GeneratedResearchGoalSuggestions {
+  return {
+    discovery: [
+      'Research parser allocation boundaries for integer-overflow vulnerabilities.',
+      'Explore archive extraction for path-confusion vulnerabilities.',
+      'Examine workspace ownership for authorization vulnerabilities.',
+      'Research metadata decoding for memory-safety vulnerabilities.'
+    ],
+    chaining: [
+      'Upgrade the parser primitive into a reportable chain with a triage-ready PoC.',
+      'Develop the archive primitive into a reachable chain with a triage-ready PoC.',
+      'Connect the ownership primitive to impact in a chain with a triage-ready PoC.',
+      'Close the metadata primitive chain gaps and produce a triage-ready PoC.'
+    ],
+    reporting: [
+      'Report the parser chain with its bugs, impact, triage-ready PoC, and submission.zip.',
+      'Document the archive chain with its bugs, impact, triage-ready PoC, and submission.zip.',
+      'Report the ownership chain with its bugs, impact, triage-ready PoC, and submission.zip.',
+      'Document the metadata chain with its bugs, impact, triage-ready PoC, and submission.zip.'
+    ]
+  };
+}

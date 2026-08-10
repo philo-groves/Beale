@@ -11,6 +11,7 @@ import type {
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
+  GeneratedResearchGoalSuggestions,
   ProfilingReport,
   ProfilingState,
   WorkspaceOnboardingProgressUpdate,
@@ -118,7 +119,7 @@ export function AppModals({
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
-  researchGoalSuggestions: [string, string, string] | null;
+  researchGoalSuggestions: GeneratedResearchGoalSuggestions | null;
   researchGoalSuggestionsLoading: boolean;
   researchGoalSuggestionError: string | null;
   profilingOpen: boolean;

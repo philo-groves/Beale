@@ -34,6 +34,7 @@
 
 ### Changed
 
+- New Research is now a sliding bottom sheet with four model-generated goals in each of Discovery, Chaining, and Reporting, plus a custom-goal section. Selected phases carry into prompt generation; Chaining targets reportable chains with triage-ready PoCs, while Reporting requires an evidence-grounded report and `submission.zip` containing the PoC and supporting evidence.
 - Memory Dreaming now uses GPT-5.6 Sol with high reasoning, applies the editable memory taxonomy while consolidating root-cause duplicates, receives bounded root-cause attributes and graph relationships, and can reversibly reclassify invalid nodes only when the target type's structural invariants remain valid.
 - Launched Node-based Honeycrisp research runs with a Honeycrisp-only 128 GiB V8 old-space ceiling, without changing Beale or target-process environments.
 - Kept background memory-curator activity in the secondary trace list while hiding its synthetic tool rows from the default Commentary chat; explicit agent `memory.request` calls remain visible.
