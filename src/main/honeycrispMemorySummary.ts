@@ -1,19 +1,40 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { emptyMemoryDreamingSummary, getMemoryDreamingSummary } from './memoryDreaming';
+import {
+  emptyMemoryDreamingSummary,
+  getMemoryDreamingSummary,
+  memoryCatalogHashFromJson,
+  memoryCatalogJsonIsCompatibleWithNode,
+  memoryCatalogPreservesLegacyNodeIds
+} from './memoryDreaming';
+import { serializeResearchProfile } from '../shared/researchProfile';
 import type {
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryEvidenceRefSummary,
+  HoneycrispMemoryNodeCatalogValidationSummary,
+  HoneycrispMemoryNodeProvenanceSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispRunbookSummary,
-  HoneycrispMemorySummary
+  HoneycrispMemorySummary,
+  ResearchProfileSnapshot
 } from '@shared/types';
 
 const ARTIFACT_MANIFEST_FILENAME = 'manifest.json';
+const MEMORY_CATALOG_HASH_DOMAIN = 'honeycrisp:memory-catalog:v1\0';
+const RESEARCH_PROFILE_HASH_DOMAIN = 'honeycrisp:research-profile:v1\0';
+const MEMORY_NODE_VALIDATION_HASH_DOMAIN = 'honeycrisp:memory-node-validation:v1\0';
 
 type SqlRow = Record<string, unknown>;
+
+interface ActiveMemoryCatalog {
+  hash: string;
+  json: string;
+  memory: ResearchProfileSnapshot['profile']['memory'];
+  preservesLegacyNodeIds: boolean;
+}
 
 export interface HoneycrispMemorySummaryOptions {
   databasePath: string;
@@ -21,20 +42,48 @@ export interface HoneycrispMemorySummaryOptions {
   sessionId?: string;
   workspaceId: string;
   subjectId: string | null;
+  /** The active or historical run-pinned profile whose memory catalog defines visibility. */
+  researchProfile?: ResearchProfileSnapshot | null;
+  /** Reserved for an explicit historical catalog audit; normal summaries never include foreign catalogs. */
+  includeForeignCatalogs?: boolean;
 }
 
 export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptions): HoneycrispMemorySummary {
   const { databasePath, artifactDirectoryPath, sessionId, workspaceId, subjectId } = options;
   const contextSubjectId = subjectId ?? fallbackMemorySubjectId(workspaceId);
   const storageRoot = dirname(databasePath);
-  const base = emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, contextSubjectId);
+  let activeCatalog: ActiveMemoryCatalog | null = null;
+  try {
+    activeCatalog = activeMemoryCatalog(options.researchProfile ?? null);
+  } catch (error) {
+    return {
+      ...emptySummary(databasePath, storageRoot, artifactDirectoryPath, workspaceId, contextSubjectId, null),
+      status: 'error',
+      lastError: error instanceof Error ? error.message : String(error)
+    };
+  }
+  const base = emptySummary(
+    databasePath,
+    storageRoot,
+    artifactDirectoryPath,
+    workspaceId,
+    contextSubjectId,
+    activeCatalog?.hash ?? null
+  );
   if (!existsSync(databasePath)) return base;
 
   let database: DatabaseSync | null = null;
   try {
     database = new DatabaseSync(databasePath, { readOnly: true });
     const hasNodes = tableExists(database, 'memory_nodes');
-    const nodes = hasNodes ? readNodes(database, { sessionId, workspaceId, subjectId: contextSubjectId }) : [];
+    const nodes = hasNodes
+      ? readNodes(
+          database,
+          { sessionId, workspaceId, subjectId: contextSubjectId },
+          activeCatalog,
+          options.includeForeignCatalogs === true
+        )
+      : [];
     const visibleNodeIds = new Set(nodes.map((node) => node.id));
     const edges = tableExists(database, 'memory_edges') ? readEdges(database, visibleNodeIds) : [];
     const evidenceRefCount = nodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
@@ -52,6 +101,7 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       latestNodeUpdatedAt: nodes[0]?.updatedAt ?? null,
       nodeTypeCounts: groupedNodeCounts(nodes, (node) => node.type),
       nodeStatusCounts: groupedNodeCounts(nodes, (node) => node.status),
+      nodeProvenanceCounts: groupedNodeCounts(nodes, (node) => node.provenance?.state ?? 'legacy_unrecorded'),
       nodes,
       edges,
       runbooks,
@@ -74,13 +124,15 @@ function emptySummary(
   storageRoot: string,
   artifactDirectoryPath: string,
   contextWorkspaceId: string,
-  contextSubjectId: string
+  contextSubjectId: string,
+  activeCatalogHash: string | null
 ): HoneycrispMemorySummary {
   return {
     status: 'missing',
     source: 'none',
     contextWorkspaceId,
     contextSubjectId,
+    activeCatalogHash,
     databasePath,
     storageRoot,
     artifactDirectoryPath,
@@ -93,6 +145,7 @@ function emptySummary(
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
+    nodeProvenanceCounts: {},
     nodes: [],
     edges: [],
     runbooks: [],
@@ -124,10 +177,16 @@ function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRu
 
 function readNodes(
   database: DatabaseSync,
-  context: { sessionId?: string; workspaceId: string; subjectId: string }
+  context: { sessionId?: string; workspaceId: string; subjectId: string },
+  activeCatalog: ActiveMemoryCatalog | null,
+  includeForeignCatalogs: boolean
 ): HoneycrispMemoryNodeSummary[] {
   const membershipSchema = tableExists(database, 'memory_node_sessions') && tableExists(database, 'memory_node_workspaces');
-  const visibility = memoryVisibility(context, membershipSchema);
+  const catalogColumn = tableHasColumn(database, 'memory_nodes', 'catalog_hash');
+  const visibility = memoryVisibility(
+    context,
+    membershipSchema
+  );
   const rows = database.prepare(`SELECT * FROM memory_nodes WHERE ${visibility.sql} ORDER BY updated_at DESC, id ASC`).all(...visibility.params) as SqlRow[];
   const visibleNodeIds = new Set(rows.map((row) => requiredString(row.id)));
   const sessions = membershipSchema
@@ -139,9 +198,9 @@ function readNodes(
   const assets = groupedStrings(database, 'SELECT node_id, asset_id AS value FROM memory_node_assets ORDER BY asset_id', visibleNodeIds);
   const tags = groupedStrings(database, 'SELECT node_id, tag AS value FROM memory_node_tags ORDER BY tag', visibleNodeIds);
   const evidence = readEvidence(database, visibleNodeIds);
-  return rows.map((row) => {
+  const nodes = rows.map((row) => {
     const id = requiredString(row.id);
-    return {
+    const node: Omit<HoneycrispMemoryNodeSummary, 'provenance'> = {
       id,
       sessionIds: membershipSchema
         ? sessions.get(id) ?? []
@@ -165,7 +224,20 @@ function readNodes(
       updatedAt: requiredString(row.updated_at),
       revision: requiredNumber(row.revision)
     };
+    return {
+      ...node,
+      provenance: readMemoryNodeProvenance(
+        database,
+        node,
+        catalogColumn ? nullableSqlText(row.catalog_hash) : null,
+        activeCatalog
+      )
+    };
   });
+  if (!catalogColumn || includeForeignCatalogs) return nodes;
+  return nodes.filter((node) => node.provenance.catalogHash === null
+    ? activeCatalog?.preservesLegacyNodeIds === true
+    : node.provenance.activeCatalog);
 }
 
 function groupedWorkspaceMemberships(
@@ -206,6 +278,154 @@ function readEvidence(database: DatabaseSync, visibleNodeIds: ReadonlySet<string
   return grouped;
 }
 
+function activeMemoryCatalog(snapshot: ResearchProfileSnapshot | null): ActiveMemoryCatalog | null {
+  if (!snapshot) return null;
+  if (snapshot.profileId !== snapshot.profile.id || snapshot.profileVersion !== snapshot.profile.version) {
+    throw new Error('Research profile snapshot identity does not match its normalized profile.');
+  }
+  const profileHash = createHash('sha256')
+    .update(RESEARCH_PROFILE_HASH_DOMAIN)
+    .update(serializeResearchProfile(snapshot.profile))
+    .digest('hex');
+  if (profileHash !== snapshot.profileHash) {
+    throw new Error(`Research profile snapshot hash mismatch: expected ${snapshot.profileHash}, computed ${profileHash}.`);
+  }
+  const json = stableJson(snapshot.profile.memory);
+  return {
+    hash: createHash('sha256').update(MEMORY_CATALOG_HASH_DOMAIN).update(json).digest('hex'),
+    json,
+    memory: snapshot.profile.memory,
+    preservesLegacyNodeIds: memoryCatalogPreservesLegacyNodeIds(snapshot.profile.memory)
+  };
+}
+
+function readMemoryNodeProvenance(
+  database: DatabaseSync,
+  node: Omit<HoneycrispMemoryNodeSummary, 'provenance'>,
+  catalogHash: string | null,
+  activeCatalog: ActiveMemoryCatalog | null
+): HoneycrispMemoryNodeProvenanceSummary {
+  if (catalogHash === null) {
+    return {
+      state: 'legacy_unrecorded',
+      catalogHash: null,
+      activeCatalog: false,
+      validation: null
+    };
+  }
+  const isExactActiveCatalog = catalogHash === activeCatalog?.hash;
+  const snapshot = tableExists(database, 'memory_catalog_snapshots')
+    ? database
+        .prepare('SELECT schema_version, catalog_json FROM memory_catalog_snapshots WHERE catalog_hash = ?')
+        .get(catalogHash) as { schema_version?: unknown; catalog_json?: unknown } | undefined
+    : undefined;
+  const snapshotJson = typeof snapshot?.catalog_json === 'string' ? snapshot.catalog_json : undefined;
+  const snapshotIsValid = snapshot?.schema_version === 1
+    && snapshotJson !== undefined
+    && memoryCatalogHashFromJson(snapshotJson) === catalogHash;
+  const isActiveCatalog = isExactActiveCatalog
+    || (snapshotIsValid
+      && snapshotJson !== undefined
+      && activeCatalog !== null
+      && memoryCatalogJsonIsCompatibleWithNode(
+        {
+          type: node.type,
+          status: node.status,
+          attributes: node.attributes,
+          evidence: node.evidenceRefs.map((evidence) => ({ kind: evidence.kind, pathBase: evidence.pathBase }))
+        },
+        snapshotJson,
+        activeCatalog.memory
+      ));
+  const row = snapshotIsValid && tableExists(database, 'memory_node_catalog_validations')
+    ? database
+        .prepare(
+          `SELECT node_revision, catalog_hash, node_content_hash, validation_kind,
+                  research_profile_hash, research_profile_id, research_profile_version, validated_at
+           FROM memory_node_catalog_validations
+           WHERE node_id = ? AND node_revision = ? AND catalog_hash = ?`
+        )
+        .get(node.id, node.revision, catalogHash) as SqlRow | undefined
+    : undefined;
+  if (
+    !row
+    || row.node_content_hash !== memoryNodeValidationHash(node)
+    || !isMemoryNodeValidationKind(row.validation_kind)
+  ) {
+    return {
+      state: 'catalog_unvalidated',
+      catalogHash,
+      activeCatalog: isActiveCatalog,
+      validation: null
+    };
+  }
+  const profileHash = nullableSqlText(row.research_profile_hash);
+  const profileId = nullableSqlText(row.research_profile_id);
+  const profileVersion = nullableSqlText(row.research_profile_version);
+  const validation: HoneycrispMemoryNodeCatalogValidationSummary = {
+    nodeRevision: requiredNumber(row.node_revision),
+    catalogHash: requiredString(row.catalog_hash),
+    contentHash: requiredString(row.node_content_hash),
+    kind: row.validation_kind,
+    validatedAt: requiredString(row.validated_at),
+    ...(profileHash !== null && profileId !== null && profileVersion !== null
+      ? { researchProfile: { hash: profileHash, id: profileId, version: profileVersion } }
+      : {})
+  };
+  return isActiveCatalog
+    ? {
+        state: 'active_validated',
+        catalogHash,
+        activeCatalog: true,
+        validation
+      }
+    : {
+        state: 'foreign_validated',
+        catalogHash,
+        activeCatalog: false,
+        validation
+      };
+}
+
+function memoryNodeValidationHash(node: Omit<HoneycrispMemoryNodeSummary, 'provenance'>): string {
+  const evidence = node.evidenceRefs.map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    ...(item.pathBase === null ? {} : { pathBase: item.pathBase }),
+    ...(item.path === null ? {} : { path: item.path }),
+    locator: item.locator,
+    summary: item.summary,
+    createdAt: item.createdAt
+  }));
+  return createHash('sha256')
+    .update(MEMORY_NODE_VALIDATION_HASH_DOMAIN)
+    .update(stableJson({
+      id: node.id,
+      sessionIds: [...node.sessionIds].sort(),
+      workspaces: [...node.workspaces].sort((left, right) => left.id.localeCompare(right.id)),
+      subjectId: node.subjectId,
+      subjectName: node.subjectName,
+      type: node.type,
+      title: node.title,
+      summary: node.summary,
+      body: node.body,
+      status: node.status,
+      confidence: node.confidence,
+      assetIds: [...node.assetIds].sort(),
+      tags: [...node.tags].sort(),
+      attributes: node.attributes,
+      evidence: evidence.sort((left, right) => left.id.localeCompare(right.id)),
+      createdAt: node.createdAt,
+      updatedAt: node.updatedAt,
+      revision: node.revision
+    }))
+    .digest('hex');
+}
+
+function isMemoryNodeValidationKind(value: unknown): value is HoneycrispMemoryNodeCatalogValidationSummary['kind'] {
+  return value === 'full' || value === 'scoped' || value === 'inherited';
+}
+
 function readEdges(database: DatabaseSync, visibleNodeIds: ReadonlySet<string>): HoneycrispMemoryEdgeSummary[] {
   const rows = database.prepare('SELECT * FROM memory_edges ORDER BY updated_at DESC, from_id, to_id').all() as SqlRow[];
   return rows.flatMap((row) => {
@@ -237,21 +457,24 @@ function memoryVisibility(
   context: { sessionId?: string; workspaceId: string; subjectId: string },
   membershipSchema: boolean
 ): { sql: string; params: string[] } {
+  let visibility: { sql: string; params: string[] };
   if (membershipSchema) {
-    return {
+    visibility = {
       sql: 'subject_id = ? AND EXISTS (SELECT 1 FROM memory_node_workspaces visible_workspace WHERE visible_workspace.node_id = memory_nodes.id)',
       params: [context.subjectId]
     };
+  } else {
+    const clauses = ["(tier = 'workspace' AND scope_key = ?)"];
+    const params = [context.workspaceId];
+    if (context.sessionId) {
+      clauses.push("(tier = 'session' AND scope_key = ?)");
+      params.push(context.sessionId);
+    }
+    clauses.push("(tier = 'subject' AND scope_key = ?)");
+    params.push(context.subjectId);
+    visibility = { sql: `(${clauses.join(' OR ')})`, params };
   }
-  const clauses = ["(tier = 'workspace' AND scope_key = ?)"];
-  const params = [context.workspaceId];
-  if (context.sessionId) {
-    clauses.push("(tier = 'session' AND scope_key = ?)");
-    params.push(context.sessionId);
-  }
-  clauses.push("(tier = 'subject' AND scope_key = ?)");
-  params.push(context.subjectId);
-  return { sql: `(${clauses.join(' OR ')})`, params };
+  return visibility;
 }
 
 function groupedNodeCounts(
@@ -296,6 +519,14 @@ function tableExists(database: DatabaseSync, table: string): boolean {
   return Boolean(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
 }
 
+function tableHasColumn(database: DatabaseSync, table: string, column: string): boolean {
+  return Boolean(
+    database
+      .prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ? LIMIT 1')
+      .get(table, column)
+  );
+}
+
 function parseJsonObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'string') return {};
   const parsed = JSON.parse(value) as unknown;
@@ -308,6 +539,10 @@ function requiredString(value: unknown): string {
 }
 
 function optionalString(value: unknown): string | null { return typeof value === 'string' ? value : null; }
+function nullableSqlText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return requiredString(value);
+}
 function requiredNumber(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Expected SQLite numeric value.');
   return value;
@@ -320,4 +555,14 @@ function fallbackMemorySubjectId(workspaceId: string): string {
 function requiredRunbookStatus(value: unknown): HoneycrispRunbookSummary['status'] {
   if (value === 'draft' || value === 'active' || value === 'completed' || value === 'archived') return value;
   throw new Error('Expected a Honeycrisp runbook status.');
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, nested]) => nested !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+    .join(',')}}`;
 }

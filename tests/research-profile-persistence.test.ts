@@ -1,0 +1,376 @@
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, describe, expect, it } from 'vitest';
+import { WorkspaceDatabase, type StartRunRecordInput } from '../src/main/database';
+import {
+  serializeResearchProfile,
+  type ResearchProfile,
+  type ResolvedResearchProfile
+} from '../src/shared/researchProfile';
+
+const directories: string[] = [];
+
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+describe('research profile persistence', () => {
+  it('stores immutable snapshots and reuses only the same resolution provenance', () => {
+    const fixture = createDatabaseFixture();
+    const profile = researchProfile('1.0.0', 'Security Research');
+    const first = fixture.database.activateResearchProfileSnapshot(resolveProfile(profile, 'bundled-default'));
+    const reused = fixture.database.activateResearchProfileSnapshot(resolveProfile(profile, 'bundled-default'));
+    const explicit = fixture.database.activateResearchProfileSnapshot(
+      resolveProfile(profile, 'explicit', join(fixture.workspacePath, 'profile.json'))
+    );
+    const explicitReused = fixture.database.activateResearchProfileSnapshot(
+      resolveProfile(profile, 'explicit', join(fixture.workspacePath, 'profile.json'))
+    );
+
+    expect(reused.id).toBe(first.id);
+    expect(explicit.id).not.toBe(first.id);
+    expect(explicitReused.id).toBe(explicit.id);
+    expect(reused).toMatchObject({
+      profileId: 'security-research',
+      profileVersion: '1.0.0',
+      profileHash: first.profileHash,
+      source: 'bundled-default',
+      sourcePath: null,
+      active: true
+    });
+    expect(fixture.database.getResearchProfileSnapshot(first.id)?.active).toBe(false);
+    expect(explicitReused).toMatchObject({
+      source: 'explicit',
+      sourcePath: join(fixture.workspacePath, 'profile.json'),
+      active: true
+    });
+    expect(reused.profile.memory.types.find((type) => type.id === 'legacy-finding')).toMatchObject({
+      lifecycle: 'retired',
+      creatable: false,
+      replacedBy: 'finding'
+    });
+    expect(reused.profile.capabilities).toMatchObject({
+      disabledSkillIds: [],
+      allowedMcpServerIds: [],
+      memoryEnabled: true,
+      runbooksEnabled: true,
+      collaborationEnabled: true
+    });
+
+    first.profile.name = 'Mutated caller copy';
+    expect(fixture.database.getResearchProfileSnapshot(first.id)?.profile.name).toBe('Security Research');
+
+    const raw = new DatabaseSync(fixture.databasePath);
+    expect(raw.prepare('SELECT COUNT(*) AS count FROM research_profile_snapshots').get()).toEqual({ count: 2 });
+    expect(() => raw.prepare("UPDATE research_profile_snapshots SET profile_json = '{}' WHERE id = ?").run(first.id)).toThrow(
+      /research profile snapshots are immutable/
+    );
+    raw.close();
+    fixture.database.close();
+  });
+
+  it('switches the single active snapshot without changing historical snapshot content', () => {
+    const fixture = createDatabaseFixture();
+    const first = fixture.database.activateResearchProfileSnapshot(
+      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+    );
+    const second = fixture.database.activateResearchProfileSnapshot(
+      resolveProfile(researchProfile('2.0.0', 'General Research'), 'workspace-default', join(fixture.workspacePath, '.honeycrisp', 'profile.json'))
+    );
+
+    expect(second.id).not.toBe(first.id);
+    expect(fixture.database.getActiveResearchProfileSnapshot()?.id).toBe(second.id);
+    expect(fixture.database.getResearchProfileSnapshot(first.id)).toMatchObject({ active: false, profileVersion: '1.0.0' });
+    expect(fixture.database.getResearchProfileSnapshot(second.id)).toMatchObject({ active: true, profileVersion: '2.0.0' });
+
+    const reactivated = fixture.database.activateResearchProfileSnapshot(
+      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+    );
+    expect(reactivated.id).toBe(first.id);
+    expect(fixture.database.getResearchProfileSnapshot(second.id)?.active).toBe(false);
+
+    const raw = new DatabaseSync(fixture.databasePath);
+    expect(raw.prepare('SELECT COUNT(*) AS count FROM research_profile_snapshots WHERE active = 1').get()).toEqual({ count: 1 });
+    raw.close();
+    fixture.database.close();
+  });
+
+  it('migrates existing runs with null provenance and maps new run snapshot provenance', () => {
+    const fixture = createDatabaseFixture();
+    const legacyRun = fixture.database.createRun(runInput(fixture.database));
+    fixture.database.close();
+
+    const legacy = new DatabaseSync(fixture.databasePath);
+    legacy.exec('ALTER TABLE runs DROP COLUMN research_profile_snapshot_id;');
+    legacy.exec('DROP TABLE research_profile_snapshots;');
+    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 13").run();
+    legacy.close();
+
+    const migrated = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
+    migrated.initialize();
+    expect(migrated.getRun(legacyRun.run.id)?.researchProfileSnapshotId).toBeNull();
+    expect(migrated.getRunResearchProfileSnapshot(legacyRun.run.id)).toBeNull();
+
+    const profileSnapshot = migrated.activateResearchProfileSnapshot(
+      resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default')
+    );
+    const profiledRun = migrated.createRun(runInput(migrated, profileSnapshot.id));
+    expect(profiledRun.run.researchProfileSnapshotId).toBe(profileSnapshot.id);
+    expect(migrated.getRun(profiledRun.run.id)?.researchProfileSnapshotId).toBe(profileSnapshot.id);
+    expect(migrated.getRunResearchProfileSnapshot(profiledRun.run.id)).toMatchObject({
+      id: profileSnapshot.id,
+      profileHash: profileSnapshot.profileHash
+    });
+    expect(migrated.getRunDetail(profiledRun.run.id).researchProfile).toMatchObject({
+      id: profileSnapshot.id,
+      profileHash: profileSnapshot.profileHash
+    });
+
+    const raw = new DatabaseSync(fixture.databasePath);
+    expect(
+      raw.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 13").get()
+    ).toEqual({ version: 13, name: 'versioned_research_profile_snapshots' });
+    expect(
+      raw.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 14").get()
+    ).toEqual({ version: 14, name: 'durable_research_subject_binding' });
+    raw.close();
+    migrated.close();
+  });
+
+  it('scopes hash reuse and run provenance to the owning workspace', () => {
+    const root = tempDirectory();
+    const databasePath = join(root, 'global', 'memory.sqlite');
+    const firstWorkspace = join(root, 'first');
+    const secondWorkspace = join(root, 'second');
+    mkdirSync(firstWorkspace, { recursive: true });
+    mkdirSync(secondWorkspace, { recursive: true });
+    const first = new WorkspaceDatabase(databasePath, join(firstWorkspace, '.beale', 'artifacts'), { workspacePath: firstWorkspace });
+    const second = new WorkspaceDatabase(databasePath, join(secondWorkspace, '.beale', 'artifacts'), { workspacePath: secondWorkspace });
+    first.initialize();
+    second.initialize();
+    expect(first.setResearchSubject({ name: 'Shared Subject' }).id).toBe(
+      second.setResearchSubject({ name: 'Shared Subject' }).id
+    );
+    const resolved = resolveProfile(researchProfile('1.0.0', 'Security Research'), 'bundled-default');
+    const firstSnapshot = first.activateResearchProfileSnapshot(resolved);
+    const secondSnapshot = second.activateResearchProfileSnapshot(resolved);
+
+    expect(secondSnapshot.id).not.toBe(firstSnapshot.id);
+    expect(second.getResearchProfileSnapshot(firstSnapshot.id)).toBeNull();
+    expect(() => second.createRun(runInput(second, firstSnapshot.id))).toThrow(/snapshot not found for workspace/);
+
+    second.close();
+    first.close();
+  });
+
+  it('keeps the research subject identity stable when authorization ownership changes', () => {
+    const fixture = createDatabaseFixture();
+    const adopted = fixture.database.getResearchSubject();
+    expect(adopted).toMatchObject({
+      id: `subject_workspace:${fixture.database.getWorkspaceId()}`,
+      name: 'Untitled Workspace',
+      source: 'legacy_adopted'
+    });
+
+    const explicit = fixture.database.setResearchSubject({ name: 'Parser Runtime' });
+    expect(explicit).toMatchObject({
+      id: `subject_${createHash('sha256').update('parser runtime').digest('hex').slice(0, 20)}`,
+      name: 'Parser Runtime',
+      source: 'explicit'
+    });
+    expect(fixture.database.setResearchSubject({ name: 'Parser Runtime Engine' })).toMatchObject({
+      id: explicit.id,
+      name: 'Parser Runtime Engine'
+    });
+    fixture.database.saveScope({
+      workspaceName: 'Parser Research',
+      scopeOwner: 'New Authorization Owner',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    expect(fixture.database.getResearchSubject()).toMatchObject({ id: explicit.id, name: 'Parser Runtime Engine' });
+
+    fixture.database.close();
+    const reopened = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
+    reopened.initialize();
+    expect(reopened.getResearchSubject()).toMatchObject({ id: explicit.id, name: 'Parser Runtime Engine', source: 'explicit' });
+    reopened.close();
+  });
+
+  it('adopts the legacy scope-owner subject id during migration 14', () => {
+    const fixture = createDatabaseFixture();
+    fixture.database.saveScope({
+      workspaceName: 'Legacy Research',
+      scopeOwner: 'Acme Corporation',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    fixture.database.close();
+
+    const legacy = new DatabaseSync(fixture.databasePath);
+    legacy.exec('DROP TABLE workspace_research_subjects;');
+    legacy.prepare("DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 14").run();
+    legacy.close();
+
+    const migrated = new WorkspaceDatabase(fixture.databasePath, fixture.artifactRoot, { workspacePath: fixture.workspacePath });
+    migrated.initialize();
+    const expectedId = `subject_${createHash('sha256').update('acme corporation').digest('hex').slice(0, 20)}`;
+    expect(migrated.getResearchSubject()).toMatchObject({
+      id: expectedId,
+      name: 'Acme Corporation',
+      source: 'legacy_adopted'
+    });
+    migrated.close();
+  });
+});
+
+function createDatabaseFixture(): {
+  database: WorkspaceDatabase;
+  databasePath: string;
+  artifactRoot: string;
+  workspacePath: string;
+} {
+  const root = tempDirectory();
+  const workspacePath = join(root, 'workspace');
+  const databasePath = join(root, 'global', 'memory.sqlite');
+  const artifactRoot = join(workspacePath, '.beale', 'artifacts');
+  mkdirSync(workspacePath, { recursive: true });
+  const database = new WorkspaceDatabase(databasePath, artifactRoot, { workspacePath });
+  database.initialize();
+  return { database, databasePath, artifactRoot, workspacePath };
+}
+
+function tempDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-research-profile-'));
+  directories.push(directory);
+  return directory;
+}
+
+function resolveProfile(
+  profile: ResearchProfile,
+  source: ResolvedResearchProfile['source'],
+  path?: string
+): ResolvedResearchProfile {
+  const hash = createHash('sha256')
+    .update('honeycrisp:research-profile:v1\0')
+    .update(serializeResearchProfile(profile))
+    .digest('hex');
+  return { profile, hash, source, ...(path ? { path } : {}) };
+}
+
+function researchProfile(version: string, name: string): ResearchProfile {
+  return {
+    schemaVersion: 1,
+    id: 'security-research',
+    version,
+    name,
+    description: 'A test research profile.',
+    agent: {
+      role: 'Research the subject.',
+      posture: ['Be precise.'],
+      style: ['Be concise.'],
+      memoryInstructions: ['Save durable findings.'],
+      runbookInstructions: ['Keep procedures reproducible.']
+    },
+    memory: {
+      types: [
+        {
+          id: 'finding',
+          name: 'Finding',
+          pluralName: 'Findings',
+          description: 'A durable research finding.',
+          lifecycle: 'active',
+          creatable: true,
+          order: 10,
+          defaultStatus: 'draft',
+          allowedStatuses: ['draft', 'confirmed']
+        },
+        {
+          id: 'legacy-finding',
+          name: 'Legacy Finding',
+          pluralName: 'Legacy Findings',
+          description: 'A retired research finding.',
+          lifecycle: 'retired',
+          creatable: false,
+          replacedBy: 'finding',
+          order: 20,
+          defaultStatus: 'draft',
+          allowedStatuses: ['draft', 'confirmed']
+        }
+      ],
+      statuses: [
+        { id: 'draft', name: 'Draft', description: 'Not yet established.', order: 10, polarity: 'neutral' },
+        { id: 'confirmed', name: 'Confirmed', description: 'Established by evidence.', order: 20, terminal: true, polarity: 'positive' }
+      ],
+      evidenceKinds: [{ id: 'artifact', name: 'Artifact', description: 'A durable artifact.', allowsPath: true }],
+      evidencePathBases: [{ id: 'workspace', name: 'Workspace', description: 'Relative to the workspace.' }],
+      relations: [{ id: 'supports', name: 'Supports', description: 'Supports another finding.' }],
+      defaultNodeLimit: 12,
+      defaultCharacterBudget: 24_000
+    },
+    workflows: [
+      {
+        id: 'discovery',
+        name: 'Discovery',
+        description: 'Explore a bounded subject.',
+        goalSuggestionCount: 4,
+        goalSuggestionInstructions: ['Suggest useful goals.'],
+        promptInstructions: ['Keep the prompt open-ended.'],
+        outputRequirements: ['Support conclusions with evidence.'],
+        default: true
+      }
+    ],
+    capabilities: {
+      defaultToolFamilies: ['workspace'],
+      disabledToolFamilies: [],
+      allowedSideEffects: ['read'],
+      selectedSkillIds: [],
+      disabledSkillIds: [],
+      allowedMcpServerIds: [],
+      memoryEnabled: true,
+      runbooksEnabled: true,
+      collaborationEnabled: true
+    },
+    workspace: {
+      workspaceNoun: 'workspace',
+      subjectNoun: 'subject',
+      boundaryNoun: 'boundary',
+      authorizationMode: 'optional',
+      boundaryInstructions: ['Respect the recorded boundary.'],
+      materialKinds: ['repository']
+    },
+    modelJobs: {},
+    presentation: {
+      newResearchLabel: 'New research',
+      memoryLabel: 'Memory',
+      runbookLabel: 'Runbooks',
+      sessionLabel: 'Session'
+    }
+  };
+}
+
+function runInput(database: WorkspaceDatabase, researchProfileSnapshotId?: string): StartRunRecordInput {
+  return {
+    scopeVersionId: database.getActiveScope().id,
+    ...(researchProfileSnapshotId ? { researchProfileSnapshotId } : {}),
+    title: 'Research profile persistence run',
+    promptMarkdown: 'Inspect the subject.',
+    shellSafetyMode: 'auto_review',
+    mode: 'discovery',
+    model: 'test-model',
+    reasoningEffort: 'high',
+    attemptStrategy: 'single_path',
+    networkProfile: 'offline',
+    sandboxProfile: 'host',
+    budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 }
+  };
+}

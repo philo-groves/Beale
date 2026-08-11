@@ -26,7 +26,7 @@ describe('renderer settings layout', () => {
     const html = renderToStaticMarkup(createElement(SettingsView, {
       section: 'general',
       developerSettings: null,
-      memorySettings: null,
+      researchProfile: null,
       shellOptions: null,
       chatView: 'commentary',
       workspaceName: 'Security',
@@ -36,7 +36,6 @@ describe('renderer settings layout', () => {
       researchProviderStatuses: [],
       busy: false,
       onSetDeveloperModeEnabled: async () => undefined,
-      onSaveMemoryTypeDescriptions: async () => undefined,
       onChangeChatView: () => undefined,
       onSaveShellOptions: async () => undefined,
       onRefreshOpenAi: async () => undefined,

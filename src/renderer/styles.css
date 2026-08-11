@@ -3910,6 +3910,15 @@ button.session-summary-item:hover:not(:disabled),
   gap: 7px;
 }
 
+.floating-text-picker-group {
+  padding: 5px 10px 3px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .runbook-catalog-list {
   gap: 18px;
   padding: 0 10px 12px 0;
@@ -8164,6 +8173,18 @@ button.research-goal-choice:focus-visible {
 .memory-type-description textarea {
   min-height: 82px;
   font-size: 0.76rem;
+}
+
+.memory-type-description > p {
+  margin: 7px 0;
+  color: var(--text);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.memory-type-description > small {
+  color: var(--muted);
+  font-size: 0.68rem;
 }
 
 .chat-view-settings {

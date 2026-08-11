@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { JSX, ReactNode } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import type {
   HoneycrispMemoryEdgeSummary,
@@ -7,6 +7,9 @@ import type {
   HoneycrispMemorySummary,
   HoneycrispRunbookDocument,
   HoneycrispRunbookSummary,
+  ResearchProfile,
+  ResearchProfileMemoryStatus,
+  ResearchProfileMemoryType,
   ResearchProviderModelCatalog,
   RunDetail,
   RunStatus
@@ -15,18 +18,19 @@ import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import type { MemoryStatusGroup } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import type { ChatView } from '../../view-models/chatView';
+import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import type { TraceCategoryId } from '../../traceClassification';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
-import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName } from './MemoryTypeLabel';
+import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel } from './MemoryTypeLabel';
 import { RunbookView } from './RunbookView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 import { TraceView } from '../traces/TraceView';
@@ -46,6 +50,7 @@ export type ResearchSideNavigationAction =
   | { type: 'open'; view: ResearchSideView }
   | { type: 'activate'; view: ResearchSideView }
   | { type: 'close'; view: ResearchSideView }
+  | { type: 'restrict'; views: readonly ResearchSideView[] }
   | { type: 'reset' };
 
 export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'subagents'];
@@ -60,6 +65,7 @@ export function researchSideNavigationReducer(
   action: ResearchSideNavigationAction
 ): ResearchSideNavigationState {
   if (action.type === 'reset') return CLOSED_RESEARCH_SIDE_NAVIGATION;
+  if (action.type === 'restrict') return restrictResearchSideNavigation(state, action.views);
   if (action.type === 'open') {
     return {
       openViews: state.openViews.includes(action.view) ? state.openViews : [...state.openViews, action.view],
@@ -80,8 +86,37 @@ export function researchSideNavigationReducer(
   };
 }
 
-export function availableResearchSideViews(openViews: readonly ResearchSideView[]): ResearchSideView[] {
-  return RESEARCH_SIDE_VIEWS.filter((view) => !openViews.includes(view));
+export function availableResearchSideViews(
+  openViews: readonly ResearchSideView[],
+  enabledViews: readonly ResearchSideView[] = RESEARCH_SIDE_VIEWS
+): ResearchSideView[] {
+  return enabledViews.filter((view) => !openViews.includes(view));
+}
+
+export function researchSideViewsForProfile(
+  profile: ResearchProfile | null | undefined
+): ResearchSideView[] {
+  const features = researchProfileFeatureAvailability(profile);
+  return RESEARCH_SIDE_VIEWS.filter((view) => (
+    view === 'memory'
+      ? features.memory
+      : view === 'runbooks'
+        ? features.runbooks
+        : features.collaboration
+  ));
+}
+
+export function restrictResearchSideNavigation(
+  state: ResearchSideNavigationState,
+  enabledViews: readonly ResearchSideView[]
+): ResearchSideNavigationState {
+  const openViews = state.openViews.filter((view) => enabledViews.includes(view));
+  return {
+    openViews,
+    activeView: state.activeView && openViews.includes(state.activeView)
+      ? state.activeView
+      : openViews.at(-1) ?? null
+  };
 }
 
 export function isLastOpenResearchSideView(
@@ -93,10 +128,15 @@ export function isLastOpenResearchSideView(
 
 function initialResearchSideNavigation(
   selectedSubagentPath: string | null,
-  selectedRunbookId: string | null
+  selectedRunbookId: string | null,
+  enabledViews: readonly ResearchSideView[]
 ): ResearchSideNavigationState {
-  if (selectedSubagentPath) return { openViews: ['subagents'], activeView: 'subagents' };
-  if (selectedRunbookId) return { openViews: ['runbooks'], activeView: 'runbooks' };
+  if (selectedSubagentPath && enabledViews.includes('subagents')) {
+    return { openViews: ['subagents'], activeView: 'subagents' };
+  }
+  if (selectedRunbookId && enabledViews.includes('runbooks')) {
+    return { openViews: ['runbooks'], activeView: 'runbooks' };
+  }
   return CLOSED_RESEARCH_SIDE_NAVIGATION;
 }
 
@@ -104,6 +144,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   detail,
   events,
   memory,
+  researchProfile = null,
   runId,
   runStatus,
   chatView = 'commentary',
@@ -128,6 +169,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
+  researchProfile?: ResearchProfile | null;
   runId: string;
   runStatus: RunStatus | null;
   chatView?: ChatView;
@@ -149,9 +191,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
 }): JSX.Element {
+  const featureAvailability = researchProfileFeatureAvailability(researchProfile);
+  const enabledViews = researchSideViewsForProfile(researchProfile);
+  const enabledViewsKey = enabledViews.join(':');
   const [navigation, dispatchNavigation] = useReducer(
     researchSideNavigationReducer,
-    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId)
+    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, enabledViews)
   );
   const runIdRef = useRef(runId);
   const [query, setQuery] = useState('');
@@ -162,17 +207,32 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [type, setType] = useState('all');
   const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const detailsOpen = expanded ?? navigation.openViews.length > 0;
-  const activeView = navigation.activeView;
+  const visibleNavigation = restrictResearchSideNavigation(navigation, enabledViews);
+  const detailsOpen = expanded ?? visibleNavigation.openViews.length > 0;
+  const activeView = visibleNavigation.activeView;
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
+  const memoryProfile = researchProfile?.memory;
+  const memoryTypes = memoryProfile?.types ?? [];
+  const memoryStatuses = memoryProfile?.statuses ?? [];
+  const presentation = researchProfile?.presentation;
+  const memoryLabel = presentation?.memoryLabel ?? 'Memory';
+  const memoriesLabel = pluralizePresentationLabel(memoryLabel);
+  const runbookLabel = presentation?.runbookLabel ?? 'Runbooks';
+  const sessionLabel = presentation?.sessionLabel ?? 'Session';
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
   );
-  const sessionMemories = useMemo(() => activeMemoryCount(sessionMemoryNodes), [sessionMemoryNodes]);
+  const sessionMemories = useMemo(
+    () => activeMemoryCount(sessionMemoryNodes, memoryProfile?.statuses),
+    [memoryProfile?.statuses, sessionMemoryNodes]
+  );
   const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(events), [events]);
-  const sessionMemoryTypes = useMemo(() => sessionMemoryTypeSummaries(sessionMemoryNodes), [sessionMemoryNodes]);
+  const sessionMemoryTypes = useMemo(
+    () => sessionMemoryTypeSummaries(sessionMemoryNodes, memoryProfile),
+    [memoryProfile, sessionMemoryNodes]
+  );
   const sessionRunbooks = useMemo(
     () => runbooks.filter((runbook) => runbook.sessionId === runId).length,
     [runbooks, runId]
@@ -191,32 +251,40 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [subagentQuery, subagents]
   );
   const groupedSubagents = useMemo(() => subagentCatalogGroups(filteredSubagents), [filteredSubagents]);
-  const selectedSubagentName = subagentDisplayName(selectedSubagentPath
-    ? subagents.find((subagent) => subagent.path === selectedSubagentPath)?.name
-      ?? selectedSubagentPath.split('/').filter(Boolean).at(-1)
-      ?? selectedSubagentPath
+  const visibleSelectedSubagentPath = featureAvailability.collaboration ? selectedSubagentPath : null;
+  const visibleSelectedRunbookId = featureAvailability.runbooks ? selectedRunbookId : null;
+  const visibleSelectedRunbook = visibleSelectedRunbookId ? selectedRunbook : null;
+  const selectedSubagentName = subagentDisplayName(visibleSelectedSubagentPath
+    ? subagents.find((subagent) => subagent.path === visibleSelectedSubagentPath)?.name
+      ?? visibleSelectedSubagentPath.split('/').filter(Boolean).at(-1)
+      ?? visibleSelectedSubagentPath
     : '');
-  const selectedRunbookName = selectedRunbook?.title
-    ?? runbooks.find((runbook) => runbook.id === selectedRunbookId)?.title
+  const selectedRunbookName = visibleSelectedRunbook?.title
+    ?? runbooks.find((runbook) => runbook.id === visibleSelectedRunbookId)?.title
     ?? 'Loading runbook';
   const selectedSubagentEvents = useMemo(
-    () => traceEventsForSubagent(events, selectedSubagentPath),
-    [events, selectedSubagentPath]
+    () => traceEventsForSubagent(events, visibleSelectedSubagentPath),
+    [events, visibleSelectedSubagentPath]
   );
   const subagentStatusCounts = useMemo(() => subagentStatusCountSummary(subagents), [subagents]);
-  const nodeTypes = useMemo(() => [...new Set(nodes.map((node) => node.type))].sort(), [nodes]);
+  const nodeTypes = useMemo(() => orderedCatalogMemoryTypes(nodes, memoryTypes), [memoryTypes, nodes]);
   const filteredNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, { query, scope, sessionId: runId, workspaceId, subjectId, type }),
     [nodes, query, runId, scope, subjectId, type, workspaceId]
   );
-  const groupedMemories = useMemo(() => memoryCatalogStatusGroups(filteredNodes), [filteredNodes]);
+  const memoryStatusSections = useMemo(
+    () => memoryStatuses.length > 0
+      ? memoryCatalogStatusSections(filteredNodes, memoryStatuses)
+      : legacyMemoryStatusSections(filteredNodes),
+    [filteredNodes, memoryStatuses]
+  );
   const filteredRunbooks = useMemo(
     () => filterRunbookCatalog(runbooks, runbookScope, runId, workspaceId, runbookQuery),
     [runbookQuery, runbookScope, runbooks, runId, workspaceId]
   );
   const groupedRunbooks = useMemo(() => runbookCatalogGroups(filteredRunbooks), [filteredRunbooks]);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const selectedNode = featureAvailability.memory && selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = filteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
@@ -228,6 +296,23 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     setExpandedMemoryGroups(new Set());
     setSelectedNodeId(null);
   }, [runId]);
+
+  useEffect(() => {
+    dispatchNavigation({ type: 'restrict', views: enabledViews });
+    if (!featureAvailability.memory) setSelectedNodeId(null);
+  }, [enabledViewsKey, featureAvailability.memory]);
+
+  useEffect(() => {
+    if (!featureAvailability.runbooks && selectedRunbookId) onBackToRunbooks();
+    if (!featureAvailability.collaboration && selectedSubagentPath) onBackToSubagents();
+  }, [
+    featureAvailability.collaboration,
+    featureAvailability.runbooks,
+    onBackToRunbooks,
+    onBackToSubagents,
+    selectedRunbookId,
+    selectedSubagentPath
+  ]);
 
   useEffect(() => {
     if (selectedNodeId && !nodeById.has(selectedNodeId)) setSelectedNodeId(null);
@@ -242,57 +327,67 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   }));
 
   const openDetails = (view: ResearchSideView): void => {
+    if (!enabledViews.includes(view)) return;
     if (view !== 'memory') setSelectedNodeId(null);
     dispatchNavigation({ type: 'open', view });
     onExpandedChange?.(true);
   };
 
   const activateDetails = (view: ResearchSideView): void => {
+    if (!enabledViews.includes(view)) return;
     if (view !== 'memory') setSelectedNodeId(null);
     dispatchNavigation({ type: 'activate', view });
   };
 
   const closeDetails = (view: ResearchSideView): void => {
     if (view === 'memory') setSelectedNodeId(null);
-    const closingLastView = isLastOpenResearchSideView(navigation.openViews, view);
+    const closingLastView = isLastOpenResearchSideView(visibleNavigation.openViews, view);
     dispatchNavigation({ type: 'close', view });
     if (closingLastView) onExpandedChange?.(false);
   };
 
   if (!detailsOpen) {
     return (
-      <aside className="main-session-side session-summary-panel" aria-label="Session summary">
+      <aside className="main-session-side session-summary-panel" aria-label={`${sessionLabel} summary`}>
         <section className="session-summary-card">
           <header className="session-summary-heading">
-            <h2 className="session-summary-title">Session</h2>
+            <h2 className="session-summary-title">{sessionLabel}</h2>
             {detail ? <SessionDurationMetric detail={detail} className="session-summary-duration" /> : null}
           </header>
           <div className="session-summary-items">
-            <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
-              <Database size={15} aria-hidden="true" />
-              <span>{sessionMemories} Memories</span>
-              {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
-              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-            </button>
-            {sessionMemoryTypes.map((memoryType) => (
-              <div className="session-memory-type-item" key={memoryType.type}>
-                <span>{memoryType.countLabel}</span>
-                {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
-              </div>
-            ))}
+            {featureAvailability.memory ? (
+              <>
+                <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
+                  <Database size={15} aria-hidden="true" />
+                  <span>{sessionMemories} {sessionMemories === 1 ? memoryLabel : memoriesLabel}</span>
+                  {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
+                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                </button>
+                {sessionMemoryTypes.map((memoryType) => (
+                  <div className="session-memory-type-item" key={memoryType.type}>
+                    <span>{memoryType.countLabel}</span>
+                    {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
+                  </div>
+                ))}
+              </>
+            ) : null}
 
-            <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
-              <BookOpen size={15} aria-hidden="true" />
-              <span>{sessionRunbooks} Runbooks</span>
-              <span className="session-summary-meta">{sessionRunbookRevisions} Revisions</span>
-              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-            </button>
-            <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
-              <Bot size={15} aria-hidden="true" />
-              <span>{subagents.length} Subagents</span>
-              {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
-              <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-            </button>
+            {featureAvailability.runbooks ? (
+              <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
+                <BookOpen size={15} aria-hidden="true" />
+                <span>{sessionRunbooks} {runbookLabel}</span>
+                <span className="session-summary-meta">{sessionRunbookRevisions} Revisions</span>
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+            {featureAvailability.collaboration ? (
+              <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
+                <Bot size={15} aria-hidden="true" />
+                <span>{subagents.length} Subagents</span>
+                {subagentStatusCounts ? <span className="session-summary-meta">{subagentStatusCounts}</span> : null}
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
           {detail ? (
             <>
@@ -307,25 +402,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   if (!activeView) {
     return (
-      <aside className="main-session-side memory-catalog view-empty" aria-label="Session details">
-        <ResearchSideViewChooser onOpen={openDetails} />
+      <aside className="main-session-side memory-catalog view-empty" aria-label={`${sessionLabel} details`}>
+        <ResearchSideViewChooser views={enabledViews} labels={{ memory: memoriesLabel, runbooks: runbookLabel }} onOpen={openDetails} />
       </aside>
     );
   }
 
   return (
     <>
-      <aside className={`main-session-side memory-catalog view-${activeView} ${selectedSubagentPath || selectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label="Session details">
-        {selectedSubagentPath ? (
+      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${sessionLabel} details`}>
+        {visibleSelectedSubagentPath ? (
           <ResearchSideNestedHeader label="Subagents" name={selectedSubagentName} onBack={onBackToSubagents} />
-        ) : selectedRunbookId ? (
-          <ResearchSideNestedHeader label="Runbooks" name={selectedRunbookName} onBack={onBackToRunbooks} />
+        ) : visibleSelectedRunbookId ? (
+          <ResearchSideNestedHeader label={runbookLabel} name={selectedRunbookName} onBack={onBackToRunbooks} />
         ) : selectedNode ? (
-          <ResearchSideNestedHeader label="Memories" name={selectedNode.title} onBack={() => setSelectedNodeId(null)} />
+          <ResearchSideNestedHeader label={memoriesLabel} name={selectedNode.title} onBack={() => setSelectedNodeId(null)} />
         ) : (
           <ResearchSideViewTabs
             activeView={activeView}
-            openViews={navigation.openViews}
+            enabledViews={enabledViews}
+            labels={{ memory: memoriesLabel, runbooks: runbookLabel }}
+            openViews={visibleNavigation.openViews}
             onActivate={activateDetails}
             onClose={closeDetails}
             onOpen={openDetails}
@@ -336,9 +433,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 title="Memory level filter"
                 ariaLabel="Memory level filter"
                 options={[
-                  { value: 'session', label: 'Session' },
-                  { value: 'workspace', label: 'Workspace' },
-                  { value: 'subject', label: 'Subject' }
+                  { value: 'session', label: sessionLabel },
+                  { value: 'workspace', label: researchProfile?.workspace.workspaceNoun ?? 'Workspace' },
+                  { value: 'subject', label: researchProfile?.workspace.subjectNoun ?? 'Subject' }
                 ]}
                 onChange={(value) => setScope(value as MemoryLevelFilter)}
               />
@@ -349,8 +446,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 title="Runbook scope filter"
                 ariaLabel="Runbook scope filter"
                 options={[
-                  { value: 'session', label: 'Session' },
-                  { value: 'workspace', label: 'Workspace' }
+                  { value: 'session', label: sessionLabel },
+                  { value: 'workspace', label: researchProfile?.workspace.workspaceNoun ?? 'Workspace' }
                 ]}
                 onChange={(value) => setRunbookScope(value as RunbookScopeFilter)}
               />
@@ -358,7 +455,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           />
         )}
 
-        {selectedSubagentPath ? (
+        {visibleSelectedSubagentPath ? (
           <div className="research-side-nested-content subagent-chat-content">
             {chatView === 'commentary' ? (
               <CommentaryView
@@ -369,7 +466,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 selectedRunId={runId}
                 showBackToMain
                 showBackButton={false}
-                scrollScopeKey={selectedSubagentPath}
+                scrollScopeKey={visibleSelectedSubagentPath}
                 selectedTraceEventId={selectedTraceEventId}
                 searchHighlightQuery={searchHighlightQuery}
                 onBackToMain={onBackToSubagents}
@@ -383,7 +480,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 events={selectedSubagentEvents}
                 providerModelCatalog={providerModelCatalog}
                 selectedRunId={runId}
-                traceScopeKey={selectedSubagentPath}
+                traceScopeKey={visibleSelectedSubagentPath}
                 showBackToMain
                 showBackButton={false}
                 selectedTraceEventId={selectedTraceEventId}
@@ -399,19 +496,19 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               />
             )}
           </div>
-        ) : selectedRunbook ? (
+        ) : visibleSelectedRunbook ? (
           <div className="research-side-nested-content runbook-detail-content">
             <RunbookView
               document={selectedRunbookDocument}
               error={runbookError}
               followLatest
               loading={runbookLoading}
-              runbook={selectedRunbook}
+              runbook={visibleSelectedRunbook}
               showBackButton={false}
               onBackToMain={onBackToRunbooks}
             />
           </div>
-        ) : selectedRunbookId ? (
+        ) : visibleSelectedRunbookId ? (
           <div className="memory-catalog-empty">Loading runbook.</div>
         ) : selectedNode ? (
           <MainSideScrollRegion
@@ -423,6 +520,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               node={selectedNode}
               nodeById={nodeById}
               relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
+              researchProfile={researchProfile}
             />
           </MainSideScrollRegion>
         ) : activeView === 'memory' ? (
@@ -433,8 +531,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <input
                   type="search"
                   value={query}
-                  placeholder="Find a Memory"
-                  aria-label="Search memory"
+                  placeholder={`Find ${articleForLabel(memoryLabel)} ${memoryLabel}`}
+                  aria-label={`Search ${memoryLabel.toLocaleLowerCase()}`}
                   onChange={(event) => setQuery(event.target.value)}
                 />
                 <div className="memory-catalog-inline-filters" aria-label="Memory filters">
@@ -444,11 +542,15 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     title="Memory type filter"
                     ariaLabel="Memory type filter"
                     options={[
-                      { value: 'all', label: 'All Memories' },
+                      { value: 'all', label: `All ${memoriesLabel}` },
                       ...nodeTypes.map((nodeType) => ({
-                        value: nodeType,
-                        label: traceLabel(nodeType),
-                        className: `memory-type-option ${memoryTypeClassName(nodeType)}`
+                        value: nodeType.id,
+                        label: nodeType.label,
+                        group: nodeType.group,
+                        className: `memory-type-option ${memoryTypeClassName(nodeType.id, memoryTypes)}`,
+                        style: nodeType.color
+                          ? { '--memory-type-color': nodeType.color } as CSSProperties
+                          : undefined
                       }))
                     ]}
                     onChange={setType}
@@ -456,20 +558,23 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 </div>
               </div>
             </div>
-            {!memory ? <div className="memory-catalog-empty">Loading memory.</div> : null}
+            {!memory ? <div className="memory-catalog-empty">Loading {memoryLabel.toLocaleLowerCase()}.</div> : null}
             {memory?.lastError ? <div className="memory-catalog-empty is-error">{memory.lastError}</div> : null}
-            {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No memory records yet.</div> : null}
+            {memory && !memory.lastError && nodes.length === 0 ? <div className="memory-catalog-empty">No {memoryLabel.toLocaleLowerCase()} records yet.</div> : null}
             {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
             {filteredNodes.length > 0 ? (
               <MainSideScrollRegion listClassName="memory-catalog-list memory-status-groups" stickToStart updateKey={updateKey}>
-                {(['suspected', 'confirmed', 'rejected'] as const).map((statusGroup) => (
+                {memoryStatusSections.map((statusSection) => (
                   <MemoryCatalogSection
-                    expanded={expandedMemoryGroups.has(statusGroup)}
-                    key={statusGroup}
-                    label={statusGroup}
-                    nodes={groupedMemories[statusGroup]}
+                    expanded={expandedMemoryGroups.has(statusSection.id)}
+                    key={statusSection.id}
+                    label={statusSection.id}
+                    displayLabel={statusSection.label}
+                    memoryLabel={memoryLabel}
+                    memoryTypes={memoryTypes}
+                    nodes={statusSection.nodes}
                     selectedNodeId={selectedNodeId}
-                    onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusGroup))}
+                    onExpand={() => setExpandedMemoryGroups((current) => new Set(current).add(statusSection.id))}
                     onOpen={(nodeId) => setSelectedNodeId(nodeId)}
                   />
                 ))}
@@ -478,7 +583,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </>
         ) : activeView === 'runbooks' ? (
           <>
-            <CatalogSearch value={runbookQuery} placeholder="Find a Runbook" ariaLabel="Search runbooks" onChange={setRunbookQuery} />
+            <CatalogSearch value={runbookQuery} placeholder={`Find ${articleForLabel(runbookLabel)} ${singularizePresentationLabel(runbookLabel)}`} ariaLabel={`Search ${runbookLabel.toLocaleLowerCase()}`} onChange={setRunbookQuery} />
             <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToStart updateKey={runbookUpdateKey}>
               <RunbookCatalogSection
                 label="Active"
@@ -506,13 +611,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 agents={groupedSubagents.active}
                 label="Active"
                 onSelect={onSelectSubagent}
-                selectedPath={selectedSubagentPath}
+                selectedPath={visibleSelectedSubagentPath}
               />
               <SubagentCatalogSection
                 agents={groupedSubagents.completed}
                 label="Completed"
                 onSelect={onSelectSubagent}
-                selectedPath={selectedSubagentPath}
+                selectedPath={visibleSelectedSubagentPath}
               />
             </MainSideScrollRegion>
           </>
@@ -582,7 +687,7 @@ export function ResearchSideNestedHeader({
   name,
   onBack
 }: {
-  label: 'Memories' | 'Runbooks' | 'Subagents';
+  label: string;
   name: string;
   onBack: () => void;
 }): JSX.Element {
@@ -599,22 +704,26 @@ export function ResearchSideNestedHeader({
 
 export function ResearchSideViewTabs({
   activeView,
+  enabledViews = RESEARCH_SIDE_VIEWS,
   openViews,
   onActivate,
   onClose,
   onOpen,
+  labels,
   trailing
 }: {
   activeView: ResearchSideView;
+  enabledViews?: readonly ResearchSideView[];
   openViews: readonly ResearchSideView[];
   onActivate: (view: ResearchSideView) => void;
   onClose: (view: ResearchSideView) => void;
   onOpen: (view: ResearchSideView) => void;
+  labels?: Partial<Record<ResearchSideView, string>>;
   trailing?: ReactNode;
 }): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
-  const availableViews = availableResearchSideViews(openViews);
+  const availableViews = availableResearchSideViews(openViews, enabledViews);
 
   useEffect(() => {
     if (!pickerOpen) return undefined;
@@ -649,13 +758,13 @@ export function ResearchSideViewTabs({
               onClick={() => onActivate(view)}
             >
               {researchSideViewIcon(view, 15)}
-              <span>{researchSideViewLabel(view)}</span>
+              <span>{researchSideViewLabel(view, labels)}</span>
             </button>
             <button
               type="button"
               className="research-side-view-tab-close"
-              aria-label={`Close ${researchSideViewLabel(view)}`}
-              title={`Close ${researchSideViewLabel(view)}`}
+              aria-label={`Close ${researchSideViewLabel(view, labels)}`}
+              title={`Close ${researchSideViewLabel(view, labels)}`}
               onClick={() => onClose(view)}
             >
               <X size={13} aria-hidden="true" />
@@ -689,7 +798,7 @@ export function ResearchSideViewTabs({
                   }}
                 >
                   {researchSideViewIcon(view, 15)}
-                  <span>{researchSideViewLabel(view)}</span>
+                  <span>{researchSideViewLabel(view, labels)}</span>
                 </button>
               ))}
             </div>
@@ -701,23 +810,102 @@ export function ResearchSideViewTabs({
   );
 }
 
-export function ResearchSideViewChooser({ onOpen }: { onOpen: (view: ResearchSideView) => void }): JSX.Element {
+export function ResearchSideViewChooser({
+  labels,
+  onOpen,
+  views = RESEARCH_SIDE_VIEWS
+}: {
+  labels?: Partial<Record<ResearchSideView, string>>;
+  onOpen: (view: ResearchSideView) => void;
+  views?: readonly ResearchSideView[];
+}): JSX.Element {
   return (
     <nav className="research-side-view-chooser" aria-label="Choose a session detail view">
-      {RESEARCH_SIDE_VIEWS.map((view) => (
+      {views.map((view) => (
         <button type="button" key={view} onClick={() => onOpen(view)}>
           {researchSideViewIcon(view, 16)}
-          <span>{researchSideViewLabel(view)}</span>
+          <span>{researchSideViewLabel(view, labels)}</span>
         </button>
       ))}
     </nav>
   );
 }
 
-function researchSideViewLabel(view: ResearchSideView): string {
-  if (view === 'memory') return 'Memories';
-  if (view === 'runbooks') return 'Runbooks';
-  return 'Subagents';
+function researchSideViewLabel(
+  view: ResearchSideView,
+  labels?: Partial<Record<ResearchSideView, string>>
+): string {
+  return labels?.[view] ?? (view === 'memory' ? 'Memories' : view === 'runbooks' ? 'Runbooks' : 'Subagents');
+}
+
+interface CatalogMemoryTypeOption {
+  id: string;
+  label: string;
+  group?: string;
+  color?: string;
+}
+
+export function orderedCatalogMemoryTypes(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  definitions: readonly ResearchProfileMemoryType[]
+): CatalogMemoryTypeOption[] {
+  return [...new Set(nodes.map((node) => node.type))]
+    .map((id) => ({ id, definition: memoryTypeDefinition(id, definitions) }))
+    .sort((left, right) => {
+      if (left.definition && right.definition) {
+        const group = (left.definition.group ?? '').localeCompare(right.definition.group ?? '');
+        return left.definition.order - right.definition.order
+          || group
+          || left.definition.name.localeCompare(right.definition.name)
+          || left.id.localeCompare(right.id);
+      }
+      if (left.definition) return -1;
+      if (right.definition) return 1;
+      return left.id.localeCompare(right.id);
+    })
+    .map(({ id, definition }) => ({
+      id,
+      label: memoryTypeLabel(id, definitions),
+      ...(definition?.group ? { group: definition.group } : {}),
+      ...(definition?.color ? { color: definition.color } : {})
+    }));
+}
+
+function legacyMemoryStatusSections(nodes: readonly HoneycrispMemoryNodeSummary[]): Array<{
+  id: string;
+  label: string;
+  polarity: ResearchProfileMemoryStatus['polarity'];
+  nodes: HoneycrispMemoryNodeSummary[];
+}> {
+  const groups = memoryCatalogStatusGroups(nodes);
+  return [
+    { id: 'suspected', label: 'Suspected', polarity: 'neutral', nodes: groups.suspected },
+    { id: 'confirmed', label: 'Confirmed', polarity: 'positive', nodes: groups.confirmed },
+    { id: 'rejected', label: 'Rejected', polarity: 'negative', nodes: groups.rejected }
+  ];
+}
+
+export function pluralizePresentationLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed || /s$/iu.test(trimmed)) return trimmed;
+  if (/[^aeiou]y$/iu.test(trimmed)) return `${trimmed.slice(0, -1)}ies`;
+  return `${trimmed}s`;
+}
+
+function singularizePresentationLabel(label: string): string {
+  const trimmed = label.trim();
+  if (/ies$/iu.test(trimmed)) return `${trimmed.slice(0, -3)}y`;
+  if (/s$/iu.test(trimmed)) return trimmed.slice(0, -1);
+  return trimmed;
+}
+
+function articleForLabel(label: string): 'a' | 'an' {
+  return /^[aeiou]/iu.test(singularizePresentationLabel(label)) ? 'an' : 'a';
+}
+
+function unknownProfileValueLabel(kind: string, id: string): string {
+  const normalized = id.trim().replace(/[_-]+/gu, ' ') || 'unlabeled';
+  return `Unknown ${kind} (${normalized})`;
 }
 
 function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element {
@@ -850,10 +1038,12 @@ function SubagentStatusIcon({ status }: { status: SubagentSummary['status'] }): 
 
 function MemoryCatalogItem({
   node,
+  memoryTypes,
   selected,
   onOpen
 }: {
   node: HoneycrispMemoryNodeSummary;
+  memoryTypes?: readonly ResearchProfileMemoryType[];
   selected: boolean;
   onOpen: () => void;
 }): JSX.Element {
@@ -863,11 +1053,11 @@ function MemoryCatalogItem({
         <span className="memory-catalog-item-heading">
           <span className="memory-catalog-item-meta-line">
             <span className="memory-catalog-item-primary">
-              <MemoryTypeIcon type={node.type} />
+              <MemoryTypeIcon type={node.type} definitions={memoryTypes} />
               <span className="memory-catalog-item-name" title={node.title}>{node.title}</span>
             </span>
             <span className="memory-catalog-item-trailing">
-              <MemoryTypeLabel type={node.type} showDot={false} />
+              <MemoryTypeLabel type={node.type} definitions={memoryTypes} showDot={false} />
               <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
             </span>
           </span>
@@ -883,6 +1073,9 @@ function MemoryCatalogItem({
 export function MemoryCatalogSection({
   nodes,
   label,
+  displayLabel,
+  memoryLabel = 'memory',
+  memoryTypes,
   expanded,
   selectedNodeId,
   onExpand,
@@ -890,26 +1083,30 @@ export function MemoryCatalogSection({
 }: {
   nodes: readonly HoneycrispMemoryNodeSummary[];
   label: MemoryStatusGroup;
+  displayLabel?: string;
+  memoryLabel?: string;
+  memoryTypes?: readonly ResearchProfileMemoryType[];
   expanded: boolean;
   selectedNodeId: string | null;
   onExpand: () => void;
   onOpen: (nodeId: string) => void;
 }): JSX.Element {
   const { visibleNodes, hiddenCount } = memoryCatalogGroupPreview(nodes, expanded);
-  const displayLabel = traceLabel(label);
+  const sectionLabel = displayLabel ?? traceLabel(label);
   return (
-    <section className="memory-status-section" aria-label={`${nodes.length} ${displayLabel}`}>
-      <h3>{nodes.length} {displayLabel}</h3>
+    <section className="memory-status-section" aria-label={`${nodes.length} ${sectionLabel}`} data-memory-status={label}>
+      <h3>{nodes.length} {sectionLabel}</h3>
       <div className={`memory-status-items ${nodes.length === 0 ? 'is-empty' : ''}`}>
         {visibleNodes.length > 0 ? visibleNodes.map((node) => (
           <MemoryCatalogItem
             key={node.id}
             node={node}
+            memoryTypes={memoryTypes}
             selected={selectedNodeId === node.id}
             onOpen={() => onOpen(node.id)}
           />
         )) : (
-          <p className="memory-status-empty">No {label} memories yet.</p>
+          <p className="memory-status-empty">No {sectionLabel.toLocaleLowerCase()} {pluralizePresentationLabel(memoryLabel).toLocaleLowerCase()} yet.</p>
         )}
       </div>
       {hiddenCount > 0 ? (
@@ -925,18 +1122,29 @@ export function MemoryCatalogSection({
 export function MemoryDetailView({
   node,
   nodeById,
-  relationships
+  relationships,
+  researchProfile = null
 }: {
   node: HoneycrispMemoryNodeSummary;
   nodeById: Map<string, HoneycrispMemoryNodeSummary>;
   relationships: HoneycrispMemoryEdgeSummary[];
+  researchProfile?: ResearchProfile | null;
 }): JSX.Element {
+  const memoryProfile = researchProfile?.memory;
+  const statusDefinition = memoryProfile?.statuses.find((status) => status.id === node.status);
+  const statusLabel = statusDefinition?.name
+    ?? (memoryProfile ? unknownProfileValueLabel('status', node.status) : traceLabel(node.status));
+  const relationDefinitions = new Map(memoryProfile?.relations?.map((relation) => [relation.id, relation]) ?? []);
+  const evidenceKindDefinitions = new Map(memoryProfile?.evidenceKinds.map((kind) => [kind.id, kind]) ?? []);
+  const workspaceNoun = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
+  const subjectNoun = researchProfile?.workspace.subjectNoun ?? 'Subject';
+  const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
   return (
     <article className={`memory-detail type-${stateClass(node.type)}`}>
       <header className="memory-detail-heading">
         <span className="memory-catalog-item-labels">
-          <MemoryTypeLabel type={node.type} />
-          <span className="memory-catalog-status">{traceLabel(node.status)}</span>
+          <MemoryTypeLabel type={node.type} definitions={memoryProfile?.types} />
+          <span className="memory-catalog-status">{statusLabel}</span>
         </span>
         <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
         <h3>{node.title}</h3>
@@ -950,9 +1158,9 @@ export function MemoryDetailView({
           <span>{relationships.length} links</span>
         </div>
         <dl className="memory-catalog-scope">
-          <div><dt>Subject</dt><dd>{node.subjectName}</dd></div>
-          <div><dt>Workspaces</dt><dd>{node.workspaces.map((workspace) => workspace.name).join(', ') || 'None'}</dd></div>
-          <div><dt>Sessions</dt><dd>{node.sessionIds.join(', ') || 'None'}</dd></div>
+          <div><dt>{subjectNoun}</dt><dd>{node.subjectName}</dd></div>
+          <div><dt>{pluralizePresentationLabel(workspaceNoun)}</dt><dd>{node.workspaces.map((workspace) => workspace.name).join(', ') || 'None'}</dd></div>
+          <div><dt>{pluralizePresentationLabel(sessionLabel)}</dt><dd>{node.sessionIds.join(', ') || 'None'}</dd></div>
         </dl>
         {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
         {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
@@ -962,7 +1170,8 @@ export function MemoryDetailView({
             <div className="memory-reference-list">
               {node.evidenceRefs.map((reference) => (
                 <article key={reference.id}>
-                  <span>{traceLabel(reference.kind)}</span>
+                  <span>{evidenceKindDefinitions.get(reference.kind)?.name
+                    ?? (memoryProfile ? unknownProfileValueLabel('evidence kind', reference.kind) : traceLabel(reference.kind))}</span>
                   <strong>{reference.summary || reference.path || reference.id}</strong>
                   {reference.path ? <code>{reference.path}</code> : null}
                 </article>
@@ -980,7 +1189,8 @@ export function MemoryDetailView({
                 const relatedNode = nodeById.get(relatedId);
                 return (
                   <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
-                    <span>{outbound ? '→' : '←'} {traceLabel(relationship.relation)}</span>
+                    <span>{outbound ? '→' : '←'} {relationDefinitions.get(relationship.relation)?.name
+                      ?? (memoryProfile ? unknownProfileValueLabel('relation', relationship.relation) : traceLabel(relationship.relation))}</span>
                     <strong>{relatedNode?.title ?? relatedId}</strong>
                     {relationship.note ? <p>{relationship.note}</p> : null}
                   </article>

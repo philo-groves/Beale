@@ -11,6 +11,7 @@ import {
 } from '../src/shared/types';
 import { WorkspaceRegistry } from '../src/main/workspaceRegistry';
 import { MemorySettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { resolvedTestResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
 
@@ -21,22 +22,31 @@ afterEach(() => {
 });
 
 describe('memory settings', () => {
-  it('defines and renders an editable description for every Honeycrisp memory type', () => {
+  it('defines legacy descriptions and renders the active profile catalog read-only', () => {
     expect(Object.keys(DEFAULT_MEMORY_TYPE_DESCRIPTIONS)).toEqual([...MEMORY_NODE_TYPES]);
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.primitive).toContain('lowercase-hyphenated attributes.rootCauseKey');
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('source, sink, and asset relationships are ideal');
 
-    const html = renderToStaticMarkup(createElement(MemorySettingsView, {
-      settings: { typeDescriptions: { ...DEFAULT_MEMORY_TYPE_DESCRIPTIONS } },
-      busy: false,
-      onSave: async () => undefined
-    }));
+    const resolved = resolvedTestResearchProfile();
+    const html = renderToStaticMarkup(createElement(MemorySettingsView, { researchProfile: {
+      id: 'profile_snapshot_test',
+      workspaceId: 'workspace_test',
+      profileId: resolved.profile.id,
+      profileVersion: resolved.profile.version,
+      profileHash: resolved.hash,
+      source: resolved.source,
+      sourcePath: null,
+      profile: resolved.profile,
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z'
+    } }));
 
-    for (const type of MEMORY_NODE_TYPES) {
-      const label = type.charAt(0).toUpperCase() + type.slice(1);
-      expect(html).toContain(`aria-label="${label} memory description"`);
-      expect(html).toContain(DEFAULT_MEMORY_TYPE_DESCRIPTIONS[type]);
+    for (const memoryType of resolved.profile.memory.types) {
+      expect(html).toContain(`aria-label="${memoryType.name} memory definition"`);
+      expect(html).toContain(memoryType.description);
     }
+    expect(html).not.toContain('<textarea');
+    expect(html).toContain('Edit .honeycrisp/profile.json');
   });
 
   it('persists normalized descriptions and restores them from the global registry', () => {

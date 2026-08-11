@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, RunDetail, TraceEventRecord } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
 import {
   ResearchSidePanel,
   ResearchSideViewTabs,
@@ -13,11 +13,15 @@ import {
   availableResearchSideViews,
   isLastOpenResearchSideView,
   filterRunbookCatalog,
+  researchSideViewsForProfile,
   researchSideNavigationReducer,
+  restrictResearchSideNavigation,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from '../src/renderer/view-models/researchProfileFeatures';
 import { runbookCatalogGroups } from '../src/renderer/view-models/runbooks';
+import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer memory catalog', () => {
   it('defaults the detailed memory catalog to Session scope', () => {
@@ -100,6 +104,32 @@ describe('renderer memory catalog', () => {
     expect(isLastOpenResearchSideView([], 'memory')).toBe(false);
   });
 
+  it('limits side navigation to run-pinned profile features while retaining null-profile legacy views', () => {
+    const runbooksOnly = researchProfileWithFeatures({
+      memoryEnabled: false,
+      runbooksEnabled: true,
+      collaborationEnabled: false
+    });
+
+    expect(researchSideViewsForProfile(null)).toEqual(['memory', 'runbooks', 'subagents']);
+    expect(researchProfileFeatureAvailability(null)).toEqual({ memory: true, runbooks: true, collaboration: true });
+    expect(researchSideViewsForProfile(runbooksOnly)).toEqual(['runbooks']);
+    expect(hasResearchProfileDetailFeatures(runbooksOnly)).toBe(true);
+    expect(hasResearchProfileDetailFeatures(researchProfileWithFeatures({
+      memoryEnabled: false,
+      runbooksEnabled: false,
+      collaborationEnabled: false
+    }))).toBe(false);
+    expect(availableResearchSideViews([], ['runbooks'])).toEqual(['runbooks']);
+    expect(restrictResearchSideNavigation({
+      openViews: ['memory', 'runbooks', 'subagents'],
+      activeView: 'subagents'
+    }, ['runbooks'])).toEqual({
+      openViews: ['runbooks'],
+      activeView: 'runbooks'
+    });
+  });
+
   it('renders icon-and-close tabs and hides the add-view button when every view is open', () => {
     const html = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
       activeView: 'subagents',
@@ -126,6 +156,23 @@ describe('renderer memory catalog', () => {
       memoryNode({ id: 'rejected', status: 'rejected' }),
       memoryNode({ id: 'stale', status: 'stale' })
     ])).toBe(3);
+  });
+
+  it('counts only profile statuses that remain active under recommendation semantics', () => {
+    const statuses: ResearchProfile['memory']['statuses'] = [
+      { id: 'working', name: 'Working', description: '', order: 10, polarity: 'neutral' },
+      { id: 'blocked', name: 'Blocked', description: '', order: 20, polarity: 'negative' },
+      { id: 'closed', name: 'Closed', description: '', order: 30, terminal: true, polarity: 'neutral' },
+      { id: 'published', name: 'Published', description: '', order: 40, terminal: true, polarity: 'positive' }
+    ];
+
+    expect(activeMemoryCount([
+      memoryNode({ id: 'working', status: 'working' }),
+      memoryNode({ id: 'blocked', status: 'blocked' }),
+      memoryNode({ id: 'closed', status: 'closed' }),
+      memoryNode({ id: 'published', status: 'published' }),
+      memoryNode({ id: 'unknown', status: 'unknown' })
+    ], statuses)).toBe(2);
   });
 
   it('groups memory states without dropping drafts or stale records and previews five rows', () => {
@@ -315,6 +362,41 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>Subagents</span>');
     expect(html).not.toContain('aria-label="Session summary"');
     expect(html).not.toContain('aria-label="Open session detail views"');
+  });
+
+  it('hides disabled profile features without removing the remaining session summary', () => {
+    const disabledProfile = researchProfileWithFeatures({
+      memoryEnabled: false,
+      runbooksEnabled: false,
+      collaborationEnabled: false
+    });
+    const summaryHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      researchProfile: disabledProfile
+    })));
+
+    expect(summaryHtml).toContain('aria-label="Session summary"');
+    expect(summaryHtml).toContain('60k Tokens');
+    expect(summaryHtml).not.toContain('<span>0 Memories</span>');
+    expect(summaryHtml).not.toContain('<span>0 Runbooks</span>');
+    expect(summaryHtml).not.toContain('<span>0 Subagents</span>');
+    expect(summaryHtml).not.toContain('session-summary-chevron');
+
+    const runbooksOnlyHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      expanded: true,
+      researchProfile: researchProfileWithFeatures({
+        memoryEnabled: false,
+        runbooksEnabled: true,
+        collaborationEnabled: false
+      }),
+      selectedSubagentPath: '/root/legacy_subagent'
+    })));
+
+    expect(runbooksOnlyHtml).toContain('aria-label="Choose a session detail view"');
+    expect(runbooksOnlyHtml).toContain('<span>Runbooks</span>');
+    expect(runbooksOnlyHtml).not.toContain('<span>Memories</span>');
+    expect(runbooksOnlyHtml).not.toContain('<span>Subagents</span>');
+    expect(runbooksOnlyHtml).not.toContain('Back to Subagents');
+    expect(runbooksOnlyHtml).not.toContain('legacy_subagent');
   });
 
   it('replaces detail tabs with Back to Subagents and renders the selected subagent chat', () => {
@@ -511,6 +593,19 @@ function researchSidePanelProps(
     onSelectSubagent: () => undefined,
     onSelectTraceEvent: () => undefined,
     ...overrides
+  };
+}
+
+function researchProfileWithFeatures(
+  features: Partial<ResearchProfile['capabilities']>
+): ResearchProfile {
+  const profile = testResearchProfile();
+  return {
+    ...profile,
+    capabilities: {
+      ...profile.capabilities,
+      ...features
+    }
   };
 }
 

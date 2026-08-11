@@ -9,11 +9,19 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
+import { testResearchProfileCatalogEnvelope } from './researchProfileFixture';
 
 const createdDirs: string[] = [];
 
 beforeEach(() => {
   process.env.BEALE_WORKSPACE_REGISTRY_DIR = tempWorkspace();
+  const profileResolver = join(tempWorkspace(), 'profile-resolver.mjs');
+  writeFileSync(profileResolver, "process.stdout.write(process.argv[2] ?? '');\n");
+  process.env.BEALE_HONEYCRISP_PROFILE_COMMAND = process.execPath;
+  process.env.BEALE_HONEYCRISP_PROFILE_ARGS_JSON = JSON.stringify([
+    profileResolver,
+    JSON.stringify(testResearchProfileCatalogEnvelope())
+  ]);
 });
 
 afterEach(() => {
@@ -32,6 +40,14 @@ afterEach(() => {
   delete process.env.BEALE_HONEYCRISP_NODE_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PNPM_COMMAND;
   delete process.env.BEALE_HONEYCRISP_PROVIDER;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_ARGS_JSON;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_CWD;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_ROOT;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_NODE_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_PNPM_COMMAND;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_TOOL_FAMILY_CEILING_JSON;
+  delete process.env.BEALE_HONEYCRISP_PROFILE_SIDE_EFFECT_CEILING_JSON;
   delete process.env.BEALE_HONEYCRISP_ROOT;
   delete process.env.BEALE_HONEYCRISP_RUNTIME_ARGS_JSON;
   delete process.env.BEALE_HONEYCRISP_TOOL_MAX_BYTES;
@@ -502,7 +518,7 @@ describe('Beale workbench skeleton', () => {
       CREATE INDEX idx_memory_dreaming_runs_workspace_created ON memory_dreaming_runs(workspace_id, created_at DESC);
       CREATE INDEX idx_memory_dreaming_changes_workspace_created ON memory_dreaming_changes(workspace_id, created_at DESC);
       CREATE INDEX idx_memory_dreaming_changes_run ON memory_dreaming_changes(run_id);
-      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version IN (11, 12);
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 11;
       PRAGMA foreign_keys = ON;
     `);
     legacy.close();
@@ -528,6 +544,36 @@ describe('Beale workbench skeleton', () => {
     expect(
       verified.prepare("SELECT name FROM pragma_table_info('memory_dreaming_runs') WHERE name = 'error_message'").get()
     ).toEqual({ name: 'error_message' });
+    expect(
+      verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 15").get()
+    ).toEqual({ name: 'memory_dreaming_run_profile_provenance' });
+    expect(
+      verified
+        .prepare(
+          `SELECT name FROM pragma_table_info('memory_dreaming_runs')
+           WHERE name IN ('research_profile_hash', 'research_profile_id', 'research_profile_version', 'memory_catalog_hash')
+           ORDER BY name`
+        )
+        .all()
+    ).toEqual([
+      { name: 'memory_catalog_hash' },
+      { name: 'research_profile_hash' },
+      { name: 'research_profile_id' },
+      { name: 'research_profile_version' }
+    ]);
+    expect(
+      verified
+        .prepare(
+          `SELECT research_profile_hash, research_profile_id, research_profile_version, memory_catalog_hash
+           FROM memory_dreaming_runs WHERE id = 'legacy_dream'`
+        )
+        .get()
+    ).toEqual({
+      research_profile_hash: null,
+      research_profile_id: null,
+      research_profile_version: null,
+      memory_catalog_hash: null
+    });
     expect(() =>
       verified
         .prepare(
@@ -540,6 +586,9 @@ describe('Beale workbench skeleton', () => {
         )
         .run(workspaceId, now, now)
     ).not.toThrow();
+    expect(() =>
+      verified.prepare("UPDATE memory_dreaming_runs SET research_profile_hash = 'partial' WHERE id = 'failed_dream'").run()
+    ).toThrow(/provenance/);
     expect(() =>
       verified
         .prepare(
@@ -747,7 +796,7 @@ describe('Beale workbench skeleton', () => {
       fakeHoneycrisp,
       [
         '#!/usr/bin/env node',
-        "import { mkdirSync, writeFileSync } from 'node:fs';",
+        "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
         "import { dirname } from 'node:path';",
         'const args = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
@@ -761,14 +810,17 @@ describe('Beale workbench skeleton', () => {
         "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
         "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4.3') throw new Error('missing provider small-model map');",
         "if (args[args.indexOf('--shell-review-effort') + 1] !== 'medium') throw new Error('missing shell review effort');",
-        "const memoryTypeDescriptions = JSON.parse(args[args.indexOf('--memory-type-descriptions') + 1]);",
-        "if (memoryTypeDescriptions.primitive !== 'CUSTOM TEST TAXONOMY: one independently proven root-cause flaw.') throw new Error('missing memory type descriptions');",
+        "if (args.includes('--memory-type-descriptions')) throw new Error('mutable memory descriptions must not override a resolved profile');",
+        "const resolvedProfile = JSON.parse(readFileSync(args[args.indexOf('--resolved-research-profile') + 1], 'utf8'));",
+        "if (resolvedProfile.id !== 'security-research') throw new Error('missing resolved research profile');",
+        "if (args[args.indexOf('--workflow') + 1] !== 'discovery') throw new Error('missing research workflow');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
         'const capture = {',
         '  schemaVersion: 5,',
         '  capturedAt: now,',
         "  request: { prompt: 'Fixture Honeycrisp research' },",
+        `  researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
         '  agent: {',
         "    id: 'agent_fixture',",
         "    status: 'complete',",
@@ -887,7 +939,10 @@ describe('Beale workbench skeleton', () => {
     expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
     expect(launchArgs).not.toContain('--memory-models');
     expect(launchArgs).not.toContain('--memory-effort');
-    expect(launchArgs[launchArgs.indexOf('--memory-type-descriptions') + 1]).toBe('[configured]');
+    expect(launchArgs).not.toContain('--memory-type-descriptions');
+    expect(launchArgs[launchArgs.indexOf('--resolved-research-profile') + 1]).toBe('[run-local-profile]');
+    expect(launchArgs[launchArgs.indexOf('--research-profile-hash') + 1]).toBe('[profile-hash]');
+    expect(launchArgs[launchArgs.indexOf('--workflow') + 1]).toBe('discovery');
     expect(detail.run.title).toBe('Zsh Host Adapter Validation');
     expect(detail.run.finalDisposition).toEqual({
       outcome: 'blocked',
@@ -1073,7 +1128,7 @@ describe('Beale workbench skeleton', () => {
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Transient failure fixture' }, agent: { id: 'agent_error', status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'Transient provider failure.' }, eventTimeline: [] }) + '\\n');"
+        `writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: now, request: { prompt: 'Transient failure fixture' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: 'agent_error', status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'Transient provider failure.' }, eventTimeline: [] }) + '\\n');`
       ].join('\n')
     );
     chmodSync(fakeHoneycrisp, 0o700);
@@ -1120,9 +1175,10 @@ describe('Beale workbench skeleton', () => {
         'const now = new Date().toISOString();',
         'const failed = invocation === 1;',
         'const capture = {',
-        '  schemaVersion: 4,',
+        '  schemaVersion: 5,',
         '  capturedAt: now,',
         "  request: { prompt: failed ? 'Initial WebSocket fixture' : 'Automatic continuation fixture' },",
+        `  researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
         '  agent: {',
         '    id: `agent_${invocation}`,',
         "    status: failed ? 'error' : 'complete',",
@@ -1191,7 +1247,7 @@ describe('Beale workbench skeleton', () => {
         'writeFileSync(invocationCountPath, String(invocation));',
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const now = new Date().toISOString();',
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Repeated WebSocket fixture' }, agent: { id: `agent_${invocation}`, status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'WebSocket error' }, eventTimeline: [] }) + '\\n');"
+        `writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: now, request: { prompt: 'Repeated WebSocket fixture' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: \`agent_\${invocation}\`, status: 'error', executorName: 'fixture-honeycrisp', startedAt: now, completedAt: now, outputText: 'WebSocket error' }, eventTimeline: [] }) + '\\n');`
       ].join('\n')
     );
     chmodSync(fakeHoneycrisp, 0o700);
@@ -1261,9 +1317,10 @@ describe('Beale workbench skeleton', () => {
         '      if (timer) clearInterval(timer);',
         '      const now = new Date().toISOString();',
         '      const capture = {',
-        '        schemaVersion: 4,',
+        '        schemaVersion: 5,',
         '        capturedAt: now,',
         "        request: { prompt: 'Controlled run' },",
+        `        researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
         "        agent: { id: 'agent_control', status: 'complete', executorName: 'controlled-fixture', startedAt: now, completedAt: now, outputText: 'Steering received.' },",
         '        eventTimeline: []',
         '      };',
@@ -1376,7 +1433,7 @@ describe('Beale workbench skeleton', () => {
         "        emit({ type: 'shell_authorization_resolved', approvalRequestId: message.approvalRequestId, decision: message.decision, source: 'human', reason: 'Approved by the fixture researcher.', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command });",
         "        emit({ type: 'shell_authorization_resolved', approvalRequestId: message.approvalRequestId, decision: 'denied', source: 'human', reason: 'Contradictory replay must be ignored.', mode: 'manual_approval', actionId: 'action_fixture', agentId: 'root', agentPath: '/root', command });",
         '        const now = new Date().toISOString();',
-        "        writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt: 'Shell safety fixture' }, agent: { id: 'agent_shell_safety', status: 'complete', executorName: 'shell-safety-fixture', startedAt: now, completedAt: now, outputText: 'Shell safety decision received.' }, eventTimeline: [] }) + '\\n');",
+        `        writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: now, request: { prompt: 'Shell safety fixture' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: 'agent_shell_safety', status: 'complete', executorName: 'shell-safety-fixture', startedAt: now, completedAt: now, outputText: 'Shell safety decision received.' }, eventTimeline: [] }) + '\\n');`,
         '        setTimeout(() => process.exit(0), 30);',
         '      }, 150);',
         '    }',
@@ -1598,7 +1655,7 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         'const writeCapture = () => {',
         '  const now = new Date().toISOString();',
-        "  writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: now, request: { prompt }, agent: { id: `agent_${turn}`, status: 'complete', executorName: 'unacknowledged-fixture', startedAt: now, completedAt: now, outputText: `Invocation ${turn} completed.` }, eventTimeline: [] }) + '\\n');",
+        `  writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: now, request: { prompt }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: \`agent_\${turn}\`, status: 'complete', executorName: 'unacknowledged-fixture', startedAt: now, completedAt: now, outputText: \`Invocation \${turn} completed.\` }, eventTimeline: [] }) + '\\n');`,
         '};',
         'if (turn === 1) {',
         "  const now = new Date().toISOString();",
@@ -1768,7 +1825,7 @@ describe('Beale workbench skeleton', () => {
         '#!/usr/bin/env node',
         "import { writeFileSync } from 'node:fs';",
         'const [readyPath, stoppedPath, exitedPath] = process.argv.slice(2);',
-        "writeFileSync(readyPath, 'ready');",
+          'writeFileSync(readyPath, String(process.pid));',
         "process.on('SIGTERM', () => {",
         "  writeFileSync(stoppedPath, 'stopped');",
         '  setTimeout(() => process.exit(0), 25);',
@@ -1789,13 +1846,25 @@ describe('Beale workbench skeleton', () => {
       runEngine: 'honeycrisp',
       promptMarkdown: 'Exercise application shutdown during an active session.'
     });
-    const runId = started.runs[0]?.run.id ?? '';
-    await waitForCondition(() => existsSync(readyPath));
+      const runId = started.runs[0]?.run.id ?? '';
+      await waitForCondition(() => existsSync(readyPath));
+      const honeycrispPid = Number.parseInt(readFileSync(readyPath, 'utf8'), 10);
 
-    service.close();
+      service.close();
 
-    await waitForCondition(() => existsSync(stoppedPath));
-    await waitForCondition(() => existsSync(exitedPath));
+      if (process.platform === 'win32') {
+        await waitForCondition(() => {
+          try {
+            process.kill(honeycrispPid, 0);
+            return false;
+          } catch {
+            return true;
+          }
+        });
+      } else {
+        await waitForCondition(() => existsSync(stoppedPath));
+        await waitForCondition(() => existsSync(exitedPath));
+      }
     const reopened = new WorkspaceService();
     const recovered = reopened.openWorkspace(workspace);
     expect(recovered.runs.find((row) => row.run.id === runId)?.run.status).toBe('paused');
@@ -1869,9 +1938,10 @@ describe('Beale workbench skeleton', () => {
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: now, payload: { type: 'turn_completed', agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, responseId: `response_${turn}`, stopReason: 'stop' } }));",
         'const capture = {',
-        '  schemaVersion: 4,',
+        '  schemaVersion: 5,',
         '  capturedAt: now,',
         '  request: { prompt },',
+        `  researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
         "  agent: { id: `agent_${turn}`, status: 'complete', executorName: 'continuation-fixture', startedAt: now, completedAt: now, outputText: `Turn ${turn} response.` },",
         '  eventTimeline: []',
         '};',
@@ -2013,8 +2083,9 @@ describe('Beale workbench skeleton', () => {
         "mkdirSync(dirname(capturePath), { recursive: true });",
         "writeFileSync(capturePath, JSON.stringify({",
         '  capturedAt: new Date().toISOString(),',
-        '  schemaVersion: 4,',
+        '  schemaVersion: 5,',
         "  request: { prompt: 'Node CLI fixture request' },",
+        `  researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
         "  agent: { id: 'agent_node_fixture', status: 'complete', executorName: 'node-cli-fixture', outputText: 'Node CLI fixture done.' },",
         '  eventTimeline: []',
         "}, null, 2) + '\\n');",
@@ -2033,9 +2104,10 @@ describe('Beale workbench skeleton', () => {
     mkdirSync(dirname(credentialReferencePath), { recursive: true });
     writeFileSync(join(nestedContentRoot, 'Src', 'parse.c'), 'parse_context_save();\n');
     writeFileSync(credentialReferencePath, 'host-only-reference\n');
-    service.createWorkspace(workspace);
-    service.saveScope({
+    service.createScopedWorkspace({
+      workspacePath: workspace,
       workspaceName: 'ZSH Fixture',
+      researchSubjectName: 'Apple Security Bounty',
       scopeOwner: 'Apple Security Bounty',
       descriptionMarkdown: 'Local nested source fixture for Honeycrisp integration.',
       rulesMarkdown: 'Use local context provided by the operator.',
@@ -2078,13 +2150,36 @@ describe('Beale workbench skeleton', () => {
     expect(launchArgs).not.toContain('Determine whether the nested ZSH source exposes a reachable parser vulnerability.');
     expect(launchArgs).toContain('shell');
     expect(launchArgs).toContain('--no-default-tool-config');
-    expect(launchArgs).toContain('repository-search');
-    expect(launchArgs).toContain('file-read');
-    expect(launchArgs).toContain('code');
+    expect(launchArgs).toEqual(expect.arrayContaining([
+      '--profile-tool-family-ceiling',
+      'shell',
+      '--profile-side-effect-ceiling',
+      'none',
+      '--profile-side-effect-ceiling',
+      'read',
+      '--profile-side-effect-ceiling',
+      'write',
+      '--profile-side-effect-ceiling',
+      'process',
+      '--allowed-side-effect',
+      'network'
+    ]));
+    expect(launchArgs).not.toContain('--tool-family');
+    expect(launchArgs).not.toContain('--allow-mcp-server');
+    expect(launchArgs).not.toContain('--skill');
+    expect(launchArgs).not.toContain('repository-search');
+    expect(launchArgs).not.toContain('file-read');
+    expect(launchArgs).not.toContain('code');
     expect(existsSync(join(workspace, '.beale', 'honeycrisp-skills', 'beale-skeptical-triage', 'SKILL.md'))).toBe(false);
     const workspaceContextPath = (launchEvent?.payload as { workspaceContextPath?: string } | undefined)?.workspaceContextPath ?? '';
     const workspaceContext = JSON.parse(readFileSync(workspaceContextPath, 'utf8')) as {
-      authorization?: { recorded?: boolean; source?: string; scopeName?: string; networkProfile?: string };
+      authorization?: {
+        recorded?: boolean;
+        source?: string;
+        scopeName?: string;
+        networkProfile?: string;
+        allowedNetworkDestinations?: string[];
+      };
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string; contentRoots?: string[] }>;
       projectNotes?: string[];
@@ -2095,7 +2190,8 @@ describe('Beale workbench skeleton', () => {
       recorded: true,
       source: 'beale',
       scopeName: 'ZSH Fixture',
-      networkProfile: 'elevated'
+      networkProfile: 'elevated',
+      allowedNetworkDestinations: []
     });
     expect(workspaceContext.memoryContext).toMatchObject({
       sessionId: runId,
@@ -2110,12 +2206,12 @@ describe('Beale workbench skeleton', () => {
     expect(workspaceContext.projectNotes).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^Authorization:/),
-        expect.stringContaining('Scope: ZSH Fixture'),
+        expect.stringContaining('Research workspace: ZSH Fixture'),
         expect.stringContaining('Rules and constraints: Use local context provided by the operator.'),
         'Network access profile: elevated',
-        expect.stringContaining(`In scope (path, internal): ${nestedSourceRoot}`),
-        expect.stringContaining('Out of scope (domain, internal): excluded.example.test'),
-        expect.stringContaining('In scope (credential_ref, internal): [host-held credential reference; value withheld from agent context]')
+        expect.stringContaining(`Included in Boundary (path, internal): ${nestedSourceRoot}`),
+        expect.stringContaining('Excluded from Boundary (domain, internal): excluded.example.test'),
+        expect.stringContaining('Included in Boundary (credential_ref, internal): [host-held credential reference; value withheld from agent context]')
       ])
     );
     expect(JSON.stringify(workspaceContext)).not.toContain(credentialReferencePath);
@@ -2149,7 +2245,7 @@ describe('Beale workbench skeleton', () => {
         "const contextPath = args[args.indexOf('--workspace-context') + 1];",
         "const context = JSON.parse(readFileSync(contextPath, 'utf8'));",
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: new Date().toISOString(), request: { prompt: 'Subject peer fixture' }, agent: { id: 'agent_subject_peer', status: 'complete', executorName: 'subject-peer-fixture', outputText: 'Subject peer visible.' }, eventTimeline: [] }) + '\\n');"
+        `writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: new Date().toISOString(), request: { prompt: 'Subject peer fixture' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: 'agent_subject_peer', status: 'complete', executorName: 'subject-peer-fixture', outputText: 'Subject peer visible.' }, eventTimeline: [] }) + '\\n');`
       ].join('\n')
     );
     chmodSync(fakeHoneycrisp, 0o700);
@@ -2157,9 +2253,10 @@ describe('Beale workbench skeleton', () => {
     process.env.BEALE_HONEYCRISP_ARGS_JSON = JSON.stringify([fakeHoneycrisp]);
 
     const service = new WorkspaceService();
-    service.createWorkspace(zshWorkspace);
-    service.saveScope({
+    service.createScopedWorkspace({
+      workspacePath: zshWorkspace,
       workspaceName: 'Zsh',
+      researchSubjectName: 'Apple',
       scopeOwner: 'Apple',
       descriptionMarkdown: 'Authorized Zsh research.',
       rulesMarkdown: 'Local source only.',
@@ -2167,9 +2264,10 @@ describe('Beale workbench skeleton', () => {
       expiresAt: null,
       assets: []
     });
-    service.createWorkspace(mdnsWorkspace);
-    service.saveScope({
+    service.createScopedWorkspace({
+      workspacePath: mdnsWorkspace,
       workspaceName: 'mDNSResponder',
+      researchSubjectName: 'Apple',
       scopeOwner: 'Apple',
       descriptionMarkdown: 'Authorized mDNSResponder research.',
       rulesMarkdown: 'Local source only.',
@@ -2225,7 +2323,7 @@ describe('Beale workbench skeleton', () => {
         "if (context.authorization?.recorded !== true) throw new Error('recorded scope missing');",
         "if (!context.knownRepositories?.some((repository) => repository.repositoryUrl === 'https://github.com/apple-oss-distributions/zsh')) throw new Error('repository reference missing');",
         'mkdirSync(dirname(capturePath), { recursive: true });',
-        "writeFileSync(capturePath, JSON.stringify({ schemaVersion: 4, capturedAt: new Date().toISOString(), request: { prompt: 'Prepare source' }, agent: { id: 'agent_source_fixture', status: 'complete', executorName: 'source-fixture', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');"
+        `writeFileSync(capturePath, JSON.stringify({ schemaVersion: 5, capturedAt: new Date().toISOString(), request: { prompt: 'Prepare source' }, researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()}, agent: { id: 'agent_source_fixture', status: 'complete', executorName: 'source-fixture', outputText: 'Source ready.' }, eventTimeline: [] }) + '\\n');`
       ].join('\n')
     );
     chmodSync(fakeGit, 0o700);
@@ -3108,9 +3206,10 @@ describe('Beale workbench skeleton', () => {
       expect(request.text).toEqual({ verbosity: 'low' });
       expect(request.metadata).toMatchObject({ beale_task: 'research_goal_suggestions', beale_research_phase: phase });
       expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-      expect(request.instructions).toContain('an array named suggestions containing exactly four');
-      expect(request.instructions).toContain(`Generate ${phase[0]?.toUpperCase()}${phase.slice(1)} goals`);
-      expect(requestPayload.task).toBe(`suggest_next_${phase}_research_goals`);
+      expect(request.instructions).toContain('an array named suggestions containing exactly 4');
+      const workflow = service.getSnapshot()?.researchProfile.profile.workflows.find((candidate) => candidate.id === phase);
+      expect(request.instructions).toContain(workflow?.goalSuggestionInstructions[0]);
+      expect(requestPayload.task).toBe('suggest_next_research_goals');
     }
     expect(payload.workspace).toMatchObject({
       workspaceName: 'Parser Continuity Workspace',
@@ -3136,21 +3235,16 @@ describe('Beale workbench skeleton', () => {
     coverageDb.close();
   });
 
-  it('retries goal suggestions that fall back to binary hypothesis framing', async () => {
+  it('retries goal suggestions that violate the workflow suggestion count', async () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-goal-framing-retry';
     const broad = validResearchGoalSuggestionGroups().discovery;
-    const narrow = [
-      'Verify whether the parser length reaches the allocation sink.',
-      'Determine whether the project importer crosses the ownership check.',
-      'Build a verifier for the suspected archive traversal primitive.',
-      'Confirm whether metadata decoding reaches the suspected memory sink.'
-    ];
+    const wrongCount = broad.slice(0, 2);
     const requests: Record<string, unknown>[] = [];
     const service = new WorkspaceService(() => undefined, {
       openAiFetch: async (_url, init) => {
         requests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
         return modelJsonResponse(
-          { suggestions: requests.length === 1 ? narrow : broad },
+          { suggestions: requests.length === 1 ? wrongCount : broad },
           `resp_goal_framing_${requests.length}`
         );
       }
@@ -3162,7 +3256,7 @@ describe('Beale workbench skeleton', () => {
     expect(result).toEqual({ phase: 'discovery', suggestions: broad });
     expect(requests).toHaveLength(2);
     expect(requests[1]?.instructions).toContain('The previous Discovery response was rejected by the host validator');
-    expect(requests[1]?.instructions).toContain('Return exactly four distinct one-sentence suggestions');
+    expect(requests[1]?.instructions).toContain('Return exactly 4 distinct one-sentence suggestions');
     service.close();
   });
 
@@ -3175,7 +3269,7 @@ describe('Beale workbench skeleton', () => {
           'Explore archive extraction for path-confusion vulnerabilities.'
         ]
       },
-      error: /exactly four suggestions/i
+      error: /exactly 4 suggestions/i
     },
     {
       name: 'duplicate suggestions',
@@ -3334,10 +3428,11 @@ describe('Beale workbench skeleton', () => {
     expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
     expect(request.model).not.toBe(sessionModel);
     expect(request.instructions).toMatch(/^You are a world-class security researcher/);
-    expect(request.instructions).toContain('If requestedSession.researchPhase is discovery');
-    expect(request.instructions).toContain('Chaining and reporting may instead be deliberately outcome-oriented');
+    expect(request.instructions).toContain('The selected workflow is Discovery (discovery): Explore a bounded subject.');
+    expect(request.instructions).toContain('Keep research open-ended.');
+    expect(request.instructions).toContain('Required session output: Support conclusions with evidence.');
     expect(request.instructions).toContain('host-discovered AGENTS.md guidance');
-    expect(request.instructions).toContain('test locations, VM or container requirements');
+    expect(request.instructions).toContain('Carry relevant environment details and operational constraints from AGENTS.md into the recommendation');
     expect(payload.task).toBe('expand_selected_goal_into_research_session_prompt');
     expect(payload.goalSentence).toBe(goalSentence);
     expect(payload.draftPromptMarkdown).toBeNull();
@@ -3362,14 +3457,14 @@ describe('Beale workbench skeleton', () => {
     {
       phase: 'chaining' as const,
       goalSentence: 'Upgrade the recorded parser primitive into a reportable exploit chain with a triage-ready PoC.',
-      expectedPrimary: 'upgrade an evidence-supported primitive',
-      expectedInstruction: 'identify and investigate missing reachability, exploitability, or impact links'
+      expectedPrimary: 'Develop recorded primitives into supported chains.',
+      expectedInstruction: 'Investigate missing chain links without inventing evidence.'
     },
     {
       phase: 'reporting' as const,
       goalSentence: 'Report the parser exploit chain with its bugs, impact, triage-ready PoC, and submission.zip.',
-      expectedPrimary: 'document an evidence-supported exploit chain',
-      expectedInstruction: 'require submission.zip to contain the PoC plus necessary evidence'
+      expectedPrimary: 'Document supported conclusions and their limitations.',
+      expectedInstruction: 'Preserve material evidence limitations.'
     }
   ])('carries the $phase phase into full-prompt generation', async ({ phase, goalSentence, expectedPrimary, expectedInstruction }) => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = `oauth-token-for-${phase}-prompt`;
@@ -3411,6 +3506,7 @@ describe('Beale workbench skeleton', () => {
         const request = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>;
         modelRequests.push(request);
         const serialized = JSON.stringify(request);
+        const payload = modelRequestPayload(request);
         expect(request.model).toBe(DEFAULT_RESEARCH_MODEL);
         expect(request.tools).toEqual([]);
         expect(request.reasoning).toEqual({ effort: 'medium' });
@@ -3420,10 +3516,24 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('sourceCoverage');
         expect(serialized).not.toContain('likelyUnderexploredInScopeAssets');
         expect(serialized).not.toContain('mentionCount');
-        expect(serialized).toContain('Honeycrisp primitives');
+        expect(payload.coverageHints).toMatchObject({
+          activeMemoryNodes: [],
+          recentMemoryEvidenceRefs: []
+        });
         expect(serialized).toContain('promptQualityRules');
-        expect(serialized).toContain('subsystem or attack surface paired with one or more relevant bug classes');
-        expect(serialized).toContain('open-ended vulnerability research');
+        expect(payload.researchProfile).toMatchObject({
+          id: 'security-research',
+          workflow: {
+            id: 'discovery',
+            description: 'Explore a bounded subject.',
+            promptInstructions: ['Keep research open-ended.'],
+            outputRequirements: ['Support conclusions with evidence.']
+          }
+        });
+        expect(payload.prioritizationPolicy).toMatchObject({
+          primary: 'Explore a bounded subject.',
+          workflowInstructions: ['Keep research open-ended.']
+        });
         expect(serialized).toContain('hasUsableCredentialAssets');
         expect(serialized).toContain('do not assume authenticated access');
         expect(serialized).toContain('let the autonomous researcher choose methods');
@@ -3549,14 +3659,14 @@ describe('Beale workbench skeleton', () => {
       expect.objectContaining({ component: 'src/storage', sinkCount: 1 })
     ]));
     expect(coverage.entryPoints).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'route', path: expect.stringContaining('/src/api/routes.ts'), reviewed: false })
+      expect.objectContaining({ kind: 'route', path: expect.stringContaining(join('src', 'api', 'routes.ts')), reviewed: false })
     ]));
     expect(coverage.sinks).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'exec', reviewed: false }),
       expect.objectContaining({ name: 'readFile', reviewed: false })
     ]));
     expect(coverage.reviewedFunctions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'handleImport', path: expect.stringContaining('/src/imports/importProject.ts'), reviewed: true })
+      expect.objectContaining({ name: 'handleImport', path: expect.stringContaining(join('src', 'imports', 'importProject.ts')), reviewed: true })
     ]));
     expect(coverage.unreviewedFunctions).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'uploadArchive', reviewed: false }),
@@ -4158,6 +4268,15 @@ async function waitForCondition(check: () => boolean, timeoutMs = 3000): Promise
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
   expect(check()).toBe(true);
+}
+
+function fakeHoneycrispResearchProfileCaptureExpression(): string {
+  const envelope = testResearchProfileCatalogEnvelope() as {
+    profile: { schemaVersion: number; id: string; version: string } & Record<string, unknown>;
+    hash: string;
+    source: string;
+  };
+  return `{ schemaVersion: ${envelope.profile.schemaVersion}, id: ${JSON.stringify(envelope.profile.id)}, version: ${JSON.stringify(envelope.profile.version)}, hash: ${JSON.stringify(envelope.hash)}, source: ${JSON.stringify(envelope.source)}, workflowId: args[args.indexOf('--workflow') + 1], snapshot: ${JSON.stringify(envelope.profile)} }`;
 }
 
 function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunInput {

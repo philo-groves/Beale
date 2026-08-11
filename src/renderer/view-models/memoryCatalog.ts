@@ -1,4 +1,11 @@
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, TraceEventRecord } from '@shared/types';
+import type {
+  HoneycrispMemoryEdgeSummary,
+  HoneycrispMemoryNodeSummary,
+  ResearchProfileMemory,
+  ResearchProfileMemoryStatus,
+  ResearchProfileMemoryType,
+  TraceEventRecord
+} from '@shared/types';
 import { honeycrispToolEventKind, honeycrispToolName, honeycrispToolPairingKey, honeycrispToolPayload, stringRecordValue } from '../traceClassification';
 
 export interface MemoryCatalogFilters {
@@ -10,9 +17,27 @@ export interface MemoryCatalogFilters {
   type: string;
 }
 
-export type MemoryStatusGroup = 'suspected' | 'confirmed' | 'rejected';
+export type MemoryStatusGroup = string;
 
-export function memoryCatalogStatusGroups(nodes: readonly HoneycrispMemoryNodeSummary[]): Record<MemoryStatusGroup, HoneycrispMemoryNodeSummary[]> {
+export interface MemoryCatalogStatusSection {
+  id: string;
+  label: string;
+  polarity: ResearchProfileMemoryStatus['polarity'] | 'unknown';
+  nodes: HoneycrispMemoryNodeSummary[];
+}
+
+export function memoryCatalogStatusGroups(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  statuses?: readonly ResearchProfileMemoryStatus[]
+): Record<MemoryStatusGroup, HoneycrispMemoryNodeSummary[]> {
+  if (statuses) {
+    const groups: Record<string, HoneycrispMemoryNodeSummary[]> = Object.fromEntries(
+      statuses.map((status) => [status.id, []])
+    );
+    for (const node of nodes) (groups[node.status] ??= []).push(node);
+    for (const group of Object.values(groups)) sortMemoryNodes(group);
+    return groups;
+  }
   const groups: Record<MemoryStatusGroup, HoneycrispMemoryNodeSummary[]> = {
     suspected: [],
     confirmed: [],
@@ -23,10 +48,32 @@ export function memoryCatalogStatusGroups(nodes: readonly HoneycrispMemoryNodeSu
     else if (node.status === 'rejected' || node.status === 'stale') groups.rejected.push(node);
     else groups.suspected.push(node);
   }
-  for (const group of Object.values(groups)) {
-    group.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
-  }
+  for (const group of Object.values(groups)) sortMemoryNodes(group);
   return groups;
+}
+
+export function memoryCatalogStatusSections(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  statuses: readonly ResearchProfileMemoryStatus[]
+): MemoryCatalogStatusSection[] {
+  const orderedStatuses = [...statuses].sort(compareProfileOrder);
+  const definitions = new Map(orderedStatuses.map((status) => [status.id, status]));
+  const unknownIds = [...new Set(nodes.map((node) => node.status).filter((id) => !definitions.has(id)))].sort();
+  const groups = memoryCatalogStatusGroups(nodes, statuses);
+  return [
+    ...orderedStatuses.map((status) => ({
+      id: status.id,
+      label: status.name,
+      polarity: status.polarity ?? 'neutral' as const,
+      nodes: groups[status.id] ?? []
+    })),
+    ...unknownIds.map((id) => ({
+      id,
+      label: unknownCatalogLabel('status', id),
+      polarity: 'unknown' as const,
+      nodes: groups[id] ?? []
+    }))
+  ];
 }
 
 export function memoryCatalogGroupPreview(
@@ -38,8 +85,11 @@ export function memoryCatalogGroupPreview(
   return { visibleNodes: nodes.slice(0, limit), hiddenCount: nodes.length - limit };
 }
 
-export function activeMemoryCount(nodes: readonly HoneycrispMemoryNodeSummary[]): number {
-  return nodes.filter(isActiveMemoryNode).length;
+export function activeMemoryCount(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  statuses?: readonly ResearchProfileMemoryStatus[]
+): number {
+  return nodes.filter((node) => isActiveMemoryNode(node, statuses)).length;
 }
 
 export function sessionMemoryCatalogNodes(
@@ -50,7 +100,7 @@ export function sessionMemoryCatalogNodes(
 }
 
 export interface SessionMemoryTypeSummary {
-  type: 'primitive' | 'chain' | 'sink' | 'other';
+  type: string;
   count: number;
   confirmedCount: number;
   suspectedCount: number;
@@ -59,7 +109,11 @@ export interface SessionMemoryTypeSummary {
   statusLabel: string;
 }
 
-export function sessionMemoryTypeSummaries(nodes: readonly HoneycrispMemoryNodeSummary[]): SessionMemoryTypeSummary[] {
+export function sessionMemoryTypeSummaries(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  memory?: ResearchProfileMemory
+): SessionMemoryTypeSummary[] {
+  if (memory) return dynamicSessionMemoryTypeSummaries(nodes, memory);
   const summaries: SessionMemoryTypeSummary[] = [
     { type: 'sink', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
     { type: 'primitive', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
@@ -146,8 +200,14 @@ function memoryNodeMatchesScope(node: HoneycrispMemoryNodeSummary, filters: Memo
   return filters.subjectId !== null && node.subjectId === filters.subjectId;
 }
 
-function isActiveMemoryNode(node: HoneycrispMemoryNodeSummary): boolean {
-  return node.status.trim().toLowerCase() !== 'stale';
+function isActiveMemoryNode(
+  node: HoneycrispMemoryNodeSummary,
+  statuses?: readonly ResearchProfileMemoryStatus[]
+): boolean {
+  if (!statuses) return node.status.trim().toLowerCase() !== 'stale';
+  const status = statuses.find((definition) => definition.id === node.status);
+  if (!status || status.polarity === 'negative') return false;
+  return status.terminal !== true || status.polarity === 'positive';
 }
 
 function activityCountLabel(count: number, label: string, pluralLabel = `${label}s`): string | null {
@@ -155,10 +215,96 @@ function activityCountLabel(count: number, label: string, pluralLabel = `${label
   return `${count} ${count === 1 ? label : pluralLabel}`;
 }
 
-function memoryTypeCountLabel(type: SessionMemoryTypeSummary['type'], count: number): string {
+function memoryTypeCountLabel(type: string, count: number): string {
   if (type === 'other') return `${count} Boring`;
   const label = `${type[0].toUpperCase()}${type.slice(1)}`;
   return `${count} ${count === 1 ? label : `${label}s`}`;
+}
+
+function dynamicSessionMemoryTypeSummaries(
+  nodes: readonly HoneycrispMemoryNodeSummary[],
+  memory: ResearchProfileMemory
+): SessionMemoryTypeSummary[] {
+  const typeById = new Map(memory.types.map((type) => [type.id, type]));
+  const aliasToType = new Map(memory.types.flatMap((type) => (type.aliases ?? []).map((alias) => [alias, type] as const)));
+  const statusById = new Map(memory.statuses.map((status) => [status.id, status]));
+  const summaryByType = new Map<string, {
+    definition: ResearchProfileMemoryType | null;
+    count: number;
+    statusCounts: Map<string, number>;
+  }>();
+
+  for (const node of nodes) {
+    if (!isActiveMemoryNode(node, memory.statuses)) continue;
+    const definition = typeById.get(node.type) ?? aliasToType.get(node.type) ?? null;
+    const typeId = definition?.id ?? node.type;
+    if (!typeId.trim()) continue;
+    const summary = summaryByType.get(typeId) ?? { definition, count: 0, statusCounts: new Map() };
+    summary.count += 1;
+    summary.statusCounts.set(node.status, (summary.statusCounts.get(node.status) ?? 0) + 1);
+    summaryByType.set(typeId, summary);
+  }
+
+  return [...summaryByType.entries()]
+    .sort(([leftId, left], [rightId, right]) => compareMemoryTypeEntries(leftId, left.definition, rightId, right.definition))
+    .map(([type, summary]) => {
+      const confirmedCount = summary.statusCounts.get('confirmed') ?? 0;
+      const suspectedCount = summary.statusCounts.get('suspected') ?? 0;
+      const rejectedCount = summary.statusCounts.get('rejected') ?? 0;
+      const orderedStatusIds = [
+        ...[...memory.statuses].sort(compareProfileOrder).map((status) => status.id),
+        ...[...summary.statusCounts.keys()].filter((id) => !statusById.has(id)).sort()
+      ];
+      const statusLabel = orderedStatusIds
+        .map((statusId) => {
+          const count = summary.statusCounts.get(statusId) ?? 0;
+          if (count === 0) return null;
+          const label = statusById.get(statusId)?.name ?? unknownCatalogLabel('status', statusId);
+          return `${count} ${label}`;
+        })
+        .filter((label): label is string => label !== null)
+        .join(', ');
+      const name = summary.definition?.name ?? unknownCatalogLabel('type', type);
+      const pluralName = summary.definition?.pluralName ?? name;
+      return {
+        type,
+        count: summary.count,
+        confirmedCount,
+        suspectedCount,
+        rejectedCount,
+        countLabel: `${summary.count} ${summary.count === 1 ? name : pluralName}`,
+        statusLabel
+      };
+    });
+}
+
+function compareMemoryTypeEntries(
+  leftId: string,
+  left: ResearchProfileMemoryType | null,
+  rightId: string,
+  right: ResearchProfileMemoryType | null
+): number {
+  if (left && right) {
+    const group = (left.group ?? '').localeCompare(right.group ?? '');
+    return left.order - right.order || group || left.name.localeCompare(right.name) || leftId.localeCompare(rightId);
+  }
+  if (left) return -1;
+  if (right) return 1;
+  return leftId.localeCompare(rightId);
+}
+
+function compareProfileOrder(left: { order: number; id: string }, right: { order: number; id: string }): number {
+  return left.order - right.order || left.id.localeCompare(right.id);
+}
+
+function sortMemoryNodes(nodes: HoneycrispMemoryNodeSummary[]): void {
+  nodes.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+}
+
+function unknownCatalogLabel(kind: 'type' | 'status', id: string): string {
+  const normalized = id.trim().replace(/[_-]+/gu, ' ');
+  const displayId = normalized ? `${normalized[0]?.toLocaleUpperCase() ?? ''}${normalized.slice(1)}` : 'unlabeled';
+  return `Unknown ${kind} (${displayId})`;
 }
 
 function memoryTypeStatusLabel(summary: SessionMemoryTypeSummary): string {

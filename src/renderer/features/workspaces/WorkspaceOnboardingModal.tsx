@@ -140,10 +140,14 @@ export function WorkspaceOnboardingModal({
               <input value={form.workspaceName} disabled={submitting} onChange={(event) => update('workspaceName', event.target.value)} autoFocus />
             </label>
             <label>
-              Scope owner or subject (optional)
-              <input value={form.scopeOwner} disabled={submitting} onChange={(event) => update('scopeOwner', event.target.value)} />
+              Research subject
+              <input value={form.researchSubjectName} disabled={submitting} onChange={(event) => update('researchSubjectName', event.target.value)} />
             </label>
           </div>
+          <label>
+            Authorization owner (optional)
+            <input value={form.scopeOwner} disabled={submitting} onChange={(event) => update('scopeOwner', event.target.value)} />
+          </label>
           <label>
             Description
             <textarea rows={3} value={form.descriptionMarkdown} disabled={submitting} onChange={(event) => update('descriptionMarkdown', event.target.value)} />

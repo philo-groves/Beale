@@ -38,6 +38,16 @@ describe('renderer session heat view models', () => {
     const rejectedChain = { ...suspectedChain, status: 'rejected', revision: 2 };
     expect(sessionHeatForDetail(runDetail({ nodes: [rejectedChain, confirmedPrimitive] }))).toBe('medium');
   });
+
+  it('does not apply security-specific heat semantics to a recorded general profile', () => {
+    const detail = runDetail({ nodes: [memoryNode({ type: 'chain', status: 'confirmed' })] });
+    detail.researchProfile = {
+      profileId: 'general-research',
+      profile: { id: 'general-research' }
+    } as RunDetail['researchProfile'];
+
+    expect(sessionHeatForDetail(detail)).toBe('none');
+  });
 });
 
 function runDetail(input: { nodes?: HoneycrispMemoryNodeSummary[] } = {}): RunDetail {

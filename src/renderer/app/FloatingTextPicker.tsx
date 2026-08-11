@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import type { JSX } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { CSSProperties, JSX } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export interface FloatingTextPickerOption {
   value: string;
   label: string;
   className?: string;
+  group?: string;
+  style?: CSSProperties;
 }
 
 export function FloatingTextPicker({
@@ -64,6 +66,7 @@ export function FloatingTextPicker({
       <button
         type="button"
         className={`floating-text-picker-trigger ${selectedOption?.className ?? ''}`.trim()}
+        style={selectedOption?.style}
         title={title}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -81,20 +84,25 @@ export function FloatingTextPicker({
       </button>
       {open ? (
         <div className="floating-text-picker-menu" role="listbox" aria-label={ariaLabel}>
-          {options.map((option) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={option.value === selectedOption?.value}
-              className={[option.className, option.value === selectedOption?.value ? 'is-selected' : ''].filter(Boolean).join(' ') || undefined}
-              key={option.value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
+          {options.map((option, index) => (
+            <Fragment key={option.value}>
+              {option.group && option.group !== options[index - 1]?.group ? (
+                <span className="floating-text-picker-group" aria-hidden="true">{option.group}</span>
+              ) : null}
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.value === selectedOption?.value}
+                className={[option.className, option.value === selectedOption?.value ? 'is-selected' : ''].filter(Boolean).join(' ') || undefined}
+                style={option.style}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+              >
+                {option.label}
+              </button>
+            </Fragment>
           ))}
         </div>
       ) : null}

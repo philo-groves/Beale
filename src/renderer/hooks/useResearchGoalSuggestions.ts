@@ -15,7 +15,7 @@ import {
 import { clientRequestId } from '../view-models/runSettings';
 
 const OPENAI_NOT_CONFIGURED_MESSAGE = 'Connect OpenAI in Settings to load suggested goals.';
-const RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
+const LEGACY_RESEARCH_GOAL_PHASES: ResearchGoalPhase[] = ['discovery', 'chaining', 'reporting'];
 
 interface ActiveSuggestionRequest {
   key: string;
@@ -42,9 +42,14 @@ export function useResearchGoalSuggestions(
   openAiConfigured: boolean
 ): ResearchGoalSuggestionsState {
   const cache = useMemo(() => new ResearchGoalSuggestionCache(), []);
+  const phases = useMemo(
+    () => snapshot?.researchProfile?.profile.workflows.map((workflow) => workflow.id)
+      ?? LEGACY_RESEARCH_GOAL_PHASES,
+    [snapshot?.researchProfile?.profileHash]
+  );
   const activeRequestsRef = useRef(new Map<ResearchGoalPhase, ActiveSuggestionRequest>());
   const [requestStates, setRequestStates] = useState<ResearchGoalSuggestionStateByPhase<SuggestionRequestState>>(
-    () => phaseRecord(() => ({ key: null, loading: false, error: null }))
+    {}
   );
   const activeKey = researchGoalSuggestionCacheKey(snapshot);
   const researchRevision = researchGoalSuggestionRevision(snapshot);
@@ -120,16 +125,16 @@ export function useResearchGoalSuggestions(
   }, [activeKey, cache, cancelRequest, openAiConfigured]);
 
   useEffect(() => {
-    for (const phase of RESEARCH_GOAL_PHASES) {
-      const activeRequest = activeRequestsRef.current.get(phase);
-      if (activeRequest && (activeRequest.key !== phaseCacheKey(activeKey, phase) || !openAiConfigured)) {
+    const phaseSet = new Set(phases);
+    for (const [phase, activeRequest] of activeRequestsRef.current) {
+      if (!phaseSet.has(phase) || activeRequest.key !== phaseCacheKey(activeKey, phase) || !openAiConfigured) {
         cancelRequest(activeRequest);
       }
     }
 
-    const timers = RESEARCH_GOAL_PHASES.map((phase) => window.setTimeout(() => loadSuggestions(phase, true), 0));
+    const timers = phases.map((phase) => window.setTimeout(() => loadSuggestions(phase, true), 0));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [activeKey, cancelRequest, loadSuggestions, openAiConfigured, researchRevision]);
+  }, [activeKey, cancelRequest, loadSuggestions, openAiConfigured, phases, researchRevision]);
 
   useEffect(() => () => {
     for (const request of activeRequestsRef.current.values()) cancelRequest(request);
@@ -137,14 +142,14 @@ export function useResearchGoalSuggestions(
 
   const retry = useCallback((phase: ResearchGoalPhase) => loadSuggestions(phase, true), [loadSuggestions]);
   const suggestions: ResearchGoalSuggestionsByPhase = {};
-  const loading = phaseRecord(() => false);
-  const errors = phaseRecord<string | null>(() => null);
+  const loading: ResearchGoalSuggestionStateByPhase<boolean> = {};
+  const errors: ResearchGoalSuggestionStateByPhase<string | null> = {};
 
-  for (const phase of RESEARCH_GOAL_PHASES) {
+  for (const phase of phases) {
     const key = phaseCacheKey(activeKey, phase);
     const cached = cache.read(key);
     if (cached.status === 'ready') suggestions[phase] = cached.result.suggestions;
-    const requestState = requestStates[phase];
+    const requestState = requestStates[phase] ?? { key: null, loading: false, error: null };
     const stateMatchesKey = requestState.key === key;
     loading[phase] = Boolean(key) && cached.status !== 'ready' && (stateMatchesKey ? requestState.loading : true);
     errors[phase] = stateMatchesKey ? requestState.error : null;
@@ -155,14 +160,6 @@ export function useResearchGoalSuggestions(
 
 function phaseCacheKey(activeKey: string | null, phase: ResearchGoalPhase): string | null {
   return activeKey ? `${activeKey}::${phase}` : null;
-}
-
-function phaseRecord<T>(value: (phase: ResearchGoalPhase) => T): ResearchGoalSuggestionStateByPhase<T> {
-  return {
-    discovery: value('discovery'),
-    chaining: value('chaining'),
-    reporting: value('reporting')
-  };
 }
 
 function updatePhaseState(

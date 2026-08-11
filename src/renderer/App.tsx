@@ -5,8 +5,6 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   ApprovalRecord,
   DeveloperSettings,
-  MemorySettings,
-  MemoryTypeDescriptions,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
@@ -60,6 +58,7 @@ import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboar
 import { sessionHeatForDetail } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
+import { hasResearchProfileDetailFeatures } from './view-models/researchProfileFeatures';
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -88,7 +87,6 @@ export function App(): JSX.Element {
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
-  const [memorySettings, setMemorySettings] = useState<MemorySettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [chatView, setChatView] = useChatViewPreference();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -172,13 +170,6 @@ export function App(): JSX.Element {
     window.beale
       .getDeveloperSettings()
       .then(setDeveloperSettings)
-      .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError]);
-
-  useEffect(() => {
-    window.beale
-      .getMemorySettings()
-      .then(setMemorySettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
@@ -295,10 +286,11 @@ export function App(): JSX.Element {
   );
 
   const runMemoryDreaming = useCallback((): void => {
+    if (snapshot?.researchProfile.profile.capabilities.memoryEnabled === false) return;
     setMemoryDreamingInProgress(true);
     void runAction(() => window.beale.runMemoryDreaming())
       .finally(() => setMemoryDreamingInProgress(false));
-  }, [runAction]);
+  }, [runAction, snapshot?.researchProfile.profile.capabilities.memoryEnabled]);
 
   const restoreMemoryDreamingChange = useCallback((changeId: string): void => {
     void runAction(() => window.beale.restoreMemoryDreamingChange(changeId));
@@ -406,18 +398,6 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const saveMemoryTypeDescriptions = useCallback(async (descriptions: MemoryTypeDescriptions): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      setMemorySettings(await window.beale.setMemoryTypeDescriptions(descriptions));
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
   const startOpenAiOAuth = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -492,6 +472,9 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
+  const researchDetailsAvailable = activeRunDetail !== null && hasResearchProfileDetailFeatures(
+    activeRunDetail?.researchProfile?.profile ?? null
+  );
   const activeShellApproval = useMemo(() => {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
     return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId)
@@ -675,8 +658,8 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={!settingsOpen && selectedRunId !== null}
-        rightSidenavExpanded={rightSidenavExpanded}
+        rightSidenavAvailable={!settingsOpen && researchDetailsAvailable}
+        rightSidenavExpanded={rightSidenavExpanded && researchDetailsAvailable}
         contextualTitleVisible={!settingsOpen}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
@@ -734,7 +717,7 @@ export function App(): JSX.Element {
           <SettingsView
             section={settingsSection}
             developerSettings={developerSettings}
-            memorySettings={memorySettings}
+            researchProfile={snapshot?.researchProfile ?? null}
             shellOptions={shellOptions}
             chatView={chatView}
             workspaceName={snapshot?.activeScope.workspaceName ?? null}
@@ -744,7 +727,6 @@ export function App(): JSX.Element {
             researchProviderStatuses={researchProviderStatuses}
             busy={busy}
             onSetDeveloperModeEnabled={setDeveloperModeEnabled}
-            onSaveMemoryTypeDescriptions={saveMemoryTypeDescriptions}
             onChangeChatView={setChatView}
             onSaveShellOptions={saveShellOptions}
             onRefreshOpenAi={refreshOpenAiProvider}
@@ -760,10 +742,12 @@ export function App(): JSX.Element {
               allEvents={activeTraceEvents}
               providerModelCatalog={researchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
+              researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
+              researchSubject={selectedRunId ? null : snapshot?.researchSubject ?? null}
               runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
               scope={selectedRunId ? null : snapshot?.activeScope ?? null}
               selectedRunId={selectedRunId}
-              researchDetailsOpen={rightSidenavExpanded}
+              researchDetailsOpen={rightSidenavExpanded && researchDetailsAvailable}
               selectedRunbookId={selectedRunbookId}
               selectedRunbook={selectedRunbook}
               selectedRunbookDocument={selectedRunbookDocument}
@@ -781,7 +765,7 @@ export function App(): JSX.Element {
               onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
               onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
               onRunMemoryDreaming={runMemoryDreaming}
-              onResearchDetailsOpenChange={setRightSidenavExpanded}
+              onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}
               onBackToRunbooks={backToRunbooks}
               onBackToSubagents={backToSubagents}

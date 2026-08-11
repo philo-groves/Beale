@@ -1,8 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemorySummary } from '../src/shared/types';
+import type { HoneycrispMemorySummary, ResearchSubject, WorkspaceScopeVersion } from '../src/shared/types';
 import { WorkspaceUnderstandingView } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
+import { testResearchProfile } from './researchProfileFixture';
 
 describe('WorkspaceUnderstandingView Dreaming controls', () => {
   it('shows reversible cleanup metrics and recent changes on the workspace dashboard', () => {
@@ -110,6 +111,27 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     expect(html).toContain('Memory reclassified as invariant');
     expect(html).toContain('aria-label="Restore Dreaming change for Parser mismatch"');
 
+    const profile = testResearchProfile();
+    const memoryDisabledHtml = renderToStaticMarkup(
+      createElement(WorkspaceUnderstandingView, {
+        busy: false,
+        memoryDreamingInProgress: false,
+        honeycrispMemory: memory,
+        researchProfile: {
+          ...profile,
+          capabilities: { ...profile.capabilities, memoryEnabled: false }
+        },
+        runCount: 2,
+        scope: null,
+        onOpenHoneycrispMemoryDirectory: () => undefined,
+        onRestoreMemoryDreamingChange: () => undefined,
+        onRunMemoryDreaming: () => undefined
+      })
+    );
+    expect(memoryDisabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
+    expect(memoryDisabledHtml).toContain('Parser mismatch');
+    expect(memoryDisabledHtml).toContain('aria-label="Restore Dreaming change for Parser mismatch"');
+
     const inProgressHtml = renderToStaticMarkup(
       createElement(WorkspaceUnderstandingView, {
         busy: true,
@@ -152,5 +174,43 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     expect(failedHtml).toContain('Last Dreaming attempt failed before applying changes');
     expect(failedHtml).toContain('The provider returned a temporary error.');
     expect(failedHtml).toContain('no changes applied');
+
+    const subjectHtml = renderToStaticMarkup(
+      createElement(WorkspaceUnderstandingView, {
+        busy: false,
+        memoryDreamingInProgress: false,
+        honeycrispMemory: memory,
+        researchSubject: {
+          id: 'subject_parser',
+          name: 'Parser Runtime',
+          source: 'explicit',
+          createdAt: '2026-07-29T10:00:00.000Z',
+          updatedAt: '2026-07-29T10:00:00.000Z'
+        } satisfies ResearchSubject,
+        runCount: 2,
+        scope: {
+          id: 'scope_parser',
+          status: 'active',
+          workspaceName: 'Parser Research',
+          scopeOwner: 'Authorization Team',
+          descriptionMarkdown: '',
+          rulesMarkdown: '',
+          networkProfile: 'offline',
+          networkPolicy: {},
+          version: 2,
+          activeFrom: '2026-07-29T10:00:00.000Z',
+          expiresAt: null,
+          createdAt: '2026-07-29T10:00:00.000Z',
+          createdBy: 'local_user',
+          assets: []
+        } satisfies WorkspaceScopeVersion,
+        onOpenHoneycrispMemoryDirectory: () => undefined,
+        onRestoreMemoryDreamingChange: () => undefined,
+        onRunMemoryDreaming: () => undefined
+      })
+    );
+    expect(subjectHtml).toContain('Parser Runtime');
+    expect(subjectHtml).toContain('Authorization Owner');
+    expect(subjectHtml).toContain('Authorization Team');
   });
 });

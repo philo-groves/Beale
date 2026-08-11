@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, Bug, KeyRound, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from 'lucide-react';
-import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, MEMORY_NODE_TYPES } from '../../../shared/types';
+import { ArrowLeft, BrainCircuit, Bug, KeyRound, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import type {
   DeveloperSettings,
-  MemoryNodeType,
-  MemorySettings,
-  MemoryTypeDescriptions,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
+  ResearchProfileSnapshot,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderStatus,
@@ -66,7 +63,7 @@ export function SettingsSidebar({
 export function SettingsView({
   section,
   developerSettings,
-  memorySettings,
+  researchProfile,
   shellOptions,
   chatView,
   workspaceName,
@@ -76,7 +73,6 @@ export function SettingsView({
   researchProviderStatuses,
   busy,
   onSetDeveloperModeEnabled,
-  onSaveMemoryTypeDescriptions,
   onChangeChatView,
   onSaveShellOptions,
   onRefreshOpenAi,
@@ -85,7 +81,7 @@ export function SettingsView({
 }: {
   section: SettingsSection;
   developerSettings: DeveloperSettings | null;
-  memorySettings: MemorySettings | null;
+  researchProfile: ResearchProfileSnapshot | null;
   shellOptions: ShellOptions | null;
   chatView: ChatView;
   workspaceName: string | null;
@@ -95,7 +91,6 @@ export function SettingsView({
   researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSaveMemoryTypeDescriptions: (descriptions: MemoryTypeDescriptions) => Promise<void>;
   onChangeChatView: (chatView: ChatView) => void;
   onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
@@ -121,7 +116,7 @@ export function SettingsView({
             onStartResearchProviderOAuth={onStartResearchProviderOAuth}
           />
         ) : activeSection === 'memory' ? (
-          <MemorySettingsView busy={busy} settings={memorySettings} onSave={onSaveMemoryTypeDescriptions} />
+          <MemorySettingsView researchProfile={researchProfile} />
         ) : activeSection === 'shell' ? (
           <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
         ) : (
@@ -137,83 +132,48 @@ function activeSettingsSection(section: SettingsSection): SettingsSection {
 }
 
 export function MemorySettingsView({
-  settings,
-  busy,
-  onSave
+  researchProfile
 }: {
-  settings: MemorySettings | null;
-  busy: boolean;
-  onSave: (descriptions: MemoryTypeDescriptions) => Promise<void>;
+  researchProfile: ResearchProfileSnapshot | null;
 }): JSX.Element {
-  const [draft, setDraft] = useState<MemoryTypeDescriptions>(() => copyMemoryTypeDescriptions(settings?.typeDescriptions ?? DEFAULT_MEMORY_TYPE_DESCRIPTIONS));
-  useEffect(() => {
-    if (settings) setDraft(copyMemoryTypeDescriptions(settings.typeDescriptions));
-  }, [settings]);
-  const hasEmptyDescription = MEMORY_NODE_TYPES.some((type) => !draft[type].trim());
-  const unchanged = settings ? MEMORY_NODE_TYPES.every((type) => draft[type].trim() === settings.typeDescriptions[type]) : true;
-
-  const setDescription = (type: MemoryNodeType, description: string): void => {
-    setDraft((current) => ({ ...current, [type]: description }));
-  };
+  const memoryTypes = researchProfile
+    ? [...researchProfile.profile.memory.types].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    : [];
+  const source = researchProfile?.sourcePath
+    ?? (researchProfile?.source === 'bundled-default' ? 'Bundled security-research profile' : '.honeycrisp/profile.json');
 
   return (
     <div className="settings-page memory-settings-page">
       <div className="settings-page-header">
         <div>
           <h3>Memory</h3>
-          <p>These definitions are the shared taxonomy used by research agents and Memory Dreaming.</p>
-        </div>
-        <div className="memory-settings-actions">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setDraft(copyMemoryTypeDescriptions(DEFAULT_MEMORY_TYPE_DESCRIPTIONS))}
-          >
-            <RotateCcw size={14} /> Reset Defaults
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy || !settings || hasEmptyDescription || unchanged}
-            onClick={() => void onSave(copyMemoryTypeDescriptions(draft))}
-          >
-            Save Changes
-          </button>
+          <p>The active research profile is the exact taxonomy used by research agents and Memory Dreaming.</p>
         </div>
       </div>
       <section className="provider-card memory-type-descriptions-card">
         <div className="provider-heading">
           <div className="status-icon"><BrainCircuit size={18} /></div>
           <div>
-            <h4>Memory Type Definitions</h4>
-            <p>Describe what qualifies for each durable memory type. Every definition must remain non-empty.</p>
+            <h4>{researchProfile ? `${researchProfile.profile.name} Memory Catalog` : 'Memory Catalog'}</h4>
+            <p>{researchProfile ? `Resolved from ${source}. Edit .honeycrisp/profile.json to create a new versioned catalog snapshot.` : 'Open a workspace to inspect its resolved memory catalog.'}</p>
           </div>
         </div>
         <div className="memory-type-description-list">
-          {MEMORY_NODE_TYPES.map((type) => (
-            <label className="memory-type-description" key={type}>
-              <span>{memoryTypeLabel(type)}</span>
-              <textarea
-                aria-label={`${memoryTypeLabel(type)} memory description`}
-                value={draft[type]}
-                disabled={busy}
-                maxLength={4_000}
-                onChange={(event) => setDescription(type, event.target.value)}
-              />
-            </label>
+          {memoryTypes.map((memoryType) => (
+            <article className="memory-type-description" key={memoryType.id} aria-label={`${memoryType.name} memory definition`}>
+              <span>{memoryType.name} · {memoryType.id}</span>
+              <p>{memoryType.description}</p>
+              <small>
+                {memoryType.lifecycle === 'retired' || !memoryType.creatable ? 'Read-only' : 'Creatable'}
+                {' · '}
+                {memoryType.allowedStatuses.join(', ')}
+              </small>
+            </article>
           ))}
         </div>
       </section>
     </div>
   );
-}
-
-function copyMemoryTypeDescriptions(descriptions: Readonly<MemoryTypeDescriptions>): MemoryTypeDescriptions {
-  return Object.fromEntries(MEMORY_NODE_TYPES.map((type) => [type, descriptions[type]])) as MemoryTypeDescriptions;
-}
-
-function memoryTypeLabel(type: MemoryNodeType): string {
-  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function ShellOptionsView({

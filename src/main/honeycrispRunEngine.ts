@@ -7,6 +7,9 @@ import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   ResearchModelSelection,
   MemoryTypeDescriptions,
+  ResearchProfile,
+  ResearchProfileSnapshot,
+  ResearchSubjectInput,
   RunRecord,
   ShellSafetyMode,
   TranscriptMessageRecord,
@@ -29,6 +32,7 @@ import {
   sessionTitleModelForProvider
 } from '../shared/modelDefaults';
 import { resolveGoalObjective } from '../shared/goalObjective';
+import { decodeResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { redactCommandArgumentsForModel, redactForModelText, redactJsonForModel } from './redaction';
 
 export interface HoneycrispRunHandle {
@@ -69,6 +73,7 @@ interface HoneycrispWorkspaceAuthorizationContext {
   scopeName: string;
   scopeOwner?: string;
   networkProfile: string;
+  allowedNetworkDestinations?: string[];
   activeFrom: string;
   expiresAt?: string;
 }
@@ -130,11 +135,28 @@ interface HoneycrispContinuationOptions {
   automaticWebSocketRetryCount?: number;
 }
 
+interface HoneycrispResearchProfileLaunch {
+  path: string;
+  hash: string;
+  workflowId: string;
+  modelJobs: ResearchProfile['modelJobs'];
+}
+
 interface HoneycrispFlowCapture {
   schemaVersion?: 4 | 5;
   capturedAt?: string;
   request?: {
     prompt?: string;
+  };
+  researchProfile?: {
+    schemaVersion: number;
+    id: string;
+    version: string;
+    hash: string;
+    source: 'bundled-default' | 'workspace-default' | 'explicit';
+    path?: string;
+    workflowId: string;
+    snapshot: ResearchProfile;
   };
   agent?: {
     id?: string;
@@ -255,6 +277,7 @@ const UNBOUNDED_RUN_MINUTES = 999_999;
 const HONEYCRISP_STOP_GRACE_MS = 1_500;
 const DEFAULT_HONEYCRISP_CONTROL_ACK_TIMEOUT_MS = 2_000;
 const MAX_AUTOMATIC_WEBSOCKET_CONTINUATIONS = 2;
+const RESEARCH_PROFILE_LAUNCH_MAX_BYTES = 1024 * 1024;
 const AUTOMATIC_WEBSOCKET_CONTINUATION_INSTRUCTION =
   'Continue the active research goal from the latest checkpoint. The previous provider WebSocket disconnected unexpectedly; resume without repeating completed work.';
 export class HoneycrispRunEngine {
@@ -267,10 +290,11 @@ export class HoneycrispRunEngine {
     private readonly workspacePath: string,
     private readonly onChange: (change?: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean }) => void = () => undefined,
     private readonly shellOptionsPath?: string,
-    private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions
+    private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions,
+    private readonly getResearchSubject?: () => ResearchSubjectInput | null
   ) {}
 
-  public startRun(input: StartRunInput): HoneycrispRunHandle {
+  public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
     if (this.disposed) {
       throw new Error('Honeycrisp run engine has been disposed.');
     }
@@ -279,8 +303,10 @@ export class HoneycrispRunEngine {
       : null;
     const normalizedInput: StartRunInput = { ...input, goalObjective };
     const scope = this.db.getActiveScope();
+    const workflowId = resolveResearchWorkflowId(researchProfile.profile, input.workflowId, input.mode);
     const context = this.db.createRun({
       scopeVersionId: scope.id,
+      researchProfileSnapshotId: researchProfile.id,
       title: SESSION_TITLE_FALLBACK,
       promptMarkdown: input.promptMarkdown,
       shellSafetyMode: input.shellSafetyMode,
@@ -297,7 +323,8 @@ export class HoneycrispRunEngine {
         runEngine: 'honeycrisp',
         modelProvider: input.provider?.trim() || null,
         goalEnabled: input.goalEnabled,
-        goalObjective
+        goalObjective,
+        researchWorkflowId: workflowId
       },
       vmBackend: 'host',
       vmImageId: 'host-machine',
@@ -320,7 +347,11 @@ export class HoneycrispRunEngine {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
         goalEnabled: input.goalEnabled,
-        goalObjective
+        goalObjective,
+        researchProfileSnapshotId: researchProfile.id,
+        researchProfileId: researchProfile.profileId,
+        researchProfileVersion: researchProfile.profileVersion,
+        researchWorkflowId: workflowId
       }
     });
     this.db.appendTraceEvent({
@@ -339,7 +370,7 @@ export class HoneycrispRunEngine {
       vmContextId: context.vmContext.id
     });
 
-    return this.launchRun(context, normalizedInput, scope, false);
+    return this.launchRun(context, normalizedInput, scope, false, researchProfile);
   }
 
   public extendRun(
@@ -352,6 +383,15 @@ export class HoneycrispRunEngine {
     }
     const detail = this.db.getRunDetail(runId);
     const run = detail.run;
+    if (!run.researchProfileSnapshotId) {
+      throw new Error(
+        `Cannot continue legacy Honeycrisp run ${runId} because it has no pinned research profile snapshot. Start a new run under the active profile instead.`
+      );
+    }
+    const researchProfile = this.db.getRunResearchProfileSnapshot(runId);
+    if (!researchProfile) {
+      throw new Error(`Research profile snapshot not found for Honeycrisp continuation: ${run.researchProfileSnapshotId}`);
+    }
     const scope = this.db.getScopeVersion(run.scopeVersionId);
     const parentAttempt = detail.attempts.at(-1) ?? null;
     const attempt = this.db.createAttempt({
@@ -407,6 +447,10 @@ export class HoneycrispRunEngine {
         reasoningEffort: run.reasoningEffort,
         continuation: true,
         parentAttemptId: parentAttempt?.id ?? null,
+        researchProfileSnapshotId: researchProfile?.id ?? null,
+        researchWorkflowId: researchProfile
+          ? resolveResearchWorkflowId(researchProfile.profile, researchWorkflowFromRun(run) || undefined, run.mode)
+          : null,
         ...(options.automaticWebSocketRetryCount
           ? { automaticWebSocketRetryCount: options.automaticWebSocketRetryCount }
           : {})
@@ -434,7 +478,7 @@ export class HoneycrispRunEngine {
     }
     this.db.updateRunStatus(runId, 'active', 'Continuing the current Honeycrisp research session.');
 
-    return this.launchRun(context, continuationInput, scope, true, {
+    return this.launchRun(context, continuationInput, scope, true, researchProfile, {
       resumeCapturePath,
       fallbackPrompt: continuationFallbackPrompt,
       automaticWebSocketRetryCount: options.automaticWebSocketRetryCount
@@ -446,6 +490,7 @@ export class HoneycrispRunEngine {
     input: StartRunInput,
     scope: WorkspaceScopeVersion,
     continuation: boolean,
+    researchProfile: ResearchProfileSnapshot | null,
     resume?: { resumeCapturePath?: string; fallbackPrompt: string; automaticWebSocketRetryCount?: number }
   ): HoneycrispRunHandle {
     const invocation = resolveHoneycrispInvocation();
@@ -454,13 +499,29 @@ export class HoneycrispRunEngine {
     const fileStem = continuation ? `${context.run.id}.${context.attempt.id}` : context.run.id;
     const capturePath = join(runDirectory, `${fileStem}.capture.json`);
     const workspaceContextPath = join(runDirectory, `${fileStem}.workspace-context.json`);
+    const researchProfilePath = researchProfile
+      ? join(runDirectory, `${fileStem}.research-profile.json`)
+      : null;
+    const workflowId = researchProfile
+      ? resolveResearchWorkflowId(
+          researchProfile.profile,
+          researchWorkflowFromRun(context.run) || input.workflowId,
+          input.mode
+        )
+      : null;
+    if (researchProfile && researchProfilePath && workflowId) {
+      writeHoneycrispResearchProfile(researchProfile.profile, researchProfilePath);
+    }
     writeHoneycrispWorkspaceContext(
       scope,
       this.workspacePath,
       workspaceContextPath,
       context.run.id,
       this.db.getWorkspaceId(),
-      input.networkProfile
+      input.networkProfile,
+      researchProfile,
+      workflowId,
+      this.getResearchSubject?.() ?? null
     );
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
@@ -475,7 +536,15 @@ export class HoneycrispRunEngine {
         !continuation,
         resume?.resumeCapturePath,
         resume?.fallbackPrompt,
-        this.getMemoryTypeDescriptions?.()
+        researchProfile && researchProfilePath && workflowId
+          ? {
+              path: researchProfilePath,
+              hash: researchProfile.profileHash,
+              workflowId,
+              modelJobs: researchProfile.profile.modelJobs
+            }
+          : undefined,
+        researchProfile ? undefined : this.getMemoryTypeDescriptions?.()
       )
     ];
     this.db.appendTraceEvent({
@@ -494,6 +563,13 @@ export class HoneycrispRunEngine {
         continuation,
         resumeCapturePath: resume?.resumeCapturePath ?? null,
         nativeResumeRequested: Boolean(resume?.resumeCapturePath),
+        researchProfileSnapshotId: researchProfile?.id ?? null,
+        researchProfileId: researchProfile?.profileId ?? null,
+        researchProfileVersion: researchProfile?.profileVersion ?? null,
+        researchWorkflowId: workflowId,
+        resolvedResearchProfilePath: researchProfilePath ? '[run-local-profile]' : null,
+        researchProfileHash: researchProfile ? '[profile-hash]' : null,
+        legacyMemoryTypeDescriptions: !researchProfile && Boolean(this.getMemoryTypeDescriptions?.()),
         automaticWebSocketRetryCount: resume?.automaticWebSocketRetryCount ?? 0
       },
       vmContextId: context.vmContext.id
@@ -1867,6 +1943,16 @@ export class HoneycrispRunEngine {
     liveHoneycrispEventIds: ReadonlySet<string> = new Set(),
     options: { includeFinalResponse?: boolean } = {}
   ): HoneycrispContextUsageSummary | null {
+    const pinnedResearchProfile = context.run.researchProfileSnapshotId
+      ? this.db.getRunResearchProfileSnapshot(context.run.id)
+      : null;
+    if (context.run.researchProfileSnapshotId && !pinnedResearchProfile) {
+      throw new Error(
+        `Research profile snapshot not found while importing Honeycrisp capture: ${context.run.researchProfileSnapshotId}`
+      );
+    }
+    verifyHoneycrispCaptureResearchProfile(capture, context.run, pinnedResearchProfile);
+
     const contextUsage = summarizeHoneycrispContextUsage(capture, captureText);
     const importedEventIds = new Set(liveHoneycrispEventIds);
     for (const traceEvent of this.db.getRunDetail(context.run.id).traceEvents) {
@@ -2179,6 +2265,7 @@ function honeycrispRunArgs(
   generateTitle = false,
   resumeCapturePath?: string,
   resumeFallbackPrompt?: string,
+  researchProfile?: HoneycrispResearchProfileLaunch,
   memoryTypeDescriptions?: MemoryTypeDescriptions
 ): string[] {
   const args = [
@@ -2219,10 +2306,18 @@ function honeycrispRunArgs(
   if (provider) {
     args.push('--provider', provider);
   }
+  const effectiveProvider = provider || 'openai-codex';
+  const profileTitleJob = applicableResearchProfileModelJob(
+    researchProfile?.modelJobs.sessionTitle,
+    effectiveProvider
+  );
   if (generateTitle) {
-    const titleModel = sessionTitleModelForProvider(provider || 'openai-codex');
-    if (titleModel) {
-      args.push('--title-model', titleModel, '--title-effort', SESSION_TITLE_REASONING_EFFORT);
+    const titleModel = profileTitleJob?.model
+      ? null
+      : sessionTitleModelForProvider(effectiveProvider);
+    if (titleModel) args.push('--title-model', titleModel);
+    if (!profileTitleJob?.effort && (titleModel || profileTitleJob?.model)) {
+      args.push('--title-effort', SESSION_TITLE_REASONING_EFFORT);
     }
   }
   if (input.model.trim()) {
@@ -2231,17 +2326,29 @@ function honeycrispRunArgs(
   if (input.reasoningEffort.trim()) {
     args.push('--effort', input.reasoningEffort.trim());
   }
-  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath));
-  // Keep Beale-owned safety settings after extension arguments so the host's
-  // persisted mode and reviewer assignment remain authoritative.
+  if (researchProfile) {
+    args.push('--resolved-research-profile', researchProfile.path);
+    args.push('--research-profile-hash', researchProfile.hash);
+    args.push('--workflow', researchProfile.workflowId);
+  }
+  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath, Boolean(researchProfile), input.networkProfile));
+  // Keep Beale-owned safety mode and reviewer routing after extension arguments.
+  // A workspace profile cannot choose the model that authorizes host shell execution.
   args.push('--shell-safety-mode', input.shellSafetyMode);
   args.push('--shell-review-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
   args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
-  if (memoryTypeDescriptions) {
+  if (!researchProfile && memoryTypeDescriptions) {
     args.push('--memory-type-descriptions', JSON.stringify(memoryTypeDescriptions));
   }
   args.push('--tool-max-bytes', String(toolMaxBytes()));
   return args;
+}
+
+function applicableResearchProfileModelJob(
+  job: ResearchProfile['modelJobs']['sessionTitle'] | undefined,
+  provider: string
+): ResearchProfile['modelJobs']['sessionTitle'] | undefined {
+  return job && (!job.provider || job.provider === provider) ? job : undefined;
 }
 
 function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunInput {
@@ -2256,6 +2363,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
       ? resolveGoalObjective(persistedGoalObjective, run.promptMarkdown)
       : null,
     promptMarkdown,
+    workflowId: researchWorkflowFromRun(run) || undefined,
     mode: run.mode,
     attemptStrategy: run.attemptStrategy,
     model: run.model,
@@ -2567,15 +2675,37 @@ function isPlainNodeExecutable(path: string): boolean {
   return name === 'node' || name === 'node.exe';
 }
 
+function writeHoneycrispResearchProfile(profile: ResearchProfile, targetPath: string): void {
+  const content = `${JSON.stringify(profile, null, 2)}\n`;
+  const byteLength = Buffer.byteLength(content, 'utf8');
+  if (byteLength > RESEARCH_PROFILE_LAUNCH_MAX_BYTES) {
+    throw new Error(`Resolved research profile exceeds the ${RESEARCH_PROFILE_LAUNCH_MAX_BYTES}-byte launch limit.`);
+  }
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, content, { encoding: 'utf8', mode: 0o600 });
+}
+
 function writeHoneycrispWorkspaceContext(
   scope: WorkspaceScopeVersion,
   workspacePath: string,
   contextPath: string,
   sessionId: string,
   workspaceId: string,
-  networkProfile: string
+  networkProfile: string,
+  researchProfile: ResearchProfileSnapshot | null,
+  workflowId: string | null,
+  researchSubject: ResearchSubjectInput | null
 ): HoneycrispWorkspaceContextFile {
-  const context = honeycrispWorkspaceContext(scope, workspacePath, sessionId, workspaceId, networkProfile);
+  const context = honeycrispWorkspaceContext(
+    scope,
+    workspacePath,
+    sessionId,
+    workspaceId,
+    networkProfile,
+    researchProfile,
+    workflowId,
+    researchSubject
+  );
   mkdirSync(dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, 'utf8');
   return context;
@@ -2586,7 +2716,10 @@ function honeycrispWorkspaceContext(
   workspacePath: string,
   sessionId: string,
   workspaceId: string,
-  networkProfile: string
+  networkProfile: string,
+  researchProfile: ResearchProfileSnapshot | null,
+  workflowId: string | null,
+  researchSubject: ResearchSubjectInput | null
 ): HoneycrispWorkspaceContextFile {
   const materializedSourcePaths: string[] = [];
   const knownRepositories: HoneycrispWorkspaceRepositoryContext[] = [];
@@ -2612,6 +2745,7 @@ function honeycrispWorkspaceContext(
       });
     }
   }
+  const subject = honeycrispResearchSubject(scope, workspaceId, researchSubject);
   return {
     schemaVersion: 1,
     workspaceRoot: workspacePath,
@@ -2619,10 +2753,8 @@ function honeycrispWorkspaceContext(
       sessionId,
       workspaceId,
       workspaceName: scope.workspaceName,
-      subjectId: scope.scopeOwner.trim()
-        ? honeycrispMemorySubjectId(scope.scopeOwner)
-        : `subject_workspace:${workspaceId}`,
-      subjectName: scope.scopeOwner.trim() || scope.workspaceName,
+      subjectId: subject.id,
+      subjectName: subject.name,
     },
     ...(isRecordedWorkspaceScope(scope)
       ? {
@@ -2633,6 +2765,9 @@ function honeycrispWorkspaceContext(
             scopeName: scope.workspaceName,
             ...(scope.scopeOwner.trim() ? { scopeOwner: scope.scopeOwner } : {}),
             networkProfile,
+            ...(networkProfile === 'scoped' || networkProfile === 'elevated'
+              ? { allowedNetworkDestinations: honeycrispAllowedNetworkDestinations(scope) }
+              : {}),
             activeFrom: scope.activeFrom,
             ...(scope.expiresAt ? { expiresAt: scope.expiresAt } : {})
           }
@@ -2640,8 +2775,18 @@ function honeycrispWorkspaceContext(
       : {}),
     knownRepositories,
     materializedSourcePaths,
-    projectNotes: honeycrispScopeNotes(scope, networkProfile)
+    projectNotes: honeycrispScopeNotes(scope, networkProfile, researchProfile, workflowId, subject)
   };
+}
+
+function honeycrispAllowedNetworkDestinations(scope: WorkspaceScopeVersion): string[] {
+  const supportedKinds = new Set<ScopeAsset['kind']>(['domain', 'host', 'ip_range', 'service']);
+  return [...new Set(
+    scope.assets
+      .filter((asset) => asset.direction === 'in_scope' && supportedKinds.has(asset.kind))
+      .map((asset) => asset.value.trim())
+      .filter(Boolean)
+  )].slice(0, 200);
 }
 
 const REPOSITORY_CONTENT_MARKERS = [
@@ -2678,11 +2823,77 @@ function honeycrispMemorySubjectId(subjectName: string): string {
   return `subject_${createHash('sha256').update(normalized).digest('hex').slice(0, 20)}`;
 }
 
+function honeycrispResearchSubject(
+  scope: WorkspaceScopeVersion,
+  workspaceId: string,
+  input: ResearchSubjectInput | null
+): { id: string; name: string } {
+  const explicitName = input?.name.trim() ?? '';
+  const name = explicitName || scope.scopeOwner.trim() || scope.workspaceName;
+  const explicitId = input?.id?.trim() ?? '';
+  return {
+    id: explicitId || (name ? honeycrispMemorySubjectId(name) : `subject_workspace:${workspaceId}`),
+    name: name || scope.workspaceName
+  };
+}
+
 function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
   return kind === 'repo' || kind === 'path' || kind === 'binary';
 }
 
-function honeycrispScopeNotes(scope: WorkspaceScopeVersion, networkProfile: string): string[] {
+function honeycrispScopeNotes(
+  scope: WorkspaceScopeVersion,
+  networkProfile: string,
+  researchProfile: ResearchProfileSnapshot | null,
+  workflowId: string | null,
+  researchSubject: { id: string; name: string }
+): string[] {
+  if (!researchProfile) return legacyHoneycrispScopeNotes(scope, networkProfile);
+  const profile = researchProfile.profile;
+  const workspaceContract = profile.workspace;
+  const workflow = profile.workflows.find((candidate) => candidate.id === workflowId)
+    ?? profile.workflows.find((candidate) => candidate.default)
+    ?? profile.workflows[0];
+  const recordedBoundary = isRecordedWorkspaceScope(scope);
+  const authorizationRequired = workspaceContract.authorizationMode === 'required_for_live_network';
+  const notes = [
+    `Research profile: ${boundedContextText(`${profile.id}@${profile.version}`)}`,
+    workflow
+      ? `Research workflow: ${boundedContextText(workflow.name)} (${boundedContextText(workflow.id)}) — ${boundedContextText(workflow.description, 1_000)}`
+      : '',
+    authorizationRequired
+      ? recordedBoundary
+        ? `Authorization: An operator-recorded ${boundedContextText(workspaceContract.boundaryNoun)} applies. Follow the recorded inclusions, exclusions, constraints, and network profile.`
+        : `Authorization: No operator-recorded ${boundedContextText(workspaceContract.boundaryNoun)} is currently available.`
+      : recordedBoundary
+        ? `${boundedContextText(workspaceContract.boundaryNoun)}: Use the operator-recorded inclusions, exclusions, constraints, and network profile.`
+        : `${boundedContextText(workspaceContract.boundaryNoun)}: No explicit boundary is currently recorded.`,
+    scope.workspaceName.trim()
+      ? `${boundedContextText(workspaceContract.workspaceNoun)}: ${boundedContextText(scope.workspaceName)}`
+      : '',
+    researchSubject.name.trim()
+      ? `${boundedContextText(workspaceContract.subjectNoun)}: ${boundedContextText(researchSubject.name)}`
+      : '',
+    authorizationRequired && scope.scopeOwner.trim()
+      ? `${boundedContextText(workspaceContract.boundaryNoun)} owner: ${boundedContextText(scope.scopeOwner)}`
+      : '',
+    ...workspaceContract.boundaryInstructions
+      .slice(0, 16)
+      .map((instruction) => `${boundedContextText(workspaceContract.boundaryNoun)} instruction: ${boundedContextText(instruction, 1_000)}`),
+    scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
+    `Network access profile: ${boundedContextText(networkProfile)}`,
+    scope.expiresAt
+      ? `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: ${scope.expiresAt}`
+      : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`,
+    scope.descriptionMarkdown.trim()
+      ? `${boundedContextText(workspaceContract.boundaryNoun)} description: ${boundedContextText(scope.descriptionMarkdown)}`
+      : ''
+  ];
+  appendHoneycrispScopeAssetNotes(notes, scope, workspaceContract.boundaryNoun);
+  return notes.filter(Boolean);
+}
+
+function legacyHoneycrispScopeNotes(scope: WorkspaceScopeVersion, networkProfile: string): string[] {
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
@@ -2692,18 +2903,24 @@ function honeycrispScopeNotes(scope: WorkspaceScopeVersion, networkProfile: stri
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
     scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
   ];
+  appendHoneycrispScopeAssetNotes(notes, scope, 'scope');
+  return notes.filter(Boolean);
+}
+
+function appendHoneycrispScopeAssetNotes(notes: string[], scope: WorkspaceScopeVersion, boundaryNoun: string): void {
   const orderedAssets = [...scope.assets].sort((left, right) => Number(left.direction === 'in_scope') - Number(right.direction === 'in_scope'));
   for (const asset of orderedAssets.slice(0, 200)) {
     const instruction = stringAttribute(asset.attributes?.instruction);
     notes.push(
-      `${asset.direction === 'in_scope' ? 'In scope' : 'Out of scope'} (${asset.kind}, ${asset.sensitivity}): ${honeycrispScopeAssetValue(asset)}` +
+      `${asset.direction === 'in_scope' ? `Included in ${boundedContextText(boundaryNoun)}` : `Excluded from ${boundedContextText(boundaryNoun)}`} (${asset.kind}, ${asset.sensitivity}): ${honeycrispScopeAssetValue(asset)}` +
         (instruction ? ` — ${boundedContextText(instruction, 1_000)}` : '')
     );
   }
   if (scope.assets.length > 200) {
-    notes.push(`Scope asset list truncated: ${scope.assets.length - 200} additional assets remain in Beale.`);
+    notes.push(
+      `${boundedContextText(boundaryNoun)} asset list truncated: ${scope.assets.length - 200} additional assets remain in Beale.`
+    );
   }
-  return notes.filter(Boolean);
 }
 
 function isRecordedWorkspaceScope(scope: WorkspaceScopeVersion): boolean {
@@ -2939,36 +3156,158 @@ function additionalHoneycrispRuntimeArgs(): string[] {
   return parseEnvArgs('BEALE_HONEYCRISP_RUNTIME_ARGS_JSON');
 }
 
-function bealeHoneycrispRuntimeArgs(shellOptionsPath?: string): string[] {
+const BEALE_PROFILE_TOOL_FAMILY_CEILING_DEFAULT = ['shell'] as const;
+const BEALE_PROFILE_TOOL_FAMILY_CEILING_ALLOWED = new Set([
+  'shell',
+  'repository-search',
+  'file-read',
+  'code',
+  'analysis',
+  'synthesis',
+  'storage',
+  'experiment'
+]);
+const BEALE_PROFILE_SIDE_EFFECT_CEILING_DEFAULT = ['none', 'read', 'write', 'process'] as const;
+const BEALE_PROFILE_SIDE_EFFECT_CEILING_ALLOWED = new Set(BEALE_PROFILE_SIDE_EFFECT_CEILING_DEFAULT);
+
+export function resolveBealeProfileCapabilityCeilings(
+  environment: NodeJS.ProcessEnv = process.env
+): { toolFamilies: string[]; sideEffects: string[] } {
+  return {
+    toolFamilies: parseCapabilityCeiling(
+      environment.BEALE_HONEYCRISP_PROFILE_TOOL_FAMILY_CEILING_JSON,
+      'BEALE_HONEYCRISP_PROFILE_TOOL_FAMILY_CEILING_JSON',
+      BEALE_PROFILE_TOOL_FAMILY_CEILING_DEFAULT,
+      BEALE_PROFILE_TOOL_FAMILY_CEILING_ALLOWED
+    ),
+    sideEffects: parseCapabilityCeiling(
+      environment.BEALE_HONEYCRISP_PROFILE_SIDE_EFFECT_CEILING_JSON,
+      'BEALE_HONEYCRISP_PROFILE_SIDE_EFFECT_CEILING_JSON',
+      BEALE_PROFILE_SIDE_EFFECT_CEILING_DEFAULT,
+      BEALE_PROFILE_SIDE_EFFECT_CEILING_ALLOWED
+    )
+  };
+}
+
+function parseCapabilityCeiling(
+  raw: string | undefined,
+  name: string,
+  fallback: readonly string[],
+  allowed: ReadonlySet<string>
+): string[] {
+  if (raw === undefined || !raw.trim()) return [...fallback];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
+    throw new Error(`${name} must be a JSON string array.`);
+  }
+  const normalized = [...new Set(parsed.map((item) => item.trim()))];
+  const invalid = normalized.find((item) => !item || !allowed.has(item));
+  if (invalid !== undefined) {
+    throw new Error(`${name} contains an unsupported capability: ${invalid || '[empty]'}.`);
+  }
+  return normalized;
+}
+
+function bealeHoneycrispRuntimeArgs(
+  shellOptionsPath: string | undefined,
+  profileAware = false,
+  networkProfile = 'offline'
+): string[] {
+  const profileCeilings = profileAware ? resolveBealeProfileCapabilityCeilings() : null;
+  const capabilityArgs = profileAware
+    ? [
+        ...(profileCeilings?.toolFamilies.flatMap((family) => [
+          '--profile-tool-family-ceiling',
+          family
+        ]) ?? []),
+        ...(profileCeilings?.sideEffects.flatMap((effect) => [
+          '--profile-side-effect-ceiling',
+          effect
+        ]) ?? [])
+      ]
+    : [
+        '--tool-family',
+        'shell',
+        '--allowed-side-effect',
+        'read',
+        '--allowed-side-effect',
+        'write',
+        '--allowed-side-effect',
+        'process',
+        '--disable-tool-family',
+        'repository-search',
+        '--disable-tool-family',
+        'file-read',
+        '--disable-tool-family',
+        'code',
+        '--disable-tool-family',
+        'analysis',
+        '--disable-tool-family',
+        'synthesis',
+        '--disable-tool-family',
+        'storage',
+        '--disable-tool-family',
+        'experiment'
+      ];
   return [
     ...additionalHoneycrispRuntimeArgs(),
     '--no-default-tool-config',
-    '--tool-family',
-    'shell',
-    '--disable-tool-family',
-    'repository-search',
-    '--disable-tool-family',
-    'file-read',
-    '--disable-tool-family',
-    'code',
-    '--disable-tool-family',
-    'analysis',
-    '--disable-tool-family',
-    'synthesis',
-    '--disable-tool-family',
-    'storage',
-    '--disable-tool-family',
-    'experiment',
+    ...capabilityArgs,
+    ...(networkProfile === 'scoped' || networkProfile === 'elevated'
+      ? ['--allowed-side-effect', 'network']
+      : []),
     ...(shellOptionsPath ? ['--shell-options', shellOptionsPath] : [])
   ];
 }
 
+function researchWorkflowFromRun(run: RunRecord): string {
+  const workflowId = run.budget.researchWorkflowId;
+  return typeof workflowId === 'string' ? workflowId.trim() : '';
+}
+
+function resolveResearchWorkflowId(
+  profile: ResearchProfile,
+  explicitWorkflowId: string | undefined,
+  legacyMode: string
+): string {
+  if (explicitWorkflowId !== undefined) {
+    const requested = explicitWorkflowId.trim();
+    if (!requested) throw new Error('Research workflow id must be non-empty when provided.');
+    const exact = profile.workflows.find((workflow) => workflow.id === requested);
+    if (!exact) {
+      throw new Error(`Research workflow ${requested} is not defined by profile ${profile.id}@${profile.version}.`);
+    }
+    return exact.id;
+  }
+  const requestedMode = legacyMode;
+  const requested = requestedMode.trim();
+  const exact = profile.workflows.find((workflow) => workflow.id === requested);
+  if (exact) return exact.id;
+  if (requested === 'open_discovery') {
+    const discovery = profile.workflows.find((workflow) => workflow.id === 'discovery');
+    if (discovery) return discovery.id;
+  }
+  const selected = profile.workflows.find((workflow) => workflow.default) ?? profile.workflows[0];
+  if (!selected) throw new Error(`Research profile ${profile.id} does not define a workflow.`);
+  return selected.id;
+}
+
 function redactHoneycrispArgs(args: string[]): string[] {
   const sensitiveFlags = new Set(['--config', '-p', '--goal-objective', '--resume-fallback-prompt']);
+  const profileFlags = new Map([
+    ['--resolved-research-profile', '[run-local-profile]'],
+    ['--research-profile-hash', '[profile-hash]']
+  ]);
   const redacted: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     redacted.push(arg);
+    const profileReplacement = profileFlags.get(arg);
+    if (profileReplacement && index + 1 < args.length) {
+      redacted.push(profileReplacement);
+      index += 1;
+      continue;
+    }
     if (arg === '--memory-type-descriptions' && index + 1 < args.length) {
       redacted.push('[configured]');
       index += 1;
@@ -3436,6 +3775,95 @@ function honeycrispAgentTraceSummary(capture: HoneycrispFlowCapture): string {
 
 function isHoneycrispTraceItem(value: unknown): value is HoneycrispTraceItem {
   return typeof value === 'object' && value !== null && typeof (value as { text?: unknown }).text === 'string';
+}
+
+function verifyHoneycrispCaptureResearchProfile(
+  capture: HoneycrispFlowCapture,
+  run: RunRecord,
+  pinnedProfile: ResearchProfileSnapshot | null
+): void {
+  const capturedValue = (capture as { researchProfile?: unknown }).researchProfile;
+  if (capturedValue === undefined) {
+    if (pinnedProfile) {
+      throw new Error(
+        `Honeycrisp capture is missing the research profile pinned to run ${run.id}.`
+      );
+    }
+    return;
+  }
+  const captured = recordValue(capturedValue);
+  if (!captured) {
+    throw new Error('Honeycrisp capture research profile is not a JSON object.');
+  }
+  if (capture.schemaVersion !== 5) {
+    throw new Error('Honeycrisp capture research profile requires capture schema version 5.');
+  }
+
+  const capturedSchemaVersion = captured.schemaVersion;
+  const capturedId = stringPayload(captured, 'id');
+  const capturedVersion = stringPayload(captured, 'version');
+  const capturedHash = stringPayload(captured, 'hash');
+  const capturedWorkflowId = stringPayload(captured, 'workflowId');
+  const capturedSource = stringPayload(captured, 'source');
+  if (!Number.isInteger(capturedSchemaVersion) || (capturedSchemaVersion as number) <= 0) {
+    throw new Error('Honeycrisp capture research profile schemaVersion is invalid.');
+  }
+  if (!capturedId || !capturedVersion || !capturedWorkflowId) {
+    throw new Error('Honeycrisp capture research profile identity or workflow is incomplete.');
+  }
+  if (!capturedHash || !/^[a-f0-9]{64}$/u.test(capturedHash)) {
+    throw new Error('Honeycrisp capture research profile hash is invalid.');
+  }
+  if (!capturedSource || !['bundled-default', 'workspace-default', 'explicit'].includes(capturedSource)) {
+    throw new Error('Honeycrisp capture research profile source is invalid.');
+  }
+  if (captured.path !== undefined && (typeof captured.path !== 'string' || !captured.path.trim())) {
+    throw new Error('Honeycrisp capture research profile path is invalid.');
+  }
+
+  let capturedSnapshot: ResearchProfile;
+  try {
+    capturedSnapshot = decodeResearchProfile(captured.snapshot);
+  } catch (error) {
+    throw new Error(`Honeycrisp capture research profile snapshot is invalid: ${errorMessage(error)}`);
+  }
+  const calculatedHash = createHash('sha256')
+    .update('honeycrisp:research-profile:v1\0')
+    .update(serializeResearchProfile(capturedSnapshot))
+    .digest('hex');
+  if (calculatedHash !== capturedHash) {
+    throw new Error(
+      `Honeycrisp capture research profile hash mismatch for ${capturedId}@${capturedVersion}.`
+    );
+  }
+  if (
+    capturedSchemaVersion !== capturedSnapshot.schemaVersion
+    || capturedId !== capturedSnapshot.id
+    || capturedVersion !== capturedSnapshot.version
+  ) {
+    throw new Error('Honeycrisp capture research profile identity does not match its embedded snapshot.');
+  }
+  if (!capturedSnapshot.workflows.some((workflow) => workflow.id === capturedWorkflowId)) {
+    throw new Error(
+      `Honeycrisp capture workflow ${capturedWorkflowId} is not defined by its embedded research profile.`
+    );
+  }
+
+  if (!pinnedProfile) return;
+  const pinnedWorkflowId = researchWorkflowFromRun(run);
+  if (!pinnedWorkflowId) {
+    throw new Error(`Run ${run.id} has a pinned research profile but no pinned research workflow.`);
+  }
+  const matchesPinnedProfile = capturedHash === pinnedProfile.profileHash
+    && capturedId === pinnedProfile.profileId
+    && capturedVersion === pinnedProfile.profileVersion
+    && capturedSchemaVersion === pinnedProfile.profile.schemaVersion
+    && capturedWorkflowId === pinnedWorkflowId;
+  if (!matchesPinnedProfile) {
+    throw new Error(
+      `Honeycrisp capture research profile does not match the profile and workflow pinned to run ${run.id}.`
+    );
+  }
 }
 
 function parseHoneycrispCapture(text: string): HoneycrispFlowCapture {

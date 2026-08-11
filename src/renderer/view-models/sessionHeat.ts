@@ -7,6 +7,7 @@ const SESSION_HEAT_LEVELS: SessionHeat[] = ['none', 'low', 'medium', 'high', 'cr
 
 export function sessionHeatForDetail(detail: RunDetail | null): SessionHeat {
   if (!detail) return 'none';
+  if (detail.researchProfile && detail.researchProfile.profileId !== 'security-research') return 'none';
   return sessionHeatForHoneycrispMemory(detail.honeycrispMemory ?? null, detail.run.id);
 }
 

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProviderModelCatalog, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, ResearchSubject, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -20,6 +20,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   chatView,
   providerModelCatalog,
   honeycrispMemory,
+  researchProfile,
+  researchSubject,
   runCount,
   scope,
   selectedRunId,
@@ -56,6 +58,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   chatView: ChatView;
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
+  researchProfile: ResearchProfile | null;
+  researchSubject: ResearchSubject | null;
   runCount: number;
   scope: WorkspaceScopeVersion | null;
   selectedRunId: string | null;
@@ -100,6 +104,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         busy={busy}
         memoryDreamingInProgress={memoryDreamingInProgress}
         honeycrispMemory={honeycrispMemory}
+        researchProfile={researchProfile}
+        researchSubject={researchSubject}
         runCount={runCount}
         scope={scope}
         onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
@@ -168,6 +174,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         detail={detail}
         events={allEvents}
         memory={detail?.honeycrispMemory ?? null}
+        researchProfile={researchProfile}
         providerModelCatalog={providerModelCatalog}
         runId={selectedRunId}
         runStatus={detail?.run.status ?? null}

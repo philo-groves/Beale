@@ -5,16 +5,24 @@ import type {
   MemoryDreamingSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
+  ResearchProfile,
+  ResearchProfileMemoryStatus,
+  ResearchProfileMemoryType,
+  ResearchSubject,
   WorkspaceScopeVersion,
   ScopeAsset
 } from '@shared/types';
 import { formatSessionDateTime, networkProfileLabel, stateClass, traceLabel, truncateText } from '../../lib/formatting';
+import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import { MemoryTypeLabel } from '../research/MemoryTypeLabel';
+import { orderedCatalogMemoryTypes, pluralizePresentationLabel } from '../research/MemorySidePanel';
 
 export function WorkspaceUnderstandingView({
   busy,
   memoryDreamingInProgress,
   honeycrispMemory,
+  researchProfile = null,
+  researchSubject = null,
   onOpenHoneycrispMemoryDirectory,
   onRestoreMemoryDreamingChange,
   onRunMemoryDreaming,
@@ -24,6 +32,8 @@ export function WorkspaceUnderstandingView({
   busy: boolean;
   memoryDreamingInProgress: boolean;
   honeycrispMemory: HoneycrispMemorySummary | null;
+  researchProfile?: ResearchProfile | null;
+  researchSubject?: ResearchSubject | null;
   onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemoryDirectorySummary['name']) => void;
   onRestoreMemoryDreamingChange: (changeId: string) => void;
   onRunMemoryDreaming: () => void;
@@ -33,27 +43,39 @@ export function WorkspaceUnderstandingView({
   const inScopeAssets = scope?.assets.filter((asset) => asset.direction === 'in_scope') ?? [];
   const repositoryAssets = inScopeAssets.filter((asset) => asset.kind === 'repo').slice(0, 6);
   const primitives = honeycrispMemory?.nodes.filter((node) => node.type === 'primitive') ?? [];
+  const presentation = researchProfile?.presentation;
+  const memoryLabel = presentation?.memoryLabel ?? 'Memory';
+  const runbookLabel = presentation?.runbookLabel ?? 'Runbooks';
+  const sessionLabel = presentation?.sessionLabel ?? 'Session';
+  const workspaceNoun = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
+  const subjectNoun = researchProfile?.workspace.subjectNoun ?? 'Subject';
+  const memoryTypes = researchProfile?.memory.types ?? [];
+  const memoryStatuses = researchProfile?.memory.statuses ?? [];
+  const catalogTypes = researchProfile
+    ? orderedCatalogMemoryTypes(honeycrispMemory?.nodes ?? [], memoryTypes)
+    : [];
+  const memoryEnabled = researchProfileFeatureAvailability(researchProfile).memory;
   return (
-    <div className="workspace-understanding-workspace" aria-label="Honeycrisp Memory">
+    <div className="workspace-understanding-workspace" aria-label={`Honeycrisp ${memoryLabel}`}>
       <div className="workspace-understanding-scroll">
         <div className="workspace-understanding-summary-grid" aria-label="Workspace summary">
           <SummaryTile icon={<Database size={17} />} label="Durable Knowledge" value={`${formatCount(honeycrispMemory?.nodeCount ?? 0)} nodes`} detail={`${formatCount(honeycrispMemory?.edgeCount ?? 0)} relationships`} />
-          <SummaryTile icon={<GitBranch size={17} />} label="Primitives" value={formatCount(primitives.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
-          <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.runbookCount ?? 0)} runbooks · ${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
-          <SummaryTile icon={<Network size={17} />} label="Workspace Tracking" value={`${formatCount(runCount)} sessions`} detail={scope ? networkProfileLabel(scope.networkProfile) : 'No active workspace'} />
+          <SummaryTile icon={<GitBranch size={17} />} label={researchProfile ? 'Catalog Types' : 'Primitives'} value={formatCount(researchProfile ? Object.keys(honeycrispMemory?.nodeTypeCounts ?? {}).length : primitives.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
+          <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.runbookCount ?? 0)} ${runbookLabel.toLocaleLowerCase()} · ${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
+          <SummaryTile icon={<Network size={17} />} label={`${workspaceNoun} Tracking`} value={`${formatCount(runCount)} ${pluralizePresentationLabel(sessionLabel).toLocaleLowerCase()}`} detail={scope ? networkProfileLabel(scope.networkProfile) : `No active ${workspaceNoun.toLocaleLowerCase()}`} />
         </div>
 
         <div className="workspace-understanding-layout">
-          <section className="workspace-understanding-section workspace-understanding-section-wide" aria-label="Honeycrisp memory">
-            <SectionHeader icon={<Database size={16} />} title="Honeycrisp Memory" status={honeycrispMemory?.status ?? 'missing'} />
+          <section className="workspace-understanding-section workspace-understanding-section-wide" aria-label={`Honeycrisp ${memoryLabel.toLocaleLowerCase()}`}>
+            <SectionHeader icon={<Database size={16} />} title={`Honeycrisp ${memoryLabel}`} status={honeycrispMemory?.status ?? 'missing'} />
             <div className="workspace-understanding-metric-grid">
               <MetricCell label="Knowledge Nodes" value={formatCount(honeycrispMemory?.nodeCount ?? 0)} />
               <MetricCell label="Relationships" value={formatCount(honeycrispMemory?.edgeCount ?? 0)} />
               <MetricCell label="References" value={formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} />
               <MetricCell label="Storage Artifacts" value={formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} />
-              <MetricCell label="Runbooks" value={formatCount(honeycrispMemory?.runbookCount ?? 0)} />
+              <MetricCell label={runbookLabel} value={formatCount(honeycrispMemory?.runbookCount ?? 0)} />
               <MetricCell label="Database Size" value={formatBytes(honeycrispMemory?.databaseSizeBytes ?? 0)} />
-              <MetricCell label="Primitives" value={formatCount(primitives.length)} />
+              <MetricCell label={researchProfile ? 'Catalog Types' : 'Primitives'} value={formatCount(researchProfile ? Object.keys(honeycrispMemory?.nodeTypeCounts ?? {}).length : primitives.length)} />
             </div>
             <KeyValueRows
               rows={[
@@ -65,31 +87,43 @@ export function WorkspaceUnderstandingView({
             />
             {honeycrispMemory?.lastError ? <p className="workspace-understanding-warning">{honeycrispMemory.lastError}</p> : null}
             <div className="workspace-understanding-list-grid">
-              <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} memoryTypes />
-              <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} />
+              <CountList title="Node Types" counts={honeycrispMemory?.nodeTypeCounts} memoryTypes={researchProfile ? memoryTypes : []} />
+              <CountList title="Node Statuses" counts={honeycrispMemory?.nodeStatusCounts} memoryStatuses={researchProfile ? memoryStatuses : undefined} />
             </div>
             <div className="workspace-understanding-list-grid">
-              <MemoryNodeList title="Assets and Boundaries" nodes={nodesByType(honeycrispMemory, ['asset', 'source', 'sink'])} />
-              <MemoryNodeList title="Hypotheses" nodes={nodesByType(honeycrispMemory, ['hypothesis'])} />
-              <MemoryNodeList title="Bug History" nodes={nodesByType(honeycrispMemory, ['bug'])} />
-              <MemoryNodeList title="Invariants and Mitigations" nodes={nodesByType(honeycrispMemory, ['invariant', 'mitigation'])} />
-              <MemoryNodeList title="Primitives and Chains" nodes={nodesByType(honeycrispMemory, ['primitive', 'chain'])} />
-              <MemoryNodeList title="Procedures and Trajectories" nodes={nodesByType(honeycrispMemory, ['procedure', 'trajectory'])} />
+              {researchProfile ? catalogTypes.map((catalogType) => (
+                <MemoryNodeList
+                  key={catalogType.id}
+                  title={memoryTypes.find((definition) => definition.id === catalogType.id || definition.aliases?.includes(catalogType.id))?.pluralName ?? catalogType.label}
+                  nodes={nodesByType(honeycrispMemory, [catalogType.id])}
+                  memoryStatuses={memoryStatuses}
+                />
+              )) : (
+                <>
+                  <MemoryNodeList title="Assets and Boundaries" nodes={nodesByType(honeycrispMemory, ['asset', 'source', 'sink'])} />
+                  <MemoryNodeList title="Hypotheses" nodes={nodesByType(honeycrispMemory, ['hypothesis'])} />
+                  <MemoryNodeList title="Bug History" nodes={nodesByType(honeycrispMemory, ['bug'])} />
+                  <MemoryNodeList title="Invariants and Mitigations" nodes={nodesByType(honeycrispMemory, ['invariant', 'mitigation'])} />
+                  <MemoryNodeList title="Primitives and Chains" nodes={nodesByType(honeycrispMemory, ['primitive', 'chain'])} />
+                  <MemoryNodeList title="Procedures and Trajectories" nodes={nodesByType(honeycrispMemory, ['procedure', 'trajectory'])} />
+                </>
+              )}
             </div>
             <StorageDirectoryList busy={busy} directories={honeycrispMemory?.directories ?? []} onOpenDirectory={onOpenHoneycrispMemoryDirectory} />
           </section>
 
-          <section className="workspace-understanding-section" aria-label="Workspace tracking">
-            <SectionHeader icon={<Boxes size={16} />} title="Workspace Tracking" />
+          <section className="workspace-understanding-section" aria-label={`${workspaceNoun} tracking`}>
+            <SectionHeader icon={<Boxes size={16} />} title={`${workspaceNoun} Tracking`} />
             <KeyValueRows
               rows={[
-                ['Workspace', scope?.workspaceName ?? 'None'],
-                ['Owner / Subject', scope?.scopeOwner ?? 'None'],
+                [workspaceNoun, scope?.workspaceName ?? 'None'],
+                [subjectNoun, researchSubject?.name ?? 'None'],
+                ['Authorization Owner', scope?.scopeOwner || 'None'],
                 ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
-                ['Sessions', formatCount(runCount)],
-                ['Security Primitives', formatCount(primitives.length)],
+                [pluralizePresentationLabel(sessionLabel), formatCount(runCount)],
+                [pluralizePresentationLabel(memoryLabel), formatCount(honeycrispMemory?.nodeCount ?? 0)],
                 ['References', formatCount(honeycrispMemory?.evidenceRefCount ?? 0)]
               ]}
             />
@@ -99,6 +133,7 @@ export function WorkspaceUnderstandingView({
 
           <DreamingSection
             busy={busy}
+            enabled={memoryEnabled}
             inProgress={memoryDreamingInProgress}
             dreaming={honeycrispMemory?.dreaming ?? null}
             onRestoreChange={onRestoreMemoryDreamingChange}
@@ -113,12 +148,14 @@ export function WorkspaceUnderstandingView({
 function DreamingSection({
   busy,
   dreaming,
+  enabled,
   inProgress,
   onRestoreChange,
   onRun
 }: {
   busy: boolean;
   dreaming: MemoryDreamingSummary | null;
+  enabled: boolean;
   inProgress: boolean;
   onRestoreChange: (changeId: string) => void;
   onRun: () => void;
@@ -135,8 +172,8 @@ function DreamingSection({
           <button
             type="button"
             className="workspace-understanding-action-button"
-            disabled={busy || inProgress || !available}
-            title={inProgress ? 'Memory Dreaming is reviewing this workspace' : available ? 'Have the research model synthesize workspace memories and past sessions' : 'Honeycrisp memory is not initialized'}
+            disabled={!enabled || busy || inProgress || !available}
+            title={!enabled ? 'Memory Dreaming is disabled by the active research profile' : inProgress ? 'Memory Dreaming is reviewing this workspace' : available ? 'Have the research model synthesize workspace memories and past sessions' : 'Honeycrisp memory is not initialized'}
             onClick={onRun}
           >
             <MoonStar size={13} />
@@ -242,8 +279,19 @@ function MetricCell({ label, value }: { label: string; value: string }): JSX.Ele
   );
 }
 
-function CountList({ counts, memoryTypes = false, title }: { counts: Record<string, number> | null | undefined; memoryTypes?: boolean; title: string }): JSX.Element {
-  const entries = topCountEntries(counts, 6);
+function CountList({
+  counts,
+  memoryStatuses,
+  memoryTypes,
+  title
+}: {
+  counts: Record<string, number> | null | undefined;
+  memoryStatuses?: readonly ResearchProfileMemoryStatus[];
+  memoryTypes?: readonly ResearchProfileMemoryType[];
+  title: string;
+}): JSX.Element {
+  const entries = orderedProfileCountEntries(counts, memoryTypes ?? memoryStatuses, 6);
+  const statusById = new Map(memoryStatuses?.map((status) => [status.id, status]) ?? []);
   return (
     <div className="workspace-understanding-count-list">
       <h4>{title}</h4>
@@ -251,7 +299,9 @@ function CountList({ counts, memoryTypes = false, title }: { counts: Record<stri
         <ul>
           {entries.map(([label, count]) => (
             <li key={label}>
-              {memoryTypes ? <MemoryTypeLabel type={label} /> : <span>{traceLabel(label)}</span>}
+              {memoryTypes
+                ? <MemoryTypeLabel type={label} definitions={memoryTypes} />
+                : <span>{statusById.get(label)?.name ?? (memoryStatuses ? unknownProfileLabel('status', label) : traceLabel(label))}</span>}
               <strong>{formatCount(count)}</strong>
             </li>
           ))}
@@ -263,7 +313,16 @@ function CountList({ counts, memoryTypes = false, title }: { counts: Record<stri
   );
 }
 
-function MemoryNodeList({ nodes, title }: { nodes: HoneycrispMemoryNodeSummary[]; title: string }): JSX.Element {
+function MemoryNodeList({
+  memoryStatuses,
+  nodes,
+  title
+}: {
+  memoryStatuses?: readonly ResearchProfileMemoryStatus[];
+  nodes: HoneycrispMemoryNodeSummary[];
+  title: string;
+}): JSX.Element {
+  const statusById = new Map(memoryStatuses?.map((status) => [status.id, status]) ?? []);
   return (
     <div className="workspace-understanding-count-list">
       <h4>{title}</h4>
@@ -272,8 +331,8 @@ function MemoryNodeList({ nodes, title }: { nodes: HoneycrispMemoryNodeSummary[]
           {nodes.slice(0, 5).map((node) => (
             <li key={node.id}>
               <span title={node.summary || node.body}>{truncateText(node.title || node.summary || node.id, 64)}</span>
-              <strong title={`${node.workspaces.length} workspace associations · ${traceLabel(node.status)}`}>
-                {node.workspaces.length} workspace{node.workspaces.length === 1 ? '' : 's'} · {traceLabel(node.status)}
+              <strong title={`${node.workspaces.length} workspace associations · ${statusById.get(node.status)?.name ?? traceLabel(node.status)}`}>
+                {node.workspaces.length} workspace{node.workspaces.length === 1 ? '' : 's'} · {statusById.get(node.status)?.name ?? (memoryStatuses ? unknownProfileLabel('status', node.status) : traceLabel(node.status))}
               </strong>
             </li>
           ))}
@@ -375,6 +434,30 @@ function topCountEntries(counts: Record<string, number> | null | undefined, limi
     .filter(([, count]) => count > 0)
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, limit);
+}
+
+function orderedProfileCountEntries(
+  counts: Record<string, number> | null | undefined,
+  definitions: readonly { id: string; order: number }[] | undefined,
+  limit: number
+): Array<[string, number]> {
+  if (!definitions) return topCountEntries(counts, limit);
+  const orderById = new Map(definitions.map((definition) => [definition.id, definition.order]));
+  return Object.entries(counts ?? {})
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => {
+      const leftOrder = orderById.get(left[0]);
+      const rightOrder = orderById.get(right[0]);
+      if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder || left[0].localeCompare(right[0]);
+      if (leftOrder !== undefined) return -1;
+      if (rightOrder !== undefined) return 1;
+      return left[0].localeCompare(right[0]);
+    })
+    .slice(0, limit);
+}
+
+function unknownProfileLabel(kind: string, id: string): string {
+  return `Unknown ${kind} (${id.trim().replace(/[_-]+/gu, ' ') || 'unlabeled'})`;
 }
 
 function assetKindCounts(assets: ScopeAsset[]): Record<string, number> {

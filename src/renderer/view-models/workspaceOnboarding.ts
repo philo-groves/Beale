@@ -9,6 +9,7 @@ export interface WorkspaceOnboardingFormState {
   templateKind: WorkspaceTemplateKind;
   workspacePath: string;
   workspaceName: string;
+  researchSubjectName: string;
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
@@ -98,6 +99,7 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
     templateKind: 'manual',
     workspacePath: defaults.workspacePath,
     workspaceName: defaults.workspaceName,
+    researchSubjectName: defaults.researchSubjectName ?? (defaults.scopeOwner || defaults.workspaceName),
     scopeOwner: defaults.scopeOwner,
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
@@ -111,6 +113,7 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
   return {
     workspacePath: form.workspacePath,
     workspaceName: form.workspaceName,
+    researchSubjectName: form.researchSubjectName,
     scopeOwner: form.scopeOwner,
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
@@ -201,6 +204,7 @@ export function onboardingFormFromHackerOneLookup(
     ...form,
     templateKind: 'hackerone',
     workspaceName: lookup.workspaceName,
+    researchSubjectName: lookup.researchSubjectName ?? lookup.workspaceName,
     scopeOwner: lookup.scopeOwner,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
@@ -232,6 +236,7 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       ...form,
       templateKind,
       workspaceName: 'Apple Security Bounty',
+      researchSubjectName: 'Apple',
       scopeOwner: 'Apple',
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
@@ -244,6 +249,7 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     ...form,
     templateKind,
     workspaceName: 'Microsoft Security Response Center',
+    researchSubjectName: 'Microsoft',
     scopeOwner: 'Microsoft',
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,

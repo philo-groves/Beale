@@ -22,7 +22,11 @@ export class FixtureRunEngine {
     private readonly onChange: () => void = () => undefined
   ) {}
 
-  public startRun(input: StartRunInput, mode: 'scheduled' | 'complete' = 'scheduled'): CreatedRunContext {
+  public startRun(
+    input: StartRunInput,
+    mode: 'scheduled' | 'complete' = 'scheduled',
+    researchProfileSnapshotId?: string | null
+  ): CreatedRunContext {
     const scope = this.db.getActiveScope();
     const scenario = input.fixtureScenario ?? 'multi_branch_trace';
     const goalObjective = input.goalEnabled
@@ -30,6 +34,7 @@ export class FixtureRunEngine {
       : null;
     const context = attachDatabase(this.db.createRun({
       scopeVersionId: scope.id,
+      researchProfileSnapshotId,
       title: generateSessionTitle(input.promptMarkdown),
       promptMarkdown: input.promptMarkdown,
       shellSafetyMode: input.shellSafetyMode,

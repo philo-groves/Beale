@@ -5,7 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { applyDatabaseMigrations } from './databaseMigrations';
-import { MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
+import { MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL, MEMORY_DREAMING_SCHEMA_SQL } from './memoryDreaming';
+import { decodeResearchProfileJson, decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
 import { normalizeShellSafetyMode } from '../shared/shellSafety';
 import type {
   ApprovalRecord,
@@ -29,6 +30,10 @@ import type {
   ProjectSemanticSummary,
   ProjectStructureSummary,
   ResearchModelSelection,
+  ResearchProfileSnapshot,
+  ResearchSubject,
+  ResearchSubjectInput,
+  ResolvedResearchProfile,
   WorkspaceScopeDraft,
   WorkspaceScopeVersion,
   RunDetail,
@@ -208,6 +213,7 @@ export interface CreateContextCompactionInput {
 
 export interface StartRunRecordInput {
   scopeVersionId: string;
+  researchProfileSnapshotId?: string | null;
   title: string;
   promptMarkdown: string;
   shellSafetyMode: ShellSafetyMode;
@@ -3853,6 +3859,157 @@ export class WorkspaceDatabase {
     return this.mapScope(row);
   }
 
+  public activateResearchProfileSnapshot(resolvedProfile: ResolvedResearchProfile): ResearchProfileSnapshot {
+    const resolved = decodeResolvedResearchProfile(resolvedProfile);
+    const profileJson = serializeResearchProfile(resolved.profile);
+    const calculatedHash = createHash('sha256')
+      .update('honeycrisp:research-profile:v1\0')
+      .update(profileJson)
+      .digest('hex');
+    if (calculatedHash !== resolved.hash) {
+      throw new Error(`Research profile hash mismatch for ${resolved.profile.id}@${resolved.profile.version}.`);
+    }
+    const sourcePath = resolved.path ? resolve(resolved.path) : null;
+
+    return this.transaction(() => {
+      const existing = rowOrUndefined(
+        this.db
+          .prepare(
+            `SELECT * FROM research_profile_snapshots
+             WHERE workspace_id = ? AND profile_hash = ? AND source = ?
+               AND COALESCE(source_path, '') = COALESCE(?, '')`
+          )
+          .get(this.workspaceId, resolved.hash, resolved.source, sourcePath)
+      );
+      let snapshotId: string;
+      if (existing) {
+        if (
+          text(existing, 'profile_id') !== resolved.profile.id
+          || text(existing, 'profile_version') !== resolved.profile.version
+          || text(existing, 'profile_json') !== profileJson
+        ) {
+          throw new Error(`Research profile hash collision for workspace ${this.workspaceId}: ${resolved.hash}`);
+        }
+        snapshotId = text(existing, 'id');
+      } else {
+        snapshotId = createId('research_profile');
+        this.db
+          .prepare(
+            `INSERT INTO research_profile_snapshots (
+              id, workspace_id, profile_id, profile_version, profile_hash, source,
+              source_path, profile_json, active, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+          )
+          .run(
+            snapshotId,
+            this.workspaceId,
+            resolved.profile.id,
+            resolved.profile.version,
+            resolved.hash,
+            resolved.source,
+            sourcePath,
+            profileJson,
+            nowIso()
+          );
+      }
+
+      this.db.prepare('UPDATE research_profile_snapshots SET active = 0 WHERE workspace_id = ? AND active = 1').run(this.workspaceId);
+      this.db.prepare('UPDATE research_profile_snapshots SET active = 1 WHERE id = ? AND workspace_id = ?').run(snapshotId, this.workspaceId);
+      const activated = this.getResearchProfileSnapshot(snapshotId);
+      if (!activated) throw new Error(`Activated research profile snapshot not found: ${snapshotId}`);
+      return activated;
+    });
+  }
+
+  public getActiveResearchProfileSnapshot(): ResearchProfileSnapshot | null {
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT * FROM research_profile_snapshots WHERE workspace_id = ? AND active = 1').get(this.workspaceId)
+    );
+    return row ? this.mapResearchProfileSnapshot(row) : null;
+  }
+
+  public getResearchProfileSnapshot(snapshotId: string): ResearchProfileSnapshot | null {
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT * FROM research_profile_snapshots WHERE id = ? AND workspace_id = ?').get(snapshotId, this.workspaceId)
+    );
+    return row ? this.mapResearchProfileSnapshot(row) : null;
+  }
+
+  public getRunResearchProfileSnapshot(runId: string): ResearchProfileSnapshot | null {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT p.*
+           FROM runs r
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           JOIN research_profile_snapshots p ON p.id = r.research_profile_snapshot_id
+           WHERE r.id = ? AND s.workspace_id = ? AND p.workspace_id = ?`
+        )
+        .get(runId, this.workspaceId, this.workspaceId)
+    );
+    return row ? this.mapResearchProfileSnapshot(row) : null;
+  }
+
+  public getResearchSubject(): ResearchSubject {
+    const existing = rowOrUndefined(
+      this.db.prepare('SELECT * FROM workspace_research_subjects WHERE workspace_id = ?').get(this.workspaceId)
+    );
+    if (existing) return this.mapResearchSubject(existing);
+
+    const scope = this.getActiveScope();
+    const scopeOwner = scope.scopeOwner.trim();
+    const displayName = scopeOwner || scope.workspaceName.trim() || 'Untitled subject';
+    const subjectId = scopeOwner ? memorySubjectId(scopeOwner) : `subject_workspace:${this.workspaceId}`;
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO workspace_research_subjects (
+           workspace_id, subject_id, display_name, source, created_at, updated_at
+         ) VALUES (?, ?, ?, 'legacy_adopted', ?, ?)`
+      )
+      .run(this.workspaceId, subjectId, displayName, createdAt, createdAt);
+    return this.mapResearchSubject(
+      rowOrUndefined(this.db.prepare('SELECT * FROM workspace_research_subjects WHERE workspace_id = ?').get(this.workspaceId))!
+    );
+  }
+
+  public setResearchSubject(input: ResearchSubjectInput): ResearchSubject {
+    const name = input.name.trim().replace(/\s+/g, ' ');
+    if (!name) throw new Error('Research subject name is required.');
+    if (name.length > 500 || /[\u0000-\u001f\u007f]/.test(name)) {
+      throw new Error('Research subject name must be at most 500 printable characters.');
+    }
+    const existing = rowOrUndefined(
+      this.db.prepare('SELECT * FROM workspace_research_subjects WHERE workspace_id = ?').get(this.workspaceId)
+    );
+    const requestedId = input.id?.trim() ?? '';
+    const existingId = existing ? text(existing, 'subject_id') : '';
+    const isWorkspacePlaceholder = existing
+      ? text(existing, 'source') === 'legacy_adopted' && existingId === `subject_workspace:${this.workspaceId}`
+      : false;
+    const subjectId = requestedId || (existingId && !isWorkspacePlaceholder ? existingId : memorySubjectId(name));
+    if (subjectId.length > 256 || /[\u0000-\u001f\u007f\s]/.test(subjectId)) {
+      throw new Error('Research subject id must be a printable, whitespace-free value of at most 256 characters.');
+    }
+    const updatedAt = nowIso();
+    const createdAt = existing ? text(existing, 'created_at') : updatedAt;
+    this.db
+      .prepare(
+        `INSERT INTO workspace_research_subjects (
+           workspace_id, subject_id, display_name, source, created_at, updated_at
+         ) VALUES (?, ?, ?, 'explicit', ?, ?)
+         ON CONFLICT(workspace_id) DO UPDATE SET
+           subject_id = excluded.subject_id,
+           display_name = excluded.display_name,
+           source = 'explicit',
+           updated_at = excluded.updated_at`
+      )
+      .run(this.workspaceId, subjectId, name, createdAt, updatedAt);
+    return this.mapResearchSubject(
+      rowOrUndefined(this.db.prepare('SELECT * FROM workspace_research_subjects WHERE workspace_id = ?').get(this.workspaceId))!
+    );
+  }
+
   public saveScope(draft: WorkspaceScopeDraft, options: { refreshInventory?: boolean } = {}): WorkspaceScopeVersion {
     const cleanedAssets = draft.assets
       .map((asset) => ({
@@ -3910,6 +4067,13 @@ export class WorkspaceDatabase {
     const vmContextId = createId('vm');
     const createdAt = nowIso();
     const scope = this.getScopeVersion(input.scopeVersionId);
+    const researchProfileSnapshotId = input.researchProfileSnapshotId?.trim() || null;
+    if (input.researchProfileSnapshotId !== undefined && input.researchProfileSnapshotId !== null && !researchProfileSnapshotId) {
+      throw new Error('Research profile snapshot id must be non-empty when provided.');
+    }
+    if (researchProfileSnapshotId !== null && !this.getResearchProfileSnapshot(researchProfileSnapshotId)) {
+      throw new Error(`Research profile snapshot not found for workspace: ${researchProfileSnapshotId}`);
+    }
     const target = selectRunTarget(scope.assets, input);
     const promptMarkdown = input.promptMarkdown.trim();
     const promptTranscriptId = promptMarkdown ? createId('transcript') : null;
@@ -3938,14 +4102,15 @@ export class WorkspaceDatabase {
       this.db
         .prepare(
           `INSERT INTO runs (
-            id, scope_version_id, shell_safety_mode, mode, status, title, prompt_markdown, model, reasoning_effort,
+            id, scope_version_id, research_profile_snapshot_id, shell_safety_mode, mode, status, title, prompt_markdown, model, reasoning_effort,
             attempt_strategy, network_profile, sandbox_profile, target_asset_id, target_path,
             budget_json, summary, created_at, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           runId,
           input.scopeVersionId,
+          researchProfileSnapshotId,
           input.shellSafetyMode,
           input.mode,
           'active',
@@ -5013,6 +5178,7 @@ export class WorkspaceDatabase {
     if (!run) throw new Error(`Run not found: ${runId}`);
     return {
       run,
+      researchProfile: this.getRunResearchProfileSnapshot(runId),
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? ORDER BY sequence ASC').all(runId)).map((row) => this.mapTraceEvent(row)),
       transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
@@ -6843,6 +7009,7 @@ export class WorkspaceDatabase {
 
     return {
       run,
+      researchProfile: this.getRunResearchProfileSnapshot(runId),
       version: this.getRunDetailVersion(runId),
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? AND sequence > ? ORDER BY sequence ASC').all(runId, afterTraceSequence)).map((row) =>
@@ -7659,6 +7826,101 @@ export class WorkspaceDatabase {
             CREATE INDEX idx_memory_dreaming_changes_run
             ON memory_dreaming_changes(run_id);
           `);
+        }
+      },
+      {
+        version: 13,
+        name: 'versioned_research_profile_snapshots',
+        up: (database) => {
+          database.exec(`
+            CREATE TABLE IF NOT EXISTS research_profile_snapshots (
+              id TEXT PRIMARY KEY,
+              workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+              profile_id TEXT NOT NULL,
+              profile_version TEXT NOT NULL,
+              profile_hash TEXT NOT NULL,
+              source TEXT NOT NULL CHECK (source IN ('bundled-default', 'workspace-default', 'explicit')),
+              source_path TEXT,
+              profile_json TEXT NOT NULL,
+              active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+              created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_research_profile_snapshots_resolution_identity
+            ON research_profile_snapshots(workspace_id, profile_hash, source, COALESCE(source_path, ''));
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_research_profile_snapshots_workspace_active
+            ON research_profile_snapshots(workspace_id) WHERE active = 1;
+            CREATE TRIGGER IF NOT EXISTS prevent_research_profile_snapshot_content_update
+            BEFORE UPDATE OF workspace_id, profile_id, profile_version, profile_hash, source, source_path, profile_json, created_at
+            ON research_profile_snapshots
+            BEGIN
+              SELECT RAISE(ABORT, 'research profile snapshots are immutable');
+            END;
+          `);
+          if (!tableHasColumn(database, 'runs', 'research_profile_snapshot_id')) {
+            database.exec('ALTER TABLE runs ADD COLUMN research_profile_snapshot_id TEXT REFERENCES research_profile_snapshots(id);');
+          }
+        }
+      },
+      {
+        version: 14,
+        name: 'durable_research_subject_binding',
+        up: (database) => {
+          database.exec(`
+            CREATE TABLE IF NOT EXISTS workspace_research_subjects (
+              workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+              subject_id TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              source TEXT NOT NULL CHECK (source IN ('explicit', 'legacy_adopted')),
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_research_subjects_subject
+            ON workspace_research_subjects(subject_id, workspace_id);
+          `);
+          const insert = database.prepare(
+            `INSERT OR IGNORE INTO workspace_research_subjects (
+               workspace_id, subject_id, display_name, source, created_at, updated_at
+             ) VALUES (?, ?, ?, 'legacy_adopted', ?, ?)`
+          );
+          const migratedAt = nowIso();
+          for (const workspace of rows(database.prepare('SELECT id FROM workspaces ORDER BY id').all())) {
+            const workspaceId = text(workspace, 'id');
+            const scope = rowOrUndefined(
+              database
+                .prepare(
+                  `SELECT workspace_name, scope_owner
+                   FROM scope_versions
+                   WHERE workspace_id = ?
+                   ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, version DESC
+                   LIMIT 1`
+                )
+                .get(workspaceId)
+            );
+            const workspaceName = scope ? text(scope, 'workspace_name').trim() : '';
+            const scopeOwner = scope ? text(scope, 'scope_owner').trim() : '';
+            const displayName = scopeOwner || workspaceName || 'Untitled subject';
+            const subjectId = scopeOwner ? memorySubjectId(scopeOwner) : `subject_workspace:${workspaceId}`;
+            insert.run(workspaceId, subjectId, displayName, migratedAt, migratedAt);
+          }
+        }
+      },
+      {
+        version: 15,
+        name: 'memory_dreaming_run_profile_provenance',
+        up: (database) => {
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_hash')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_hash TEXT;');
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_id')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_id TEXT;');
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'research_profile_version')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN research_profile_version TEXT;');
+          }
+          if (!tableHasColumn(database, 'memory_dreaming_runs', 'memory_catalog_hash')) {
+            database.exec('ALTER TABLE memory_dreaming_runs ADD COLUMN memory_catalog_hash TEXT;');
+          }
+          database.exec(MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL);
         }
       }
     ]);
@@ -9516,6 +9778,31 @@ export class WorkspaceDatabase {
     return row ? this.mapExport(row) : null;
   }
 
+  private mapResearchProfileSnapshot(row: SqlRow): ResearchProfileSnapshot {
+    return {
+      id: text(row, 'id'),
+      workspaceId: text(row, 'workspace_id'),
+      profileId: text(row, 'profile_id'),
+      profileVersion: text(row, 'profile_version'),
+      profileHash: text(row, 'profile_hash'),
+      source: text(row, 'source') as ResearchProfileSnapshot['source'],
+      sourcePath: nullableText(row, 'source_path'),
+      profile: decodeResearchProfileJson(text(row, 'profile_json')),
+      active: booleanValue(row, 'active'),
+      createdAt: text(row, 'created_at')
+    };
+  }
+
+  private mapResearchSubject(row: SqlRow): ResearchSubject {
+    return {
+      id: text(row, 'subject_id'),
+      name: text(row, 'display_name'),
+      source: text(row, 'source') as ResearchSubject['source'],
+      createdAt: text(row, 'created_at'),
+      updatedAt: text(row, 'updated_at')
+    };
+  }
+
   private mapScope(row: SqlRow): WorkspaceScopeVersion {
     const id = text(row, 'id');
     const assetRows = rows(this.db.prepare('SELECT * FROM scope_assets WHERE scope_version_id = ? ORDER BY created_at ASC').all(id));
@@ -9550,6 +9837,7 @@ export class WorkspaceDatabase {
     return {
       id: text(row, 'id'),
       scopeVersionId: text(row, 'scope_version_id'),
+      researchProfileSnapshotId: nullableText(row, 'research_profile_snapshot_id'),
       shellSafetyMode: normalizeShellSafetyMode(text(row, 'shell_safety_mode')),
       mode: text(row, 'mode'),
       status: text(row, 'status') as RunStatus,
@@ -10069,6 +10357,44 @@ CREATE TABLE IF NOT EXISTS workspace_meta (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workspace_research_subjects (
+  workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  subject_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('explicit', 'legacy_adopted')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_research_subjects_subject
+ON workspace_research_subjects(subject_id, workspace_id);
+
+CREATE TABLE IF NOT EXISTS research_profile_snapshots (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL,
+  profile_version TEXT NOT NULL,
+  profile_hash TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('bundled-default', 'workspace-default', 'explicit')),
+  source_path TEXT,
+  profile_json TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+  created_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_research_profile_snapshots_resolution_identity
+ON research_profile_snapshots(workspace_id, profile_hash, source, COALESCE(source_path, ''));
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_research_profile_snapshots_workspace_active
+ON research_profile_snapshots(workspace_id) WHERE active = 1;
+
+CREATE TRIGGER IF NOT EXISTS prevent_research_profile_snapshot_content_update
+BEFORE UPDATE OF workspace_id, profile_id, profile_version, profile_hash, source, source_path, profile_json, created_at
+ON research_profile_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'research profile snapshots are immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS scope_versions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT REFERENCES workspaces(id),
@@ -10101,6 +10427,7 @@ CREATE TABLE IF NOT EXISTS scope_assets (
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
+  research_profile_snapshot_id TEXT REFERENCES research_profile_snapshots(id),
   shell_safety_mode TEXT NOT NULL DEFAULT 'auto_review' CHECK (shell_safety_mode IN ('manual_approval', 'auto_review', 'danger')),
   mode TEXT NOT NULL,
   status TEXT NOT NULL,

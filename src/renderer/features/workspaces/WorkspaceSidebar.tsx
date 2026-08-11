@@ -50,12 +50,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     sessions: workspaceRegistry?.researchSessions.length ?? 0
   }));
   const workspaces = workspaceRegistry?.workspaces ?? [];
+  const presentation = snapshot?.researchProfile?.profile.presentation;
+  const newResearchLabel = presentation?.newResearchLabel ?? 'New Research';
+  const sessionLabel = presentation?.sessionLabel ?? 'Session';
+  const workspaceNoun = snapshot?.researchProfile?.profile.workspace.workspaceNoun ?? 'Research Workspace';
 
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
-      <button type="button" className="sidebar-new-research" title="Start new research" disabled={busy || !snapshot} onClick={onStartNewResearch}>
+      <button type="button" className="sidebar-new-research" title={`Start ${newResearchLabel.toLocaleLowerCase()}`} disabled={busy || !snapshot} onClick={onStartNewResearch}>
         <Play size={15} />
-        <span>New Research</span>
+        <span>{newResearchLabel}</span>
       </button>
       <div className="sidebar-quick-actions">
         <button type="button" className="sidebar-utility-button" title="Search" onClick={onSearch}>
@@ -65,8 +69,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       </div>
       <div className="sidebar-section workspace-list">
         <div className="section-row">
-          <div className="meta-label">Research Workspaces</div>
-          <button type="button" title="Add research workspace" disabled={busy} onClick={onAddWorkspace}>
+          <div className="meta-label">{pluralizeSessionLabel(workspaceNoun)}</div>
+          <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy} onClick={onAddWorkspace}>
             <FolderPlus size={15} />
           </button>
         </div>
@@ -130,11 +134,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                     </div>
                   ))
                 ) : (
-                  <span className="workspace-session-empty">No Session Yet...</span>
+                  <span className="workspace-session-empty">No {sessionLabel} Yet...</span>
                 )}
                 {sessions.length > SIDEBAR_SESSION_LIMIT ? (
                   <button type="button" className="workspace-session-more" onClick={() => onShowMoreSessions(workspace.id)}>
-                    More Sessions...
+                    More {pluralizeSessionLabel(sessionLabel)}...
                   </button>
                 ) : null}
               </div>
@@ -155,6 +159,12 @@ function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element 
       <RefreshCw size={10} />
     </span>
   );
+}
+
+function pluralizeSessionLabel(label: string): string {
+  if (/s$/iu.test(label)) return label;
+  if (/[^aeiou]y$/iu.test(label)) return `${label.slice(0, -1)}ies`;
+  return `${label}s`;
 }
 
 function sessionStatusLabel(value: string): string {

@@ -1,3 +1,7 @@
+import type { ResearchProfileSnapshot } from './researchProfile';
+
+export * from './researchProfile';
+
 export type ScopeAssetDirection = 'in_scope' | 'out_of_scope';
 
 export type ScopeAssetKind =
@@ -512,6 +516,47 @@ export interface HoneycrispMemoryEvidenceRefSummary {
   createdAt: string;
 }
 
+export type HoneycrispMemoryNodeValidationKind = 'full' | 'scoped' | 'inherited';
+
+export interface HoneycrispMemoryNodeCatalogValidationSummary {
+  nodeRevision: number;
+  catalogHash: string;
+  contentHash: string;
+  kind: HoneycrispMemoryNodeValidationKind;
+  validatedAt: string;
+  researchProfile?: {
+    hash: string;
+    id: string;
+    version: string;
+  };
+}
+
+export type HoneycrispMemoryNodeProvenanceSummary =
+  | {
+      state: 'legacy_unrecorded';
+      catalogHash: null;
+      activeCatalog: false;
+      validation: null;
+    }
+  | {
+      state: 'catalog_unvalidated';
+      catalogHash: string;
+      activeCatalog: boolean;
+      validation: null;
+    }
+  | {
+      state: 'active_validated';
+      catalogHash: string;
+      activeCatalog: true;
+      validation: HoneycrispMemoryNodeCatalogValidationSummary;
+    }
+  | {
+      state: 'foreign_validated';
+      catalogHash: string;
+      activeCatalog: false;
+      validation: HoneycrispMemoryNodeCatalogValidationSummary;
+    };
+
 export interface HoneycrispMemoryNodeSummary {
   id: string;
   sessionIds: string[];
@@ -531,6 +576,8 @@ export interface HoneycrispMemoryNodeSummary {
   createdAt: string;
   updatedAt: string;
   revision: number;
+  /** Optional only for compatibility with summaries produced before catalog provenance existed. */
+  provenance?: HoneycrispMemoryNodeProvenanceSummary;
 }
 
 export interface HoneycrispMemoryEdgeSummary {
@@ -630,6 +677,7 @@ export interface HoneycrispMemorySummary {
   source: HoneycrispMemorySource;
   contextWorkspaceId: string;
   contextSubjectId: string;
+  activeCatalogHash?: string | null;
   databasePath: string;
   storageRoot: string;
   artifactDirectoryPath: string;
@@ -642,6 +690,7 @@ export interface HoneycrispMemorySummary {
   latestNodeUpdatedAt: string | null;
   nodeTypeCounts: Record<string, number>;
   nodeStatusCounts: Record<string, number>;
+  nodeProvenanceCounts?: Partial<Record<HoneycrispMemoryNodeProvenanceSummary['state'], number>>;
   nodes: HoneycrispMemoryNodeSummary[];
   edges: HoneycrispMemoryEdgeSummary[];
   runbooks: HoneycrispRunbookSummary[];
@@ -829,6 +878,7 @@ export interface ShellOptions {
 export interface WorkspaceOnboardingDefaults {
   workspacePath: string;
   workspaceName: string;
+  researchSubjectName?: string;
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
@@ -879,6 +929,7 @@ export interface HackerOneScopeLookupResult {
   handle: string;
   sourceUrl: string;
   workspaceName: string;
+  researchSubjectName?: string;
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
@@ -1021,6 +1072,7 @@ export interface StartRunInput {
   goalEnabled: boolean;
   goalObjective: string | null;
   promptMarkdown: string;
+  workflowId?: string;
   mode: string;
   attemptStrategy: string;
   model: string;
@@ -1037,22 +1089,35 @@ export interface StartRunInput {
   fixtureScenario?: FixtureScenario;
 }
 
+export interface ResearchSubjectInput {
+  id?: string | null;
+  name: string;
+}
+
+export interface ResearchSubject {
+  id: string;
+  name: string;
+  source: 'explicit' | 'legacy_adopted';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GeneratedResearchPrompt {
   promptMarkdown: string;
 }
 
-export type ResearchGoalPhase = 'discovery' | 'chaining' | 'reporting';
+export type ResearchGoalPhase = string;
 
-export type ResearchGoalSuggestionGroup = [string, string, string, string];
+export type ResearchGoalSuggestionGroup = string[];
 
 export interface GeneratedResearchGoalSuggestions {
   phase: ResearchGoalPhase;
   suggestions: ResearchGoalSuggestionGroup;
 }
 
-export type ResearchGoalSuggestionsByPhase = Partial<Record<ResearchGoalPhase, ResearchGoalSuggestionGroup>>;
+export type ResearchGoalSuggestionsByPhase = Partial<Record<string, string[]>>;
 
-export type ResearchGoalSuggestionStateByPhase<T> = Record<ResearchGoalPhase, T>;
+export type ResearchGoalSuggestionStateByPhase<T> = Record<string, T>;
 
 export interface ResearchGoalSuggestionInput {
   phase: ResearchGoalPhase;
@@ -1083,6 +1148,7 @@ export interface ResearchPromptGenerationInput {
 export interface RunRecord {
   id: string;
   scopeVersionId: string;
+  researchProfileSnapshotId: string | null;
   shellSafetyMode: ShellSafetyMode;
   mode: string;
   status: RunStatus;
@@ -1313,6 +1379,7 @@ export interface RunRow {
 
 export interface RunDetail {
   run: RunRecord;
+  researchProfile?: ResearchProfileSnapshot | null;
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
@@ -1341,6 +1408,7 @@ export interface RunDetailUpdateCursor {
 
 export interface RunDetailUpdate {
   run: RunRecord;
+  researchProfile?: ResearchProfileSnapshot | null;
   version: RunDetailVersion;
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
@@ -1362,6 +1430,8 @@ export interface WorkspaceSnapshot {
   executor: ExecutorStatus;
   vmPreference: VmPreference;
   activeScope: WorkspaceScopeVersion;
+  researchSubject: ResearchSubject;
+  researchProfile: ResearchProfileSnapshot;
   honeycrispMemory: HoneycrispMemorySummary;
   projectGraph: ProjectGraphSummary;
   projectSemantic: ProjectSemanticSummary;

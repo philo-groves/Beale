@@ -49,6 +49,7 @@ export function runDetailUpdateCursor(detail: RunDetail): { afterTraceSequence: 
 export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate): RunDetail {
   return {
     run: update.run,
+    researchProfile: update.researchProfile ?? current.researchProfile ?? null,
     attempts: update.attempts,
     traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
     transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),

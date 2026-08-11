@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Profile-aware memory totals now exclude unknown, negative, and terminal non-positive statuses, matching recommendation activity semantics.
+- Recommendation jobs no longer load or expose Honeycrisp memory or memory-linked evidence context when the active research profile disables memory.
+- Memory Dreaming now refreshes the workspace research profile before curation and refuses to invoke the model when that profile disables memory.
+- Honeycrisp capture import now rejects missing, corrupt, mismatched, or workflow-incompatible research-profile provenance before importing artifacts, traces, or transcripts.
+- Historical session views now use each run's pinned research profile instead of the workspace's current profile, and security-specific session heat is disabled for recorded general-research profiles.
 - Session token totals and prompt-cache hit rates now count only active root-model calls, excluding Auto-Review, subagent, and other background-model usage.
 - Chaining and Reporting goal generation now accepts natural wording variants instead of rejecting otherwise valid suggestions that omit exact validator phrases such as `primitive`, `chain`, `triage-ready PoC`, or `submission.zip`.
 - Long Commentary histories now render a bounded virtual window with preserved follow-latest and search navigation, while incremental detail ingestion and repeated tool projection avoid unnecessary full-history map, sort, and array-copy work.
@@ -35,6 +40,14 @@
 
 ### Changed
 
+- Session detail actions and views now honor run-pinned memory, runbook, and collaboration feature switches; Memory Dreaming is disabled when memory is off while historical records remain visible and restorable.
+- Memory summaries and Dreaming now retain per-node catalog compatibility across presentation-only and unrelated additive catalog changes, while isolating incompatible and non-security-lineage legacy rows.
+- Research recommendations now derive active-memory status from the pinned profile catalog and reserve security-specific source/sink coverage ranking for the `security-research` profile lineage.
+- Research subjects are now durable workspace bindings independent of mutable authorization ownership; explicitly named subjects retain stable cross-workspace memory identity when scope owners change.
+- Beale now resolves Honeycrisp research profiles once per new run, stores the exact normalized snapshot and content hash, and pins continuations to that snapshot instead of re-reading mutable workspace configuration.
+- Research workflows, suggestion counts, prompt guidance, memory catalogs, workspace vocabulary, presentation labels, and supported background-model job defaults now come from the active research profile; the bundled profile preserves Beale's security-research behavior.
+- Added an explicit host-owned profile capability ceiling: shell and non-network effects remain the default, while trusted operators can allow additional built-in tool families or narrow effects without giving profile files authority to expand either boundary.
+- Settings > Memory now presents the active profile's immutable catalog and configuration source instead of a misleading global security-taxonomy editor.
 - Settings now replace the workspace sidebar and main workbench with section navigation and the active settings page, with a Back to App action and hidden workspace/session header identity.
 - Returned Honeycrisp memory creation, correction, and relationship controls to root agents and subagents so durable persistence is decided by the active model with full research context.
 - Replaced the New Research network-profile selector with the same Manual Approval, Auto-Review, and Danger Mode shell-safety choices used by session steering. Auto-Review remains the default, while a session's network boundary now comes only from its recorded workspace scope.
@@ -134,7 +147,11 @@
 
 ### Added
 
-- Added Settings > Memory with editable, validated descriptions for every durable memory type; Beale passes the saved taxonomy to Honeycrisp as the authoritative agent definitions for each new or resumed research process and uses them for Memory Dreaming.
+- Added workbench migration 15 with immutable per-run Memory Dreaming profile and memory-catalog provenance; legacy Dreaming runs retain null provenance.
+- Added workbench migration 14 with a durable research-subject binding; legacy workspaces adopt their existing subject identity without rewriting Honeycrisp memory.
+- Added workbench migration 13 with an immutable, workspace-owned research-profile snapshot registry and nullable run provenance for compatibility with legacy runs.
+- Added immutable Honeycrisp memory-catalog provenance so workflow-only profile changes can share compatible knowledge while incompatible catalogs remain isolated and legacy rows remain explicitly unrecorded.
+- Added dynamic memory type, status, lifecycle, alias, attribute, evidence, and relationship handling across Honeycrisp execution, Beale curation, and the workbench UI.
 - Added a synchronized right-sidenav toggle to the session header; it switches between the compact summary and detailed 50/50 sidebar, shows an empty first-view chooser for Memories, Runbooks, or Subagents, and returns to the summary when the final open view closes.
 - Added per-session shell safety modes in the steering composer: Manual Approval requires a researcher decision for every shell command, Auto-Review uses the active provider's assigned small model and is the default, and Danger Mode permits shell execution without per-command review.
 - Added a previous-research goal chooser to New Research. Beale proposes three distinct one-sentence directions from bounded workspace memory, session outcomes, verifier state, and source coverage; selecting one generates a full editable research prompt, while Something Else opens direct prompt entry.
@@ -246,6 +263,9 @@
 
 ### Security
 
+- Kept Auto-Review routing host-owned by always overriding profile-supplied shell-review models and effort at the Beale-to-Honeycrisp launch boundary.
+- Research profiles cannot independently grant tool families, side effects, network access, skills, MCP servers, credentials, or authorization; Beale's host-owned policy remains the authority ceiling.
+- Recognized shell network intent now fails closed in every shell-safety mode unless Beale directly grants process and network effects and supplies an active recorded authorization whose destinations satisfy the scoped network policy; this broker does not replace external OS network isolation for arbitrary binaries.
 - Shell safety authorization now occurs inside Honeycrisp before process spawn, records bounded redacted decision evidence, fails closed when review or safety-control delivery is unavailable, rejects commands that cannot be shown completely in Manual Approval, sanitizes ordinary shell lifecycle traces, surfaces background-session approvals, and keeps existing utility, protected-directory, and HOME-family guards active in every mode. Workbench migration 10 backfills existing sessions to Auto-Review.
 - Prohibited `$HOME` use in the Honeycrisp system prompt, rejected HOME-family references and assignments in shell inputs, and removed home-directory variables from spawned utility environments.
 - Added Honeycrisp pre-spawn folder deletion guards for direct `rm` and `rmdir`, destructive `find`, and non-dry-run `git clean` operations targeting filesystem roots, the current user directory, system directories, or active Beale/Honeycrisp workspace state.

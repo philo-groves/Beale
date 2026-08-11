@@ -8,6 +8,7 @@ import type {
   ResearchGoalSuggestionStateByPhase,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
+  ResearchProfileWorkflow,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
@@ -27,6 +28,7 @@ import {
 } from '../../view-models/runSettings';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
+const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
 
 type PromptEntryMode = 'chooser' | 'expanded';
 
@@ -40,6 +42,7 @@ interface SessionProviderOption {
 }
 
 interface ResearchGoalChooserProps {
+  workflows?: readonly ResearchProfileWorkflow[];
   suggestions: ResearchGoalSuggestionsByPhase;
   loading: ResearchGoalSuggestionStateByPhase<boolean>;
   errors: ResearchGoalSuggestionStateByPhase<string | null>;
@@ -47,25 +50,34 @@ interface ResearchGoalChooserProps {
   onRetry: (phase: ResearchGoalPhase) => void;
 }
 
-const RESEARCH_GOAL_SECTIONS: Array<{
-  phase: ResearchGoalPhase;
-  title: string;
-  description: string;
-}> = [
+const LEGACY_RESEARCH_GOAL_WORKFLOWS: readonly ResearchProfileWorkflow[] = [
   {
-    phase: 'discovery',
-    title: 'Discovery',
-    description: 'Find a new primitive by pairing a system area with a plausible bug class; reachability, exploitability, and reportability remain open.'
+    id: 'discovery',
+    name: 'Discovery',
+    description: 'Find a new primitive by pairing a system area with a plausible bug class; reachability, exploitability, and reportability remain open.',
+    goalSuggestionCount: 4,
+    goalSuggestionInstructions: [],
+    promptInstructions: [],
+    outputRequirements: [],
+    default: true
   },
   {
-    phase: 'chaining',
-    title: 'Chaining',
-    description: 'Upgrade existing primitives into a reportable exploit chain and triage-ready PoC, discovering missing links when needed.'
+    id: 'chaining',
+    name: 'Chaining',
+    description: 'Upgrade existing primitives into a reportable exploit chain and triage-ready PoC, discovering missing links when needed.',
+    goalSuggestionCount: 4,
+    goalSuggestionInstructions: [],
+    promptInstructions: [],
+    outputRequirements: []
   },
   {
-    phase: 'reporting',
-    title: 'Reporting',
-    description: 'Document a supported chain, its bugs and impact, and package the triage-ready PoC and required evidence in submission.zip.'
+    id: 'reporting',
+    name: 'Reporting',
+    description: 'Document a supported chain, its bugs and impact, and package the triage-ready PoC and required evidence in submission.zip.',
+    goalSuggestionCount: 4,
+    goalSuggestionInstructions: [],
+    promptInstructions: [],
+    outputRequirements: []
   }
 ];
 
@@ -96,8 +108,13 @@ export function StartRunForm({
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (runId: string) => void;
 }): JSX.Element {
+  const profile = snapshot.researchProfile?.profile;
+  const workflows = profile?.workflows.length ? profile.workflows : LEGACY_RESEARCH_GOAL_WORKFLOWS;
+  const defaultWorkflowId = defaultResearchWorkflowId(workflows);
+  const presentation = profile?.presentation;
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
+    workflowId: defaultWorkflowId,
     networkProfile: snapshot.activeScope.networkProfile,
     sandboxProfile: 'host'
   }));
@@ -173,13 +190,14 @@ export function StartRunForm({
     cancelPromptGeneration();
     const requestId = clientRequestId('research_prompt');
     const sessionInput = inputRef.current;
+    const workflowId = phase ?? sessionInput.workflowId ?? defaultWorkflowId;
     generationRequestIdRef.current = requestId;
     setSelectedGoalSentence(sentence);
-    setSelectedGoalPhase(phase);
+    setSelectedGoalPhase(workflowId);
     setEntryMode('expanded');
     setGenerationError(null);
     setInput((current) => {
-      const next = { ...current, goalObjective: sentence, promptMarkdown: '' };
+      const next = { ...current, workflowId, goalObjective: sentence, promptMarkdown: '' };
       inputRef.current = next;
       return next;
     });
@@ -188,7 +206,7 @@ export function StartRunForm({
     void window.beale.generateResearchPrompt({
       requestId,
       operation: 'expand_goal',
-      researchPhase: phase,
+      researchPhase: workflowId,
       goalSentence: sentence,
       draftPromptMarkdown: null,
       mode: sessionInput.mode,
@@ -226,6 +244,7 @@ export function StartRunForm({
         shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
         networkProfile: snapshot.activeScope.networkProfile,
         sandboxProfile: 'host',
+        workflowId: defaultWorkflowId,
         goalObjective: null,
         promptMarkdown: ''
       };
@@ -236,7 +255,7 @@ export function StartRunForm({
     setSelectedGoalSentence(null);
     setSelectedGoalPhase(null);
     setGenerationError(null);
-  }, [snapshot.activeScope.id, snapshot.workspace.workspaceId]);
+  }, [defaultWorkflowId, snapshot.activeScope.id, snapshot.researchProfile?.profileHash, snapshot.workspace.workspaceId]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -371,7 +390,7 @@ export function StartRunForm({
 
   return (
     <BottomSheet
-      title="New Research"
+      title={presentation?.newResearchLabel ?? 'New Research'}
       wide
       className="start-run-sheet"
       onClose={closeModal}
@@ -394,6 +413,7 @@ export function StartRunForm({
         </div>
         {entryMode === 'chooser' ? (
           <ResearchGoalChooser
+            workflows={workflows}
             suggestions={researchGoalSuggestions}
             loading={researchGoalSuggestionsLoading}
             errors={researchGoalSuggestionErrors}
@@ -408,7 +428,7 @@ export function StartRunForm({
             </button>
             {entryMode === 'expanded' && selectedGoalSentence ? (
               <div className="selected-research-goal">
-                <span>{selectedGoalPhase ? `${phaseTitle(selectedGoalPhase)} goal` : 'Your goal'}</span>
+                <span>{selectedGoalPhase ? `${phaseTitle(selectedGoalPhase, workflows)} goal` : 'Your goal'}</span>
                 <p>{selectedGoalSentence}</p>
               </div>
             ) : null}
@@ -473,7 +493,7 @@ export function StartRunForm({
           </label>
         </div>
         <details className="advanced-run-options">
-          <summary>Session Settings</summary>
+          <summary>{presentation?.sessionLabel ?? 'Session'} Settings</summary>
           <SessionSettingsFields
             minuteLimitValue={minuteLimitValue}
             providerOptions={providerOptions}
@@ -492,6 +512,7 @@ export function StartRunForm({
 }
 
 export function ResearchGoalChooser({
+  workflows = LEGACY_RESEARCH_GOAL_WORKFLOWS,
   suggestions,
   loading,
   errors,
@@ -499,28 +520,40 @@ export function ResearchGoalChooser({
   onRetry
 }: ResearchGoalChooserProps): JSX.Element {
   const [customGoal, setCustomGoal] = useState('');
+  const [customWorkflowId, setCustomWorkflowId] = useState(() => defaultResearchWorkflowId(workflows));
   const normalizedCustomGoal = customGoal.trim();
   const anySectionLoading = Object.values(loading).some(Boolean);
+
+  useEffect(() => {
+    if (!workflows.some((workflow) => workflow.id === customWorkflowId)) {
+      setCustomWorkflowId(defaultResearchWorkflowId(workflows));
+    }
+  }, [customWorkflowId, workflows]);
+
   return (
     <section className="research-goal-chooser" aria-labelledby="research-goal-chooser-title">
       <div className="research-goal-chooser-heading">
         <div>
           <h3 id="research-goal-chooser-title">Choose a goal</h3>
-          <p>Choose the phase that matches the next research outcome. Beale will turn the selected goal into a full editable prompt.</p>
+          <p>Choose the workflow that matches the next research outcome. Beale will turn the selected goal into a full editable prompt.</p>
         </div>
         {anySectionLoading ? <span role="status">Reviewing prior research…</span> : null}
       </div>
       <div className="research-goal-sections">
-        {RESEARCH_GOAL_SECTIONS.map(({ phase, title, description }) => (
-          <section className={`research-goal-section research-goal-section-${phase}`} aria-labelledby={`research-goal-${phase}-title`} key={phase}>
-            <header>
-              <div className="research-goal-section-title">
-                <h4 id={`research-goal-${phase}-title`}>{title}</h4>
-                {loading[phase] ? <span role="status">Loading…</span> : null}
-              </div>
-              <p>{description}</p>
-            </header>
-            <div className="research-goal-choice-list">
+        {workflows.map((workflow, workflowIndex) => {
+          const phase = workflow.id;
+          const title = workflow.name;
+          const domId = workflowDomId(phase, workflowIndex);
+          return (
+            <section className={`research-goal-section research-goal-section-${domId}`} aria-labelledby={`research-goal-${domId}-title`} key={phase}>
+              <header>
+                <div className="research-goal-section-title">
+                  <h4 id={`research-goal-${domId}-title`}>{title}</h4>
+                  {loading[phase] ? <span role="status">Loading…</span> : null}
+                </div>
+                <p>{workflow.description}</p>
+              </header>
+              <div className="research-goal-choice-list">
               {errors[phase] ? (
                 <div className="research-goal-section-error" role="alert">
                   <ShieldAlert size={14} />
@@ -534,13 +567,15 @@ export function ResearchGoalChooser({
                   </div>
                 </div>
               ) : null}
-              {loading[phase] ? [0, 1, 2, 3].map((index) => (
+              {loading[phase] ? Array.from({
+                length: Math.min(MAX_RENDERED_GOAL_SUGGESTIONS, Math.max(1, workflow.goalSuggestionCount))
+              }, (_, index) => index).map((index) => (
                 <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={index}>
                   <span />
                   <span />
                 </div>
               )) : null}
-              {suggestions[phase]?.map((sentence, index) => (
+              {suggestions[phase]?.slice(0, MAX_RENDERED_GOAL_SUGGESTIONS).map((sentence, index) => (
                 <button
                   type="button"
                   className="research-goal-choice"
@@ -552,9 +587,10 @@ export function ResearchGoalChooser({
                   <span className="research-goal-choice-text">{sentence}</span>
                 </button>
               ))}
-            </div>
-          </section>
-        ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
       <section className="research-goal-custom-section" aria-labelledby="research-goal-custom-title">
         <div>
@@ -568,11 +604,19 @@ export function ResearchGoalChooser({
           onChange={(event) => setCustomGoal(event.target.value)}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && normalizedCustomGoal) {
-              onSelect(normalizedCustomGoal, null);
+              onSelect(normalizedCustomGoal, customWorkflowId);
             }
           }}
         />
-        <button type="button" className="primary-button" disabled={!normalizedCustomGoal} onClick={() => onSelect(normalizedCustomGoal, null)}>
+        {workflows.length > 1 ? (
+          <label className="research-goal-custom-workflow">
+            Workflow
+            <select value={customWorkflowId} onChange={(event) => setCustomWorkflowId(event.target.value)}>
+              {workflows.map((workflow) => <option value={workflow.id} key={workflow.id}>{workflow.name}</option>)}
+            </select>
+          </label>
+        ) : null}
+        <button type="button" className="primary-button" disabled={!normalizedCustomGoal} onClick={() => onSelect(normalizedCustomGoal, customWorkflowId)}>
           Write full prompt
         </button>
       </section>
@@ -580,8 +624,17 @@ export function ResearchGoalChooser({
   );
 }
 
-function phaseTitle(phase: ResearchGoalPhase): string {
-  return RESEARCH_GOAL_SECTIONS.find((section) => section.phase === phase)?.title ?? phase;
+function phaseTitle(phase: ResearchGoalPhase, workflows: readonly ResearchProfileWorkflow[]): string {
+  return workflows.find((workflow) => workflow.id === phase)?.name ?? phase;
+}
+
+export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWorkflow[]): string {
+  return workflows.find((workflow) => workflow.default)?.id ?? workflows[0]?.id ?? 'discovery';
+}
+
+function workflowDomId(id: string, index: number): string {
+  const normalized = id.trim().toLocaleLowerCase().replace(/[^a-z0-9_-]+/gu, '-').replace(/^-+|-+$/gu, '');
+  return normalized || `workflow-${index + 1}`;
 }
 
 export function SessionSettingsFields({

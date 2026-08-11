@@ -23,13 +23,31 @@ type CacheEntry = PendingEntry | ReadyEntry;
 const IDLE_STATE: ResearchGoalSuggestionCacheState = { status: 'idle', result: null };
 
 export function researchGoalSuggestionCacheKey(
-  snapshot: Pick<WorkspaceSnapshot, 'workspace' | 'activeScope'> | null
+  snapshot: Pick<WorkspaceSnapshot, 'workspace' | 'activeScope'> & Partial<Pick<WorkspaceSnapshot, 'researchProfile'>> | null
 ): string | null {
   if (!snapshot) return null;
   const workspaceId = snapshot.workspace.workspaceId.trim();
   const scopeId = snapshot.activeScope.id.trim();
   if (!workspaceId || !scopeId) return null;
-  return `${encodeURIComponent(workspaceId)}::${encodeURIComponent(scopeId)}`;
+  const profileHash = snapshot.researchProfile?.profileHash.trim();
+  const profile = snapshot.researchProfile?.profile;
+  const profileCacheParts = profileHash && profile
+    ? [
+        snapshot.researchProfile?.profileId ?? profile.id,
+        profileHash,
+        profile.workflows.map((workflow) => `${workflow.id}:${workflow.goalSuggestionCount}`).join(','),
+        profile.workspace.workspaceNoun,
+        profile.workspace.subjectNoun,
+        profile.workspace.boundaryNoun,
+        profile.presentation.newResearchLabel,
+        profile.presentation.memoryLabel,
+        profile.presentation.runbookLabel,
+        profile.presentation.sessionLabel
+      ]
+    : [];
+  return [workspaceId, scopeId, ...profileCacheParts]
+    .map((part) => encodeURIComponent(part))
+    .join('::');
 }
 
 export function researchGoalSuggestionRevision(

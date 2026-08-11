@@ -8,6 +8,7 @@ import { OpenAiAuthService } from '../src/main/openaiAuth';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import { IPC_CHANNELS } from '../src/shared/ipc';
 import type { ScopeAssetKind, StartRunInput } from '../src/shared/types';
+import { resolvedTestResearchProfile } from './researchProfileFixture';
 
 const ROOT = process.cwd();
 const createdDirs: string[] = [];
@@ -75,6 +76,7 @@ describe('architecture conformance', () => {
           'src/main/hostToolExecutor.ts',
           'src/main/sourceMaterializer.ts',
           'src/main/honeycrispRunEngine.ts',
+          'src/main/researchProfileService.ts',
           'src/main/honeycrispMemorySummary.ts'
         ].includes(normalizePath(hit.path))
     );
@@ -204,7 +206,9 @@ describe('architecture conformance', () => {
   });
 
   it('keeps fixture narration distinct from observation and verifier provenance', () => {
-    const service = new WorkspaceService();
+    const service = new WorkspaceService(() => undefined, {
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    });
     service.createWorkspace(tempDir('beale-architecture-workspace-'));
     service.saveScope({
       workspaceName: 'Architecture Workspace',

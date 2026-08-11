@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { StartRunInput } from '../src/shared/types';
+import type { ResearchProfile, StartRunInput } from '../src/shared/types';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
+import { resolvedTestResearchProfile, testResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
 
@@ -27,6 +28,7 @@ describe('model-reasoned memory Dreaming', () => {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: databasePath,
       honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(memoryDreamingResearchProfile()),
       openAiFetch: async (_url, init) => {
         requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         if (requestBodies.length === 1) {
@@ -185,7 +187,7 @@ describe('model-reasoned memory Dreaming', () => {
         .slice(0, 20)}`;
       expect(requestBodies).toHaveLength(3);
       expect(JSON.stringify(requestBodies[0])).toContain('Perform a deliberate synthesis pass');
-      expect(JSON.stringify(requestBodies[0])).toContain('missing structural metadata backfilled');
+      expect(JSON.stringify(requestBodies[0])).toContain('supported structural metadata backfilled');
       expect(JSON.stringify(requestBodies[0])).toContain('Never invent structural metadata');
       expect(JSON.stringify(requestBodies[2])).toContain('Parser allocation mismatch');
       expect(JSON.stringify(requestBodies[2])).toContain('Signed length reaches allocation');
@@ -199,7 +201,7 @@ describe('model-reasoned memory Dreaming', () => {
       expect(JSON.stringify(requestBodies[2])).toContain('Boundary relationship retained for structural review.');
       expect(JSON.stringify(requestBodies[2])).toContain('...redacted');
       expect(JSON.stringify(requestBodies[2])).not.toContain('model-input-secret');
-      expect(JSON.stringify(requestBodies[2])).not.toContain('omittedInternalDetail');
+      expect(JSON.stringify(requestBodies[2])).toContain('omittedInternalDetail');
       const requestInput = requestBodies[2].input as Array<{ content: Array<{ text: string }> }>;
       const projectedInput = JSON.parse(requestInput[0]!.content[0]!.text) as {
         memoryStore: {
@@ -264,6 +266,7 @@ describe('model-reasoned memory Dreaming', () => {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: join(root, 'memory.sqlite'),
       honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(memoryDreamingResearchProfile()),
       openAiFetch: async (_url, init) => {
         requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         return dreamingPlanResponse(requestBodies.length === 1 ? invalidPlan : correctedPlan);
@@ -281,7 +284,7 @@ describe('model-reasoned memory Dreaming', () => {
       expect(correctedInput[0]!.content[0]!.text).toBe(firstInput[0]!.content[0]!.text);
       expect(correctedInput[1]!.content[0]!.text).toContain('complete replacement Dreaming plan');
       expect(correctedInput[1]!.content[0]!.text).toContain('misclassified_invariant');
-      expect(correctedInput[1]!.content[0]!.text).toContain('requires attributes.rootCause');
+      expect(correctedInput[1]!.content[0]!.text).toContain('requires non-empty attributes: rootCause');
       expect(dreamed.honeycrispMemory.dreaming.lastRun).toMatchObject({
         status: 'completed',
         reclassifiedNodeCount: 1,
@@ -307,6 +310,7 @@ describe('model-reasoned memory Dreaming', () => {
     process.env.BEALE_OPENAI_ACCESS_TOKEN = 'dreaming-test-token';
     const root = temporaryDirectory();
     const requestBodies: Record<string, unknown>[] = [];
+    const resolvedProfile = resolvedTestResearchProfile(memoryDreamingResearchProfile());
     const invalidPlan = {
       prune: [],
       merge: [],
@@ -322,6 +326,7 @@ describe('model-reasoned memory Dreaming', () => {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: join(root, 'memory.sqlite'),
       honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedProfile,
       openAiFetch: async (_url, init) => {
         requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         return dreamingPlanResponse(invalidPlan);
@@ -330,19 +335,31 @@ describe('model-reasoned memory Dreaming', () => {
 
     try {
       const opened = initializeDreamingMemory(service, join(root, 'workspace'));
-      await expect(service.runMemoryDreaming()).rejects.toThrow('requires attributes.rootCause');
+      await expect(service.runMemoryDreaming()).rejects.toThrow('requires non-empty attributes: rootCause');
 
       expect(requestBodies).toHaveLength(2);
       expect(service.getSnapshot()?.honeycrispMemory.dreaming.lastRun).toMatchObject({
         status: 'failed',
         reclassifiedNodeCount: 0,
         editedNodeCount: 0,
-        errorMessage: expect.stringContaining('requires attributes.rootCause')
+        errorMessage: expect.stringContaining('requires non-empty attributes: rootCause')
       });
       const database = new DatabaseSync(opened.workspace.databasePath);
       expect(database.prepare("SELECT status, COUNT(*) AS count FROM memory_dreaming_runs GROUP BY status").all()).toEqual([
         { status: 'failed', count: 1 }
       ]);
+      const failedProvenance = database
+        .prepare(
+          `SELECT research_profile_hash, research_profile_id, research_profile_version, memory_catalog_hash
+           FROM memory_dreaming_runs`
+        )
+        .get() as Record<string, unknown>;
+      expect(failedProvenance).toMatchObject({
+        research_profile_hash: resolvedProfile.hash,
+        research_profile_id: resolvedProfile.profile.id,
+        research_profile_version: resolvedProfile.profile.version,
+        memory_catalog_hash: expect.stringMatching(/^[a-f0-9]{64}$/u)
+      });
       expect(database.prepare('SELECT COUNT(*) AS count FROM memory_dreaming_changes').get()).toEqual({ count: 0 });
       expect(database.prepare('SELECT id, type, attributes_json, revision FROM memory_nodes').get()).toEqual({
         id: 'misclassified_invariant',
@@ -363,6 +380,7 @@ describe('model-reasoned memory Dreaming', () => {
       workspaceRegistryDirectory: join(root, 'registry'),
       honeycrispDatabasePath: join(root, 'memory.sqlite'),
       honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(memoryDreamingResearchProfile()),
       openAiFetch: async () => new Response(
         sse(event('error', {
           type: 'error',
@@ -403,7 +421,112 @@ describe('model-reasoned memory Dreaming', () => {
       service.close();
     }
   });
+
+  it('refreshes the workspace profile and refuses curation when the refreshed profile disables memory', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'dreaming-test-token';
+    const root = temporaryDirectory();
+    let activeProfile = memoryDreamingResearchProfile();
+    let requestCount = 0;
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: join(root, 'memory.sqlite'),
+      honeycrispArtifactDirectory: join(root, 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile(activeProfile),
+      openAiFetch: async () => {
+        requestCount += 1;
+        return dreamingPlanResponse({ prune: [], merge: [], revise: [], reclassify: [] });
+      }
+    });
+
+    try {
+      const opened = service.createWorkspace(join(root, 'workspace'));
+      activeProfile = {
+        ...activeProfile,
+        version: '2.0.0',
+        name: 'Memory-disabled research',
+        capabilities: {
+          ...activeProfile.capabilities,
+          memoryEnabled: false
+        }
+      };
+
+      await expect(service.runMemoryDreaming()).rejects.toThrow(
+        'Memory Dreaming is disabled by the active research profile.'
+      );
+
+      expect(requestCount).toBe(0);
+      expect(service.getSnapshot()?.researchProfile).toMatchObject({
+        profileVersion: '2.0.0',
+        profile: { name: 'Memory-disabled research', capabilities: { memoryEnabled: false } }
+      });
+      const database = new DatabaseSync(opened.workspace.databasePath);
+      expect(database.prepare('SELECT COUNT(*) AS count FROM memory_dreaming_runs').get()).toEqual({ count: 0 });
+      database.close();
+    } finally {
+      service.close();
+    }
+  });
 });
+
+function memoryDreamingResearchProfile(): ResearchProfile {
+  const base = testResearchProfile();
+  const statuses = [
+    { id: 'draft', name: 'Draft', description: 'Not yet assessed.', order: 10, polarity: 'neutral' as const },
+    { id: 'confirmed', name: 'Confirmed', description: 'Supported by required evidence.', order: 20, polarity: 'positive' as const },
+    { id: 'rejected', name: 'Rejected', description: 'Disproved.', order: 30, terminal: true, polarity: 'negative' as const }
+  ];
+  return {
+    ...base,
+    memory: {
+      ...base.memory,
+      statuses,
+      types: [
+        {
+          id: 'invariant',
+          name: 'Invariant',
+          pluralName: 'Invariants',
+          description: 'CUSTOM TAXONOMY: a durable platform or security rule, not an individual flaw.',
+          lifecycle: 'active',
+          creatable: true,
+          order: 10,
+          defaultStatus: 'draft',
+          allowedStatuses: ['draft', 'confirmed', 'rejected']
+        },
+        {
+          id: 'primitive',
+          name: 'Primitive',
+          pluralName: 'Primitives',
+          description: 'A proven root-cause flaw.',
+          lifecycle: 'active',
+          creatable: true,
+          order: 20,
+          defaultStatus: 'draft',
+          allowedStatuses: ['draft', 'confirmed', 'rejected'],
+          attributes: {
+            rootCause: { type: 'string', description: 'The proven root cause.' },
+            rootCauseKey: {
+              type: 'string',
+              description: 'A stable root-cause identity.',
+              pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+            }
+          },
+          requirements: [{ requiredAttributes: ['rootCause', 'rootCauseKey'] }]
+        },
+        {
+          id: 'trajectory',
+          name: 'Trajectory',
+          pluralName: 'Trajectories',
+          description: 'A reusable sequence of research choices and results.',
+          lifecycle: 'active',
+          creatable: true,
+          order: 30,
+          defaultStatus: 'draft',
+          allowedStatuses: ['draft', 'confirmed', 'rejected']
+        }
+      ]
+    }
+  };
+}
 
 function temporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'beale-memory-dreaming-model-'));
