@@ -34,7 +34,7 @@ import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
-import type { SettingsSection } from './features/settings/SettingsModal';
+import { SettingsSidebar, SettingsView, type SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
@@ -608,13 +608,13 @@ export function App(): JSX.Element {
   });
   const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
-  const shellClassName = appShellClassName({
+  const shellClassName = `${appShellClassName({
     sessionHeat,
     sessionActive: activeRunDetail?.run.status === 'active',
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
-  });
+  })}${settingsOpen ? ' settings-open' : ''}`;
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openProfiling = useCallback(() => {
@@ -675,8 +675,9 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        rightSidenavAvailable={selectedRunId !== null}
+        rightSidenavAvailable={!settingsOpen && selectedRunId !== null}
         rightSidenavExpanded={rightSidenavExpanded}
+        contextualTitleVisible={!settingsOpen}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}
@@ -691,76 +692,108 @@ export function App(): JSX.Element {
         onToggleRightSidenav={() => setRightSidenavExpanded((current) => !current)}
         onToggleSidebar={toggleSidebar}
       />
-      <WorkspaceSidebar
-        busy={busy}
-        collapsed={sidebarCollapsed}
-        error={error}
-        openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
-        workspaceRegistry={workspaceRegistry}
-        selectedRunId={selectedRunId}
-        snapshot={snapshot}
-        onAddWorkspace={() => {
-          addWorkspace();
-        }}
-        onOpenWorkspace={(workspace) => {
-          openRegisteredWorkspace(workspace);
-        }}
-        onOpenWorkspaceInfo={setWorkspaceInfo}
-        onOpenResearchSession={(workspace, session) => {
-          openResearchSession(workspace, session);
-        }}
-        onRemoveWorkspace={removeRegisteredWorkspace}
-        onResizePointerDown={beginSidebarResize}
-        onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
-        onShowMoreSessions={setSessionHistoryWorkspaceId}
-        onSearch={openSearch}
-        onStartNewResearch={startNewResearch}
-      />
+      {settingsOpen ? (
+        <SettingsSidebar
+          collapsed={sidebarCollapsed}
+          section={settingsSection}
+          error={error}
+          onBack={() => setSettingsOpen(false)}
+          onChangeSection={setSettingsSection}
+          onResizePointerDown={beginSidebarResize}
+        />
+      ) : (
+        <WorkspaceSidebar
+          busy={busy}
+          collapsed={sidebarCollapsed}
+          error={error}
+          openRegisteredWorkspaceMenuId={openRegisteredWorkspaceMenuId}
+          workspaceRegistry={workspaceRegistry}
+          selectedRunId={selectedRunId}
+          snapshot={snapshot}
+          onAddWorkspace={() => {
+            addWorkspace();
+          }}
+          onOpenWorkspace={(workspace) => {
+            openRegisteredWorkspace(workspace);
+          }}
+          onOpenWorkspaceInfo={setWorkspaceInfo}
+          onOpenResearchSession={(workspace, session) => {
+            openResearchSession(workspace, session);
+          }}
+          onRemoveWorkspace={removeRegisteredWorkspace}
+          onResizePointerDown={beginSidebarResize}
+          onSetOpenWorkspaceMenuId={setOpenWorkspaceMenuId}
+          onShowMoreSessions={setSessionHistoryWorkspaceId}
+          onSearch={openSearch}
+          onStartNewResearch={startNewResearch}
+        />
+      )}
 
       <main className="workbench" data-session-heat={sessionHeat}>
-        <div className="workspace-page">
-          <MainSessionWorkspace
+        {settingsOpen ? (
+          <SettingsView
+            section={settingsSection}
+            developerSettings={developerSettings}
+            memorySettings={memorySettings}
+            shellOptions={shellOptions}
             chatView={chatView}
-            detail={activeRunDetail}
-            events={mainSessionTraceEvents}
-            allEvents={activeTraceEvents}
-            providerModelCatalog={researchProviderModelCatalog}
-            honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
-            runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
-            scope={selectedRunId ? null : snapshot?.activeScope ?? null}
-            selectedRunId={selectedRunId}
-            researchDetailsOpen={rightSidenavExpanded}
-            selectedRunbookId={selectedRunbookId}
-            selectedRunbook={selectedRunbook}
-            selectedRunbookDocument={selectedRunbookDocument}
-            runbookLoading={runbookLoading}
-            runbookError={runbookError}
-            selectedSubagentPath={selectedSubagentPath}
-            selectedTraceEventId={selectedTraceEventId}
-            searchHighlightQuery={traceSearchHighlightQuery}
-            visibleTraceCategories={visibleTraceCategories}
+            workspaceName={snapshot?.activeScope.workspaceName ?? null}
+            openAiOAuthResult={openAiOAuthResult}
+            openAiStatus={snapshot?.openAi ?? openAiStatus}
+            researchProviderOAuthResults={researchProviderOAuthResults}
+            researchProviderStatuses={researchProviderStatuses}
             busy={busy}
-            memoryDreamingInProgress={memoryDreamingInProgress}
-            traceFilterCount={visibleTraceCategories.length}
-            totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
-            onOpenTraceFilters={openTraceFilters}
-            onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
-            onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
-            onRunMemoryDreaming={runMemoryDreaming}
-            onResearchDetailsOpenChange={setRightSidenavExpanded}
-            onOpenHoneycrispRunbook={openHoneycrispRunbook}
-            onBackToRunbooks={backToRunbooks}
-            onBackToSubagents={backToSubagents}
-            onSelectTraceEvent={selectTraceEvent}
-            onSelectSubagent={selectSubagent}
-            onSessionAction={handleSessionAction}
-            onSteerInstruction={handleSteerInstruction}
+            onSetDeveloperModeEnabled={setDeveloperModeEnabled}
+            onSaveMemoryTypeDescriptions={saveMemoryTypeDescriptions}
+            onChangeChatView={setChatView}
+            onSaveShellOptions={saveShellOptions}
+            onRefreshOpenAi={refreshOpenAiProvider}
+            onStartOpenAiOAuth={startOpenAiOAuth}
+            onStartResearchProviderOAuth={startResearchProviderOAuth}
           />
-        </div>
+        ) : (
+          <div className="workspace-page">
+            <MainSessionWorkspace
+              chatView={chatView}
+              detail={activeRunDetail}
+              events={mainSessionTraceEvents}
+              allEvents={activeTraceEvents}
+              providerModelCatalog={researchProviderModelCatalog}
+              honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
+              runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
+              scope={selectedRunId ? null : snapshot?.activeScope ?? null}
+              selectedRunId={selectedRunId}
+              researchDetailsOpen={rightSidenavExpanded}
+              selectedRunbookId={selectedRunbookId}
+              selectedRunbook={selectedRunbook}
+              selectedRunbookDocument={selectedRunbookDocument}
+              runbookLoading={runbookLoading}
+              runbookError={runbookError}
+              selectedSubagentPath={selectedSubagentPath}
+              selectedTraceEventId={selectedTraceEventId}
+              searchHighlightQuery={traceSearchHighlightQuery}
+              visibleTraceCategories={visibleTraceCategories}
+              busy={busy}
+              memoryDreamingInProgress={memoryDreamingInProgress}
+              traceFilterCount={visibleTraceCategories.length}
+              totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
+              onOpenTraceFilters={openTraceFilters}
+              onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
+              onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
+              onRunMemoryDreaming={runMemoryDreaming}
+              onResearchDetailsOpenChange={setRightSidenavExpanded}
+              onOpenHoneycrispRunbook={openHoneycrispRunbook}
+              onBackToRunbooks={backToRunbooks}
+              onBackToSubagents={backToSubagents}
+              onSelectTraceEvent={selectTraceEvent}
+              onSelectSubagent={selectSubagent}
+              onSessionAction={handleSessionAction}
+              onSteerInstruction={handleSteerInstruction}
+            />
+          </div>
+        )}
       </main>
-      <StatusBar
-        onOpenSettings={openSettings}
-      />
+      {!settingsOpen ? <StatusBar onOpenSettings={openSettings} /> : null}
       <NotificationStack
         notifications={snapshot?.notifications ?? []}
         alerts={workspaceAlerts}
@@ -774,14 +807,8 @@ export function App(): JSX.Element {
         activeRunDetail={activeRunDetail}
         activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
         busy={busy}
-        developerSettings={developerSettings}
-        memorySettings={memorySettings}
-        shellOptions={shellOptions}
-        chatView={chatView}
         newResearchOpen={newResearchOpen}
-        openAiOAuthResult={openAiOAuthResult}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
-        researchProviderOAuthResults={researchProviderOAuthResults}
         researchProviderModelCatalog={researchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}
@@ -799,8 +826,6 @@ export function App(): JSX.Element {
         selectedTraceEvent={selectedTraceEvent}
         sessionHistoryWorkspace={sessionHistoryWorkspace}
         sessionHistorySessions={sessionHistorySessions}
-        settingsOpen={settingsOpen}
-        settingsSection={settingsSection}
         snapshot={snapshot}
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
@@ -808,7 +833,6 @@ export function App(): JSX.Element {
         onCancelNewResearch={() => setNewResearchOpen(false)}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onChangeWorkspaceDraft={setWorkspaceDraft}
-        onChangeSettingsSection={setSettingsSection}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
         onCloseNotification={() => setActiveNotification(null)}
         onCloseProfiling={closeProfiling}
@@ -816,7 +840,6 @@ export function App(): JSX.Element {
         onCloseSessionSummary={() => setSessionSummaryDetail(null)}
         onCloseSearch={() => setSearchOpen(false)}
         onCloseSessionHistory={() => setSessionHistoryWorkspaceId(null)}
-        onCloseSettings={() => setSettingsOpen(false)}
         onCloseTraceDetail={closeTraceDetail}
         onCloseTraceFilters={() => setTraceFilterOpen(false)}
         onLookupHackerOne={lookupHackerOneScope}
@@ -825,14 +848,7 @@ export function App(): JSX.Element {
           setSessionHistoryWorkspaceId(null);
         }}
         onWorkspaceTemplate={applyOnboardingTemplate}
-        onRefreshOpenAi={refreshOpenAiProvider}
         onFlushProfilingReport={flushProfilingReport}
-        onSetDeveloperModeEnabled={setDeveloperModeEnabled}
-        onSaveMemoryTypeDescriptions={saveMemoryTypeDescriptions}
-        onChangeChatView={setChatView}
-        onSaveShellOptions={saveShellOptions}
-        onStartOpenAiOAuth={startOpenAiOAuth}
-        onStartResearchProviderOAuth={startResearchProviderOAuth}
         onRetryResearchGoalSuggestions={researchGoalSuggestionState.retry}
         onStartedNewResearch={handleResearchStarted}
         onOpenSearchResult={openSearchResult}

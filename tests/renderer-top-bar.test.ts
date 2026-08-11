@@ -34,12 +34,20 @@ describe('renderer top bar', () => {
     expect(expanded).toContain('aria-pressed="true"');
     expect(expanded).toContain('lucide-panel-right-close');
   });
+
+  it('hides workspace and session identity while the contextual title is disabled', () => {
+    const html = renderTopBar('win32', false, false, false);
+
+    expect(html).not.toContain('class="app-header-title"');
+    expect(html).not.toContain('Security');
+  });
 });
 
 function renderTopBar(
   platform: HostEnvironment['platform'],
   rightSidenavAvailable = false,
-  rightSidenavExpanded = false
+  rightSidenavExpanded = false,
+  contextualTitleVisible = true
 ): string {
   return renderToStaticMarkup(createElement(TopBar, {
     sidebarCollapsed: false,
@@ -49,6 +57,7 @@ function renderTopBar(
     activeRunDetail: null,
     rightSidenavAvailable,
     rightSidenavExpanded,
+    contextualTitleVisible,
     profilingEnabled: false,
     onOpenSessionSummary: () => undefined,
     onOpenWorkspaceInfo: () => undefined,

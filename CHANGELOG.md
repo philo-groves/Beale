@@ -35,6 +35,7 @@
 
 ### Changed
 
+- Settings now replace the workspace sidebar and main workbench with section navigation and the active settings page, with a Back to App action and hidden workspace/session header identity.
 - Returned Honeycrisp memory creation, correction, and relationship controls to root agents and subagents so durable persistence is decided by the active model with full research context.
 - Replaced the New Research network-profile selector with the same Manual Approval, Auto-Review, and Danger Mode shell-safety choices used by session steering. Auto-Review remains the default, while a session's network boundary now comes only from its recorded workspace scope.
 - Discovery, Chaining, and Reporting goal suggestions now load through independent concurrent model requests with per-section caching, errors, and retry, so one failed phase does not hide successful suggestions from the others.

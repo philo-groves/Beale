@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { DEFAULT_RESEARCH_MODEL } from '../../../shared/modelDefaults';
-import { BrainCircuit, Bug, KeyRound, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, Bug, KeyRound, Plus, RefreshCw, RotateCcw, Terminal, Trash2 } from 'lucide-react';
 import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, MEMORY_NODE_TYPES } from '../../../shared/types';
 import type {
   DeveloperSettings,
@@ -15,14 +16,54 @@ import type {
   ResearchProviderStatus,
   ShellOptions
 } from '@shared/types';
-import { BottomSheet } from '../../app/Modal';
 import { StatusPill } from '../../app/StatusPill';
 import { stateClass } from '../../lib/formatting';
 import type { ChatView } from '../../view-models/chatView';
 
 export type SettingsSection = 'general' | 'providers' | 'memory' | 'shell' | 'developer';
 
-export function SettingsModal({
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'memory', 'shell', 'developer'];
+
+export function SettingsSidebar({
+  collapsed,
+  section,
+  error,
+  onBack,
+  onChangeSection,
+  onResizePointerDown
+}: {
+  collapsed: boolean;
+  section: SettingsSection;
+  error: string | null;
+  onBack: () => void;
+  onChangeSection: (section: SettingsSection) => void;
+  onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}): JSX.Element {
+  const activeSection = activeSettingsSection(section);
+
+  return (
+    <aside className="sidebar settings-sidebar" aria-hidden={collapsed} inert={collapsed}>
+      <button type="button" className="sidebar-new-research settings-back-button" onClick={onBack}>
+        <ArrowLeft size={15} />
+        <span>Back to App</span>
+      </button>
+      <div className="sidebar-section settings-sidebar-section">
+        <div className="meta-label">Settings</div>
+        <nav className="settings-sections" aria-label="Settings sections">
+          {SETTINGS_SECTIONS.map((item) => (
+            <button type="button" className={activeSection === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
+              {settingsSectionLabel(item)}
+            </button>
+          ))}
+        </nav>
+      </div>
+      {error ? <div className="error-box">{error}</div> : null}
+      <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={onResizePointerDown} />
+    </aside>
+  );
+}
+
+export function SettingsView({
   section,
   developerSettings,
   memorySettings,
@@ -34,8 +75,6 @@ export function SettingsModal({
   researchProviderOAuthResults,
   researchProviderStatuses,
   busy,
-  onChangeSection,
-  onClose,
   onSetDeveloperModeEnabled,
   onSaveMemoryTypeDescriptions,
   onChangeChatView,
@@ -55,8 +94,6 @@ export function SettingsModal({
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
   researchProviderStatuses: ResearchProviderStatus[];
   busy: boolean;
-  onChangeSection: (section: SettingsSection) => void;
-  onClose: () => void;
   onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onSaveMemoryTypeDescriptions: (descriptions: MemoryTypeDescriptions) => Promise<void>;
   onChangeChatView: (chatView: ChatView) => void;
@@ -65,48 +102,38 @@ export function SettingsModal({
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
 }): JSX.Element {
-  const sections: SettingsSection[] = ['general', 'providers', 'memory', 'shell', 'developer'];
-  const activeSection = sections.includes(section) ? section : 'general';
+  const activeSection = activeSettingsSection(section);
 
   return (
-    <BottomSheet
-      title="Settings"
-      wide
-      onClose={onClose}
-    >
-      <div className="settings-layout">
-        <nav className="settings-sections" aria-label="Settings sections">
-          {sections.map((item) => (
-            <button type="button" className={activeSection === item ? 'active' : ''} key={item} onClick={() => onChangeSection(item)}>
-              {settingsSectionLabel(item)}
-            </button>
-          ))}
-        </nav>
-        <section className="settings-view">
-          {activeSection === 'general' ? (
-            <GeneralSettingsView chatView={chatView} workspaceName={workspaceName} onChangeChatView={onChangeChatView} />
-          ) : activeSection === 'providers' ? (
-            <ProvidersSettingsView
-              busy={busy}
-              openAiOAuthResult={openAiOAuthResult}
-              openAiStatus={openAiStatus}
-              researchProviderOAuthResults={researchProviderOAuthResults}
-              researchProviderStatuses={researchProviderStatuses}
-              onRefreshOpenAi={onRefreshOpenAi}
-              onStartOpenAiOAuth={onStartOpenAiOAuth}
-              onStartResearchProviderOAuth={onStartResearchProviderOAuth}
-            />
-          ) : activeSection === 'memory' ? (
-            <MemorySettingsView busy={busy} settings={memorySettings} onSave={onSaveMemoryTypeDescriptions} />
-          ) : activeSection === 'shell' ? (
-            <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
-          ) : (
-            <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
-          )}
-        </section>
-      </div>
-    </BottomSheet>
+    <div className="settings-workspace">
+      <section className="settings-view settings-main-view" aria-label={`${settingsSectionLabel(activeSection)} settings`}>
+        {activeSection === 'general' ? (
+          <GeneralSettingsView chatView={chatView} workspaceName={workspaceName} onChangeChatView={onChangeChatView} />
+        ) : activeSection === 'providers' ? (
+          <ProvidersSettingsView
+            busy={busy}
+            openAiOAuthResult={openAiOAuthResult}
+            openAiStatus={openAiStatus}
+            researchProviderOAuthResults={researchProviderOAuthResults}
+            researchProviderStatuses={researchProviderStatuses}
+            onRefreshOpenAi={onRefreshOpenAi}
+            onStartOpenAiOAuth={onStartOpenAiOAuth}
+            onStartResearchProviderOAuth={onStartResearchProviderOAuth}
+          />
+        ) : activeSection === 'memory' ? (
+          <MemorySettingsView busy={busy} settings={memorySettings} onSave={onSaveMemoryTypeDescriptions} />
+        ) : activeSection === 'shell' ? (
+          <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
+        ) : (
+          <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
+        )}
+      </section>
+    </div>
   );
+}
+
+function activeSettingsSection(section: SettingsSection): SettingsSection {
+  return SETTINGS_SECTIONS.includes(section) ? section : 'general';
 }
 
 export function MemorySettingsView({

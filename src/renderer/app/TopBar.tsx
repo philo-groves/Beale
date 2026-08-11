@@ -12,6 +12,7 @@ export const TopBar = memo(function TopBar({
   sidebarCollapsed,
   rightSidenavAvailable,
   rightSidenavExpanded,
+  contextualTitleVisible,
   platform,
   workspaceName,
   activeWorkspace,
@@ -27,6 +28,7 @@ export const TopBar = memo(function TopBar({
   sidebarCollapsed: boolean;
   rightSidenavAvailable: boolean;
   rightSidenavExpanded: boolean;
+  contextualTitleVisible: boolean;
   platform: HostEnvironment['platform'];
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
@@ -244,13 +246,15 @@ export const TopBar = memo(function TopBar({
         </div>
         </> : null}
       </nav>
-      <AppHeaderTitle
-        workspaceName={workspaceName}
-        activeWorkspace={activeWorkspace}
-        detail={activeRunDetail}
-        onOpenWorkspaceInfo={onOpenWorkspaceInfo}
-        onOpenSessionSummary={onOpenSessionSummary}
-      />
+      {contextualTitleVisible ? (
+        <AppHeaderTitle
+          workspaceName={workspaceName}
+          activeWorkspace={activeWorkspace}
+          detail={activeRunDetail}
+          onOpenWorkspaceInfo={onOpenWorkspaceInfo}
+          onOpenSessionSummary={onOpenSessionSummary}
+        />
+      ) : null}
       {profilingEnabled || rightSidenavAvailable || !isMac ? (
         <div className="window-controls" aria-label="Header controls">
           {profilingEnabled ? (

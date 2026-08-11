@@ -1,14 +1,7 @@
 import type { JSX } from 'react';
 import type {
-  DeveloperSettings,
-  MemorySettings,
-  MemoryTypeDescriptions,
-  ShellOptions,
   NotificationRecord,
   OpenAiAccountStatus,
-  OpenAiOAuthStartResult,
-  ResearchProviderId,
-  ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
   ResearchGoalPhase,
@@ -24,7 +17,6 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import type { TraceCategoryId } from '../traceClassification';
-import type { ChatView } from '../view-models/chatView';
 import { NotificationDetailModal } from '../features/notifications/Notifications';
 import { WorkspaceInformationModal, WorkspaceSessionHistorySheet } from '../features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboardingModal';
@@ -32,7 +24,6 @@ import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
-import { SettingsModal, type SettingsSection } from '../features/settings/SettingsModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
 import type { TraceDisplayEvent } from '../view-models/traceDisplay';
@@ -43,14 +34,8 @@ export function AppModals({
   activeRunDetail,
   activeWorkspaceName,
   busy,
-  developerSettings,
-  memorySettings,
-  shellOptions,
-  chatView,
   newResearchOpen,
-  openAiOAuthResult,
   openAiStatus,
-  researchProviderOAuthResults,
   researchProviderModelCatalog,
   researchProviderStatuses,
   researchGoalSuggestions,
@@ -68,8 +53,6 @@ export function AppModals({
   selectedTraceEvent,
   sessionHistoryWorkspace,
   sessionHistorySessions,
-  settingsOpen,
-  settingsSection,
   snapshot,
   traceDetailOpen,
   traceFilterOpen,
@@ -77,7 +60,6 @@ export function AppModals({
   onCancelNewResearch,
   onCancelWorkspaceOnboarding,
   onChangeWorkspaceDraft,
-  onChangeSettingsSection,
   onChangeVisibleTraceCategories,
   onCloseNotification,
   onCloseProfiling,
@@ -85,20 +67,12 @@ export function AppModals({
   onCloseSessionSummary,
   onCloseSearch,
   onCloseSessionHistory,
-  onCloseSettings,
   onCloseTraceDetail,
   onCloseTraceFilters,
   onLookupHackerOne,
   onOpenSessionHistorySession,
   onWorkspaceTemplate,
-  onRefreshOpenAi,
   onFlushProfilingReport,
-  onSetDeveloperModeEnabled,
-  onSaveMemoryTypeDescriptions,
-  onChangeChatView,
-  onSaveShellOptions,
-  onStartOpenAiOAuth,
-  onStartResearchProviderOAuth,
   onRetryResearchGoalSuggestions,
   onStartedNewResearch,
   onSteerNotification,
@@ -111,14 +85,8 @@ export function AppModals({
   activeRunDetail: RunDetail | null;
   activeWorkspaceName: string;
   busy: boolean;
-  developerSettings: DeveloperSettings | null;
-  memorySettings: MemorySettings | null;
-  shellOptions: ShellOptions | null;
-  chatView: ChatView;
   newResearchOpen: boolean;
-  openAiOAuthResult: OpenAiOAuthStartResult | null;
   openAiStatus: OpenAiAccountStatus | null;
-  researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
@@ -136,8 +104,6 @@ export function AppModals({
   selectedTraceEvent: TraceDisplayEvent | null;
   sessionHistoryWorkspace: WorkspaceRegistryEntry | null;
   sessionHistorySessions: ResearchSessionSummary[];
-  settingsOpen: boolean;
-  settingsSection: SettingsSection;
   snapshot: WorkspaceSnapshot | null;
   traceDetailOpen: boolean;
   traceFilterOpen: boolean;
@@ -145,7 +111,6 @@ export function AppModals({
   onCancelNewResearch: () => void;
   onCancelWorkspaceOnboarding: () => void;
   onChangeWorkspaceDraft: (next: WorkspaceOnboardingFormState) => void;
-  onChangeSettingsSection: (section: SettingsSection) => void;
   onChangeVisibleTraceCategories: (categories: TraceCategoryId[]) => void;
   onCloseNotification: () => void;
   onCloseProfiling: () => void;
@@ -153,20 +118,12 @@ export function AppModals({
   onCloseSessionSummary: () => void;
   onCloseSearch: () => void;
   onCloseSessionHistory: () => void;
-  onCloseSettings: () => void;
   onCloseTraceDetail: () => void;
   onCloseTraceFilters: () => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
   onOpenSessionHistorySession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
   onWorkspaceTemplate: (templateKind: WorkspaceTemplateKind) => void;
-  onRefreshOpenAi: () => Promise<void>;
   onFlushProfilingReport: () => void;
-  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-  onSaveMemoryTypeDescriptions: (descriptions: MemoryTypeDescriptions) => Promise<void>;
-  onChangeChatView: (chatView: ChatView) => void;
-  onSaveShellOptions: (options: ShellOptions) => Promise<void>;
-  onStartOpenAiOAuth: () => Promise<void>;
-  onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStartedNewResearch: (runId: string) => void;
   onSteerNotification: (notification: NotificationRecord, instruction: string) => void;
@@ -204,30 +161,6 @@ export function AppModals({
           onCancel={onCancelNewResearch}
           onRetryResearchGoalSuggestions={onRetryResearchGoalSuggestions}
           onStarted={onStartedNewResearch}
-        />
-      ) : null}
-      {settingsOpen ? (
-        <SettingsModal
-          section={settingsSection}
-          developerSettings={developerSettings}
-          memorySettings={memorySettings}
-          shellOptions={shellOptions}
-          chatView={chatView}
-          workspaceName={activeWorkspaceName}
-          openAiOAuthResult={openAiOAuthResult}
-          openAiStatus={openAiStatus}
-          researchProviderOAuthResults={researchProviderOAuthResults}
-          researchProviderStatuses={researchProviderStatuses}
-          busy={busy}
-          onChangeSection={onChangeSettingsSection}
-          onClose={onCloseSettings}
-          onSetDeveloperModeEnabled={onSetDeveloperModeEnabled}
-          onSaveMemoryTypeDescriptions={onSaveMemoryTypeDescriptions}
-          onChangeChatView={onChangeChatView}
-          onSaveShellOptions={onSaveShellOptions}
-          onRefreshOpenAi={onRefreshOpenAi}
-          onStartOpenAiOAuth={onStartOpenAiOAuth}
-          onStartResearchProviderOAuth={onStartResearchProviderOAuth}
         />
       ) : null}
       {profilingOpen ? (
