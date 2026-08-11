@@ -50,9 +50,6 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 Files');
     expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a Command');
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 Commands');
-    expect(commentaryToolUsageText('memory.request', 1)).toBe('Requesting a Memory');
-    expect(commentaryToolUsageText('memory.request', 3)).toBe('Requesting 3 Memories');
-    expect(commentaryToolUsageText('memory.curator', 1)).toBe('Curating Memory');
     expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using Snapshot');
     expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using Custom Scan 2 Times');
   });
@@ -124,56 +121,6 @@ describe('renderer commentary projection', () => {
         output: { matches: 2 }
       }
     ]);
-  });
-
-  it('renders memory requests but hides background curator activity', () => {
-    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
-      toolEvent(
-        'memory-request',
-        'tool.requested',
-        'memory.request',
-        'memory-request',
-        {
-          intent: 'create',
-          reason: 'The primitive is missing.',
-          candidate: { type: 'primitive', title: 'Unchecked parser length', claim: 'The length is unchecked.' }
-        }
-      ),
-      toolEvent(
-        'memory-curator-request',
-        'tool.requested',
-        'memory.curator',
-        'memory-curator',
-        { kind: 'turn', agentPath: '/root', turn: 3 }
-      ),
-      toolEvent(
-        'memory-curator-result',
-        'tool.observed',
-        'memory.curator',
-        'memory-curator',
-        { kind: 'turn', agentPath: '/root', turn: 3 },
-        { changes: [] }
-      )
-    ]);
-    const request = messages.find((message) => message.toolName === 'memory.request');
-
-    expect(request).toMatchObject({
-      kind: 'tool',
-      contentMarkdown: 'Requesting a Memory',
-      toolCount: 1
-    });
-    expect(request?.toolCalls?.[0]).toMatchObject({
-      label: 'Unchecked parser length',
-      input: {
-        intent: 'create',
-        reason: 'The primitive is missing.',
-        candidate: { type: 'primitive', title: 'Unchecked parser length', claim: 'The length is unchecked.' }
-      },
-      output: 'Waiting for output.'
-    });
-    expect(messages.some((message) => message.toolName === 'memory.curator')).toBe(false);
-    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'memory.request')!)).toContain('lucide-database');
-    expect(renderToStaticMarkup(commentaryMessageIcon('tool', 'memory.curator')!)).toContain('lucide-database');
   });
 
   it('formats tool input and output values for expanded details', () => {

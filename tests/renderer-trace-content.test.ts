@@ -57,12 +57,6 @@ describe('renderer trace content view models', () => {
       traceEventSummary(traceEvent({ type: 'tool_result', summary: 'Honeycrisp tool.observed: memory.correct', payload: { payload: { toolName: 'memory.correct' } } }), 'tools')
     ).toBe('Memory Correction');
     expect(
-      traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: memory.request', payload: { payload: { toolName: 'memory.request' } } }), 'tools')
-    ).toBe('Requesting a Memory');
-    expect(
-      traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: memory.curator', payload: { payload: { toolName: 'memory.curator' } } }), 'tools')
-    ).toBe('Curating Memory');
-    expect(
       traceEventSummary(traceEvent({ type: 'tool_call', summary: 'Honeycrisp tool.requested: runbook.create', payload: { payload: { toolName: 'runbook.create' } } }), 'tools')
     ).toBe('Runbook Creation Requested');
     expect(
@@ -260,11 +254,6 @@ describe('renderer trace content view models', () => {
     const memoryId = 'trajectory_0123456789abcdefabcd';
     const linkedMemoryId = 'primitive_0123456789abcdefabcd';
     const memorySearch = honeycrispToolRequest('memory.search', { query: 'ZFTP length boundary' });
-    const memoryRequest = honeycrispToolRequest('memory.request', {
-      intent: 'create',
-      reason: 'The primitive is missing.',
-      candidate: { type: 'primitive', title: 'Unchecked ZFTP length', claim: 'The length is unchecked.' }
-    });
     const memoryGet = honeycrispToolRequest('memory.get', { id: memoryId });
     const memoryLink = honeycrispToolRequest('memory.link', {
       fromId: memoryId,
@@ -288,7 +277,6 @@ describe('renderer trace content view models', () => {
     });
 
     expect(traceEventDetailText(memorySearch, 'non_standard')).toBe('ZFTP length boundary');
-    expect(traceEventDetailText(memoryRequest, 'non_standard')).toBe('Unchecked ZFTP length');
     expect(traceEventDetailText(memoryGet, 'non_standard', detail)).toBe(`Trajectory · ${memoryId}`);
     expect(honeycrispToolTraceSubtext(memoryLink)).toBe(`${memoryId} → supports → ${linkedMemoryId}`);
     expect(honeycrispMemoryLinkNote(memoryLink)).toBe('The trajectory repeatedly reaches this primitive.');

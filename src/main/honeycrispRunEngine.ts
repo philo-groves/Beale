@@ -23,7 +23,6 @@ import type {
 } from '@shared/types';
 import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import {
-  MEMORY_CURATOR_REASONING_EFFORT,
   SESSION_TITLE_REASONING_EFFORT,
   SHELL_SAFETY_REVIEW_REASONING_EFFORT,
   SMALL_MODEL_BY_PROVIDER,
@@ -1160,28 +1159,6 @@ export class HoneycrispRunEngine {
         this.recordAgentResearchControl(context, event);
         return;
       }
-      if (eventType === 'memory_curator.completed') {
-        const reportedUsage = normalizeTokenUsage(recordValue(event.payload?.usage) ?? {});
-        const usage = reportedUsage ? reportedHoneycrispTraceUsage(reportedUsage) : null;
-        this.db.appendTraceEvent({
-          runId: context.run.id,
-          attemptId: context.attempt.id,
-          type: 'model_message',
-          source: 'executor',
-          summary: 'Honeycrisp memory curator completed turn processing.',
-          payload: {
-            honeycrispLiveKind: event.kind,
-            honeycrispTimestamp: event.timestamp ?? null,
-            ...(event.payload ?? {}),
-            contextUsageEligible: false,
-            ...(usage ? { usage } : {})
-          },
-          vmContextId: context.vmContext.id,
-          modelVisible: false
-        });
-        this.onChange();
-        return;
-      }
       if (eventType !== 'turn_completed') return;
       const turn = numberPayload(event.payload ?? {}, 'turn');
       const agentPath = stringPayload(event.payload ?? {}, 'agentPath');
@@ -2260,8 +2237,6 @@ function honeycrispRunArgs(
   args.push('--shell-safety-mode', input.shellSafetyMode);
   args.push('--shell-review-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
   args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
-  args.push('--memory-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
-  args.push('--memory-effort', MEMORY_CURATOR_REASONING_EFFORT);
   if (memoryTypeDescriptions) {
     args.push('--memory-type-descriptions', JSON.stringify(memoryTypeDescriptions));
   }

@@ -761,9 +761,6 @@ describe('Beale workbench skeleton', () => {
         "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
         "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4.3') throw new Error('missing provider small-model map');",
         "if (args[args.indexOf('--shell-review-effort') + 1] !== 'medium') throw new Error('missing shell review effort');",
-        "const memoryModels = JSON.parse(args[args.indexOf('--memory-models') + 1]);",
-        "if (memoryModels['openai-codex'] !== 'gpt-5.6-luna' || memoryModels.anthropic !== 'claude-haiku-4-5' || memoryModels.xai !== 'grok-4.3') throw new Error('missing memory small-model map');",
-        "if (args[args.indexOf('--memory-effort') + 1] !== 'medium') throw new Error('missing memory effort');",
         "const memoryTypeDescriptions = JSON.parse(args[args.indexOf('--memory-type-descriptions') + 1]);",
         "if (memoryTypeDescriptions.primitive !== 'CUSTOM TEST TAXONOMY: one independently proven root-cause flaw.') throw new Error('missing memory type descriptions');",
         "mkdirSync(dirname(capturePath), { recursive: true });",
@@ -888,12 +885,8 @@ describe('Beale workbench skeleton', () => {
       xai: 'grok-4.3'
     });
     expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
-    expect(JSON.parse(launchArgs[launchArgs.indexOf('--memory-models') + 1] ?? '{}')).toEqual({
-      'openai-codex': 'gpt-5.6-luna',
-      anthropic: 'claude-haiku-4-5',
-      xai: 'grok-4.3'
-    });
-    expect(launchArgs[launchArgs.indexOf('--memory-effort') + 1]).toBe('medium');
+    expect(launchArgs).not.toContain('--memory-models');
+    expect(launchArgs).not.toContain('--memory-effort');
     expect(launchArgs[launchArgs.indexOf('--memory-type-descriptions') + 1]).toBe('[configured]');
     expect(detail.run.title).toBe('Zsh Host Adapter Validation');
     expect(detail.run.finalDisposition).toEqual({
@@ -1867,12 +1860,10 @@ describe('Beale workbench skeleton', () => {
         "const resumeFallbackPrompt = args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null;",
         "const goalObjective = args.includes('--goal-objective') ? args[args.indexOf('--goal-objective') + 1] : null;",
         "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
-        "const memoryModels = args.includes('--memory-models') ? JSON.parse(args[args.indexOf('--memory-models') + 1]) : null;",
-        "const memoryEffort = args.includes('--memory-effort') ? args[args.indexOf('--memory-effort') + 1] : null;",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, memoryModels, memoryEffort, turn }) + '\\n');",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, turn }) + '\\n');",
         'const now = new Date().toISOString();',
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', messagePhase: 'commentary', responseId: `response_${turn}`, itemId: `commentary_${turn}`, text: `Retained commentary from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
@@ -1923,8 +1914,6 @@ describe('Beale workbench skeleton', () => {
           resumeFallbackPrompt: string | null;
           goalObjective: string | null;
           titleModel: string | null;
-          memoryModels: Record<string, string> | null;
-          memoryEffort: string | null;
           turn: number;
         });
       expect(detail.run.id).toBe(runId);
@@ -1936,11 +1925,6 @@ describe('Beale workbench skeleton', () => {
       );
       expect(invocations).toHaveLength(2);
       expect(invocations.map((invocation) => invocation.titleModel)).toEqual(['gpt-5.6-luna', null]);
-      expect(invocations.map((invocation) => invocation.memoryModels)).toEqual([
-        { 'openai-codex': 'gpt-5.6-luna', anthropic: 'claude-haiku-4-5', xai: 'grok-4.3' },
-        { 'openai-codex': 'gpt-5.6-luna', anthropic: 'claude-haiku-4-5', xai: 'grok-4.3' }
-      ]);
-      expect(invocations.map((invocation) => invocation.memoryEffort)).toEqual(['medium', 'medium']);
       expect(invocations.map((invocation) => invocation.sessionId)).toEqual([runId, runId]);
       expect(invocations.map((invocation) => invocation.goalObjective)).toEqual([
         'Determine whether ZFTP contains a reachable memory-safety vulnerability.',
@@ -2035,7 +2019,6 @@ describe('Beale workbench skeleton', () => {
         '  eventTimeline: []',
         "}, null, 2) + '\\n');",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload: { type: 'turn_completed', turn: 1, responseId: 'response_fixture', stopReason: 'stop', usage: { input: 123, output: 45, totalTokens: 168 } } }));",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'agent.event', timestamp: new Date().toISOString(), payload: { type: 'memory_curator.completed', agentId: 'memory_curator', agentPath: '/memory-curator', contextUsageEligible: false, usage: { input: 12, output: 3, cacheRead: 8, totalTokens: 23 } } }));",
         "console.log('node cli fixture stdout');"
       ].join('\n')
     );
@@ -2144,22 +2127,6 @@ describe('Beale workbench skeleton', () => {
       output_tokens: 45,
       total_tokens: 168,
       estimated: false
-    });
-    expect(detail.traceEvents.find(
-      (event) => event.summary === 'Honeycrisp memory curator completed turn processing.'
-    )?.payload).toMatchObject({
-      type: 'memory_curator.completed',
-      agentId: 'memory_curator',
-      agentPath: '/memory-curator',
-      contextUsageEligible: false,
-      usage: {
-        input_tokens: 12,
-        prompt_tokens: 20,
-        output_tokens: 3,
-        total_tokens: 23,
-        cache_read_tokens: 8,
-        estimated: false
-      }
     });
     expect(detail.transcriptMessages.some((message) => message.source === 'honeycrisp' && message.contentMarkdown.includes('Node CLI fixture done.'))).toBe(true);
     expect(detail.run.budget.goalEnabled).toBe(true);

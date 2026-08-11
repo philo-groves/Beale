@@ -181,8 +181,6 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
 }
 
 const LIFECYCLE_TOOL_NAMES = new Set(['spawn_agent', 'send_message', 'followup_task', 'interrupt_agent']);
-const COMMENTARY_HIDDEN_TOOL_NAMES = new Set(['memory.curator']);
-
 function toolUsageMessage(
   event: TraceDisplayEvent,
   toolCallsByPrimaryEventId: ReadonlyMap<string, CommentaryToolCall>
@@ -190,7 +188,7 @@ function toolUsageMessage(
   const toolCall = toolCallsByPrimaryEventId.get(event.id);
   if (!toolCall) return null;
   const toolName = honeycrispToolName(event);
-  if (!toolName || LIFECYCLE_TOOL_NAMES.has(toolName) || COMMENTARY_HIDDEN_TOOL_NAMES.has(toolName)) return null;
+  if (!toolName || LIFECYCLE_TOOL_NAMES.has(toolName)) return null;
   return {
     id: `tool:${event.id}`,
     traceEventId: toolCall.traceEventId,
@@ -311,10 +309,8 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'list_agents': { singular: 'Checking Subagents', plural: (count) => `Checking Subagents ${count} Times` },
   'local.inspection': { singular: 'Inspecting the Target', plural: (count) => `Inspecting the Target ${count} Times` },
   'memory.correct': { singular: 'Correcting a Memory', plural: (count) => `Correcting ${count} Memories` },
-  'memory.curator': { singular: 'Curating Memory', plural: (count) => `Curating Memory for ${count} Turns` },
   'memory.get': { singular: 'Reading a Memory', plural: (count) => `Reading ${count} Memories` },
   'memory.link': { singular: 'Linking Memories', plural: (count) => `Linking Memories ${count} Times` },
-  'memory.request': { singular: 'Requesting a Memory', plural: (count) => `Requesting ${count} Memories` },
   'memory.save': { singular: 'Saving a Memory', plural: (count) => `Saving ${count} Memories` },
   'memory.search': { singular: 'Searching Memory', plural: (count) => `Running ${count} Memory Searches` },
   'repository.search': { singular: 'Searching the Repository', plural: (count) => `Running ${count} Repository Searches` },

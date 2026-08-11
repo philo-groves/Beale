@@ -171,7 +171,7 @@ describe('renderer session usage view models', () => {
     expect(visibleCacheHitRateLabel(meter)).toBe('70%');
   });
 
-  it('counts memory-curator usage without replacing the root context reading', () => {
+  it('counts non-context model usage without replacing the root context reading', () => {
     const meter = contextMeterForDetail(
       runDetail({
         traceEvents: [
@@ -187,11 +187,11 @@ describe('renderer session usage view models', () => {
             }
           }),
           traceEvent({
-            id: 'trace_curator',
+            id: 'trace_auxiliary',
             sequence: 2,
             createdAt: '2026-04-29T00:01:00.000Z',
             payload: {
-              agentPath: '/memory-curator',
+              agentPath: '/auxiliary-model',
               contextUsageEligible: false,
               usage: {
                 input: 100,
@@ -202,7 +202,7 @@ describe('renderer session usage view models', () => {
             }
           }),
           traceEvent({
-            id: 'trace_nested_curator',
+            id: 'trace_nested_auxiliary',
             sequence: 3,
             createdAt: '2026-04-29T00:02:00.000Z',
             payload: {

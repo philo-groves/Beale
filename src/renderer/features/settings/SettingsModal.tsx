@@ -134,7 +134,7 @@ export function MemorySettingsView({
       <div className="settings-page-header">
         <div>
           <h3>Memory</h3>
-          <p>These definitions are the shared taxonomy used by the research agent and background curator.</p>
+          <p>These definitions are the shared taxonomy used by research agents and Memory Dreaming.</p>
         </div>
         <div className="memory-settings-actions">
           <button
