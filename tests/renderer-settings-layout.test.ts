@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { SettingsSidebar, SettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { SettingsSidebar, SettingsView, type SettingsSection } from '../src/renderer/features/settings/SettingsModal';
 
 describe('renderer settings layout', () => {
   it('replaces workspace navigation with a Back to App action and settings sections', () => {
@@ -23,30 +23,42 @@ describe('renderer settings layout', () => {
   });
 
   it('renders the active settings section as workbench content instead of a bottom sheet', () => {
-    const html = renderToStaticMarkup(createElement(SettingsView, {
-      section: 'general',
-      developerSettings: null,
-      researchProfile: null,
-      shellOptions: null,
-      chatView: 'commentary',
-      workspaceName: 'Security',
-      openAiStatus: null,
-      openAiOAuthResult: null,
-      researchProviderOAuthResults: {},
-      researchProviderStatuses: [],
-      busy: false,
-      onSetDeveloperModeEnabled: async () => undefined,
-      onChangeChatView: () => undefined,
-      onSaveShellOptions: async () => undefined,
-      onRefreshOpenAi: async () => undefined,
-      onStartOpenAiOAuth: async () => undefined,
-      onStartResearchProviderOAuth: async () => undefined
-    }));
+    const html = renderSettingsView('general');
 
     expect(html).toContain('class="settings-workspace"');
     expect(html).toContain('aria-label="General settings"');
-    expect(html).toContain('<h3>General</h3>');
+    expect(html).not.toContain('<h3>');
+    expect(html).toContain('<legend>Chat View</legend>');
     expect(html).not.toContain('bottom-sheet');
     expect(html).not.toContain('role="dialog"');
   });
+
+  it.each<SettingsSection>(['general', 'providers', 'memory', 'shell', 'developer'])(
+    'omits the redundant %s section heading from the main content',
+    (section) => {
+      expect(renderSettingsView(section)).not.toContain('<h3>');
+    }
+  );
 });
+
+function renderSettingsView(section: SettingsSection): string {
+  return renderToStaticMarkup(createElement(SettingsView, {
+    section,
+    developerSettings: null,
+    researchProfile: null,
+    shellOptions: null,
+    chatView: 'commentary',
+    workspaceName: 'Security',
+    openAiStatus: null,
+    openAiOAuthResult: null,
+    researchProviderOAuthResults: {},
+    researchProviderStatuses: [],
+    busy: false,
+    onSetDeveloperModeEnabled: async () => undefined,
+    onChangeChatView: () => undefined,
+    onSaveShellOptions: async () => undefined,
+    onRefreshOpenAi: async () => undefined,
+    onStartOpenAiOAuth: async () => undefined,
+    onStartResearchProviderOAuth: async () => undefined
+  }));
+}

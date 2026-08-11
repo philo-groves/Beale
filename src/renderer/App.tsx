@@ -32,7 +32,7 @@ import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
 import { pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
-import { SettingsSidebar, SettingsView, type SettingsSection } from './features/settings/SettingsModal';
+import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { ALL_TRACE_CATEGORY_IDS, DEFAULT_TRACE_CATEGORY_IDS } from './features/traces/traceVisuals';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
@@ -661,6 +661,7 @@ export function App(): JSX.Element {
         rightSidenavAvailable={!settingsOpen && researchDetailsAvailable}
         rightSidenavExpanded={rightSidenavExpanded && researchDetailsAvailable}
         contextualTitleVisible={!settingsOpen}
+        staticContextTitle={settingsOpen ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection) } : null}
         platform={windowControlPlatform}
         workspaceName={currentWorkspaceName}
         activeWorkspace={activeWorkspaceEntry}

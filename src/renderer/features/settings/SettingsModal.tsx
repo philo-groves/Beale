@@ -144,12 +144,7 @@ export function MemorySettingsView({
 
   return (
     <div className="settings-page memory-settings-page">
-      <div className="settings-page-header">
-        <div>
-          <h3>Memory</h3>
-          <p>The active research profile is the exact taxonomy used by research agents and Memory Dreaming.</p>
-        </div>
-      </div>
+      <p className="settings-page-intro">The active research profile is the exact taxonomy used by research agents and Memory Dreaming.</p>
       <section className="provider-card memory-type-descriptions-card">
         <div className="provider-heading">
           <div className="status-icon"><BrainCircuit size={18} /></div>
@@ -213,8 +208,7 @@ function ShellOptionsView({
 
   return (
     <div className="settings-page shell-options-page">
-      <div className="settings-page-header">
-        <h3>Shell Options</h3>
+      <div className="settings-page-actions">
         <button type="button" className="primary-button" disabled={busy || !options} onClick={() => void onSave(draft)}>
           Save Changes
         </button>
@@ -299,9 +293,6 @@ export function GeneralSettingsView({
 }): JSX.Element {
   return (
     <div className="settings-page general-settings-page">
-      <div className="settings-page-header">
-        <h3>General</h3>
-      </div>
       <fieldset className="provider-card chat-view-settings">
         <legend>Chat View</legend>
         <p>Choose how Beale presents agent activity in research sessions.</p>
@@ -358,9 +349,6 @@ function DeveloperSettingsView({
   const enabled = developerSettings?.developerModeEnabled ?? false;
   return (
     <div className="settings-page developer-settings-page">
-      <div className="settings-page-header">
-        <h3>Developer</h3>
-      </div>
       <section className={`provider-card readiness-${enabled ? 'enabled' : 'disabled'}`}>
         <div className="provider-heading">
           <div className="status-icon">
@@ -415,8 +403,7 @@ function ProvidersSettingsView({
 
   return (
     <div className="settings-page provider-settings-page">
-      <div className="settings-page-header">
-        <h3>Providers</h3>
+      <div className="settings-page-actions">
         <button type="button" title="Refresh provider status" disabled={busy} onClick={refresh}>
           <RefreshCw size={15} />
           Refresh
@@ -592,7 +579,7 @@ function ProviderOAuthResult({ result }: { result: ResearchProviderOAuthStartRes
   );
 }
 
-function settingsSectionLabel(section: SettingsSection): string {
+export function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
     case 'providers':
       return 'Providers';

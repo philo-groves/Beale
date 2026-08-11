@@ -3,7 +3,7 @@ import type { JSX, MouseEvent } from 'react';
 import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, X } from 'lucide-react';
 import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
-import { AppHeaderTitle } from './AppHeaderTitle';
+import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
 import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
 type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
@@ -13,6 +13,7 @@ export const TopBar = memo(function TopBar({
   rightSidenavAvailable,
   rightSidenavExpanded,
   contextualTitleVisible,
+  staticContextTitle,
   platform,
   workspaceName,
   activeWorkspace,
@@ -29,6 +30,7 @@ export const TopBar = memo(function TopBar({
   rightSidenavAvailable: boolean;
   rightSidenavExpanded: boolean;
   contextualTitleVisible: boolean;
+  staticContextTitle: { primary: string; secondary: string } | null;
   platform: HostEnvironment['platform'];
   workspaceName: string;
   activeWorkspace: WorkspaceRegistryEntry | null;
@@ -254,6 +256,8 @@ export const TopBar = memo(function TopBar({
           onOpenWorkspaceInfo={onOpenWorkspaceInfo}
           onOpenSessionSummary={onOpenSessionSummary}
         />
+      ) : staticContextTitle ? (
+        <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} />
       ) : null}
       {profilingEnabled || rightSidenavAvailable || !isMac ? (
         <div className="window-controls" aria-label="Header controls">

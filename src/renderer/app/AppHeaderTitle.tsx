@@ -45,3 +45,24 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
     </div>
   );
 });
+
+export const StaticAppHeaderTitle = memo(function StaticAppHeaderTitle({
+  primaryTitle,
+  secondaryTitle
+}: {
+  primaryTitle: string;
+  secondaryTitle: string;
+}): JSX.Element {
+  return (
+    <div className="app-header-title" aria-label={`${primaryTitle}, ${secondaryTitle}`}>
+      <div className="app-header-identity">
+        <span className="app-header-workspace-title app-header-static-title">
+          <span>{primaryTitle}</span>
+        </span>
+        <span className="app-header-session-title app-header-static-title">
+          <span>{secondaryTitle}</span>
+        </span>
+      </div>
+    </div>
+  );
+});

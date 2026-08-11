@@ -924,11 +924,15 @@ code {
   -webkit-app-region: no-drag;
 }
 
-.app-header-workspace-title:hover:not(:disabled),
-.app-header-session-title:hover:not(:disabled) {
+button.app-header-workspace-title:hover:not(:disabled),
+button.app-header-session-title:hover:not(:disabled) {
   border-color: transparent;
   background: #202020;
   color: #d6d6d6;
+}
+
+.app-header-static-title {
+  -webkit-app-region: drag;
 }
 
 .app-header-workspace-title:disabled {
@@ -8103,15 +8107,11 @@ button.research-goal-choice:focus-visible {
   gap: 10px;
 }
 
-.settings-page h3 {
-  font-size: 1rem;
-}
-
-.settings-page-header {
+.settings-page-actions {
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -8126,26 +8126,11 @@ button.research-goal-choice:focus-visible {
   gap: 12px;
 }
 
-.memory-settings-page > .settings-page-header {
-  align-items: flex-start;
-}
-
-.memory-settings-page > .settings-page-header > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.memory-settings-page > .settings-page-header p {
+.settings-page-intro {
+  margin: 0;
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.4;
-}
-
-.memory-settings-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 7px;
 }
 
 .memory-type-descriptions-card {

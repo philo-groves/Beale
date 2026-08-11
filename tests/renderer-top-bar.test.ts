@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment } from '@shared/types';
+import { StatusBar } from '../src/renderer/app/StatusBar';
 import { TopBar } from '../src/renderer/app/TopBar';
 
 describe('renderer top bar', () => {
@@ -41,13 +42,31 @@ describe('renderer top bar', () => {
     expect(html).not.toContain('class="app-header-title"');
     expect(html).not.toContain('Security');
   });
+
+  it('renders an unclickable static identity for the active Agent Settings view', () => {
+    const html = renderTopBar('win32', false, false, false, { primary: 'Agent Settings', secondary: 'Shell Options' });
+
+    expect(html).toContain('aria-label="Agent Settings, Shell Options"');
+    expect(html).toContain('<span class="app-header-workspace-title app-header-static-title"><span>Agent Settings</span></span>');
+    expect(html).toContain('<span class="app-header-session-title app-header-static-title"><span>Shell Options</span></span>');
+    expect(html).not.toContain('title="Open workspace information"');
+    expect(html).not.toContain('title="View session summary"');
+  });
+
+  it('labels the lower-left settings action as Agent Settings', () => {
+    const html = renderToStaticMarkup(createElement(StatusBar, { onOpenSettings: () => undefined }));
+
+    expect(html).toContain('aria-label="Agent Settings"');
+    expect(html).toContain('<span>Agent Settings</span>');
+  });
 });
 
 function renderTopBar(
   platform: HostEnvironment['platform'],
   rightSidenavAvailable = false,
   rightSidenavExpanded = false,
-  contextualTitleVisible = true
+  contextualTitleVisible = true,
+  staticContextTitle: { primary: string; secondary: string } | null = null
 ): string {
   return renderToStaticMarkup(createElement(TopBar, {
     sidebarCollapsed: false,
@@ -58,6 +77,7 @@ function renderTopBar(
     rightSidenavAvailable,
     rightSidenavExpanded,
     contextualTitleVisible,
+    staticContextTitle,
     profilingEnabled: false,
     onOpenSessionSummary: () => undefined,
     onOpenWorkspaceInfo: () => undefined,
