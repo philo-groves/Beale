@@ -41,6 +41,7 @@
 
 ### Changed
 
+- Settings content now fills the full main workbench area without the standard horizontal gutters instead of appearing as a centered, inset panel.
 - Session detail actions and views now honor run-pinned memory, runbook, and collaboration feature switches; Memory Dreaming is disabled when memory is off while historical records remain visible and restorable.
 - Memory summaries and Dreaming now retain per-node catalog compatibility across presentation-only and unrelated additive catalog changes, while isolating incompatible and non-security-lineage legacy rows.
 - Research recommendations now derive active-memory status from the pinned profile catalog and reserve security-specific source/sink coverage ranking for the `security-research` profile lineage.

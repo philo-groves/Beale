@@ -1462,6 +1462,10 @@ body.is-resizing-sidebar .sidebar-resize-handle {
     border-radius 180ms ease;
 }
 
+.app-shell.settings-open .workbench {
+  padding-inline: 0;
+}
+
 .workbench > * {
   position: relative;
   z-index: 1;
@@ -8085,13 +8089,12 @@ button.research-goal-choice:focus-visible {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 18px 12px;
 }
 
 .settings-main-view {
-  width: min(100%, 1100px);
+  width: 100%;
   min-height: 100%;
-  margin: 0 auto;
+  border-radius: 0;
   padding: 20px;
 }
 
