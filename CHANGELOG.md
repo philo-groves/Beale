@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Session token totals and prompt-cache hit rates now count only active root-model calls, excluding Auto-Review, subagent, and other background-model usage.
 - Chaining and Reporting goal generation now accepts natural wording variants instead of rejecting otherwise valid suggestions that omit exact validator phrases such as `primitive`, `chain`, `triage-ready PoC`, or `submission.zip`.
 - Long Commentary histories now render a bounded virtual window with preserved follow-latest and search navigation, while incremental detail ingestion and repeated tool projection avoid unnecessary full-history map, sort, and array-copy work.
 - Aligned the editable memory taxonomy with active-agent validation by defining root-cause keys as lowercase-hyphenated and treating source, sink, and asset chain relationships as recommended rather than mandatory.

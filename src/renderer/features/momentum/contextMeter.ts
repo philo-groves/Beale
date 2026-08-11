@@ -100,14 +100,18 @@ function latestContextTokenCandidate(detail: RunDetail | null): { tokens: number
 
 function traceEventContextUsageEligible(payload: Record<string, unknown>): boolean {
   if (payload.contextUsageEligible === false) return false;
-  return tracePayloadRecord(payload, 'payload')?.contextUsageEligible !== false;
+  const nestedPayload = tracePayloadRecord(payload, 'payload');
+  if (nestedPayload?.contextUsageEligible === false) return false;
+  const agentPath = stringRecordValue(payload, 'agentPath')
+    ?? stringRecordValue(nestedPayload, 'agentPath');
+  return !agentPath || agentPath === '/root';
 }
 
 function sessionTokenUsageForDetail(detail: RunDetail | null): { totalTokens: number; inputTokens: number | null; outputTokens: number | null } {
   if (!detail) return { totalTokens: 0, inputTokens: null, outputTokens: null };
 
   const turnUsage = detail.traceEvents
-    .filter((event) => event.type !== 'artifact_created')
+    .filter(traceEventActiveModelUsageEligible)
     .map((event) => tracePayloadRecord(event.payload, 'usage'));
   const aggregateUsage = detail.traceEvents
     .filter((event) => event.type === 'artifact_created')
@@ -143,7 +147,7 @@ function usageTokenBreakdown(usage: Record<string, unknown> | null): { inputToke
 function cacheUsageForDetail(detail: RunDetail | null): { cacheReadTokens: number; promptTokens: number; cacheHitRate: number | null } {
   if (!detail) return { cacheReadTokens: 0, promptTokens: 0, cacheHitRate: null };
   const turnUsage = detail.traceEvents
-    .filter((event) => event.type !== 'artifact_created')
+    .filter(traceEventActiveModelUsageEligible)
     .map((event) => tracePayloadRecord(event.payload, 'usage'))
     .filter(hasCacheTelemetry);
   const aggregateUsage = detail.traceEvents
@@ -182,6 +186,10 @@ function cacheUsageForDetail(detail: RunDetail | null): { cacheReadTokens: numbe
       ? cacheReadTokens / promptTokens
       : latestReportedRate ?? (promptTokens > 0 ? cacheReadTokens / promptTokens : null)
   };
+}
+
+function traceEventActiveModelUsageEligible(event: RunDetail['traceEvents'][number]): boolean {
+  return event.type === 'model_message' && traceEventContextUsageEligible(event.payload);
 }
 
 function hasCacheTelemetry(usage: Record<string, unknown> | null): usage is Record<string, unknown> {

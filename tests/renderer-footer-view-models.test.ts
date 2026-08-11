@@ -171,7 +171,7 @@ describe('renderer session usage view models', () => {
     expect(visibleCacheHitRateLabel(meter)).toBe('70%');
   });
 
-  it('counts non-context model usage without replacing the root context reading', () => {
+  it('excludes auxiliary model usage from the active-model session metrics', () => {
     const meter = contextMeterForDetail(
       runDetail({
         traceEvents: [
@@ -192,7 +192,6 @@ describe('renderer session usage view models', () => {
             createdAt: '2026-04-29T00:01:00.000Z',
             payload: {
               agentPath: '/auxiliary-model',
-              contextUsageEligible: false,
               usage: {
                 input: 100,
                 output: 50,
@@ -220,12 +219,52 @@ describe('renderer session usage view models', () => {
     );
 
     expect(meter.inputTokens).toBe(40_000);
-    expect(meter.totalSessionTokens).toBe(43_100);
-    expect(meter.sessionInputTokens).toBe(42_000);
-    expect(meter.sessionOutputTokens).toBe(1_100);
-    expect(meter.cacheReadTokens).toBe(11_700);
-    expect(meter.cachePromptTokens).toBe(42_000);
-    expect(meter.cacheHitRate).toBeCloseTo(11_700 / 42_000);
+    expect(meter.totalSessionTokens).toBe(41_000);
+    expect(meter.sessionInputTokens).toBe(40_000);
+    expect(meter.sessionOutputTokens).toBe(1_000);
+    expect(meter.cacheReadTokens).toBe(10_000);
+    expect(meter.cachePromptTokens).toBe(40_000);
+    expect(meter.cacheHitRate).toBeCloseTo(10_000 / 40_000);
+  });
+
+  it('excludes auto-review usage from the active-model token and cache metrics', () => {
+    const meter = contextMeterForDetail(
+      runDetail({
+        traceEvents: [
+          traceEvent({
+            payload: {
+              agentPath: '/root',
+              usage: {
+                input: 100,
+                output: 50,
+                cacheRead: 900,
+                totalTokens: 1_050
+              }
+            }
+          }),
+          traceEvent({
+            id: 'trace_auto_review',
+            sequence: 2,
+            type: 'approval_event',
+            source: 'policy',
+            payload: {
+              source: 'small_model',
+              usage: {
+                input: 500,
+                output: 25,
+                cacheRead: 0,
+                totalTokens: 525
+              }
+            }
+          })
+        ]
+      })
+    );
+
+    expect(meter.totalSessionTokens).toBe(1_050);
+    expect(meter.cacheReadTokens).toBe(900);
+    expect(meter.cachePromptTokens).toBe(1_000);
+    expect(meter.cacheHitRate).toBe(0.9);
   });
 
   it('shows unavailable cache telemetry distinctly from a zero-percent hit rate', () => {

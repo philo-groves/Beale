@@ -3125,18 +3125,7 @@ function collectHoneycrispUsageRecords(capture: HoneycrispFlowCapture): Record<s
     const usage = recordValue(call.usage);
     return usage ? [usage] : [];
   });
-  const subagents = recordValue(raw?.subagents);
-  const childModelCallUsages = arrayRecordValues(subagents?.agents).flatMap((agent) =>
-    arrayRecordValues(agent.modelCalls).flatMap((call) => {
-      const usage = recordValue(call.usage);
-      return usage ? [usage] : [];
-    })
-  );
-  if (rootModelCallUsages.length > 0 || childModelCallUsages.length > 0) {
-    // Child usage contributes to session totals. Root calls remain last so the
-    // context meter reflects the root agent's latest prompt size.
-    return [...childModelCallUsages, ...rootModelCallUsages];
-  }
+  if (rootModelCallUsages.length > 0) return rootModelCallUsages;
 
   const rawUsage = recordValue(raw?.usage);
   if (rawUsage) return [rawUsage];

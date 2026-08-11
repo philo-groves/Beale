@@ -913,7 +913,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.modelSessions[0]?.metadata).toMatchObject({
       provider: 'xai',
       latestReportedInputTokens: 12345,
-      latestReportedTotalTokens: 14123,
+      latestReportedTotalTokens: 13023,
       latestContextUsageSource: 'Honeycrisp reported model usage',
       latestContextUsageEstimated: false,
       honeycrispAgentRunId: 'agent_fixture',
@@ -938,15 +938,15 @@ describe('Beale workbench skeleton', () => {
       usage: {
         input_tokens: 2345,
         prompt_tokens: 12345,
-        output_tokens: 778,
-        total_tokens: 14123,
+        output_tokens: 678,
+        total_tokens: 13023,
         cache_read_tokens: 10000,
         cache_write_tokens: 0,
         source: 'Honeycrisp reported model usage',
         estimated: false
       }
     });
-    expect(Number((captureTrace?.payload.usage as Record<string, unknown>).cache_hit_rate)).toBeCloseTo(10_000 / 13_345);
+    expect(Number((captureTrace?.payload.usage as Record<string, unknown>).cache_hit_rate)).toBeCloseTo(10_000 / 12_345);
     expect(detail.traceEvents.some((event) => event.summary.includes('Honeycrisp agent session: Fixture Honeycrisp research'))).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review started.')).toBe(true);
     expect(detail.traceEvents.some((event) => event.summary === 'Honeycrisp subagent /root/parser_review turn 1 completed.')).toBe(true);
