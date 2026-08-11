@@ -3987,7 +3987,14 @@ export class WorkspaceDatabase {
     const isWorkspacePlaceholder = existing
       ? text(existing, 'source') === 'legacy_adopted' && existingId === `subject_workspace:${this.workspaceId}`
       : false;
-    const subjectId = requestedId || (existingId && !isWorkspacePlaceholder ? existingId : memorySubjectId(name));
+    const placeholderHasMemory =
+      !requestedId
+      && isWorkspacePlaceholder
+      && tableExists(this.db, 'memory_nodes')
+      && tableHasColumn(this.db, 'memory_nodes', 'subject_id')
+      && Boolean(this.db.prepare('SELECT 1 FROM memory_nodes WHERE subject_id = ? LIMIT 1').get(existingId));
+    const subjectId = requestedId
+      || (existingId && (!isWorkspacePlaceholder || placeholderHasMemory) ? existingId : memorySubjectId(name));
     if (subjectId.length > 256 || /[\u0000-\u001f\u007f\s]/.test(subjectId)) {
       throw new Error('Research subject id must be a printable, whitespace-free value of at most 256 characters.');
     }

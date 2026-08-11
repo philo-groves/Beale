@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase, type StartRunRecordInput } from '../src/main/database';
+import { WorkspaceService, type WorkspaceServiceOptions } from '../src/main/workspaceService';
 import {
   serializeResearchProfile,
   type ResearchProfile,
   type ResolvedResearchProfile
 } from '../src/shared/researchProfile';
+import { resolvedTestResearchProfile } from './researchProfileFixture';
 
 const directories: string[] = [];
 
@@ -203,6 +205,68 @@ describe('research profile persistence', () => {
     reopened.close();
   });
 
+  it('keeps the workspace-placeholder subject id when durable memory already uses it', () => {
+    const fixture = createDatabaseFixture();
+    const placeholder = fixture.database.getResearchSubject();
+    seedPlaceholderMemory(fixture.databasePath, fixture.database.getWorkspaceId(), placeholder.id);
+
+    expect(fixture.database.setResearchSubject({ name: 'Parser Runtime' })).toMatchObject({
+      id: placeholder.id,
+      name: 'Parser Runtime',
+      source: 'explicit'
+    });
+
+    const raw = new DatabaseSync(fixture.databasePath, { readOnly: true });
+    expect(raw.prepare('SELECT subject_id FROM memory_nodes WHERE id = ?').get('claude_first_memory')).toEqual({
+      subject_id: placeholder.id
+    });
+    raw.close();
+    fixture.database.close();
+  });
+
+  it('keeps Claude-first placeholder memory visible after scoped Beale onboarding', () => {
+    const root = tempDirectory();
+    const workspacePath = join(root, 'workspace');
+    const databasePath = join(root, 'global', 'memory.sqlite');
+    mkdirSync(workspacePath, { recursive: true });
+    const options: WorkspaceServiceOptions = {
+      workspaceRegistryDirectory: join(root, 'registry'),
+      honeycrispDatabasePath: databasePath,
+      honeycrispArtifactDirectory: join(root, 'global', 'artifacts'),
+      researchProfileResolver: () => resolvedTestResearchProfile()
+    };
+    const { workspaceId, placeholderId } = seedClaudeFirstWorkspace(databasePath, workspacePath);
+
+    const service = new WorkspaceService(() => undefined, options);
+    const onboarded = service.createScopedWorkspace({
+      workspacePath,
+      workspaceName: 'Parser Research',
+      researchSubjectName: 'Parser Runtime',
+      scopeOwner: 'Authorization Owner',
+      descriptionMarkdown: 'Authorized local parser research.',
+      rulesMarkdown: 'Stay within the recorded workspace.',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+
+    expect(onboarded.researchSubject).toMatchObject({
+      id: placeholderId,
+      name: 'Parser Runtime',
+      source: 'explicit'
+    });
+    expect(onboarded.honeycrispMemory.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'claude_first_memory',
+          subjectId: placeholderId,
+          workspaces: expect.arrayContaining([expect.objectContaining({ id: workspaceId })])
+        })
+      ])
+    );
+    service.close();
+  });
+
   it('adopts the legacy scope-owner subject id during migration 14', () => {
     const fixture = createDatabaseFixture();
     fixture.database.saveScope({
@@ -253,6 +317,108 @@ function tempDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'beale-research-profile-'));
   directories.push(directory);
   return directory;
+}
+
+function seedPlaceholderMemory(databasePath: string, workspaceId: string, subjectId: string): void {
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS memory_nodes (
+      id TEXT PRIMARY KEY,
+      subject_id TEXT NOT NULL,
+      subject_name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      title_norm TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      attributes_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      revision INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS memory_node_sessions (
+      node_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY(node_id, session_id)
+    );
+    CREATE TABLE IF NOT EXISTS memory_node_workspaces (
+      node_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      workspace_name TEXT NOT NULL,
+      PRIMARY KEY(node_id, workspace_id)
+    );
+    CREATE TABLE IF NOT EXISTS memory_node_assets (
+      node_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      PRIMARY KEY(node_id, asset_id)
+    );
+    CREATE TABLE IF NOT EXISTS memory_node_tags (
+      node_id TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      PRIMARY KEY(node_id, tag)
+    );
+    CREATE TABLE IF NOT EXISTS memory_edges (
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(from_id, to_id, relation)
+    );
+    CREATE TABLE IF NOT EXISTS memory_evidence_refs (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      path_base TEXT,
+      path TEXT,
+      locator_json TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  const createdAt = '2026-08-11T12:00:00.000Z';
+  database
+    .prepare(
+      `INSERT INTO memory_nodes (
+         id, subject_id, subject_name, type, title, title_norm, summary, body,
+         status, confidence, attributes_json, created_at, updated_at, revision
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'claude_first_memory',
+      subjectId,
+      'Claude-first workspace',
+      'finding',
+      'Parser boundary observation',
+      'parser boundary observation',
+      'A durable observation saved before Beale onboarding.',
+      '',
+      'draft',
+      0.5,
+      '{}',
+      createdAt,
+      createdAt,
+      1
+    );
+  database
+    .prepare('INSERT INTO memory_node_workspaces (node_id, workspace_id, workspace_name) VALUES (?, ?, ?)')
+    .run('claude_first_memory', workspaceId, 'Claude-first workspace');
+  database.close();
+}
+
+function seedClaudeFirstWorkspace(
+  databasePath: string,
+  workspacePath: string
+): { workspaceId: string; placeholderId: string } {
+  mkdirSync(dirname(databasePath), { recursive: true });
+  const resolvedWorkspacePath = resolve(workspacePath);
+  const workspaceId = `workspace_${createHash('sha256').update(resolvedWorkspacePath).digest('hex').slice(0, 20)}`;
+  const placeholderId = `subject_workspace:${workspaceId}`;
+  seedPlaceholderMemory(databasePath, workspaceId, placeholderId);
+  return { workspaceId, placeholderId };
 }
 
 function resolveProfile(

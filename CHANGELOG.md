@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Scoped onboarding now retains a legacy workspace-placeholder subject ID when durable Honeycrisp memory already uses it, preserving Claude-first research memory when the workspace is later opened in Beale.
 - Profile-aware memory totals now exclude unknown, negative, and terminal non-positive statuses, matching recommendation activity semantics.
 - Recommendation jobs no longer load or expose Honeycrisp memory or memory-linked evidence context when the active research profile disables memory.
 - Memory Dreaming now refreshes the workspace research profile before curation and refuses to invoke the model when that profile disables memory.
