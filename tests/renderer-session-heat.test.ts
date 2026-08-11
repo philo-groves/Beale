@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, RunDetail } from '@shared/types';
-import { sessionHeatForDetail, sessionHeatForHoneycrispMemory } from '../src/renderer/view-models/sessionHeat';
+import type { HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, ResearchProfile, RunDetail } from '@shared/types';
+import {
+  readSessionHeatPreferences,
+  sessionHeatForDetail,
+  sessionHeatForHoneycrispMemory,
+  sessionHeatPaletteStyle,
+  withSessionHeatPreference
+} from '../src/renderer/view-models/sessionHeat';
+import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer session heat view models', () => {
   it('uses none when no session is selected or no triggering memory exists in the session', () => {
@@ -27,7 +34,7 @@ describe('renderer session heat view models', () => {
       memoryNode({ sessionIds: ['run_current'], type: 'sink', status: 'confirmed' })
     ]);
 
-    expect(sessionHeatForHoneycrispMemory(memory, 'run_current')).toBe('low');
+    expect(sessionHeatForHoneycrispMemory(memory, 'run_current', heatProfile())).toBe('low');
   });
 
   it('downgrades when a triggering memory is rejected', () => {
@@ -39,22 +46,81 @@ describe('renderer session heat view models', () => {
     expect(sessionHeatForDetail(runDetail({ nodes: [rejectedChain, confirmedPrimitive] }))).toBe('medium');
   });
 
-  it('does not apply security-specific heat semantics to a recorded general profile', () => {
-    const detail = runDetail({ nodes: [memoryNode({ type: 'chain', status: 'confirmed' })] });
-    detail.researchProfile = {
-      profileId: 'general-research',
-      profile: { id: 'general-research' }
-    } as RunDetail['researchProfile'];
+  it('uses the recorded profile instead of security-specific type semantics', () => {
+    const detail = runDetail({ nodes: [memoryNode({ type: 'theorem', status: 'verified' })] }, mathematicsHeatProfile());
+    expect(sessionHeatForDetail(detail)).toBe('critical');
+  });
 
-    expect(sessionHeatForDetail(detail)).toBe('none');
+  it('applies and removes profile-scoped visual overrides', () => {
+    const detail = runDetail({ nodes: [memoryNode({ type: 'primitive', status: 'confirmed' })] });
+    const overridden = withSessionHeatPreference({}, 'security-research', 'primitive', 'confirmed', 'critical');
+    expect(sessionHeatForDetail(detail, overridden)).toBe('critical');
+    expect(sessionHeatForDetail(detail, withSessionHeatPreference(overridden, 'security-research', 'primitive', 'confirmed', null))).toBe('medium');
+  });
+
+  it('normalizes stored preferences and exposes profile palette variables', () => {
+    const preferences = readSessionHeatPreferences({
+      getItem: () => JSON.stringify({ mathematics: { theorem: { verified: 'critical', draft: 'invalid' } } })
+    });
+    expect(preferences).toEqual({ mathematics: { theorem: { verified: 'critical' } } });
+    expect(sessionHeatPaletteStyle(mathematicsHeatProfile().presentation.sessionHeatPalette)).toEqual({
+      '--session-heat-low-color': '#45b8d8',
+      '--session-heat-medium-color': '#4f87e8',
+      '--session-heat-high-color': '#7768e8',
+      '--session-heat-critical-color': '#b14ee8'
+    });
   });
 });
 
-function runDetail(input: { nodes?: HoneycrispMemoryNodeSummary[] } = {}): RunDetail {
+function runDetail(
+  input: { nodes?: HoneycrispMemoryNodeSummary[] } = {},
+  profile = heatProfile()
+): RunDetail {
   return {
     run: { id: 'run_current' },
-    honeycrispMemory: honeycrispMemory(input.nodes ?? [])
+    honeycrispMemory: honeycrispMemory(input.nodes ?? []),
+    researchProfile: { profileId: profile.id, profile }
   } as unknown as RunDetail;
+}
+
+function heatProfile(): ResearchProfile {
+  const profile = testResearchProfile();
+  return {
+    ...profile,
+    memory: {
+      ...profile.memory,
+      types: [
+        { ...profile.memory.types[0], id: 'source', name: 'Source', pluralName: 'Sources', sessionHeat: {} },
+        { ...profile.memory.types[0], id: 'sink', name: 'Sink', pluralName: 'Sinks', sessionHeat: { confirmed: 'low' as const } },
+        { ...profile.memory.types[0], id: 'primitive', name: 'Primitive', pluralName: 'Primitives', sessionHeat: { suspected: 'medium' as const, confirmed: 'medium' as const } },
+        { ...profile.memory.types[0], id: 'chain', name: 'Chain', pluralName: 'Chains', sessionHeat: { suspected: 'high' as const, confirmed: 'critical' as const } }
+      ].map((type) => ({ ...type, allowedStatuses: ['draft', 'suspected', 'confirmed', 'rejected'] }))
+    }
+  };
+}
+
+function mathematicsHeatProfile(): ResearchProfile {
+  const profile = testResearchProfile();
+  return {
+    ...profile,
+    id: 'mathematics',
+    presentation: {
+      ...profile.presentation,
+      sessionHeatPalette: { low: '#45b8d8', medium: '#4f87e8', high: '#7768e8', critical: '#b14ee8' }
+    },
+    memory: {
+      ...profile.memory,
+      types: [{
+        ...profile.memory.types[0],
+        id: 'theorem',
+        name: 'Theorem',
+        pluralName: 'Theorems',
+        defaultStatus: 'draft',
+        allowedStatuses: ['draft', 'plausible', 'verified'],
+        sessionHeat: { plausible: 'high' as const, verified: 'critical' as const }
+      }]
+    }
+  };
 }
 
 function honeycrispMemory(nodes: HoneycrispMemoryNodeSummary[]): HoneycrispMemorySummary {

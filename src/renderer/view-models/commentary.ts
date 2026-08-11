@@ -328,9 +328,16 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
 export function commentaryToolUsageText(toolName: string, count: number): string {
   const normalizedCount = Math.max(1, Math.floor(count));
   const copy = TOOL_USAGE_COPY[toolName];
-  if (copy) return normalizedCount === 1 ? copy.singular : copy.plural(normalizedCount);
-  const displayName = humanizeToolName(toolName);
-  return normalizedCount === 1 ? `Using ${displayName}` : `Using ${displayName} ${normalizedCount} Times`;
+  const description = copy
+    ? normalizedCount === 1 ? copy.singular : copy.plural(normalizedCount)
+    : normalizedCount === 1
+      ? `Using ${humanizeToolName(toolName)}`
+      : `Using ${humanizeToolName(toolName)} ${normalizedCount} Times`;
+  return sentenceCaseToolDescription(description);
+}
+
+function sentenceCaseToolDescription(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1).toLowerCase()}`;
 }
 
 function humanizeToolName(toolName: string): string {

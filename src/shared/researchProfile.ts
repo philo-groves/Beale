@@ -1,8 +1,23 @@
 export const RESEARCH_PROFILE_SCHEMA_VERSION = 1 as const;
+export const RESEARCH_PROFILE_IDS = ['security-research', 'mathematics'] as const;
+export type ResearchProfileId = typeof RESEARCH_PROFILE_IDS[number];
+
+export function isResearchProfileId(value: unknown): value is ResearchProfileId {
+  return typeof value === 'string' && RESEARCH_PROFILE_IDS.includes(value as ResearchProfileId);
+}
 
 export type ResearchProfileAuthorizationMode = 'required_for_live_network' | 'optional';
 
 export type ResearchProfileAttributeType = 'string' | 'number' | 'boolean';
+
+export type ResearchProfileSessionHeat = 'none' | 'low' | 'medium' | 'high' | 'critical';
+
+export interface ResearchProfileSessionHeatPalette {
+  low: string;
+  medium: string;
+  high: string;
+  critical: string;
+}
 
 export interface ResearchProfileAttributeDefinition {
   type: ResearchProfileAttributeType;
@@ -35,6 +50,7 @@ export interface ResearchProfileMemoryType {
   order: number;
   defaultStatus: string;
   allowedStatuses: readonly string[];
+  sessionHeat?: Readonly<Partial<Record<string, ResearchProfileSessionHeat>>>;
   contextWeight?: number;
   attributes?: Readonly<Record<string, ResearchProfileAttributeDefinition>>;
   requirements?: readonly ResearchProfileMemoryRequirement[];
@@ -138,6 +154,7 @@ export interface ResearchProfilePresentation {
   memoryLabel: string;
   runbookLabel: string;
   sessionLabel: string;
+  sessionHeatPalette?: ResearchProfileSessionHeatPalette;
 }
 
 export interface ResearchProfile {
@@ -263,7 +280,10 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
       newResearchLabel: nonEmptyString(presentation.newResearchLabel, 'Research profile new research label'),
       memoryLabel: nonEmptyString(presentation.memoryLabel, 'Research profile memory label'),
       runbookLabel: nonEmptyString(presentation.runbookLabel, 'Research profile runbook label'),
-      sessionLabel: nonEmptyString(presentation.sessionLabel, 'Research profile session label')
+      sessionLabel: nonEmptyString(presentation.sessionLabel, 'Research profile session label'),
+      ...(presentation.sessionHeatPalette === undefined
+        ? {}
+        : { sessionHeatPalette: decodeSessionHeatPalette(presentation.sessionHeatPalette) })
     }
   };
   if (
@@ -316,6 +336,20 @@ function decodeMemoryType(value: unknown, index: number): ResearchProfileMemoryT
           decodeAttribute(raw, `Research profile memory type ${index} attribute ${name}`)
         ])
       );
+  const allowedStatuses = stringArray(input.allowedStatuses, `Research profile memory type ${index} allowed statuses`);
+  const sessionHeat = input.sessionHeat === undefined
+    ? undefined
+    : Object.fromEntries(
+        Object.entries(objectValue(input.sessionHeat, `Research profile memory type ${index} session heat`)).map(([status, heat]) => [
+          status,
+          decodeSessionHeat(heat, `Research profile memory type ${index} session heat ${status}`)
+        ])
+      );
+  for (const status of Object.keys(sessionHeat ?? {})) {
+    if (!allowedStatuses.includes(status)) {
+      throw new Error(`Research profile memory type ${index} session heat uses disallowed status ${status}.`);
+    }
+  }
   return {
     id: nonEmptyString(input.id, `Research profile memory type ${index} id`),
     name: nonEmptyString(input.name, `Research profile memory type ${index} name`),
@@ -331,7 +365,8 @@ function decodeMemoryType(value: unknown, index: number): ResearchProfileMemoryT
     ...optionalStringProperty(input, 'color', `Research profile memory type ${index} color`),
     order: finiteNumber(input.order, `Research profile memory type ${index} order`),
     defaultStatus: nonEmptyString(input.defaultStatus, `Research profile memory type ${index} default status`),
-    allowedStatuses: stringArray(input.allowedStatuses, `Research profile memory type ${index} allowed statuses`),
+    allowedStatuses,
+    ...(sessionHeat === undefined ? {} : { sessionHeat }),
     ...optionalFiniteNumberProperty(input, 'contextWeight', `Research profile memory type ${index} context weight`),
     ...(attributes === undefined ? {} : { attributes }),
     ...(input.requirements === undefined
@@ -342,6 +377,29 @@ function decodeMemoryType(value: unknown, index: number): ResearchProfileMemoryT
           )
         })
   };
+}
+
+function decodeSessionHeatPalette(value: unknown): ResearchProfileSessionHeatPalette {
+  const input = objectValue(value, 'Research profile session heat palette');
+  return {
+    low: hexColor(input.low, 'Research profile low session heat color'),
+    medium: hexColor(input.medium, 'Research profile medium session heat color'),
+    high: hexColor(input.high, 'Research profile high session heat color'),
+    critical: hexColor(input.critical, 'Research profile critical session heat color')
+  };
+}
+
+function decodeSessionHeat(value: unknown, label: string): ResearchProfileSessionHeat {
+  if (value !== 'none' && value !== 'low' && value !== 'medium' && value !== 'high' && value !== 'critical') {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function hexColor(value: unknown, label: string): string {
+  const color = nonEmptyString(value, label);
+  if (!/^#[a-f\d]{6}$/iu.test(color)) throw new Error(`${label} must be a six-digit hex color.`);
+  return color.toLowerCase();
 }
 
 function decodeAttribute(value: unknown, label: string): ResearchProfileAttributeDefinition {

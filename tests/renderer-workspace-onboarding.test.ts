@@ -8,7 +8,8 @@ import {
   onboardingFormFromHackerOneLookup,
   onboardingInputFromForm,
   onboardingRepositories,
-  setRepositoryIndexNow
+  setRepositoryIndexNow,
+  workspaceOnboardingFormForProfile
 } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer workspace onboarding view model', () => {
@@ -56,6 +57,13 @@ describe('renderer workspace onboarding view model', () => {
     expect(apple.rulesMarkdown).toContain('Target Flags');
     expect(msrc.workspaceName).toBe('Microsoft Security Response Center');
     expect(msrc.rulesMarkdown).toContain('Researcher Portal');
+  });
+
+  it('forces mathematics workspaces back to the manual template', () => {
+    const apple = applyWorkspaceTemplate(onboardingFormFromDefaults(defaults()), 'apple');
+
+    expect(workspaceOnboardingFormForProfile(apple, 'mathematics').templateKind).toBe('manual');
+    expect(workspaceOnboardingFormForProfile(apple, 'security-research')).toBe(apple);
   });
 
   it('applies a HackerOne lookup without changing the workspace directory', () => {

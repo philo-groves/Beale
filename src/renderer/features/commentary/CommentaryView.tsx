@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, Terminal, Wrench } from 'lucide-react';
 import type {
   ResearchModelSelection,
@@ -43,6 +43,7 @@ export const CommentaryView = memo(function CommentaryView({
   scrollScopeKey = selectedRunId,
   selectedTraceEventId,
   searchHighlightQuery,
+  postSessionContent,
   onBackToMain,
   onSessionAction,
   onSteerInstruction
@@ -57,6 +58,7 @@ export const CommentaryView = memo(function CommentaryView({
   scrollScopeKey?: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  postSessionContent?: ReactNode;
   onBackToMain: () => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
@@ -323,8 +325,8 @@ export const CommentaryView = memo(function CommentaryView({
         </button>
       ) : null}
       {!detail ? <div className="main-trace-empty">Loading commentary.</div> : null}
-      {detail && messages.length === 0 ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
-      {detail && messages.length > 0 ? (
+      {detail && messages.length === 0 && !postSessionContent ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
+      {detail && (messages.length > 0 || postSessionContent) ? (
         <div className="main-commentary-scroll" ref={scrollRef}>
           <div
             className="main-commentary-list"
@@ -357,6 +359,7 @@ export const CommentaryView = memo(function CommentaryView({
               />
             ))}
             {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+            {postSessionContent}
           </div>
         </div>
       ) : null}

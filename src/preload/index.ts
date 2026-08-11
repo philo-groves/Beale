@@ -3,6 +3,9 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type {
   BealeApi,
   DeveloperSettings,
+  ProviderSettings,
+  ResearchProfileId,
+  ProviderModelDefaults,
   MemorySettings,
   MemoryTypeDescriptions,
   ShellOptions,
@@ -25,6 +28,7 @@ import type {
   ResearchPromptGenerationUpdate,
   ResearchGoalSuggestionInput,
   ResearchProviderId,
+  ResearchModelProviderId,
   ResearchProviderModelCatalog,
   ResearchProviderOAuthStartResult,
   ResearchProviderStatus,
@@ -55,11 +59,23 @@ const api: BealeApi = {
   getWorkspaceRegistry() {
     return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceRegistry);
   },
+  setActiveResearchProfile(profileId: ResearchProfileId): Promise<WorkspaceSnapshot | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setActiveResearchProfile, profileId);
+  },
   getDeveloperSettings(): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getDeveloperSettings);
   },
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDeveloperModeEnabled, enabled);
+  },
+  getProviderSettings(): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProviderSettings);
+  },
+  setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setDefaultProviderId, providerId);
+  },
+  setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setProviderModelDefaults, providerId, defaults);
   },
   getMemorySettings(): Promise<MemorySettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getMemorySettings);

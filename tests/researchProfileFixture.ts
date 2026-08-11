@@ -26,7 +26,8 @@ export function testResearchProfile(version = '1.0.0', name = 'Security Research
         creatable: true,
         order: 10,
         defaultStatus: 'draft',
-        allowedStatuses: ['draft', 'confirmed']
+        allowedStatuses: ['draft', 'confirmed'],
+        sessionHeat: { confirmed: 'high' }
       }],
       statuses: [
         { id: 'draft', name: 'Draft', description: 'Not established.', order: 10, polarity: 'neutral' },
@@ -95,7 +96,13 @@ export function testResearchProfile(version = '1.0.0', name = 'Security Research
       newResearchLabel: 'New research',
       memoryLabel: 'Memory',
       runbookLabel: 'Runbooks',
-      sessionLabel: 'Session'
+      sessionLabel: 'Session',
+      sessionHeatPalette: {
+        low: '#45b8d8',
+        medium: '#4f87e8',
+        high: '#7768e8',
+        critical: '#b14ee8'
+      }
     }
   };
 }

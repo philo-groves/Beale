@@ -48,17 +48,23 @@ function renderSettingsView(section: SettingsSection): string {
     researchProfile: null,
     shellOptions: null,
     chatView: 'commentary',
-    workspaceName: 'Security',
+    activeResearchProfileId: 'security-research',
     openAiStatus: null,
     openAiOAuthResult: null,
     researchProviderOAuthResults: {},
     researchProviderStatuses: [],
+    researchProviderModelCatalog: [],
+    providerSettings: { defaultProviderId: null, modelDefaults: {} },
+    providerStatusesLoaded: true,
     busy: false,
     onSetDeveloperModeEnabled: async () => undefined,
     onChangeChatView: () => undefined,
+    onSetResearchProfile: async () => undefined,
     onSaveShellOptions: async () => undefined,
     onRefreshOpenAi: async () => undefined,
     onStartOpenAiOAuth: async () => undefined,
-    onStartResearchProviderOAuth: async () => undefined
+    onStartResearchProviderOAuth: async () => undefined,
+    onSetDefaultProviderId: async () => undefined,
+    onSetProviderModelDefaults: async () => undefined
   }));
 }

@@ -22,6 +22,7 @@ describe('renderer workspace display view models', () => {
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
       workspaces: [first, second],
       researchSessions: [firstSession, secondSession]
     };

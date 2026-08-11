@@ -1,4 +1,4 @@
-import type { ResearchProfileSnapshot } from './researchProfile';
+import type { ResearchProfileId, ResearchProfileSnapshot } from './researchProfile';
 
 export * from './researchProfile';
 
@@ -827,12 +827,24 @@ export interface ProjectSearchResult {
 export interface WorkspaceRegistryState {
   registryPath: string;
   vmPreference: VmPreference;
+  activeResearchProfileId: ResearchProfileId;
   workspaces: WorkspaceRegistryEntry[];
   researchSessions: ResearchSessionSummary[];
 }
 
 export interface DeveloperSettings {
   developerModeEnabled: boolean;
+}
+
+export interface ProviderSettings {
+  defaultProviderId: ResearchModelProviderId | null;
+  modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
+}
+
+export interface ProviderModelDefaults {
+  largeModel: string;
+  smallModel: string;
+  reasoningEffort: ResearchModelEffortLevel;
 }
 
 export const MEMORY_NODE_TYPES = [
@@ -1122,6 +1134,7 @@ export type ResearchGoalSuggestionStateByPhase<T> = Record<string, T>;
 export interface ResearchGoalSuggestionInput {
   phase: ResearchGoalPhase;
   requestId?: string | null;
+  sourceRunId?: string | null;
 }
 
 export interface ResearchPromptGenerationUpdate {
@@ -1483,8 +1496,12 @@ export interface BealeApi {
   selectWorkspace(mode: WorkspacePickerMode): Promise<WorkspacePickerResult>;
   selectWorkspaceDirectory(): Promise<WorkspaceDirectorySelection>;
   getWorkspaceRegistry(): Promise<WorkspaceRegistryState>;
+  setActiveResearchProfile(profileId: ResearchProfileId): Promise<WorkspaceSnapshot | null>;
   getDeveloperSettings(): Promise<DeveloperSettings>;
   setDeveloperModeEnabled(enabled: boolean): Promise<DeveloperSettings>;
+  getProviderSettings(): Promise<ProviderSettings>;
+  setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings>;
+  setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;
   getShellOptions(): Promise<ShellOptions>;

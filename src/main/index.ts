@@ -16,6 +16,9 @@ import type {
   ResearchGoalSuggestionInput,
   ResearchPromptGenerationInput,
   ResearchProviderId,
+  ResearchModelProviderId,
+  ResearchProfileId,
+  ProviderModelDefaults,
   RunDetailUpdateCursor,
   SessionTranscriptSearchInput,
   MemoryTypeDescriptions,
@@ -25,6 +28,7 @@ import type {
   WorkspaceSnapshot,
   WorkspacePickerMode
 } from '@shared/types';
+import { isResearchProfileId } from '@shared/types';
 import { getHostEnvironment, WorkspaceService, type WorkspaceChange } from './workspaceService';
 import { nativeMacApplicationMenuTemplate } from './nativeApplicationMenu';
 
@@ -434,8 +438,17 @@ function registerIpc(): void {
       : workspaceService.inspectWorkspaceDirectory(path);
   });
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () => timedMainIpc('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryState()));
+  ipcMain.handle(IPC_CHANNELS.setActiveResearchProfile, (_event, profileId: ResearchProfileId) => {
+    if (!isResearchProfileId(profileId)) throw new Error(`Unsupported research profile: ${String(profileId)}`);
+    return workspaceService.setActiveResearchProfile(profileId);
+  });
   ipcMain.handle(IPC_CHANNELS.getDeveloperSettings, () => workspaceService.getDeveloperSettings());
   ipcMain.handle(IPC_CHANNELS.setDeveloperModeEnabled, (_event, enabled: boolean) => workspaceService.setDeveloperModeEnabled(enabled));
+  ipcMain.handle(IPC_CHANNELS.getProviderSettings, () => workspaceService.getProviderSettings());
+  ipcMain.handle(IPC_CHANNELS.setDefaultProviderId, (_event, providerId: ResearchModelProviderId | null) => workspaceService.setDefaultProviderId(providerId));
+  ipcMain.handle(IPC_CHANNELS.setProviderModelDefaults, (_event, providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) =>
+    workspaceService.setProviderModelDefaults(providerId, defaults)
+  );
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
   ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());

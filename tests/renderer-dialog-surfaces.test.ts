@@ -7,7 +7,10 @@ import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePa
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
+import { SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
+import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
+import { onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
 
 describe('renderer dialog surfaces', () => {
   it('renders the reusable bottom-sheet presentation with shared dialog semantics', () => {
@@ -50,6 +53,44 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet');
   });
 
+  it('hides cybersecurity workspace autofill controls for Mathematics', () => {
+    const form = onboardingFormFromDefaults({
+      workspacePath: '/math/erdos-straus',
+      workspaceName: 'Erdos-Straus Conjecture',
+      scopeOwner: '',
+      descriptionMarkdown: '',
+      rulesMarkdown: '',
+      networkProfile: 'offline',
+      expiresAt: null,
+      assets: []
+    });
+    const render = (researchProfileId: 'security-research' | 'mathematics'): string => renderToStaticMarkup(
+      createElement(WorkspaceOnboardingModal, {
+        form,
+        researchProfileId,
+        busy: false,
+        progress: null,
+        onChange: () => undefined,
+        onCancel: () => undefined,
+        onLookupHackerOne: async () => undefined,
+        onSkipRepository: async () => undefined,
+        onTemplate: () => undefined,
+        onSubmit: () => undefined
+      })
+    );
+
+    const securityHtml = render('security-research');
+    const mathematicsHtml = render('mathematics');
+    expect(securityHtml).toContain('aria-label="Workspace template"');
+    expect(securityHtml).toContain('>HackerOne</button>');
+    expect(securityHtml).toContain('>Apple</button>');
+    expect(securityHtml).toContain('>MSRC</button>');
+    expect(mathematicsHtml).not.toContain('aria-label="Workspace template"');
+    expect(mathematicsHtml).not.toContain('>HackerOne</button>');
+    expect(mathematicsHtml).not.toContain('>Apple</button>');
+    expect(mathematicsHtml).not.toContain('>MSRC</button>');
+  });
+
   it('shows four goals in each research phase and a custom goal section', () => {
     const suggestions = phaseSuggestions();
     const html = renderToStaticMarkup(
@@ -81,6 +122,8 @@ describe('renderer dialog surfaces', () => {
           activeScope: { id: 'scope_one' }
         } as WorkspaceSnapshot,
         openAiStatus: null,
+        defaultProviderId: 'openai-codex',
+        providerModelDefaults: {},
         researchProviderStatuses: [],
         providerModelCatalog: [],
         researchGoalSuggestions: suggestions,
@@ -108,6 +151,60 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('<h4 id="research-goal-custom-title">Your Goal</h4>');
     expect(html).toContain('<textarea');
     expect(html).toContain('class="modal-panel bottom-sheet-panel wide-modal start-run-sheet"');
+  });
+
+  it('keeps the terminal-session next-step widget structurally stable while suggestions load', () => {
+    const render = (loading: boolean, suggestions: string[]): string => renderToStaticMarkup(
+      createElement(SessionNextStepsWidget, {
+        loading,
+        suggestions,
+        error: null,
+        onRetry: () => undefined,
+        onSelect: () => undefined
+      })
+    );
+    const loadingHtml = render(true, []);
+    const loadedHtml = render(false, [
+      'Verify the strongest unresolved boundary from the completed session.',
+      'Generalize the session result to the nearest related research case.',
+      'Stress-test the key conclusion against a materially different construction.'
+    ]);
+
+    expect(loadingHtml).toContain('class="session-next-steps"');
+    expect(loadingHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
+    expect(loadedHtml).toContain('class="session-next-steps"');
+    expect(loadedHtml.match(/class="session-next-step-button"/g)).toHaveLength(3);
+  });
+
+  it('opens New Research in expanded mode for a seeded session suggestion', () => {
+    const sentence = 'Verify the strongest unresolved boundary from the completed session.';
+    const html = renderToStaticMarkup(
+      createElement(StartRunForm, {
+        snapshot: {
+          workspace: { workspaceId: 'workspace_one' },
+          activeScope: { id: 'scope_one', networkProfile: 'offline' }
+        } as WorkspaceSnapshot,
+        openAiStatus: null,
+        defaultProviderId: 'openai-codex',
+        providerModelDefaults: {},
+        researchProviderStatuses: [],
+        providerModelCatalog: [],
+        researchGoalSuggestions: phaseSuggestions(),
+        researchGoalSuggestionsLoading: phaseValues(false),
+        researchGoalSuggestionErrors: phaseValues(null),
+        initialGoal: { sentence, phase: 'discovery' },
+        busy: false,
+        runAction: async () => undefined,
+        onCancel: () => undefined,
+        onRetryResearchGoalSuggestions: () => undefined,
+        onStarted: () => undefined
+      })
+    );
+
+    expect(html).toContain(sentence);
+    expect(html).toContain('Discovery goal');
+    expect(html).toContain('Choose another goal');
+    expect(html).not.toContain('id="research-goal-custom-title"');
   });
 
   it('keeps successful goal sections usable when another section fails', () => {

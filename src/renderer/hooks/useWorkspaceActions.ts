@@ -1,10 +1,11 @@
 import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
+import type { ResearchProfileId, WorkspaceOnboardingProgressUpdate, WorkspaceRegistryEntry, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
 import {
   applyWorkspaceTemplate,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
+  workspaceOnboardingFormForProfile,
   onboardingInputFromForm,
   onboardingRepositories,
   type WorkspaceOnboardingFormState,
@@ -28,6 +29,7 @@ export interface WorkspaceActionOptions {
 
 export function useWorkspaceActions({
   snapshot,
+  researchProfileId,
   workspaceDraft,
   runWorkspaceAction,
   applySnapshot,
@@ -39,6 +41,7 @@ export function useWorkspaceActions({
   setOpenWorkspaceMenuId
 }: {
   snapshot: WorkspaceSnapshot | null;
+  researchProfileId: ResearchProfileId;
   workspaceDraft: WorkspaceOnboardingFormState | null;
   runWorkspaceAction: (action: () => Promise<void>, options?: WorkspaceActionOptions) => Promise<void>;
   applySnapshot: (next: WorkspaceSnapshot | null) => void;
@@ -107,15 +110,16 @@ export function useWorkspaceActions({
 
   const submitWorkspaceOnboarding = useCallback((): void => {
     if (!workspaceDraft) return;
+    const submittedDraft = workspaceOnboardingFormForProfile(workspaceDraft, researchProfileId);
     void runWorkspaceAction(async () => {
       const requestId = `onboarding_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const repositoryRows = onboardingRepositories(workspaceDraft).filter((repository) => repository.indexNow);
+      const repositoryRows = onboardingRepositories(submittedDraft).filter((repository) => repository.indexNow);
       const shouldTrackProgress = repositoryRows.length > 0;
       setWorkspaceOnboardingProgress(
         shouldTrackProgress
           ? {
               requestId,
-              workspacePath: workspaceDraft.workspacePath,
+              workspacePath: submittedDraft.workspacePath,
               phase: 'creating',
               repositories: repositoryRows.map((repository) => ({
                 repositoryUrl: repository.url,
@@ -141,7 +145,7 @@ export function useWorkspaceActions({
         });
       }
       try {
-        const next = await window.beale.createScopedWorkspace({ ...onboardingInputFromForm(workspaceDraft), onboardingRequestId: shouldTrackProgress ? requestId : undefined });
+        const next = await window.beale.createScopedWorkspace({ ...onboardingInputFromForm(submittedDraft), onboardingRequestId: shouldTrackProgress ? requestId : undefined });
         clearRunDetail();
         setSelectedRunId(null);
         applySnapshot(next);
@@ -156,21 +160,25 @@ export function useWorkspaceActions({
         throw error;
       }
     });
-  }, [applySnapshot, clearRunDetail, workspaceDraft, runWorkspaceAction, setWorkspaceDraft, setWorkspaceOnboardingProgress, setSelectedRunId]);
+  }, [applySnapshot, clearRunDetail, researchProfileId, workspaceDraft, runWorkspaceAction, setWorkspaceDraft, setWorkspaceOnboardingProgress, setSelectedRunId]);
 
   const applyOnboardingTemplate = useCallback(
     (templateKind: WorkspaceTemplateKind): void => {
+      if (researchProfileId === 'mathematics' && templateKind !== 'manual') return;
       setWorkspaceDraft((current) => (current ? applyWorkspaceTemplate(current, templateKind) : current));
     },
-    [setWorkspaceDraft]
+    [researchProfileId, setWorkspaceDraft]
   );
 
   const lookupHackerOneScope = useCallback(
     async (identifier: string): Promise<void> => {
+      if (researchProfileId === 'mathematics') {
+        throw new Error('HackerOne workspace autofill is unavailable for the Mathematics research profile.');
+      }
       const lookup = await window.beale.lookupHackerOneScope(identifier);
       setWorkspaceDraft((current) => (current ? onboardingFormFromHackerOneLookup(current, lookup) : current));
     },
-    [setWorkspaceDraft]
+    [researchProfileId, setWorkspaceDraft]
   );
 
   return {

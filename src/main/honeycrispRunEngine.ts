@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   ResearchModelSelection,
+  ProviderSettings,
   MemoryTypeDescriptions,
   ResearchProfile,
   ResearchProfileSnapshot,
@@ -24,7 +25,7 @@ import type {
   TraceEventType,
   TraceSource
 } from '@shared/types';
-import { SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
+import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import {
   SESSION_TITLE_REASONING_EFFORT,
   SHELL_SAFETY_REVIEW_REASONING_EFFORT,
@@ -291,7 +292,8 @@ export class HoneycrispRunEngine {
     private readonly onChange: (change?: { workspaceRegistryChanged?: boolean; forceSnapshot?: boolean }) => void = () => undefined,
     private readonly shellOptionsPath?: string,
     private readonly getMemoryTypeDescriptions?: () => MemoryTypeDescriptions,
-    private readonly getResearchSubject?: () => ResearchSubjectInput | null
+    private readonly getResearchSubject?: () => ResearchSubjectInput | null,
+    private readonly getProviderSettings?: () => ProviderSettings
   ) {}
 
   public startRun(input: StartRunInput, researchProfile: ResearchProfileSnapshot): HoneycrispRunHandle {
@@ -544,7 +546,8 @@ export class HoneycrispRunEngine {
               modelJobs: researchProfile.profile.modelJobs
             }
           : undefined,
-        researchProfile ? undefined : this.getMemoryTypeDescriptions?.()
+        researchProfile ? undefined : this.getMemoryTypeDescriptions?.(),
+        this.getProviderSettings?.()
       )
     ];
     this.db.appendTraceEvent({
@@ -1162,6 +1165,14 @@ export class HoneycrispRunEngine {
         return;
       }
       if (stringPayload(event.payload ?? {}, 'status') !== 'error') return;
+      const currentTitle = this.db.getRun(context.run.id)?.title;
+      const recoveredTitle = currentTitle === SESSION_TITLE_FALLBACK
+        ? generateSessionTitle(context.run.promptMarkdown)
+        : '';
+      const titleRecovered = Boolean(recoveredTitle && recoveredTitle !== SESSION_TITLE_FALLBACK);
+      if (titleRecovered) {
+        this.db.updateRunTitle(context.run.id, recoveredTitle);
+      }
       this.db.appendTraceEvent({
         runId: context.run.id,
         attemptId: context.attempt.id,
@@ -1172,12 +1183,13 @@ export class HoneycrispRunEngine {
           provider: stringPayload(event.payload ?? {}, 'provider'),
           model: stringPayload(event.payload ?? {}, 'model'),
           effort: stringPayload(event.payload ?? {}, 'effort'),
-          errorMessage: stringPayload(event.payload ?? {}, 'errorMessage')
+          errorMessage: stringPayload(event.payload ?? {}, 'errorMessage'),
+          recoveredTitle: titleRecovered ? recoveredTitle : undefined
         },
         vmContextId: context.vmContext.id,
         modelVisible: false
       });
-      this.onChange();
+      this.onChange({ workspaceRegistryChanged: titleRecovered });
       return;
     }
 
@@ -2266,7 +2278,8 @@ function honeycrispRunArgs(
   resumeCapturePath?: string,
   resumeFallbackPrompt?: string,
   researchProfile?: HoneycrispResearchProfileLaunch,
-  memoryTypeDescriptions?: MemoryTypeDescriptions
+  memoryTypeDescriptions?: MemoryTypeDescriptions,
+  providerSettings?: ProviderSettings
 ): string[] {
   const args = [
     '--workspace-root',
@@ -2307,6 +2320,7 @@ function honeycrispRunArgs(
     args.push('--provider', provider);
   }
   const effectiveProvider = provider || 'openai-codex';
+  const providerModelDefaults = providerSettings?.modelDefaults[effectiveProvider as keyof ProviderSettings['modelDefaults']];
   const profileTitleJob = applicableResearchProfileModelJob(
     researchProfile?.modelJobs.sessionTitle,
     effectiveProvider
@@ -2314,7 +2328,7 @@ function honeycrispRunArgs(
   if (generateTitle) {
     const titleModel = profileTitleJob?.model
       ? null
-      : sessionTitleModelForProvider(effectiveProvider);
+      : providerModelDefaults?.smallModel ?? sessionTitleModelForProvider(effectiveProvider);
     if (titleModel) args.push('--title-model', titleModel);
     if (!profileTitleJob?.effort && (titleModel || profileTitleJob?.model)) {
       args.push('--title-effort', SESSION_TITLE_REASONING_EFFORT);
@@ -2335,7 +2349,11 @@ function honeycrispRunArgs(
   // Keep Beale-owned safety mode and reviewer routing after extension arguments.
   // A workspace profile cannot choose the model that authorizes host shell execution.
   args.push('--shell-safety-mode', input.shellSafetyMode);
-  args.push('--shell-review-models', JSON.stringify(SMALL_MODEL_BY_PROVIDER));
+  const shellReviewModels: Record<string, string> = { ...SMALL_MODEL_BY_PROVIDER };
+  for (const [providerId, defaults] of Object.entries(providerSettings?.modelDefaults ?? {})) {
+    if (defaults?.smallModel) shellReviewModels[providerId] = defaults.smallModel;
+  }
+  args.push('--shell-review-models', JSON.stringify(shellReviewModels));
   args.push('--shell-review-effort', SHELL_SAFETY_REVIEW_REASONING_EFFORT);
   if (!researchProfile && memoryTypeDescriptions) {
     args.push('--memory-type-descriptions', JSON.stringify(memoryTypeDescriptions));

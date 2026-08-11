@@ -215,11 +215,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const memoryProfile = researchProfile?.memory;
   const memoryTypes = memoryProfile?.types ?? [];
   const memoryStatuses = memoryProfile?.statuses ?? [];
-  const presentation = researchProfile?.presentation;
-  const memoryLabel = presentation?.memoryLabel ?? 'Memory';
-  const memoriesLabel = pluralizePresentationLabel(memoryLabel);
-  const runbookLabel = presentation?.runbookLabel ?? 'Runbooks';
-  const sessionLabel = presentation?.sessionLabel ?? 'Session';
+  const memoryLabel = 'Memory';
+  const memoriesLabel = 'Memories';
+  const runbookLabel = 'Runbooks';
+  const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -288,6 +287,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = filteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
+  const hasSessionMetadata = Boolean(detail);
+  const hasSessionResources = featureAvailability.runbooks || featureAvailability.collaboration;
+  const hasSessionMemories = featureAvailability.memory;
 
   useEffect(() => {
     if (runIdRef.current === runId) return;
@@ -354,24 +356,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <h2 className="session-summary-title">{sessionLabel}</h2>
             {detail ? <SessionDurationMetric detail={detail} className="session-summary-duration" /> : null}
           </header>
-          <div className="session-summary-items">
-            {featureAvailability.memory ? (
-              <>
-                <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
-                  <Database size={15} aria-hidden="true" />
-                  <span>{sessionMemories} {sessionMemories === 1 ? memoryLabel : memoriesLabel}</span>
-                  {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
-                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-                </button>
-                {sessionMemoryTypes.map((memoryType) => (
-                  <div className="session-memory-type-item" key={memoryType.type}>
-                    <span>{memoryType.countLabel}</span>
-                    {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
-                  </div>
-                ))}
-              </>
-            ) : null}
-
+          <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
+            {detail ? <SessionUsageSummary detail={detail} /> : null}
+          </section>
+          {hasSessionMetadata && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
+          <section className="session-summary-items session-summary-resources" aria-label="Session resources">
             {featureAvailability.runbooks ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                 <BookOpen size={15} aria-hidden="true" />
@@ -388,12 +377,23 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
-          </div>
-          {detail ? (
-            <>
-              <hr className="session-summary-divider" />
-              <SessionUsageSummary detail={detail} />
-            </>
+          </section>
+          {hasSessionResources && hasSessionMemories ? <hr className="session-summary-divider" /> : null}
+          {featureAvailability.memory ? (
+            <section className="session-summary-items session-summary-memories" aria-label="Session memories">
+              <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
+                <Database size={15} aria-hidden="true" />
+                <span>{sessionMemories} {sessionMemories === 1 ? memoryLabel : memoriesLabel}</span>
+                {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+              {sessionMemoryTypes.map((memoryType) => (
+                <div className="session-memory-type-item" key={memoryType.type}>
+                  <span>{memoryType.countLabel}</span>
+                  {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
+                </div>
+              ))}
+            </section>
           ) : null}
         </section>
       </aside>

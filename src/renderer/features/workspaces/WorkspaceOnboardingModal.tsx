@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
+import type { ResearchProfileId, WorkspaceOnboardingProgressUpdate, WorkspaceOnboardingRepositoryProgress } from '@shared/types';
 import { Modal } from '../../app/Modal';
 import { errorMessage } from '../../lib/errors';
 import { emptyDateClass } from '../../lib/formatting';
@@ -19,6 +19,7 @@ import {
 
 export function WorkspaceOnboardingModal({
   form,
+  researchProfileId,
   busy,
   progress,
   onChange,
@@ -29,6 +30,7 @@ export function WorkspaceOnboardingModal({
   onSubmit
 }: {
   form: WorkspaceOnboardingFormState;
+  researchProfileId: ResearchProfileId;
   busy: boolean;
   progress: WorkspaceOnboardingProgressUpdate | null;
   onChange: (next: WorkspaceOnboardingFormState) => void;
@@ -109,19 +111,21 @@ export function WorkspaceOnboardingModal({
             Workspace directory
             <input value={form.workspacePath} readOnly />
           </label>
-          <div className="template-toggle-row" role="group" aria-label="Workspace template">
-            {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (
-              <button
-                type="button"
-                className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
-                key={templateKind}
-                disabled={submitting}
-                onClick={() => onTemplate(templateKind)}
-              >
-                {templateLabel(templateKind)}
-              </button>
-            ))}
-          </div>
+          {researchProfileId === 'security-research' ? (
+            <div className="template-toggle-row" role="group" aria-label="Workspace template">
+              {(['manual', 'hackerone', 'apple', 'msrc'] as WorkspaceTemplateKind[]).map((templateKind) => (
+                <button
+                  type="button"
+                  className={`template-toggle ${form.templateKind === templateKind ? 'active' : ''}`}
+                  key={templateKind}
+                  disabled={submitting}
+                  onClick={() => onTemplate(templateKind)}
+                >
+                  {templateLabel(templateKind)}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {form.templateKind === 'hackerone' ? (
             <div className="hackerone-lookup">
               <label>

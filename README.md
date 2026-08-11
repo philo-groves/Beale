@@ -51,10 +51,10 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ## Architecture (High-Level)
 
-- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and workspace-scoped access to the Honeycrisp-owned global database
+- **Trusted Host** (Electron main): Credentials, authorized-scope policy, artifact acceptance, and workspace-scoped access to the active Honeycrisp profile database
 - **Renderer UI**: React + TypeScript interface for visualization and interaction
 - **Execution Posture**: Honeycrisp runs as a host process. Beale does not create or manage a VM/container sandbox.
-- **Agent Integration**: Honeycrisp launches as the research engine; Beale and headless Honeycrisp use the same global database and Beale displays workspace-scoped traces, durable knowledge, context, and artifacts
+- **Agent Integration**: Honeycrisp launches as the research engine; Beale displays workspace-scoped traces, durable knowledge, context, and artifacts from the active research-profile database
 
 ---
 
@@ -62,9 +62,9 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 - Electron + Vite + TypeScript foundation
 - User-global registry of local Beale workspaces
-- Unified Honeycrisp-owned SQLite persistence at `~/.honeycrisp/memory.sqlite`
+- Profile-isolated Honeycrisp-owned SQLite persistence under `~/.honeycrisp/profiles/<profile-id>/memory.sqlite`
 - Honeycrisp-backed research session execution
-- Workspace-resolved research profiles with dynamic workflows, memory catalogs, prompts, presentation labels, and model-job defaults
+- User-selectable Cybersecurity and Mathematics research profiles with isolated sessions, memory, workflows, prompts, and catalogs
 - Durable research-subject identity that is independent of the recorded authorization owner
 - Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
@@ -78,17 +78,19 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 
 ### Honeycrisp Boundary
 
-Honeycrisp's `~/.honeycrisp/memory.sqlite` is the single database for both headless and Beale-driven research across workspaces. Operational session data, revisioned runbook metadata, and the durable knowledge graph share that database but retain explicit workspace ownership. Every terminal session records a structured final disposition with typed blocker dependencies and an explicit indication of whether external state is required before meaningful progress can continue. Durable knowledge is a small graph of concise typed nodes, relationships, asset links, tags, and relative evidence references; transcripts, task narration, and bulk outputs are not memory. Every node belongs to one durable research subject and records the sessions and workspaces in which it was saved or corrected. The subject is configured separately from the authorization owner, so changing who granted a scope does not silently split or merge research memory. Memory search defaults to the current workspace and can be narrowed to the current session or broadened to the subject; updating the same subject-visible type-and-title identity appends the current session and workspace instead of creating a copy. Runbooks are workspace-scoped `.ipynb` artifacts for reusable procedures and proof sequences; they do not execute outside Honeycrisp's normal shell boundary. Beale keeps the researcher interface, authorized-scope setup, operational traces and artifacts, verifier history, and disclosure/export workflows without maintaining parallel hypotheses, findings, evidence, scoring, or CWE state.
+Beale selects one Honeycrisp profile database at a time: `~/.honeycrisp/profiles/security-research/memory.sqlite` or `~/.honeycrisp/profiles/mathematics/memory.sqlite`. Operational sessions, runbook metadata, and durable knowledge remain isolated when the profile changes, while each database still retains explicit workspace ownership. Every terminal session records a structured final disposition with typed blocker dependencies and an explicit indication of whether external state is required before meaningful progress can continue. Durable knowledge is a small graph of concise typed nodes, relationships, tags, and evidence references; transcripts, task narration, and bulk outputs are not memory. Runbooks are workspace-scoped `.ipynb` artifacts for reusable procedures and proof sequences; they do not execute outside Honeycrisp's normal shell boundary.
 
-Beale is pre-alpha and uses append-only component-scoped migrations. The global-database migration adopts the existing workspace database without deleting the source.
+Beale is pre-alpha and uses append-only component-scoped migrations. Profile isolation starts with clean profile databases; the former unscoped database is not adopted.
 
 The sidebar Skills and MCP Servers views call Honeycrisp's `tools list --json` for the active workspace. Their configuration controls call Honeycrisp's `tools config` commands, so persisted skill directories, selected skill ids, MCP config paths, allowlists, and timeouts live in Honeycrisp's `.honeycrisp/tools.json`. Beale can still forward one-off Honeycrisp CLI runtime flags through `BEALE_HONEYCRISP_RUNTIME_ARGS_JSON` for local debugging.
 
 ### Research Profiles
 
-Beale uses Honeycrisp's bundled security-research profile by default. A workspace can provide `.honeycrisp/profile.json` to configure the research role and posture, workflows, memory types and statuses, evidence rules, workspace vocabulary, presentation labels, and optional model defaults for background jobs. Memory type IDs are durable contract keys; names and descriptions can change, while retired types remain readable but cannot be created.
+Beale uses Honeycrisp's bundled Cybersecurity profile by default. Agent Settings > General can switch between the bundled Cybersecurity and Mathematics profiles when no research run is active. The user-global registry stores the selection; each profile owns a separate database, and switching back restores that profile's sessions and memory.
 
-Before each new run, Beale asks Honeycrisp to resolve and normalize the workspace profile, verifies its content hash, and stores the exact snapshot in the workspace database. The run references that snapshot, and continuations, capture import, historical rendering, and memory interpretation reuse it even if the workspace profile later changes. Runs created before profile provenance was recorded remain explicitly legacy rather than being attributed to the current profile. Workbench migration 13 adds the immutable profile-snapshot registry and nullable run reference.
+The Mathematics profile supplies problem, definition, conjecture, lemma, theorem, counterexample, construction, technique, proof-attempt, obstruction, formalization, computation, reference, and trajectory memory types. Its workflows cover open exploration, proof development, verification, and literature synthesis.
+
+Before each new run, Beale asks Honeycrisp to resolve and normalize the selected bundled profile, verifies its content hash, and stores the exact snapshot in that profile's database. The run references that snapshot, and continuations, capture import, historical rendering, and memory interpretation reuse it.
 
 A profile describes requested defaults; it does not grant authority. Beale remains the trusted host for provider credentials, enabled tool families, side effects, skills, MCP servers, shell policy, recorded authorization, and network access. Workspace profile defaults are constrained by those host-owned settings, and live-target testing still requires both recorded scope and an active host network policy. In particular, Beale always supplies its own Auto-Review model map and reasoning effort; a profile's `modelJobs.shellReview` route cannot influence shell authorization.
 

@@ -2,6 +2,9 @@ import type { JSX } from 'react';
 import type {
   NotificationRecord,
   OpenAiAccountStatus,
+  ResearchProfileId,
+  ResearchModelProviderId,
+  ProviderModelDefaults,
   ResearchProviderModelCatalog,
   ResearchProviderStatus,
   ResearchGoalPhase,
@@ -23,6 +26,7 @@ import { WorkspaceOnboardingModal } from '../features/workspaces/WorkspaceOnboar
 import { SessionSummaryModal } from '../features/sessions/SessionSummaryModal';
 import { TranscriptSearchSheet } from '../features/search/TranscriptSearchSheet';
 import { StartRunForm } from '../features/sessions/StartRunForm';
+import type { ResearchGoalSeed } from '../features/sessions/SessionNextSteps';
 import { ProfilingModal } from '../features/settings/ProfilingModal';
 import { TraceDetailModal } from '../features/traces/TraceDetailModal';
 import { TraceFilterModal } from '../features/traces/TraceFilterModal';
@@ -33,9 +37,13 @@ export function AppModals({
   activeNotification,
   activeRunDetail,
   activeWorkspaceName,
+  activeResearchProfileId,
   busy,
   newResearchOpen,
+  newResearchInitialGoal,
   openAiStatus,
+  defaultProviderId,
+  providerModelDefaults,
   researchProviderModelCatalog,
   researchProviderStatuses,
   researchGoalSuggestions,
@@ -84,9 +92,13 @@ export function AppModals({
   activeNotification: NotificationRecord | null;
   activeRunDetail: RunDetail | null;
   activeWorkspaceName: string;
+  activeResearchProfileId: ResearchProfileId;
   busy: boolean;
   newResearchOpen: boolean;
+  newResearchInitialGoal: ResearchGoalSeed | null;
   openAiStatus: OpenAiAccountStatus | null;
+  defaultProviderId: ResearchModelProviderId | null | undefined;
+  providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   researchProviderStatuses: ResearchProviderStatus[];
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
@@ -138,6 +150,7 @@ export function AppModals({
         <WorkspaceOnboardingModal
           busy={busy}
           form={workspaceDraft}
+          researchProfileId={activeResearchProfileId}
           progress={workspaceOnboardingProgress}
           onCancel={onCancelWorkspaceOnboarding}
           onChange={onChangeWorkspaceDraft}
@@ -151,11 +164,14 @@ export function AppModals({
         <StartRunForm
           snapshot={snapshot}
           openAiStatus={openAiStatus}
+          defaultProviderId={defaultProviderId}
+          providerModelDefaults={providerModelDefaults}
           researchProviderStatuses={researchProviderStatuses}
           providerModelCatalog={researchProviderModelCatalog}
           researchGoalSuggestions={researchGoalSuggestions}
           researchGoalSuggestionsLoading={researchGoalSuggestionsLoading}
           researchGoalSuggestionErrors={researchGoalSuggestionErrors}
+          initialGoal={newResearchInitialGoal}
           busy={busy}
           runAction={runAction}
           onCancel={onCancelNewResearch}

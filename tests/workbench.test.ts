@@ -9,7 +9,7 @@ import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
-import { testResearchProfileCatalogEnvelope } from './researchProfileFixture';
+import { resolvedTestResearchProfile, testResearchProfile, testResearchProfileCatalogEnvelope } from './researchProfileFixture';
 
 const createdDirs: string[] = [];
 
@@ -92,9 +92,9 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(globalDatabasePath())).toBe(true);
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
-    expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry'").get()).toEqual({
-      version: 1,
-      name: 'registry_schema_baseline'
+    expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry' ORDER BY version DESC LIMIT 1").get()).toEqual({
+      version: 3,
+      name: 'research_profile_isolation'
     });
     expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
       name: 'structured_session_final_disposition'
@@ -752,7 +752,7 @@ describe('Beale workbench skeleton', () => {
     expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
     expect(snapshot.activeScope.scopeOwner).toBe('');
     expect(snapshot.activeScope.expiresAt).toBeNull();
-    expect(existsSync(join(registryDir, 'honeycrisp', 'memory.sqlite'))).toBe(true);
+    expect(existsSync(join(registryDir, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite'))).toBe(true);
 
     const registered = service.getWorkspaceRegistryState();
     expect(registered.registryPath).toBe(join(registryDir, 'workspace-registry.sqlite'));
@@ -789,6 +789,46 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
+  it('switches between isolated research-profile databases without mixing sessions', () => {
+    const workspace = tempWorkspace();
+    const registryDir = tempWorkspace();
+    const mathematicsProfile = {
+      ...testResearchProfile('1.0.0', 'Mathematics'),
+      id: 'mathematics',
+      description: 'Test mathematics research profile.'
+    };
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registryDir,
+      researchProfileResolver: (_workspacePath, profileId) => resolvedTestResearchProfile(
+        profileId === 'mathematics' ? mathematicsProfile : testResearchProfile()
+      )
+    });
+
+    const securitySnapshot = service.createWorkspace(workspace);
+    expect(securitySnapshot.workspace.databasePath).toBe(
+      join(registryDir, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite')
+    );
+    service.startRun(runInput('verifier_pass'), 'complete');
+    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+
+    const mathematicsSnapshot = service.setActiveResearchProfile('mathematics');
+    expect(mathematicsSnapshot?.researchProfile.profileId).toBe('mathematics');
+    expect(mathematicsSnapshot?.workspace.databasePath).toBe(
+      join(registryDir, 'honeycrisp', 'profiles', 'mathematics', 'memory.sqlite')
+    );
+    expect(mathematicsSnapshot?.runs).toHaveLength(0);
+    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(0);
+
+    service.startRun(runInput('verifier_pass'), 'complete');
+    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+
+    const restoredSecuritySnapshot = service.setActiveResearchProfile('security-research');
+    expect(restoredSecuritySnapshot?.workspace.databasePath).toBe(securitySnapshot.workspace.databasePath);
+    expect(restoredSecuritySnapshot?.runs).toHaveLength(1);
+    expect(service.getWorkspaceRegistryState().researchSessions).toHaveLength(1);
+    service.close();
+  });
+
   it('executes research prompts through the Honeycrisp host process adapter', async () => {
     const workspace = tempWorkspace();
     const fakeHoneycrisp = join(workspace, 'fake-honeycrisp.mjs');
@@ -804,11 +844,11 @@ describe('Beale workbench skeleton', () => {
         "if (!args.includes('--event-stream')) throw new Error('missing --event-stream');",
         "if (args[args.indexOf('--executor') + 1] !== 'agent') throw new Error('missing agent executor');",
         "if (args[args.indexOf('--provider') + 1] !== 'xai') throw new Error('missing xAI provider');",
-        "if (args[args.indexOf('--title-model') + 1] !== 'grok-4.3') throw new Error('missing xAI title model');",
+        "if (args[args.indexOf('--title-model') + 1] !== 'grok-4') throw new Error('missing configured xAI title model');",
         "if (args[args.indexOf('--title-effort') + 1] !== 'medium') throw new Error('missing title effort');",
         "if (args[args.indexOf('--shell-safety-mode') + 1] !== 'auto_review') throw new Error('missing default shell safety mode');",
         "const shellReviewModels = JSON.parse(args[args.indexOf('--shell-review-models') + 1]);",
-        "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4.3') throw new Error('missing provider small-model map');",
+        "if (shellReviewModels['openai-codex'] !== 'gpt-5.6-luna' || shellReviewModels.anthropic !== 'claude-haiku-4-5' || shellReviewModels.xai !== 'grok-4') throw new Error('missing configured provider small-model map');",
         "if (args[args.indexOf('--shell-review-effort') + 1] !== 'medium') throw new Error('missing shell review effort');",
         "if (args.includes('--memory-type-descriptions')) throw new Error('mutable memory descriptions must not override a resolved profile');",
         "const resolvedProfile = JSON.parse(readFileSync(args[args.indexOf('--resolved-research-profile') + 1], 'utf8'));",
@@ -870,8 +910,8 @@ describe('Beale workbench skeleton', () => {
         "  runtimeConfig: { modelConfig: { mode: 'mock' } }",
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture, null, 2) + '\\n');",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { status: 'error', provider: 'xai', model: 'grok-4.3', effort: 'medium', errorMessage: 'Fixture title failure.' } }));",
-        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { title: 'Zsh Host Adapter Validation', provider: 'xai', model: 'grok-4.3', effort: 'medium' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { status: 'error', provider: 'xai', model: 'grok-4', effort: 'medium', errorMessage: 'Fixture title failure.' } }));",
+        "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'session.title', timestamp: now, payload: { title: 'Zsh Host Adapter Validation', provider: 'xai', model: 'grok-4', effort: 'medium' } }));",
         "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'research.event', timestamp: now, payload: { agentId: 'agent_child', agentPath: '/root/parser_review', parentAgentId: 'root', event: { id: 'evt_tool_result', sequence: 3, kind: 'tool.observed', timestamp: now, summary: 'Live repository search completed.', payload: { toolName: 'repository.search', summary: 'Live repository search completed.' } } } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { phase: 'completed', eventType: 'thinking_end', responseId: 'fixture-response', itemId: 'thinking:0', provider: 'fixture-provider', model: 'fixture-model', text: '**Focus** Inspect fixture context' } }));",
@@ -900,6 +940,11 @@ describe('Beale workbench skeleton', () => {
 
     const service = new WorkspaceService();
     const snapshot = service.createWorkspace(workspace);
+    service.setProviderModelDefaults('xai', {
+      largeModel: 'grok-4',
+      smallModel: 'grok-4',
+      reasoningEffort: 'high'
+    });
     service.setMemoryTypeDescriptions({
       ...service.getMemorySettings().typeDescriptions,
       primitive: 'CUSTOM TEST TAXONOMY: one independently proven root-cause flaw.'
@@ -934,7 +979,7 @@ describe('Beale workbench skeleton', () => {
     expect(JSON.parse(launchArgs[launchArgs.indexOf('--shell-review-models') + 1] ?? '{}')).toEqual({
       'openai-codex': 'gpt-5.6-luna',
       anthropic: 'claude-haiku-4-5',
-      xai: 'grok-4.3'
+      xai: 'grok-4'
     });
     expect(launchArgs[launchArgs.indexOf('--shell-review-effort') + 1]).toBe('medium');
     expect(launchArgs).not.toContain('--memory-models');
@@ -960,9 +1005,10 @@ describe('Beale workbench skeleton', () => {
     expect(service.getWorkspaceRegistryState().researchSessions.find((session) => session.runId === runId)?.finalDisposition).toEqual(detail.run.finalDisposition);
     expect(detail.traceEvents.find((event) => event.summary === 'Session title generation failed.')?.payload).toMatchObject({
       provider: 'xai',
-      model: 'grok-4.3',
+      model: 'grok-4',
       effort: 'medium',
-      errorMessage: 'Fixture title failure.'
+      errorMessage: 'Fixture title failure.',
+      recoveredTitle: 'Honeycrisp Fixture'
     });
     expect(detail.modelSessions[0]).toMatchObject({ provider: 'honeycrisp', transport: 'host_process', status: 'completed' });
     expect(detail.modelSessions[0]?.metadata).toMatchObject({
@@ -2578,10 +2624,26 @@ describe('Beale workbench skeleton', () => {
     const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
 
     expect(service.getDeveloperSettings()).toEqual({ developerModeEnabled: false });
+    expect(service.getProviderSettings()).toEqual({ defaultProviderId: null, modelDefaults: {} });
     expect(service.getShellOptions()).toEqual({ defaultConcurrency: 4, utilities: { sudo: 0 } });
     expect(service.getProfilingState().enabled).toBe(false);
 
     expect(service.setDeveloperModeEnabled(true)).toEqual({ developerModeEnabled: true });
+    expect(service.setDefaultProviderId('anthropic')).toEqual({ defaultProviderId: 'anthropic', modelDefaults: {} });
+    expect(service.setProviderModelDefaults('anthropic', {
+      largeModel: 'claude-opus-4-6',
+      smallModel: 'claude-haiku-4-5',
+      reasoningEffort: 'xhigh'
+    })).toEqual({
+      defaultProviderId: 'anthropic',
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      }
+    });
     expect(service.setShellOptions({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } })).toEqual({
       defaultConcurrency: 3,
       utilities: { sudo: 0, clang: 2 }
@@ -2598,9 +2660,29 @@ describe('Beale workbench skeleton', () => {
 
     const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
     expect(reopened.getDeveloperSettings()).toEqual({ developerModeEnabled: true });
+    expect(reopened.getProviderSettings()).toEqual({
+      defaultProviderId: 'anthropic',
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      }
+    });
     expect(reopened.getShellOptions()).toEqual({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } });
     expect(reopened.getProfilingState().enabled).toBe(true);
     expect(reopened.setDeveloperModeEnabled(false)).toEqual({ developerModeEnabled: false });
+    expect(reopened.setDefaultProviderId(null)).toEqual({
+      defaultProviderId: null,
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      }
+    });
     expect(reopened.getProfilingState().enabled).toBe(false);
     reopened.close();
   });
@@ -3257,6 +3339,45 @@ describe('Beale workbench skeleton', () => {
     expect(requests).toHaveLength(2);
     expect(requests[1]?.instructions).toContain('The previous Discovery response was rejected by the host validator');
     expect(requests[1]?.instructions).toContain('Return exactly 4 distinct one-sentence suggestions');
+    service.close();
+  });
+
+  it('generates exactly three next steps grounded in a completed source session', async () => {
+    process.env.BEALE_OPENAI_ACCESS_TOKEN = 'oauth-token-for-session-next-steps';
+    const nextSteps = validResearchGoalSuggestionGroups().discovery.slice(0, 3);
+    const modelRequests: Record<string, unknown>[] = [];
+    const service = new WorkspaceService(() => undefined, {
+      openAiFetch: async (_url, init) => {
+        modelRequests.push(JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>);
+        return modelJsonResponse({ suggestions: nextSteps }, 'resp_session_next_steps');
+      }
+    });
+    service.createWorkspace(tempWorkspace());
+    const completed = startRunForTest(service, {
+      ...runInput('verifier_pass'),
+      promptMarkdown: '# Source session\nEstablish the strongest bounded result and record the unresolved edge case.'
+    });
+    const sourceRunId = completed.runs[0]?.run.id;
+    if (!sourceRunId) throw new Error('Expected a completed source run.');
+
+    await expect(service.generateResearchGoalSuggestions({
+      phase: 'discovery',
+      sourceRunId
+    })).resolves.toEqual({ phase: 'discovery', suggestions: nextSteps });
+
+    const modelRequest = modelRequests[0];
+    if (!modelRequest) throw new Error('Expected a captured next-step request.');
+    const payload = modelRequestPayload(modelRequest);
+    expect(payload).toMatchObject({
+      task: 'suggest_source_session_next_steps',
+      sourceRunId,
+      suggestionCount: 3
+    });
+    expect(modelRequest.instructions).toContain('containing exactly 3 one-sentence strings');
+    expect(modelRequest.instructions).toContain(`completed source session ${sourceRunId}`);
+    const sourceResearch = (payload.previousResearch as Array<Record<string, unknown>>)[0];
+    expect(sourceResearch).toMatchObject({ runId: sourceRunId });
+    expect(sourceResearch).toHaveProperty('finalResponseMarkdown');
     service.close();
   });
 
@@ -4163,7 +4284,7 @@ function tempWorkspace(): string {
 function globalDatabasePath(): string {
   const registryDirectory = process.env.BEALE_WORKSPACE_REGISTRY_DIR;
   if (!registryDirectory) throw new Error('BEALE_WORKSPACE_REGISTRY_DIR is required for isolated workbench tests.');
-  return join(registryDirectory, 'honeycrisp', 'memory.sqlite');
+  return join(registryDirectory, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite');
 }
 
 function hackerOneWorkspaceResponse(): Response {

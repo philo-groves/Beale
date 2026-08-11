@@ -1,5 +1,5 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, SlidersHorizontal, Square } from 'lucide-react';
 import type {
   ResearchModelEffortLevel,
@@ -60,6 +60,7 @@ export const TraceView = memo(function TraceView({
   showBackButton = showBackToMain,
   selectedTraceEventId,
   searchHighlightQuery,
+  postSessionContent,
   traceFilterCount,
   totalTraceFilterCount,
   visibleTraceCategories,
@@ -79,6 +80,7 @@ export const TraceView = memo(function TraceView({
   showBackButton?: boolean;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
+  postSessionContent?: ReactNode;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   visibleTraceCategories: TraceCategoryId[];
@@ -487,9 +489,9 @@ export const TraceView = memo(function TraceView({
         </button>
       ) : null}
       {loading ? <div className="main-trace-empty">Loading trace.</div> : null}
-      {!loading && events.length === 0 ? <div className="main-trace-empty">No trace events recorded.</div> : null}
-      {!loading && events.length > 0 && timelineEntries.length === 0 ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
-      {!loading && renderedEntries.length > 0 ? (
+      {!loading && events.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events recorded.</div> : null}
+      {!loading && events.length > 0 && timelineEntries.length === 0 && !postSessionContent ? <div className="main-trace-empty">No trace events match the active filters.</div> : null}
+      {!loading && (renderedEntries.length > 0 || postSessionContent) ? (
         <div className="main-trace-scroll" ref={traceScrollRef}>
           <div className="main-trace-list" ref={traceListRef} onScroll={handleTraceScroll}>
             {topSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
@@ -508,6 +510,7 @@ export const TraceView = memo(function TraceView({
               />
             ))}
             {bottomSpacerHeight > 0 ? <div className="main-trace-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+            {postSessionContent}
           </div>
         </div>
       ) : null}

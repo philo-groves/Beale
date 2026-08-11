@@ -43,15 +43,16 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageIcon('final_answer')).toBeNull();
   });
 
-  it('uses concise singular and plural copy for known and fallback tools', () => {
-    expect(commentaryToolUsageText('list_agents', 1)).toBe('Checking Subagents');
-    expect(commentaryToolUsageText('list_agents', 2)).toBe('Checking Subagents 2 Times');
-    expect(commentaryToolUsageText('file.read', 1)).toBe('Reading a File');
-    expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 Files');
-    expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a Command');
-    expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 Commands');
-    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using Snapshot');
-    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using Custom Scan 2 Times');
+  it('uses concise sentence-case singular and plural copy for known and fallback tools', () => {
+    expect(commentaryToolUsageText('list_agents', 1)).toBe('Checking subagents');
+    expect(commentaryToolUsageText('list_agents', 2)).toBe('Checking subagents 2 times');
+    expect(commentaryToolUsageText('file.read', 1)).toBe('Reading a file');
+    expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 files');
+    expect(commentaryToolUsageText('memory.get', 3)).toBe('Reading 3 memories');
+    expect(commentaryToolUsageText('shell.run', 1)).toBe('Running a command');
+    expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 commands');
+    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using snapshot');
+    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using custom scan 2 times');
   });
 
   it('shows one activity row per tool call, coalesces repeats, and suppresses paired results', () => {
@@ -80,10 +81,10 @@ describe('renderer commentary projection', () => {
       contentMarkdown
     ])).toEqual([
       ['user', undefined, undefined, 'Inspect the parser.'],
-      ['tool', 'list_agents', 1, 'Checking Subagents'],
-      ['tool', 'file.read', 2, 'Reading 2 Files'],
-      ['tool', 'shell.run', 1, 'Running a Command'],
-      ['tool', 'repository.search', 1, 'Searching the Repository'],
+      ['tool', 'list_agents', 1, 'Checking subagents'],
+      ['tool', 'file.read', 2, 'Reading 2 files'],
+      ['tool', 'shell.run', 1, 'Running a command'],
+      ['tool', 'repository.search', 1, 'Searching the repository'],
       ['task', undefined, undefined, 'Inspect the parser boundary.']
     ]);
 

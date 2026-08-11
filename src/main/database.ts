@@ -235,6 +235,7 @@ export interface StartRunRecordInput {
 
 export interface ResearchRecommendationRunContext {
   run: RunRecord;
+  finalResponseMarkdown: string | null;
   verifierContracts: Array<{
     memoryNodeId: string | null;
     mode: string;
@@ -5111,7 +5112,7 @@ export class WorkspaceDatabase {
     });
   }
 
-  public listResearchRecommendationRuns(limit = 12): ResearchRecommendationRunContext[] {
+  public listResearchRecommendationRuns(limit = 12, prioritizeRunId: string | null = null): ResearchRecommendationRunContext[] {
     const requestedLimit = Math.floor(limit);
     const boundedLimit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(24, requestedLimit)) : 12;
     const runRows = rows(
@@ -5121,10 +5122,10 @@ export class WorkspaceDatabase {
            FROM runs r
            JOIN scope_versions s ON s.id = r.scope_version_id
            WHERE s.workspace_id = ?
-           ORDER BY r.created_at DESC
+           ORDER BY CASE WHEN r.id = ? THEN 0 ELSE 1 END, r.created_at DESC
            LIMIT ?`
-        )
-        .all(this.workspaceId, boundedLimit)
+          )
+        .all(this.workspaceId, prioritizeRunId ?? '', boundedLimit)
     );
     return runRows.map((runRow) => {
       const run = this.mapRun(runRow);
@@ -5176,7 +5177,19 @@ export class WorkspaceDatabase {
         summary: text(row, 'summary'),
         modelVisible: booleanValue(row, 'model_visible')
       }));
-      return { run, verifierContracts, verifierRuns, notableTraceEvents };
+      const assistantMessages = rows(
+        this.db
+          .prepare(
+            `SELECT * FROM transcript_messages
+             WHERE run_id = ? AND role = 'assistant'
+             ORDER BY created_at DESC, rowid DESC`
+          )
+          .all(run.id)
+      )
+        .map((row) => this.mapTranscriptMessage(row));
+      const finalResponseMarkdown = assistantMessages.find((message) => message.phase === 'final_answer')
+        ?.contentMarkdown ?? assistantMessages[0]?.contentMarkdown ?? null;
+      return { run, finalResponseMarkdown, verifierContracts, verifierRuns, notableTraceEvents };
     });
   }
 

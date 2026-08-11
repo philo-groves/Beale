@@ -5,6 +5,7 @@ import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstanding
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { TraceView } from '../traces/TraceView';
+import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { ChatView } from '../../view-models/chatView';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -49,6 +50,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToSubagents,
   onSelectTraceEvent,
   onSelectSubagent,
+  onSelectNextStep,
   onSessionAction,
   onSteerInstruction
 }: {
@@ -87,6 +89,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
+  onSelectNextStep: (goal: ResearchGoalSeed) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
 }): JSX.Element | null {
@@ -115,6 +118,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     );
   }
 
+  const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
+    ? <SessionNextSteps detail={detail} onSelect={onSelectNextStep} />
+    : null;
+
   return (
     <div
       ref={containerRef}
@@ -131,6 +138,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
+          postSessionContent={postSessionContent}
           onBackToMain={() => undefined}
           onSessionAction={onSessionAction}
           onSteerInstruction={onSteerInstruction}
@@ -146,6 +154,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           showBackToMain={false}
           selectedTraceEventId={selectedTraceEventId}
           searchHighlightQuery={searchHighlightQuery}
+          postSessionContent={postSessionContent}
           traceFilterCount={traceFilterCount}
           totalTraceFilterCount={totalTraceFilterCount}
           visibleTraceCategories={visibleTraceCategories}

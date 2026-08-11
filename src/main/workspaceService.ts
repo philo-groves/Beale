@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { FixtureRunEngine } from './fixtureRunEngine';
 import {
-  checkpointDatabaseFile,
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
   type ProjectSourceReviewObservation,
@@ -60,6 +59,8 @@ import type {
   AttemptRecord,
   ArtifactRecord,
   DeveloperSettings,
+  ProviderSettings,
+  ProviderModelDefaults,
   ExecutorStatus,
   FixtureScenario,
   GeneratedResearchGoalSuggestions,
@@ -94,6 +95,7 @@ import type {
   RunDetailUpdate,
   RunDetailUpdateCursor,
   RunDetailVersion,
+  RunStatus,
   RunRow,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
@@ -110,6 +112,7 @@ import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ResearchProviderId,
+  ResearchModelProviderId,
   ResearchModelEffortLevel,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
@@ -120,6 +123,7 @@ import type {
   ProjectGraphSummary,
   ProjectSemanticSummary,
   ResearchProfile,
+  ResearchProfileId,
   ResearchProfileModelJob,
   ResearchProfileSnapshot,
   ResearchProfileWorkflow,
@@ -132,8 +136,6 @@ import type {
   WorkspaceSnapshot,
   WorkspaceSummary
 } from '@shared/types';
-
-const LEGACY_WORKSPACE_DATABASE_RELATIVE_PATH = join('.honeycrisp', 'memory', 'memory.sqlite');
 
 const EXECUTION_POSTURE_LABEL = 'Honeycrisp host-process execution. Use an external VM or container when OS isolation is required.';
 const UNBOUNDED_RUN_MINUTES = 999_999;
@@ -286,7 +288,8 @@ function researchPromptRecommendationInstructions(
 function researchGoalSuggestionInstructions(
   profileSnapshot: ResearchProfileSnapshot,
   workflow: ResearchProfileWorkflow,
-  suggestionCount: number
+  suggestionCount: number,
+  sourceRunId: string | null = null
 ): string {
   const profile = profileSnapshot.profile;
   const groundingSources = [
@@ -303,6 +306,9 @@ function researchGoalSuggestionInstructions(
     `Choose next-session directions for the ${boundedProfileText(workflow.name, 160)} workflow: ${boundedProfileText(workflow.description, 1_000)}`,
     ...researchRecommendationContextInstructions(profile),
     ...boundedProfileInstructionList(workflow.goalSuggestionInstructions),
+    ...(sourceRunId
+      ? [`Focus every suggestion on a concrete next step that follows from the completed source session ${boundedProfileText(sourceRunId, 240)}. Use that session's prompt, outcome, summary, evidence, and unresolved threads as the primary grounding; use other workspace context only to sharpen those next steps.`]
+      : []),
     ...workflow.outputRequirements.slice(0, 16).map((requirement) => `The resulting session must satisfy: ${boundedProfileText(requirement, 1_000)}`),
     `Return strict JSON only with an array named suggestions containing exactly ${suggestionCount} one-sentence strings.`,
     `Make all ${suggestionCount} suggestions materially distinct and ground each in ${groundingSources}. Do not invent observations or evidence.`,
@@ -424,12 +430,13 @@ export interface WorkspaceServiceOptions {
   repositoryStoreDirectory?: string;
   hackerOneFetch?: typeof fetch;
   openAiFetch?: FetchLike;
-  researchProfileResolver?: (workspacePath: string) => ResolvedResearchProfile;
+  researchProfileResolver?: (workspacePath: string, profileId: ResearchProfileId) => ResolvedResearchProfile;
   researchSubjectResolver?: (workspacePath: string) => ResearchSubjectInput | null;
 }
 
 interface WorkspaceRuntime {
   workspacePath: string;
+  profileId: ResearchProfileId;
   openedAt: string;
   lastRecovery: WorkspaceRecoveryReport | null;
   db: WorkspaceDatabase;
@@ -563,6 +570,31 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().getState();
   }
 
+  public setActiveResearchProfile(profileId: ResearchProfileId): WorkspaceSnapshot | null {
+    const registry = this.getWorkspaceRegistry();
+    if (registry.getActiveResearchProfileId() === profileId) return this.getSnapshot();
+
+    const runtimes = [this.getForegroundRuntime(), ...this.backgroundRuntimes.values()]
+      .filter((runtime): runtime is WorkspaceRuntime => runtime !== null);
+    if (runtimes.some((runtime) => this.hasActiveRuntimeWork(runtime))) {
+      throw new Error('Finish or stop active research before switching research profiles.');
+    }
+
+    const workspacePath = this.workspacePath;
+    const foreground = this.detachForegroundRuntime();
+    if (foreground) {
+      this.syncWorkspaceRegistryForRuntime(foreground, false);
+      this.disposeRuntime(foreground);
+    }
+    for (const runtime of this.backgroundRuntimes.values()) this.disposeRuntime(runtime);
+    this.backgroundRuntimes.clear();
+
+    registry.setActiveResearchProfileId(profileId);
+    const snapshot = workspacePath ? this.open(workspacePath, false, false) : null;
+    this.onChange({ workspaceRegistryChanged: true });
+    return snapshot;
+  }
+
   public getDeveloperSettings(): DeveloperSettings {
     return this.getWorkspaceRegistry().getDeveloperSettings();
   }
@@ -574,6 +606,18 @@ export class WorkspaceService {
     this.profiling.applyPreference(enabled);
     this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
     return settings;
+  }
+
+  public getProviderSettings(): ProviderSettings {
+    return this.getWorkspaceRegistry().getProviderSettings();
+  }
+
+  public setDefaultProviderId(providerId: ResearchModelProviderId | null): ProviderSettings {
+    return this.getWorkspaceRegistry().setDefaultProviderId(providerId);
+  }
+
+  public setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): ProviderSettings {
+    return this.getWorkspaceRegistry().setProviderModelDefaults(providerId, defaults);
   }
 
   public getMemorySettings(): MemorySettings {
@@ -629,7 +673,7 @@ export class WorkspaceService {
   public resolveHoneycrispRunbookPath(runbookId: string): string {
     const relativePath = this.requireDb().getHoneycrispRunbookRelativePath(runbookId);
     if (!relativePath) throw new Error(`Runbook not found in the active workspace: ${runbookId}`);
-    const artifactRoot = resolve(this.globalHoneycrispArtifactDirectory());
+    const artifactRoot = resolve(this.globalHoneycrispArtifactDirectory(this.getWorkspaceRegistry().getActiveResearchProfileId()));
     const path = resolve(artifactRoot, relativePath);
     const child = relative(artifactRoot, path);
     if (!child || child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
@@ -1195,20 +1239,29 @@ export class WorkspaceService {
   ): Promise<GeneratedResearchGoalSuggestions> {
     const runtime = this.getForegroundRuntime();
     if (!runtime) throw new Error('No Beale workspace is open');
-    const profileSnapshot = this.refreshResearchProfile(runtime);
+    const db = runtime.db;
+    const sourceRunId = input.sourceRunId?.trim() || null;
+    const sourceRun = sourceRunId ? db.getRunDetail(sourceRunId).run : null;
+    if (sourceRun && !isEndedResearchRunStatus(sourceRun.status)) {
+      throw new Error('Next-step suggestions are only available after the source session has ended.');
+    }
+    const profileSnapshot = sourceRunId
+      ? db.getRunResearchProfileSnapshot(sourceRunId) ?? this.refreshResearchProfile(runtime)
+      : this.refreshResearchProfile(runtime);
     const phase = typeof input?.phase === 'string' ? input.phase.trim() : '';
     if (!phase) throw new Error('Research goal suggestion workflow is required.');
     const workflow = requireResearchProfileWorkflow(profileSnapshot.profile, phase);
-    const suggestionCount = hostGoalSuggestionCount(profileSnapshot.profile, workflow);
+    const suggestionCount = sourceRunId ? 3 : hostGoalSuggestionCount(profileSnapshot.profile, workflow);
     const status = this.openAiAuth.getStatus();
+    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
+      ?? status.defaultModel;
     const route = resolveProfileOpenAiRoute(
       profileSnapshot.profile,
       'goalSuggestions',
-      status.defaultModel,
+      defaultOpenAiModel,
       RESEARCH_PROMPT_GENERATION_REASONING_EFFORT
     );
     requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
-    const db = runtime.db;
     const scope = db.getActiveScope();
     const requestId = input.requestId?.trim() || null;
     const controller = new AbortController();
@@ -1217,8 +1270,10 @@ export class WorkspaceService {
       this.researchPromptControllers.set(requestId, controller);
     }
     const includeMemoryContext = profileSnapshot.profile.capabilities.memoryEnabled;
-    const memory = includeMemoryContext ? this.memorySummaryForRuntime(runtime, scope) : null;
-    const details = this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext);
+    const memory = includeMemoryContext
+      ? this.memorySummaryForRuntime(runtime, scope, undefined, profileSnapshot)
+      : null;
+    const details = this.researchRecommendationDetailsForRuntime(runtime, scope, includeMemoryContext, sourceRunId);
     const sourceCoverage = isSecurityResearchProfile(profileSnapshot.profile)
       ? buildSourceCoverage(db, scope, details, memory)
       : null;
@@ -1248,7 +1303,7 @@ export class WorkspaceService {
     );
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const phaseInstructions = researchGoalSuggestionInstructions(profileSnapshot, workflow, suggestionCount);
+        const phaseInstructions = researchGoalSuggestionInstructions(profileSnapshot, workflow, suggestionCount, sourceRunId);
         const instructions = attempt === 0
           ? phaseInstructions
           : [
@@ -1267,7 +1322,8 @@ export class WorkspaceService {
                   type: 'input_text',
                   text: JSON.stringify({
                     ...recommendationInput,
-                    task: 'suggest_next_research_goals',
+                    task: sourceRunId ? 'suggest_source_session_next_steps' : 'suggest_next_research_goals',
+                    sourceRunId,
                     researchPhase: workflow.id,
                     suggestionCount
                   }, null, 2)
@@ -1322,10 +1378,12 @@ export class WorkspaceService {
     const db = runtime.db;
     const scope = db.getActiveScope();
     const status = this.openAiAuth.getStatus();
+    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
+      ?? status.defaultModel;
     const route = resolveProfileOpenAiRoute(
       profileSnapshot.profile,
       'promptGeneration',
-      status.defaultModel,
+      defaultOpenAiModel,
       RESEARCH_PROMPT_GENERATION_REASONING_EFFORT
     );
     requireOpenAiAuthenticationForResearchPrompt(this.openAiAuth);
@@ -1421,6 +1479,8 @@ export class WorkspaceService {
 
   private async reviewHackerOneScopeImport(facts: HackerOneScopeImportFacts): Promise<HackerOneScopeImportReview> {
     const status = this.openAiAuth.getStatus();
+    const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
+      ?? status.defaultModel;
     const adapter = new OpenAiResponsesAdapter(
       this.openAiAuth,
       this.options.openAiFetch ?? (fetch as FetchLike),
@@ -1430,7 +1490,7 @@ export class WorkspaceService {
       (name, durationMs, detail) => this.recordProfilingMainTiming(name, durationMs, detail)
     );
     const body = adapter.buildRequest({
-      model: status.defaultModel,
+      model: defaultOpenAiModel,
       instructions: HACKERONE_IMPORT_REVIEW_INSTRUCTIONS,
       input: [
         {
@@ -1669,7 +1729,9 @@ export class WorkspaceService {
       }
 
       const bealeDir = join(resolvedPath, '.beale');
-      const db = new WorkspaceDatabase(this.globalHoneycrispDatabasePath(), join(bealeDir, 'artifacts'), {
+      const db = new WorkspaceDatabase(
+        this.globalHoneycrispDatabasePath(this.getWorkspaceRegistry().getActiveResearchProfileId()),
+        join(bealeDir, 'artifacts'), {
         workspacePath: resolvedPath,
         workspaceId: workspace.workspaceId
       });
@@ -2272,10 +2334,11 @@ export class WorkspaceService {
   }
 
   private createRuntime(workspacePath: string, bealeDir: string, artifactRoot: string): WorkspaceRuntime {
-    const registryWorkspace = this.getWorkspaceRegistry().getWorkspaceByPath(workspacePath);
-    const databasePath = this.globalHoneycrispDatabasePath();
-    mkdirSync(this.globalHoneycrispArtifactDirectory(), { recursive: true });
-    this.adoptLegacyWorkspaceDatabase(workspacePath, databasePath);
+    const registry = this.getWorkspaceRegistry();
+    const profileId = registry.getActiveResearchProfileId();
+    const registryWorkspace = registry.getWorkspaceByPath(workspacePath);
+    const databasePath = this.globalHoneycrispDatabasePath(profileId);
+    mkdirSync(this.globalHoneycrispArtifactDirectory(profileId), { recursive: true });
     const db = new WorkspaceDatabase(databasePath, artifactRoot, {
       workspacePath,
       ...(registryWorkspace?.workspaceId ? { workspaceId: registryWorkspace.workspaceId } : {})
@@ -2283,9 +2346,10 @@ export class WorkspaceService {
     db.initialize();
     const openedAt = new Date().toISOString();
     try {
-      const researchProfile = db.activateResearchProfileSnapshot(this.resolveResearchProfile(workspacePath));
+      const researchProfile = db.activateResearchProfileSnapshot(this.resolveResearchProfile(workspacePath, profileId));
       return {
         workspacePath,
+        profileId,
         openedAt,
         lastRecovery: db.recoverInterruptedState('workspace_open'),
         db,
@@ -2297,7 +2361,8 @@ export class WorkspaceService {
           (change) => this.emitRuntimeChange(workspacePath, change),
           this.getWorkspaceRegistry().getShellOptionsPath(),
           () => this.getWorkspaceRegistry().getMemorySettings().typeDescriptions,
-          () => this.options.researchSubjectResolver?.(workspacePath) ?? db.getResearchSubject()
+          () => this.options.researchSubjectResolver?.(workspacePath) ?? db.getResearchSubject(),
+          () => this.getWorkspaceRegistry().getProviderSettings()
         )
       };
     } catch (error) {
@@ -2306,36 +2371,38 @@ export class WorkspaceService {
     }
   }
 
-  private resolveResearchProfile(workspacePath: string): ResolvedResearchProfile {
-    return this.options.researchProfileResolver?.(workspacePath) ?? this.researchProfileService.resolve(workspacePath);
+  private resolveResearchProfile(workspacePath: string, profileId: ResearchProfileId): ResolvedResearchProfile {
+    return this.options.researchProfileResolver?.(workspacePath, profileId)
+      ?? this.researchProfileService.resolve(workspacePath, profileId);
   }
 
   private refreshResearchProfile(runtime: WorkspaceRuntime): ResearchProfileSnapshot {
-    const researchProfile = runtime.db.activateResearchProfileSnapshot(this.resolveResearchProfile(runtime.workspacePath));
+    const researchProfile = runtime.db.activateResearchProfileSnapshot(
+      this.resolveResearchProfile(runtime.workspacePath, runtime.profileId)
+    );
     runtime.researchProfile = researchProfile;
     if (this.db === runtime.db) this.researchProfile = researchProfile;
     return researchProfile;
   }
 
-  private globalHoneycrispDatabasePath(): string {
-    if (this.options.honeycrispDatabasePath) return resolve(this.options.honeycrispDatabasePath);
+  private globalHoneycrispDatabasePath(profileId: ResearchProfileId): string {
+    if (this.options.honeycrispDatabasePath) {
+      const configured = resolve(this.options.honeycrispDatabasePath);
+      return profileId === 'security-research'
+        ? configured
+        : join(dirname(configured), 'profiles', profileId, 'memory.sqlite');
+    }
     const registryDirectory = this.options.workspaceRegistryDirectory ?? process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim();
-    if (registryDirectory) return resolve(registryDirectory, 'honeycrisp', 'memory.sqlite');
-    return join(homedir(), '.honeycrisp', 'memory.sqlite');
+    if (registryDirectory) return resolve(registryDirectory, 'honeycrisp', 'profiles', profileId, 'memory.sqlite');
+    return join(homedir(), '.honeycrisp', 'profiles', profileId, 'memory.sqlite');
   }
 
-  private globalHoneycrispArtifactDirectory(): string {
-    if (this.options.honeycrispArtifactDirectory) return resolve(this.options.honeycrispArtifactDirectory);
-    return join(dirname(this.globalHoneycrispDatabasePath()), 'artifacts');
-  }
-
-  private adoptLegacyWorkspaceDatabase(workspacePath: string, databasePath: string): void {
-    if (existsSync(databasePath)) return;
-    const legacyDatabasePath = join(workspacePath, LEGACY_WORKSPACE_DATABASE_RELATIVE_PATH);
-    if (!existsSync(legacyDatabasePath)) return;
-    mkdirSync(dirname(databasePath), { recursive: true });
-    checkpointDatabaseFile(legacyDatabasePath);
-    copyFileSync(legacyDatabasePath, databasePath);
+  private globalHoneycrispArtifactDirectory(profileId: ResearchProfileId): string {
+    if (this.options.honeycrispArtifactDirectory) {
+      const configured = resolve(this.options.honeycrispArtifactDirectory);
+      return profileId === 'security-research' ? configured : join(dirname(configured), profileId, 'artifacts');
+    }
+    return join(dirname(this.globalHoneycrispDatabasePath(profileId)), 'artifacts');
   }
 
   private getForegroundRuntime(): WorkspaceRuntime | null {
@@ -2350,6 +2417,7 @@ export class WorkspaceService {
     }
     return {
       workspacePath: this.workspacePath,
+      profileId: this.researchProfile.profileId as ResearchProfileId,
       openedAt: this.openedAt,
       lastRecovery: this.lastRecovery,
       db: this.db,
@@ -2470,9 +2538,12 @@ export class WorkspaceService {
 
   private syncWorkspaceRegistry(): void {
     if (!this.workspaceRegistry) return;
-    const snapshot = this.getSnapshot();
-    if (snapshot) {
-      this.workspaceRegistry.syncWorkspace(snapshot, { rememberLast: true });
+    const foreground = this.getForegroundRuntime();
+    if (foreground) {
+      this.workspaceRegistry.syncWorkspace(this.snapshotForRuntime(foreground), {
+        rememberLast: true,
+        researchProfileId: foreground.profileId
+      });
     }
     for (const runtime of this.backgroundRuntimes.values()) {
       this.syncWorkspaceRegistryForRuntime(runtime, false);
@@ -2481,7 +2552,10 @@ export class WorkspaceService {
 
   private syncWorkspaceRegistryForRuntime(runtime: WorkspaceRuntime, rememberLast: boolean): void {
     if (!this.workspaceRegistry) return;
-    this.workspaceRegistry.syncWorkspace(this.snapshotForRuntime(runtime), { rememberLast });
+    this.workspaceRegistry.syncWorkspace(this.snapshotForRuntime(runtime), {
+      rememberLast,
+      researchProfileId: runtime.profileId
+    });
   }
 
   private requireDb(): WorkspaceDatabase {
@@ -2585,7 +2659,7 @@ export class WorkspaceService {
   ): HoneycrispMemorySummary {
     return getHoneycrispMemorySummary({
       databasePath: runtime.db.getDatabasePath(),
-      artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(),
+      artifactDirectoryPath: this.globalHoneycrispArtifactDirectory(runtime.profileId),
       ...(sessionId ? { sessionId } : {}),
       workspaceId: runtime.db.getWorkspaceId(),
       subjectId: runtime.db.getResearchSubject().id,
@@ -2596,9 +2670,10 @@ export class WorkspaceService {
   private researchRecommendationDetailsForRuntime(
     runtime: WorkspaceRuntime,
     scope: WorkspaceScopeVersion,
-    includeMemoryContext = true
+    includeMemoryContext = true,
+    prioritizeRunId: string | null = null
   ): ResearchRecommendationDetail[] {
-    return runtime.db.listResearchRecommendationRuns(12).map((detail) => {
+    return runtime.db.listResearchRecommendationRuns(12, prioritizeRunId).map((detail) => {
       const researchProfile = runtime.db.getRunResearchProfileSnapshot(detail.run.id);
       if (detail.run.researchProfileSnapshotId && !researchProfile) {
         throw new Error(
@@ -4014,6 +4089,9 @@ function buildResearchPromptRecommendationInput(
         mode: detail.run.mode,
         promptMarkdown: trimRedactedText(detail.run.promptMarkdown, 1200),
         summary: trimRedactedText(detail.run.summary, 900),
+        finalResponseMarkdown: detail.finalResponseMarkdown
+          ? trimRedactedText(detail.finalResponseMarkdown, 3_600)
+          : null,
         networkProfile: detail.run.networkProfile,
         startedAt: detail.run.startedAt,
         endedAt: detail.run.endedAt,
@@ -4067,6 +4145,10 @@ export function isResearchProfileMemoryStatusActive(profile: ResearchProfile, st
 
 function isSecurityResearchProfile(profile: ResearchProfile): boolean {
   return profile.id === 'security-research';
+}
+
+function isEndedResearchRunStatus(status: RunStatus): boolean {
+  return status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped';
 }
 
 function assetPriority(asset: Pick<ScopeAssetInput, 'direction' | 'kind' | 'sensitivity'>): number {

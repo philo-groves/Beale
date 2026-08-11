@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { decodeResolvedResearchProfile, serializeResearchProfile } from '../shared/researchProfile';
-import type { ResolvedResearchProfile } from '@shared/types';
+import type { ResearchProfileId, ResolvedResearchProfile } from '@shared/types';
 import { redactForModelText } from './redaction';
 import type { HoneycrispInvocation } from './honeycrispRunEngine';
 
@@ -32,7 +32,7 @@ export interface ResearchProfileCatalogEnvelope {
 export class ResearchProfileService {
   public constructor(private readonly options: ResearchProfileServiceOptions = {}) {}
 
-  public resolve(workspaceRoot: string): ResolvedResearchProfile {
+  public resolve(workspaceRoot: string, profileId: ResearchProfileId): ResolvedResearchProfile {
     const invocation = (this.options.resolveInvocation ?? resolveHoneycrispProfileInvocation)();
     const args = [
       ...invocation.prefixArgs,
@@ -40,6 +40,8 @@ export class ResearchProfileService {
       'resolve',
       '--workspace-root',
       resolve(workspaceRoot),
+      '--profile-id',
+      profileId,
       '--json'
     ];
     const result = (this.options.runCommand ?? runResearchProfileCommand)(invocation.command, args, invocation);

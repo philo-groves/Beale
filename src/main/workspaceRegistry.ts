@@ -6,6 +6,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { applyDatabaseMigrations } from './databaseMigrations';
 import type {
   DeveloperSettings,
+  ProviderSettings,
+  ProviderModelDefaults,
+  ResearchModelProviderId,
   MemorySettings,
   MemoryTypeDescriptions,
   ShellOptions,
@@ -20,7 +23,8 @@ import type {
   VmPreference,
   WorkspaceSnapshot
 } from '@shared/types';
-import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, MEMORY_NODE_TYPES } from '../shared/types';
+import type { ResearchProfileId } from '@shared/types';
+import { DEFAULT_MEMORY_TYPE_DESCRIPTIONS, isResearchProfileId, MEMORY_NODE_TYPES } from '../shared/types';
 
 interface SqlRow {
   [key: string]: unknown;
@@ -39,6 +43,7 @@ const MAX_SHELL_UTILITY_CONCURRENCY = 64;
 const SHELL_UTILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
 const MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS = 4_000;
 const MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS = 64_000;
+const DEFAULT_RESEARCH_PROFILE_ID: ResearchProfileId = 'security-research';
 
 function defaultWorkspaceRegistryDirectory(): string {
   return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
@@ -69,6 +74,7 @@ export class WorkspaceRegistry {
     return {
       registryPath: this.registryPath,
       vmPreference: this.getVmPreference(),
+      activeResearchProfileId: this.getActiveResearchProfileId(),
       workspaces: this.listWorkspaces(),
       researchSessions: this.listResearchSessions()
     };
@@ -76,6 +82,15 @@ export class WorkspaceRegistry {
 
   public getVmPreference(): VmPreference {
     return DEFAULT_VM_PREFERENCE;
+  }
+
+  public getActiveResearchProfileId(): ResearchProfileId {
+    const value = this.getMeta('active_research_profile_id');
+    return isResearchProfileId(value) ? value : DEFAULT_RESEARCH_PROFILE_ID;
+  }
+
+  public setActiveResearchProfileId(profileId: ResearchProfileId): void {
+    this.setMeta('active_research_profile_id', profileId);
   }
 
   public getProfilingEnabled(): boolean {
@@ -99,6 +114,31 @@ export class WorkspaceRegistry {
   public setDeveloperModeEnabled(enabled: boolean): DeveloperSettings {
     this.setMeta('developer_mode_enabled', enabled ? '1' : '0');
     return this.getDeveloperSettings();
+  }
+
+  public getProviderSettings(): ProviderSettings {
+    return {
+      defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
+      modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json'))
+    };
+  }
+
+  public setDefaultProviderId(providerId: ResearchModelProviderId | null): ProviderSettings {
+    if (providerId === null) {
+      this.deleteMeta('default_provider_id');
+    } else {
+      if (!isResearchModelProviderId(providerId)) throw new Error('Invalid default provider.');
+      this.setMeta('default_provider_id', providerId);
+    }
+    return this.getProviderSettings();
+  }
+
+  public setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): ProviderSettings {
+    if (!isResearchModelProviderId(providerId)) throw new Error('Invalid provider model defaults provider.');
+    const settings = this.getProviderSettings();
+    settings.modelDefaults[providerId] = normalizeProviderModelDefaults(defaults);
+    this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
+    return settings;
   }
 
   public getMemorySettings(): MemorySettings {
@@ -196,13 +236,24 @@ export class WorkspaceRegistry {
     return workspace;
   }
 
-  public syncWorkspace(snapshot: WorkspaceSnapshot, options: { rememberLast?: boolean } = {}): void {
+  public syncWorkspace(
+    snapshot: WorkspaceSnapshot,
+    options: { rememberLast?: boolean; researchProfileId?: ResearchProfileId } = {}
+  ): void {
+    const researchProfileId = options.researchProfileId ?? this.getActiveResearchProfileId();
     const workspace = this.upsertWorkspaceFromSnapshot(snapshot);
     if (options.rememberLast ?? true) {
       this.rememberLastKnownWorkspace(workspace);
     }
     for (const row of snapshot.runs) {
-      this.upsertResearchSession(workspace.id, snapshot.workspace.workspacePath, snapshot.workspace.workspaceId, row, sessionUpdatedAt(row));
+      this.upsertResearchSession(
+        researchProfileId,
+        workspace.id,
+        snapshot.workspace.workspacePath,
+        snapshot.workspace.workspaceId,
+        row,
+        sessionUpdatedAt(row)
+      );
     }
   }
 
@@ -271,6 +322,20 @@ export class WorkspaceRegistry {
           database.exec('ALTER TABLE research_sessions ADD COLUMN final_disposition_json TEXT;');
         }
       }
+    }, {
+      version: 3,
+      name: 'research_profile_isolation',
+      up: (database) => {
+        const columns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
+        if (!columns.some((column) => column.name === 'research_profile_id')) {
+          database.exec("ALTER TABLE research_sessions ADD COLUMN research_profile_id TEXT NOT NULL DEFAULT 'security-research';");
+        }
+        database.exec(`
+          DELETE FROM research_sessions;
+          CREATE INDEX IF NOT EXISTS idx_research_sessions_profile_updated
+            ON research_sessions(research_profile_id, updated_at);
+        `);
+      }
     }]);
   }
 
@@ -290,7 +355,8 @@ export class WorkspaceRegistry {
   }
 
   private listResearchSessions(limit = 200): ResearchSessionSummary[] {
-    return rows(this.db.prepare('SELECT * FROM research_sessions ORDER BY updated_at DESC LIMIT ?').all(limit)).map((row) => this.mapResearchSession(row));
+    return rows(this.db.prepare('SELECT * FROM research_sessions WHERE research_profile_id = ? ORDER BY updated_at DESC LIMIT ?')
+      .all(this.getActiveResearchProfileId(), limit)).map((row) => this.mapResearchSession(row));
   }
 
   private getMeta(key: string): string | null {
@@ -382,6 +448,7 @@ export class WorkspaceRegistry {
   }
 
   private upsertResearchSession(
+    researchProfileId: ResearchProfileId,
     registryWorkspaceId: string,
     workspacePath: string,
     workspaceId: string,
@@ -389,8 +456,11 @@ export class WorkspaceRegistry {
     updatedAt: string
   ): void {
     const run = row.run;
-    const existing = rowOrUndefined(this.db.prepare('SELECT id FROM research_sessions WHERE workspace_path = ? AND run_id = ?').get(resolve(workspacePath), run.id));
+    const existing = rowOrUndefined(this.db.prepare(
+      'SELECT id FROM research_sessions WHERE research_profile_id = ? AND workspace_path = ? AND run_id = ?'
+    ).get(researchProfileId, resolve(workspacePath), run.id));
     const values = [
+      researchProfileId,
       registryWorkspaceId,
       resolve(workspacePath),
       workspaceId,
@@ -416,6 +486,7 @@ export class WorkspaceRegistry {
       this.db
         .prepare(
           `UPDATE research_sessions SET
+            research_profile_id = ?,
             registry_workspace_id = ?,
             workspace_path = ?,
             workspace_id = ?,
@@ -444,17 +515,19 @@ export class WorkspaceRegistry {
     this.db
       .prepare(
         `INSERT INTO research_sessions (
-          id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
+          id, research_profile_id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
           mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort, network_profile,
           sandbox_profile, created_at, started_at, ended_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
 
   private mapWorkspace(row: SqlRow): WorkspaceRegistryEntry {
     const workspacePath = text(row, 'workspace_path');
-    const runSummary = rowOrUndefined(this.db.prepare('SELECT COUNT(*) AS run_count, MAX(created_at) AS last_run_at FROM research_sessions WHERE workspace_path = ?').get(workspacePath));
+    const runSummary = rowOrUndefined(this.db.prepare(
+      'SELECT COUNT(*) AS run_count, MAX(created_at) AS last_run_at FROM research_sessions WHERE research_profile_id = ? AND workspace_path = ?'
+    ).get(this.getActiveResearchProfileId(), workspacePath));
     return {
       id: text(row, 'id'),
       workspacePath,
@@ -569,6 +642,57 @@ function normalizeShellOptions(value: unknown): ShellOptions {
     utilities[utility] = normalizeShellConcurrency(rawConcurrency, utility);
   }
   return { defaultConcurrency, utilities };
+}
+
+function normalizeDefaultProviderId(value: unknown): ResearchModelProviderId | null {
+  return isResearchModelProviderId(value) ? value : null;
+}
+
+function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai';
+}
+
+function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> {
+  if (typeof value !== 'string' || !value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const normalized: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> = {};
+    for (const providerId of ['openai-codex', 'anthropic', 'xai'] as const) {
+      const defaults = (parsed as Record<string, unknown>)[providerId];
+      if (defaults === undefined) continue;
+      try {
+        normalized[providerId] = normalizeProviderModelDefaults(defaults);
+      } catch {
+        continue;
+      }
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeProviderModelDefaults(value: unknown): ProviderModelDefaults {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Provider model defaults must be an object.');
+  const input = value as Record<string, unknown>;
+  const largeModel = normalizeProviderModelId(input.largeModel, 'large');
+  const smallModel = normalizeProviderModelId(input.smallModel, 'small');
+  const reasoningEffort = input.reasoningEffort;
+  if (!isResearchModelEffortLevel(reasoningEffort)) throw new Error('Invalid provider default reasoning level.');
+  return { largeModel, smallModel, reasoningEffort };
+}
+
+function normalizeProviderModelId(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 200) {
+    throw new Error(`Provider default ${label} model must be a non-empty model identifier.`);
+  }
+  return value.trim();
+}
+
+function isResearchModelEffortLevel(value: unknown): value is ProviderModelDefaults['reasoningEffort'] {
+  return value === 'off' || value === 'minimal' || value === 'low' || value === 'medium'
+    || value === 'high' || value === 'xhigh' || value === 'max';
 }
 
 function normalizeShellConcurrency(value: unknown, label: string): number {

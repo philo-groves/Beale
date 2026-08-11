@@ -22,4 +22,12 @@ Focus on the underexplored in-scope **Primary Target** \`help.netflix.com\`, esp
     expect(generateSessionTitle(prompt)).toBe('Netflix Help Center Support Chat');
     expect(displaySessionTitle('Target Focus Focus Underexplored In-Scope Primary', prompt)).toBe('Netflix Help Center Support Chat');
   });
+
+  it('unwraps generated-prompt JSON before deriving a recovery title', () => {
+    const prompt = JSON.stringify({
+      promptMarkdown: '# New Mathematics Research: Reduction and lifting in the Erdős–Straus conjecture\n\nInvestigate divisor lifting.'
+    });
+
+    expect(generateSessionTitle(prompt)).toBe('Reduction Lifting Erdős Straus Conjecture');
+  });
 });

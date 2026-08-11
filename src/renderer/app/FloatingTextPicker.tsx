@@ -15,6 +15,7 @@ export function FloatingTextPicker({
   value,
   options,
   disabled = false,
+  selectedLabelPrefix = '',
   title,
   ariaLabel,
   onChange
@@ -23,6 +24,7 @@ export function FloatingTextPicker({
   value: string;
   options: FloatingTextPickerOption[];
   disabled?: boolean;
+  selectedLabelPrefix?: string;
   title: string;
   ariaLabel: string;
   onChange: (value: string) => void;
@@ -79,7 +81,7 @@ export function FloatingTextPicker({
           setOpen(true);
         }}
       >
-        <span className="floating-text-picker-label">{selectedOption?.label ?? ''}</span>
+        <span className="floating-text-picker-label">{selectedLabelPrefix}{selectedOption?.label ?? ''}</span>
         <ChevronDown className="floating-text-picker-chevron" size={13} aria-hidden="true" />
       </button>
       {open ? (

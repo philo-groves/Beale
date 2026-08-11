@@ -58,11 +58,11 @@ describe('research profile host integration', () => {
       }
     });
 
-    const resolved = service.resolve('C:\\workspace');
+    const resolved = service.resolve('C:\\workspace', 'security-research');
     expect(resolved.profile.name).toBe('Security Research');
     expect(captured).toEqual({
       command: 'honeycrisp-test',
-      args: ['cli.js', 'profile', 'resolve', '--workspace-root', 'C:\\workspace', '--json']
+      args: ['cli.js', 'profile', 'resolve', '--workspace-root', 'C:\\workspace', '--profile-id', 'security-research', '--json']
     });
 
     expect(() => decodeResearchProfileCatalogEnvelope({ ...envelope, catalogProtocolVersion: 2 })).toThrow(/catalog protocol/);
@@ -810,8 +810,8 @@ function generalResearchProfile(
     },
     presentation: {
       newResearchLabel: 'New Study',
-      memoryLabel: 'Knowledge',
-      runbookLabel: 'Methods',
+      memoryLabel: 'Memory',
+      runbookLabel: 'Runbooks',
       sessionLabel: 'Study Session'
     }
   };

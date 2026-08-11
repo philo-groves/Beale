@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe('memory settings', () => {
-  it('defines legacy descriptions and renders the active profile catalog read-only', () => {
+  it('defines legacy descriptions and renders the active profile catalog with session heat controls', () => {
     expect(Object.keys(DEFAULT_MEMORY_TYPE_DESCRIPTIONS)).toEqual([...MEMORY_NODE_TYPES]);
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.primitive).toContain('lowercase-hyphenated attributes.rootCauseKey');
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('source, sink, and asset relationships are ideal');
@@ -46,7 +46,9 @@ describe('memory settings', () => {
       expect(html).toContain(memoryType.description);
     }
     expect(html).not.toContain('<textarea');
-    expect(html).toContain('Edit .honeycrisp/profile.json');
+    expect(html).toContain('Finding confirmed session heat');
+    expect(html).toContain('Profile default · High');
+    expect(html).toContain('The selected research profile owns this versioned catalog.');
   });
 
   it('persists normalized descriptions and restores them from the global registry', () => {

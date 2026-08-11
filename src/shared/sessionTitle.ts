@@ -81,7 +81,8 @@ export function isGeneratedSessionTitle(title: string): boolean {
 }
 
 function promptTitleText(promptMarkdown: string): string {
-  const withoutCode = promptMarkdown.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`]+)`/g, '$1');
+  const promptText = unwrapPromptMarkdown(promptMarkdown);
+  const withoutCode = promptText.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`]+)`/g, '$1');
   const rawLines = withoutCode.split(/\r?\n/);
   const cleanLines = rawLines
     .map(cleanPromptLine)
@@ -123,6 +124,7 @@ function stripTitleBoilerplate(value: string): string {
     previous = next;
     next = next
       .replace(/^(?:next\s+)?research\s+session\s*[:\-]\s*/i, '')
+      .replace(/^(?:new\s+)?(?:mathematics|cybersecurity|security)\s+research\s*[:\-]\s*/i, '')
       .replace(/^(?:target\s+focus|focus|objective|goal)\s*[:\-]\s*/i, '')
       .replace(/^(?:please\s+)?(?:let'?s\s+)?(?:perform|conduct|run|do|start|begin|launch)\s+(?:a\s+|an\s+)?/i, '')
       .replace(/^(?:deep\s+)?(?:vulnerability|security)\s+(?:analysis|review|research|assessment)\s+(?:on|of|for)\s+/i, '')
@@ -130,6 +132,21 @@ function stripTitleBoilerplate(value: string): string {
       .trim();
   }
   return next;
+}
+
+function unwrapPromptMarkdown(value: string): string {
+  const normalized = value.trim();
+  if (!normalized.startsWith('{')) return value;
+  try {
+    const parsed: unknown = JSON.parse(normalized);
+    if (parsed && typeof parsed === 'object' && 'promptMarkdown' in parsed) {
+      const promptMarkdown = (parsed as { promptMarkdown?: unknown }).promptMarkdown;
+      if (typeof promptMarkdown === 'string' && promptMarkdown.trim()) return promptMarkdown;
+    }
+  } catch {
+    // A research prompt may legitimately begin with a non-JSON brace.
+  }
+  return value;
 }
 
 function hasUsefulTitleWords(value: string): boolean {

@@ -315,7 +315,7 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('class="session-summary-title">Session</h2>');
     expect(html).toContain('class="session-duration-metric session-stat-tooltip session-summary-duration"');
     expect(html).toContain('aria-label="Session duration 00:05:00"');
-    expect(html).toContain('class="session-summary-divider"');
+    expect(html.match(/class="session-summary-divider"/g)).toHaveLength(2);
     expect(html).toContain('60k Tokens');
     expect(html).toContain('50k In, 10k Out');
     expect(html).toContain('80% Hit Rate');
@@ -347,6 +347,15 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('0 Completed');
     expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
     expect(html).not.toContain('aria-label="Search memory"');
+    const firstDividerIndex = html.indexOf('class="session-summary-divider"');
+    const secondDividerIndex = html.indexOf('class="session-summary-divider"', firstDividerIndex + 1);
+    expect(html.indexOf('60k Tokens')).toBeLessThan(firstDividerIndex);
+    expect(html.indexOf('<span>3 Runbooks</span>')).toBeGreaterThan(firstDividerIndex);
+    expect(html.indexOf('<span>0 Subagents</span>')).toBeGreaterThan(html.indexOf('<span>3 Runbooks</span>'));
+    expect(html.indexOf('<span>0 Subagents</span>')).toBeLessThan(secondDividerIndex);
+    expect(html.indexOf('<span>3 Runbooks</span>')).toBeLessThan(secondDividerIndex);
+    expect(html.indexOf('<span>6 Memories</span>')).toBeGreaterThan(secondDividerIndex);
+    expect(html.indexOf('>1 Sink</span>')).toBeGreaterThan(secondDividerIndex);
   });
 
   it('shows a centered first-view chooser when the detailed sidenav has no open views', () => {

@@ -43,10 +43,9 @@ export function WorkspaceUnderstandingView({
   const inScopeAssets = scope?.assets.filter((asset) => asset.direction === 'in_scope') ?? [];
   const repositoryAssets = inScopeAssets.filter((asset) => asset.kind === 'repo').slice(0, 6);
   const primitives = honeycrispMemory?.nodes.filter((node) => node.type === 'primitive') ?? [];
-  const presentation = researchProfile?.presentation;
-  const memoryLabel = presentation?.memoryLabel ?? 'Memory';
-  const runbookLabel = presentation?.runbookLabel ?? 'Runbooks';
-  const sessionLabel = presentation?.sessionLabel ?? 'Session';
+  const memoryLabel = 'Memory';
+  const runbookLabel = 'Runbooks';
+  const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
   const workspaceNoun = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
   const subjectNoun = researchProfile?.workspace.subjectNoun ?? 'Subject';
   const memoryTypes = researchProfile?.memory.types ?? [];

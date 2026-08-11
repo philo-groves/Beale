@@ -3,8 +3,10 @@ import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components, Options as ReactMarkdownOptions } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeKatex from 'rehype-katex';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import { devInstrumentation } from '../../devInstrumentation';
 import type { TraceCategoryId } from '../../traceClassification';
 
@@ -14,8 +16,9 @@ const proseMarkupCache = new Map<string, ReactNode>();
 const inlineMarkupCache = new Map<string, ReactNode[]>();
 const pythonMarkupCache = new Map<string, ReactNode[]>();
 const jsonMarkupCache = new Map<string, ReactNode[]>();
-const TRACE_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['remarkPlugins']> = [remarkGfm, remarkBreaks];
+const TRACE_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['remarkPlugins']> = [remarkGfm, remarkMath, remarkBreaks];
 const TRACE_MARKDOWN_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
+  [rehypeKatex, { throwOnError: false, strict: 'ignore', trust: false }],
   [rehypeHighlight, { detect: false, plainText: ['text', 'txt', 'plaintext'] }]
 ];
 const TRACE_MARKDOWN_COMPONENTS: Components = {
@@ -158,10 +161,59 @@ function renderMarkdownTraceText(text: string): ReactNode[] {
   return [
     <div className="main-trace-markdown" key="markdown">
       <ReactMarkdown components={TRACE_MARKDOWN_COMPONENTS} rehypePlugins={TRACE_MARKDOWN_REHYPE_PLUGINS} remarkPlugins={TRACE_MARKDOWN_REMARK_PLUGINS} skipHtml>
-        {text}
+        {normalizeTraceMathDelimiters(text)}
       </ReactMarkdown>
     </div>
   ];
+}
+
+export function normalizeTraceMathDelimiters(text: string): string {
+  let fencedCode: { marker: '`' | '~'; length: number } | null = null;
+  let inlineCodeTicks = 0;
+  return text
+    .split('\n')
+    .map((line) => {
+      const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const fence = fenceMatch[1] ?? '';
+        const marker = fence[0] as '`' | '~';
+        if (!fencedCode) fencedCode = { marker, length: fence.length };
+        else if (fencedCode.marker === marker && fence.length >= fencedCode.length) fencedCode = null;
+        return line;
+      }
+      if (fencedCode) return line;
+
+      let normalized = '';
+      for (let index = 0; index < line.length;) {
+        if (line[index] === '`') {
+          let end = index + 1;
+          while (line[end] === '`') end += 1;
+          const ticks = end - index;
+          if (inlineCodeTicks === 0) inlineCodeTicks = ticks;
+          else if (inlineCodeTicks === ticks) inlineCodeTicks = 0;
+          normalized += line.slice(index, end);
+          index = end;
+          continue;
+        }
+        const delimiter = line.slice(index, index + 2);
+        if (inlineCodeTicks === 0 && line[index - 1] !== '\\') {
+          if (delimiter === '\\(' || delimiter === '\\)') {
+            normalized += '$';
+            index += 2;
+            continue;
+          }
+          if (delimiter === '\\[' || delimiter === '\\]') {
+            normalized += '$$';
+            index += 2;
+            continue;
+          }
+        }
+        normalized += line[index];
+        index += 1;
+      }
+      return normalized;
+    })
+    .join('\n');
 }
 
 function highlightCode(code: string, pattern: RegExp, tokenKind: (token: string) => string): ReactNode[] {

@@ -2,14 +2,21 @@
 
 ## Unreleased
 
+### Added
+
+- Completed sessions now show three session-grounded next-step suggestions in a fixed-height loading widget; selecting one opens New Research and streams an expanded prompt from that goal.
+- Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
+- Added Cybersecurity and Mathematics selectors to General Settings. Mathematics includes domain-specific memory for problems, definitions, conjectures, proof components, counterexamples, formalizations, computations, literature, and research trajectories, plus exploration, proof, verification, and synthesis workflows.
+
 ### Fixed
 
+- Session-title provider failures now recover a concise title from the research prompt instead of leaving the session labeled `No Title Yet`.
 - Scoped onboarding now retains a legacy workspace-placeholder subject ID when durable Honeycrisp memory already uses it, preserving Claude-first research memory when the workspace is later opened in Beale.
 - Profile-aware memory totals now exclude unknown, negative, and terminal non-positive statuses, matching recommendation activity semantics.
 - Recommendation jobs no longer load or expose Honeycrisp memory or memory-linked evidence context when the active research profile disables memory.
 - Memory Dreaming now refreshes the workspace research profile before curation and refuses to invoke the model when that profile disables memory.
 - Honeycrisp capture import now rejects missing, corrupt, mismatched, or workflow-incompatible research-profile provenance before importing artifacts, traces, or transcripts.
-- Historical session views now use each run's pinned research profile instead of the workspace's current profile, and security-specific session heat is disabled for recorded general-research profiles.
+- Historical session views now use each run's pinned research profile instead of the workspace's current profile, including profile-defined session heat behavior.
 - Session token totals and prompt-cache hit rates now count only active root-model calls, excluding Auto-Review, subagent, and other background-model usage.
 - Chaining and Reporting goal generation now accepts natural wording variants instead of rejecting otherwise valid suggestions that omit exact validator phrases such as `primitive`, `chain`, `triage-ready PoC`, or `submission.zip`.
 - Long Commentary histories now render a bounded virtual window with preserved follow-latest and search navigation, while incremental detail ingestion and repeated tool projection avoid unnecessary full-history map, sort, and array-copy work.
@@ -41,8 +48,20 @@
 
 ### Changed
 
+- Session heat is now profile-defined: Cybersecurity retains its amber-to-red palette, Mathematics uses a cyan-to-violet palette, and Settings > Memory can override heat independently for each non-terminal memory status within a profile.
+- Commentary tool-call descriptions now use sentence case instead of title case.
+- Reordered the right sidenav summary into usage metadata, Runbooks and Subagents, and Memories sections divided by horizontal rules.
+- Standardized Memories and Runbooks terminology across research profiles, including historical sessions whose pinned presentation metadata used profile-specific names.
+- Mathematics workspace creation now always uses the Manual template and hides the HackerOne, Apple, and MSRC cybersecurity autofill controls.
+- Research-profile selection now swaps between isolated Honeycrisp databases at `~/.honeycrisp/profiles/<profile-id>/memory.sqlite`; the user-global registry retains the active selection and filters workspace/session summaries to it. Existing unscoped research is not migrated.
+- Removed the current-workspace information card from General Settings.
+- Provider model selectors now include Claude Opus 5 and OpenAI `gpt-daybreak-blue-latest`.
+- Provider settings now persist an authenticated default-provider selection, automatically assign the first configured provider, and preselect that provider for new research.
+- Each configured provider now has persisted default large-model, small-model, and reasoning-level controls; large-model defaults seed research and OpenAI host jobs, while small-model defaults route session titles and Auto-Review.
+- Provider settings now scale through provider tabs with per-tab refresh actions and an add-provider menu; choosing an unconfigured provider immediately creates its tab, shows authentication progress there, and retains the tab after confirmation.
+- Configured-provider details now omit secondary descriptive copy while retaining the Claude Pro/Max API-billing warning.
 - Renamed the lower-left Settings action to Agent Settings, added a static header identity showing Agent Settings and the active section, and removed duplicate section headings from the settings content.
-- Settings content now fills the full main workbench area without the standard horizontal gutters instead of appearing as a centered, inset panel.
+- Settings content now fills the full main workbench area without the standard horizontal gutters and uses the chat view's compact content inset instead of appearing as a centered, deeply padded panel.
 - Session detail actions and views now honor run-pinned memory, runbook, and collaboration feature switches; Memory Dreaming is disabled when memory is off while historical records remain visible and restorable.
 - Memory summaries and Dreaming now retain per-node catalog compatibility across presentation-only and unrelated additive catalog changes, while isolating incompatible and non-security-lineage legacy rows.
 - Research recommendations now derive active-memory status from the pinned profile catalog and reserve security-specific source/sink coverage ranking for the `security-research` profile lineage.

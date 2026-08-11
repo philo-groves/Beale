@@ -8,6 +8,7 @@ import type {
   ResearchGoalSuggestionStateByPhase,
   ResearchModelEffortLevel,
   ResearchModelProviderId,
+  ProviderModelDefaults,
   ResearchProfileWorkflow,
   ResearchProviderModel,
   ResearchProviderModelCatalog,
@@ -26,6 +27,7 @@ import {
   optionalPositiveInteger,
   UNBOUNDED_MINUTES
 } from '../../view-models/runSettings';
+import type { ResearchGoalSeed } from './SessionNextSteps';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
@@ -84,11 +86,14 @@ const LEGACY_RESEARCH_GOAL_WORKFLOWS: readonly ResearchProfileWorkflow[] = [
 export function StartRunForm({
   snapshot,
   openAiStatus,
+  defaultProviderId,
+  providerModelDefaults,
   researchProviderStatuses,
   providerModelCatalog,
   researchGoalSuggestions,
   researchGoalSuggestionsLoading,
   researchGoalSuggestionErrors,
+  initialGoal = null,
   busy,
   runAction,
   onCancel,
@@ -97,11 +102,14 @@ export function StartRunForm({
 }: {
   snapshot: WorkspaceSnapshot;
   openAiStatus: OpenAiAccountStatus | null;
+  defaultProviderId: ResearchModelProviderId | null | undefined;
+  providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   researchProviderStatuses: ResearchProviderStatus[];
   providerModelCatalog: ResearchProviderModelCatalog[];
   researchGoalSuggestions: ResearchGoalSuggestionsByPhase;
   researchGoalSuggestionsLoading: ResearchGoalSuggestionStateByPhase<boolean>;
   researchGoalSuggestionErrors: ResearchGoalSuggestionStateByPhase<string | null>;
+  initialGoal?: ResearchGoalSeed | null;
   busy: boolean;
   runAction: (action: () => Promise<WorkspaceSnapshot | null | void>) => Promise<void>;
   onCancel: () => void;
@@ -112,19 +120,23 @@ export function StartRunForm({
   const workflows = profile?.workflows.length ? profile.workflows : LEGACY_RESEARCH_GOAL_WORKFLOWS;
   const defaultWorkflowId = defaultResearchWorkflowId(workflows);
   const presentation = profile?.presentation;
+  const initialWorkflowId = initialGoal?.phase ?? defaultWorkflowId;
   const [input, setInput] = useState<StartRunInput>(() => ({
     ...defaultRunInput,
-    workflowId: defaultWorkflowId,
+    workflowId: initialWorkflowId,
+    goalObjective: initialGoal?.sentence ?? null,
     networkProfile: snapshot.activeScope.networkProfile,
     sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
-  const [entryMode, setEntryMode] = useState<PromptEntryMode>('chooser');
-  const [selectedGoalSentence, setSelectedGoalSentence] = useState<string | null>(null);
-  const [selectedGoalPhase, setSelectedGoalPhase] = useState<ResearchGoalPhase | null>(null);
+  const [entryMode, setEntryMode] = useState<PromptEntryMode>(initialGoal ? 'expanded' : 'chooser');
+  const [selectedGoalSentence, setSelectedGoalSentence] = useState<string | null>(initialGoal?.sentence ?? null);
+  const [selectedGoalPhase, setSelectedGoalPhase] = useState<ResearchGoalPhase | null>(initialGoal?.phase ?? null);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>('openai-codex');
+  const [selectedProviderId, setSelectedProviderId] = useState<ResearchModelProviderId>(defaultProviderId ?? 'openai-codex');
+  const providerSelectionInitializedRef = useRef(false);
+  const modelSelectionInitializedRef = useRef(false);
   const promptBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const inputRef = useRef(input);
   const mountedRef = useRef(true);
@@ -132,6 +144,7 @@ export function StartRunForm({
   const pendingPromptMarkdownRef = useRef<string | null>(null);
   const promptStreamFlushTimerRef = useRef<number | null>(null);
   const promptStreamAutoScrollRef = useRef(false);
+  const initialGoalHandledRef = useRef(false);
   const providerOptions = useMemo<SessionProviderOption[]>(
     () => providerModelCatalog.map((catalog) => ({
       id: catalog.providerId,
@@ -145,6 +158,12 @@ export function StartRunForm({
   );
   const selectedProvider = providerOptions.find((provider) => provider.id === selectedProviderId) ?? null;
   const selectedModel = selectedProvider?.models.find((model) => model.id === input.model) ?? null;
+  const initialProvider = useMemo(() => {
+    if (defaultProviderId === undefined) return null;
+    return providerOptions.find((provider) => provider.id === defaultProviderId && provider.configured && provider.models.length > 0)
+      ?? providerOptions.find((provider) => provider.configured && provider.models.length > 0)
+      ?? null;
+  }, [defaultProviderId, providerOptions]);
 
   const clearPendingPromptStream = (): void => {
     pendingPromptMarkdownRef.current = null;
@@ -244,18 +263,24 @@ export function StartRunForm({
         shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
         networkProfile: snapshot.activeScope.networkProfile,
         sandboxProfile: 'host',
-        workflowId: defaultWorkflowId,
-        goalObjective: null,
+        workflowId: initialGoal?.phase ?? defaultWorkflowId,
+        goalObjective: initialGoal?.sentence ?? null,
         promptMarkdown: ''
       };
       inputRef.current = next;
       return next;
     });
-    setEntryMode('chooser');
-    setSelectedGoalSentence(null);
-    setSelectedGoalPhase(null);
+    setEntryMode(initialGoal ? 'expanded' : 'chooser');
+    setSelectedGoalSentence(initialGoal?.sentence ?? null);
+    setSelectedGoalPhase(initialGoal?.phase ?? null);
     setGenerationError(null);
-  }, [defaultWorkflowId, snapshot.activeScope.id, snapshot.researchProfile?.profileHash, snapshot.workspace.workspaceId]);
+  }, [defaultWorkflowId, initialGoal, snapshot.activeScope.id, snapshot.researchProfile?.profileHash, snapshot.workspace.workspaceId]);
+
+  useEffect(() => {
+    if (!initialGoal || initialGoalHandledRef.current) return;
+    initialGoalHandledRef.current = true;
+    expandGoalSentence(initialGoal.sentence, initialGoal.phase);
+  }, [initialGoal]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -277,20 +302,31 @@ export function StartRunForm({
   }, []);
 
   useEffect(() => {
-    if (!selectedProvider) return;
+    if (providerSelectionInitializedRef.current || !initialProvider) return;
+    providerSelectionInitializedRef.current = true;
+    setSelectedProviderId(initialProvider.id);
+  }, [initialProvider]);
+
+  useEffect(() => {
+    if (!selectedProvider || defaultProviderId === undefined || providerModelDefaults === undefined) return;
     setInput((current) => {
-      const preferredModelId = providerDefaultModel(selectedProvider.id, openAiStatus, researchProviderStatuses);
-      const model = selectedProvider.models.find((candidate) => candidate.id === current.model)
+      const preferredModelId = providerDefaultModel(selectedProvider.id, openAiStatus, researchProviderStatuses, providerModelDefaults);
+      const model = (!modelSelectionInitializedRef.current
+        ? selectedProvider.models.find((candidate) => candidate.id === preferredModelId)
+        : selectedProvider.models.find((candidate) => candidate.id === current.model))
         ?? selectedProvider.models.find((candidate) => candidate.id === preferredModelId)
         ?? selectedProvider.models[0];
       if (!model) return current;
-      const effort = inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)));
+      const defaultEffort = providerModelDefaults[selectedProvider.id]?.reasoningEffort
+        ?? effortLevelFromInput(current.reasoningEffort);
+      const effort = inputValueForEffort(preferredEffort(model.effortLevels, defaultEffort));
+      modelSelectionInitializedRef.current = true;
       if (current.provider === selectedProvider.id && current.model === model.id && current.reasoningEffort === effort) {
         return current;
       }
       return { ...current, provider: selectedProvider.id, model: model.id, reasoningEffort: effort };
     });
-  }, [openAiStatus, researchProviderStatuses, selectedProvider]);
+  }, [defaultProviderId, openAiStatus, providerModelDefaults, researchProviderStatuses, selectedProvider]);
 
   useLayoutEffect(() => {
     if (!generatingPrompt || !promptStreamAutoScrollRef.current) return;
@@ -343,16 +379,21 @@ export function StartRunForm({
   };
 
   const selectProvider = (providerId: ResearchModelProviderId): void => {
+    providerSelectionInitializedRef.current = true;
+    modelSelectionInitializedRef.current = true;
     setSelectedProviderId(providerId);
     const provider = providerOptions.find((candidate) => candidate.id === providerId);
-    const preferredModelId = providerDefaultModel(providerId, openAiStatus, researchProviderStatuses);
+    const preferredModelId = providerDefaultModel(providerId, openAiStatus, researchProviderStatuses, providerModelDefaults ?? {});
     const model = provider?.models.find((candidate) => candidate.id === preferredModelId) ?? provider?.models[0];
     if (!model) return;
     setInput((current) => ({
       ...current,
       provider: providerId,
       model: model.id,
-      reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
+      reasoningEffort: inputValueForEffort(preferredEffort(
+        model.effortLevels,
+        providerModelDefaults?.[providerId]?.reasoningEffort ?? effortLevelFromInput(current.reasoningEffort)
+      ))
     }));
   };
 
@@ -711,8 +752,11 @@ function providerLabel(providerId: ResearchModelProviderId, fallback: string): s
 function providerDefaultModel(
   providerId: ResearchModelProviderId,
   openAiStatus: OpenAiAccountStatus | null,
-  statuses: ResearchProviderStatus[]
+  statuses: ResearchProviderStatus[],
+  modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>
 ): string | null {
+  const configuredDefault = modelDefaults[providerId]?.largeModel;
+  if (configuredDefault) return configuredDefault;
   if (providerId === 'openai-codex') return openAiStatus?.defaultModel ?? defaultRunInput.model;
   return statuses.find((provider) => provider.id === providerId)?.defaultModel ?? null;
 }

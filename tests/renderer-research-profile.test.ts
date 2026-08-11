@@ -56,6 +56,8 @@ describe('renderer research profile presentation', () => {
     const html = renderToStaticMarkup(createElement(StartRunForm, {
       snapshot: snapshot(profile),
       openAiStatus: null,
+      defaultProviderId: 'openai-codex',
+      providerModelDefaults: {},
       researchProviderStatuses: [],
       providerModelCatalog: [],
       researchGoalSuggestions: { survey: ['Map the corpus.'], synthesize: [] },
@@ -139,7 +141,7 @@ describe('renderer research profile presentation', () => {
     expect(researchGoalSuggestionCacheKey(first)).toContain('survey%3A2%2Csynthesize%3A3');
   });
 
-  it('renders profile-backed session, memory, and runbook labels', () => {
+  it('keeps memory and runbook labels canonical while retaining the profile session label', () => {
     const profile = customProfile();
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       detail: null,
@@ -166,8 +168,10 @@ describe('renderer research profile presentation', () => {
     }));
     expect(html).toContain('aria-label="Study summary"');
     expect(html).toContain('>Study</h2>');
-    expect(html).toContain('0 Notes');
-    expect(html).toContain('0 Guides');
+    expect(html).toContain('0 Memories');
+    expect(html).toContain('0 Runbooks');
+    expect(html).not.toContain('0 Notes');
+    expect(html).not.toContain('0 Guides');
   });
 });
 

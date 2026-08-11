@@ -1,5 +1,6 @@
 import type {
   HackerOneScopeLookupResult,
+  ResearchProfileId,
   WorkspaceOnboardingDefaults,
   WorkspaceOnboardingInput,
   ScopeAssetInput
@@ -19,6 +20,15 @@ export interface WorkspaceOnboardingFormState {
 }
 
 export type WorkspaceTemplateKind = 'manual' | 'hackerone' | 'apple' | 'msrc';
+
+export function workspaceOnboardingFormForProfile(
+  form: WorkspaceOnboardingFormState,
+  profileId: ResearchProfileId
+): WorkspaceOnboardingFormState {
+  return profileId === 'mathematics' && form.templateKind !== 'manual'
+    ? { ...form, templateKind: 'manual' }
+    : form;
+}
 
 export interface OnboardingRepository {
   assetIndex: number;

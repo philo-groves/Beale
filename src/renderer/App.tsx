@@ -5,6 +5,8 @@ import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from '
 import type {
   ApprovalRecord,
   DeveloperSettings,
+  ProviderSettings,
+  ProviderModelDefaults,
   ShellOptions,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
@@ -13,6 +15,8 @@ import type {
   OpenAiOAuthStartResult,
   PolicyReviewDecision,
   ResearchModelSelection,
+  ResearchModelProviderId,
+  ResearchProfileId,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
@@ -30,6 +34,7 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
+import type { ResearchGoalSeed } from './features/sessions/SessionNextSteps';
 import { pendingShellApproval, ShellApprovalModal } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries, traceEventsForSubagent } from './view-models/subagents';
 import { SettingsSidebar, SettingsView, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
@@ -44,6 +49,7 @@ import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { useTraceSelection } from './hooks/useTraceSelection';
 import { useChatViewPreference } from './hooks/useChatViewPreference';
+import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
@@ -55,7 +61,7 @@ import {
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
-import { sessionHeatForDetail } from './view-models/sessionHeat';
+import { sessionHeatForDetail, sessionHeatPaletteStyle } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
 import { hasResearchProfileDetailFeatures } from './view-models/researchProfileFeatures';
@@ -84,16 +90,20 @@ export function App(): JSX.Element {
   );
   const [openAiOAuthResult, setOpenAiOAuthResult] = useState<OpenAiOAuthStartResult | null>(null);
   const [researchProviderStatuses, setResearchProviderStatuses] = useState<ResearchProviderStatus[]>([]);
+  const [researchProviderStatusesLoaded, setResearchProviderStatusesLoaded] = useState(false);
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [chatView, setChatView] = useChatViewPreference();
+  const [sessionHeatPreferences, setSessionHeatPreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [newResearchOpen, setNewResearchOpen] = useState(false);
+  const [newResearchInitialGoal, setNewResearchInitialGoal] = useState<ResearchGoalSeed | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<SessionTranscriptSearchResult | null>(null);
   const [traceSearchHighlightQuery, setTraceSearchHighlightQuery] = useState('');
@@ -170,6 +180,13 @@ export function App(): JSX.Element {
     window.beale
       .getDeveloperSettings()
       .then(setDeveloperSettings)
+      .catch((caught: unknown) => handleError(errorMessage(caught)));
+  }, [handleError]);
+
+  useEffect(() => {
+    window.beale
+      .getProviderSettings()
+      .then(setProviderSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
@@ -331,6 +348,7 @@ export function App(): JSX.Element {
         setOpenAiStatus(await window.beale.getOpenAiStatus());
       }
       setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+      setResearchProviderStatusesLoaded(true);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -341,6 +359,15 @@ export function App(): JSX.Element {
   const loadResearchProviderStatuses = useCallback(async (): Promise<void> => {
     try {
       setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+      setResearchProviderStatusesLoaded(true);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const loadOpenAiProviderStatus = useCallback(async (): Promise<void> => {
+    try {
+      setOpenAiStatus(await window.beale.getOpenAiStatus());
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -360,15 +387,27 @@ export function App(): JSX.Element {
   }, [loadResearchProviderStatuses, newResearchOpen, settingsOpen, settingsSection]);
 
   useEffect(() => {
-    if (!newResearchOpen && !selectedRunId) return;
+    if (!newResearchOpen && !selectedRunId && !(settingsOpen && settingsSection === 'providers')) return;
     void loadResearchProviderModelCatalog();
-  }, [loadResearchProviderModelCatalog, newResearchOpen, selectedRunId]);
+  }, [loadResearchProviderModelCatalog, newResearchOpen, selectedRunId, settingsOpen, settingsSection]);
 
   useEffect(() => {
     if (!settingsOpen || !researchProviderStatuses.some((provider) => provider.loginInProgress)) return;
     const timer = window.setInterval(() => void loadResearchProviderStatuses(), 2_000);
     return () => window.clearInterval(timer);
   }, [loadResearchProviderStatuses, researchProviderStatuses, settingsOpen]);
+
+  const openAiConfigured = openAiStatus?.configured ?? snapshot?.openAi.configured ?? false;
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== 'providers' || !openAiOAuthResult?.started || openAiConfigured) return;
+    void loadOpenAiProviderStatus();
+    const timer = window.setInterval(() => void loadOpenAiProviderStatus(), 2_000);
+    const timeout = window.setTimeout(() => window.clearInterval(timer), 5 * 60_000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(timeout);
+    };
+  }, [loadOpenAiProviderStatus, openAiConfigured, openAiOAuthResult?.started, settingsOpen, settingsSection]);
 
   const setDeveloperModeEnabled = useCallback(
     async (enabled: boolean): Promise<void> => {
@@ -398,6 +437,27 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const setDefaultProviderId = useCallback(async (providerId: ResearchModelProviderId | null): Promise<void> => {
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.setDefaultProviderId(providerId));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
+  const setProviderModelDefaults = useCallback(async (
+    providerId: ResearchModelProviderId,
+    defaults: ProviderModelDefaults
+  ): Promise<void> => {
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.setProviderModelDefaults(providerId, defaults));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
   const startOpenAiOAuth = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -419,6 +479,7 @@ export function App(): JSX.Element {
       const result = await window.beale.startResearchProviderOAuth(providerId);
       setResearchProviderOAuthResults((current) => ({ ...current, [providerId]: result }));
       setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
+      setResearchProviderStatusesLoaded(true);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -436,6 +497,7 @@ export function App(): JSX.Element {
     lookupHackerOneScope
   } = useWorkspaceActions({
     snapshot,
+    researchProfileId: workspaceRegistry?.activeResearchProfileId ?? 'security-research',
     workspaceDraft,
     runWorkspaceAction,
     applySnapshot,
@@ -475,6 +537,20 @@ export function App(): JSX.Element {
   const researchDetailsAvailable = activeRunDetail !== null && hasResearchProfileDetailFeatures(
     activeRunDetail?.researchProfile?.profile ?? null
   );
+
+  const setActiveResearchProfile = useCallback(async (profileId: ResearchProfileId): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      applySnapshot(await window.beale.setActiveResearchProfile(profileId));
+      setSelectedRunId(null);
+      await loadWorkspaceRegistry();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }, [applySnapshot, loadWorkspaceRegistry, setSelectedRunId]);
   const activeShellApproval = useMemo(() => {
     if (!snapshot) return pendingShellApproval(activeRunDetail);
     return snapshot.pendingShellApprovals.find((approval) => approval.runId === selectedRunId)
@@ -589,7 +665,15 @@ export function App(): JSX.Element {
     events: activeTraceEvents,
     selectedRunId
   });
-  const sessionHeat = useMemo(() => sessionHeatForDetail(activeRunDetail), [activeRunDetail]);
+  const sessionHeat = useMemo(
+    () => sessionHeatForDetail(activeRunDetail, sessionHeatPreferences),
+    [activeRunDetail, sessionHeatPreferences]
+  );
+  const sessionHeatProfile = activeRunDetail?.researchProfile?.profile ?? snapshot?.researchProfile.profile ?? null;
+  const shellStyle = {
+    '--sidebar-width': `${sidebarWidth}px`,
+    ...sessionHeatPaletteStyle(sessionHeatProfile?.presentation.sessionHeatPalette)
+  } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
   const shellClassName = `${appShellClassName({
     sessionHeat,
@@ -607,12 +691,18 @@ export function App(): JSX.Element {
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openTraceFilters = useCallback(() => setTraceFilterOpen(true), []);
   const startNewResearch = useCallback(() => {
+    setNewResearchInitialGoal(null);
+    setNewResearchOpen(true);
+  }, []);
+  const startNewResearchFromSuggestion = useCallback((goal: ResearchGoalSeed) => {
+    setNewResearchInitialGoal(goal);
     setNewResearchOpen(true);
   }, []);
   const handleResearchStarted = useCallback(
     (runId: string): void => {
       clearRunDetail();
       setSelectedRunId(runId);
+      setNewResearchInitialGoal(null);
       setNewResearchOpen(false);
     },
     [clearRunDetail, setSelectedRunId]
@@ -654,7 +744,7 @@ export function App(): JSX.Element {
   }, [activeRunDetail?.run.id, activeTraceEvents, focusTraceEvent, pendingSearchTarget]);
 
   return (
-    <div ref={appShellRef} className={shellClassName} style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+    <div ref={appShellRef} className={shellClassName} style={shellStyle}>
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
@@ -721,18 +811,26 @@ export function App(): JSX.Element {
             researchProfile={snapshot?.researchProfile ?? null}
             shellOptions={shellOptions}
             chatView={chatView}
-            workspaceName={snapshot?.activeScope.workspaceName ?? null}
+            activeResearchProfileId={workspaceRegistry?.activeResearchProfileId ?? 'security-research'}
             openAiOAuthResult={openAiOAuthResult}
-            openAiStatus={snapshot?.openAi ?? openAiStatus}
+            openAiStatus={openAiStatus ?? snapshot?.openAi ?? null}
             researchProviderOAuthResults={researchProviderOAuthResults}
             researchProviderStatuses={researchProviderStatuses}
+            researchProviderModelCatalog={researchProviderModelCatalog}
+            providerSettings={providerSettings}
+            providerStatusesLoaded={researchProviderStatusesLoaded}
+            sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
             onSetDeveloperModeEnabled={setDeveloperModeEnabled}
             onChangeChatView={setChatView}
+            onSetResearchProfile={setActiveResearchProfile}
             onSaveShellOptions={saveShellOptions}
             onRefreshOpenAi={refreshOpenAiProvider}
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}
+            onSetDefaultProviderId={setDefaultProviderId}
+            onSetProviderModelDefaults={setProviderModelDefaults}
+            onSetSessionHeatPreference={setSessionHeatPreference}
           />
         ) : (
           <div className="workspace-page">
@@ -772,6 +870,7 @@ export function App(): JSX.Element {
               onBackToSubagents={backToSubagents}
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}
+              onSelectNextStep={startNewResearchFromSuggestion}
               onSessionAction={handleSessionAction}
               onSteerInstruction={handleSteerInstruction}
             />
@@ -791,9 +890,13 @@ export function App(): JSX.Element {
         activeNotification={activeNotification}
         activeRunDetail={activeRunDetail}
         activeWorkspaceName={snapshot?.activeScope.workspaceName ?? 'current workspace'}
+        activeResearchProfileId={workspaceRegistry?.activeResearchProfileId ?? 'security-research'}
         busy={busy}
         newResearchOpen={newResearchOpen}
+        newResearchInitialGoal={newResearchInitialGoal}
         openAiStatus={snapshot?.openAi ?? openAiStatus}
+        defaultProviderId={providerSettings?.defaultProviderId}
+        providerModelDefaults={providerSettings?.modelDefaults}
         researchProviderModelCatalog={researchProviderModelCatalog}
         researchProviderStatuses={researchProviderStatuses}
         researchGoalSuggestions={researchGoalSuggestionState.suggestions}
@@ -815,7 +918,10 @@ export function App(): JSX.Element {
         traceDetailOpen={traceDetailOpen}
         traceFilterOpen={traceFilterOpen}
         visibleTraceCategories={visibleTraceCategories}
-        onCancelNewResearch={() => setNewResearchOpen(false)}
+        onCancelNewResearch={() => {
+          setNewResearchInitialGoal(null);
+          setNewResearchOpen(false);
+        }}
         onCancelWorkspaceOnboarding={closeWorkspaceOnboarding}
         onChangeWorkspaceDraft={setWorkspaceDraft}
         onChangeVisibleTraceCategories={setVisibleTraceCategories}
