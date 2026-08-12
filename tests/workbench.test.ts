@@ -229,6 +229,9 @@ describe('Beale workbench skeleton', () => {
     expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 17").get()).toEqual({
       name: 'session_activity_intervals'
     });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 18").get()).toEqual({
+      name: 'persist_session_next_step_suggestions'
+    });
     verifiedWorkbench.close();
 
     const verifiedRegistry = new DatabaseSync(registryPath);
@@ -251,7 +254,7 @@ describe('Beale workbench skeleton', () => {
     const legacyDatabase = new DatabaseSync(globalDatabasePath());
     legacyDatabase.exec(`
       DROP TABLE session_activity_intervals;
-      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 17;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 17;
     `);
     legacyDatabase.close();
 
@@ -262,6 +265,33 @@ describe('Beale workbench skeleton', () => {
     expect(intervals[0].startedAt).toBe(reopened.runs.find((row) => row.run.id === runId)?.run.startedAt);
     expect(intervals[0].endedAt).not.toBeNull();
     migrated.close();
+  });
+
+  it('adds durable session next-step storage to legacy workbench databases', () => {
+    const workspace = tempWorkspace();
+    const initial = new WorkspaceService();
+    initial.createWorkspace(workspace);
+    initial.close();
+
+    const legacyDatabase = new DatabaseSync(globalDatabasePath());
+    legacyDatabase.exec(`
+      ALTER TABLE runs DROP COLUMN next_step_suggestions_json;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 18;
+    `);
+    legacyDatabase.close();
+
+    const migrated = new WorkspaceService();
+    migrated.openWorkspace(workspace);
+    migrated.close();
+
+    const verified = new DatabaseSync(globalDatabasePath());
+    expect(verified.prepare("SELECT name FROM pragma_table_info('runs') WHERE name = 'next_step_suggestions_json'").get()).toEqual({
+      name: 'next_step_suggestions_json'
+    });
+    expect(verified.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 18").get()).toEqual({
+      name: 'persist_session_next_step_suggestions'
+    });
+    verified.close();
   });
 
   it('migrates legacy research tables to Honeycrisp-node operational links', () => {
@@ -3398,7 +3428,8 @@ describe('Beale workbench skeleton', () => {
         return modelJsonResponse({ suggestions: nextSteps }, 'resp_session_next_steps');
       }
     });
-    service.createWorkspace(tempWorkspace());
+    const workspace = tempWorkspace();
+    service.createWorkspace(workspace);
     const completed = startRunForTest(service, {
       ...runInput('verifier_pass'),
       promptMarkdown: '# Source session\nEstablish the strongest bounded result and record the unresolved edge case.'
@@ -3406,10 +3437,11 @@ describe('Beale workbench skeleton', () => {
     const sourceRunId = completed.runs[0]?.run.id;
     if (!sourceRunId) throw new Error('Expected a completed source run.');
 
+    const expected = { phase: 'discovery', suggestions: nextSteps };
     await expect(service.generateResearchGoalSuggestions({
       phase: 'discovery',
       sourceRunId
-    })).resolves.toEqual({ phase: 'discovery', suggestions: nextSteps });
+    })).resolves.toEqual(expected);
 
     const modelRequest = modelRequests[0];
     if (!modelRequest) throw new Error('Expected a captured next-step request.');
@@ -3424,7 +3456,20 @@ describe('Beale workbench skeleton', () => {
     const sourceResearch = (payload.previousResearch as Array<Record<string, unknown>>)[0];
     expect(sourceResearch).toMatchObject({ runId: sourceRunId });
     expect(sourceResearch).toHaveProperty('finalResponseMarkdown');
+    expect(service.getRunDetail(sourceRunId).nextStepSuggestions).toEqual(expected);
+    await expect(service.generateResearchGoalSuggestions({ phase: 'discovery', sourceRunId })).resolves.toEqual(expected);
+    expect(modelRequests).toHaveLength(1);
     service.close();
+
+    const reopened = new WorkspaceService(() => undefined, {
+      openAiFetch: async () => {
+        throw new Error('Persisted session next steps should not call the model provider.');
+      }
+    });
+    reopened.openWorkspace(workspace);
+    expect(reopened.getRunDetail(sourceRunId).nextStepSuggestions).toEqual(expected);
+    await expect(reopened.generateResearchGoalSuggestions({ phase: 'discovery', sourceRunId })).resolves.toEqual(expected);
+    reopened.close();
   });
 
   it.each([

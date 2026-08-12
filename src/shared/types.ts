@@ -1415,6 +1415,7 @@ export interface SessionActivityInterval {
 export interface RunDetail {
   run: RunRecord;
   researchProfile?: ResearchProfileSnapshot | null;
+  nextStepSuggestions?: GeneratedResearchGoalSuggestions | null;
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];
   transcriptMessages: TranscriptMessageRecord[];
@@ -1444,6 +1445,7 @@ export interface RunDetailUpdateCursor {
 export interface RunDetailUpdate {
   run: RunRecord;
   researchProfile?: ResearchProfileSnapshot | null;
+  nextStepSuggestions?: GeneratedResearchGoalSuggestions | null;
   version: RunDetailVersion;
   attempts: AttemptRecord[];
   traceEvents: TraceEventRecord[];

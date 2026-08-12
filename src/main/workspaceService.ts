@@ -1256,7 +1256,8 @@ export class WorkspaceService {
     if (!runtime) throw new Error('No Beale workspace is open');
     const db = runtime.db;
     const sourceRunId = input.sourceRunId?.trim() || null;
-    const sourceRun = sourceRunId ? db.getRunDetail(sourceRunId).run : null;
+    const sourceDetail = sourceRunId ? db.getRunDetail(sourceRunId) : null;
+    const sourceRun = sourceDetail?.run ?? null;
     if (sourceRun && !isEndedResearchRunStatus(sourceRun.status)) {
       throw new Error('Next-step suggestions are only available after the source session has ended.');
     }
@@ -1267,6 +1268,10 @@ export class WorkspaceService {
     if (!phase) throw new Error('Research goal suggestion workflow is required.');
     const workflow = requireResearchProfileWorkflow(profileSnapshot.profile, phase);
     const suggestionCount = sourceRunId ? 3 : hostGoalSuggestionCount(profileSnapshot.profile, workflow);
+    if (sourceRunId) {
+      const persisted = sourceDetail?.nextStepSuggestions;
+      if (persisted?.phase === workflow.id) return persisted;
+    }
     const status = this.openAiAuth.getStatus();
     const defaultOpenAiModel = this.getWorkspaceRegistry().getProviderSettings().modelDefaults['openai-codex']?.largeModel
       ?? status.defaultModel;
@@ -1362,11 +1367,16 @@ export class WorkspaceService {
           adapter.streamResponse({ body, signal: controller.signal }),
           status.source
         );
+        let generated: GeneratedResearchGoalSuggestions;
         try {
-          return parseResearchGoalSuggestions(output, workflow, suggestionCount);
+          generated = parseResearchGoalSuggestions(output, workflow, suggestionCount);
         } catch (error) {
           if (attempt > 0) throw error;
+          continue;
         }
+        return sourceRunId
+          ? db.saveSessionNextStepSuggestions(sourceRunId, generated)
+          : generated;
       }
       throw new Error(`Research goal recommendations did not satisfy the ${workflow.name} workflow contract.`);
     } finally {

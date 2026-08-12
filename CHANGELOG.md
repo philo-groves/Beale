@@ -12,6 +12,10 @@
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
 - Added Cybersecurity and Mathematics selectors to General Settings. Mathematics includes domain-specific memory for problems, definitions, conjectures, proof components, counterexamples, formalizations, computations, literature, and research trajectories, plus exploration, proof, verification, and synthesis workflows.
 
+### Changed
+
+- Post-session next-step suggestions are now stored with their completed session and restored immediately when revisited. Workbench migration 18 adds the durable suggestion record.
+
 ### Fixed
 
 - Removed application-level network profiles, destination allowlists, onboarding controls, per-run metadata, and Honeycrisp network vetoes. Beale now delegates network isolation to operator-managed system controls and migrates legacy network-policy columns out of its databases.

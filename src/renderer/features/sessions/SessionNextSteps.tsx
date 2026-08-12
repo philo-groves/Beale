@@ -5,7 +5,6 @@ import type { ResearchGoalPhase, RunDetail, RunStatus } from '@shared/types';
 import { clientRequestId } from '../../view-models/runSettings';
 
 const NEXT_STEP_COUNT = 3;
-const suggestionCache = new Map<string, readonly string[]>();
 
 export interface ResearchGoalSeed {
   sentence: string;
@@ -25,7 +24,9 @@ export const SessionNextSteps = memo(function SessionNextSteps({
 }): JSX.Element | null {
   const workflowId = sessionWorkflowId(detail);
   const cacheKey = `${detail.run.id}:${detail.run.endedAt ?? ''}:${detail.run.summary.length}:${detail.run.finalDisposition?.outcome ?? ''}`;
-  const cachedSuggestions = suggestionCache.get(cacheKey) ?? null;
+  const persistedSuggestions = detail.nextStepSuggestions?.phase === workflowId
+    ? detail.nextStepSuggestions.suggestions
+    : null;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     cacheKey: string;
@@ -34,15 +35,14 @@ export const SessionNextSteps = memo(function SessionNextSteps({
     error: string | null;
   }>(() => ({
     cacheKey,
-    loading: cachedSuggestions === null,
-    suggestions: cachedSuggestions ?? [],
+    loading: persistedSuggestions === null,
+    suggestions: persistedSuggestions ?? [],
     error: workflowId ? null : 'This session does not have a research workflow.'
   }));
 
   useEffect(() => {
-    const cached = suggestionCache.get(cacheKey);
-    if (cached) {
-      setState({ cacheKey, loading: false, suggestions: cached, error: null });
+    if (persistedSuggestions) {
+      setState({ cacheKey, loading: false, suggestions: persistedSuggestions, error: null });
       return undefined;
     }
     if (!workflowId) {
@@ -60,7 +60,6 @@ export const SessionNextSteps = memo(function SessionNextSteps({
     })
       .then((result) => {
         if (cancelled) return;
-        suggestionCache.set(cacheKey, result.suggestions);
         setState({ cacheKey, loading: false, suggestions: result.suggestions, error: null });
       })
       .catch((caught: unknown) => {
@@ -75,11 +74,13 @@ export const SessionNextSteps = memo(function SessionNextSteps({
       cancelled = true;
       void window.beale.cancelResearchPromptGeneration(requestId).catch(() => undefined);
     };
-  }, [attempt, cacheKey, detail.run.id, workflowId]);
+  }, [attempt, cacheKey, detail.run.id, persistedSuggestions, workflowId]);
 
   const currentState = state.cacheKey === cacheKey
     ? state
-    : { cacheKey, loading: true, suggestions: [] as readonly string[], error: null };
+    : persistedSuggestions
+      ? { cacheKey, loading: false, suggestions: persistedSuggestions, error: null }
+      : { cacheKey, loading: true, suggestions: [] as readonly string[], error: null };
 
   return (
     <SessionNextStepsWidget

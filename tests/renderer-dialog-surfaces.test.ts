@@ -7,7 +7,7 @@ import { MemoryDetailView } from '../src/renderer/features/research/MemorySidePa
 import { TranscriptSearchSheet } from '../src/renderer/features/search/TranscriptSearchSheet';
 import { SessionSummaryModal } from '../src/renderer/features/sessions/SessionSummaryModal';
 import { ResearchGoalChooser, StartRunForm } from '../src/renderer/features/sessions/StartRunForm';
-import { SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
+import { SessionNextSteps, SessionNextStepsWidget } from '../src/renderer/features/sessions/SessionNextSteps';
 import { WorkspaceSessionHistorySheet } from '../src/renderer/features/workspaces/WorkspaceModals';
 import { WorkspaceOnboardingModal } from '../src/renderer/features/workspaces/WorkspaceOnboardingModal';
 import { onboardingFormFromDefaults } from '../src/renderer/view-models/workspaceOnboarding';
@@ -173,6 +173,34 @@ describe('renderer dialog surfaces', () => {
     expect(loadingHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
     expect(loadedHtml).toContain('class="session-next-steps"');
     expect(loadedHtml.match(/class="session-next-step-button"/g)).toHaveLength(3);
+  });
+
+  it('renders persisted session next steps immediately without a loading state', () => {
+    const suggestions = [
+      'Verify the strongest unresolved boundary from the completed session.',
+      'Generalize the session result to the nearest related research case.',
+      'Stress-test the key conclusion against a materially different construction.'
+    ];
+    const detail = {
+      run: {
+        id: 'run_complete',
+        endedAt: '2026-08-12T12:00:00.000Z',
+        summary: 'Completed bounded research.',
+        finalDisposition: null,
+        budget: { researchWorkflowId: 'discovery' }
+      },
+      nextStepSuggestions: { phase: 'discovery', suggestions }
+    } as unknown as RunDetail;
+
+    const html = renderToStaticMarkup(createElement(SessionNextSteps, {
+      detail,
+      onSelect: () => undefined
+    }));
+
+    expect(html).toContain('aria-busy="false"');
+    expect(html.match(/class="session-next-step-button"/g)).toHaveLength(3);
+    expect(html).not.toContain('session-next-step-skeleton');
+    for (const suggestion of suggestions) expect(html).toContain(suggestion);
   });
 
   it('opens New Research in expanded mode for a seeded session suggestion', () => {

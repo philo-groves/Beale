@@ -16,6 +16,7 @@ import type {
   ContextCompactionRecord,
   ExportRecord,
   ExportReviewDecision,
+  GeneratedResearchGoalSuggestions,
   ModelSessionRecord,
   NotificationRecord,
   NotificationStatus,
@@ -853,6 +854,17 @@ function parseJson(value: SqlPrimitive | undefined): Record<string, unknown> {
     return parsed as Record<string, unknown>;
   }
   return {};
+}
+
+function parseStoredSessionNextStepSuggestions(value: SqlPrimitive | undefined): GeneratedResearchGoalSuggestions | null {
+  const parsed = parseJson(value);
+  const phase = typeof parsed.phase === 'string' ? parsed.phase.trim() : '';
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? parsed.suggestions.map((suggestion) => typeof suggestion === 'string' ? suggestion.replace(/\s+/g, ' ').trim() : '')
+    : [];
+  const identities = new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase()));
+  if (!phase || suggestions.length !== 3 || suggestions.some((suggestion) => !suggestion) || identities.size !== 3) return null;
+  return { phase, suggestions };
 }
 
 function transcriptMessagePhase(metadata: Record<string, unknown>): TranscriptMessagePhase | null {
@@ -3758,7 +3770,7 @@ export class WorkspaceDatabase {
           .prepare('UPDATE session_activity_intervals SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL')
           .run(recoveredAt, text(row, 'id'));
         this.db
-          .prepare("UPDATE runs SET status = ?, summary = ?, ended_at = NULL, final_disposition_json = NULL, blocker_dependencies_json = '[]', external_state_required = 0 WHERE id = ?")
+          .prepare("UPDATE runs SET status = ?, summary = ?, ended_at = NULL, final_disposition_json = NULL, blocker_dependencies_json = '[]', external_state_required = 0, next_step_suggestions_json = NULL WHERE id = ?")
           .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
       }
       for (const row of interruptedAttemptRows) {
@@ -4566,7 +4578,7 @@ export class WorkspaceDatabase {
         .prepare(
           `UPDATE runs
            SET status = ?, summary = ?, ended_at = ?, final_disposition_json = ?,
-               blocker_dependencies_json = ?, external_state_required = ?
+               blocker_dependencies_json = ?, external_state_required = ?, next_step_suggestions_json = NULL
            WHERE id = ?`
         )
         .run(
@@ -4581,6 +4593,47 @@ export class WorkspaceDatabase {
     });
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
+  }
+
+  public getSessionNextStepSuggestions(runId: string): GeneratedResearchGoalSuggestions | null {
+    const row = rowOrUndefined(
+      this.db
+        .prepare(
+          `SELECT r.next_step_suggestions_json
+           FROM runs r
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE r.id = ? AND s.workspace_id = ?`
+        )
+        .get(runId, this.workspaceId)
+    );
+    if (!row) throw new Error(`Run not found: ${runId}`);
+    return parseStoredSessionNextStepSuggestions(row.next_step_suggestions_json);
+  }
+
+  public saveSessionNextStepSuggestions(
+    runId: string,
+    value: GeneratedResearchGoalSuggestions
+  ): GeneratedResearchGoalSuggestions {
+    const phase = value.phase.trim();
+    const suggestions = value.suggestions.map((suggestion) => suggestion.replace(/\s+/g, ' ').trim());
+    const identities = new Set(suggestions.map((suggestion) => suggestion.toLocaleLowerCase()));
+    if (!phase || suggestions.length !== 3 || suggestions.some((suggestion) => !suggestion) || identities.size !== 3) {
+      throw new Error('Session next-step suggestions must contain a workflow and exactly three distinct non-empty suggestions.');
+    }
+    const normalized: GeneratedResearchGoalSuggestions = { phase, suggestions };
+    const result = this.db
+      .prepare(
+        `UPDATE runs
+         SET next_step_suggestions_json = ?
+         WHERE id = ?
+           AND status IN ('blocked', 'completed', 'failed', 'stopped')
+           AND scope_version_id IN (SELECT id FROM scope_versions WHERE workspace_id = ?)`
+      )
+      .run(JSON.stringify(normalized), runId, this.workspaceId);
+    if (Number(result.changes) !== 1) {
+      throw new Error(`Ended run not found for next-step suggestions: ${runId}`);
+    }
+    return normalized;
   }
 
   public updateRunTitle(runId: string, title: string): RunRecord {
@@ -5241,6 +5294,7 @@ export class WorkspaceDatabase {
     return {
       run,
       researchProfile: this.getRunResearchProfileSnapshot(runId),
+      nextStepSuggestions: this.getSessionNextStepSuggestions(runId),
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? ORDER BY sequence ASC').all(runId)).map((row) => this.mapTraceEvent(row)),
       transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
@@ -7072,6 +7126,7 @@ export class WorkspaceDatabase {
     return {
       run,
       researchProfile: this.getRunResearchProfileSnapshot(runId),
+      nextStepSuggestions: this.getSessionNextStepSuggestions(runId),
       version: this.getRunDetailVersion(runId),
       attempts: rows(this.db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY started_at ASC').all(runId)).map((row) => this.mapAttempt(row)),
       traceEvents: rows(this.db.prepare('SELECT * FROM trace_events WHERE run_id = ? AND sequence > ? ORDER BY sequence ASC').all(runId, afterTraceSequence)).map((row) =>
@@ -7136,7 +7191,8 @@ export class WorkspaceDatabase {
         run.startedAt ?? '',
         run.endedAt ?? '',
         JSON.stringify(run.finalDisposition),
-        JSON.stringify(run.budget)
+        JSON.stringify(run.budget),
+        JSON.stringify(this.getSessionNextStepSuggestions(runId))
       ].join(':'),
       this.aggregateVersionPart(
         'attempts',
@@ -8033,6 +8089,15 @@ export class WorkspaceDatabase {
                   SELECT 1 FROM session_activity_intervals interval WHERE interval.run_id = r.id
                 );
           `);
+        }
+      },
+      {
+        version: 18,
+        name: 'persist_session_next_step_suggestions',
+        up: (database) => {
+          if (!tableHasColumn(database, 'runs', 'next_step_suggestions_json')) {
+            database.exec('ALTER TABLE runs ADD COLUMN next_step_suggestions_json TEXT;');
+          }
         }
       }
     ]);
@@ -10554,6 +10619,7 @@ CREATE TABLE IF NOT EXISTS runs (
   target_path TEXT,
   budget_json TEXT NOT NULL,
   summary TEXT NOT NULL,
+  next_step_suggestions_json TEXT,
   final_disposition_json TEXT,
   blocker_dependencies_json TEXT NOT NULL DEFAULT '[]',
   external_state_required INTEGER NOT NULL DEFAULT 0,

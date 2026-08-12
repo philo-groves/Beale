@@ -50,6 +50,9 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
   return {
     run: update.run,
     researchProfile: update.researchProfile ?? current.researchProfile ?? null,
+    nextStepSuggestions: update.nextStepSuggestions === undefined
+      ? current.nextStepSuggestions ?? null
+      : update.nextStepSuggestions,
     attempts: update.attempts,
     traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
     transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),
