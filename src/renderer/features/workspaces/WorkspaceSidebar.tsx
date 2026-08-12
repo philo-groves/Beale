@@ -69,7 +69,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       </div>
       <div className="sidebar-section workspace-list">
         <div className="section-row">
-          <div className="meta-label">{pluralizeSessionLabel(workspaceNoun)}</div>
+          <div className="meta-label">Workspaces</div>
           <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy} onClick={onAddWorkspace}>
             <FolderPlus size={15} />
           </button>

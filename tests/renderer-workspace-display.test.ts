@@ -1,5 +1,8 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary } from '@shared/types';
+import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, WorkspaceSnapshot } from '@shared/types';
+import { WorkspaceSidebar } from '../src/renderer/features/workspaces/WorkspaceSidebar';
 import {
   workspaceById,
   workspaceExists,
@@ -8,6 +11,7 @@ import {
   sessionHistoryForWorkspaceId,
   shortRelativeAge
 } from '../src/renderer/view-models/workspaceDisplay';
+import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer workspace display view models', () => {
   afterEach(() => {
@@ -46,6 +50,39 @@ describe('renderer workspace display view models', () => {
     expect(promptSessionTitle(session({ title: 'Android Deep Link Auth Bypass', promptMarkdown: 'Audit Android links.' }))).toBe('Android Deep Link Auth Bypass');
     expect(shortRelativeAge('2026-04-30T10:00:00.000Z')).toBe('2H');
     expect(shortRelativeAge('2026-04-22T12:00:00.000Z')).toBe('1W');
+  });
+
+  it('labels the left navigation workspace section without the profile prefix', () => {
+    const profile = testResearchProfile();
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: null,
+      selectedRunId: null,
+      snapshot: {
+        researchProfile: {
+          profile: {
+            ...profile,
+            workspace: { ...profile.workspace, workspaceNoun: 'Research Workspace' }
+          }
+        }
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('<div class="meta-label">Workspaces</div>');
+    expect(html).not.toContain('Research Workspaces');
   });
 });
 

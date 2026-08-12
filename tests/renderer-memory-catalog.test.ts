@@ -16,6 +16,7 @@ import {
   isLastOpenResearchSideView,
   filterRunbookCatalog,
   memoryLevelFiltersForViewSpace,
+  researchViewSpaceLabel,
   researchSideViewsForProfile,
   researchSideNavigationReducer,
   runbookScopeFiltersForViewSpace,
@@ -39,6 +40,8 @@ describe('renderer memory catalog', () => {
     expect(runbookScopeFiltersForViewSpace('workspace')).toEqual(['workspace']);
     expect(memoryLevelFiltersForViewSpace('session')).toEqual(['session', 'workspace', 'subject']);
     expect(runbookScopeFiltersForViewSpace('session')).toEqual(['session', 'workspace']);
+    expect(researchViewSpaceLabel('session')).toBe('Session');
+    expect(researchViewSpaceLabel('workspace')).toBe('Workspace');
   });
 
   it('defaults runbooks to Session scope and filters by recorded context', () => {
@@ -425,6 +428,31 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('session-summary-metadata');
     expect(html).not.toContain('session-memory-type-item');
     expect(html).not.toContain('session-summary-divider');
+  });
+
+  it('uses plain navigation titles even when the profile uses research-prefixed nouns', () => {
+    const profile = testResearchProfile();
+    const researchLabelsProfile: ResearchProfile = {
+      ...profile,
+      workspace: { ...profile.workspace, workspaceNoun: 'Research Workspace' },
+      presentation: { ...profile.presentation, sessionLabel: 'Research Session' }
+    };
+    const sessionHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      researchProfile: researchLabelsProfile
+    })));
+    const workspaceHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: null,
+      researchProfile: researchLabelsProfile,
+      runId: 'workspace:workspace_zsh',
+      viewSpace: 'workspace'
+    })));
+
+    expect(sessionHtml).toContain('aria-label="Session summary"');
+    expect(sessionHtml).toContain('class="session-summary-title">Session</h2>');
+    expect(sessionHtml).not.toContain('Research Session');
+    expect(workspaceHtml).toContain('aria-label="Workspace summary"');
+    expect(workspaceHtml).toContain('class="session-summary-title">Workspace</h2>');
+    expect(workspaceHtml).not.toContain('Research Workspace');
   });
 
   it('uses workspace accessibility labels in the detailed workspace sidenav', () => {

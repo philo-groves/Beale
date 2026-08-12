@@ -141,7 +141,7 @@ describe('renderer research profile presentation', () => {
     expect(researchGoalSuggestionCacheKey(first)).toContain('survey%3A2%2Csynthesize%3A3');
   });
 
-  it('keeps memory and runbook labels canonical while retaining the profile session label', () => {
+  it('keeps sidenav resource and session labels canonical', () => {
     const profile = customProfile();
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       detail: null,
@@ -166,8 +166,9 @@ describe('renderer research profile presentation', () => {
       onBackToSubagents: () => undefined,
       onSelectTraceEvent: () => undefined
     }));
-    expect(html).toContain('aria-label="Study summary"');
-    expect(html).toContain('>Study</h2>');
+    expect(html).toContain('aria-label="Session summary"');
+    expect(html).toContain('>Session</h2>');
+    expect(html).not.toContain('Study summary');
     expect(html).toContain('0 Memories');
     expect(html).toContain('0 Runbooks');
     expect(html).not.toContain('0 Notes');

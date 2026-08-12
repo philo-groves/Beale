@@ -66,6 +66,10 @@ export function runbookScopeFiltersForViewSpace(viewSpace: ResearchViewSpace): R
   return viewSpace === 'workspace' ? ['workspace'] : ['session', 'workspace'];
 }
 
+export function researchViewSpaceLabel(viewSpace: ResearchViewSpace): 'Session' | 'Workspace' {
+  return viewSpace === 'workspace' ? 'Workspace' : 'Session';
+}
+
 const CLOSED_RESEARCH_SIDE_NAVIGATION: ResearchSideNavigationState = {
   openViews: [],
   activeView: null
@@ -237,9 +241,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const memoryLabel = 'Memory';
   const memoriesLabel = 'Memories';
   const runbookLabel = 'Runbooks';
-  const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
-  const workspaceLabel = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
-  const viewSpaceLabel = viewSpace === 'workspace' ? workspaceLabel : sessionLabel;
+  const viewSpaceLabel = researchViewSpaceLabel(viewSpace);
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -397,12 +399,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   if (!detailsOpen) {
     if (viewSpace === 'workspace') {
       return (
-        <aside className="main-session-side session-summary-panel workspace-summary-panel" aria-label={`${workspaceLabel} summary`}>
+        <aside className="main-session-side session-summary-panel workspace-summary-panel" aria-label="Workspace summary">
           <section className="session-summary-card">
             <header className="session-summary-heading">
-              <h2 className="session-summary-title">{workspaceLabel}</h2>
+              <h2 className="session-summary-title">Workspace</h2>
             </header>
-            <section className="session-summary-items session-summary-resources" aria-label={`${workspaceLabel} resources`}>
+            <section className="session-summary-items session-summary-resources" aria-label="Workspace resources">
               {featureAvailability.runbooks ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
                   <BookOpen size={15} aria-hidden="true" />
@@ -424,10 +426,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       );
     }
     return (
-      <aside className="main-session-side session-summary-panel" aria-label={`${sessionLabel} summary`}>
+      <aside className="main-session-side session-summary-panel" aria-label="Session summary">
         <section className="session-summary-card">
           <header className="session-summary-heading">
-            <h2 className="session-summary-title">{sessionLabel}</h2>
+            <h2 className="session-summary-title">Session</h2>
             {detail ? <SessionDurationMetric detail={detail} className="session-summary-duration" /> : null}
           </header>
           <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
@@ -510,9 +512,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 options={memoryLevelFiltersForViewSpace(viewSpace).map((filter) => ({
                   value: filter,
                   label: filter === 'session'
-                    ? sessionLabel
+                    ? researchViewSpaceLabel('session')
                     : filter === 'workspace'
-                      ? workspaceLabel
+                      ? researchViewSpaceLabel('workspace')
                       : researchProfile?.workspace.subjectNoun ?? 'Subject'
                 }))}
                 onChange={(value) => setScope(value as MemoryLevelFilter)}
@@ -525,7 +527,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 ariaLabel="Runbook scope filter"
                 options={runbookScopeFiltersForViewSpace(viewSpace).map((filter) => ({
                   value: filter,
-                  label: filter === 'session' ? sessionLabel : workspaceLabel
+                  label: researchViewSpaceLabel(filter)
                 }))}
                 onChange={(value) => setRunbookScope(value as RunbookScopeFilter)}
               />
