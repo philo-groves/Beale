@@ -11,6 +11,7 @@ import {
 } from './memoryDreaming';
 import { serializeResearchProfile } from '../shared/researchProfile';
 import type {
+  HoneycrispArtifactRevisionSummary,
   HoneycrispMemoryDirectorySummary,
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryEvidenceRefSummary,
@@ -88,8 +89,9 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
     const visibleNodeIds = new Set(nodes.map((node) => node.id));
     const edges = tableExists(database, 'memory_edges') ? readEdges(database, visibleNodeIds) : [];
     const evidenceRefCount = nodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
-    const runbooks = tableExists(database, 'honeycrisp_runbooks') ? readRunbooks(database, workspaceId) : [];
-    const reports = tableExists(database, 'honeycrisp_reports') ? readReports(database, workspaceId) : [];
+    const artifactRevisions = readArtifactRevisions(database, workspaceId);
+    const runbooks = tableExists(database, 'honeycrisp_runbooks') ? readRunbooks(database, workspaceId, artifactRevisions) : [];
+    const reports = tableExists(database, 'honeycrisp_reports') ? readReports(database, workspaceId, artifactRevisions) : [];
     return {
       ...base,
       source: 'honeycrisp_sqlite',
@@ -161,7 +163,11 @@ function emptySummary(
   };
 }
 
-function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRunbookSummary[] {
+function readRunbooks(
+  database: DatabaseSync,
+  workspaceId: string,
+  artifactRevisions: ReadonlyMap<string, HoneycrispArtifactRevisionSummary[]>
+): HoneycrispRunbookSummary[] {
   return (database
     .prepare('SELECT * FROM honeycrisp_runbooks WHERE workspace_id = ? ORDER BY updated_at ASC, id')
     .all(workspaceId) as SqlRow[]).map((row) => ({
@@ -176,6 +182,7 @@ function readRunbooks(database: DatabaseSync, workspaceId: string): HoneycrispRu
     status: requiredRunbookStatus(row.status),
     artifactId: requiredString(row.artifact_id),
     revision: requiredNumber(row.revision),
+    revisions: revisionsForArtifact(artifactRevisions, 'runbook', row),
     createdAt: requiredString(row.created_at),
     updatedAt: requiredString(row.updated_at)
   }));
@@ -246,7 +253,11 @@ function readNodes(
     : node.provenance.activeCatalog);
 }
 
-function readReports(database: DatabaseSync, workspaceId: string): HoneycrispReportSummary[] {
+function readReports(
+  database: DatabaseSync,
+  workspaceId: string,
+  artifactRevisions: ReadonlyMap<string, HoneycrispArtifactRevisionSummary[]>
+): HoneycrispReportSummary[] {
   return (database
     .prepare('SELECT * FROM honeycrisp_reports WHERE workspace_id = ? ORDER BY updated_at ASC, id')
     .all(workspaceId) as SqlRow[]).map((row) => ({
@@ -261,9 +272,54 @@ function readReports(database: DatabaseSync, workspaceId: string): HoneycrispRep
     status: requiredReportStatus(row.status),
     artifactId: requiredString(row.artifact_id),
     revision: requiredNumber(row.revision),
+    revisions: revisionsForArtifact(artifactRevisions, 'report', row),
     createdAt: requiredString(row.created_at),
     updatedAt: requiredString(row.updated_at)
   }));
+}
+
+function readArtifactRevisions(
+  database: DatabaseSync,
+  workspaceId: string
+): Map<string, HoneycrispArtifactRevisionSummary[]> {
+  const grouped = new Map<string, HoneycrispArtifactRevisionSummary[]>();
+  if (!tableExists(database, 'honeycrisp_artifact_revisions')) return grouped;
+  const rows = database.prepare(`SELECT artifact_kind, artifact_id, session_id, revision, created_at
+    FROM honeycrisp_artifact_revisions
+    WHERE workspace_id = ?
+    ORDER BY created_at, artifact_kind, artifact_id, revision`).all(workspaceId) as SqlRow[];
+  for (const row of rows) {
+    const kind = requiredArtifactRevisionKind(row.artifact_kind);
+    const artifactId = requiredString(row.artifact_id);
+    const key = artifactRevisionKey(kind, artifactId);
+    grouped.set(key, [...(grouped.get(key) ?? []), {
+      revision: requiredNumber(row.revision),
+      sessionId: optionalString(row.session_id),
+      createdAt: requiredString(row.created_at)
+    }]);
+  }
+  return grouped;
+}
+
+function revisionsForArtifact(
+  revisions: ReadonlyMap<string, HoneycrispArtifactRevisionSummary[]>,
+  kind: 'runbook' | 'report',
+  row: SqlRow
+): HoneycrispArtifactRevisionSummary[] {
+  return revisions.get(artifactRevisionKey(kind, requiredString(row.id))) ?? [{
+    revision: requiredNumber(row.revision),
+    sessionId: optionalString(row.session_id),
+    createdAt: requiredString(row.updated_at)
+  }];
+}
+
+function artifactRevisionKey(kind: 'runbook' | 'report', artifactId: string): string {
+  return `${kind}:${artifactId}`;
+}
+
+function requiredArtifactRevisionKind(value: unknown): 'runbook' | 'report' {
+  if (value === 'runbook' || value === 'report') return value;
+  throw new Error(`Expected artifact revision kind, received ${String(value)}`);
 }
 
 function groupedWorkspaceMemberships(

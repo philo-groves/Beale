@@ -1,5 +1,7 @@
 import type {
   HoneycrispMemoryNodeSummary,
+  HoneycrispReportSummary,
+  HoneycrispRunbookSummary,
   ResearchProfileMemoryType,
   RunRow,
   SessionActivityInterval
@@ -24,6 +26,15 @@ export interface WorkspaceTimelineMemoryMarker {
   leftPercent: number;
 }
 
+export interface WorkspaceTimelineArtifactRevisionMarker {
+  id: string;
+  artifactId: string;
+  title: string;
+  revision: number;
+  createdAt: string;
+  leftPercent: number;
+}
+
 export interface WorkspaceTimelineRow {
   runId: string;
   title: string;
@@ -33,11 +44,15 @@ export interface WorkspaceTimelineRow {
   latestActivityAtMs: number;
   segments: WorkspaceTimelineSegment[];
   memoryMarkers: WorkspaceTimelineMemoryMarker[];
+  runbookRevisionMarkers: WorkspaceTimelineArtifactRevisionMarker[];
+  reportRevisionMarkers: WorkspaceTimelineArtifactRevisionMarker[];
 }
 
 export function buildWorkspaceTimeline(
   runs: readonly RunRow[],
   memories: readonly HoneycrispMemoryNodeSummary[],
+  runbooks: readonly HoneycrispRunbookSummary[],
+  reports: readonly HoneycrispReportSummary[],
   memoryTypes: readonly ResearchProfileMemoryType[],
   nowMs: number
 ): WorkspaceTimelineRow[] {
@@ -78,7 +93,14 @@ export function buildWorkspaceTimeline(
         leftPercent: percentOfWindow(createdAtMs, windowStartMs)
       }];
     });
-    if (segments.length === 0 && memoryMarkers.length === 0) return [];
+    const runbookRevisionMarkers = artifactRevisionMarkers(runbooks, row.run.id, windowStartMs, nowMs);
+    const reportRevisionMarkers = artifactRevisionMarkers(reports, row.run.id, windowStartMs, nowMs);
+    if (
+      segments.length === 0
+      && memoryMarkers.length === 0
+      && runbookRevisionMarkers.length === 0
+      && reportRevisionMarkers.length === 0
+    ) return [];
 
     const totalDurationMs = intervals.reduce((total, interval) => {
       const startMs = Date.parse(interval.startedAt);
@@ -92,7 +114,9 @@ export function buildWorkspaceTimeline(
     }, 0);
     const latestActivityAtMs = Math.max(
       ...intervals.map((interval) => interval.endedAt ? Date.parse(interval.endedAt) : nowMs),
-      ...memoryMarkers.map((marker) => Date.parse(marker.createdAt))
+      ...memoryMarkers.map((marker) => Date.parse(marker.createdAt)),
+      ...runbookRevisionMarkers.map((marker) => Date.parse(marker.createdAt)),
+      ...reportRevisionMarkers.map((marker) => Date.parse(marker.createdAt))
     );
     return [{
       runId: row.run.id,
@@ -102,9 +126,32 @@ export function buildWorkspaceTimeline(
       windowDurationMs,
       latestActivityAtMs,
       segments,
-      memoryMarkers
+      memoryMarkers,
+      runbookRevisionMarkers,
+      reportRevisionMarkers
     }];
   }).sort((left, right) => right.latestActivityAtMs - left.latestActivityAtMs || left.runId.localeCompare(right.runId));
+}
+
+function artifactRevisionMarkers(
+  artifacts: readonly (HoneycrispRunbookSummary | HoneycrispReportSummary)[],
+  runId: string,
+  windowStartMs: number,
+  nowMs: number
+): WorkspaceTimelineArtifactRevisionMarker[] {
+  return artifacts.flatMap((artifact) => artifact.revisions.flatMap((revision) => {
+    if (revision.sessionId !== runId) return [];
+    const createdAtMs = Date.parse(revision.createdAt);
+    if (!Number.isFinite(createdAtMs) || createdAtMs < windowStartMs || createdAtMs > nowMs) return [];
+    return [{
+      id: `${artifact.id}:${revision.revision}`,
+      artifactId: artifact.id,
+      title: artifact.title,
+      revision: revision.revision,
+      createdAt: revision.createdAt,
+      leftPercent: percentOfWindow(createdAtMs, windowStartMs)
+    }];
+  }));
 }
 
 export function formatWorkspaceTimelineDuration(durationMs: number): string {

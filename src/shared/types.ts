@@ -593,6 +593,7 @@ export interface HoneycrispRunbookSummary {
   status: 'draft' | 'active' | 'completed' | 'archived';
   artifactId: string;
   revision: number;
+  revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
   updatedAt: string;
 }
@@ -633,6 +634,7 @@ export interface HoneycrispReportSummary {
   status: 'complete' | 'stale';
   artifactId: string;
   revision: number;
+  revisions: HoneycrispArtifactRevisionSummary[];
   createdAt: string;
   updatedAt: string;
 }
@@ -640,6 +642,12 @@ export interface HoneycrispReportSummary {
 export interface HoneycrispReportDocument {
   reportId: string;
   content: string;
+}
+
+export interface HoneycrispArtifactRevisionSummary {
+  revision: number;
+  sessionId: string | null;
+  createdAt: string;
 }
 
 export type MemoryDreamingAction = 'prune' | 'merge_duplicates' | 'revise' | 'reclassify';

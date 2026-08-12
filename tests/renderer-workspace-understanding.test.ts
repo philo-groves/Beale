@@ -75,15 +75,39 @@ describe('workspace dashboard', () => {
         type: memoryType.id,
         title: 'Parser state transition',
         createdAt: '2026-08-12T10:00:00.000Z'
+      }],
+      runbooks: [{
+        id: 'runbook_one',
+        sessionId: 'run_one',
+        title: 'Parser proof',
+        revision: 2,
+        revisions: [
+          { revision: 1, sessionId: 'run_one', createdAt: '2026-08-12T10:30:00.000Z' },
+          { revision: 2, sessionId: 'run_one', createdAt: '2026-08-12T11:00:00.000Z' }
+        ]
+      }],
+      reports: [{
+        id: 'report_one',
+        sessionId: 'run_one',
+        title: 'Parser result',
+        revision: 1,
+        revisions: [{ revision: 1, sessionId: 'run_one', createdAt: '2026-08-12T11:30:00.000Z' }]
       }]
     });
-    const rows = buildWorkspaceTimeline(runs, memory.nodes, profile.memory.types, NOW);
+    const rows = buildWorkspaceTimeline(runs, memory.nodes, memory.runbooks, memory.reports, profile.memory.types, NOW);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]?.segments).toHaveLength(2);
     expect(rows[0]?.totalDurationMs).toBe(5 * 60 * 60 * 1_000);
     expect(rows[0]?.memoryMarkers).toEqual([
       expect.objectContaining({ id: 'memory_one', type: memoryType.id, color: memoryType.color ?? null })
+    ]);
+    expect(rows[0]?.runbookRevisionMarkers).toEqual([
+      expect.objectContaining({ id: 'runbook_one:1', revision: 1 }),
+      expect.objectContaining({ id: 'runbook_one:2', revision: 2 })
+    ]);
+    expect(rows[0]?.reportRevisionMarkers).toEqual([
+      expect.objectContaining({ id: 'report_one:1', revision: 1 })
     ]);
 
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
@@ -97,12 +121,16 @@ describe('workspace dashboard', () => {
       onRunMemoryDreaming: () => undefined
     }));
 
-    expect(html).toContain('Past 12 Hours');
+    expect(html).not.toContain('>Past 12 Hours<');
     expect(html).toContain('Recent session');
     expect(html).toContain('5h total');
     expect(html.match(/workspace-timeline-segment/g)).toHaveLength(2);
     expect(html).toContain(`workspace-timeline-memory-marker memory-type-${memoryType.id}`);
     expect(html).toContain(`memory recorded: Parser state transition`);
+    expect(html.match(/workspace-timeline-runbook-marker/g)).toHaveLength(2);
+    expect(html).toContain('Runbook revision 2: Parser proof');
+    expect(html).toContain('workspace-timeline-report-marker');
+    expect(html).toContain('Report revision 1: Parser result');
     expect(html).toContain('>Dream</button>');
   });
 
@@ -175,7 +203,11 @@ function runRow(
   };
 }
 
-function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['nodes'][number]>> } = {}): HoneycrispMemorySummary {
+function memorySummary(input: {
+  nodes?: Array<Partial<HoneycrispMemorySummary['nodes'][number]>>;
+  runbooks?: Array<Partial<HoneycrispMemorySummary['runbooks'][number]>>;
+  reports?: Array<Partial<HoneycrispMemorySummary['reports'][number]>>;
+} = {}): HoneycrispMemorySummary {
   return {
     status: 'ready',
     source: 'honeycrisp_sqlite',
@@ -189,8 +221,8 @@ function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['n
     edgeCount: 0,
     evidenceRefCount: 0,
     storageArtifactCount: 0,
-    runbookCount: 0,
-    reportCount: 0,
+    runbookCount: input.runbooks?.length ?? 0,
+    reportCount: input.reports?.length ?? 0,
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
@@ -216,8 +248,40 @@ function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['n
       ...node
     })),
     edges: [],
-    runbooks: [],
-    reports: [],
+    runbooks: (input.runbooks ?? []).map((runbook) => ({
+      id: 'runbook',
+      workspaceId: 'workspace_security',
+      workspaceName: 'Security',
+      subjectId: 'subject_security',
+      subjectName: 'Security',
+      sessionId: null,
+      title: 'Runbook',
+      purpose: '',
+      status: 'active',
+      artifactId: 'runbook',
+      revision: 1,
+      revisions: [],
+      createdAt: new Date(NOW).toISOString(),
+      updatedAt: new Date(NOW).toISOString(),
+      ...runbook
+    })),
+    reports: (input.reports ?? []).map((report) => ({
+      id: 'report',
+      workspaceId: 'workspace_security',
+      workspaceName: 'Security',
+      subjectId: 'subject_security',
+      subjectName: 'Security',
+      sessionId: null,
+      title: 'Report',
+      summary: '',
+      status: 'complete',
+      artifactId: 'report',
+      revision: 1,
+      revisions: [],
+      createdAt: new Date(NOW).toISOString(),
+      updatedAt: new Date(NOW).toISOString(),
+      ...report
+    })),
     directories: [],
     lastError: null,
     dreaming: {

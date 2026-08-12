@@ -816,6 +816,7 @@ function runbook(overrides: Partial<HoneycrispRunbookSummary> = {}): HoneycrispR
     status: 'active',
     artifactId: 'artifact_one',
     revision: 1,
+    revisions: [],
     createdAt: '2026-07-19T12:00:00.000Z',
     updatedAt: '2026-07-19T12:00:00.000Z',
     ...overrides
@@ -835,6 +836,7 @@ function report(overrides: Partial<HoneycrispReportSummary> = {}): HoneycrispRep
     status: 'complete',
     artifactId: 'report_one',
     revision: 1,
+    revisions: [],
     createdAt: '2026-07-19T12:00:00.000Z',
     updatedAt: '2026-07-19T12:00:00.000Z',
     ...overrides

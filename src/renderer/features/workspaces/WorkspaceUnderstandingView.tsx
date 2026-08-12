@@ -40,8 +40,15 @@ export function WorkspaceUnderstandingView({
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
   const timelineRows = useMemo(
-    () => buildWorkspaceTimeline(runs, honeycrispMemory?.nodes ?? [], memoryTypes, timelineNowMs),
-    [honeycrispMemory?.nodes, memoryTypes, runs, timelineNowMs]
+    () => buildWorkspaceTimeline(
+      runs,
+      honeycrispMemory?.nodes ?? [],
+      honeycrispMemory?.runbooks ?? [],
+      honeycrispMemory?.reports ?? [],
+      memoryTypes,
+      timelineNowMs
+    ),
+    [honeycrispMemory?.nodes, honeycrispMemory?.reports, honeycrispMemory?.runbooks, memoryTypes, runs, timelineNowMs]
   );
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
   const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
@@ -51,13 +58,12 @@ export function WorkspaceUnderstandingView({
     <main className="workspace-dashboard" aria-label="Workspace dashboard">
       <section className="workspace-dashboard-half workspace-timeline-card" aria-label="Session activity over the past 12 hours">
         <header className="workspace-timeline-header">
-          <div>
-            <span className="workspace-dashboard-eyebrow">Past 12 Hours</span>
-            <h2>{activityTitle}</h2>
-          </div>
+          <h2>{activityTitle}</h2>
           <div className="workspace-timeline-legend" aria-label="Timeline legend">
             <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
             <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
+            <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
+            <span><i className="workspace-timeline-report-swatch" />Report revision</span>
           </div>
         </header>
 
@@ -110,6 +116,24 @@ export function WorkspaceUnderstandingView({
                         ...(marker.color ? { '--memory-type-color': marker.color } : {})
                       } as CSSProperties}
                       title={`${memoryTypeLabel(marker.type, memoryTypes)} · ${marker.title} · ${formatDateTime(marker.createdAt)}`}
+                    />
+                  ))}
+                  {row.runbookRevisionMarkers.map((marker) => (
+                    <span
+                      aria-label={`Runbook revision ${marker.revision}: ${marker.title}`}
+                      className="workspace-timeline-runbook-marker"
+                      key={marker.id}
+                      style={{ left: `${marker.leftPercent}%` }}
+                      title={`Runbook · ${marker.title} · Revision ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
+                    />
+                  ))}
+                  {row.reportRevisionMarkers.map((marker) => (
+                    <span
+                      aria-label={`Report revision ${marker.revision}: ${marker.title}`}
+                      className="workspace-timeline-report-marker"
+                      key={marker.id}
+                      style={{ left: `${marker.leftPercent}%` }}
+                      title={`Report · ${marker.title} · Revision ${marker.revision} · ${formatDateTime(marker.createdAt)}`}
                     />
                   ))}
                 </div>

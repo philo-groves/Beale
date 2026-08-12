@@ -16,6 +16,7 @@ const summary: HoneycrispRunbookSummary = {
   status: 'active',
   artifactId: 'artifact-1',
   revision: 4,
+  revisions: [],
   createdAt: '2026-07-23T10:00:00.000Z',
   updatedAt: '2026-07-23T11:00:00.000Z'
 };
