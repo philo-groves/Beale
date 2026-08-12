@@ -4113,7 +4113,10 @@ describe('Beale workbench skeleton', () => {
     expect(recovered.runs[0].run.status).toBe('paused');
     expect(detail.attempts[0].status).toBe('paused');
     expect(detail.vmContexts[0].state).toBe('recovery_pending');
-    expect(detail.traceEvents.some((event) => event.summary === 'Workspace recovery paused interrupted run after app restart.')).toBe(true);
+    expect(detail.traceEvents).toContainEqual(expect.objectContaining({
+      summary: 'Workspace recovery paused interrupted run after app restart.',
+      payload: expect.objectContaining({ interruptedByRecovery: true })
+    }));
     reopened.close();
   });
 

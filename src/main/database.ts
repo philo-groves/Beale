@@ -3840,6 +3840,7 @@ export class WorkspaceDatabase {
           payload: {
             recoveredAt,
             reason,
+            interruptedByRecovery: true,
             authoritativeStatePreserved: true,
             userReviewRequired: true
           },

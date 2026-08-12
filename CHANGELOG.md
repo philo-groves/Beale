@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Subagents left unresolved by a parent session interruption are now reconciled as interrupted after workspace recovery instead of remaining active indefinitely; later intentional pauses still preserve genuinely active subagents.
 - Removed application-level network profiles, destination allowlists, onboarding controls, per-run metadata, and Honeycrisp network vetoes. Beale now delegates network isolation to operator-managed system controls and migrates legacy network-policy columns out of its databases.
 - Session-title provider failures now recover a concise title from the research prompt instead of leaving the session labeled `No Title Yet`.
 - Scoped onboarding now retains a legacy workspace-placeholder subject ID when durable Honeycrisp memory already uses it, preserving Claude-first research memory when the workspace is later opened in Beale.

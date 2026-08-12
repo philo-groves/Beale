@@ -20,6 +20,7 @@ export interface SubagentSummary {
 interface SubagentAccumulator extends SubagentSummary {
   attemptId: string | null;
   spawnedAt: string | null;
+  lastSequence: number;
 }
 
 const ACTIVE_SUBAGENT_STATUSES = new Set(['pending', 'running']);
@@ -95,6 +96,7 @@ export function subagentSummaries(
 ): SubagentSummary[] {
   const summaries = new Map<string, SubagentAccumulator>();
   const currentAttemptId = latestRootAttemptId(events);
+  const recoveryInterruptionSequence = latestRecoveryInterruptionSequence(events);
   const nativeCommentaryKeys = chatView === 'commentary' ? nativeCommentaryCorrelationKeys(events) : new Set<string>();
 
   for (const event of events) {
@@ -114,7 +116,8 @@ export function subagentSummaries(
       createdAt: timestamp,
       lastActiveAt: timestamp,
       attemptId: event.attemptId,
-      spawnedAt: null
+      spawnedAt: null,
+      lastSequence: event.sequence
     };
     const message = chatView === 'commentary'
       ? subagentAssistantPreview(event, nativeCommentaryKeys) ?? subagentActivityMessage(event)
@@ -129,6 +132,7 @@ export function subagentSummaries(
       createdAt: earlierTimestamp(current.createdAt, timestamp),
       lastActiveAt: laterTimestamp(current.lastActiveAt, timestamp),
       attemptId: event.attemptId ?? current.attemptId,
+      lastSequence: Math.max(current.lastSequence, event.sequence),
       spawnedAt: spawnEvent
         ? current.spawnedAt
           ? earlierTimestamp(current.spawnedAt, timestamp)
@@ -137,9 +141,16 @@ export function subagentSummaries(
     });
   }
 
-  return [...summaries.values()].map(({ attemptId, spawnedAt, ...summary }) => ({
+  return [...summaries.values()].map(({ attemptId, spawnedAt, lastSequence, ...summary }) => ({
     ...summary,
-    status: reconciledSubagentStatus(summary.status, attemptId, currentAttemptId, runStatus),
+    status: reconciledSubagentStatus(
+      summary.status,
+      attemptId,
+      currentAttemptId,
+      runStatus,
+      lastSequence,
+      recoveryInterruptionSequence
+    ),
     createdAt: spawnedAt ?? summary.createdAt
   })).sort((left, right) => {
     const timeDifference = timestampOrder(left.createdAt, right.createdAt);
@@ -268,12 +279,32 @@ function reconciledSubagentStatus(
   status: SubagentStatus,
   attemptId: string | null,
   currentAttemptId: string | null,
-  runStatus?: RunStatus | null
+  runStatus: RunStatus | null | undefined,
+  lastSequence: number,
+  recoveryInterruptionSequence: number | null
 ): SubagentStatus {
   if (!ACTIVE_SUBAGENT_STATUSES.has(status)) return status;
   if (attemptId && currentAttemptId && attemptId !== currentAttemptId) return 'interrupted';
   if (runStatus && !['queued', 'active', 'paused'].includes(runStatus)) return 'interrupted';
+  if (
+    runStatus === 'paused' &&
+    recoveryInterruptionSequence !== null &&
+    lastSequence < recoveryInterruptionSequence
+  ) {
+    return 'interrupted';
+  }
   return status;
+}
+
+function latestRecoveryInterruptionSequence(events: readonly TraceEventRecord[]): number | null {
+  let sequence: number | null = null;
+  for (const event of events) {
+    const recoveryInterruption = event.payload.interruptedByRecovery === true ||
+      event.summary === 'Workspace recovery paused interrupted run after app restart.';
+    if (!recoveryInterruption) continue;
+    sequence = sequence === null ? event.sequence : Math.max(sequence, event.sequence);
+  }
+  return sequence;
 }
 
 function latestRootAttemptId(events: readonly TraceEventRecord[]): string | null {

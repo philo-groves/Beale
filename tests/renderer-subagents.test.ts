@@ -387,6 +387,70 @@ describe('subagent trace view models', () => {
     expect(activeSubagentCount(subagents)).toBe(0);
   });
 
+  it('interrupts unresolved agents when workspace recovery paused their parent session', () => {
+    const events = [
+      traceEvent({
+        id: 'spawn',
+        attemptId: 'attempt_interrupted',
+        sequence: 1,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          status: 'running'
+        }
+      }),
+      traceEvent({
+        id: 'recovery',
+        attemptId: 'attempt_interrupted',
+        sequence: 2,
+        source: 'system',
+        type: 'vm_event',
+        summary: 'Workspace recovery paused interrupted run after app restart.',
+        payload: {}
+      })
+    ];
+
+    const subagents = subagentSummaries(events, 'paused');
+    expect(subagents[0]?.status).toBe('interrupted');
+    expect(activeSubagentCount(subagents)).toBe(0);
+  });
+
+  it('keeps agents started after recovery active during a later intentional pause', () => {
+    const events = [
+      traceEvent({
+        id: 'recovery',
+        attemptId: 'attempt_interrupted',
+        sequence: 1,
+        source: 'system',
+        type: 'vm_event',
+        summary: 'Workspace recovery paused interrupted run after app restart.',
+        payload: { interruptedByRecovery: true }
+      }),
+      traceEvent({
+        id: 'current-root',
+        attemptId: 'attempt_current',
+        sequence: 2,
+        payload: { agentPath: '/root', turn: 1 }
+      }),
+      traceEvent({
+        id: 'spawn',
+        attemptId: 'attempt_current',
+        sequence: 3,
+        payload: {
+          type: 'subagent.activity',
+          action: 'spawned',
+          agentPath: '/root/worker',
+          status: 'running'
+        }
+      })
+    ];
+
+    const subagents = subagentSummaries(events, 'paused');
+    expect(subagents[0]?.status).toBe('running');
+    expect(activeSubagentCount(subagents)).toBe(1);
+  });
+
   it('uses the latest assistant commentary in Commentary mode despite later tool events', () => {
     const events = [
       traceEvent({
