@@ -173,8 +173,6 @@ function scopeWithAssets(assets: ScopeAsset[]): WorkspaceScopeVersion {
     scopeOwner: 'GitLab',
     descriptionMarkdown: '',
     rulesMarkdown: '',
-    networkProfile: 'elevated',
-    networkPolicy: {},
     activeFrom: '2026-01-01T00:00:00.000Z',
     expiresAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',

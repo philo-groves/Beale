@@ -20,10 +20,6 @@ export function WorkspaceInformationModal({ workspace, onClose }: { workspace: W
           <strong>{workspace.workspacePath}</strong>
         </div>
         <div>
-          <span>Network</span>
-          <strong>{workspace.networkProfile}</strong>
-        </div>
-        <div>
           <span>Authorization Expires</span>
           <strong>{workspace.expiresAt ?? 'Never'}</strong>
         </div>

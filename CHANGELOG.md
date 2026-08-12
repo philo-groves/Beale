@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- Removed application-level network profiles, destination allowlists, onboarding controls, per-run metadata, and Honeycrisp network vetoes. Beale now delegates network isolation to operator-managed system controls and migrates legacy network-policy columns out of its databases.
 - Session-title provider failures now recover a concise title from the research prompt instead of leaving the session labeled `No Title Yet`.
 - Scoped onboarding now retains a legacy workspace-placeholder subject ID when durable Honeycrisp memory already uses it, preserving Claude-first research memory when the workspace is later opened in Beale.
 - Profile-aware memory totals now exclude unknown, negative, and terminal non-positive statuses, matching recommendation activity semantics.

@@ -93,8 +93,8 @@ describe('Beale workbench skeleton', () => {
     expect(existsSync(join(dir, '.beale', 'artifacts', 'sha256'))).toBe(true);
     const registry = new DatabaseSync(join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite'));
     expect(registry.prepare("SELECT version, name FROM schema_migrations WHERE component = 'beale_registry' ORDER BY version DESC LIMIT 1").get()).toEqual({
-      version: 3,
-      name: 'research_profile_isolation'
+      version: 4,
+      name: 'remove_app_network_profiles'
     });
     expect(registry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 2").get()).toEqual({
       name: 'structured_session_final_disposition'
@@ -189,6 +189,52 @@ describe('Beale workbench skeleton', () => {
         .get()
     ).toEqual({ version: 2, name: 'reconcile_errored_honeycrisp_run_status' });
     migratedDatabase.close();
+  });
+
+  it('removes legacy application network policy columns during migration', () => {
+    const workspace = tempWorkspace();
+    const initial = new WorkspaceService();
+    initial.createWorkspace(workspace);
+    initial.close();
+
+    const legacyWorkbench = new DatabaseSync(globalDatabasePath());
+    legacyWorkbench.exec(`
+      ALTER TABLE scope_versions ADD COLUMN network_policy_json TEXT;
+      ALTER TABLE runs ADD COLUMN network_profile TEXT;
+      ALTER TABLE vm_contexts ADD COLUMN network_profile TEXT;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 16;
+    `);
+    legacyWorkbench.close();
+
+    const registryPath = join(process.env.BEALE_WORKSPACE_REGISTRY_DIR ?? '', 'workspace-registry.sqlite');
+    const legacyRegistry = new DatabaseSync(registryPath);
+    legacyRegistry.exec(`
+      ALTER TABLE workspaces ADD COLUMN network_profile TEXT;
+      ALTER TABLE research_sessions ADD COLUMN network_profile TEXT;
+      DELETE FROM schema_migrations WHERE component = 'beale_registry' AND version = 4;
+    `);
+    legacyRegistry.close();
+
+    const migrated = new WorkspaceService();
+    migrated.openWorkspace(workspace);
+    migrated.close();
+
+    const verifiedWorkbench = new DatabaseSync(globalDatabasePath());
+    expect(verifiedWorkbench.prepare("SELECT name FROM pragma_table_info('scope_versions') WHERE name = 'network_policy_json'").get()).toBeUndefined();
+    expect(verifiedWorkbench.prepare("SELECT name FROM pragma_table_info('runs') WHERE name = 'network_profile'").get()).toBeUndefined();
+    expect(verifiedWorkbench.prepare("SELECT name FROM pragma_table_info('vm_contexts') WHERE name = 'network_profile'").get()).toBeUndefined();
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 16").get()).toEqual({
+      name: 'remove_app_network_profiles'
+    });
+    verifiedWorkbench.close();
+
+    const verifiedRegistry = new DatabaseSync(registryPath);
+    expect(verifiedRegistry.prepare("SELECT name FROM pragma_table_info('workspaces') WHERE name = 'network_profile'").get()).toBeUndefined();
+    expect(verifiedRegistry.prepare("SELECT name FROM pragma_table_info('research_sessions') WHERE name = 'network_profile'").get()).toBeUndefined();
+    expect(verifiedRegistry.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_registry' AND version = 4").get()).toEqual({
+      name: 'remove_app_network_profiles'
+    });
+    verifiedRegistry.close();
   });
 
   it('migrates legacy research tables to Honeycrisp-node operational links', () => {
@@ -613,7 +659,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -626,7 +671,6 @@ describe('Beale workbench skeleton', () => {
       model: 'gpt-5.6-sol',
       reasoningEffort: 'high',
       attemptStrategy: 'single_path',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 }
     });
@@ -638,7 +682,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -746,7 +789,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Authorized parser research.',
       rulesMarkdown: 'Stay inside recorded scope.',
-      networkProfile: 'offline',
       expiresAt: '   '
     });
     expect(snapshot.activeScope.workspaceName).toBe('Acme Bug Bounty');
@@ -2121,8 +2163,8 @@ describe('Beale workbench skeleton', () => {
         "if (workspaceContext.materializedSourcePaths?.includes(workspaceContext.workspaceRoot)) throw new Error('Workspace root must not be presented as source code');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Authorization:'))) throw new Error('Authorization context missing');",
         "if (workspaceContext.authorization?.recorded !== true || workspaceContext.authorization?.source !== 'beale') throw new Error('Structured authorization context missing');",
-        "if (workspaceContext.authorization?.networkProfile !== 'elevated') throw new Error('Workspace network profile missing from authorization context');",
-        "if (!workspaceContext.projectNotes?.includes('Network access profile: elevated')) throw new Error('Workspace network profile missing from project notes');",
+        "if ('networkProfile' in (workspaceContext.authorization ?? {})) throw new Error('Legacy network profile leaked into authorization context');",
+        "if (workspaceContext.projectNotes?.some((note) => String(note).startsWith('Network access profile:'))) throw new Error('Legacy network profile leaked into project notes');",
         "if (!workspaceContext.memoryContext?.sessionId || !workspaceContext.memoryContext?.workspaceId) throw new Error('Memory session/workspace context missing');",
         "if (workspaceContext.memoryContext?.subjectName !== 'Apple Security Bounty') throw new Error('Memory subject context missing');",
         "if (!workspaceContext.projectNotes?.some((note) => String(note).startsWith('Rules and constraints:'))) throw new Error('Scope rules missing');",
@@ -2157,7 +2199,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple Security Bounty',
       descriptionMarkdown: 'Local nested source fixture for Honeycrisp integration.',
       rulesMarkdown: 'Use local context provided by the operator.',
-      networkProfile: 'elevated',
       expiresAt: null,
       assets: [
         asset('in_scope', 'path', nestedSourceRoot),
@@ -2223,8 +2264,6 @@ describe('Beale workbench skeleton', () => {
         recorded?: boolean;
         source?: string;
         scopeName?: string;
-        networkProfile?: string;
-        allowedNetworkDestinations?: string[];
       };
       materializedSourcePaths?: string[];
       knownRepositories?: Array<{ rootPath: string; contentRoots?: string[] }>;
@@ -2236,9 +2275,9 @@ describe('Beale workbench skeleton', () => {
       recorded: true,
       source: 'beale',
       scopeName: 'ZSH Fixture',
-      networkProfile: 'elevated',
-      allowedNetworkDestinations: []
     });
+    expect(workspaceContext.authorization).not.toHaveProperty('allowedNetworkDestinations');
+    expect(workspaceContext.authorization).not.toHaveProperty('networkProfile');
     expect(workspaceContext.memoryContext).toMatchObject({
       sessionId: runId,
       workspaceName: 'ZSH Fixture',
@@ -2254,7 +2293,6 @@ describe('Beale workbench skeleton', () => {
         expect.stringMatching(/^Authorization:/),
         expect.stringContaining('Research workspace: ZSH Fixture'),
         expect.stringContaining('Rules and constraints: Use local context provided by the operator.'),
-        'Network access profile: elevated',
         expect.stringContaining(`Included in Boundary (path, internal): ${nestedSourceRoot}`),
         expect.stringContaining('Excluded from Boundary (domain, internal): excluded.example.test'),
         expect.stringContaining('Included in Boundary (credential_ref, internal): [host-held credential reference; value withheld from agent context]')
@@ -2306,7 +2344,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple',
       descriptionMarkdown: 'Authorized Zsh research.',
       rulesMarkdown: 'Local source only.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -2317,7 +2354,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple',
       descriptionMarkdown: 'Authorized mDNSResponder research.',
       rulesMarkdown: 'Local source only.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -2385,7 +2421,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Apple',
       descriptionMarkdown: 'Authorized local source research.',
       rulesMarkdown: 'Do not access live targets.',
-      networkProfile: 'elevated',
       expiresAt: null,
       assets: []
     });
@@ -2393,7 +2428,6 @@ describe('Beale workbench skeleton', () => {
     const snapshot = await service.startRunWithSourcePreparation({
       ...runInput('multi_branch_trace'),
       runEngine: 'honeycrisp',
-      networkProfile: 'elevated',
       promptMarkdown:
         'Materialize https://github.com/apple-oss-distributions/zsh and inspect the ZFTP module using local source only.'
     });
@@ -2766,7 +2800,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.startRun({ ...runInput('source_review'), promptMarkdown: '# First\nsharedneedle first transcript.' }, 'complete');
@@ -2776,7 +2809,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.startRun({ ...runInput('source_review'), promptMarkdown: '# Second\nsharedneedle second transcript.' }, 'complete');
@@ -2817,7 +2849,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.createScopedWorkspace({
@@ -2826,7 +2857,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
 
@@ -2850,7 +2880,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     const firstRegisteredWorkspace = service.getWorkspaceRegistryState().workspaces.find((workspace) => workspace.workspaceName === 'First Workspace');
@@ -2864,7 +2893,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     expect(service.getSnapshot()?.activeScope.workspaceName).toBe('Second Workspace');
@@ -2916,7 +2944,6 @@ describe('Beale workbench skeleton', () => {
         scopeOwner: 'Example Org',
         descriptionMarkdown: 'Onboarding should clone selected repositories.',
         rulesMarkdown: 'Offline source review.',
-        networkProfile: 'offline',
         expiresAt: null,
         onboardingRequestId: 'onboarding-index-now-test',
         assets: [
@@ -2984,7 +3011,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.createScopedWorkspace({
@@ -2993,7 +3019,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
 
@@ -3021,7 +3046,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'First persisted workspace.',
       rulesMarkdown: 'First rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.createScopedWorkspace({
@@ -3030,7 +3054,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: '',
       descriptionMarkdown: 'Second persisted workspace.',
       rulesMarkdown: 'Second rules.',
-      networkProfile: 'offline',
       expiresAt: null
     });
     service.dispose();
@@ -3135,7 +3158,6 @@ describe('Beale workbench skeleton', () => {
       workspaceName: 'GitHub',
       scopeOwner: 'GitHub',
       descriptionMarkdown: 'Authorized research under the GitHub Security Bounty workspace on HackerOne.',
-      networkProfile: 'elevated',
       importedScopeCount: 3
     });
     expect(modelRequests).toHaveLength(1);
@@ -3194,7 +3216,6 @@ describe('Beale workbench skeleton', () => {
         scopeOwner: 'GitHub',
         descriptionMarkdown: '',
         rulesMarkdown: '',
-        networkProfile: 'scoped',
         expiresAt: null,
         assets: [
           {
@@ -3255,7 +3276,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Parser Org',
       descriptionMarkdown: 'Authorized review of parser and archive boundaries.',
       rulesMarkdown: 'Use only local fixtures and recorded repositories.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'repo', workspace), asset('in_scope', 'binary', '/bin/parserd')]
     });
@@ -3295,7 +3315,6 @@ describe('Beale workbench skeleton', () => {
     }
     expect(payload.workspace).toMatchObject({
       workspaceName: 'Parser Continuity Workspace',
-      networkProfile: 'offline'
     });
     expect(previousResearch).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -3662,7 +3681,7 @@ describe('Beale workbench skeleton', () => {
         expect(serialized).toContain('recentMemoryEvidenceRefs');
         expect(serialized).toContain('requestedSession');
         expect(serialized).toContain('\\"reasoningEffort\\": \\"xhigh\\"');
-        expect(serialized).toContain('\\"networkProfile\\": \\"offline\\"');
+        expect(serialized).not.toContain('\\"networkProfile\\"');
         expect(serialized).toContain('\\"sandboxProfile\\": \\"host\\"');
         return new Response(
           sse(
@@ -3684,7 +3703,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Kernel Org',
       descriptionMarkdown: 'Authorized source and binary review for kernel-adjacent parsing components.',
       rulesMarkdown: 'Only test local fixtures and scoped repositories.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'repo', '/src/kernel'), asset('in_scope', 'binary', '/bin/parserd'), asset('out_of_scope', 'domain', 'prod.example.test')]
     });
@@ -3746,7 +3764,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Authorized local source review.',
       rulesMarkdown: 'Review only the local fixture source.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'repo', workspace)]
     });
@@ -4036,7 +4053,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Authorized open-ended vulnerability discovery on scoped assets.',
       rulesMarkdown: 'No out-of-scope network testing.',
-      networkProfile: 'scoped',
       expiresAt: '2026-12-31',
       assets: [
         asset('in_scope', 'domain', 'api.example.test'),
@@ -4048,7 +4064,6 @@ describe('Beale workbench skeleton', () => {
 
     expect(snapshot.activeScope.version).toBe(2);
     expect(snapshot.activeScope.workspaceName).toBe('Example Bug Bounty');
-    expect(snapshot.activeScope.networkProfile).toBe('scoped');
     expect(snapshot.activeScope.assets).toHaveLength(4);
     expect(snapshot.activeScope.assets.map((item) => item.value)).toContain('admin.example.test');
 
@@ -4066,7 +4081,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Scoped parser research.',
       rulesMarkdown: 'Stay inside local fixtures.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'path', '/targets/parser')]
     });
@@ -4085,7 +4099,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.traceEvents.map((event) => event.sequence)).toEqual(sequence(detail.traceEvents.length));
     expect(detail.traceEvents.some((event) => event.source === 'model' && event.type === 'model_message')).toBe(true);
     expect(detail.traceEvents.some((event) => event.source === 'tool' && event.type === 'tool_result')).toBe(true);
-    expect(detail.traceEvents.some((event) => event.source === 'policy' && event.type === 'approval_event')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.source === 'policy' && event.type === 'approval_event')).toBe(false);
     expect(detail.traceEvents.some((event) => event.type === 'verifier_result')).toBe(true);
     expect(detail.artifacts.length).toBeGreaterThan(0);
     expect(detail.verifierRuns.some((run) => run.status === 'pass')).toBe(true);
@@ -4151,7 +4165,7 @@ describe('Beale workbench skeleton', () => {
     service.close();
   });
 
-  it('records scoped policy approval decisions with redacted request data', () => {
+  it('records host-action policy approval decisions with redacted request data', () => {
     const service = openService();
     const snapshot = startRunForTest(service, runInput('source_review'));
     const runId = snapshot.runs[0].run.id;
@@ -4159,10 +4173,9 @@ describe('Beale workbench skeleton', () => {
     service.steerRun({
       type: 'review_policy_request',
       runId,
-      requestKind: 'network_profile_change',
+      requestKind: 'host_action',
       decision: 'approved',
       requestedAction: {
-        networkProfile: 'elevated',
         destinationPattern: 'api.example.test',
         api_key: 'policysecret12345'
       },
@@ -4170,11 +4183,11 @@ describe('Beale workbench skeleton', () => {
     });
 
     const detail = service.getRunDetail(runId);
-    const approval = detail.policyEvents.find((event) => event.requestKind === 'network_profile_change');
+    const approval = detail.policyEvents.find((event) => event.requestKind === 'host_action');
     expect(approval?.decision).toBe('approved');
     expect(approval?.reason).toContain('token=...redacted');
     expect(approval?.requestedAction.api_key).toBe('...redacted');
-    expect(detail.traceEvents.some((event) => event.summary === 'Policy request approved: network_profile_change.')).toBe(true);
+    expect(detail.traceEvents.some((event) => event.summary === 'Policy request approved: host_action.')).toBe(true);
     service.close();
   });
 
@@ -4193,7 +4206,6 @@ describe('Beale workbench skeleton', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       attemptStrategy: 'single_path',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
     });
@@ -4247,7 +4259,6 @@ describe('Beale workbench skeleton', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Scoped backup test.',
       rulesMarkdown: 'Offline only.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'path', '/tmp/backup-target')]
     });
@@ -4411,7 +4422,6 @@ function runInput(fixtureScenario: StartRunInput['fixtureScenario']): StartRunIn
     attemptStrategy: 'iterative_research',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
-    networkProfile: 'offline',
     sandboxProfile: 'host',
     budget: {
       maxMinutes: 30,

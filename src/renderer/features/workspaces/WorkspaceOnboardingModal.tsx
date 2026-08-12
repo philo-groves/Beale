@@ -156,20 +156,10 @@ export function WorkspaceOnboardingModal({
             Description
             <textarea rows={3} value={form.descriptionMarkdown} disabled={submitting} onChange={(event) => update('descriptionMarkdown', event.target.value)} />
           </label>
-          <div className="form-grid">
-            <label>
-              Network
-              <select value={form.networkProfile} disabled={submitting} onChange={(event) => update('networkProfile', event.target.value)}>
-                <option value="offline">offline</option>
-                <option value="scoped">scoped</option>
-                <option value="elevated">elevated</option>
-              </select>
-            </label>
-            <label>
-              Authorization expires (empty = never)
-              <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} disabled={submitting} onChange={(event) => update('expiresAt', event.target.value)} />
-            </label>
-          </div>
+          <label>
+            Authorization expires (empty = never)
+            <input type="date" className={emptyDateClass(form.expiresAt)} value={form.expiresAt} disabled={submitting} onChange={(event) => update('expiresAt', event.target.value)} />
+          </label>
           <label>
             Scope and Rules
             <textarea rows={3} value={form.rulesMarkdown} disabled={submitting} onChange={(event) => update('rulesMarkdown', event.target.value)} />

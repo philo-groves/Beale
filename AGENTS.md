@@ -49,7 +49,7 @@ Preserve these invariants in docs and implementation:
 - Generated files and verifier outputs are candidate artifacts until accepted into durable Honeycrisp/Beale storage.
 - Confirmed vulnerability conclusions require tool, artifact, or verifier-backed evidence references.
 - User-provided vulnerability claims may seed Honeycrisp hypotheses; they are not target observations by themselves.
-- Live-target testing is allowed only when the recorded authorized scope and active network profile permit it.
+- Live-target testing is allowed only within the recorded authorized scope. Network isolation and destination controls belong to operator-managed system boundaries, not Beale application policy.
 
 ## Implementation Rules
 

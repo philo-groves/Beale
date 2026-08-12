@@ -14,7 +14,6 @@ export interface WorkspaceOnboardingFormState {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
   expiresAt: string;
   assets: ScopeAssetInput[];
 }
@@ -113,7 +112,6 @@ export function onboardingFormFromDefaults(defaults: WorkspaceOnboardingDefaults
     scopeOwner: defaults.scopeOwner,
     descriptionMarkdown: defaults.descriptionMarkdown,
     rulesMarkdown: defaults.rulesMarkdown,
-    networkProfile: defaults.networkProfile,
     expiresAt: defaults.expiresAt ? defaults.expiresAt.slice(0, 10) : '',
     assets: defaults.assets
   };
@@ -127,7 +125,6 @@ export function onboardingInputFromForm(form: WorkspaceOnboardingFormState): Wor
     scopeOwner: form.scopeOwner,
     descriptionMarkdown: form.descriptionMarkdown,
     rulesMarkdown: form.rulesMarkdown,
-    networkProfile: form.networkProfile,
     expiresAt: optionalDateOrNever(form.expiresAt),
     assets: form.assets.map((asset) => {
       const isRepository = asset.direction === 'in_scope' && extractOnboardingRepositoryUrls([asset.value, stringAttribute(asset.attributes?.repositoryUrl), stringAttribute(asset.attributes?.instruction)].join('\n')).length > 0;
@@ -218,7 +215,6 @@ export function onboardingFormFromHackerOneLookup(
     scopeOwner: lookup.scopeOwner,
     descriptionMarkdown: lookup.descriptionMarkdown,
     rulesMarkdown: lookup.rulesMarkdown,
-    networkProfile: lookup.networkProfile,
     expiresAt: lookup.expiresAt ? lookup.expiresAt.slice(0, 10) : '',
     assets: lookup.assets
   };
@@ -250,7 +246,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
       scopeOwner: 'Apple',
       descriptionMarkdown: APPLE_SCOPE_DESCRIPTION,
       rulesMarkdown: APPLE_SCOPE_AND_RULES,
-      networkProfile: 'elevated',
       expiresAt: '',
       assets: []
     };
@@ -263,7 +258,6 @@ export function applyWorkspaceTemplate(form: WorkspaceOnboardingFormState, templ
     scopeOwner: 'Microsoft',
     descriptionMarkdown: MSRC_SCOPE_DESCRIPTION,
     rulesMarkdown: MSRC_SCOPE_AND_RULES,
-    networkProfile: 'elevated',
     expiresAt: '',
     assets: []
   };

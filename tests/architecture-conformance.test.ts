@@ -192,7 +192,6 @@ describe('architecture conformance', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       attemptStrategy: 'iterative_research',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0, runEngine: 'fixture' }
     });
@@ -215,7 +214,6 @@ describe('architecture conformance', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: 'Architecture conformance scope.',
       rulesMarkdown: 'Stay inside local fixtures.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: [asset('in_scope', 'path', '/targets/architecture-fixture'), asset('out_of_scope', 'domain', 'blocked.example.test')]
     });
@@ -316,7 +314,6 @@ function runInput(): StartRunInput {
     attemptStrategy: 'iterative_research',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
-    networkProfile: 'offline',
     sandboxProfile: 'host',
     budget: {
       maxMinutes: 30,

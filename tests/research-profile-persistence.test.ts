@@ -192,7 +192,6 @@ describe('research profile persistence', () => {
       scopeOwner: 'New Authorization Owner',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -245,7 +244,6 @@ describe('research profile persistence', () => {
       scopeOwner: 'Authorization Owner',
       descriptionMarkdown: 'Authorized local parser research.',
       rulesMarkdown: 'Stay within the recorded workspace.',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -274,7 +272,6 @@ describe('research profile persistence', () => {
       scopeOwner: 'Acme Corporation',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -535,7 +532,6 @@ function runInput(database: WorkspaceDatabase, researchProfileSnapshotId?: strin
     model: 'test-model',
     reasoningEffort: 'high',
     attemptStrategy: 'single_path',
-    networkProfile: 'offline',
     sandboxProfile: 'host',
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 }
   };

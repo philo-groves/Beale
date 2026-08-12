@@ -352,7 +352,6 @@ function runDetail(input: { traceEvents?: TraceEventRecord[]; transcriptMessages
       endedAt: null,
       mode: 'dynamic',
       attemptStrategy: 'breadth_first',
-      networkProfile: 'scoped',
       title: '',
       promptMarkdown: ''
     },

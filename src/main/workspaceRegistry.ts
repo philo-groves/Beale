@@ -277,7 +277,6 @@ export class WorkspaceRegistry {
         scope_owner TEXT NOT NULL,
         description_markdown TEXT NOT NULL,
         rules_markdown TEXT NOT NULL,
-        network_profile TEXT NOT NULL,
         expires_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -299,7 +298,6 @@ export class WorkspaceRegistry {
         final_disposition_json TEXT,
         model TEXT NOT NULL,
         reasoning_effort TEXT NOT NULL,
-        network_profile TEXT NOT NULL,
         sandbox_profile TEXT NOT NULL,
         created_at TEXT NOT NULL,
         started_at TEXT,
@@ -335,6 +333,19 @@ export class WorkspaceRegistry {
           CREATE INDEX IF NOT EXISTS idx_research_sessions_profile_updated
             ON research_sessions(research_profile_id, updated_at);
         `);
+      }
+    }, {
+      version: 4,
+      name: 'remove_app_network_profiles',
+      up: (database) => {
+        const workspaceColumns = database.prepare('PRAGMA table_info(workspaces)').all() as Array<{ name?: unknown }>;
+        if (workspaceColumns.some((column) => column.name === 'network_profile')) {
+          database.exec('ALTER TABLE workspaces DROP COLUMN network_profile;');
+        }
+        const sessionColumns = database.prepare('PRAGMA table_info(research_sessions)').all() as Array<{ name?: unknown }>;
+        if (sessionColumns.some((column) => column.name === 'network_profile')) {
+          database.exec('ALTER TABLE research_sessions DROP COLUMN network_profile;');
+        }
       }
     }]);
   }
@@ -397,7 +408,6 @@ export class WorkspaceRegistry {
             scope_owner = ?,
             description_markdown = ?,
             rules_markdown = ?,
-            network_profile = ?,
             expires_at = ?,
             updated_at = ?,
             last_opened_at = ?
@@ -409,7 +419,6 @@ export class WorkspaceRegistry {
           scope.scopeOwner,
           scope.descriptionMarkdown,
           scope.rulesMarkdown,
-          scope.networkProfile,
           scope.expiresAt,
           now,
           now,
@@ -425,8 +434,8 @@ export class WorkspaceRegistry {
       .prepare(
         `INSERT INTO workspaces (
           id, workspace_path, workspace_id, workspace_name, scope_owner, description_markdown,
-          rules_markdown, network_profile, expires_at, created_at, updated_at, last_opened_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          rules_markdown, expires_at, created_at, updated_at, last_opened_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -436,7 +445,6 @@ export class WorkspaceRegistry {
         scope.scopeOwner,
         scope.descriptionMarkdown,
         scope.rulesMarkdown,
-        scope.networkProfile,
         scope.expiresAt,
         now,
         now,
@@ -474,7 +482,6 @@ export class WorkspaceRegistry {
       run.finalDisposition ? JSON.stringify(run.finalDisposition) : null,
       run.model,
       run.reasoningEffort,
-      run.networkProfile,
       run.sandboxProfile,
       run.createdAt,
       run.startedAt,
@@ -500,7 +507,6 @@ export class WorkspaceRegistry {
             final_disposition_json = ?,
             model = ?,
             reasoning_effort = ?,
-            network_profile = ?,
             sandbox_profile = ?,
             created_at = ?,
             started_at = ?,
@@ -516,9 +522,9 @@ export class WorkspaceRegistry {
       .prepare(
         `INSERT INTO research_sessions (
           id, research_profile_id, registry_workspace_id, workspace_path, workspace_id, run_id, title, status, run_engine,
-          mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort, network_profile,
+          mode, prompt_markdown, summary, final_disposition_json, model, reasoning_effort,
           sandbox_profile, created_at, started_at, ended_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(`session_${randomUUID()}`, ...values);
   }
@@ -536,7 +542,6 @@ export class WorkspaceRegistry {
       scopeOwner: text(row, 'scope_owner'),
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
-      networkProfile: text(row, 'network_profile'),
       expiresAt: nullableText(row, 'expires_at'),
       createdAt: text(row, 'created_at'),
       updatedAt: text(row, 'updated_at'),
@@ -562,7 +567,6 @@ export class WorkspaceRegistry {
       finalDisposition: parseSessionFinalDisposition(row.final_disposition_json),
       model: text(row, 'model'),
       reasoningEffort: text(row, 'reasoning_effort'),
-      networkProfile: text(row, 'network_profile'),
       sandboxProfile: text(row, 'sandbox_profile'),
       createdAt: text(row, 'created_at'),
       startedAt: nullableText(row, 'started_at'),
@@ -594,7 +598,6 @@ export function defaultsForWorkspaceDirectory(workspacePath: string): WorkspaceO
     scopeOwner: '',
     descriptionMarkdown: '',
     rulesMarkdown: '',
-    networkProfile: 'elevated',
     expiresAt: null,
     assets: []
   };

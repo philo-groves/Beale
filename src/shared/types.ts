@@ -102,8 +102,6 @@ export interface OpenAiOnboardingStep {
 
 export type ExecutorProviderKind = 'host';
 
-export type ExecutorNetworkProfile = 'offline' | 'scoped' | 'elevated';
-
 export type ExecutorBackendKind = never;
 
 export interface VmPreference {
@@ -129,7 +127,6 @@ export interface ExecutorStatus {
   label: string;
   reason: string | null;
   targetExecution: boolean;
-  supportedNetworkProfiles: ExecutorNetworkProfile[];
   metadata?: Record<string, unknown>;
   supports: {
     snapshots: boolean;
@@ -162,7 +159,6 @@ export interface WorkspaceScopeDraft {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
   expiresAt: string | null;
   assets: ScopeAssetInput[];
 }
@@ -175,8 +171,6 @@ export interface WorkspaceScopeVersion {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
-  networkPolicy: Record<string, unknown>;
   activeFrom: string;
   expiresAt: string | null;
   createdAt: string;
@@ -266,7 +260,6 @@ export interface WorkspaceRegistryEntry {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -290,7 +283,6 @@ export interface ResearchSessionSummary {
   finalDisposition: SessionFinalDisposition | null;
   model: string;
   reasoningEffort: string;
-  networkProfile: string;
   sandboxProfile: string;
   createdAt: string;
   startedAt: string | null;
@@ -894,7 +886,6 @@ export interface WorkspaceOnboardingDefaults {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
   expiresAt: string | null;
   assets: ScopeAssetInput[];
 }
@@ -945,7 +936,6 @@ export interface HackerOneScopeLookupResult {
   scopeOwner: string;
   descriptionMarkdown: string;
   rulesMarkdown: string;
-  networkProfile: string;
   expiresAt: string | null;
   assets: ScopeAssetInput[];
   importedScopeCount: number;
@@ -972,15 +962,11 @@ export interface WorkspaceRecoveryReport {
 }
 
 export interface WorkspacePolicyReview {
-  networkProfile: string;
   inScopeAssetCount: number;
   outOfScopeAssetCount: number;
   localImportAssetCount: number;
   credentialReferenceCount: number;
-  allowedDestinations: string[];
   warnings: string[];
-  liveTargetAllowed: boolean;
-  liveTargetTestingRequiresApproval: boolean;
   credentialInjectionRequiresApproval: boolean;
 }
 
@@ -1089,7 +1075,6 @@ export interface StartRunInput {
   attemptStrategy: string;
   model: string;
   reasoningEffort: string;
-  networkProfile: string;
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;
@@ -1170,7 +1155,6 @@ export interface RunRecord {
   model: string;
   reasoningEffort: string;
   attemptStrategy: string;
-  networkProfile: string;
   sandboxProfile: string;
   targetAssetId: string | null;
   targetPath: string | null;
@@ -1301,7 +1285,6 @@ export interface VmContextRecord {
   imageId: string;
   snapshotId: string;
   state: string;
-  networkProfile: string;
   scopeVersionId: string;
   createdAt: string;
   destroyedAt: string | null;
@@ -1356,7 +1339,7 @@ export interface ApprovalRecord {
 
 export type ExportReviewDecision = 'approved' | 'needs_more_evidence' | 'rejected';
 
-export type PolicyReviewRequestKind = 'network_profile_change' | 'credential_injection' | 'host_action' | 'scope_change';
+export type PolicyReviewRequestKind = 'credential_injection' | 'host_action' | 'scope_change';
 export type PolicyReviewDecision = 'approved' | 'denied';
 
 export type VerifierContractReviewDecision = 'approved' | 'rejected';

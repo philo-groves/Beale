@@ -125,7 +125,6 @@ export function StartRunForm({
     ...defaultRunInput,
     workflowId: initialWorkflowId,
     goalObjective: initialGoal?.sentence ?? null,
-    networkProfile: snapshot.activeScope.networkProfile,
     sandboxProfile: 'host'
   }));
   const [startingRun, setStartingRun] = useState(false);
@@ -261,7 +260,6 @@ export function StartRunForm({
       const next = {
         ...current,
         shellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
-        networkProfile: snapshot.activeScope.networkProfile,
         sandboxProfile: 'host',
         workflowId: initialGoal?.phase ?? defaultWorkflowId,
         goalObjective: initialGoal?.sentence ?? null,

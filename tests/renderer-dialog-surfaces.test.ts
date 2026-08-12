@@ -60,7 +60,6 @@ describe('renderer dialog surfaces', () => {
       scopeOwner: '',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -182,7 +181,7 @@ describe('renderer dialog surfaces', () => {
       createElement(StartRunForm, {
         snapshot: {
           workspace: { workspaceId: 'workspace_one' },
-          activeScope: { id: 'scope_one', networkProfile: 'offline' }
+          activeScope: { id: 'scope_one' }
         } as WorkspaceSnapshot,
         openAiStatus: null,
         defaultProviderId: 'openai-codex',
@@ -235,7 +234,6 @@ describe('renderer dialog surfaces', () => {
         attemptStrategy: 'iterative_research',
         model: 'gpt-5.6-sol',
         reasoningEffort: 'high',
-        networkProfile: 'scoped',
         sandboxProfile: 'host',
         finalDisposition: {
           outcome: 'blocked',
@@ -264,7 +262,6 @@ describe('renderer dialog surfaces', () => {
       scopeOwner: 'Example Org',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       createdAt: '2026-07-28T00:00:00.000Z',
       updatedAt: '2026-07-28T00:00:00.000Z',
@@ -287,7 +284,6 @@ describe('renderer dialog surfaces', () => {
       finalDisposition: null,
       model: 'gpt-5.6',
       reasoningEffort: 'medium',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       createdAt: '2026-07-28T00:00:00.000Z',
       startedAt: '2026-07-28T00:00:00.000Z',

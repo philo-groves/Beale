@@ -42,7 +42,6 @@ export class FixtureRunEngine {
       model: input.model,
       reasoningEffort: input.reasoningEffort,
       attemptStrategy: input.attemptStrategy,
-      networkProfile: input.networkProfile,
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
@@ -529,58 +528,19 @@ function crashArtifactSteps(): ScenarioStep[] {
 function scopeBlockSteps(): ScenarioStep[] {
   return [
     (context) => {
-      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Checking requested network access against recorded workspace scope.');
-      recordTool(context, 'search', { query: 'external callback endpoint' }, 'Search summarized in-scope callback documentation.', {
-        observation: 'Scoped documentation does not authorize the requested external host.'
+      contextDb(context).updateAttemptState(context.attempt.id, 'active', 'Reviewing the proposed target against the recorded authorization boundary.');
+      recordTool(context, 'search', { query: 'external callback endpoint' }, 'Search summarized the recorded authorization boundary.', {
+        observation: 'The researcher did not record the proposed external host as authorized.'
       });
     },
     (context) => {
-      recordModel(context, 'Model requested an out-of-scope network probe for correlation.', {
+      recordModel(context, 'Agent declined to probe a target outside the recorded authorization boundary.', {
         requestedDestination: 'https://unscoped.example.net',
-        claimStatus: 'policy_request'
-      });
-      const db = contextDb(context);
-      const approval = db.createApproval({
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        requestKind: 'network_access',
-        requestedAction: {
-          destination: 'https://unscoped.example.net',
-          networkProfile: 'scoped_public'
-        },
-        decision: 'blocked',
-        reason: 'Blocked: out-of-scope network request.'
-      });
-      db.appendTraceEvent({
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        type: 'approval_event',
-        source: 'policy',
-        summary: 'Policy engine blocked an out-of-scope network request.',
-        payload: {
-          decision: 'blocked',
-          destination: 'https://unscoped.example.net',
-          recordedScopeRequired: true
-        },
-        approvalId: approval.id,
-        vmContextId: context.vmContext.id
-      });
-      db.appendTraceEvent({
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        type: 'network_event',
-        source: 'policy',
-        summary: 'No network request was sent.',
-        payload: {
-          destination: 'https://unscoped.example.net',
-          sent: false
-        },
-        approvalId: approval.id,
-        vmContextId: context.vmContext.id
+        claimStatus: 'authorization_boundary'
       });
     },
     (context) => {
-      finishRun(context, 'blocked', 'Blocked: out-of-scope network request.', 'Blocked: out-of-scope network request.');
+      finishRun(context, 'blocked', 'Agent stopped at the recorded authorization boundary.', 'Additional operator authorization is required for the proposed target.');
     }
   ];
 }

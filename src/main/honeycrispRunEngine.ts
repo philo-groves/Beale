@@ -73,8 +73,6 @@ interface HoneycrispWorkspaceAuthorizationContext {
   scopeId: string;
   scopeName: string;
   scopeOwner?: string;
-  networkProfile: string;
-  allowedNetworkDestinations?: string[];
   activeFrom: string;
   expiresAt?: string;
 }
@@ -316,7 +314,6 @@ export class HoneycrispRunEngine {
       model: input.model,
       reasoningEffort: input.reasoningEffort,
       attemptStrategy: input.attemptStrategy,
-      networkProfile: input.networkProfile,
       sandboxProfile: input.sandboxProfile,
       targetAssetId: input.targetAssetId,
       targetPath: input.targetPath,
@@ -520,7 +517,6 @@ export class HoneycrispRunEngine {
       workspaceContextPath,
       context.run.id,
       this.db.getWorkspaceId(),
-      input.networkProfile,
       researchProfile,
       workflowId,
       this.getResearchSubject?.() ?? null
@@ -2345,7 +2341,7 @@ function honeycrispRunArgs(
     args.push('--research-profile-hash', researchProfile.hash);
     args.push('--workflow', researchProfile.workflowId);
   }
-  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath, Boolean(researchProfile), input.networkProfile));
+  args.push(...bealeHoneycrispRuntimeArgs(shellOptionsPath, Boolean(researchProfile)));
   // Keep Beale-owned safety mode and reviewer routing after extension arguments.
   // A workspace profile cannot choose the model that authorizes host shell execution.
   args.push('--shell-safety-mode', input.shellSafetyMode);
@@ -2386,7 +2382,6 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     attemptStrategy: run.attemptStrategy,
     model: run.model,
     reasoningEffort: run.reasoningEffort,
-    networkProfile: run.networkProfile,
     sandboxProfile: run.sandboxProfile,
     targetAssetId: run.targetAssetId,
     targetPath: run.targetPath,
@@ -2709,7 +2704,6 @@ function writeHoneycrispWorkspaceContext(
   contextPath: string,
   sessionId: string,
   workspaceId: string,
-  networkProfile: string,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: ResearchSubjectInput | null
@@ -2719,7 +2713,6 @@ function writeHoneycrispWorkspaceContext(
     workspacePath,
     sessionId,
     workspaceId,
-    networkProfile,
     researchProfile,
     workflowId,
     researchSubject
@@ -2734,7 +2727,6 @@ function honeycrispWorkspaceContext(
   workspacePath: string,
   sessionId: string,
   workspaceId: string,
-  networkProfile: string,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: ResearchSubjectInput | null
@@ -2782,10 +2774,6 @@ function honeycrispWorkspaceContext(
             scopeId: scope.id,
             scopeName: scope.workspaceName,
             ...(scope.scopeOwner.trim() ? { scopeOwner: scope.scopeOwner } : {}),
-            networkProfile,
-            ...(networkProfile === 'scoped' || networkProfile === 'elevated'
-              ? { allowedNetworkDestinations: honeycrispAllowedNetworkDestinations(scope) }
-              : {}),
             activeFrom: scope.activeFrom,
             ...(scope.expiresAt ? { expiresAt: scope.expiresAt } : {})
           }
@@ -2793,18 +2781,8 @@ function honeycrispWorkspaceContext(
       : {}),
     knownRepositories,
     materializedSourcePaths,
-    projectNotes: honeycrispScopeNotes(scope, networkProfile, researchProfile, workflowId, subject)
+    projectNotes: honeycrispScopeNotes(scope, researchProfile, workflowId, subject)
   };
-}
-
-function honeycrispAllowedNetworkDestinations(scope: WorkspaceScopeVersion): string[] {
-  const supportedKinds = new Set<ScopeAsset['kind']>(['domain', 'host', 'ip_range', 'service']);
-  return [...new Set(
-    scope.assets
-      .filter((asset) => asset.direction === 'in_scope' && supportedKinds.has(asset.kind))
-      .map((asset) => asset.value.trim())
-      .filter(Boolean)
-  )].slice(0, 200);
 }
 
 const REPOSITORY_CONTENT_MARKERS = [
@@ -2861,12 +2839,11 @@ function isLocalResearchMaterialKind(kind: ScopeAsset['kind']): boolean {
 
 function honeycrispScopeNotes(
   scope: WorkspaceScopeVersion,
-  networkProfile: string,
   researchProfile: ResearchProfileSnapshot | null,
   workflowId: string | null,
   researchSubject: { id: string; name: string }
 ): string[] {
-  if (!researchProfile) return legacyHoneycrispScopeNotes(scope, networkProfile);
+  if (!researchProfile) return legacyHoneycrispScopeNotes(scope);
   const profile = researchProfile.profile;
   const workspaceContract = profile.workspace;
   const workflow = profile.workflows.find((candidate) => candidate.id === workflowId)
@@ -2881,10 +2858,10 @@ function honeycrispScopeNotes(
       : '',
     authorizationRequired
       ? recordedBoundary
-        ? `Authorization: An operator-recorded ${boundedContextText(workspaceContract.boundaryNoun)} applies. Follow the recorded inclusions, exclusions, constraints, and network profile.`
+        ? `Authorization: An operator-recorded ${boundedContextText(workspaceContract.boundaryNoun)} applies. Follow the recorded inclusions, exclusions, and constraints.`
         : `Authorization: No operator-recorded ${boundedContextText(workspaceContract.boundaryNoun)} is currently available.`
       : recordedBoundary
-        ? `${boundedContextText(workspaceContract.boundaryNoun)}: Use the operator-recorded inclusions, exclusions, constraints, and network profile.`
+        ? `${boundedContextText(workspaceContract.boundaryNoun)}: Use the operator-recorded inclusions, exclusions, and constraints.`
         : `${boundedContextText(workspaceContract.boundaryNoun)}: No explicit boundary is currently recorded.`,
     scope.workspaceName.trim()
       ? `${boundedContextText(workspaceContract.workspaceNoun)}: ${boundedContextText(scope.workspaceName)}`
@@ -2899,7 +2876,6 @@ function honeycrispScopeNotes(
       .slice(0, 16)
       .map((instruction) => `${boundedContextText(workspaceContract.boundaryNoun)} instruction: ${boundedContextText(instruction, 1_000)}`),
     scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
-    `Network access profile: ${boundedContextText(networkProfile)}`,
     scope.expiresAt
       ? `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: ${scope.expiresAt}`
       : `${boundedContextText(workspaceContract.boundaryNoun)} expiry or review date: no expiry recorded.`,
@@ -2911,13 +2887,12 @@ function honeycrispScopeNotes(
   return notes.filter(Boolean);
 }
 
-function legacyHoneycrispScopeNotes(scope: WorkspaceScopeVersion, networkProfile: string): string[] {
+function legacyHoneycrispScopeNotes(scope: WorkspaceScopeVersion): string[] {
   const notes = [
     'Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.',
     scope.workspaceName.trim() ? `Scope: ${boundedContextText(scope.workspaceName)}` : '',
     scope.scopeOwner.trim() ? `Scope owner or subject: ${boundedContextText(scope.scopeOwner)}` : '',
     scope.rulesMarkdown.trim() ? `Rules and constraints: ${boundedContextText(scope.rulesMarkdown)}` : '',
-    `Network access profile: ${boundedContextText(networkProfile)}`,
     scope.expiresAt ? `Authorization expiry or review date: ${scope.expiresAt}` : 'Authorization expiry or review date: no expiry recorded.',
     scope.descriptionMarkdown.trim() ? `Scope description: ${boundedContextText(scope.descriptionMarkdown)}` : ''
   ];
@@ -3228,8 +3203,7 @@ function parseCapabilityCeiling(
 
 function bealeHoneycrispRuntimeArgs(
   shellOptionsPath: string | undefined,
-  profileAware = false,
-  networkProfile = 'offline'
+  profileAware = false
 ): string[] {
   const profileCeilings = profileAware ? resolveBealeProfileCapabilityCeilings() : null;
   const capabilityArgs = profileAware
@@ -3271,9 +3245,8 @@ function bealeHoneycrispRuntimeArgs(
     ...additionalHoneycrispRuntimeArgs(),
     '--no-default-tool-config',
     ...capabilityArgs,
-    ...(networkProfile === 'scoped' || networkProfile === 'elevated'
-      ? ['--allowed-side-effect', 'network']
-      : []),
+    '--allowed-side-effect',
+    'network',
     ...(shellOptionsPath ? ['--shell-options', shellOptionsPath] : [])
   ];
 }

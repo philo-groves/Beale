@@ -2,7 +2,7 @@ import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type { ToolExecutionRequest, ToolExecutionResult } from './executionTypes';
 import { executeHostOperation } from './hostToolExecutor';
 import { redactForModelText } from './redaction';
-import type { ExecutorNetworkProfile, VerifierContractRecord, VerifierRunRecord } from '@shared/types';
+import type { VerifierContractRecord, VerifierRunRecord } from '@shared/types';
 
 interface VerifierExecutionSpec {
   operationKind: 'shell' | 'python';
@@ -198,14 +198,8 @@ function verifierRequest(context: CreatedRunContext, spec: VerifierExecutionSpec
     cwd: '/workspace',
     env: { BEALE_TARGET_PATH: '/workspace/target' },
     timeoutMs: spec.timeoutMs,
-    networkProfile: normalizeNetworkProfile(context.run.networkProfile),
     expectedOutput: spec.artifactPath ? 'artifact' : 'summary'
   };
-}
-
-function normalizeNetworkProfile(value: string): ExecutorNetworkProfile {
-  if (value === 'offline' || value === 'scoped' || value === 'elevated') return value;
-  return 'offline';
 }
 
 function verifierExecutionSpec(contract: VerifierContractRecord): VerifierExecutionSpec | null {

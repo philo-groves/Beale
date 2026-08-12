@@ -1,5 +1,5 @@
 import type { JSX, ReactNode } from 'react';
-import { Boxes, Database, FolderOpen, GitBranch, MoonStar, Network, RotateCcw } from 'lucide-react';
+import { Boxes, Database, FolderOpen, GitBranch, MoonStar, RotateCcw } from 'lucide-react';
 import type {
   HoneycrispMemoryDirectorySummary,
   MemoryDreamingSummary,
@@ -12,7 +12,7 @@ import type {
   WorkspaceScopeVersion,
   ScopeAsset
 } from '@shared/types';
-import { formatSessionDateTime, networkProfileLabel, stateClass, traceLabel, truncateText } from '../../lib/formatting';
+import { formatSessionDateTime, stateClass, traceLabel, truncateText } from '../../lib/formatting';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import { MemoryTypeLabel } from '../research/MemoryTypeLabel';
 import { orderedCatalogMemoryTypes, pluralizePresentationLabel } from '../research/MemorySidePanel';
@@ -61,7 +61,7 @@ export function WorkspaceUnderstandingView({
           <SummaryTile icon={<Database size={17} />} label="Durable Knowledge" value={`${formatCount(honeycrispMemory?.nodeCount ?? 0)} nodes`} detail={`${formatCount(honeycrispMemory?.edgeCount ?? 0)} relationships`} />
           <SummaryTile icon={<GitBranch size={17} />} label={researchProfile ? 'Catalog Types' : 'Primitives'} value={formatCount(researchProfile ? Object.keys(honeycrispMemory?.nodeTypeCounts ?? {}).length : primitives.length)} detail={`${formatCount(honeycrispMemory?.evidenceRefCount ?? 0)} references`} />
           <SummaryTile icon={<FolderOpen size={17} />} label="Storage" value={`${formatCount(honeycrispMemory?.storageArtifactCount ?? 0)} artifacts`} detail={`${formatCount(honeycrispMemory?.runbookCount ?? 0)} ${runbookLabel.toLocaleLowerCase()} · ${formatCount(honeycrispMemory?.directories.length ?? 0)} directories`} />
-          <SummaryTile icon={<Network size={17} />} label={`${workspaceNoun} Tracking`} value={`${formatCount(runCount)} ${pluralizePresentationLabel(sessionLabel).toLocaleLowerCase()}`} detail={scope ? networkProfileLabel(scope.networkProfile) : `No active ${workspaceNoun.toLocaleLowerCase()}`} />
+          <SummaryTile icon={<Boxes size={17} />} label={`${workspaceNoun} Tracking`} value={`${formatCount(runCount)} ${pluralizePresentationLabel(sessionLabel).toLocaleLowerCase()}`} detail={scope?.workspaceName ?? `No active ${workspaceNoun.toLocaleLowerCase()}`} />
         </div>
 
         <div className="workspace-understanding-layout">
@@ -118,7 +118,6 @@ export function WorkspaceUnderstandingView({
                 [workspaceNoun, scope?.workspaceName ?? 'None'],
                 [subjectNoun, researchSubject?.name ?? 'None'],
                 ['Authorization Owner', scope?.scopeOwner || 'None'],
-                ['Network', scope ? networkProfileLabel(scope.networkProfile) : 'None'],
                 ['Scope Version', scope ? `v${scope.version}` : 'None'],
                 ['Active From', formatNullableDate(scope?.activeFrom)],
                 [pluralizePresentationLabel(sessionLabel), formatCount(runCount)],

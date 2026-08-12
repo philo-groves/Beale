@@ -7,7 +7,6 @@ import {
   formatSessionDateTime,
   formatSessionStart,
   formatSessionTime,
-  networkProfileLabel,
   researchModelNameLabel,
   shortDate,
   stateClass,
@@ -29,8 +28,6 @@ describe('renderer formatting helpers', () => {
     expect(traceLabel('host_research_only')).toBe('Host Research Only');
     expect(formatPriorityPill(65.8)).toBe('P64');
     expect(clampPriorityScoreForDisplay(Number.NaN)).toBe(0);
-    expect(networkProfileLabel('scoped')).toBe('Scoped');
-    expect(networkProfileLabel('custom_lab')).toBe('custom_lab');
   });
 
   it('omits only the leading GPT prefix from OpenAI model names', () => {

@@ -9,8 +9,7 @@ describe('renderer session header view models', () => {
 
     expect(sessionConfigPills(detail)).toEqual([
       { label: 'Dynamic', tooltip: 'Mode: Dynamic' },
-      { label: 'Breadth First', tooltip: 'Strategy: Breadth First' },
-      { label: 'Scoped', tooltip: 'Network: Scoped' }
+      { label: 'Breadth First', tooltip: 'Strategy: Breadth First' }
     ]);
   });
 
@@ -57,7 +56,6 @@ function runDetail(input: { traceEvents?: TraceEventRecord[]; findings?: Array<R
       endedAt: null,
       mode: 'dynamic',
       attemptStrategy: 'breadth_first',
-      networkProfile: 'scoped',
       title: '',
       promptMarkdown: ''
     },

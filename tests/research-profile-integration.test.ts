@@ -277,12 +277,11 @@ describe('research profile host integration', () => {
         'process'
       ]));
       expect(invocations[0]?.args).not.toContain('--tool-family');
-      expect(invocations[0]?.args).not.toContain('--allowed-side-effect');
+      expect(invocations[0]?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(invocations[0]?.args).not.toContain('--disable-tool-family');
       expect(invocations[0]?.args).not.toContain('--allow-mcp-server');
       expect(invocations[0]?.args).not.toContain('--skill');
       expect(invocations[0]?.args).not.toContain('--memory-type-descriptions');
-      expect(invocations[0]?.args).not.toContain('network');
       expect(invocations.every((invocation) => existsSync(invocation.profilePath))).toBe(true);
 
       const detail = service.getRunDetail(firstRunId);
@@ -339,7 +338,6 @@ describe('research profile host integration', () => {
         scopeOwner: 'Boundary Administrator',
         descriptionMarkdown: 'A collection of local literature and model outputs.',
         rulesMarkdown: 'Use the recorded collection only.',
-        networkProfile: 'offline',
         expiresAt: null,
         assets: []
       });
@@ -418,8 +416,7 @@ describe('research profile host integration', () => {
         'process'
       ]));
       expect(invocation?.args).not.toContain('--tool-family');
-      expect(invocation?.args).not.toContain('--allowed-side-effect');
-      expect(invocation?.args).not.toContain('network');
+      expect(invocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(invocation?.args).not.toContain('--skill');
       expect(invocation?.args).not.toContain('--allow-mcp-server');
       expect(invocation?.args).not.toContain('profile-literature-skill');
@@ -474,7 +471,7 @@ describe('research profile host integration', () => {
       ]));
       expect(configuredArgs).not.toContain('code');
       expect(configuredArgs).not.toContain('experiment');
-      expect(configuredArgs).not.toContain('network');
+      expect(configuredArgs).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       delete process.env.BEALE_HONEYCRISP_PROFILE_TOOL_FAMILY_CEILING_JSON;
       delete process.env.BEALE_HONEYCRISP_PROFILE_SIDE_EFFECT_CEILING_JSON;
 
@@ -505,8 +502,7 @@ describe('research profile host integration', () => {
         workspaceName: 'Climate Literature Library',
         scopeOwner: 'Boundary Administrator',
         descriptionMarkdown: 'A collection of local literature and model outputs.',
-        rulesMarkdown: 'Use only recorded network destinations.',
-        networkProfile: 'scoped',
+        rulesMarkdown: 'Use only recorded research assets.',
         expiresAt: null,
         assets: [
           { direction: 'in_scope', kind: 'domain', value: 'data.example.test', sensitivity: 'public' },
@@ -516,17 +512,13 @@ describe('research profile host integration', () => {
           { direction: 'out_of_scope', kind: 'domain', value: 'excluded.example.test', sensitivity: 'public' }
         ]
       });
-      const scopedStarted = service.startRun(runInput('literature-synthesis'));
-      const scopedRunId = scopedStarted.runs.find((row) => row.run.networkProfile === 'scoped')?.run.id ?? '';
-      await waitForRun(service, scopedRunId);
-      const scopedInvocation = readInvocations(invocationLog).find((candidate) => candidate.args.includes('network'));
-      expect(scopedInvocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
-      expect((scopedInvocation?.workspaceContext.authorization as { allowedNetworkDestinations?: string[] } | undefined)
-        ?.allowedNetworkDestinations).toEqual([
-          'data.example.test',
-          '192.0.2.15',
-          'https://catalog.example.test/api'
-        ]);
+      const networkEnabledStarted = service.startRun(runInput('literature-synthesis'));
+      const networkEnabledRunId = networkEnabledStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, networkEnabledRunId);
+      const networkEnabledInvocation = readInvocations(invocationLog).find((candidate) => candidate.args.includes('network'));
+      expect(networkEnabledInvocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
+      expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('networkProfile');
+      expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('allowedNetworkDestinations');
 
       process.env.BEALE_OPENAI_ACCESS_TOKEN = 'profile-recommendation-test-token';
       currentProfile = resolvedTestResearchProfile(generalResearchProfile({ provider: 'anthropic' }, 2, '2.0.0'));
@@ -705,7 +697,6 @@ describe('research profile host integration', () => {
       model: 'fixture-model',
       reasoningEffort: 'minimal',
       attemptStrategy: 'iterative_research',
-      networkProfile: 'offline',
       sandboxProfile: 'host',
       budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0, runEngine: 'honeycrisp' }
     });
@@ -829,7 +820,6 @@ function runInput(workflowId: string): StartRunInput {
     attemptStrategy: 'iterative_research',
     model: 'fixture-model',
     reasoningEffort: 'minimal',
-    networkProfile: 'offline',
     sandboxProfile: 'host',
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 }
   };

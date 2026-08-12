@@ -256,8 +256,6 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
           scopeOwner: 'Authorization Team',
           descriptionMarkdown: '',
           rulesMarkdown: '',
-          networkProfile: 'offline',
-          networkPolicy: {},
           version: 2,
           activeFrom: '2026-07-29T10:00:00.000Z',
           expiresAt: null,

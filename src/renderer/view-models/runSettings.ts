@@ -16,7 +16,6 @@ export const defaultRunInput: StartRunInput = {
   attemptStrategy: 'iterative_research',
   model: DEFAULT_RESEARCH_MODEL,
   reasoningEffort: DEFAULT_RESEARCH_REASONING_EFFORT,
-  networkProfile: 'elevated',
   sandboxProfile: 'host',
   budget: {
     maxMinutes: UNBOUNDED_MINUTES,

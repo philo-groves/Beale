@@ -1,5 +1,3 @@
-import type { ExecutorNetworkProfile } from '@shared/types';
-
 export type ToolOperationKind = 'shell' | 'python';
 export type ToolExecutionStatus = 'success' | 'failure' | 'timeout' | 'policy_blocked' | 'executor_error';
 
@@ -9,7 +7,6 @@ export interface ToolExecutionRequest {
   cwd: string;
   env?: Record<string, string>;
   timeoutMs: number;
-  networkProfile: ExecutorNetworkProfile;
   expectedOutput: 'summary' | 'artifact';
 }
 

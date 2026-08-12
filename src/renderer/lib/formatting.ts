@@ -54,13 +54,6 @@ export function clampPriorityScoreForDisplay(priorityScore: number): number {
   return Math.max(0, Math.min(MAX_PRIORITY_SCORE, Math.round(priorityScore)));
 }
 
-export function networkProfileLabel(profile: string): string {
-  if (profile === 'offline') return 'Offline';
-  if (profile === 'scoped') return 'Scoped';
-  if (profile === 'elevated') return 'Elevated';
-  return profile;
-}
-
 export function stateClass(state: string): string {
   return state.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
 }

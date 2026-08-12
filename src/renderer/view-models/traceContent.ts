@@ -1001,8 +1001,6 @@ function rawTraceEventSummary(event: TraceEventRecord, category: TraceCategoryId
   if (match) return `Finish debugger wrapper: ${match[1]}`;
   match = summary.match(/^Guest artifact exported and accepted: (.+)\.$/);
   if (match) return `Accept exported artifact: ${match[1]}`;
-  match = summary.match(/^(?:VM|Sandbox) network profile enforced: ([^.]+)\.$/);
-  if (match) return `Enforce network profile: ${match[1]}`;
   match = summary.match(/^Verifier contract executed in disposable (?:VM|sandbox) with ([^.]+)\.$/);
   if (match) return 'Verifier Execution';
   match = summary.match(/^Verifier contract executed on host with ([^.]+)\.$/);
@@ -1272,10 +1270,7 @@ function detailPartsForNetworkEvent(event: TraceEventRecord): string[] | null {
   if (event.type !== 'network_event') return null;
   const payload = event.payload;
   return [
-    tracePart('profile', tracePayloadPrimitive(payload, 'networkProfile')),
     tracePart('decision', tracePayloadPrimitive(payload, 'decision')),
-    traceBooleanPart('live target', tracePayloadPrimitive(payload, 'liveTargetAllowed')),
-    traceNumberPart('destinations', tracePayloadPrimitive(payload, 'allowedDestinationCount')),
     pathPart('host', tracePayloadPrimitive(payload, 'destinationHostname')),
     tracePart('port', tracePayloadPrimitive(payload, 'port')),
     tracePart('protocol', tracePayloadPrimitive(payload, 'protocol')),
@@ -1295,14 +1290,11 @@ function detailPartsForVmEvent(event: TraceEventRecord): string[] | null {
     tracePart('provider', tracePayloadPrimitive(payload, 'provider')),
     pathPart('image', tracePayloadPrimitive(payload, 'imageRef')),
     tracePart('snapshot', tracePayloadPrimitive(payload, 'snapshotRef')),
-    tracePart('profile', tracePayloadPrimitive(payload, 'networkProfile')),
     pathPart('host', tracePayloadPrimitive(payload, 'hostPath') ?? tracePayloadPrimitive(payload, 'requestedHostPath')),
     pathPart('guest', tracePayloadPrimitive(payload, 'guestPath')),
     tracePart('mode', tracePayloadPrimitive(payload, 'mode')),
     importSummaryPart(payload),
     providerResultPart(payload),
-    traceNumberPart('destinations', arrayLengthValue(payload, 'allowedDestinations')),
-    traceBooleanPart('live target', tracePayloadPrimitive(payload, 'liveTargetAllowed')),
     traceBooleanPart('target execution', tracePayloadPrimitive(payload, 'targetExecution')),
     traceBooleanPart('host db mounted', tracePayloadPrimitive(payload, 'hostDatabaseMounted')),
     traceBooleanPart('OpenAI creds mounted', tracePayloadPrimitive(payload, 'openAiCredentialsMounted')),
@@ -1371,7 +1363,6 @@ function executionParts(payload: Record<string, unknown>): string[] | null {
     traceNumberPart('exit', tracePayloadPrimitive(payload, 'exitCode')),
     tracePart('signal', tracePayloadPrimitive(payload, 'signal')),
     durationPart(tracePayloadPrimitive(payload, 'durationMs')),
-    tracePart('network', tracePayloadPrimitive(payload, 'networkProfile')),
     shortHashPart('script', tracePayloadPrimitive(payload, 'scriptHash')),
     pathPart('imported', tracePayloadPrimitive(payload, 'importedHostPath')),
     pathPart('artifact', tracePayloadPrimitive(payload, 'exportedArtifactId')),

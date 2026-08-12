@@ -639,7 +639,6 @@ function summaryDetail(): RunDetail {
       endedAt: '2026-07-19T12:05:00.000Z',
       mode: 'dynamic',
       attemptStrategy: 'breadth_first',
-      networkProfile: 'scoped',
       title: '',
       promptMarkdown: ''
     },

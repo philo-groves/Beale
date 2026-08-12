@@ -241,7 +241,7 @@ function workflow(id: string, name: string, goalSuggestionCount: number, isDefau
 function snapshot(profile: ResearchProfile): WorkspaceSnapshot {
   return {
     workspace: { workspaceId: 'workspace_one' },
-    activeScope: { id: 'scope_one', networkProfile: 'disabled' },
+    activeScope: { id: 'scope_one' },
     researchProfile: {
       id: 'snapshot_one',
       workspaceId: 'workspace_one',

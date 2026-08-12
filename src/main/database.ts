@@ -221,7 +221,6 @@ export interface StartRunRecordInput {
   model: string;
   reasoningEffort: string;
   attemptStrategy: string;
-  networkProfile: string;
   sandboxProfile: string;
   targetAssetId?: string | null;
   targetPath?: string | null;
@@ -3587,17 +3586,6 @@ function workspaceIdForPath(workspacePath: string): string {
   return `workspace_${createHash('sha256').update(resolve(workspacePath)).digest('hex').slice(0, 20)}`;
 }
 
-function jsonFromScopeDraft(draft: WorkspaceScopeDraft): Record<string, unknown> {
-  const inScope = draft.assets.filter((asset) => asset.direction === 'in_scope').map((asset) => asset.value);
-  const outOfScope = draft.assets.filter((asset) => asset.direction === 'out_of_scope').map((asset) => asset.value);
-  return {
-    defaultProfile: draft.networkProfile,
-    vmNetworkDefault: draft.networkProfile === 'offline' ? 'disabled' : draft.networkProfile === 'elevated' ? 'online' : 'scoped',
-    inScope,
-    outOfScope
-  };
-}
-
 export class WorkspaceDatabase {
   private readonly db: DatabaseSync;
   private workspaceId = '';
@@ -4037,8 +4025,8 @@ export class WorkspaceDatabase {
         .prepare(
           `INSERT INTO scope_versions (
             id, workspace_id, version, status, workspace_name, scope_owner, description_markdown,
-            network_policy_json, rules_markdown, active_from, expires_at, created_at, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            rules_markdown, active_from, expires_at, created_at, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -4048,7 +4036,6 @@ export class WorkspaceDatabase {
           draft.workspaceName.trim() || 'Untitled Workspace',
           draft.scopeOwner.trim(),
           draft.descriptionMarkdown.trim(),
-          toJson(jsonFromScopeDraft({ ...draft, assets: cleanedAssets })),
           draft.rulesMarkdown.trim(),
           createdAt,
           optionalDateOrNever(draft.expiresAt),
@@ -4090,9 +4077,9 @@ export class WorkspaceDatabase {
       this.db
         .prepare(
           `INSERT INTO vm_contexts (
-            id, backend, image_id, snapshot_id, state, network_profile, scope_version_id,
+            id, backend, image_id, snapshot_id, state, scope_version_id,
             created_at, destroyed_at, metadata_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           vmContextId,
@@ -4100,7 +4087,6 @@ export class WorkspaceDatabase {
           input.vmImageId ?? 'host-machine',
           input.vmSnapshotId ?? 'none',
           input.vmState ?? 'host_active',
-          input.networkProfile,
           input.scopeVersionId,
           createdAt,
           null,
@@ -4111,9 +4097,9 @@ export class WorkspaceDatabase {
         .prepare(
           `INSERT INTO runs (
             id, scope_version_id, research_profile_snapshot_id, shell_safety_mode, mode, status, title, prompt_markdown, model, reasoning_effort,
-            attempt_strategy, network_profile, sandbox_profile, target_asset_id, target_path,
+            attempt_strategy, sandbox_profile, target_asset_id, target_path,
             budget_json, summary, created_at, started_at, ended_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           runId,
@@ -4127,7 +4113,6 @@ export class WorkspaceDatabase {
           input.model,
           input.reasoningEffort,
           input.attemptStrategy,
-          input.networkProfile,
           input.sandboxProfile,
           target.targetAssetId,
           target.targetPath,
@@ -4179,7 +4164,6 @@ export class WorkspaceDatabase {
               mode: input.mode,
               model: input.model,
               reasoningEffort: input.reasoningEffort,
-              networkProfile: input.networkProfile,
               sandboxProfile: input.sandboxProfile
             }),
             createdAt
@@ -4285,9 +4269,9 @@ export class WorkspaceDatabase {
       this.db
         .prepare(
           `INSERT INTO vm_contexts (
-            id, backend, image_id, snapshot_id, state, network_profile, scope_version_id,
+            id, backend, image_id, snapshot_id, state, scope_version_id,
             created_at, destroyed_at, metadata_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           vmContextId,
@@ -4295,7 +4279,6 @@ export class WorkspaceDatabase {
           input.vmImageId ?? 'host-machine',
           input.vmSnapshotId ?? 'none',
           vmState,
-          run.networkProfile,
           run.scopeVersionId,
           createdAt,
           vmState === 'destroyed' ? createdAt : null,
@@ -7088,7 +7071,6 @@ export class WorkspaceDatabase {
         run.model,
         run.reasoningEffort,
         run.attemptStrategy,
-        run.networkProfile,
         run.sandboxProfile,
         run.targetAssetId ?? '',
         run.targetPath ?? '',
@@ -7157,7 +7139,7 @@ export class WorkspaceDatabase {
         `SELECT COUNT(*) AS count,
                 COALESCE(MAX(created_at), '') AS max_created,
                 COALESCE(MAX(COALESCE(destroyed_at, '')), '') AS max_destroyed,
-                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || network_profile || ':' || COALESCE(destroyed_at, '') || ':' || LENGTH(metadata_json), '|'), '') AS rows
+                COALESCE(GROUP_CONCAT(id || ':' || state || ':' || COALESCE(destroyed_at, '') || ':' || LENGTH(metadata_json), '|'), '') AS rows
          FROM (
            SELECT DISTINCT v.* FROM vm_contexts v
            LEFT JOIN attempts a ON a.vm_context_id = v.id
@@ -7942,6 +7924,21 @@ export class WorkspaceDatabase {
           }
           database.exec(MEMORY_DREAMING_RUN_PROVENANCE_TRIGGER_SQL);
         }
+      },
+      {
+        version: 16,
+        name: 'remove_app_network_profiles',
+        up: (database) => {
+          if (tableHasColumn(database, 'scope_versions', 'network_policy_json')) {
+            database.exec('ALTER TABLE scope_versions DROP COLUMN network_policy_json;');
+          }
+          if (tableHasColumn(database, 'runs', 'network_profile')) {
+            database.exec('ALTER TABLE runs DROP COLUMN network_profile;');
+          }
+          if (tableHasColumn(database, 'vm_contexts', 'network_profile')) {
+            database.exec('ALTER TABLE vm_contexts DROP COLUMN network_profile;');
+          }
+        }
       }
     ]);
   }
@@ -7983,7 +7980,6 @@ export class WorkspaceDatabase {
       scopeOwner: '',
       descriptionMarkdown: '',
       rulesMarkdown: '',
-      networkProfile: 'offline',
       expiresAt: null,
       assets: []
     });
@@ -8475,7 +8471,6 @@ export class WorkspaceDatabase {
           mode: run.mode,
           model: run.model,
           targetAssetId: run.targetAssetId,
-          networkProfile: run.networkProfile,
           sandboxProfile: run.sandboxProfile
         },
         indexedAt
@@ -9339,14 +9334,13 @@ export class WorkspaceDatabase {
       entityType: 'run',
       entityId: run.id,
       title: run.title || 'Untitled research session',
-      body: [run.promptMarkdown, run.mode, run.status, run.summary, run.model, run.reasoningEffort, run.networkProfile, run.sandboxProfile, run.targetPath, JSON.stringify(run.finalDisposition)].join('\n'),
+      body: [run.promptMarkdown, run.mode, run.status, run.summary, run.model, run.reasoningEffort, run.sandboxProfile, run.targetPath, JSON.stringify(run.finalDisposition)].join('\n'),
       sourcePath: run.targetPath,
       metadata: {
         status: run.status,
         mode: run.mode,
         model: run.model,
         reasoningEffort: run.reasoningEffort,
-        networkProfile: run.networkProfile,
         sandboxProfile: run.sandboxProfile,
         targetAssetId: run.targetAssetId,
         targetPath: run.targetPath,
@@ -9834,8 +9828,6 @@ export class WorkspaceDatabase {
       scopeOwner: text(row, 'scope_owner'),
       descriptionMarkdown: text(row, 'description_markdown'),
       rulesMarkdown: text(row, 'rules_markdown'),
-      networkProfile: text(row, 'network_policy_json') ? String(parseJson(row.network_policy_json).defaultProfile ?? 'offline') : 'offline',
-      networkPolicy: parseJson(row.network_policy_json),
       activeFrom: text(row, 'active_from'),
       expiresAt: nullableText(row, 'expires_at'),
       createdAt: text(row, 'created_at'),
@@ -9866,7 +9858,6 @@ export class WorkspaceDatabase {
       model: text(row, 'model'),
       reasoningEffort: text(row, 'reasoning_effort'),
       attemptStrategy: text(row, 'attempt_strategy'),
-      networkProfile: text(row, 'network_profile'),
       sandboxProfile: text(row, 'sandbox_profile'),
       targetAssetId: nullableText(row, 'target_asset_id'),
       targetPath: nullableText(row, 'target_path'),
@@ -10010,7 +10001,6 @@ export class WorkspaceDatabase {
       imageId: text(row, 'image_id'),
       snapshotId: text(row, 'snapshot_id'),
       state: text(row, 'state'),
-      networkProfile: text(row, 'network_profile'),
       scopeVersionId: text(row, 'scope_version_id'),
       createdAt: text(row, 'created_at'),
       destroyedAt: nullableText(row, 'destroyed_at'),
@@ -10423,7 +10413,6 @@ CREATE TABLE IF NOT EXISTS scope_versions (
   workspace_name TEXT NOT NULL,
   scope_owner TEXT NOT NULL,
   description_markdown TEXT NOT NULL,
-  network_policy_json TEXT NOT NULL,
   rules_markdown TEXT NOT NULL,
   active_from TEXT NOT NULL,
   expires_at TEXT,
@@ -10456,7 +10445,6 @@ CREATE TABLE IF NOT EXISTS runs (
   model TEXT NOT NULL,
   reasoning_effort TEXT NOT NULL,
   attempt_strategy TEXT NOT NULL,
-  network_profile TEXT NOT NULL,
   sandbox_profile TEXT NOT NULL,
   target_asset_id TEXT REFERENCES scope_assets(id),
   target_path TEXT,
@@ -10476,7 +10464,6 @@ CREATE TABLE IF NOT EXISTS vm_contexts (
   image_id TEXT NOT NULL,
   snapshot_id TEXT NOT NULL,
   state TEXT NOT NULL,
-  network_profile TEXT NOT NULL,
   scope_version_id TEXT NOT NULL REFERENCES scope_versions(id),
   created_at TEXT NOT NULL,
   destroyed_at TEXT,

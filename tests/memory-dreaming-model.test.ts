@@ -545,7 +545,6 @@ function runInput(): StartRunInput {
     attemptStrategy: 'iterative_research',
     model: 'gpt-5.6-sol',
     reasoningEffort: 'high',
-    networkProfile: 'offline',
     sandboxProfile: 'host',
     budget: { maxMinutes: 5, maxAttempts: 1, maxCostUsd: 0 },
     fixtureScenario: 'source_review'

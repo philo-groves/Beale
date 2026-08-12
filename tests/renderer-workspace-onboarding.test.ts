@@ -74,7 +74,6 @@ describe('renderer workspace onboarding view model', () => {
       scopeOwner: 'Example Inc.',
       descriptionMarkdown: 'Authorized research under Example.',
       rulesMarkdown: 'Verify current HackerOne scope.',
-      networkProfile: 'scoped',
       expiresAt: null,
       assets: [
         {
@@ -105,7 +104,6 @@ function defaults(): WorkspaceOnboardingDefaults {
     scopeOwner: '',
     descriptionMarkdown: '',
     rulesMarkdown: '',
-    networkProfile: 'scoped',
     expiresAt: '2026-05-30T00:00:00.000Z',
     assets: []
   };

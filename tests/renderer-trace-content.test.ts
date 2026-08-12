@@ -754,7 +754,6 @@ function runDetail(
       endedAt: null,
       mode: 'dynamic',
       attemptStrategy: 'breadth_first',
-      networkProfile: 'scoped',
       title: '',
       promptMarkdown: ''
     },
