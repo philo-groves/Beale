@@ -44,6 +44,10 @@ import { readHoneycrispReport } from './honeycrispReport';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { ProfilingService } from './profilingService';
 import {
+  getWorkspaceDejunkSummary,
+  runWorkspaceDejunk as runWorkspaceDejunkMaintenance
+} from './workspaceDejunk';
+import {
   defaultSourceRepositoryStoreDirectory,
   extractSourceRepositoryUrls,
   materializeGitRepositoryAsync,
@@ -703,6 +707,17 @@ export class WorkspaceService {
 
   public getHoneycrispReport(reportId: string): HoneycrispReportDocument {
     return readHoneycrispReport(this.resolveHoneycrispReportPath(reportId), reportId);
+  }
+
+  public runWorkspaceDejunk(): WorkspaceSnapshot {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime) throw new Error('No Beale workspace is open');
+    if (runtime.db.listRunRows().some(({ run }) => !isEndedResearchRunStatus(run.status))) {
+      throw new Error('Dejunk is unavailable while a research session is active.');
+    }
+    runWorkspaceDejunkMaintenance(runtime.workspacePath);
+    this.emitChange({ syncWorkspaceRegistry: false, workspaceRegistryChanged: false });
+    return this.requireSnapshot();
   }
 
   public async runMemoryDreaming(): Promise<WorkspaceSnapshot> {
@@ -2665,7 +2680,10 @@ export class WorkspaceService {
       openedAt: runtime.openedAt,
       executionPostureLabel: EXECUTION_POSTURE_LABEL,
       lastWorkspaceBackup: runtime.db.getLastWorkspaceBackup(),
-      hostEnvironment: getHostEnvironment()
+      hostEnvironment: getHostEnvironment(),
+      dejunk: this.profileMainTiming('snapshot.workspaceDejunk', { workspace: runtime.workspacePath }, () =>
+        getWorkspaceDejunkSummary(runtime.workspacePath)
+      )
     };
   }
 

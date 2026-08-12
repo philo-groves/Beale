@@ -999,7 +999,7 @@ export function ResearchSideViewTabs({
 
   return (
     <header className="research-side-view-header">
-      <div className="research-side-view-tabs" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
+      <div className="research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
         {openViews.map((view) => (
           <div className={`research-side-view-tab ${activeView === view ? 'active' : ''}`} key={view}>
             <button

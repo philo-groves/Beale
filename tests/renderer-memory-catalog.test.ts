@@ -170,6 +170,7 @@ describe('renderer memory catalog', () => {
     }));
 
     expect(html).toContain('role="tablist"');
+    expect(html).toContain('research-side-view-tabs-scrollable');
     expect(html).toContain('lucide-database');
     expect(html).toContain('lucide-book-open');
     expect(html).toContain('lucide-file-text');

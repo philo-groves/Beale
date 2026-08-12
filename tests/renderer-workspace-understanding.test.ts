@@ -7,6 +7,7 @@ import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSess
 import {
   memoryCountSinceLastDream,
   memoryDreamHeat,
+  workspaceDejunkHeat,
   WorkspaceUnderstandingView
 } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
@@ -29,7 +30,7 @@ describe('workspace dashboard', () => {
     const sharedSectionHeaderStyles = styles.match(/\.workspace-surface-header,\s*\.workspace-housekeeping-header\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
-    const dreamCardStyles = styles.match(/\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    const housekeepingCardStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) fit-content(33%) minmax(0, 1fr)');
     expect(sharedPanelStyles).toContain('min-height: 0');
@@ -49,11 +50,12 @@ describe('workspace dashboard', () => {
     expect(dreamAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
     expect(dreamAreaStyles).toContain('padding: 8px 18px 18px');
     expect(dreamContentStyles).toContain('padding-top: 8px');
-    expect(dreamCardStyles).toContain('width: 100%');
-    expect(dreamCardStyles).toContain('height: 100%');
-    expect(dreamCardStyles).toContain('border: 0');
-    expect(dreamCardStyles).toContain('border-radius: 24px');
-    expect(dreamCardStyles).toContain('radial-gradient');
+    expect(dreamContentStyles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(housekeepingCardStyles).toContain('width: 100%');
+    expect(housekeepingCardStyles).toContain('height: 100%');
+    expect(housekeepingCardStyles).toContain('border: 0');
+    expect(housekeepingCardStyles).toContain('border-radius: 24px');
+    expect(housekeepingCardStyles).toContain('radial-gradient');
   });
 
   it('maps memories created since the latest dream to profile heat thresholds', () => {
@@ -63,6 +65,11 @@ describe('workspace dashboard', () => {
     expect(memoryDreamHeat(50)).toBe('medium');
     expect(memoryDreamHeat(100)).toBe('high');
     expect(memoryDreamHeat(150)).toBe('critical');
+    expect(workspaceDejunkHeat(9)).toBe('none');
+    expect(workspaceDejunkHeat(10)).toBe('low');
+    expect(workspaceDejunkHeat(50)).toBe('medium');
+    expect(workspaceDejunkHeat(200)).toBe('high');
+    expect(workspaceDejunkHeat(1_000)).toBe('critical');
 
     const memory = memorySummary({
       nodes: [
@@ -124,7 +131,11 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('workspace-surface-card');
     expect(html).toContain('aria-label="0 in scope, 0 researched"');
     expect(html).toContain('>Housekeeping</span>');
+    expect(html).toContain('>0 new files</span>');
     expect(html).toContain('>0 new memories</span>');
+    expect(html).toContain('>Dejunk</button>');
+    expect(html.indexOf('>Dejunk</button>')).toBeLessThan(html.indexOf('>Dream</button>'));
+    expect(html.indexOf('>0 new files</span>')).toBeLessThan(html.indexOf('>0 new memories</span>'));
     expect(html).toContain('No workspace sources or references recorded.');
     expect(html).not.toContain('Parser Workspace Activity');
     expect(html).toContain('aria-label="Parser Workspace — most recent 12 hours of session activity"');
@@ -198,6 +209,13 @@ describe('workspace dashboard', () => {
 
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
+      workspaceDejunk: {
+        available: true,
+        newFileCount: 50,
+        newFileCountCapped: false,
+        baselineAt: '2026-08-12T08:00:00.000Z',
+        lastRun: null
+      },
       memoryDreamingInProgress: false,
       honeycrispMemory: memory,
       researchProfile: profile,
@@ -221,6 +239,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('Runbook revision 2: Parser proof');
     expect(html).toContain('workspace-timeline-report-marker');
     expect(html).toContain('Report revision 1: Parser result');
+    expect(html).toContain('data-dejunk-heat="medium"');
+    expect(html).toContain('>50 new files</span>');
     expect(html).toContain('>Dream</button>');
   });
 

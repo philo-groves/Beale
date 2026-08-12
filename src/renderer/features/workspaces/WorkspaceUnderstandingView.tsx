@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Server } from 'lucide-react';
+import { Binary, BookOpen, Folder, GitBranch, Globe2, Info, Layers3, MoonStar, Server, Sparkles } from 'lucide-react';
 import type {
   HoneycrispMemorySummary,
   ProjectGraphSummary,
@@ -9,6 +9,7 @@ import type {
   RunRow,
   ScopeAsset,
   ScopeAssetKind,
+  WorkspaceDejunkSummary,
   WorkspaceScopeVersion
 } from '@shared/types';
 import { memoryTypeClassName, memoryTypeLabel } from '../research/MemoryTypeLabel';
@@ -24,16 +25,21 @@ const TIMELINE_TICK_HOURS = [0, 3, 6, 9, 12] as const;
 
 export function WorkspaceUnderstandingView({
   busy,
+  workspaceDejunk = null,
+  workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
   honeycrispMemory,
   activeScope = null,
   researchProfile = null,
   workspaceName,
   runs,
+  onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
   nowMs
 }: {
   busy: boolean;
+  workspaceDejunk?: WorkspaceDejunkSummary | null;
+  workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
   honeycrispMemory: HoneycrispMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
@@ -42,6 +48,7 @@ export function WorkspaceUnderstandingView({
   researchProfile?: ResearchProfile | null;
   workspaceName: string;
   runs: RunRow[];
+  onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
   nowMs?: number;
 }): JSX.Element {
@@ -87,6 +94,10 @@ export function WorkspaceUnderstandingView({
   const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
   const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
   const dreamHeat = memoryDreamHeat(memoriesSinceDream);
+  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
+  const dejunkHeat = workspaceDejunkHeat(newFileCount);
+  const activeSession = runs.some(({ run }) => !['blocked', 'completed', 'failed', 'stopped'].includes(run.status));
+  const dejunkDisabled = busy || workspaceDejunkInProgress || activeSession || workspaceDejunk?.available === false;
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 12 hours of session activity`;
 
   return (
@@ -198,12 +209,31 @@ export function WorkspaceUnderstandingView({
         runs={runs}
       />
 
-      <section className="workspace-dashboard-half workspace-dream-area" aria-label="Memory dreaming">
+      <section className="workspace-dashboard-half workspace-dream-area" aria-label="Workspace housekeeping">
         <header className="workspace-housekeeping-header">
           <span>Housekeeping</span>
-          <span>{memoriesSinceDream} new {memoriesSinceDream === 1 ? 'memory' : 'memories'}</span>
+          <div className="workspace-housekeeping-summary">
+            <span>{workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} new {newFileCount === 1 ? 'file' : 'files'}</span>
+            <span>{memoriesSinceDream} new {memoriesSinceDream === 1 ? 'memory' : 'memories'}</span>
+          </div>
         </header>
         <div className="workspace-dream-content">
+          <article
+            className="workspace-dejunk-card"
+            data-dejunk-heat={dejunkHeat}
+            data-new-file-count={newFileCount}
+          >
+            <button
+              type="button"
+              className="workspace-dejunk-button"
+              disabled={dejunkDisabled}
+              title={activeSession ? 'Dejunk is unavailable while a research session is active' : 'Organize loose research files and remove large reclaimable artifacts'}
+              onClick={onRunWorkspaceDejunk}
+            >
+              <Sparkles size={18} />
+              {workspaceDejunkInProgress ? 'Dejunking…' : 'Dejunk'}
+            </button>
+          </article>
           <article
             className="workspace-dream-card"
             data-dream-heat={dreamHeat}
@@ -416,6 +446,14 @@ export function memoryDreamHeat(memoryCount: number): SessionHeat {
   if (memoryCount >= 100) return 'high';
   if (memoryCount >= 50) return 'medium';
   if (memoryCount >= 20) return 'low';
+  return 'none';
+}
+
+export function workspaceDejunkHeat(newFileCount: number): SessionHeat {
+  if (newFileCount >= 1_000) return 'critical';
+  if (newFileCount >= 200) return 'high';
+  if (newFileCount >= 50) return 'medium';
+  if (newFileCount >= 10) return 'low';
   return 'none';
 }
 

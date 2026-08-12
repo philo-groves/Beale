@@ -500,6 +500,9 @@ function registerIpc(): void {
       workspaceService.getHoneycrispReport(reportId)
     )
   );
+  ipcMain.handle(IPC_CHANNELS.runWorkspaceDejunk, () =>
+    timedMainIpc('runWorkspaceDejunk', {}, () => workspaceService.runWorkspaceDejunk())
+  );
   ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, () =>
     timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming())
   );

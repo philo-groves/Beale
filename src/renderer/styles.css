@@ -1477,7 +1477,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .app-shell.session-heat-low,
-.workspace-dream-card[data-dream-heat="low"] {
+.workspace-dream-card[data-dream-heat="low"],
+.workspace-dejunk-card[data-dejunk-heat="low"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-low-color) 8%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-low-color) 13%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-low-color) 22%, transparent);
@@ -1486,7 +1487,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .app-shell.session-heat-medium,
-.workspace-dream-card[data-dream-heat="medium"] {
+.workspace-dream-card[data-dream-heat="medium"],
+.workspace-dejunk-card[data-dejunk-heat="medium"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-medium-color) 10%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-medium-color) 16%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 26%, transparent);
@@ -1495,7 +1497,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .app-shell.session-heat-high,
-.workspace-dream-card[data-dream-heat="high"] {
+.workspace-dream-card[data-dream-heat="high"],
+.workspace-dejunk-card[data-dejunk-heat="high"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-high-color) 10%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-high-color) 17%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-high-color) 28%, transparent);
@@ -1504,7 +1507,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
 }
 
 .app-shell.session-heat-critical,
-.workspace-dream-card[data-dream-heat="critical"] {
+.workspace-dream-card[data-dream-heat="critical"],
+.workspace-dejunk-card[data-dejunk-heat="critical"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-critical-color) 18%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-critical-color) 34%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-critical-color) 42%, transparent);
@@ -2051,7 +2055,8 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-surface-header > span,
 .workspace-surface-summary span,
-.workspace-housekeeping-header > span {
+.workspace-housekeeping-header > span,
+.workspace-housekeeping-summary span {
   color: var(--muted);
   font-size: 1rem;
   font-weight: 400;
@@ -2059,6 +2064,14 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-surface-summary {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.workspace-housekeeping-summary {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
@@ -2214,11 +2227,14 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   min-height: 0;
   display: grid;
-  place-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px;
   padding-top: 8px;
   overflow: hidden;
 }
 
+.workspace-dejunk-card,
 .workspace-dream-card {
   width: 100%;
   height: 100%;
@@ -2241,6 +2257,7 @@ body.is-resizing-research-side .main-session-grid {
     background 260ms ease;
 }
 
+.workspace-dejunk-button,
 .workspace-dream-button {
   min-width: 116px;
   min-height: 42px;
@@ -2259,12 +2276,15 @@ body.is-resizing-research-side .main-session-grid {
   cursor: pointer;
 }
 
+.workspace-dejunk-button:hover:not(:disabled),
+.workspace-dejunk-button:focus-visible:not(:disabled),
 .workspace-dream-button:hover:not(:disabled),
 .workspace-dream-button:focus-visible:not(:disabled) {
   border-color: #505050;
   background: #2b2b2b;
 }
 
+.workspace-dejunk-button:disabled,
 .workspace-dream-button:disabled {
   color: var(--muted);
   cursor: not-allowed;
@@ -3147,6 +3167,39 @@ button.session-summary-item:hover:not(:disabled),
 
 .research-side-view-tabs::-webkit-scrollbar {
   display: none;
+}
+
+.research-side-view-tabs-scrollable {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.research-side-view-tabs-scrollable::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+
+.research-side-view-tabs-scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.research-side-view-tabs-scrollable::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+.research-side-view-tabs-scrollable:where(:hover, :focus, :focus-within) {
+  scrollbar-color: var(--inset-scrollbar-thumb) transparent;
+}
+
+.research-side-view-tabs-scrollable:where(:hover, :focus, :focus-within)::-webkit-scrollbar-thumb {
+  background-color: var(--inset-scrollbar-thumb);
+}
+
+.research-side-view-tabs-scrollable::-webkit-scrollbar-thumb:hover {
+  background-color: var(--inset-scrollbar-thumb-strong);
 }
 
 .research-side-view-tab {

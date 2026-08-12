@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added Grok 4.6 to the xAI research-model options with its supported low-through-xhigh reasoning levels.
+- Added workspace Dejunk housekeeping beside Dream. Dejunk tracks files created since its last baseline, uses 10/50/200/1,000-file heat thresholds, organizes recognizable loose notes, PoCs, evidence, scripts, and scratch material under `research/`, and removes only large rebuildable trees or recognizable IPSW extractions outside `.beale`, symlinks, and detected Git repositories.
 - Added a compact Research Surface to the workspace dashboard with authorized repositories and references, scope direction, index readiness, directly targeted session coverage, linked Memory counts, and last-researched recency.
 - Workspace Gantt rows now show session results as outlined squares in a dedicated right-side column: green for terminal states without error, red for unexpected failures or app-close recovery interruptions, and red with a black diamond for provider safeguard failures.
 - Workspace activity timelines now show every session-attributed Runbook revision as a blue circle and Report revision as a yellow diamond.
@@ -16,6 +18,7 @@
 
 ### Changed
 
+- Detailed right-sidenav view tabs now expose a compact horizontal scrollbar when the open views exceed the available width.
 - The workspace Dream panel now sits beneath a compact Housekeeping header showing memories created since the latest dream, fills a spacious rounded inset, reuses the active profile's window heat gradient without a card border, and raises heat at 20, 50, 100, and 150 new memories.
 - The workspace Research Surface now uses a flat dashboard section with scope and research coverage counts in its compact divider header, plus contextual scroll fades around overflowing tile rows.
 - Session activity duration is now tracked per execution attempt. Continuing a terminal session adds a new workspace Gantt row while the completed or errored row and its result remain immutable; migration 19 assigns existing activity intervals to their originating attempts.

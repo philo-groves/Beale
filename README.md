@@ -66,6 +66,7 @@ The guiding philosophy is **human-steered, verifiable research** rather than ful
 - Honeycrisp-backed research session execution
 - User-selectable Cybersecurity and Mathematics research profiles with isolated sessions, memory, workflows, prompts, and catalogs
 - Durable research-subject identity that is independent of the recorded authorization owner
+- Workspace housekeeping with separate Dejunk and Dream maintenance: Dejunk organizes recognizable loose research material under `research/` and reclaims large rebuildable or extracted resources outside protected Beale metadata and detected repositories
 - Same-session provider failure recovery with capped retry backoff and transcript-aware safety-guardrail steering
 - Trace UI with model, tool, system, user-steering, memory-producing, and compaction events
 - Session transcripts persisted separately from trace metadata

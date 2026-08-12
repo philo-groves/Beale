@@ -158,6 +158,9 @@ const api: BealeApi = {
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, reportId);
   },
+  runWorkspaceDejunk() {
+    return ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceDejunk);
+  },
   runMemoryDreaming() {
     return ipcRenderer.invoke(IPC_CHANNELS.runMemoryDreaming);
   },

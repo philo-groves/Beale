@@ -189,6 +189,25 @@ export interface WorkspaceSummary {
   executionPostureLabel: string;
   lastWorkspaceBackup: WorkspaceExportResult | null;
   hostEnvironment: HostEnvironment;
+  dejunk: WorkspaceDejunkSummary;
+}
+
+export interface WorkspaceDejunkRunSummary {
+  status: 'completed' | 'failed';
+  startedAt: string;
+  completedAt: string;
+  movedFileCount: number;
+  deletedPathCount: number;
+  reclaimedBytes: number;
+  errorMessage: string | null;
+}
+
+export interface WorkspaceDejunkSummary {
+  available: boolean;
+  newFileCount: number;
+  newFileCountCapped: boolean;
+  baselineAt: string;
+  lastRun: WorkspaceDejunkRunSummary | null;
 }
 
 export interface HostEnvironment {
@@ -1564,6 +1583,7 @@ export interface BealeApi {
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
   getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
+  runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
   runMemoryDreaming(): Promise<WorkspaceSnapshot>;
   restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;

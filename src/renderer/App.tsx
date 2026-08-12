@@ -120,6 +120,7 @@ export function App(): JSX.Element {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [workspaceDejunkInProgress, setWorkspaceDejunkInProgress] = useState(false);
   const [memoryDreamingInProgress, setMemoryDreamingInProgress] = useState(false);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
@@ -290,6 +291,12 @@ export function App(): JSX.Element {
     void runAction(() => window.beale.runMemoryDreaming())
       .finally(() => setMemoryDreamingInProgress(false));
   }, [runAction, snapshot?.researchProfile.profile.capabilities.memoryEnabled]);
+
+  const runWorkspaceDejunk = useCallback((): void => {
+    setWorkspaceDejunkInProgress(true);
+    void runAction(() => window.beale.runWorkspaceDejunk())
+      .finally(() => setWorkspaceDejunkInProgress(false));
+  }, [runAction]);
 
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
     setRightSidenavExpanded(true);
@@ -871,10 +878,13 @@ export function App(): JSX.Element {
               searchHighlightQuery={traceSearchHighlightQuery}
               visibleTraceCategories={visibleTraceCategories}
               busy={busy}
+              workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
+              workspaceDejunkInProgress={workspaceDejunkInProgress}
               memoryDreamingInProgress={memoryDreamingInProgress}
               traceFilterCount={visibleTraceCategories.length}
               totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
               onOpenTraceFilters={openTraceFilters}
+              onRunWorkspaceDejunk={runWorkspaceDejunk}
               onRunMemoryDreaming={runMemoryDreaming}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}

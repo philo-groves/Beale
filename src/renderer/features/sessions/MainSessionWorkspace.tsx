@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceScopeVersion } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceDejunkSummary, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -44,10 +44,13 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   searchHighlightQuery,
   visibleTraceCategories,
   busy,
+  workspaceDejunk = null,
+  workspaceDejunkInProgress = false,
   memoryDreamingInProgress,
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
+  onRunWorkspaceDejunk = () => undefined,
   onRunMemoryDreaming,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
@@ -90,10 +93,13 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   busy: boolean;
+  workspaceDejunk?: WorkspaceDejunkSummary | null;
+  workspaceDejunkInProgress?: boolean;
   memoryDreamingInProgress: boolean;
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
+  onRunWorkspaceDejunk?: () => void;
   onRunMemoryDreaming: () => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
@@ -131,6 +137,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         <WorkspaceUnderstandingView
           busy={busy}
           activeScope={activeScope}
+          workspaceDejunk={workspaceDejunk}
+          workspaceDejunkInProgress={workspaceDejunkInProgress}
           memoryDreamingInProgress={memoryDreamingInProgress}
           honeycrispMemory={honeycrispMemory}
           projectGraph={projectGraph}
@@ -138,6 +146,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           researchProfile={researchProfile}
           workspaceName={workspaceName}
           runs={runs}
+          onRunWorkspaceDejunk={onRunWorkspaceDejunk}
           onRunMemoryDreaming={onRunMemoryDreaming}
         />
       ) : chatView === 'commentary' ? (
