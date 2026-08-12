@@ -883,6 +883,7 @@ export interface DeveloperSettings {
 export interface ProviderSettings {
   defaultProviderId: ResearchModelProviderId | null;
   modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
+  cyberPolicyRiskAcknowledgements?: Partial<Record<ResearchModelProviderId, true>>;
 }
 
 export interface ProviderModelDefaults {
@@ -1557,6 +1558,7 @@ export interface BealeApi {
   getProviderSettings(): Promise<ProviderSettings>;
   setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings>;
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;
+  setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;
   getShellOptions(): Promise<ShellOptions>;

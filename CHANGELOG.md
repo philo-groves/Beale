@@ -18,7 +18,8 @@
 
 ### Changed
 
-- Anthropic subscription authentication now delegates to the installed official Claude CLI and requires an explicit Cyber Verification Program and usage-policy risk acknowledgement in Provider Settings.
+- Cybersecurity sessions now carry provider-specific policy-risk acknowledgements into Honeycrisp's authorization preflight: OpenAI requires Trusted Access for Cyber membership, Anthropic requires Cyber Verification Program membership, and xAI requires policy-use risk acceptance.
+- Provider Settings now persists explicit cybersecurity policy-use acknowledgements for OpenAI, Anthropic, and xAI; Anthropic subscription authentication continues to require its Cyber Verification Program acknowledgement before sign-in.
 - Cybersecurity reports now require an explicit confirmed vulnerability chain with reachability, impact, and proof evidence, preventing reports from being created directly from observations, hypotheses, or primitives.
 - Grok reasoning summaries now render as ordinary text in Commentary while retaining reasoning provenance in the detailed trace.
 - Detailed right-sidenav view tabs now expose a compact horizontal scrollbar when the open views exceed the available width.
@@ -34,6 +35,7 @@
 
 ### Fixed
 
+- Persisted the Anthropic Cyber Verification Program risk acknowledgement across Settings navigation and made configured-account re-authentication perform a fresh official Claude CLI login instead of silently retaining the existing session.
 - Session continuation now passes reconstructed fallback context through a private run-local file, preventing Windows `spawn ENAMETOOLONG` failures on long session histories.
 - Subagents left unresolved by a parent session interruption are now reconciled as interrupted after workspace recovery instead of remaining active indefinitely; later intentional pauses still preserve genuinely active subagents.
 - Removed application-level network profiles, destination allowlists, onboarding controls, per-run metadata, and Honeycrisp network vetoes. Beale now delegates network isolation to operator-managed system controls and migrates legacy network-policy columns out of its databases.

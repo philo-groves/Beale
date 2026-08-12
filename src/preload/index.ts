@@ -78,6 +78,9 @@ const api: BealeApi = {
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderModelDefaults, providerId, defaults);
   },
+  setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setProviderCyberPolicyRiskAcknowledged, providerId, acknowledged);
+  },
   getMemorySettings(): Promise<MemorySettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getMemorySettings);
   },

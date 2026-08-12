@@ -449,6 +449,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.setProviderModelDefaults, (_event, providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) =>
     workspaceService.setProviderModelDefaults(providerId, defaults)
   );
+  ipcMain.handle(IPC_CHANNELS.setProviderCyberPolicyRiskAcknowledged, (
+    _event,
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ) =>
+    workspaceService.setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged)
+  );
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
   ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());

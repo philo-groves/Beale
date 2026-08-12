@@ -95,6 +95,7 @@ export function SettingsView({
   onStartResearchProviderOAuth,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
+  onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetSessionHeatPreference = () => undefined
 }: {
   section: SettingsSection;
@@ -117,6 +118,10 @@ export function SettingsView({
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
+  onSetProviderCyberPolicyRiskAcknowledged?: (
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ) => Promise<void>;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
 }): JSX.Element {
   const activeSection = activeSettingsSection(section);
@@ -147,6 +152,7 @@ export function SettingsView({
             onStartResearchProviderOAuth={onStartResearchProviderOAuth}
             onSetDefaultProviderId={onSetDefaultProviderId}
             onSetProviderModelDefaults={onSetProviderModelDefaults}
+            onSetProviderCyberPolicyRiskAcknowledged={onSetProviderCyberPolicyRiskAcknowledged}
           />
         ) : (
           <MemorySettingsView
@@ -415,7 +421,8 @@ export function ProvidersSettingsView({
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
   onSetDefaultProviderId,
-  onSetProviderModelDefaults
+  onSetProviderModelDefaults,
+  onSetProviderCyberPolicyRiskAcknowledged = async () => undefined
 }: {
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -430,6 +437,10 @@ export function ProvidersSettingsView({
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
+  onSetProviderCyberPolicyRiskAcknowledged?: (
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ) => Promise<void>;
 }): JSX.Element {
   const providers = providerSettingsOptions(openAiStatus, researchProviderStatuses);
   const configuredProviders = providers.filter((provider) => provider.configured);
@@ -537,6 +548,9 @@ export function ProvidersSettingsView({
           modelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults('openai-codex', defaults)}
+          policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true}
+          onSetPolicyRiskAcknowledged={(acknowledged) =>
+            void onSetProviderCyberPolicyRiskAcknowledged('openai-codex', acknowledged)}
         />
       ) : activeProvider ? (
         <ResearchProviderCard
@@ -547,6 +561,9 @@ export function ProvidersSettingsView({
           modelCatalog={activeModelCatalog}
           modelDefaults={activeModelDefaults}
           onSetModelDefaults={(defaults) => void onSetProviderModelDefaults(activeProvider.id, defaults)}
+          policyRiskAcknowledged={providerSettings?.cyberPolicyRiskAcknowledgements?.[activeProvider.id] === true}
+          onSetPolicyRiskAcknowledged={(acknowledged) =>
+            void onSetProviderCyberPolicyRiskAcknowledged(activeProvider.id, acknowledged)}
         />
       ) : (
         <section className="provider-card provider-settings-empty">
@@ -718,7 +735,9 @@ function OpenAiProviderCard({
   onAuthenticate,
   modelCatalog,
   modelDefaults,
-  onSetModelDefaults
+  onSetModelDefaults,
+  policyRiskAcknowledged,
+  onSetPolicyRiskAcknowledged
 }: {
   busy: boolean;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -727,6 +746,8 @@ function OpenAiProviderCard({
   modelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
+  policyRiskAcknowledged: boolean;
+  onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
 }): JSX.Element {
   const readiness = openAiStatus?.readiness ?? 'not_configured';
   const authenticateLabel = readiness === 'oauth_ready' ? 'Re-authenticate' : 'Authenticate';
@@ -750,6 +771,12 @@ function OpenAiProviderCard({
         defaults={modelDefaults}
         onChange={onSetModelDefaults}
       />
+      <ProviderCyberPolicyAcknowledgement
+        providerId="openai-codex"
+        acknowledged={policyRiskAcknowledged}
+        busy={busy}
+        onChange={onSetPolicyRiskAcknowledged}
+      />
       {openAiOAuthResult ? <ProviderOAuthResult result={openAiOAuthResult} /> : null}
       <div className="provider-actions">
         <button className="primary-button" type="button" disabled={busy || openAiStatus?.codexCliAvailable === false} onClick={onAuthenticate}>
@@ -771,7 +798,9 @@ function ResearchProviderCard({
   onAuthenticate,
   modelCatalog,
   modelDefaults,
-  onSetModelDefaults
+  onSetModelDefaults,
+  policyRiskAcknowledged,
+  onSetPolicyRiskAcknowledged
 }: {
   provider: ResearchProviderStatus;
   result: ResearchProviderOAuthStartResult | null;
@@ -780,8 +809,9 @@ function ResearchProviderCard({
   modelCatalog: ResearchProviderModelCatalog | null;
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
+  policyRiskAcknowledged: boolean;
+  onSetPolicyRiskAcknowledged: (acknowledged: boolean) => void;
 }): JSX.Element {
-  const [anthropicCvpAcknowledged, setAnthropicCvpAcknowledged] = useState(false);
   const authenticateLabel = provider.loginInProgress
     ? 'Authentication Running'
     : provider.configured
@@ -829,22 +859,12 @@ function ResearchProviderCard({
         onChange={onSetModelDefaults}
       />
 
-      {provider.id === 'anthropic' ? (
-        <div className="provider-anthropic-warning">
-          <p className="provider-detail provider-billing-note">
-            Subscription sign-in is experimental and only intended for Anthropic Cyber Verification Program members. CVP membership does not waive Anthropic&apos;s Usage Policy: requests may still be blocked or treated as usage violations. Beale delegates Claude sessions to the official Claude Agent SDK and Claude Code CLI; it does not copy or replay subscription tokens.
-          </p>
-          <label className="provider-risk-acknowledgement">
-            <input
-              type="checkbox"
-              checked={anthropicCvpAcknowledged}
-              disabled={busy || provider.loginInProgress}
-              onChange={(event) => setAnthropicCvpAcknowledged(event.target.checked)}
-            />
-            <span>I confirm this account is enrolled in Anthropic&apos;s Cyber Verification Program and I accept the usage-policy risk.</span>
-          </label>
-        </div>
-      ) : null}
+      <ProviderCyberPolicyAcknowledgement
+        providerId={provider.id}
+        acknowledged={policyRiskAcknowledged}
+        busy={busy || provider.loginInProgress}
+        onChange={onSetPolicyRiskAcknowledged}
+      />
 
       {result ? <ProviderOAuthResult result={result} /> : null}
 
@@ -852,7 +872,7 @@ function ResearchProviderCard({
         <button
           className="primary-button"
           type="button"
-          disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable' || (provider.id === 'anthropic' && !anthropicCvpAcknowledged)}
+          disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable' || (provider.id === 'anthropic' && !policyRiskAcknowledged)}
           onClick={onAuthenticate}
         >
           <KeyRound size={15} />
@@ -864,6 +884,43 @@ function ResearchProviderCard({
         </div>
       </div>
     </section>
+  );
+}
+
+function ProviderCyberPolicyAcknowledgement({
+  providerId,
+  acknowledged,
+  busy,
+  onChange
+}: {
+  providerId: ResearchModelProviderId;
+  acknowledged: boolean;
+  busy: boolean;
+  onChange: (acknowledged: boolean) => void;
+}): JSX.Element {
+  const detail = providerId === 'openai-codex'
+    ? 'Cybersecurity use is intended for OpenAI Trusted Access for Cyber members. Program membership does not waive OpenAI policy requirements: requests may still be blocked or treated as usage violations.'
+    : providerId === 'anthropic'
+      ? 'Subscription sign-in is experimental and only intended for Anthropic Cyber Verification Program members. CVP membership does not waive Anthropic\'s Usage Policy: requests may still be blocked or treated as usage violations. Beale delegates Claude sessions to the official Claude Agent SDK and Claude Code CLI; it does not copy or replay subscription tokens.'
+      : 'Cybersecurity use remains subject to xAI policy requirements. Requests may be blocked or treated as usage violations.';
+  const label = providerId === 'openai-codex'
+    ? 'I confirm this account has OpenAI Trusted Access for Cyber membership and I accept the policy-use risk.'
+    : providerId === 'anthropic'
+      ? 'I confirm this account is enrolled in Anthropic\'s Cyber Verification Program and I accept the usage-policy risk.'
+      : 'I accept the policy-use risk for cybersecurity research with xAI.';
+  return (
+    <div className="provider-policy-warning">
+      <p className="provider-detail provider-billing-note">{detail}</p>
+      <label className="provider-risk-acknowledgement">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          disabled={busy}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span>{label}</span>
+      </label>
+    </div>
   );
 }
 

@@ -134,7 +134,11 @@ describe('renderer provider settings', () => {
       researchProviderOAuthResults: {},
       researchProviderStatuses: statuses,
       researchProviderModelCatalog: modelCatalogs(),
-      providerSettings: { defaultProviderId: 'anthropic', modelDefaults: {} },
+      providerSettings: {
+        defaultProviderId: 'anthropic',
+        modelDefaults: {},
+        cyberPolicyRiskAcknowledgements: { anthropic: true }
+      },
       providerStatusesLoaded: true,
       busy: false,
       onRefreshOpenAi: async () => undefined,
@@ -148,12 +152,74 @@ describe('renderer provider settings', () => {
     expect(html).toContain('requests may still be blocked or treated as usage violations');
     expect(html).toContain('official Claude Agent SDK and Claude Code CLI');
     expect(html).toContain('I confirm this account is enrolled');
+    expect(html).toMatch(/type="checkbox" checked=""/u);
     expect(html).not.toContain('Anthropic is ready.');
     expect(html).not.toContain('API-key authentication is also available');
     expect(html).not.toContain('OAuth ready');
     expect(html).toContain('Default large model');
     expect(html).toContain('Default small model');
     expect(html).toContain('Default reasoning level');
+  });
+
+  it('shows the OpenAI Trusted Access for Cyber and policy-use acknowledgement', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: configuredOpenAiStatus(),
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: researchProviderStatuses().map((provider) => ({
+        ...provider,
+        configured: false,
+        readiness: 'not_configured' as const
+      })),
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: {
+        defaultProviderId: 'openai-codex',
+        modelDefaults: {},
+        cyberPolicyRiskAcknowledgements: { 'openai-codex': true }
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html).toContain('OpenAI Trusted Access for Cyber members');
+    expect(html).toContain('I confirm this account has OpenAI Trusted Access for Cyber membership');
+    expect(html).toMatch(/type="checkbox" checked=""/u);
+  });
+
+  it('shows the xAI policy-use risk acknowledgement without a program-membership claim', () => {
+    const statuses = researchProviderStatuses().map((provider) => ({
+      ...provider,
+      configured: provider.id === 'xai',
+      readiness: provider.id === 'xai' ? 'ready' as const : 'not_configured' as const
+    }));
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: { ...configuredOpenAiStatus(), configured: false, readiness: 'not_configured', source: 'not_configured' },
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: statuses,
+      researchProviderModelCatalog: modelCatalogs(),
+      providerSettings: {
+        defaultProviderId: 'xai',
+        modelDefaults: {},
+        cyberPolicyRiskAcknowledgements: { xai: true }
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html).toContain('I accept the policy-use risk for cybersecurity research with xAI.');
+    expect(html).not.toContain('xAI membership');
+    expect(html).toMatch(/type="checkbox" checked=""/u);
   });
 
   it('shows an add-provider empty state when no provider is configured', () => {

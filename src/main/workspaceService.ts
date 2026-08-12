@@ -625,6 +625,13 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().setProviderModelDefaults(providerId, defaults);
   }
 
+  public setProviderCyberPolicyRiskAcknowledged(
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ): ProviderSettings {
+    return this.getWorkspaceRegistry().setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged);
+  }
+
   public getMemorySettings(): MemorySettings {
     return this.getWorkspaceRegistry().getMemorySettings();
   }

@@ -117,9 +117,20 @@ export class WorkspaceRegistry {
   }
 
   public getProviderSettings(): ProviderSettings {
+    const cyberPolicyRiskAcknowledgements: Partial<Record<ResearchModelProviderId, true>> = {};
+    if (this.getMeta('openai_trusted_access_cyber_risk_acknowledged') === '1') {
+      cyberPolicyRiskAcknowledgements['openai-codex'] = true;
+    }
+    if (this.getMeta('anthropic_cvp_risk_acknowledged') === '1') {
+      cyberPolicyRiskAcknowledgements.anthropic = true;
+    }
+    if (this.getMeta('xai_policy_use_risk_acknowledged') === '1') {
+      cyberPolicyRiskAcknowledgements.xai = true;
+    }
     return {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
-      modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json'))
+      modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
+      ...(Object.keys(cyberPolicyRiskAcknowledgements).length > 0 ? { cyberPolicyRiskAcknowledgements } : {})
     };
   }
 
@@ -139,6 +150,21 @@ export class WorkspaceRegistry {
     settings.modelDefaults[providerId] = normalizeProviderModelDefaults(defaults);
     this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
     return settings;
+  }
+
+  public setProviderCyberPolicyRiskAcknowledged(
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ): ProviderSettings {
+    if (!isResearchModelProviderId(providerId)) throw new Error('Invalid cyber policy acknowledgement provider.');
+    const metaKey = providerId === 'openai-codex'
+      ? 'openai_trusted_access_cyber_risk_acknowledged'
+      : providerId === 'anthropic'
+        ? 'anthropic_cvp_risk_acknowledged'
+        : 'xai_policy_use_risk_acknowledged';
+    if (acknowledged) this.setMeta(metaKey, '1');
+    else this.deleteMeta(metaKey);
+    return this.getProviderSettings();
   }
 
   public getMemorySettings(): MemorySettings {

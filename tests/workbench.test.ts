@@ -2851,6 +2851,17 @@ describe('Beale workbench skeleton', () => {
         }
       }
     });
+    expect(service.setProviderCyberPolicyRiskAcknowledged('anthropic', true)).toEqual({
+      defaultProviderId: 'anthropic',
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      },
+      cyberPolicyRiskAcknowledgements: { anthropic: true }
+    });
     expect(service.setShellOptions({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } })).toEqual({
       defaultConcurrency: 3,
       utilities: { sudo: 0, clang: 2 }
@@ -2875,12 +2886,24 @@ describe('Beale workbench skeleton', () => {
           smallModel: 'claude-haiku-4-5',
           reasoningEffort: 'xhigh'
         }
-      }
+      },
+      cyberPolicyRiskAcknowledgements: { anthropic: true }
     });
     expect(reopened.getShellOptions()).toEqual({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } });
     expect(reopened.getProfilingState().enabled).toBe(true);
     expect(reopened.setDeveloperModeEnabled(false)).toEqual({ developerModeEnabled: false });
     expect(reopened.setDefaultProviderId(null)).toEqual({
+      defaultProviderId: null,
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      },
+      cyberPolicyRiskAcknowledgements: { anthropic: true }
+    });
+    expect(reopened.setProviderCyberPolicyRiskAcknowledged('anthropic', false)).toEqual({
       defaultProviderId: null,
       modelDefaults: {
         anthropic: {
@@ -3585,6 +3608,30 @@ describe('Beale workbench skeleton', () => {
     reopened.openWorkspace(workspace);
     expect(reopened.getRunDetail(sourceRunId).nextStepSuggestions).toEqual(expected);
     await expect(reopened.generateResearchGoalSuggestions({ phase: 'discovery', sourceRunId })).resolves.toEqual(expected);
+    reopened.close();
+  });
+
+  it('persists provider-specific cybersecurity policy acknowledgements', () => {
+    const registryDir = tempWorkspace();
+    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+
+    service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
+    service.setProviderCyberPolicyRiskAcknowledged('xai', true);
+    expect(service.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({
+      'openai-codex': true,
+      xai: true
+    });
+    service.close();
+
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({
+      'openai-codex': true,
+      xai: true
+    });
+    reopened.setProviderCyberPolicyRiskAcknowledged('openai-codex', false);
+    expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({ xai: true });
+    reopened.setProviderCyberPolicyRiskAcknowledged('xai', false);
+    expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toBeUndefined();
     reopened.close();
   });
 

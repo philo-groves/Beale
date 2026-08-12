@@ -519,6 +519,54 @@ describe('research profile host integration', () => {
       expect(networkEnabledInvocation?.args).toEqual(expect.arrayContaining(['--allowed-side-effect', 'network']));
       expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('networkProfile');
       expect(networkEnabledInvocation?.workspaceContext.authorization).not.toHaveProperty('allowedNetworkDestinations');
+      expect(networkEnabledInvocation?.args).not.toContain('--openai-trusted-access-cyber-risk-acknowledged');
+
+      service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
+      const openAiStarted = service.startRun({
+        ...runInput('literature-synthesis'),
+        provider: 'openai-codex'
+      });
+      const openAiRunId = openAiStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, openAiRunId);
+      const openAiInvocation = readInvocations(invocationLog).filter((candidate) =>
+        candidate.args[candidate.args.indexOf('--provider') + 1] === 'openai-codex'
+      ).at(-1);
+      expect(openAiInvocation?.args).toContain('--openai-trusted-access-cyber-risk-acknowledged');
+
+      const unacknowledgedAnthropicStarted = service.startRun({
+        ...runInput('literature-synthesis'),
+        provider: 'anthropic'
+      });
+      const unacknowledgedAnthropicRunId = unacknowledgedAnthropicStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, unacknowledgedAnthropicRunId);
+      const unacknowledgedAnthropicInvocation = readInvocations(invocationLog).filter((candidate) =>
+        candidate.args[candidate.args.indexOf('--provider') + 1] === 'anthropic'
+      ).at(-1);
+      expect(unacknowledgedAnthropicInvocation?.args).not.toContain('--anthropic-cvp-risk-acknowledged');
+
+      service.setProviderCyberPolicyRiskAcknowledged('anthropic', true);
+      const anthropicStarted = service.startRun({
+        ...runInput('literature-synthesis'),
+        provider: 'anthropic'
+      });
+      const anthropicRunId = anthropicStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, anthropicRunId);
+      const anthropicInvocation = readInvocations(invocationLog).filter((candidate) =>
+        candidate.args[candidate.args.indexOf('--provider') + 1] === 'anthropic'
+      ).at(-1);
+      expect(anthropicInvocation?.args).toContain('--anthropic-cvp-risk-acknowledged');
+
+      service.setProviderCyberPolicyRiskAcknowledged('xai', true);
+      const xaiStarted = service.startRun({
+        ...runInput('literature-synthesis'),
+        provider: 'xai'
+      });
+      const xaiRunId = xaiStarted.runs[0]?.run.id ?? '';
+      await waitForRun(service, xaiRunId);
+      const xaiInvocation = readInvocations(invocationLog).filter((candidate) =>
+        candidate.args[candidate.args.indexOf('--provider') + 1] === 'xai'
+      ).at(-1);
+      expect(xaiInvocation?.args).toContain('--xai-policy-risk-acknowledged');
 
       process.env.BEALE_OPENAI_ACCESS_TOKEN = 'profile-recommendation-test-token';
       currentProfile = resolvedTestResearchProfile(generalResearchProfile({ provider: 'anthropic' }, 2, '2.0.0'));

@@ -436,6 +436,18 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const setProviderCyberPolicyRiskAcknowledged = useCallback(async (
+    providerId: ResearchModelProviderId,
+    acknowledged: boolean
+  ): Promise<void> => {
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }, []);
+
   const startOpenAiOAuth = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -453,12 +465,29 @@ export function App(): JSX.Element {
   const startResearchProviderOAuth = useCallback(async (providerId: ResearchProviderId) => {
     setBusy(true);
     setError(null);
+    setResearchProviderOAuthResults((current) => ({
+      ...current,
+      [providerId]: {
+        providerId,
+        started: true,
+        command: `honeycrisp auth login ${providerId}`,
+        detail: `Starting ${providerId === 'anthropic' ? 'Claude.ai subscription' : 'provider'} authentication…`,
+        verificationUri: null,
+        userCode: null,
+        instructions: null
+      }
+    }));
     try {
       const result = await window.beale.startResearchProviderOAuth(providerId);
       setResearchProviderOAuthResults((current) => ({ ...current, [providerId]: result }));
       setResearchProviderStatuses(await window.beale.getResearchProviderStatuses());
       setResearchProviderStatusesLoaded(true);
     } catch (caught) {
+      setResearchProviderOAuthResults((current) => {
+        const next = { ...current };
+        delete next[providerId];
+        return next;
+      });
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
@@ -844,6 +873,7 @@ export function App(): JSX.Element {
             onStartResearchProviderOAuth={startResearchProviderOAuth}
             onSetDefaultProviderId={setDefaultProviderId}
             onSetProviderModelDefaults={setProviderModelDefaults}
+            onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetSessionHeatPreference={setSessionHeatPreference}
           />
         ) : (

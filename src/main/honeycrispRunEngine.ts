@@ -2324,6 +2324,15 @@ function honeycrispRunArgs(
     args.push('--provider', provider);
   }
   const effectiveProvider = provider || 'openai-codex';
+  if (providerSettings?.cyberPolicyRiskAcknowledgements?.['openai-codex'] === true) {
+    args.push('--openai-trusted-access-cyber-risk-acknowledged');
+  }
+  if (providerSettings?.cyberPolicyRiskAcknowledgements?.anthropic === true) {
+    args.push('--anthropic-cvp-risk-acknowledged');
+  }
+  if (providerSettings?.cyberPolicyRiskAcknowledgements?.xai === true) {
+    args.push('--xai-policy-risk-acknowledged');
+  }
   const providerModelDefaults = providerSettings?.modelDefaults[effectiveProvider as keyof ProviderSettings['modelDefaults']];
   const profileTitleJob = applicableResearchProfileModelJob(
     researchProfile?.modelJobs.sessionTitle,
