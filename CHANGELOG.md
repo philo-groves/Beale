@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a compact Research Surface to the workspace dashboard with authorized repositories and references, scope direction, index readiness, directly targeted session coverage, linked Memory counts, and last-researched recency.
 - Workspace Gantt rows now show session results as outlined squares in a dedicated right-side column: green for terminal states without error, red for unexpected failures or app-close recovery interruptions, and red with a black diamond for provider safeguard failures.
 - Workspace activity timelines now show every session-attributed Runbook revision as a blue circle and Report revision as a yellow diamond.
 - Added first-class Reports as revisioned workspace Markdown artifacts. Session and workspace summaries show report and revision totals beneath Runbooks, detailed catalogs separate Complete and Stale reports, and selected reports render their full content in the right sidenav.
@@ -15,12 +16,13 @@
 
 ### Changed
 
-- The workspace Dream panel now fills a spacious rounded inset in the lower dashboard, reuses the active profile's window heat gradient without a card border, and raises heat at 20, 50, 100, and 150 memories created since the latest dream.
+- The workspace Dream panel now sits beneath a compact Housekeeping header showing memories created since the latest dream, fills a spacious rounded inset, reuses the active profile's window heat gradient without a card border, and raises heat at 20, 50, 100, and 150 new memories.
+- The workspace Research Surface now uses a flat dashboard section with scope and research coverage counts in its compact divider header, plus contextual scroll fades around overflowing tile rows.
 - Session activity duration is now tracked per execution attempt. Continuing a terminal session adds a new workspace Gantt row while the completed or errored row and its result remain immutable; migration 19 assigns existing activity intervals to their originating attempts.
 - Workspace Gantt Memory, Runbook, and Report symbols now use a single-pixel separation border without an additional outer halo.
 - Workspace summaries now include workspace-scoped per-type Memory counts and status breakdowns matching session summaries.
 - Detailed Runbook, Report, Subagent, and Memory sidenav catalogs now omit empty result groups and show a single empty state when no results remain.
-- Workspace Gantt timelines now use the latest 12 cumulative hours of session activity, collapse inactive wall-clock gaps, and place their right-aligned legend below the chart without a duplicate activity heading.
+- Workspace Gantt timelines now use the latest 12 cumulative hours of session activity, collapse inactive wall-clock gaps, and expose their legend from a compact hoverable or clickable info control beside the Activity heading.
 - Workspace Gantt session rows now use regular-weight titles, omit per-session duration totals, and form a contiguous grid rounded only along its outer edges.
 - Post-session next-step suggestions are now stored with their completed session and restored immediately when revisited. Workbench migration 18 adds the durable suggestion record.
 

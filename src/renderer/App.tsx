@@ -848,6 +848,9 @@ export function App(): JSX.Element {
               allEvents={activeTraceEvents}
               providerModelCatalog={researchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
+              activeScope={selectedRunId ? null : snapshot?.activeScope ?? null}
+              projectGraph={selectedRunId ? null : snapshot?.projectGraph ?? null}
+              projectSemantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
               runs={selectedRunId ? [] : snapshot?.runs ?? []}

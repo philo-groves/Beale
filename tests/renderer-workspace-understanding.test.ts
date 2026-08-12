@@ -21,15 +21,34 @@ describe('workspace dashboard', () => {
     const sharedPanelStyles = styles.match(/\.workspace-dashboard-half\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
     const chartStyles = styles.match(/\.workspace-timeline-chart\s*\{([^}]*)\}/)?.[1] ?? '';
+    const axisStyles = styles.match(/\.workspace-timeline-axis\s*\{([^}]*)\}/)?.[1] ?? '';
+    const timelineRowsStyles = styles.match(/\.workspace-timeline-rows\s*\{([^}]*)\}/)?.[1] ?? '';
+    const timelineResultStyles = styles.match(/\.workspace-timeline-result\s*\{([^}]*)\}/)?.[1] ?? '';
+    const timelineLegendButtonStyles = styles.match(/\.workspace-timeline-legend-button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const surfaceAreaStyles = styles.match(/\.workspace-surface-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sharedSectionHeaderStyles = styles.match(/\.workspace-surface-header,\s*\.workspace-housekeeping-header\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
     const dreamCardStyles = styles.match(/\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) minmax(0, 1fr)');
+    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) fit-content(33%) minmax(0, 1fr)');
     expect(sharedPanelStyles).toContain('min-height: 0');
     expect(sharedPanelStyles).not.toContain('height: 100%');
     expect(timelinePanelStyles).not.toContain('border-bottom');
-    expect(chartStyles).toContain('grid-template-rows: 26px minmax(0, 1fr)');
-    expect(dreamAreaStyles).toContain('padding: 18px');
+    expect(timelinePanelStyles).toContain('grid-template-rows: minmax(0, 1fr)');
+    expect(timelinePanelStyles).toContain('gap: 0');
+    expect(chartStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(axisStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(axisStyles).not.toContain('padding-bottom');
+    expect(timelineRowsStyles).toContain('padding-top: 8px');
+    expect(timelineRowsStyles).not.toContain('scrollbar-gutter');
+    expect(timelineResultStyles).toContain('justify-items: end');
+    expect(timelineLegendButtonStyles).toContain('top: -6px');
+    expect(surfaceAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(sharedSectionHeaderStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(dreamAreaStyles).toContain('grid-template-rows: 22px minmax(0, 1fr)');
+    expect(dreamAreaStyles).toContain('padding: 8px 18px 18px');
+    expect(dreamContentStyles).toContain('padding-top: 8px');
     expect(dreamCardStyles).toContain('width: 100%');
     expect(dreamCardStyles).toContain('height: 100%');
     expect(dreamCardStyles).toContain('border: 0');
@@ -98,12 +117,21 @@ describe('workspace dashboard', () => {
 
     expect(html).toContain('class="main-session-grid "');
     expect(html).toContain('class="workspace-dashboard"');
-    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(2);
+    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(3);
+    expect(html).toContain('>Surface</span>');
+    expect(html).not.toContain('Research Surface');
+    expect(html).not.toContain('Workspace inputs and coverage');
+    expect(html).not.toContain('workspace-surface-card');
+    expect(html).toContain('aria-label="0 in scope, 0 researched"');
+    expect(html).toContain('>Housekeeping</span>');
+    expect(html).toContain('>0 new memories</span>');
+    expect(html).toContain('No workspace sources or references recorded.');
     expect(html).not.toContain('Parser Workspace Activity');
     expect(html).toContain('aria-label="Parser Workspace — most recent 12 hours of session activity"');
-    expect(html.indexOf('class="workspace-timeline-legend"')).toBeGreaterThan(
-      html.indexOf('class="workspace-timeline-chart"')
-    );
+    expect(html).toContain('<span>Activity</span>');
+    expect(html).toContain('aria-label="Show activity legend"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html.indexOf('workspace-timeline-legend-popover')).toBeLessThan(html.indexOf('workspace-timeline-rows'));
     expect(html).toContain('No session activity recorded.');
     expect(html).toContain('<span>0 Runbooks</span>');
     expect(html).toContain('<span>0 Reports</span>');
@@ -194,6 +222,54 @@ describe('workspace dashboard', () => {
     expect(html).toContain('workspace-timeline-report-marker');
     expect(html).toContain('Report revision 1: Parser result');
     expect(html).toContain('>Dream</button>');
+  });
+
+  it('shows workspace sources with session, memory, and recency coverage', () => {
+    const run = runRow('run_surface', [['2026-08-12T10:00:00.000Z', '2026-08-12T11:00:00.000Z']]);
+    run.run.targetAssetId = 'asset_repo';
+    const memory = memorySummary({
+      nodes: [{ id: 'memory_repo', assetIds: ['asset_repo'], createdAt: '2026-08-12T11:30:00.000Z' }]
+    });
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memory,
+      activeScope: {
+        id: 'scope_surface',
+        version: 1,
+        status: 'active',
+        workspaceName: 'Parser Workspace',
+        scopeOwner: 'Researcher',
+        descriptionMarkdown: '',
+        rulesMarkdown: '',
+        activeFrom: '2026-08-12T00:00:00.000Z',
+        expiresAt: null,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        createdBy: 'user',
+        assets: [{
+          id: 'asset_repo',
+          scopeVersionId: 'scope_surface',
+          direction: 'in_scope',
+          kind: 'repo',
+          value: 'https://github.com/example/parser.git',
+          sensitivity: 'public',
+          attributes: {},
+          createdAt: '2026-08-12T00:00:00.000Z'
+        }]
+      },
+      researchProfile: testResearchProfile(),
+      workspaceName: 'Parser Workspace',
+      runs: [run],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('>parser</strong>');
+    expect(html).toContain('class="workspace-surface-scroll"');
+    expect(html).toContain('>Repository</span>');
+    expect(html).toContain('>1 session</span>');
+    expect(html).toContain('>1 memory</span>');
+    expect(html).toContain('>Last 2h ago</span>');
   });
 
   it('keeps terminal session runs immutable when the session is continued', () => {

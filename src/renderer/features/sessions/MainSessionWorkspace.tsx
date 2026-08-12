@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ProjectGraphSummary, ProjectSemanticSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -21,6 +21,9 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   chatView,
   providerModelCatalog,
   honeycrispMemory,
+  activeScope = null,
+  projectGraph = null,
+  projectSemantic = null,
   researchProfile,
   workspaceName,
   runs,
@@ -64,6 +67,9 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   chatView: ChatView;
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
+  activeScope?: WorkspaceScopeVersion | null;
+  projectGraph?: ProjectGraphSummary | null;
+  projectSemantic?: ProjectSemanticSummary | null;
   researchProfile: ResearchProfile | null;
   workspaceName: string;
   runs: RunRow[];
@@ -124,8 +130,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       {!selectedRunId ? (
         <WorkspaceUnderstandingView
           busy={busy}
+          activeScope={activeScope}
           memoryDreamingInProgress={memoryDreamingInProgress}
           honeycrispMemory={honeycrispMemory}
+          projectGraph={projectGraph}
+          projectSemantic={projectSemantic}
           researchProfile={researchProfile}
           workspaceName={workspaceName}
           runs={runs}
