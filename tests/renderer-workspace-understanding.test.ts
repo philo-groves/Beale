@@ -4,13 +4,58 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemorySummary, RunRow, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
-import { WorkspaceUnderstandingView } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
+import {
+  memoryCountSinceLastDream,
+  memoryDreamHeat,
+  WorkspaceUnderstandingView
+} from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
 import { testResearchProfile } from './researchProfileFixture';
 
 const NOW = Date.parse('2026-08-12T12:00:00.000Z');
 
 describe('workspace dashboard', () => {
+  it('caps only the timeline panel while the dreaming panel fills the remaining height', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sharedPanelStyles = styles.match(/\.workspace-dashboard-half\s*\{([^}]*)\}/)?.[1] ?? '';
+    const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
+    const chartStyles = styles.match(/\.workspace-timeline-chart\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
+    const dreamCardStyles = styles.match(/\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(dashboardStyles).toContain('grid-template-rows: fit-content(50%) minmax(0, 1fr)');
+    expect(sharedPanelStyles).toContain('min-height: 0');
+    expect(sharedPanelStyles).not.toContain('height: 100%');
+    expect(timelinePanelStyles).not.toContain('border-bottom');
+    expect(chartStyles).toContain('grid-template-rows: 26px minmax(0, 1fr)');
+    expect(dreamAreaStyles).toContain('padding: 18px');
+    expect(dreamCardStyles).toContain('width: 100%');
+    expect(dreamCardStyles).toContain('height: 100%');
+    expect(dreamCardStyles).toContain('border: 0');
+    expect(dreamCardStyles).toContain('border-radius: 24px');
+    expect(dreamCardStyles).toContain('radial-gradient');
+  });
+
+  it('maps memories created since the latest dream to profile heat thresholds', () => {
+    expect(memoryDreamHeat(19)).toBe('none');
+    expect(memoryDreamHeat(20)).toBe('low');
+    expect(memoryDreamHeat(49)).toBe('low');
+    expect(memoryDreamHeat(50)).toBe('medium');
+    expect(memoryDreamHeat(100)).toBe('high');
+    expect(memoryDreamHeat(150)).toBe('critical');
+
+    const memory = memorySummary({
+      nodes: [
+        { id: 'before', createdAt: '2026-08-12T09:00:00.000Z' },
+        { id: 'after_one', createdAt: '2026-08-12T11:00:00.000Z' },
+        { id: 'after_two', createdAt: '2026-08-12T12:00:00.000Z' }
+      ],
+      lastDreamCompletedAt: '2026-08-12T10:00:00.000Z'
+    });
+    expect(memoryCountSinceLastDream(memory)).toBe(2);
+  });
+
   it('places the two-part workspace dashboard beside the compact workspace research sidenav', () => {
     const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
@@ -381,6 +426,7 @@ function memorySummary(input: {
   nodes?: Array<Partial<HoneycrispMemorySummary['nodes'][number]>>;
   runbooks?: Array<Partial<HoneycrispMemorySummary['runbooks'][number]>>;
   reports?: Array<Partial<HoneycrispMemorySummary['reports'][number]>>;
+  lastDreamCompletedAt?: string;
 } = {}): HoneycrispMemorySummary {
   return {
     status: 'ready',
@@ -463,7 +509,23 @@ function memorySummary(input: {
       scope: 'workspace',
       hiddenNodeCount: 0,
       restorableChangeCount: 0,
-      lastRun: null,
+      lastRun: input.lastDreamCompletedAt ? {
+        id: 'dream_one',
+        status: 'completed',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        inputNodeCount: 1,
+        inputSessionCount: 1,
+        prunedNodeCount: 0,
+        duplicateHiddenCount: 0,
+        duplicateGroupCount: 0,
+        reclassifiedNodeCount: 0,
+        editedNodeCount: 0,
+        createdAt: input.lastDreamCompletedAt,
+        completedAt: input.lastDreamCompletedAt,
+        restoredAt: null,
+        errorMessage: null
+      } : null,
       changes: []
     }
   };

@@ -4,10 +4,8 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   ApprovalRecord,
-  DeveloperSettings,
   ProviderSettings,
   ProviderModelDefaults,
-  ShellOptions,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
   NativeMenuAction,
@@ -93,9 +91,7 @@ export function App(): JSX.Element {
   const [researchProviderStatusesLoaded, setResearchProviderStatusesLoaded] = useState(false);
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
-  const [developerSettings, setDeveloperSettings] = useState<DeveloperSettings | null>(null);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
-  const [shellOptions, setShellOptions] = useState<ShellOptions | null>(null);
   const [chatView, setChatView] = useChatViewPreference();
   const [sessionHeatPreferences, setSessionHeatPreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -140,7 +136,6 @@ export function App(): JSX.Element {
   const {
     profilingState,
     lastProfilingReport,
-    refreshProfilingState,
     flushProfilingReport
   } = useProfilingRuntime(handleError, { observeReports: profilingOpen || settingsOpen });
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
@@ -186,22 +181,8 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     window.beale
-      .getDeveloperSettings()
-      .then(setDeveloperSettings)
-      .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError]);
-
-  useEffect(() => {
-    window.beale
       .getProviderSettings()
       .then(setProviderSettings)
-      .catch((caught: unknown) => handleError(errorMessage(caught)));
-  }, [handleError]);
-
-  useEffect(() => {
-    window.beale
-      .getShellOptions()
-      .then(setShellOptions)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
 
@@ -426,34 +407,6 @@ export function App(): JSX.Element {
       window.clearTimeout(timeout);
     };
   }, [loadOpenAiProviderStatus, openAiConfigured, openAiOAuthResult?.started, settingsOpen, settingsSection]);
-
-  const setDeveloperModeEnabled = useCallback(
-    async (enabled: boolean): Promise<void> => {
-      setBusy(true);
-      setError(null);
-      try {
-        setDeveloperSettings(await window.beale.setDeveloperModeEnabled(enabled));
-        await refreshProfilingState();
-      } catch (caught) {
-        setError(errorMessage(caught));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refreshProfilingState]
-  );
-
-  const saveShellOptions = useCallback(async (options: ShellOptions): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      setShellOptions(await window.beale.setShellOptions(options));
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
 
   const setDefaultProviderId = useCallback(async (providerId: ResearchModelProviderId | null): Promise<void> => {
     setError(null);
@@ -865,9 +818,7 @@ export function App(): JSX.Element {
         {settingsOpen ? (
           <SettingsView
             section={settingsSection}
-            developerSettings={developerSettings}
             researchProfile={snapshot?.researchProfile ?? null}
-            shellOptions={shellOptions}
             chatView={chatView}
             activeResearchProfileId={workspaceRegistry?.activeResearchProfileId ?? 'security-research'}
             openAiOAuthResult={openAiOAuthResult}
@@ -879,10 +830,8 @@ export function App(): JSX.Element {
             providerStatusesLoaded={researchProviderStatusesLoaded}
             sessionHeatPreferences={sessionHeatPreferences}
             busy={busy}
-            onSetDeveloperModeEnabled={setDeveloperModeEnabled}
             onChangeChatView={setChatView}
             onSetResearchProfile={setActiveResearchProfile}
-            onSaveShellOptions={saveShellOptions}
             onRefreshOpenAi={refreshOpenAiProvider}
             onStartOpenAiOAuth={startOpenAiOAuth}
             onStartResearchProviderOAuth={startResearchProviderOAuth}

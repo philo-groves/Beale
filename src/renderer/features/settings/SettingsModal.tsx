@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
   smallModelForProvider
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, Bug, KeyRound, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Terminal } from 'lucide-react';
 import type {
-  DeveloperSettings,
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ProviderSettings,
@@ -20,8 +19,7 @@ import type {
   ResearchProviderModelCatalog,
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
-  ResearchProviderStatus,
-  ShellOptions
+  ResearchProviderStatus
 } from '@shared/types';
 import { StatusPill } from '../../app/StatusPill';
 import { FloatingTextPicker, type FloatingTextPickerOption } from '../../app/FloatingTextPicker';
@@ -33,9 +31,9 @@ import {
   type SessionHeatPreferenceOverrides
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'providers' | 'memory' | 'shell' | 'developer';
+export type SettingsSection = 'general' | 'providers' | 'memory';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'memory', 'shell', 'developer'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'memory'];
 
 export function SettingsSidebar({
   collapsed,
@@ -78,9 +76,7 @@ export function SettingsSidebar({
 
 export function SettingsView({
   section,
-  developerSettings,
   researchProfile,
-  shellOptions,
   chatView,
   activeResearchProfileId,
   openAiStatus,
@@ -92,10 +88,8 @@ export function SettingsView({
   providerStatusesLoaded,
   sessionHeatPreferences = {},
   busy,
-  onSetDeveloperModeEnabled,
   onChangeChatView,
   onSetResearchProfile,
-  onSaveShellOptions,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
@@ -104,9 +98,7 @@ export function SettingsView({
   onSetSessionHeatPreference = () => undefined
 }: {
   section: SettingsSection;
-  developerSettings: DeveloperSettings | null;
   researchProfile: ResearchProfileSnapshot | null;
-  shellOptions: ShellOptions | null;
   chatView: ChatView;
   activeResearchProfileId: ResearchProfileId;
   openAiStatus: OpenAiAccountStatus | null;
@@ -118,10 +110,8 @@ export function SettingsView({
   providerStatusesLoaded: boolean;
   sessionHeatPreferences?: SessionHeatPreferenceOverrides;
   busy: boolean;
-  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
   onChangeChatView: (chatView: ChatView) => void;
   onSetResearchProfile: (profileId: ResearchProfileId) => Promise<void>;
-  onSaveShellOptions: (options: ShellOptions) => Promise<void>;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
@@ -158,16 +148,12 @@ export function SettingsView({
             onSetDefaultProviderId={onSetDefaultProviderId}
             onSetProviderModelDefaults={onSetProviderModelDefaults}
           />
-        ) : activeSection === 'memory' ? (
+        ) : (
           <MemorySettingsView
             researchProfile={researchProfile}
             sessionHeatPreferences={sessionHeatPreferences}
             onSetSessionHeatPreference={onSetSessionHeatPreference}
           />
-        ) : activeSection === 'shell' ? (
-          <ShellOptionsView busy={busy} options={shellOptions} onSave={onSaveShellOptions} />
-        ) : (
-          <DeveloperSettingsView busy={busy} developerSettings={developerSettings} onSetDeveloperModeEnabled={onSetDeveloperModeEnabled} />
         )}
       </section>
     </div>
@@ -260,117 +246,6 @@ function sessionHeatLabel(heat: SessionHeat): string {
   return heat.charAt(0).toUpperCase() + heat.slice(1);
 }
 
-function ShellOptionsView({
-  options,
-  busy,
-  onSave
-}: {
-  options: ShellOptions | null;
-  busy: boolean;
-  onSave: (options: ShellOptions) => Promise<void>;
-}): JSX.Element {
-  const [draft, setDraft] = useState<ShellOptions>(options ?? { defaultConcurrency: 4, utilities: { sudo: 0 } });
-  const [newUtility, setNewUtility] = useState('');
-  useEffect(() => {
-    if (options) setDraft({ defaultConcurrency: options.defaultConcurrency, utilities: { ...options.utilities } });
-  }, [options]);
-  const utilities = useMemo(
-    () => Object.entries(draft.utilities).sort(([left], [right]) => (left === 'sudo' ? -1 : right === 'sudo' ? 1 : left.localeCompare(right))),
-    [draft.utilities]
-  );
-  const addUtility = (): void => {
-    const utility = newUtility.trim();
-    if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u.test(utility) || utility in draft.utilities) return;
-    setDraft((current) => ({ ...current, utilities: { ...current.utilities, [utility]: current.defaultConcurrency } }));
-    setNewUtility('');
-  };
-  const setConcurrency = (utility: string, concurrency: number): void => {
-    setDraft((current) => ({ ...current, utilities: { ...current.utilities, [utility]: boundedConcurrency(concurrency) } }));
-  };
-  const removeUtility = (utility: string): void => {
-    setDraft((current) => {
-      const utilities = { ...current.utilities };
-      delete utilities[utility];
-      return { ...current, utilities };
-    });
-  };
-
-  return (
-    <div className="settings-page shell-options-page">
-      <div className="settings-page-actions">
-        <button type="button" className="primary-button" disabled={busy || !options} onClick={() => void onSave(draft)}>
-          Save Changes
-        </button>
-      </div>
-      <section className="provider-card shell-options-card">
-        <div className="provider-heading">
-          <div className="status-icon"><Terminal size={18} /></div>
-          <div>
-            <h4>Utility Concurrency</h4>
-            <p>Limits apply harness-wide to each executable. A limit of 0 disables that utility before Honeycrisp starts it.</p>
-          </div>
-        </div>
-        <label className="shell-option-default">
-          <span>Default per utility</span>
-          <input
-            type="number"
-            min={0}
-            max={64}
-            step={1}
-            value={draft.defaultConcurrency}
-            disabled={busy}
-            onChange={(event) => setDraft((current) => ({ ...current, defaultConcurrency: boundedConcurrency(event.target.valueAsNumber) }))}
-          />
-        </label>
-        <div className="shell-utility-list">
-          {utilities.map(([utility, concurrency]) => (
-            <div className="shell-utility-row" key={utility}>
-              <code>{utility}</code>
-              <input
-                aria-label={`${utility} concurrency`}
-                type="number"
-                min={0}
-                max={64}
-                step={1}
-                value={concurrency}
-                disabled={busy}
-                onChange={(event) => setConcurrency(utility, event.target.valueAsNumber)}
-              />
-              <button type="button" title={`Remove ${utility} override`} disabled={busy} onClick={() => removeUtility(utility)}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-        <div className="shell-utility-add">
-          <input
-            value={newUtility}
-            disabled={busy}
-            placeholder="Utility name"
-            aria-label="Utility name"
-            onChange={(event) => setNewUtility(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                addUtility();
-              }
-            }}
-          />
-          <button type="button" disabled={busy || !newUtility.trim()} onClick={addUtility}>
-            <Plus size={14} /> Add Override
-          </button>
-        </div>
-        <p className="provider-detail">Commands run with the current user's host privileges. Utility limits are process-broker controls, not operating-system isolation.</p>
-      </section>
-    </div>
-  );
-}
-
-function boundedConcurrency(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(64, Math.trunc(value)));
-}
-
 export function GeneralSettingsView({
   activeResearchProfileId,
   busy,
@@ -452,42 +327,6 @@ export function GeneralSettingsView({
           </label>
         </div>
       </fieldset>
-    </div>
-  );
-}
-
-function DeveloperSettingsView({
-  developerSettings,
-  busy,
-  onSetDeveloperModeEnabled
-}: {
-  developerSettings: DeveloperSettings | null;
-  busy: boolean;
-  onSetDeveloperModeEnabled: (enabled: boolean) => Promise<void>;
-}): JSX.Element {
-  const enabled = developerSettings?.developerModeEnabled ?? false;
-  return (
-    <div className="settings-page developer-settings-page">
-      <section className={`provider-card readiness-${enabled ? 'enabled' : 'disabled'}`}>
-        <div className="provider-heading">
-          <div className="status-icon">
-            <Bug size={18} />
-          </div>
-          <div>
-            <h4>Developer Mode</h4>
-            <p>Enables Beale diagnostics. Debug profiling starts automatically while this mode is on.</p>
-          </div>
-          <label className="settings-switch">
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={busy}
-              onChange={(event) => void onSetDeveloperModeEnabled(event.target.checked)}
-            />
-            <span>Enabled Developer Mode</span>
-          </label>
-        </div>
-      </section>
     </div>
   );
 }
@@ -1111,12 +950,8 @@ export function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
     case 'providers':
       return 'Providers';
-    case 'developer':
-      return 'Developer';
     case 'memory':
       return 'Memory';
-    case 'shell':
-      return 'Shell Options';
     default:
       return 'General';
   }

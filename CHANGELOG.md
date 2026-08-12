@@ -15,6 +15,7 @@
 
 ### Changed
 
+- The workspace Dream panel now fills a spacious rounded inset in the lower dashboard, reuses the active profile's window heat gradient without a card border, and raises heat at 20, 50, 100, and 150 memories created since the latest dream.
 - Session activity duration is now tracked per execution attempt. Continuing a terminal session adds a new workspace Gantt row while the completed or errored row and its result remain immutable; migration 19 assigns existing activity intervals to their originating attempts.
 - Workspace Gantt Memory, Runbook, and Report symbols now use a single-pixel separation border without an additional outer halo.
 - Workspace summaries now include workspace-scoped per-type Memory counts and status breakdowns matching session summaries.
@@ -182,6 +183,7 @@
 
 ### Removed
 
+- Removed the experimental Shell Options and Developer sections from Agent Settings; host shell defaults and profiling internals remain unchanged.
 - Removed Beale's background memory-curator launch flags, live usage/event handling, advisory-request presentation, and curator-specific model defaults.
 - Removed HAM Mode, including its autonomous continuation scheduler, exploration/closure prompt workflow, retries, cooldowns, IPC and renderer surfaces, and shared contracts. Workbench migration 9 deletes persisted HAM metadata from the global database.
 

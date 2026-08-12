@@ -1476,7 +1476,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   z-index: 1;
 }
 
-.app-shell.session-heat-low {
+.app-shell.session-heat-low,
+.workspace-dream-card[data-dream-heat="low"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-low-color) 8%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-low-color) 13%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-low-color) 22%, transparent);
@@ -1484,7 +1485,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   --session-heat-opacity: 1;
 }
 
-.app-shell.session-heat-medium {
+.app-shell.session-heat-medium,
+.workspace-dream-card[data-dream-heat="medium"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-medium-color) 10%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-medium-color) 16%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-medium-color) 26%, transparent);
@@ -1492,7 +1494,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   --session-heat-opacity: 1;
 }
 
-.app-shell.session-heat-high {
+.app-shell.session-heat-high,
+.workspace-dream-card[data-dream-heat="high"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-high-color) 10%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-high-color) 17%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-high-color) 28%, transparent);
@@ -1500,7 +1503,8 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   --session-heat-opacity: 1;
 }
 
-.app-shell.session-heat-critical {
+.app-shell.session-heat-critical,
+.workspace-dream-card[data-dream-heat="critical"] {
   --session-heat-surface: color-mix(in srgb, var(--session-heat-critical-color) 18%, transparent);
   --session-heat-wash: color-mix(in srgb, var(--session-heat-critical-color) 34%, transparent);
   --session-heat-edge: color-mix(in srgb, var(--session-heat-critical-color) 42%, transparent);
@@ -1676,7 +1680,7 @@ body.is-resizing-research-side .main-session-grid {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-rows: fit-content(50%) minmax(0, 1fr);
   overflow: hidden;
   border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0;
   background: var(--panel);
@@ -1684,7 +1688,6 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-dashboard-half {
   width: 100%;
-  height: 100%;
   min-width: 0;
   min-height: 0;
   box-sizing: border-box;
@@ -1694,7 +1697,6 @@ body.is-resizing-research-side .main-session-grid {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
-  border-bottom: 1px solid #292929;
   padding: 18px;
   overflow: hidden;
 }
@@ -1951,15 +1953,25 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-dream-card {
-  width: min(100%, 520px);
-  height: min(100%, 230px);
-  min-height: 120px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
-  border: 1px solid #2d2d2d;
-  border-radius: 12px;
-  background: #191919;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  border: 0;
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 68% 0%, var(--session-heat-wash) 0%, transparent 48%),
+    radial-gradient(ellipse at 16% 92%, var(--session-heat-wash) 0%, transparent 44%),
+    linear-gradient(180deg, var(--session-heat-edge) 0%, transparent 20%, transparent 78%, var(--session-heat-edge) 100%),
+    linear-gradient(var(--session-heat-surface), var(--session-heat-surface)),
+    var(--bg);
+  transition:
+    --session-heat-surface 900ms ease,
+    --session-heat-wash 900ms ease,
+    --session-heat-edge 900ms ease,
+    background 260ms ease;
 }
 
 .workspace-dream-button {
@@ -8691,9 +8703,7 @@ button.research-goal-choice:focus-visible {
 }
 
 .general-settings-page,
-.developer-settings-page,
-.memory-settings-page,
-.shell-options-page {
+.memory-settings-page {
   gap: 12px;
 }
 
@@ -8837,10 +8847,6 @@ button.research-goal-choice:focus-visible {
   line-height: 1.35;
 }
 
-.shell-options-card {
-  gap: 10px;
-}
-
 .shell-approval-modal {
   width: min(620px, calc(100vw - 40px));
 }
@@ -8874,68 +8880,6 @@ button.research-goal-choice:focus-visible {
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.shell-option-default,
-.shell-utility-row,
-.shell-utility-add {
-  min-width: 0;
-  display: grid;
-  align-items: center;
-  gap: 8px;
-}
-
-.shell-option-default {
-  grid-template-columns: minmax(0, 1fr) 82px;
-  border-radius: 7px;
-  background: var(--panel);
-  padding: 9px 10px;
-}
-
-.shell-option-default span {
-  color: var(--muted-strong);
-  font-size: 0.78rem;
-}
-
-.shell-option-default input,
-.shell-utility-row input {
-  width: 82px;
-}
-
-.shell-utility-list {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.shell-utility-row {
-  grid-template-columns: minmax(0, 1fr) 82px 32px;
-  border-radius: 7px;
-  background: var(--panel);
-  padding: 7px 8px 7px 10px;
-}
-
-.shell-utility-row code {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-}
-
-.shell-utility-row button {
-  width: 32px;
-  min-width: 32px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0;
-}
-
-.shell-utility-add {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.shell-utility-add button {
-  white-space: nowrap;
 }
 
 .provider-card {

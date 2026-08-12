@@ -8,6 +8,7 @@ import {
   formatWorkspaceTimelineDuration
 } from '../../view-models/workspaceTimeline';
 import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
+import type { SessionHeat } from '../../view-models/sessionHeat';
 
 const TIMELINE_WINDOW_HOURS = 12;
 const TIMELINE_TICK_HOURS = [0, 3, 6, 9, 12] as const;
@@ -54,6 +55,8 @@ export function WorkspaceUnderstandingView({
   const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
   const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
+  const memoriesSinceDream = memoryCountSinceLastDream(honeycrispMemory);
+  const dreamHeat = memoryDreamHeat(memoriesSinceDream);
   const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 12 hours of session activity`;
 
   return (
@@ -154,7 +157,11 @@ export function WorkspaceUnderstandingView({
       </section>
 
       <section className="workspace-dashboard-half workspace-dream-area" aria-label="Memory dreaming">
-        <article className="workspace-dream-card">
+        <article
+          className="workspace-dream-card"
+          data-dream-heat={dreamHeat}
+          data-memory-count-since-dream={memoriesSinceDream}
+        >
           <button
             type="button"
             className="workspace-dream-button"
@@ -169,6 +176,24 @@ export function WorkspaceUnderstandingView({
       </section>
     </main>
   );
+}
+
+export function memoryCountSinceLastDream(memory: HoneycrispMemorySummary | null | undefined): number {
+  if (!memory || memory.status === 'missing' || memory.status === 'error') return 0;
+  const lastDreamAt = Date.parse(memory.dreaming.lastRun?.completedAt ?? '');
+  if (!Number.isFinite(lastDreamAt)) return memory.nodes.length;
+  return memory.nodes.filter((node) => {
+    const createdAt = Date.parse(node.createdAt);
+    return Number.isFinite(createdAt) && createdAt > lastDreamAt;
+  }).length;
+}
+
+export function memoryDreamHeat(memoryCount: number): SessionHeat {
+  if (memoryCount >= 150) return 'critical';
+  if (memoryCount >= 100) return 'high';
+  if (memoryCount >= 50) return 'medium';
+  if (memoryCount >= 20) return 'low';
+  return 'none';
 }
 
 function WorkspaceTimelineResultSymbol({ result }: { result: WorkspaceTimelineResult }): JSX.Element {

@@ -56,11 +56,11 @@ describe('renderer top bar', () => {
   });
 
   it('renders an unclickable static identity for the active Agent Settings view', () => {
-    const html = renderTopBar('win32', false, false, false, { primary: 'Agent Settings', secondary: 'Shell Options' });
+    const html = renderTopBar('win32', false, false, false, { primary: 'Agent Settings', secondary: 'Memory' });
 
-    expect(html).toContain('aria-label="Agent Settings, Shell Options"');
+    expect(html).toContain('aria-label="Agent Settings, Memory"');
     expect(html).toContain('<span class="app-header-workspace-title app-header-static-title"><span>Agent Settings</span></span>');
-    expect(html).toContain('<span class="app-header-session-title app-header-static-title"><span>Shell Options</span></span>');
+    expect(html).toContain('<span class="app-header-session-title app-header-static-title"><span>Memory</span></span>');
     expect(html).not.toContain('title="Open workspace information"');
     expect(html).not.toContain('title="View session summary"');
   });

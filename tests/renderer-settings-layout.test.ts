@@ -18,6 +18,8 @@ describe('renderer settings layout', () => {
     expect(html).toContain('Back to App');
     expect(html).toContain('aria-label="Settings sections"');
     expect(html).toContain('class="active">Memory</button>');
+    expect(html).not.toContain('Shell Options');
+    expect(html).not.toContain('Developer');
     expect(html).not.toContain('New Research');
     expect(html).not.toContain('Research Workspaces');
   });
@@ -33,7 +35,7 @@ describe('renderer settings layout', () => {
     expect(html).not.toContain('role="dialog"');
   });
 
-  it.each<SettingsSection>(['general', 'providers', 'memory', 'shell', 'developer'])(
+  it.each<SettingsSection>(['general', 'providers', 'memory'])(
     'omits the redundant %s section heading from the main content',
     (section) => {
       expect(renderSettingsView(section)).not.toContain('<h3>');
@@ -44,9 +46,7 @@ describe('renderer settings layout', () => {
 function renderSettingsView(section: SettingsSection): string {
   return renderToStaticMarkup(createElement(SettingsView, {
     section,
-    developerSettings: null,
     researchProfile: null,
-    shellOptions: null,
     chatView: 'commentary',
     activeResearchProfileId: 'security-research',
     openAiStatus: null,
@@ -57,10 +57,8 @@ function renderSettingsView(section: SettingsSection): string {
     providerSettings: { defaultProviderId: null, modelDefaults: {} },
     providerStatusesLoaded: true,
     busy: false,
-    onSetDeveloperModeEnabled: async () => undefined,
     onChangeChatView: () => undefined,
     onSetResearchProfile: async () => undefined,
-    onSaveShellOptions: async () => undefined,
     onRefreshOpenAi: async () => undefined,
     onStartOpenAiOAuth: async () => undefined,
     onStartResearchProviderOAuth: async () => undefined,
