@@ -56,6 +56,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('Parser Workspace Activity');
     expect(html).toContain('No session activity in the past 12 hours.');
     expect(html).toContain('<span>0 Runbooks</span>');
+    expect(html).toContain('<span>0 Reports</span>');
     expect(html).toContain('<span>0 Memories</span>');
     expect(html).not.toContain('<span>0 Subagents</span>');
   });
@@ -189,6 +190,7 @@ function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['n
     evidenceRefCount: 0,
     storageArtifactCount: 0,
     runbookCount: 0,
+    reportCount: 0,
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
@@ -215,6 +217,7 @@ function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['n
     })),
     edges: [],
     runbooks: [],
+    reports: [],
     directories: [],
     lastError: null,
     dreaming: {

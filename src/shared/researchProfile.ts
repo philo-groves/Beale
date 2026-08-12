@@ -101,6 +101,7 @@ export interface ResearchProfileAgentPrompt {
   style: readonly string[];
   memoryInstructions: readonly string[];
   runbookInstructions: readonly string[];
+  reportInstructions?: readonly string[];
 }
 
 export interface ResearchProfileWorkflow {
@@ -123,6 +124,7 @@ export interface ResearchProfileCapabilities {
   allowedMcpServerIds: readonly string[];
   memoryEnabled: boolean;
   runbooksEnabled: boolean;
+  reportsEnabled?: boolean;
   collaborationEnabled: boolean;
 }
 
@@ -238,7 +240,10 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
       posture: stringArray(agent.posture, 'Research profile agent posture'),
       style: stringArray(agent.style, 'Research profile agent style'),
       memoryInstructions: stringArray(agent.memoryInstructions, 'Research profile memory instructions'),
-      runbookInstructions: stringArray(agent.runbookInstructions, 'Research profile runbook instructions')
+      runbookInstructions: stringArray(agent.runbookInstructions, 'Research profile runbook instructions'),
+      ...(agent.reportInstructions === undefined
+        ? {}
+        : { reportInstructions: stringArray(agent.reportInstructions, 'Research profile report instructions') })
     },
     memory: {
       types: arrayValue(memory.types, 'Research profile memory types').map(decodeMemoryType),
@@ -265,6 +270,9 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
       allowedMcpServerIds: stringArray(capabilities.allowedMcpServerIds, 'Research profile allowed MCP server ids'),
       memoryEnabled: booleanValue(capabilities.memoryEnabled, 'Research profile memory enabled'),
       runbooksEnabled: booleanValue(capabilities.runbooksEnabled, 'Research profile runbooks enabled'),
+      ...(capabilities.reportsEnabled === undefined
+        ? {}
+        : { reportsEnabled: booleanValue(capabilities.reportsEnabled, 'Research profile reports enabled') }),
       collaborationEnabled: booleanValue(capabilities.collaborationEnabled, 'Research profile collaboration enabled')
     },
     workspace: {

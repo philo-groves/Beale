@@ -15,6 +15,7 @@ import type {
   HackerOneScopeLookupResult,
   HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
+  HoneycrispReportDocument,
   HoneycrispToolingConfigUpdate,
   NativeMenuAction,
   WorkspaceOnboardingInput,
@@ -153,6 +154,9 @@ const api: BealeApi = {
   },
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispRunbook, runbookId);
+  },
+  getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getHoneycrispReport, reportId);
   },
   runMemoryDreaming() {
     return ipcRenderer.invoke(IPC_CHANNELS.runMemoryDreaming);

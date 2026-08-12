@@ -40,6 +40,7 @@ import {
   runMemoryDreaming as runMemoryDreamingMaintenance
 } from './memoryDreaming';
 import { readHoneycrispRunbook } from './honeycrispRunbook';
+import { readHoneycrispReport } from './honeycrispReport';
 import { WorkspaceRegistry } from './workspaceRegistry';
 import { ProfilingService } from './profilingService';
 import {
@@ -73,6 +74,7 @@ import type {
   MemorySettings,
   MemoryTypeDescriptions,
   HoneycrispRunbookDocument,
+  HoneycrispReportDocument,
   HoneycrispToolingConfigSummary,
   HoneycrispToolingConfigUpdate,
   HoneycrispToolingMcpCapabilitySummary,
@@ -684,6 +686,23 @@ export class WorkspaceService {
 
   public getHoneycrispRunbook(runbookId: string): HoneycrispRunbookDocument {
     return readHoneycrispRunbook(this.resolveHoneycrispRunbookPath(runbookId), runbookId);
+  }
+
+  public resolveHoneycrispReportPath(reportId: string): string {
+    const relativePath = this.requireDb().getHoneycrispReportRelativePath(reportId);
+    if (!relativePath) throw new Error(`Report not found in the active workspace: ${reportId}`);
+    const artifactRoot = resolve(this.globalHoneycrispArtifactDirectory(this.getWorkspaceRegistry().getActiveResearchProfileId()));
+    const path = resolve(artifactRoot, relativePath);
+    const child = relative(artifactRoot, path);
+    if (!child || child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
+      throw new Error(`Report path is outside Honeycrisp artifact storage: ${reportId}`);
+    }
+    if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`Report artifact is missing: ${reportId}`);
+    return path;
+  }
+
+  public getHoneycrispReport(reportId: string): HoneycrispReportDocument {
+    return readHoneycrispReport(this.resolveHoneycrispReportPath(reportId), reportId);
   }
 
   public async runMemoryDreaming(): Promise<WorkspaceSnapshot> {

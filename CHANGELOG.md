@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added first-class Reports as revisioned workspace Markdown artifacts. Session and workspace summaries show report and revision totals beneath Runbooks, detailed catalogs separate Complete and Stale reports, and selected reports render their full content in the right sidenav.
 - The workspace dashboard now splits its main area between a workspace-named 12-hour activity Gantt and a centered Dream card. Session bars use pause-aware activity intervals, memory events retain their profile-defined type colors, and workbench migration 17 backfills legacy sessions with conservative intervals.
 - The workspace dashboard now has a compact and detailed right sidenav for workspace-scoped Runbooks and Memories; shared detail views default to Workspace scope and do not offer Session scope from the workspace view.
 - Completed sessions now show three session-grounded next-step suggestions in a fixed-height loading widget; selecting one opens New Research and streams an expanded prompt from that goal.

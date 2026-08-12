@@ -495,6 +495,11 @@ function registerIpc(): void {
       workspaceService.getHoneycrispRunbook(runbookId)
     )
   );
+  ipcMain.handle(IPC_CHANNELS.getHoneycrispReport, (_event, reportId: string) =>
+    timedMainIpc('getHoneycrispReport', { report: shortMetricId(reportId) }, () =>
+      workspaceService.getHoneycrispReport(reportId)
+    )
+  );
   ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, () =>
     timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming())
   );

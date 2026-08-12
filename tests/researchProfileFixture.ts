@@ -14,7 +14,8 @@ export function testResearchProfile(version = '1.0.0', name = 'Security Research
       posture: ['Be precise.'],
       style: ['Be concise.'],
       memoryInstructions: ['Save durable findings.'],
-      runbookInstructions: ['Keep procedures reproducible.']
+      runbookInstructions: ['Keep procedures reproducible.'],
+      reportInstructions: ['Write evidence-backed reports for triagers.']
     },
     memory: {
       types: [{
@@ -81,6 +82,7 @@ export function testResearchProfile(version = '1.0.0', name = 'Security Research
       allowedMcpServerIds: [],
       memoryEnabled: true,
       runbooksEnabled: true,
+      reportsEnabled: true,
       collaborationEnabled: true
     },
     workspace: {

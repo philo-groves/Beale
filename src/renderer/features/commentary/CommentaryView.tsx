@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, Terminal, Wrench } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, Database, FileText, Terminal, Wrench } from 'lucide-react';
 import type {
   ResearchModelSelection,
   ResearchProviderModelCatalog,
@@ -706,6 +706,9 @@ export function commentaryMessageIcon(
   if (SUBAGENT_TOOL_NAMES.has(normalizedToolName)) return <Bot size={16} />;
   if (normalizedToolName.startsWith('runbook.') || normalizedToolName.startsWith('runbook_')) {
     return <BookOpen size={16} />;
+  }
+  if (normalizedToolName.startsWith('report.') || normalizedToolName.startsWith('report_')) {
+    return <FileText size={16} />;
   }
   if (normalizedToolName.startsWith('memory.') || normalizedToolName.startsWith('memory_')) {
     return <Database size={16} />;

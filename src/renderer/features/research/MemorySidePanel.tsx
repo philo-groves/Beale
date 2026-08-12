@@ -1,10 +1,12 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, LoaderCircle, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispMemorySummary,
+  HoneycrispReportDocument,
+  HoneycrispReportSummary,
   HoneycrispRunbookDocument,
   HoneycrispRunbookSummary,
   ResearchProfile,
@@ -23,6 +25,7 @@ import type { MemoryStatusGroup } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
+import { reportCatalogGroups } from '../../view-models/reports';
 import type { ChatView } from '../../view-models/chatView';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
@@ -32,6 +35,7 @@ import { SessionUsageSummary } from '../momentum/SessionUsageStatus';
 import { SessionDurationMetric } from '../sessions/SessionMetrics';
 import { MemoryTypeIcon, MemoryTypeLabel, memoryTypeClassName, memoryTypeDefinition, memoryTypeLabel } from './MemoryTypeLabel';
 import { RunbookView } from './RunbookView';
+import { ReportView } from './ReportView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 import { TraceView } from '../traces/TraceView';
 
@@ -42,7 +46,7 @@ export type RunbookScopeFilter = 'session' | 'workspace';
 export const DEFAULT_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'session';
 export const DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'workspace';
 export type ResearchViewSpace = 'session' | 'workspace';
-export type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
+export type ResearchSideView = 'memory' | 'runbooks' | 'reports' | 'subagents';
 
 export interface ResearchSideNavigationState {
   openViews: ResearchSideView[];
@@ -56,7 +60,7 @@ export type ResearchSideNavigationAction =
   | { type: 'restrict'; views: readonly ResearchSideView[] }
   | { type: 'reset' };
 
-export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'subagents'];
+export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'reports', 'subagents'];
 
 export function memoryLevelFiltersForViewSpace(viewSpace: ResearchViewSpace): MemoryLevelFilter[] {
   return viewSpace === 'workspace' ? ['workspace', 'subject'] : ['session', 'workspace', 'subject'];
@@ -117,7 +121,9 @@ export function researchSideViewsForProfile(
       ? features.memory
       : view === 'runbooks'
         ? features.runbooks
-        : features.collaboration
+        : view === 'reports'
+          ? features.reports
+          : features.collaboration
   ));
 }
 
@@ -144,6 +150,7 @@ export function isLastOpenResearchSideView(
 function initialResearchSideNavigation(
   selectedSubagentPath: string | null,
   selectedRunbookId: string | null,
+  selectedReportId: string | null,
   enabledViews: readonly ResearchSideView[]
 ): ResearchSideNavigationState {
   if (selectedSubagentPath && enabledViews.includes('subagents')) {
@@ -151,6 +158,9 @@ function initialResearchSideNavigation(
   }
   if (selectedRunbookId && enabledViews.includes('runbooks')) {
     return { openViews: ['runbooks'], activeView: 'runbooks' };
+  }
+  if (selectedReportId && enabledViews.includes('reports')) {
+    return { openViews: ['reports'], activeView: 'reports' };
   }
   return CLOSED_RESEARCH_SIDE_NAVIGATION;
 }
@@ -168,14 +178,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument,
   runbookLoading,
   runbookError,
+  selectedReport = null,
+  selectedReportDocument = null,
+  reportLoading = false,
+  reportError = null,
   selectedSubagentPath,
   selectedRunbookId,
+  selectedReportId = null,
   selectedTraceEventId,
   searchHighlightQuery,
   visibleTraceCategories,
   onOpenRunbook,
+  onOpenReport = () => undefined,
   onSelectSubagent,
   onBackToRunbooks,
+  onBackToReports = () => undefined,
   onBackToSubagents,
   onSelectTraceEvent,
   expanded,
@@ -194,14 +211,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
   runbookLoading: boolean;
   runbookError: string | null;
+  selectedReport?: HoneycrispReportSummary | null;
+  selectedReportDocument?: HoneycrispReportDocument | null;
+  reportLoading?: boolean;
+  reportError?: string | null;
   selectedSubagentPath: string | null;
   selectedRunbookId: string | null;
+  selectedReportId?: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
   visibleTraceCategories: TraceCategoryId[];
   onOpenRunbook: (runbookId: string) => void;
+  onOpenReport?: (reportId: string) => void;
   onSelectSubagent: (path: string) => void;
   onBackToRunbooks: () => void;
+  onBackToReports?: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   expanded?: boolean;
@@ -215,11 +239,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const enabledViewsKey = enabledViews.join(':');
   const [navigation, dispatchNavigation] = useReducer(
     researchSideNavigationReducer,
-    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, enabledViews)
+    initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, selectedReportId, enabledViews)
   );
   const runIdRef = useRef(runId);
   const [query, setQuery] = useState('');
   const [runbookQuery, setRunbookQuery] = useState('');
+  const [reportQuery, setReportQuery] = useState('');
   const [subagentQuery, setSubagentQuery] = useState('');
   const [scope, setScope] = useState<MemoryLevelFilter>(
     viewSpace === 'workspace' ? DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER : DEFAULT_MEMORY_LEVEL_FILTER
@@ -235,12 +260,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const activeView = visibleNavigation.activeView;
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
+  const reports = memory?.reports ?? [];
   const memoryProfile = researchProfile?.memory;
   const memoryTypes = memoryProfile?.types ?? [];
   const memoryStatuses = memoryProfile?.statuses ?? [];
   const memoryLabel = 'Memory';
   const memoriesLabel = 'Memories';
   const runbookLabel = 'Runbooks';
+  const reportLabel = 'Reports';
   const viewSpaceLabel = researchViewSpaceLabel(viewSpace);
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
@@ -265,6 +292,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       .reduce((count, runbook) => count + runbook.revision, 0),
     [runbooks, runId]
   );
+  const sessionReports = useMemo(() => reports.filter((report) => report.sessionId === runId), [reports, runId]);
+  const sessionReportRevisions = useMemo(() => sessionReports.reduce((count, report) => count + report.revision, 0), [sessionReports]);
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
   const workspaceMemoryNodes = useMemo(
@@ -290,6 +319,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => workspaceRunbooks.reduce((count, runbook) => count + runbook.revision, 0),
     [workspaceRunbooks]
   );
+  const workspaceReports = useMemo(
+    () => reports.filter((report) => workspaceId !== null && report.workspaceId === workspaceId),
+    [reports, workspaceId]
+  );
+  const workspaceReportRevisions = useMemo(
+    () => workspaceReports.reduce((count, report) => count + report.revision, 0),
+    [workspaceReports]
+  );
   const subagents = useMemo(() => subagentSummaries(events, runStatus, chatView), [chatView, events, runStatus]);
   const filteredSubagents = useMemo(
     () => filterSubagentSummaries(subagents, subagentQuery),
@@ -299,6 +336,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const visibleSelectedSubagentPath = subagentsAvailable ? selectedSubagentPath : null;
   const visibleSelectedRunbookId = featureAvailability.runbooks ? selectedRunbookId : null;
   const visibleSelectedRunbook = visibleSelectedRunbookId ? selectedRunbook : null;
+  const visibleSelectedReportId = featureAvailability.reports ? selectedReportId : null;
+  const visibleSelectedReport = visibleSelectedReportId ? selectedReport : null;
   const selectedSubagentName = subagentDisplayName(visibleSelectedSubagentPath
     ? subagents.find((subagent) => subagent.path === visibleSelectedSubagentPath)?.name
       ?? visibleSelectedSubagentPath.split('/').filter(Boolean).at(-1)
@@ -307,6 +346,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const selectedRunbookName = visibleSelectedRunbook?.title
     ?? runbooks.find((runbook) => runbook.id === visibleSelectedRunbookId)?.title
     ?? 'Loading runbook';
+  const selectedReportName = visibleSelectedReport?.title
+    ?? reports.find((report) => report.id === visibleSelectedReportId)?.title
+    ?? 'Loading report';
   const selectedSubagentEvents = useMemo(
     () => traceEventsForSubagent(events, visibleSelectedSubagentPath),
     [events, visibleSelectedSubagentPath]
@@ -328,13 +370,19 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [runbookQuery, runbookScope, runbooks, runId, workspaceId]
   );
   const groupedRunbooks = useMemo(() => runbookCatalogGroups(filteredRunbooks), [filteredRunbooks]);
+  const filteredReports = useMemo(
+    () => filterReportCatalog(reports, runbookScope, runId, workspaceId, reportQuery),
+    [reportQuery, reports, runId, runbookScope, workspaceId]
+  );
+  const groupedReports = useMemo(() => reportCatalogGroups(filteredReports), [filteredReports]);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = featureAvailability.memory && selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = memoryCatalogUpdateKey(filteredNodes);
   const runbookUpdateKey = filteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}`).join('|');
+  const reportUpdateKey = filteredReports.map((report) => `${report.id}:${report.updatedAt}`).join('|');
   const hasSessionMetadata = Boolean(detail);
-  const hasSessionResources = featureAvailability.runbooks || featureAvailability.collaboration;
+  const hasSessionResources = featureAvailability.runbooks || featureAvailability.reports || featureAvailability.collaboration;
   const hasSessionMemories = featureAvailability.memory;
 
   useEffect(() => {
@@ -354,12 +402,16 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   useEffect(() => {
     if (!featureAvailability.runbooks && selectedRunbookId) onBackToRunbooks();
+    if (!featureAvailability.reports && selectedReportId) onBackToReports();
     if (!subagentsAvailable && selectedSubagentPath) onBackToSubagents();
   }, [
     featureAvailability.runbooks,
+    featureAvailability.reports,
     onBackToRunbooks,
+    onBackToReports,
     onBackToSubagents,
     selectedRunbookId,
+    selectedReportId,
     selectedSubagentPath,
     subagentsAvailable
   ]);
@@ -413,6 +465,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
+              {featureAvailability.reports ? (
+                <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
+                  <FileText size={15} aria-hidden="true" />
+                  <span>{workspaceReports.length} Reports</span>
+                  <span className="session-summary-meta">{workspaceReportRevisions} Revisions</span>
+                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                </button>
+              ) : null}
               {featureAvailability.memory ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
                   <Database size={15} aria-hidden="true" />
@@ -442,6 +502,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <BookOpen size={15} aria-hidden="true" />
                 <span>{sessionRunbooks} {runbookLabel}</span>
                 <span className="session-summary-meta">{sessionRunbookRevisions} Revisions</span>
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+            {featureAvailability.reports ? (
+              <button type="button" className="session-summary-item" onClick={() => openDetails('reports')}>
+                <FileText size={15} aria-hidden="true" />
+                <span>{sessionReports.length} Reports</span>
+                <span className="session-summary-meta">{sessionReportRevisions} Revisions</span>
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
@@ -479,25 +547,27 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   if (!activeView) {
     return (
       <aside className="main-session-side memory-catalog view-empty" aria-label={`${viewSpaceLabel} details`}>
-        <ResearchSideViewChooser viewSpaceLabel={viewSpaceLabel} views={enabledViews} labels={{ memory: memoriesLabel, runbooks: runbookLabel }} onOpen={openDetails} />
+        <ResearchSideViewChooser viewSpaceLabel={viewSpaceLabel} views={enabledViews} labels={{ memory: memoriesLabel, runbooks: runbookLabel, reports: reportLabel }} onOpen={openDetails} />
       </aside>
     );
   }
 
   return (
     <>
-      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
+      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || visibleSelectedReportId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
         {visibleSelectedSubagentPath ? (
           <ResearchSideNestedHeader label="Subagents" name={selectedSubagentName} onBack={onBackToSubagents} />
         ) : visibleSelectedRunbookId ? (
           <ResearchSideNestedHeader label={runbookLabel} name={selectedRunbookName} onBack={onBackToRunbooks} />
+        ) : visibleSelectedReportId ? (
+          <ResearchSideNestedHeader label={reportLabel} name={selectedReportName} onBack={onBackToReports} />
         ) : selectedNode ? (
           <ResearchSideNestedHeader label={memoriesLabel} name={selectedNode.title} onBack={() => setSelectedNodeId(null)} />
         ) : (
           <ResearchSideViewTabs
             activeView={activeView}
             enabledViews={enabledViews}
-            labels={{ memory: memoriesLabel, runbooks: runbookLabel }}
+            labels={{ memory: memoriesLabel, runbooks: runbookLabel, reports: reportLabel }}
             openViews={visibleNavigation.openViews}
             viewSpaceLabel={viewSpaceLabel}
             onActivate={activateDetails}
@@ -519,12 +589,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 }))}
                 onChange={(value) => setScope(value as MemoryLevelFilter)}
               />
-            ) : activeView === 'runbooks' ? (
+            ) : activeView === 'runbooks' || activeView === 'reports' ? (
               <FloatingTextPicker
                 className="memory-catalog-filter memory-catalog-level-filter research-side-runbook-scope"
                 value={runbookScope}
-                title="Runbook scope filter"
-                ariaLabel="Runbook scope filter"
+                title={`${activeView === 'reports' ? 'Report' : 'Runbook'} scope filter`}
+                ariaLabel={`${activeView === 'reports' ? 'Report' : 'Runbook'} scope filter`}
                 options={runbookScopeFiltersForViewSpace(viewSpace).map((filter) => ({
                   value: filter,
                   label: researchViewSpaceLabel(filter)
@@ -590,6 +660,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           </div>
         ) : visibleSelectedRunbookId ? (
           <div className="memory-catalog-empty">Loading runbook.</div>
+        ) : visibleSelectedReport ? (
+          <div className="research-side-nested-content runbook-detail-content">
+            <ReportView
+              document={selectedReportDocument}
+              error={reportError}
+              loading={reportLoading}
+              report={visibleSelectedReport}
+            />
+          </div>
+        ) : visibleSelectedReportId ? (
+          <div className="memory-catalog-empty">Loading report.</div>
         ) : selectedNode ? (
           <MainSideScrollRegion
             className="research-side-nested-content memory-detail-content"
@@ -679,6 +760,24 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               />
             </MainSideScrollRegion>
           </>
+        ) : activeView === 'reports' ? (
+          <>
+            <CatalogSearch value={reportQuery} placeholder="Find a Report" ariaLabel="Search reports" onChange={setReportQuery} />
+            <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list report-catalog-list" stickToStart updateKey={reportUpdateKey}>
+              <ReportCatalogSection
+                label="Complete"
+                reports={groupedReports.complete}
+                selectedReportId={selectedReportId}
+                onOpen={onOpenReport}
+              />
+              <ReportCatalogSection
+                label="Stale"
+                reports={groupedReports.stale}
+                selectedReportId={selectedReportId}
+                onOpen={onOpenReport}
+              />
+            </MainSideScrollRegion>
+          </>
         ) : (
           <>
             <CatalogSearch value={subagentQuery} placeholder="Find a Subagent" ariaLabel="Search subagents" onChange={setSubagentQuery} />
@@ -732,6 +831,24 @@ export function filterRunbookCatalog(
       runbook.sessionId ?? '',
       runbook.artifactId
     ].join('\n').toLocaleLowerCase().includes(normalizedQuery);
+  });
+}
+
+export function filterReportCatalog(
+  reports: readonly HoneycrispReportSummary[],
+  scope: RunbookScopeFilter,
+  sessionId: string,
+  workspaceId: string | null,
+  query = ''
+): HoneycrispReportSummary[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return reports.filter((report) => {
+    const inScope = scope === 'session'
+      ? report.sessionId === sessionId
+      : workspaceId !== null && report.workspaceId === workspaceId;
+    if (!inScope || !normalizedQuery) return inScope;
+    return [report.id, report.title, report.summary, report.status, report.workspaceName, report.subjectName ?? '']
+      .join('\n').toLocaleLowerCase().includes(normalizedQuery);
   });
 }
 
@@ -919,7 +1036,7 @@ function researchSideViewLabel(
   view: ResearchSideView,
   labels?: Partial<Record<ResearchSideView, string>>
 ): string {
-  return labels?.[view] ?? (view === 'memory' ? 'Memories' : view === 'runbooks' ? 'Runbooks' : 'Subagents');
+  return labels?.[view] ?? (view === 'memory' ? 'Memories' : view === 'runbooks' ? 'Runbooks' : view === 'reports' ? 'Reports' : 'Subagents');
 }
 
 interface CatalogMemoryTypeOption {
@@ -995,6 +1112,7 @@ function unknownProfileValueLabel(kind: string, id: string): string {
 function researchSideViewIcon(view: ResearchSideView, size: number): JSX.Element {
   if (view === 'memory') return <Database size={size} aria-hidden="true" />;
   if (view === 'runbooks') return <BookOpen size={size} aria-hidden="true" />;
+  if (view === 'reports') return <FileText size={size} aria-hidden="true" />;
   return <Bot size={size} aria-hidden="true" />;
 }
 
@@ -1055,6 +1173,53 @@ function RunbookCatalogSection({
           <p className="runbook-catalog-empty">
             {label === 'Active' ? 'No active runbooks right now.' : 'No archived runbooks yet.'}
           </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function ReportCatalogItem({ report, selected, onOpen }: {
+  report: HoneycrispReportSummary;
+  selected: boolean;
+  onOpen: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`runbook-catalog-item report-catalog-item report-status-${stateClass(report.status)} ${selected ? 'selected' : ''}`}
+      aria-pressed={selected}
+      onClick={onOpen}
+    >
+      <span className="runbook-catalog-heading">
+        <span className="runbook-catalog-primary">
+          <FileText className="runbook-catalog-icon" size={16} aria-hidden="true" />
+          <span className="runbook-catalog-name">{report.title}</span>
+        </span>
+        <span className="runbook-catalog-heading-trailing">
+          <span className="runbook-catalog-status">{traceLabel(report.status)}</span>
+          <time dateTime={report.updatedAt} title={formatSessionDateTime(report.updatedAt)}>{formatSessionDateTime(report.updatedAt)}</time>
+        </span>
+      </span>
+      {report.summary ? <span className="runbook-catalog-purpose">{runbookDescriptionText(report.summary)}</span> : null}
+    </button>
+  );
+}
+
+function ReportCatalogSection({ reports, label, selectedReportId, onOpen }: {
+  reports: readonly HoneycrispReportSummary[];
+  label: 'Complete' | 'Stale';
+  selectedReportId: string | null;
+  onOpen: (reportId: string) => void;
+}): JSX.Element {
+  return (
+    <section className="runbook-catalog-section report-catalog-section" aria-label={`${reports.length} ${label}`}>
+      <h3>{reports.length} {label}</h3>
+      <div className={`runbook-catalog-items ${reports.length === 0 ? 'is-empty' : ''}`}>
+        {reports.length > 0 ? reports.map((report) => (
+          <ReportCatalogItem key={report.id} report={report} selected={selectedReportId === report.id} onOpen={() => onOpen(report.id)} />
+        )) : (
+          <p className="runbook-catalog-empty">{label === 'Complete' ? 'No complete reports yet.' : 'No stale reports yet.'}</p>
         )}
       </div>
     </section>

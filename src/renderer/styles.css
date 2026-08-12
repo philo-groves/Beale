@@ -1936,6 +1936,21 @@ body.is-resizing-research-side .main-session-grid {
   opacity: 0.58;
 }
 
+.report-markdown-content {
+  padding: 0 18px 22px;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.report-markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.report-markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
 .workspace-understanding-scroll {
   width: 100%;
   height: 100%;

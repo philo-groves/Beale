@@ -2,12 +2,13 @@ import { createElement } from 'react';
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
+import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
 import {
   ResearchSidePanel,
   ResearchSideViewTabs,
   MemoryCatalogSection,
   RunbookCatalogItem,
+  ReportCatalogItem,
   DEFAULT_MEMORY_LEVEL_FILTER,
   DEFAULT_RUNBOOK_SCOPE_FILTER,
   DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER,
@@ -26,6 +27,7 @@ import {
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from '../src/renderer/view-models/researchProfileFeatures';
 import { runbookCatalogGroups } from '../src/renderer/view-models/runbooks';
+import { reportCatalogGroups } from '../src/renderer/view-models/reports';
 import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer memory catalog', () => {
@@ -93,6 +95,16 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('memory-catalog-status');
   });
 
+  it('groups Complete and Stale reports newest-first and renders report catalog rows', () => {
+    const complete = report({ id: 'report_complete', title: 'A readable result', status: 'complete', updatedAt: '2026-07-20T12:00:00.000Z' });
+    const stale = report({ id: 'report_stale', title: 'Old result', status: 'stale', updatedAt: '2026-07-19T12:00:00.000Z' });
+    expect(reportCatalogGroups([stale, complete])).toEqual({ complete: [complete], stale: [stale] });
+    const html = renderToStaticMarkup(createElement(ReportCatalogItem, { report: complete, selected: false, onOpen: () => undefined }));
+    expect(html).toContain('A readable result');
+    expect(html).toContain('Complete');
+    expect(html).toContain('A short report summary.');
+  });
+
   it('opens, activates, and closes detailed side views without losing neighboring tabs', () => {
     let state: ResearchSideNavigationState = { openViews: [], activeView: null };
     state = researchSideNavigationReducer(state, { type: 'open', view: 'memory' });
@@ -107,7 +119,7 @@ describe('renderer memory catalog', () => {
 
     state = researchSideNavigationReducer(state, { type: 'close', view: 'runbooks' });
     expect(state).toEqual({ openViews: ['memory', 'subagents'], activeView: 'subagents' });
-    expect(availableResearchSideViews(state.openViews)).toEqual(['runbooks']);
+    expect(availableResearchSideViews(state.openViews)).toEqual(['runbooks', 'reports']);
 
     state = researchSideNavigationReducer(state, { type: 'close', view: 'subagents' });
     state = researchSideNavigationReducer(state, { type: 'close', view: 'memory' });
@@ -124,21 +136,23 @@ describe('renderer memory catalog', () => {
     const runbooksOnly = researchProfileWithFeatures({
       memoryEnabled: false,
       runbooksEnabled: true,
+      reportsEnabled: false,
       collaborationEnabled: false
     });
 
-    expect(researchSideViewsForProfile(null)).toEqual(['memory', 'runbooks', 'subagents']);
-    expect(researchProfileFeatureAvailability(null)).toEqual({ memory: true, runbooks: true, collaboration: true });
+    expect(researchSideViewsForProfile(null)).toEqual(['memory', 'runbooks', 'reports', 'subagents']);
+    expect(researchProfileFeatureAvailability(null)).toEqual({ memory: true, runbooks: true, reports: true, collaboration: true });
     expect(researchSideViewsForProfile(runbooksOnly)).toEqual(['runbooks']);
     expect(hasResearchProfileDetailFeatures(runbooksOnly)).toBe(true);
     expect(hasResearchProfileDetailFeatures(researchProfileWithFeatures({
       memoryEnabled: false,
       runbooksEnabled: false,
+      reportsEnabled: false,
       collaborationEnabled: false
     }))).toBe(false);
     expect(availableResearchSideViews([], ['runbooks'])).toEqual(['runbooks']);
     expect(restrictResearchSideNavigation({
-      openViews: ['memory', 'runbooks', 'subagents'],
+        openViews: ['memory', 'runbooks', 'reports', 'subagents'],
       activeView: 'subagents'
     }, ['runbooks'])).toEqual({
       openViews: ['runbooks'],
@@ -149,7 +163,7 @@ describe('renderer memory catalog', () => {
   it('renders icon-and-close tabs and hides the add-view button when every view is open', () => {
     const html = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
       activeView: 'subagents',
-      openViews: ['memory', 'runbooks', 'subagents'],
+      openViews: ['memory', 'runbooks', 'reports', 'subagents'],
       onActivate: () => undefined,
       onClose: () => undefined,
       onOpen: () => undefined
@@ -158,9 +172,11 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain('lucide-database');
     expect(html).toContain('lucide-book-open');
+    expect(html).toContain('lucide-file-text');
     expect(html).toContain('lucide-bot');
     expect(html).toContain('aria-label="Close Memories"');
     expect(html).toContain('aria-label="Close Runbooks"');
+    expect(html).toContain('aria-label="Close Reports"');
     expect(html).toContain('aria-label="Close Subagents"');
     expect(html).not.toContain('aria-label="Add session detail view"');
   });
@@ -361,7 +377,9 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>0 Subagents</span>');
     expect(html).not.toContain('0 Active');
     expect(html).not.toContain('0 Completed');
-    expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
+    expect(html.match(/session-summary-chevron/g)).toHaveLength(4);
+    expect(html).toContain('<span>0 Reports</span>');
+    expect(html).toContain('class="session-summary-meta">0 Revisions</span>');
     expect(html).not.toContain('aria-label="Search memory"');
     const firstDividerIndex = html.indexOf('class="session-summary-divider"');
     const secondDividerIndex = html.indexOf('class="session-summary-divider"', firstDividerIndex + 1);
@@ -420,7 +438,8 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>2 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">7 Revisions</span>');
     expect(html).toContain('<span>2 Memories</span>');
-    expect(html.match(/session-summary-chevron/g)).toHaveLength(2);
+    expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
+    expect(html).toContain('<span>0 Reports</span>');
     expect(html).not.toContain('<span>Subagents</span>');
     expect(html).not.toContain('<span>1 Subagents</span>');
     expect(html).not.toContain('Session duration');
@@ -476,6 +495,7 @@ describe('renderer memory catalog', () => {
     const disabledProfile = researchProfileWithFeatures({
       memoryEnabled: false,
       runbooksEnabled: false,
+      reportsEnabled: false,
       collaborationEnabled: false
     });
     const summaryHtml = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
@@ -486,6 +506,7 @@ describe('renderer memory catalog', () => {
     expect(summaryHtml).toContain('60k Tokens');
     expect(summaryHtml).not.toContain('<span>0 Memories</span>');
     expect(summaryHtml).not.toContain('<span>0 Runbooks</span>');
+    expect(summaryHtml).not.toContain('<span>0 Reports</span>');
     expect(summaryHtml).not.toContain('<span>0 Subagents</span>');
     expect(summaryHtml).not.toContain('session-summary-chevron');
 
@@ -494,6 +515,7 @@ describe('renderer memory catalog', () => {
       researchProfile: researchProfileWithFeatures({
         memoryEnabled: false,
         runbooksEnabled: true,
+        reportsEnabled: false,
         collaborationEnabled: false
       }),
       selectedSubagentPath: '/root/legacy_subagent'
@@ -550,6 +572,21 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('Open session detail views');
     expect(html).not.toContain('Add session detail view');
     expect(html).not.toContain('Back to Main');
+  });
+
+  it('replaces detail tabs with Back to Reports and renders full Markdown content', () => {
+    const selectedReport = report({ title: 'A shareable breakthrough', revision: 2 });
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      selectedReport,
+      selectedReportDocument: { reportId: selectedReport.id, content: '# A shareable breakthrough\n\nHere is the plain-language result.' },
+      selectedReportId: selectedReport.id
+    })));
+
+    expect(html).toContain('Back to Reports');
+    expect(html).toContain('A shareable breakthrough');
+    expect(html).toContain('Here is the plain-language result.');
+    expect(html).toContain('Revision 2');
+    expect(html).not.toContain('Open session detail views');
   });
 
   it('filters across context identities, types, node text, tags, and references', () => {
@@ -778,6 +815,25 @@ function runbook(overrides: Partial<HoneycrispRunbookSummary> = {}): HoneycrispR
     purpose: 'Runbook purpose',
     status: 'active',
     artifactId: 'artifact_one',
+    revision: 1,
+    createdAt: '2026-07-19T12:00:00.000Z',
+    updatedAt: '2026-07-19T12:00:00.000Z',
+    ...overrides
+  };
+}
+
+function report(overrides: Partial<HoneycrispReportSummary> = {}): HoneycrispReportSummary {
+  return {
+    id: 'report_one',
+    workspaceId: 'workspace_zsh',
+    workspaceName: 'Zsh',
+    subjectId: 'subject_apple',
+    subjectName: 'Apple',
+    sessionId: 'run_current',
+    title: 'Report title',
+    summary: 'A short report summary.',
+    status: 'complete',
+    artifactId: 'report_one',
     revision: 1,
     createdAt: '2026-07-19T12:00:00.000Z',
     updatedAt: '2026-07-19T12:00:00.000Z',

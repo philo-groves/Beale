@@ -3648,6 +3648,15 @@ export class WorkspaceDatabase {
     return row ? text(row, 'relative_path') : null;
   }
 
+  public getHoneycrispReportRelativePath(reportId: string): string | null {
+    const table = rowOrUndefined(this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'honeycrisp_reports'").get());
+    if (!table) return null;
+    const row = rowOrUndefined(
+      this.db.prepare('SELECT relative_path FROM honeycrisp_reports WHERE id = ? AND workspace_id = ?').get(reportId, this.workspaceId)
+    );
+    return row ? text(row, 'relative_path') : null;
+  }
+
   public getLastWorkspaceBackup(): WorkspaceExportResult | null {
     const value = this.getMetaValue('last_workspace_backup_json');
     if (!value) return null;

@@ -167,6 +167,7 @@ export function honeycrispToolTraceSubtext(event: TraceEventRecord, detail: RunD
     return [memoryType ? traceLabel(memoryType) : null, memoryId, status ? traceLabel(status) : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
   if (toolName === 'runbook.list') return stringRecordValue(inputs, 'query') ?? 'All workspace runbooks';
+  if (toolName === 'report.list') return stringRecordValue(inputs, 'query') ?? 'All workspace reports';
   if (toolName === 'runbook.get') return stringRecordValue(inputs, 'id') ?? '';
   if (toolName === 'runbook.create') {
     const result = tracePayloadRecord(payload, 'result');

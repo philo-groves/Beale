@@ -18,6 +18,7 @@ import type {
   HoneycrispMemoryNodeProvenanceSummary,
   HoneycrispMemoryNodeSummary,
   HoneycrispRunbookSummary,
+  HoneycrispReportSummary,
   HoneycrispMemorySummary,
   ResearchProfileSnapshot
 } from '@shared/types';
@@ -88,6 +89,7 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
     const edges = tableExists(database, 'memory_edges') ? readEdges(database, visibleNodeIds) : [];
     const evidenceRefCount = nodes.reduce((count, node) => count + node.evidenceRefs.length, 0);
     const runbooks = tableExists(database, 'honeycrisp_runbooks') ? readRunbooks(database, workspaceId) : [];
+    const reports = tableExists(database, 'honeycrisp_reports') ? readReports(database, workspaceId) : [];
     return {
       ...base,
       source: 'honeycrisp_sqlite',
@@ -98,6 +100,7 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       evidenceRefCount,
       storageArtifactCount: storageArtifactCount(artifactDirectoryPath),
       runbookCount: runbooks.length,
+      reportCount: reports.length,
       latestNodeUpdatedAt: nodes[0]?.updatedAt ?? null,
       nodeTypeCounts: groupedNodeCounts(nodes, (node) => node.type),
       nodeStatusCounts: groupedNodeCounts(nodes, (node) => node.status),
@@ -105,6 +108,7 @@ export function getHoneycrispMemorySummary(options: HoneycrispMemorySummaryOptio
       nodes,
       edges,
       runbooks,
+      reports,
       dreaming: getMemoryDreamingSummary(database, workspaceId)
     };
   } catch (error) {
@@ -142,6 +146,7 @@ function emptySummary(
     evidenceRefCount: 0,
     storageArtifactCount: 0,
     runbookCount: 0,
+    reportCount: 0,
     latestNodeUpdatedAt: null,
     nodeTypeCounts: {},
     nodeStatusCounts: {},
@@ -149,6 +154,7 @@ function emptySummary(
     nodes: [],
     edges: [],
     runbooks: [],
+    reports: [],
     dreaming: emptyMemoryDreamingSummary(),
     directories: [artifactDirectorySummary(artifactDirectoryPath)],
     lastError: null
@@ -238,6 +244,26 @@ function readNodes(
   return nodes.filter((node) => node.provenance.catalogHash === null
     ? activeCatalog?.preservesLegacyNodeIds === true
     : node.provenance.activeCatalog);
+}
+
+function readReports(database: DatabaseSync, workspaceId: string): HoneycrispReportSummary[] {
+  return (database
+    .prepare('SELECT * FROM honeycrisp_reports WHERE workspace_id = ? ORDER BY updated_at ASC, id')
+    .all(workspaceId) as SqlRow[]).map((row) => ({
+    id: requiredString(row.id),
+    workspaceId: requiredString(row.workspace_id),
+    workspaceName: requiredString(row.workspace_name),
+    subjectId: optionalString(row.subject_id),
+    subjectName: optionalString(row.subject_name),
+    sessionId: optionalString(row.session_id),
+    title: requiredString(row.title),
+    summary: requiredString(row.summary),
+    status: requiredReportStatus(row.status),
+    artifactId: requiredString(row.artifact_id),
+    revision: requiredNumber(row.revision),
+    createdAt: requiredString(row.created_at),
+    updatedAt: requiredString(row.updated_at)
+  }));
 }
 
 function groupedWorkspaceMemberships(
@@ -555,6 +581,11 @@ function fallbackMemorySubjectId(workspaceId: string): string {
 function requiredRunbookStatus(value: unknown): HoneycrispRunbookSummary['status'] {
   if (value === 'draft' || value === 'active' || value === 'completed' || value === 'archived') return value;
   throw new Error('Expected a Honeycrisp runbook status.');
+}
+
+function requiredReportStatus(value: unknown): HoneycrispReportSummary['status'] {
+  if (value === 'complete' || value === 'stale') return value;
+  throw new Error('Expected a Honeycrisp report status.');
 }
 
 function stableJson(value: unknown): string {

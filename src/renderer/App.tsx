@@ -9,6 +9,7 @@ import type {
   ProviderModelDefaults,
   ShellOptions,
   HoneycrispRunbookDocument,
+  HoneycrispReportDocument,
   NativeMenuAction,
   NotificationRecord,
   OpenAiOAuthStartResult,
@@ -114,10 +115,14 @@ export function App(): JSX.Element {
   const [visibleTraceCategories, setVisibleTraceCategories] = useState<TraceCategoryId[]>(DEFAULT_TRACE_CATEGORY_IDS);
   const [selectedSubagentPath, setSelectedSubagentPath] = useState<string | null>(null);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [rightSidenavExpanded, setRightSidenavExpanded] = useState(false);
   const [selectedRunbookDocument, setSelectedRunbookDocument] = useState<HoneycrispRunbookDocument | null>(null);
   const [runbookLoading, setRunbookLoading] = useState(false);
   const [runbookError, setRunbookError] = useState<string | null>(null);
+  const [selectedReportDocument, setSelectedReportDocument] = useState<HoneycrispReportDocument | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [memoryDreamingInProgress, setMemoryDreamingInProgress] = useState(false);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
@@ -308,7 +313,19 @@ export function App(): JSX.Element {
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
     setRightSidenavExpanded(true);
     setSelectedSubagentPath(null);
+    setSelectedReportId(null);
+    setSelectedReportDocument(null);
+    setReportError(null);
     setSelectedRunbookId(runbookId);
+  }, []);
+
+  const openHoneycrispReport = useCallback((reportId: string): void => {
+    setRightSidenavExpanded(true);
+    setSelectedSubagentPath(null);
+    setSelectedRunbookId(null);
+    setSelectedRunbookDocument(null);
+    setRunbookError(null);
+    setSelectedReportId(reportId);
   }, []);
 
   const selectSubagent = useCallback((path: string): void => {
@@ -316,6 +333,9 @@ export function App(): JSX.Element {
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
+    setSelectedReportId(null);
+    setSelectedReportDocument(null);
+    setReportError(null);
     setSelectedSubagentPath(path);
   }, []);
 
@@ -323,6 +343,12 @@ export function App(): JSX.Element {
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
+  }, []);
+
+  const backToReports = useCallback((): void => {
+    setSelectedReportId(null);
+    setSelectedReportDocument(null);
+    setReportError(null);
   }, []);
 
   const backToSubagents = useCallback((): void => {
@@ -533,7 +559,7 @@ export function App(): JSX.Element {
   const researchDetailsAvailable = (selectedRunId ? activeRunDetail !== null : snapshot !== null)
     && (selectedRunId
       ? hasResearchProfileDetailFeatures(activeResearchProfile)
-      : activeResearchFeatures.memory || activeResearchFeatures.runbooks);
+      : activeResearchFeatures.memory || activeResearchFeatures.runbooks || activeResearchFeatures.reports);
 
   const setActiveResearchProfile = useCallback(async (profileId: ResearchProfileId): Promise<void> => {
     setBusy(true);
@@ -607,6 +633,10 @@ export function App(): JSX.Element {
     () => researchPanelMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
     [researchPanelMemory?.runbooks, selectedRunbookId]
   );
+  const selectedReport = useMemo(
+    () => researchPanelMemory?.reports.find((report) => report.id === selectedReportId) ?? null,
+    [researchPanelMemory?.reports, selectedReportId]
+  );
   useEffect(() => {
     if (!selectedRunbookId || !researchPanelMemory || selectedRunbook) return;
     setSelectedRunbookId(null);
@@ -637,6 +667,34 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, [selectedRunbook?.revision, selectedRunbookId]);
+  useEffect(() => {
+    if (!selectedReportId || !researchPanelMemory || selectedReport) return;
+    setSelectedReportId(null);
+    setSelectedReportDocument(null);
+    setReportError(null);
+  }, [researchPanelMemory, selectedReport, selectedReportId]);
+  useEffect(() => {
+    if (!selectedReportId) {
+      setReportLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setReportLoading(true);
+    setReportError(null);
+    setSelectedReportDocument(null);
+    void window.beale.getHoneycrispReport(selectedReportId)
+      .then((document) => {
+        if (cancelled || document.reportId !== selectedReportId) return;
+        setSelectedReportDocument(document);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setReportError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setReportLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedReport?.revision, selectedReportId]);
 
   const activeTraceEvents = useMemo(
     () => (activeRunDetail ? devInstrumentation.time('trace.buildDisplayEvents.active', () => buildTraceDisplayEvents(activeRunDetail), runDetailMetricDetail(activeRunDetail)) : []),
@@ -851,6 +909,11 @@ export function App(): JSX.Element {
               selectedRunbookDocument={selectedRunbookDocument}
               runbookLoading={runbookLoading}
               runbookError={runbookError}
+              selectedReportId={selectedReportId}
+              selectedReport={selectedReport}
+              selectedReportDocument={selectedReportDocument}
+              reportLoading={reportLoading}
+              reportError={reportError}
               selectedSubagentPath={selectedSubagentPath}
               selectedTraceEventId={selectedTraceEventId}
               searchHighlightQuery={traceSearchHighlightQuery}
@@ -864,6 +927,8 @@ export function App(): JSX.Element {
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}
               onBackToRunbooks={backToRunbooks}
+              onOpenHoneycrispReport={openHoneycrispReport}
+              onBackToReports={backToReports}
               onBackToSubagents={backToSubagents}
               onSelectTraceEvent={selectTraceEvent}
               onSelectSubagent={selectSubagent}

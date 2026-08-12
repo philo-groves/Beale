@@ -53,6 +53,7 @@ describe('Honeycrisp memory summary', () => {
       CREATE TABLE memory_edges (from_id TEXT NOT NULL, to_id TEXT NOT NULL, relation TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(from_id, to_id, relation));
       CREATE TABLE memory_evidence_refs (id TEXT PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL, path_base TEXT, path TEXT, locator_json TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE honeycrisp_runbooks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, session_id TEXT, title TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, artifact_id TEXT NOT NULL, relative_path TEXT NOT NULL, content_hash TEXT NOT NULL, size_bytes INTEGER NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE honeycrisp_reports (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_name TEXT NOT NULL, subject_id TEXT, subject_name TEXT, session_id TEXT, title TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL, artifact_id TEXT NOT NULL, relative_path TEXT NOT NULL, content_hash TEXT NOT NULL, size_bytes INTEGER NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     `);
     const insertNode = db.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     insertNode.run('hypothesis_one', 'subject_apple', 'Apple', 'hypothesis', 'Parser state confusion', 'parser state confusion', 'State may cross requests.', '', 'suspected', 0.6, '{}', '2026-06-25T10:00:00.000Z', '2026-06-25T10:01:00.000Z', 1);
@@ -76,6 +77,8 @@ describe('Honeycrisp memory summary', () => {
     db.prepare('INSERT INTO memory_evidence_refs VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('evidence_hidden', 'other_workspace', 'code', 'repository', 'src/other.ts', '{}', 'Must remain hidden', '2026-06-25T10:05:30.000Z');
     db.prepare('INSERT INTO honeycrisp_runbooks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('runbook_one', 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'run_one', 'Parser reproduction', 'Repeat the parser-state proof.', 'active', 'runbook_one', 'runbooks/workspace_zsh/runbook_one.ipynb', 'sha256:abc', 420, 2, '2026-06-25T10:04:00.000Z', '2026-06-25T10:05:00.000Z');
     db.prepare('INSERT INTO honeycrisp_runbooks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('runbook_other', 'workspace_mdns', 'mDNSResponder', 'subject_apple', 'Apple', 'run_two', 'Other workspace', 'Must remain scoped.', 'active', 'runbook_other', 'runbooks/workspace_mdns/runbook_other.ipynb', 'sha256:def', 420, 1, '2026-06-25T10:04:00.000Z', '2026-06-25T10:06:00.000Z');
+    db.prepare('INSERT INTO honeycrisp_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('report_one', 'workspace_zsh', 'Zsh', 'subject_apple', 'Apple', 'run_one', 'Parser chain', 'A triage-ready explanation.', 'complete', 'report_one', 'reports/workspace_zsh/report_one.md', 'sha256:ghi', 300, 3, '2026-06-25T10:04:00.000Z', '2026-06-25T10:07:00.000Z');
+    db.prepare('INSERT INTO honeycrisp_reports VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('report_other', 'workspace_mdns', 'mDNSResponder', 'subject_apple', 'Apple', 'run_two', 'Other report', 'Must remain scoped.', 'stale', 'report_other', 'reports/workspace_mdns/report_other.md', 'sha256:jkl', 300, 1, '2026-06-25T10:04:00.000Z', '2026-06-25T10:08:00.000Z');
     db.close();
 
     const summary = getHoneycrispMemorySummary({
@@ -94,6 +97,7 @@ describe('Honeycrisp memory summary', () => {
       evidenceRefCount: 2,
       storageArtifactCount: 1,
       runbookCount: 1,
+      reportCount: 1,
       latestNodeUpdatedAt: '2026-06-25T10:05:00.000Z',
       nodeTypeCounts: { hypothesis: 2, primitive: 1, trajectory: 1 },
       nodeStatusCounts: { confirmed: 2, suspected: 2 },
@@ -118,6 +122,9 @@ describe('Honeycrisp memory summary', () => {
     expect(summary.nodes.map((node) => node.id)).not.toContain('other_subject');
     expect(summary.runbooks).toEqual([
       expect.objectContaining({ id: 'runbook_one', title: 'Parser reproduction', status: 'active', revision: 2 })
+    ]);
+    expect(summary.reports).toEqual([
+      expect.objectContaining({ id: 'report_one', title: 'Parser chain', status: 'complete', revision: 3 })
     ]);
 
     const workspaceSummary = getHoneycrispMemorySummary({

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispReportDocument, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -31,6 +31,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedRunbookDocument,
   runbookLoading,
   runbookError,
+  selectedReportId = null,
+  selectedReport = null,
+  selectedReportDocument = null,
+  reportLoading = false,
+  reportError = null,
   selectedSubagentPath,
   selectedTraceEventId,
   searchHighlightQuery,
@@ -44,6 +49,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
   onBackToRunbooks,
+  onOpenHoneycrispReport = () => undefined,
+  onBackToReports = () => undefined,
   onBackToSubagents,
   onSelectTraceEvent,
   onSelectSubagent,
@@ -67,6 +74,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   selectedRunbookDocument: HoneycrispRunbookDocument | null;
   runbookLoading: boolean;
   runbookError: string | null;
+  selectedReportId?: string | null;
+  selectedReport?: HoneycrispReportSummary | null;
+  selectedReportDocument?: HoneycrispReportDocument | null;
+  reportLoading?: boolean;
+  reportError?: string | null;
   selectedSubagentPath: string | null;
   selectedTraceEventId: string | null;
   searchHighlightQuery: string;
@@ -80,6 +92,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
   onBackToRunbooks: () => void;
+  onOpenHoneycrispReport?: (reportId: string) => void;
+  onBackToReports?: () => void;
   onBackToSubagents: () => void;
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   onSelectSubagent: (path: string) => void;
@@ -157,7 +171,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       <div
         className="research-side-resize-handle"
         role="separator"
-        aria-label={selectedRunId ? 'Resize Runbooks, Subagents, and Memories sidebar' : 'Resize Runbooks and Memories sidebar'}
+        aria-label={selectedRunId ? 'Resize Runbooks, Reports, Subagents, and Memories sidebar' : 'Resize Runbooks, Reports, and Memories sidebar'}
         aria-orientation="vertical"
         aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
         aria-valuemax={maximumPanelWidth}
@@ -182,6 +196,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         selectedRunbookId={selectedRunbookId}
         runbookLoading={runbookLoading}
         runbookError={runbookError}
+        selectedReport={selectedReport}
+        selectedReportDocument={selectedReportDocument}
+        selectedReportId={selectedReportId}
+        reportLoading={reportLoading}
+        reportError={reportError}
         selectedSubagentPath={selectedSubagentPath}
         selectedTraceEventId={selectedTraceEventId}
         searchHighlightQuery={searchHighlightQuery}
@@ -189,6 +208,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onSelectSubagent={onSelectSubagent}
         onOpenRunbook={onOpenHoneycrispRunbook}
         onBackToRunbooks={onBackToRunbooks}
+        onOpenReport={onOpenHoneycrispReport}
+        onBackToReports={onBackToReports}
         onBackToSubagents={onBackToSubagents}
         onSelectTraceEvent={onSelectTraceEvent}
         onExpandedChange={onResearchDetailsOpenChange}

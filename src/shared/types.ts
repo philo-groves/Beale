@@ -621,6 +621,27 @@ export interface HoneycrispRunbookDocument {
   cells: HoneycrispRunbookCell[];
 }
 
+export interface HoneycrispReportSummary {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  subjectId: string | null;
+  subjectName: string | null;
+  sessionId: string | null;
+  title: string;
+  summary: string;
+  status: 'complete' | 'stale';
+  artifactId: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HoneycrispReportDocument {
+  reportId: string;
+  content: string;
+}
+
 export type MemoryDreamingAction = 'prune' | 'merge_duplicates' | 'revise' | 'reclassify';
 
 export interface MemoryDreamingChangeSummary {
@@ -679,6 +700,7 @@ export interface HoneycrispMemorySummary {
   evidenceRefCount: number;
   storageArtifactCount: number;
   runbookCount: number;
+  reportCount: number;
   latestNodeUpdatedAt: string | null;
   nodeTypeCounts: Record<string, number>;
   nodeStatusCounts: Record<string, number>;
@@ -686,6 +708,7 @@ export interface HoneycrispMemorySummary {
   nodes: HoneycrispMemoryNodeSummary[];
   edges: HoneycrispMemoryEdgeSummary[];
   runbooks: HoneycrispRunbookSummary[];
+  reports: HoneycrispReportSummary[];
   dreaming: MemoryDreamingSummary;
   directories: HoneycrispMemoryDirectorySummary[];
   lastError: string | null;
@@ -1518,6 +1541,7 @@ export interface BealeApi {
   recordProfilingReport(report: ProfilingReport): Promise<ProfilingState>;
   openHoneycrispMemoryDirectory(name: HoneycrispMemoryDirectorySummary['name']): Promise<void>;
   getHoneycrispRunbook(runbookId: string): Promise<HoneycrispRunbookDocument>;
+  getHoneycrispReport(reportId: string): Promise<HoneycrispReportDocument>;
   runMemoryDreaming(): Promise<WorkspaceSnapshot>;
   restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   getHoneycrispToolingSummary(): Promise<HoneycrispToolingSummary>;
