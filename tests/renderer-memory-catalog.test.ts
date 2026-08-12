@@ -416,7 +416,7 @@ describe('renderer memory catalog', () => {
         contextSubjectId: 'subject_apple',
         nodes: [
           memoryNode({ id: 'workspace_one' }),
-          memoryNode({ id: 'workspace_two', sessionIds: ['run_prior'] }),
+          memoryNode({ id: 'workspace_two', sessionIds: ['run_prior'], type: 'chain', status: 'confirmed' }),
           memoryNode({ id: 'other_workspace', workspaces: [{ id: 'workspace_mdns', name: 'mDNSResponder' }] }),
           memoryNode({ id: 'workspace_stale', status: 'stale' })
         ],
@@ -438,6 +438,9 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>2 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">7 Revisions</span>');
     expect(html).toContain('<span>2 Memories</span>');
+    expect(html).toContain('class="session-memory-type-item"><span>1 Primitive</span><span class="session-summary-meta">1 Suspected</span></div>');
+    expect(html).toContain('class="session-memory-type-item"><span>1 Chain</span><span class="session-summary-meta">1 Confirmed</span></div>');
+    expect(html.match(/session-memory-type-item/g)).toHaveLength(2);
     expect(html.match(/session-summary-chevron/g)).toHaveLength(3);
     expect(html).toContain('<span>0 Reports</span>');
     expect(html).not.toContain('<span>Subagents</span>');
@@ -445,7 +448,6 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('Session duration');
     expect(html).not.toContain('Tokens');
     expect(html).not.toContain('session-summary-metadata');
-    expect(html).not.toContain('session-memory-type-item');
     expect(html).not.toContain('session-summary-divider');
   });
 

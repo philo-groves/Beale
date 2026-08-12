@@ -4,6 +4,7 @@
 
 ### Added
 
+- Workspace Gantt rows now show session results as outlined squares in a dedicated right-side column: green for terminal states without error, red for unexpected failures or app-close recovery interruptions, and red with a black diamond for provider safeguard failures.
 - Workspace activity timelines now show every session-attributed Runbook revision as a blue circle and Report revision as a yellow diamond.
 - Added first-class Reports as revisioned workspace Markdown artifacts. Session and workspace summaries show report and revision totals beneath Runbooks, detailed catalogs separate Complete and Stale reports, and selected reports render their full content in the right sidenav.
 - The workspace dashboard now splits its main area between a workspace-named 12-hour activity Gantt and a centered Dream card. Session bars use pause-aware activity intervals, memory events retain their profile-defined type colors, and workbench migration 17 backfills legacy sessions with conservative intervals.
@@ -14,12 +15,17 @@
 
 ### Changed
 
+- Session activity duration is now tracked per execution attempt. Continuing a terminal session adds a new workspace Gantt row while the completed or errored row and its result remain immutable; migration 19 assigns existing activity intervals to their originating attempts.
+- Workspace Gantt Memory, Runbook, and Report symbols now use a single-pixel separation border without an additional outer halo.
+- Workspace summaries now include workspace-scoped per-type Memory counts and status breakdowns matching session summaries.
+- Detailed Runbook, Report, Subagent, and Memory sidenav catalogs now omit empty result groups and show a single empty state when no results remain.
 - Workspace Gantt timelines now use the latest 12 cumulative hours of session activity, collapse inactive wall-clock gaps, and place their right-aligned legend below the chart without a duplicate activity heading.
 - Workspace Gantt session rows now use regular-weight titles, omit per-session duration totals, and form a contiguous grid rounded only along its outer edges.
 - Post-session next-step suggestions are now stored with their completed session and restored immediately when revisited. Workbench migration 18 adds the durable suggestion record.
 
 ### Fixed
 
+- Session continuation now passes reconstructed fallback context through a private run-local file, preventing Windows `spawn ENAMETOOLONG` failures on long session histories.
 - Subagents left unresolved by a parent session interruption are now reconciled as interrupted after workspace recovery instead of remaining active indefinitely; later intentional pauses still preserve genuinely active subagents.
 - Removed application-level network profiles, destination allowlists, onboarding controls, per-run metadata, and Honeycrisp network vetoes. Beale now delegates network isolation to operator-managed system controls and migrates legacy network-policy columns out of its databases.
 - Session-title provider failures now recover a concise title from the research prompt instead of leaving the session labeled `No Title Yet`.
@@ -39,7 +45,7 @@
 - Memory Dreaming now acknowledges in-progress runs in the workspace dashboard and persists sanitized pre-apply failures so provider, parsing, and validation errors no longer appear as inert clicks.
 - Long-running sessions now commit incremental detail updates without transition starvation, keeping token totals, cache hit rate, and context usage current during sustained agent activity.
 - Honeycrisp sessions now automatically resume from their latest capture after a terminal provider WebSocket error, suppress the transient error as a final response, and cap consecutive host-level continuation attempts at two.
-- Session summary Completed subagent totals now include completed, errored, and interrupted agents, matching the detailed Completed list while retaining Error as a subset count.
+- Session summary Completed subagent totals now include completed, errored, and interrupted agents, matching the detailed Completed list without a redundant Error subset count.
 - Active-session rounded-square window pulses now use a fixed compositor-friendly loop instead of random per-cycle rerolls or research momentum, preventing animation jumps and timing changes as research state updates while remaining hidden when no session is active.
 - macOS now reserves Command-V for native paste into the focused editable field, including repository URLs in New Workspace, while retaining Paste Steering as a separate explicit menu action.
 - Commentary follow-latest scrolling now survives layout-driven tool expansion, collapse, and output resizing while still disengaging for explicit user scrolling.

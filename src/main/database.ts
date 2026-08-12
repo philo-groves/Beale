@@ -45,6 +45,7 @@ import type {
   RunRecord,
   RunRow,
   RunStatus,
+  RunTerminationCause,
   SessionActivityInterval,
   ScopeAsset,
   ScopeAssetInput,
@@ -4151,13 +4152,6 @@ export class WorkspaceDatabase {
 
       this.db
         .prepare(
-          `INSERT INTO session_activity_intervals (id, run_id, started_at, ended_at)
-           VALUES (?, ?, ?, NULL)`
-        )
-        .run(createId('activity'), runId, createdAt);
-
-      this.db
-        .prepare(
           `INSERT INTO attempts (
             id, run_id, parent_attempt_id, status, short_state, seed, strategy_role, vm_context_id,
             cost_json, token_usage_json, started_at, ended_at
@@ -4177,6 +4171,13 @@ export class WorkspaceDatabase {
           createdAt,
           null
         );
+
+      this.db
+        .prepare(
+          `INSERT INTO session_activity_intervals (id, run_id, attempt_id, started_at, ended_at)
+           VALUES (?, ?, ?, ?, NULL)`
+        )
+        .run(createId('activity'), runId, attemptId, createdAt);
 
       if (promptMarkdown && promptTranscriptId) {
         this.db
@@ -4565,15 +4566,18 @@ export class WorkspaceDatabase {
           .prepare('UPDATE session_activity_intervals SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL')
           .run(transitionedAt, runId);
       } else if (previous && previous.status !== 'active' && status === 'active') {
+        const attempt = rowOrUndefined(
+          this.db.prepare('SELECT id FROM attempts WHERE run_id = ? ORDER BY started_at DESC, id DESC LIMIT 1').get(runId)
+        );
         this.db
           .prepare(
-            `INSERT INTO session_activity_intervals (id, run_id, started_at, ended_at)
-             SELECT ?, ?, ?, NULL
+            `INSERT INTO session_activity_intervals (id, run_id, attempt_id, started_at, ended_at)
+             SELECT ?, ?, ?, ?, NULL
              WHERE NOT EXISTS (
                SELECT 1 FROM session_activity_intervals WHERE run_id = ? AND ended_at IS NULL
              )`
           )
-          .run(createId('activity'), runId, transitionedAt, runId);
+          .run(createId('activity'), runId, attempt ? text(attempt, 'id') : null, transitionedAt, runId);
       }
       this.db
         .prepare(
@@ -4594,6 +4598,25 @@ export class WorkspaceDatabase {
     });
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
+  }
+
+  public beginSessionRunActivity(runId: string, attemptId: string): void {
+    const attempt = this.getAttempt(attemptId);
+    if (!attempt || attempt.runId !== runId) {
+      throw new Error(`Attempt ${attemptId} does not belong to run ${runId}.`);
+    }
+    const startedAt = nowIso();
+    this.transaction(() => {
+      this.db
+        .prepare('UPDATE session_activity_intervals SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL')
+        .run(startedAt, runId);
+      this.db
+        .prepare(
+          `INSERT INTO session_activity_intervals (id, run_id, attempt_id, started_at, ended_at)
+           VALUES (?, ?, ?, ?, NULL)`
+        )
+        .run(createId('activity'), runId, attemptId, startedAt);
+    });
   }
 
   public getSessionNextStepSuggestions(runId: string): GeneratedResearchGoalSuggestions | null {
@@ -5191,19 +5214,115 @@ export class WorkspaceDatabase {
         )
         .all(this.workspaceId)
     );
-    const intervalsByRun = new Map<string, SessionActivityInterval[]>();
+    const attemptRows = rows(
+      this.db
+        .prepare(
+          `SELECT attempt.id, attempt.run_id, attempt.status, attempt.started_at
+           FROM attempts attempt
+           JOIN runs r ON r.id = attempt.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?`
+        )
+        .all(this.workspaceId)
+    );
+    const safeguardFailureRows = rows(
+      this.db
+        .prepare(
+          `SELECT DISTINCT trace.run_id, trace.attempt_id
+           FROM trace_events trace
+           JOIN runs r ON r.id = trace.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?
+             AND json_valid(trace.payload_json)
+             AND (
+               (
+                 json_extract(trace.payload_json, '$.recoveryKind') = 'safety_guardrail'
+                 AND json_extract(trace.payload_json, '$.awaitingSteering') = 1
+               )
+               OR (
+                 json_extract(trace.payload_json, '$.honeycrispKind') = 'error.observed'
+                 AND (
+                   instr(lower(COALESCE(json_extract(trace.payload_json, '$.payload.summary'), '')), 'cybersecurity risk') > 0
+                   OR instr(lower(COALESCE(json_extract(trace.payload_json, '$.payload.summary'), '')), 'safety guardrail') > 0
+                   OR instr(lower(COALESCE(json_extract(trace.payload_json, '$.payload.summary'), '')), 'provider safeguard') > 0
+                 )
+               )
+             )`
+        )
+        .all(this.workspaceId)
+    );
+    const recoveryInterruptionRows = rows(
+      this.db
+        .prepare(
+          `SELECT DISTINCT trace.run_id, trace.attempt_id
+           FROM trace_events trace
+           JOIN runs r ON r.id = trace.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?
+             AND (
+               (
+                 json_valid(trace.payload_json)
+                 AND json_extract(trace.payload_json, '$.interruptedByRecovery') = 1
+               )
+               OR trace.summary = 'Workspace recovery paused interrupted run after app restart.'
+             )`
+        )
+        .all(this.workspaceId)
+    );
+    const terminationCauseBySessionRun = new Map<string, RunTerminationCause>();
+    const fallbackTerminationCauseByRun = new Map<string, RunTerminationCause>();
+    for (const row of recoveryInterruptionRows) {
+      const runId = text(row, 'run_id');
+      const attemptId = nullableText(row, 'attempt_id');
+      if (attemptId) terminationCauseBySessionRun.set(`${runId}:${attemptId}`, 'workspace_recovery');
+      else fallbackTerminationCauseByRun.set(runId, 'workspace_recovery');
+    }
+    for (const row of safeguardFailureRows) {
+      const runId = text(row, 'run_id');
+      const attemptId = nullableText(row, 'attempt_id');
+      if (attemptId) terminationCauseBySessionRun.set(`${runId}:${attemptId}`, 'safeguard');
+      else fallbackTerminationCauseByRun.set(runId, 'safeguard');
+    }
+    const attemptById = new Map(attemptRows.map((row) => [text(row, 'id'), row] as const));
+    const intervalsBySessionRun = new Map<string, SessionActivityInterval[]>();
     for (const intervalRow of intervalRows) {
       const interval = this.mapSessionActivityInterval(intervalRow);
-      const runIntervals = intervalsByRun.get(interval.runId) ?? [];
-      runIntervals.push(interval);
-      intervalsByRun.set(interval.runId, runIntervals);
+      const sessionRunId = interval.attemptId ?? `legacy:${interval.runId}`;
+      const key = `${interval.runId}:${sessionRunId}`;
+      const sessionRunIntervals = intervalsBySessionRun.get(key) ?? [];
+      sessionRunIntervals.push(interval);
+      intervalsBySessionRun.set(key, sessionRunIntervals);
     }
     return runRows.map((runRow) => {
       const run = this.mapRun(runRow);
+      const sessionRuns = [...intervalsBySessionRun.entries()]
+        .filter(([key]) => key.startsWith(`${run.id}:`))
+        .map(([key, activityIntervals]) => {
+          const attemptId = activityIntervals[0]?.attemptId ?? null;
+          const attempt = attemptId ? attemptById.get(attemptId) : undefined;
+          return {
+            id: attemptId ?? `legacy:${run.id}`,
+            runId: run.id,
+            attemptId,
+            status: (attempt ? text(attempt, 'status') : run.status) as RunStatus,
+            activityIntervals,
+            terminationCause: terminationCauseBySessionRun.get(key) ?? null
+          };
+        })
+        .sort((left, right) => {
+          const leftStartedAt = left.activityIntervals[0]?.startedAt ?? '';
+          const rightStartedAt = right.activityIntervals[0]?.startedAt ?? '';
+          return leftStartedAt.localeCompare(rightStartedAt) || left.id.localeCompare(right.id);
+        });
+      const fallbackTerminationCause = fallbackTerminationCauseByRun.get(run.id) ?? null;
+      if (fallbackTerminationCause && sessionRuns.length > 0) {
+        const lastSessionRun = sessionRuns.at(-1);
+        if (lastSessionRun && !lastSessionRun.terminationCause) lastSessionRun.terminationCause = fallbackTerminationCause;
+      }
       return {
         run,
         engine: this.runEngineFromBudget(run.budget),
-        activityIntervals: intervalsByRun.get(run.id) ?? []
+        sessionRuns
       };
     });
   }
@@ -8100,6 +8219,29 @@ export class WorkspaceDatabase {
             database.exec('ALTER TABLE runs ADD COLUMN next_step_suggestions_json TEXT;');
           }
         }
+      },
+      {
+        version: 19,
+        name: 'session_run_activity_ownership',
+        up: (database) => {
+          if (!tableHasColumn(database, 'session_activity_intervals', 'attempt_id')) {
+            database.exec('ALTER TABLE session_activity_intervals ADD COLUMN attempt_id TEXT REFERENCES attempts(id) ON DELETE CASCADE;');
+          }
+          database.exec(`
+            UPDATE session_activity_intervals AS interval
+            SET attempt_id = (
+              SELECT attempt.id
+              FROM attempts attempt
+              WHERE attempt.run_id = interval.run_id
+                AND attempt.started_at <= interval.started_at
+              ORDER BY attempt.started_at DESC, attempt.id DESC
+              LIMIT 1
+            )
+            WHERE interval.attempt_id IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_attempt_started
+            ON session_activity_intervals(attempt_id, started_at);
+          `);
+        }
       }
     ]);
   }
@@ -10052,6 +10194,7 @@ export class WorkspaceDatabase {
     return {
       id: text(row, 'id'),
       runId: text(row, 'run_id'),
+      attemptId: nullableText(row, 'attempt_id'),
       startedAt: text(row, 'started_at'),
       endedAt: nullableText(row, 'ended_at')
     };
@@ -10632,12 +10775,16 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS session_activity_intervals (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES attempts(id) ON DELETE CASCADE,
   started_at TEXT NOT NULL,
   ended_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_run_started
 ON session_activity_intervals(run_id, started_at);
+
+CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_attempt_started
+ON session_activity_intervals(attempt_id, started_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_activity_intervals_one_open
 ON session_activity_intervals(run_id) WHERE ended_at IS NULL;

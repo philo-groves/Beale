@@ -1,7 +1,8 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemorySummary, RunRow } from '../src/shared/types';
+import type { HoneycrispMemorySummary, RunRow, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { WorkspaceUnderstandingView } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
@@ -150,6 +151,103 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>Dream</button>');
   });
 
+  it('keeps terminal session runs immutable when the session is continued', () => {
+    const continued = runRow('run_continued', [], { status: 'active' });
+    continued.sessionRuns = [
+      sessionRun('run_continued', 'attempt_failed', [
+        ['2026-08-12T08:00:00.000Z', '2026-08-12T09:00:00.000Z']
+      ], { status: 'failed' }),
+      sessionRun('run_continued', 'attempt_continued', [
+        ['2026-08-12T10:00:00.000Z', null]
+      ], { status: 'active' })
+    ];
+
+    const timeline = buildWorkspaceTimeline(
+      [continued],
+      [],
+      [],
+      [],
+      testResearchProfile().memory.types,
+      NOW
+    );
+    const failed = timeline.rows.find((row) => row.sessionRunId === 'attempt_failed');
+    const active = timeline.rows.find((row) => row.sessionRunId === 'attempt_continued');
+
+    expect(timeline.rows).toHaveLength(2);
+    expect(failed).toMatchObject({ runId: 'run_continued', result: 'unexpected_error', totalDurationMs: 60 * 60 * 1_000 });
+    expect(failed?.segments).toEqual([expect.objectContaining({ endedAt: '2026-08-12T09:00:00.000Z' })]);
+    expect(active).toMatchObject({ runId: 'run_continued', result: null, totalDurationMs: 2 * 60 * 60 * 1_000 });
+  });
+
+  it('renders timeline symbols with a single-pixel border and no outer halo', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const memoryMarkerStyles = styles.match(/\.workspace-timeline-memory-marker\s*\{([^}]*)\}/)?.[1] ?? '';
+    const revisionMarkerStyles = styles.match(/\.workspace-timeline-runbook-marker,\s*\.workspace-timeline-report-marker\s*\{([^}]*)\}/)?.[1] ?? '';
+    const resultMarkerStyles = styles.match(/\.workspace-timeline-result-symbol\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(memoryMarkerStyles).toContain('border: 1px solid');
+    expect(memoryMarkerStyles).not.toContain('box-shadow:');
+    expect(revisionMarkerStyles).toContain('border: 1px solid');
+    expect(revisionMarkerStyles).not.toContain('box-shadow:');
+    expect(resultMarkerStyles).toContain('border: 1px solid');
+    expect(resultMarkerStyles).toContain('border-radius: 0');
+    expect(resultMarkerStyles).not.toContain('box-shadow:');
+  });
+
+  it('records natural, unexpected-error, and safeguard-error session results', () => {
+    const interval: Array<[string, string | null]> = [['2026-08-12T08:00:00.000Z', '2026-08-12T09:00:00.000Z']];
+    const natural = runRow('run_natural', interval, { status: 'completed' });
+    const unexpected = runRow('run_unexpected', interval, { status: 'failed' });
+    const safeguard = runRow('run_safeguard', interval, { status: 'failed', terminationCause: 'safeguard' });
+    const recovered = runRow('run_recovered', interval, { status: 'paused', terminationCause: 'workspace_recovery' });
+    const active = runRow('run_active', [['2026-08-12T09:00:00.000Z', null]]);
+    const timeline = buildWorkspaceTimeline(
+      [natural, unexpected, safeguard, recovered, active],
+      [],
+      [],
+      [],
+      testResearchProfile().memory.types,
+      NOW
+    );
+    const resultByRunId = new Map(timeline.rows.map((row) => [row.runId, row.result]));
+
+    expect(resultByRunId).toEqual(new Map([
+      ['run_active', null],
+      ['run_natural', 'natural_end'],
+      ['run_recovered', 'unexpected_error'],
+      ['run_safeguard', 'safeguard_error'],
+      ['run_unexpected', 'unexpected_error']
+    ]));
+
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchProfile: testResearchProfile(),
+      workspaceName: 'Parser Workspace',
+      runs: [natural, unexpected, safeguard, recovered, active],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('class="workspace-timeline-result-symbol is-natural-end"');
+    expect(html).toContain('class="workspace-timeline-result-symbol is-unexpected-error"');
+    expect(html).toContain('class="workspace-timeline-result-symbol is-safeguard-error"');
+    expect(html).toContain('class="workspace-timeline-legend-row is-session-items"');
+    expect(html).toContain('class="workspace-timeline-legend-row is-session-results"');
+    const sessionItemsRow = html.match(/<div class="workspace-timeline-legend-row is-session-items">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const sessionResultsRow = html.match(/<div class="workspace-timeline-legend-row is-session-results">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    expect(sessionItemsRow).toContain('Work duration');
+    expect(sessionItemsRow).toContain('Report revision');
+    expect(sessionItemsRow).not.toContain('No error');
+    expect(sessionResultsRow).toContain('No error');
+    expect(sessionResultsRow).toContain('Unexpected error');
+    expect(sessionResultsRow).toContain('Safeguard error');
+    expect(html).toContain('>No error</span>');
+    expect(html.indexOf('>No error</span>')).toBeLessThan(html.indexOf('>Unexpected error</span>'));
+    expect(html).toContain('>Safeguard error</span>');
+  });
+
   it('uses the latest 12 cumulative activity hours and collapses wall-clock gaps', () => {
     const timeline = buildWorkspaceTimeline([
       runRow('run_one', [
@@ -218,7 +316,11 @@ describe('workspace dashboard', () => {
 
 function runRow(
   id: string,
-  intervals: Array<[startedAt: string, endedAt: string | null]>
+  intervals: Array<[startedAt: string, endedAt: string | null]>,
+  outcome: {
+    status?: RunRow['run']['status'];
+    terminationCause?: SessionRunActivity['terminationCause'];
+  } = {}
 ): RunRow {
   return {
     run: {
@@ -227,7 +329,7 @@ function runRow(
       researchProfileSnapshotId: null,
       shellSafetyMode: 'auto_review',
       mode: 'dynamic',
-      status: intervals.at(-1)?.[1] === null ? 'active' : 'completed',
+      status: outcome.status ?? (intervals.at(-1)?.[1] === null ? 'active' : 'completed'),
       title: 'Recent session',
       promptMarkdown: '',
       model: 'gpt-5.6-sol',
@@ -244,9 +346,31 @@ function runRow(
       endedAt: intervals.at(-1)?.[1] ?? null
     },
     engine: 'honeycrisp',
+    sessionRuns: intervals.length > 0
+      ? [sessionRun(id, `attempt_${id}`, intervals, outcome)]
+      : []
+  };
+}
+
+function sessionRun(
+  runId: string,
+  attemptId: string,
+  intervals: Array<[startedAt: string, endedAt: string | null]>,
+  outcome: {
+    status?: SessionRunActivity['status'];
+    terminationCause?: SessionRunActivity['terminationCause'];
+  } = {}
+): SessionRunActivity {
+  return {
+    id: attemptId,
+    runId,
+    attemptId,
+    status: outcome.status ?? (intervals.at(-1)?.[1] === null ? 'active' : 'completed'),
+    terminationCause: outcome.terminationCause ?? null,
     activityIntervals: intervals.map(([startedAt, endedAt], index) => ({
-      id: `activity_${index}`,
-      runId: id,
+      id: `activity_${attemptId}_${index}`,
+      runId,
+      attemptId,
       startedAt,
       endedAt
     }))

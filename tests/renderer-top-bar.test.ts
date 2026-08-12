@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HostEnvironment } from '@shared/types';
@@ -6,6 +7,17 @@ import { StatusBar } from '../src/renderer/app/StatusBar';
 import { TopBar } from '../src/renderer/app/TopBar';
 
 describe('renderer top bar', () => {
+  it('uses equal top and bottom padding for header menu and title buttons', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const menuButtonStyles = styles.match(/\.window-menu button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceTitleStyles = styles.match(/\.app-header-workspace-title\s*\{([^}]*)\}/)?.[1] ?? '';
+    const sessionTitleStyles = styles.match(/\.app-header-session-title\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(menuButtonStyles).toContain('padding: 1px 8px');
+    expect(workspaceTitleStyles).toContain('padding: 1px 6px');
+    expect(sessionTitleStyles).toContain('padding: 1px 6px');
+  });
+
   it('keeps only the sidebar control in the macOS window header', () => {
     const html = renderTopBar('darwin');
 

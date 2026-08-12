@@ -743,8 +743,9 @@ code {
   border-color: transparent;
   background: transparent;
   color: var(--muted-strong);
-  padding: 0 8px;
+  padding: 1px 8px;
   font-size: 0.94rem;
+  line-height: 1;
   -webkit-app-region: no-drag;
 }
 
@@ -897,7 +898,7 @@ code {
   border-color: transparent;
   background: transparent;
   color: #dddddd;
-  padding: 3px 6px 1px;
+  padding: 1px 6px;
   font-size: 0.94rem;
   font-weight: 400;
   letter-spacing: 0;
@@ -917,7 +918,7 @@ code {
   border-color: transparent;
   background: transparent;
   color: #9f9f9f;
-  padding: 3px 6px 1px;
+  padding: 1px 6px;
   font-size: 0.94rem;
   font-weight: 400;
   line-height: 1.5;
@@ -1700,14 +1701,19 @@ body.is-resizing-research-side .main-session-grid {
 
 .workspace-timeline-legend {
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px 14px;
+  display: grid;
+  justify-items: end;
+  gap: 6px;
   color: var(--muted);
   font-size: 1rem;
   white-space: nowrap;
+}
+
+.workspace-timeline-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 14px;
 }
 
 .workspace-timeline-legend span {
@@ -1762,7 +1768,7 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-timeline-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(128px, 24%) minmax(0, 1fr);
+  grid-template-columns: minmax(128px, 24%) minmax(0, 1fr) 14px;
   gap: 14px;
 }
 
@@ -1868,7 +1874,6 @@ body.is-resizing-research-side .main-session-grid {
   border: 1px solid rgba(12, 12, 12, 0.8);
   border-radius: 2px;
   background: var(--memory-type-color);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--memory-type-color) 45%, transparent);
   transform: translateX(-50%);
 }
 
@@ -1880,7 +1885,6 @@ body.is-resizing-research-side .main-session-grid {
   top: 8px;
   z-index: 3;
   border: 1px solid rgba(12, 12, 12, 0.85);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .workspace-timeline-runbook-marker {
@@ -1892,6 +1896,43 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-timeline-report-marker {
   background: #e4bf3f;
   transform: translateX(-50%) rotate(45deg);
+}
+
+.workspace-timeline-result {
+  display: grid;
+  place-items: center;
+}
+
+.workspace-timeline-result-symbol {
+  width: 11px;
+  height: 11px;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(12, 12, 12, 0.85);
+  border-radius: 0;
+}
+
+.workspace-timeline-legend .workspace-timeline-result-symbol {
+  display: inline-grid;
+}
+
+.workspace-timeline-result-symbol.is-natural-end {
+  background: #3fa55b;
+}
+
+.workspace-timeline-result-symbol.is-unexpected-error,
+.workspace-timeline-result-symbol.is-safeguard-error {
+  background: #d94b4b;
+}
+
+.workspace-timeline-result-symbol.is-safeguard-error::after {
+  width: 4px;
+  height: 4px;
+  content: '';
+  background: #090909;
+  transform: rotate(45deg);
 }
 
 .workspace-timeline-empty {

@@ -21,7 +21,7 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
-import type { MemoryStatusGroup } from '../../view-models/memoryCatalog';
+import type { MemoryStatusGroup, SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
@@ -311,6 +311,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => activeMemoryCount(workspaceMemoryNodes, memoryProfile?.statuses),
     [memoryProfile?.statuses, workspaceMemoryNodes]
   );
+  const workspaceMemoryTypes = useMemo(
+    () => sessionMemoryTypeSummaries(workspaceMemoryNodes, memoryProfile),
+    [memoryProfile, workspaceMemoryNodes]
+  );
   const workspaceRunbooks = useMemo(
     () => runbooks.filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId),
     [runbooks, workspaceId]
@@ -474,11 +478,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 </button>
               ) : null}
               {featureAvailability.memory ? (
-                <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
-                  <Database size={15} aria-hidden="true" />
-                  <span>{workspaceMemories} {workspaceMemories === 1 ? memoryLabel : memoriesLabel}</span>
-                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-                </button>
+                <>
+                  <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
+                    <Database size={15} aria-hidden="true" />
+                    <span>{workspaceMemories} {workspaceMemories === 1 ? memoryLabel : memoriesLabel}</span>
+                    <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                  </button>
+                  <MemoryTypeSummaryRows summaries={workspaceMemoryTypes} />
+                </>
               ) : null}
             </section>
           </section>
@@ -531,12 +538,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
-              {sessionMemoryTypes.map((memoryType) => (
-                <div className="session-memory-type-item" key={memoryType.type}>
-                  <span>{memoryType.countLabel}</span>
-                  {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
-                </div>
-              ))}
+              <MemoryTypeSummaryRows summaries={sessionMemoryTypes} />
             </section>
           ) : null}
         </section>
@@ -725,7 +727,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             {memory && nodes.length > 0 && filteredNodes.length === 0 ? <div className="memory-catalog-empty">No records match these filters.</div> : null}
             {filteredNodes.length > 0 ? (
               <MainSideScrollRegion listClassName="memory-catalog-list memory-status-groups" stickToStart updateKey={updateKey}>
-                {memoryStatusSections.map((statusSection) => (
+                {memoryStatusSections.filter((statusSection) => statusSection.nodes.length > 0).map((statusSection) => (
                   <MemoryCatalogSection
                     expanded={expandedMemoryGroups.has(statusSection.id)}
                     key={statusSection.id}
@@ -746,36 +748,60 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           <>
             <CatalogSearch value={runbookQuery} placeholder={`Find ${articleForLabel(runbookLabel)} ${singularizePresentationLabel(runbookLabel)}`} ariaLabel={`Search ${runbookLabel.toLocaleLowerCase()}`} onChange={setRunbookQuery} />
             <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list" stickToStart updateKey={runbookUpdateKey}>
-              <RunbookCatalogSection
-                label="Active"
-                runbooks={groupedRunbooks.active}
-                selectedRunbookId={selectedRunbookId}
-                onOpen={onOpenRunbook}
-              />
-              <RunbookCatalogSection
-                label="Archived"
-                runbooks={groupedRunbooks.archived}
-                selectedRunbookId={selectedRunbookId}
-                onOpen={onOpenRunbook}
-              />
+              {filteredRunbooks.length === 0 ? (
+                <p className="runbook-catalog-empty">
+                  {runbookQuery.trim() ? 'No runbooks match this search.' : 'No runbooks yet.'}
+                </p>
+              ) : (
+                <>
+                  {groupedRunbooks.active.length > 0 ? (
+                    <RunbookCatalogSection
+                      label="Active"
+                      runbooks={groupedRunbooks.active}
+                      selectedRunbookId={selectedRunbookId}
+                      onOpen={onOpenRunbook}
+                    />
+                  ) : null}
+                  {groupedRunbooks.archived.length > 0 ? (
+                    <RunbookCatalogSection
+                      label="Archived"
+                      runbooks={groupedRunbooks.archived}
+                      selectedRunbookId={selectedRunbookId}
+                      onOpen={onOpenRunbook}
+                    />
+                  ) : null}
+                </>
+              )}
             </MainSideScrollRegion>
           </>
         ) : activeView === 'reports' ? (
           <>
             <CatalogSearch value={reportQuery} placeholder="Find a Report" ariaLabel="Search reports" onChange={setReportQuery} />
             <MainSideScrollRegion listClassName="memory-catalog-list runbook-catalog-list report-catalog-list" stickToStart updateKey={reportUpdateKey}>
-              <ReportCatalogSection
-                label="Complete"
-                reports={groupedReports.complete}
-                selectedReportId={selectedReportId}
-                onOpen={onOpenReport}
-              />
-              <ReportCatalogSection
-                label="Stale"
-                reports={groupedReports.stale}
-                selectedReportId={selectedReportId}
-                onOpen={onOpenReport}
-              />
+              {filteredReports.length === 0 ? (
+                <p className="runbook-catalog-empty">
+                  {reportQuery.trim() ? 'No reports match this search.' : 'No reports yet.'}
+                </p>
+              ) : (
+                <>
+                  {groupedReports.complete.length > 0 ? (
+                    <ReportCatalogSection
+                      label="Complete"
+                      reports={groupedReports.complete}
+                      selectedReportId={selectedReportId}
+                      onOpen={onOpenReport}
+                    />
+                  ) : null}
+                  {groupedReports.stale.length > 0 ? (
+                    <ReportCatalogSection
+                      label="Stale"
+                      reports={groupedReports.stale}
+                      selectedReportId={selectedReportId}
+                      onOpen={onOpenReport}
+                    />
+                  ) : null}
+                </>
+              )}
             </MainSideScrollRegion>
           </>
         ) : (
@@ -786,18 +812,30 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               stickToStart
               updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
             >
-              <SubagentCatalogSection
-                agents={groupedSubagents.active}
-                label="Active"
-                onSelect={onSelectSubagent}
-                selectedPath={visibleSelectedSubagentPath}
-              />
-              <SubagentCatalogSection
-                agents={groupedSubagents.completed}
-                label="Completed"
-                onSelect={onSelectSubagent}
-                selectedPath={visibleSelectedSubagentPath}
-              />
+              {filteredSubagents.length === 0 ? (
+                <p className="subagent-catalog-empty">
+                  {subagentQuery.trim() ? 'No subagents match this search.' : 'No subagents yet.'}
+                </p>
+              ) : (
+                <>
+                  {groupedSubagents.active.length > 0 ? (
+                    <SubagentCatalogSection
+                      agents={groupedSubagents.active}
+                      label="Active"
+                      onSelect={onSelectSubagent}
+                      selectedPath={visibleSelectedSubagentPath}
+                    />
+                  ) : null}
+                  {groupedSubagents.completed.length > 0 ? (
+                    <SubagentCatalogSection
+                      agents={groupedSubagents.completed}
+                      label="Completed"
+                      onSelect={onSelectSubagent}
+                      selectedPath={visibleSelectedSubagentPath}
+                    />
+                  ) : null}
+                </>
+              )}
             </MainSideScrollRegion>
           </>
         )}
@@ -876,6 +914,21 @@ function CatalogSearch({
         />
       </div>
     </div>
+  );
+}
+
+function MemoryTypeSummaryRows({ summaries }: {
+  summaries: readonly SessionMemoryTypeSummary[];
+}): JSX.Element {
+  return (
+    <>
+      {summaries.map((memoryType) => (
+        <div className="session-memory-type-item" key={memoryType.type}>
+          <span>{memoryType.countLabel}</span>
+          {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
+        </div>
+      ))}
+    </>
   );
 }
 

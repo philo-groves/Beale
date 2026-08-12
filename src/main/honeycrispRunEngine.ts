@@ -414,6 +414,7 @@ export class HoneycrispRunEngine {
         honeycrispWorkspaceRoot: this.workspacePath
       }
     });
+    this.db.beginSessionRunActivity(runId, attempt.id);
     const refreshed = this.db.getRunDetail(runId);
     const vmContext = refreshed.vmContexts.find((candidate) => candidate.id === attempt.vmContextId);
     if (!vmContext) throw new Error(`Continuation VM context not found for run ${runId}.`);
@@ -498,6 +499,9 @@ export class HoneycrispRunEngine {
     const fileStem = continuation ? `${context.run.id}.${context.attempt.id}` : context.run.id;
     const capturePath = join(runDirectory, `${fileStem}.capture.json`);
     const workspaceContextPath = join(runDirectory, `${fileStem}.workspace-context.json`);
+    const resumeFallbackPromptPath = resume?.fallbackPrompt
+      ? join(runDirectory, `${fileStem}.resume-fallback.md`)
+      : undefined;
     const researchProfilePath = researchProfile
       ? join(runDirectory, `${fileStem}.research-profile.json`)
       : null;
@@ -521,6 +525,9 @@ export class HoneycrispRunEngine {
       workflowId,
       this.getResearchSubject?.() ?? null
     );
+    if (resumeFallbackPromptPath && resume) {
+      writeFileSync(resumeFallbackPromptPath, resume.fallbackPrompt, { encoding: 'utf8', mode: 0o600 });
+    }
     const args = [
       ...(invocation.usesNodeRuntime ? [HONEYCRISP_MAX_OLD_SPACE_ARG] : []),
       ...invocation.prefixArgs,
@@ -533,7 +540,7 @@ export class HoneycrispRunEngine {
         this.shellOptionsPath,
         !continuation,
         resume?.resumeCapturePath,
-        resume?.fallbackPrompt,
+        resumeFallbackPromptPath,
         researchProfile && researchProfilePath && workflowId
           ? {
               path: researchProfilePath,
@@ -561,6 +568,7 @@ export class HoneycrispRunEngine {
         workspaceContextPath,
         continuation,
         resumeCapturePath: resume?.resumeCapturePath ?? null,
+        resumeFallbackPromptPath: resumeFallbackPromptPath ? '[run-local-continuation-context]' : null,
         nativeResumeRequested: Boolean(resume?.resumeCapturePath),
         researchProfileSnapshotId: researchProfile?.id ?? null,
         researchProfileId: researchProfile?.profileId ?? null,
@@ -2272,7 +2280,7 @@ function honeycrispRunArgs(
   shellOptionsPath?: string,
   generateTitle = false,
   resumeCapturePath?: string,
-  resumeFallbackPrompt?: string,
+  resumeFallbackPromptPath?: string,
   researchProfile?: HoneycrispResearchProfileLaunch,
   memoryTypeDescriptions?: MemoryTypeDescriptions,
   providerSettings?: ProviderSettings
@@ -2296,8 +2304,8 @@ function honeycrispRunArgs(
   if (resumeCapturePath) {
     args.push('--resume-capture', resumeCapturePath);
   }
-  if (resumeFallbackPrompt) {
-    args.push('--resume-fallback-prompt', resumeFallbackPrompt);
+  if (resumeFallbackPromptPath) {
+    args.push('--resume-fallback-prompt-file', resumeFallbackPromptPath);
   }
   if (input.goalEnabled) {
     args.push('--goal');
@@ -3284,7 +3292,7 @@ function resolveResearchWorkflowId(
 }
 
 function redactHoneycrispArgs(args: string[]): string[] {
-  const sensitiveFlags = new Set(['--config', '-p', '--goal-objective', '--resume-fallback-prompt']);
+  const sensitiveFlags = new Set(['--config', '-p', '--goal-objective', '--resume-fallback-prompt', '--resume-fallback-prompt-file']);
   const profileFlags = new Map([
     ['--resolved-research-profile', '[run-local-profile]'],
     ['--research-profile-hash', '[profile-hash]']

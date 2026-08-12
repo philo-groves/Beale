@@ -7,6 +7,7 @@ import {
   buildWorkspaceTimeline,
   formatWorkspaceTimelineDuration
 } from '../../view-models/workspaceTimeline';
+import type { WorkspaceTimelineResult } from '../../view-models/workspaceTimeline';
 
 const TIMELINE_WINDOW_HOURS = 12;
 const TIMELINE_TICK_HOURS = [0, 3, 6, 9, 12] as const;
@@ -71,10 +72,11 @@ export function WorkspaceUnderstandingView({
                 );
               })}
             </div>
+            <span />
           </div>
           <div className="workspace-timeline-rows">
             {timelineRows.length > 0 ? timelineRows.map((row) => (
-              <div className="workspace-timeline-row" key={row.runId}>
+              <div className="workspace-timeline-row" key={row.sessionRunId}>
                 <div className="workspace-timeline-session-label" title={row.title}>
                   {row.title}
                 </div>
@@ -127,6 +129,9 @@ export function WorkspaceUnderstandingView({
                     />
                   ))}
                 </div>
+                <div className="workspace-timeline-result">
+                  {row.result ? <WorkspaceTimelineResultSymbol result={row.result} /> : null}
+                </div>
               </div>
             )) : (
               <div className="workspace-timeline-empty">No session activity recorded.</div>
@@ -134,10 +139,17 @@ export function WorkspaceUnderstandingView({
           </div>
         </div>
         <div className="workspace-timeline-legend" aria-label="Timeline legend">
-          <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
-          <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
-          <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
-          <span><i className="workspace-timeline-report-swatch" />Report revision</span>
+          <div className="workspace-timeline-legend-row is-session-items">
+            <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
+            <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
+            <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
+            <span><i className="workspace-timeline-report-swatch" />Report revision</span>
+          </div>
+          <div className="workspace-timeline-legend-row is-session-results">
+            <span><WorkspaceTimelineResultSymbol result="natural_end" />No error</span>
+            <span><WorkspaceTimelineResultSymbol result="unexpected_error" />Unexpected error</span>
+            <span><WorkspaceTimelineResultSymbol result="safeguard_error" />Safeguard error</span>
+          </div>
         </div>
       </section>
 
@@ -156,6 +168,22 @@ export function WorkspaceUnderstandingView({
         </article>
       </section>
     </main>
+  );
+}
+
+function WorkspaceTimelineResultSymbol({ result }: { result: WorkspaceTimelineResult }): JSX.Element {
+  const label = result === 'natural_end'
+    ? 'No error'
+    : result === 'safeguard_error'
+      ? 'Safeguard error'
+      : 'Unexpected error';
+  return (
+    <i
+      aria-label={label}
+      className={`workspace-timeline-result-symbol is-${result.replace('_', '-')}`}
+      role="img"
+      title={label}
+    />
   );
 }
 

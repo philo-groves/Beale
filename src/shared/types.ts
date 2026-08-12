@@ -26,6 +26,8 @@ export type RunStatus =
   | 'failed'
   | 'stopped';
 
+export type RunTerminationCause = 'safeguard' | 'workspace_recovery';
+
 export type AttemptStatus = 'queued' | 'active' | 'paused' | 'blocked' | 'completed' | 'failed' | 'stopped';
 
 export type SessionDispositionOutcome =
@@ -1402,12 +1404,22 @@ export interface ExportRecord {
 export interface RunRow {
   run: RunRecord;
   engine: RunEngineKind;
+  sessionRuns: SessionRunActivity[];
+}
+
+export interface SessionRunActivity {
+  id: string;
+  runId: string;
+  attemptId: string | null;
+  status: RunStatus;
   activityIntervals: SessionActivityInterval[];
+  terminationCause: RunTerminationCause | null;
 }
 
 export interface SessionActivityInterval {
   id: string;
   runId: string;
+  attemptId: string | null;
   startedAt: string;
   endedAt: string | null;
 }

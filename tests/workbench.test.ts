@@ -232,6 +232,9 @@ describe('Beale workbench skeleton', () => {
     expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 18").get()).toEqual({
       name: 'persist_session_next_step_suggestions'
     });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 19").get()).toEqual({
+      name: 'session_run_activity_ownership'
+    });
     verifiedWorkbench.close();
 
     const verifiedRegistry = new DatabaseSync(registryPath);
@@ -260,11 +263,109 @@ describe('Beale workbench skeleton', () => {
 
     const migrated = new WorkspaceService();
     const reopened = migrated.openWorkspace(workspace);
-    const intervals = reopened.runs.find((row) => row.run.id === runId)?.activityIntervals ?? [];
+    const intervals = reopened.runs.find((row) => row.run.id === runId)?.sessionRuns[0]?.activityIntervals ?? [];
     expect(intervals).toHaveLength(1);
+    expect(intervals[0].attemptId).toBe(migrated.getRunDetail(runId).attempts[0]?.id);
     expect(intervals[0].startedAt).toBe(reopened.runs.find((row) => row.run.id === runId)?.run.startedAt);
     expect(intervals[0].endedAt).not.toBeNull();
     migrated.close();
+  });
+
+  it('projects safeguard failures and workspace-recovery interruptions onto run rows', () => {
+    const workspace = tempWorkspace();
+    const db = new WorkspaceDatabase(globalDatabasePath(), join(workspace, '.beale', 'artifacts'), {
+      workspacePath: workspace
+    });
+    db.initialize();
+    const context = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Safeguard failure',
+      promptMarkdown: 'Continue authorized research.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'single_path',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+    db.appendTraceEvent({
+      runId: context.run.id,
+      attemptId: context.attempt.id,
+      type: 'model_message',
+      source: 'system',
+      summary: 'Honeycrisp error.observed',
+      payload: {
+        honeycrispKind: 'error.observed',
+        payload: {
+          summary: 'Research agent failed: This content was flagged for possible cybersecurity risk.'
+        }
+      },
+      modelVisible: false
+    });
+    db.updateAttemptState(context.attempt.id, 'failed', 'Repeated provider safeguard ended the session.');
+    db.updateRunStatus(context.run.id, 'failed', 'Repeated provider safeguard ended the session.');
+
+    const interrupted = db.createRun({
+      scopeVersionId: db.getActiveScope().id,
+      title: 'Interrupted on app close',
+      promptMarkdown: 'Continue authorized research.',
+      shellSafetyMode: 'auto_review',
+      mode: 'open_discovery',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'single_path',
+      sandboxProfile: 'host',
+      budget: { runEngine: 'honeycrisp' }
+    });
+    db.appendTraceEvent({
+      runId: interrupted.run.id,
+      attemptId: interrupted.attempt.id,
+      type: 'vm_event',
+      source: 'system',
+      summary: 'Workspace recovery paused interrupted run after app restart.',
+      payload: {
+        reason: 'workspace_open',
+        authoritativeStatePreserved: true,
+        userReviewRequired: true
+      },
+      modelVisible: false
+    });
+    db.updateRunStatus(interrupted.run.id, 'paused', 'Paused by workspace recovery after previous interruption.');
+
+    const continuation = db.createAttempt({
+      runId: context.run.id,
+      parentAttemptId: context.attempt.id,
+      status: 'active',
+      shortState: 'Continuing after the safeguard failure.',
+      strategyRole: 'session_continuation',
+      vmBackend: 'host',
+      vmImageId: 'host-machine',
+      vmSnapshotId: 'none',
+      vmState: 'host_active'
+    });
+    db.beginSessionRunActivity(context.run.id, continuation.id);
+    db.updateRunStatus(context.run.id, 'active', 'Continuing after the safeguard failure.');
+
+    const rows = db.listRunRows();
+    const continuedSessionRuns = rows.find((row) => row.run.id === context.run.id)?.sessionRuns ?? [];
+    expect(continuedSessionRuns).toHaveLength(2);
+    expect(continuedSessionRuns[0]).toMatchObject({
+      id: context.attempt.id,
+      status: 'failed',
+      terminationCause: 'safeguard'
+    });
+    expect(continuedSessionRuns[0]?.activityIntervals.every((interval) => interval.endedAt !== null)).toBe(true);
+    expect(continuedSessionRuns[1]).toMatchObject({
+      id: continuation.id,
+      status: 'active',
+      terminationCause: null
+    });
+    expect(continuedSessionRuns[1]?.activityIntervals).toEqual([
+      expect.objectContaining({ attemptId: continuation.id, endedAt: null })
+    ]);
+    expect(rows.find((row) => row.run.id === interrupted.run.id)?.sessionRuns[0]?.terminationCause).toBe('workspace_recovery');
+    db.close();
   });
 
   it('adds durable session next-step storage to legacy workbench databases', () => {
@@ -276,7 +377,7 @@ describe('Beale workbench skeleton', () => {
     const legacyDatabase = new DatabaseSync(globalDatabasePath());
     legacyDatabase.exec(`
       ALTER TABLE runs DROP COLUMN next_step_suggestions_json;
-      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 18;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 18;
     `);
     legacyDatabase.close();
 
@@ -1361,6 +1462,10 @@ describe('Beale workbench skeleton', () => {
       expect(invocations).toHaveLength(2);
       expect(invocations[1]?.resumeCapturePath).toBe(invocations[0]?.capturePath);
       expect(detail.attempts.map((attempt) => attempt.status)).toEqual(['failed', 'completed']);
+      expect(service.getSnapshot()?.runs.find((row) => row.run.id === runId)?.sessionRuns).toEqual([
+        expect.objectContaining({ id: detail.attempts[0]?.id, status: 'failed' }),
+        expect.objectContaining({ id: detail.attempts[1]?.id, status: 'completed' })
+      ]);
       expect(detail.modelSessions.map((session) => session.status)).toEqual(['failed', 'completed']);
       expect(detail.transcriptMessages.some((message) => message.contentMarkdown === 'WebSocket error')).toBe(false);
       expect(detail.transcriptMessages.some((message) => message.contentMarkdown === 'Recovered session response.')).toBe(true);
@@ -1793,7 +1898,8 @@ describe('Beale workbench skeleton', () => {
         'const [invocationLogPath, firstExitedPath, ...args] = process.argv.slice(2);',
         "const capturePath = args[args.indexOf('--capture') + 1];",
         "const prompt = args[args.indexOf('-p') + 1];",
-        "const resumeFallbackPrompt = args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null;",
+        "const resumeFallbackPromptPath = args.includes('--resume-fallback-prompt-file') ? args[args.indexOf('--resume-fallback-prompt-file') + 1] : null;",
+        "const resumeFallbackPrompt = resumeFallbackPromptPath ? readFileSync(resumeFallbackPromptPath, 'utf8') : (args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null);",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "appendFileSync(invocationLogPath, JSON.stringify({ turn, prompt, resumeFallbackPrompt, firstProcessExited: existsSync(firstExitedPath) }) + '\\n');",
@@ -2071,13 +2177,14 @@ describe('Beale workbench skeleton', () => {
         "const prompt = args[args.indexOf('-p') + 1];",
         "const sessionId = args.includes('--session-id') ? args[args.indexOf('--session-id') + 1] : null;",
         "const resumeCapturePath = args.includes('--resume-capture') ? args[args.indexOf('--resume-capture') + 1] : null;",
-        "const resumeFallbackPrompt = args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null;",
+        "const resumeFallbackPromptPath = args.includes('--resume-fallback-prompt-file') ? args[args.indexOf('--resume-fallback-prompt-file') + 1] : null;",
+        "const resumeFallbackPrompt = resumeFallbackPromptPath ? readFileSync(resumeFallbackPromptPath, 'utf8') : (args.includes('--resume-fallback-prompt') ? args[args.indexOf('--resume-fallback-prompt') + 1] : null);",
         "const goalObjective = args.includes('--goal-objective') ? args[args.indexOf('--goal-objective') + 1] : null;",
         "const titleModel = args.includes('--title-model') ? args[args.indexOf('--title-model') + 1] : null;",
         "const priorCount = existsSync(invocationLogPath) ? readFileSync(invocationLogPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0;",
         'const turn = priorCount + 1;',
         "mkdirSync(dirname(capturePath), { recursive: true });",
-        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPrompt, goalObjective, titleModel, turn }) + '\\n');",
+        "appendFileSync(invocationLogPath, JSON.stringify({ capturePath, prompt, sessionId, resumeCapturePath, resumeFallbackPromptPath, resumeFallbackPrompt, goalObjective, titleModel, turn, maxArgLength: Math.max(...args.map((arg) => arg.length)) }) + '\\n');",
         'const now = new Date().toISOString();',
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.output', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', messagePhase: 'commentary', responseId: `response_${turn}`, itemId: `commentary_${turn}`, text: `Retained commentary from invocation ${turn}.` } }));",
         "console.log('HONEYCRISP_EVENT ' + JSON.stringify({ schemaVersion: 1, kind: 'model.thought', timestamp: now, payload: { agentId: 'root', agentPath: '/root', parentAgentId: '', turn: 1, phase: 'completed', responseId: `response_${turn}`, itemId: 'reasoning-summary', text: `Retained reasoning from invocation ${turn}.` } }));",
@@ -2087,7 +2194,7 @@ describe('Beale workbench skeleton', () => {
         '  capturedAt: now,',
         '  request: { prompt },',
         `  researchProfile: ${fakeHoneycrispResearchProfileCaptureExpression()},`,
-        "  agent: { id: `agent_${turn}`, status: 'complete', executorName: 'continuation-fixture', startedAt: now, completedAt: now, outputText: `Turn ${turn} response.` },",
+        "  agent: { id: `agent_${turn}`, status: 'complete', executorName: 'continuation-fixture', startedAt: now, completedAt: now, outputText: `${turn === 1 ? 'x'.repeat(40000) : ''}Turn ${turn} response.` },",
         '  eventTimeline: []',
         '};',
         "writeFileSync(capturePath, JSON.stringify(capture) + '\\n');"
@@ -2126,18 +2233,25 @@ describe('Beale workbench skeleton', () => {
           prompt: string;
           sessionId: string | null;
           resumeCapturePath: string | null;
+          resumeFallbackPromptPath: string | null;
           resumeFallbackPrompt: string | null;
           goalObjective: string | null;
           titleModel: string | null;
           turn: number;
+          maxArgLength: number;
         });
       expect(detail.run.id).toBe(runId);
       expect(detail.attempts).toHaveLength(2);
+      expect(service.getSnapshot()?.runs.find((row) => row.run.id === runId)?.sessionRuns).toEqual([
+        expect.objectContaining({ id: detail.attempts[0]?.id, status: 'completed' }),
+        expect.objectContaining({ id: detail.attempts[1]?.id, status: 'completed' })
+      ]);
       expect(detail.modelSessions).toHaveLength(2);
       expect(detail.modelSessions.map((session) => session.status)).toEqual(['completed', 'completed']);
       expect(detail.transcriptMessages.map((message) => message.contentMarkdown)).toEqual(
-        expect.arrayContaining(['Now inspect integer truncation paths.', 'Turn 1 response.', 'Turn 2 response.'])
+        expect.arrayContaining(['Now inspect integer truncation paths.', 'Turn 2 response.'])
       );
+      expect(detail.transcriptMessages.some((message) => message.contentMarkdown.endsWith('Turn 1 response.'))).toBe(true);
       expect(invocations).toHaveLength(2);
       expect(invocations.map((invocation) => invocation.titleModel)).toEqual(['gpt-5.6-luna', null]);
       expect(invocations.map((invocation) => invocation.sessionId)).toEqual([runId, runId]);
@@ -2148,8 +2262,10 @@ describe('Beale workbench skeleton', () => {
       expect(invocations[1]?.capturePath).not.toBe(invocations[0]?.capturePath);
       expect(invocations[1]?.prompt).toBe('Now inspect integer truncation paths.');
       expect(invocations[1]?.resumeCapturePath).toBe(invocations[0]?.capturePath);
+      expect(invocations[1]?.resumeFallbackPromptPath).toMatch(/\.resume-fallback\.md$/);
+      expect(invocations[1]?.resumeFallbackPrompt?.length).toBeGreaterThan(30_000);
+      expect(invocations[1]?.maxArgLength).toBeLessThan(4_096);
       expect(invocations[1]?.resumeFallbackPrompt).toContain('Research the ZFTP module for memory-safety vulnerabilities.');
-      expect(invocations[1]?.resumeFallbackPrompt).toContain('Agent commentary:\nRetained commentary from invocation 1.');
       expect(invocations[1]?.resumeFallbackPrompt).toContain('Turn 1 response.');
       const continuationLaunch = detail.traceEvents.find(
         (event) => event.summary === 'Honeycrisp host process launched to continue the current session.'
@@ -4220,7 +4336,7 @@ describe('Beale workbench skeleton', () => {
     expect(detail.run.status).toBe('stopped');
     expect(detail.run.finalDisposition).toMatchObject({ outcome: 'stopped', blockerDependencies: [], externalStateRequired: false, source: 'host' });
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run stopped by user.');
-    const activityIntervals = service.getSnapshot()?.runs.find((row) => row.run.id === runId)?.activityIntervals ?? [];
+    const activityIntervals = service.getSnapshot()?.runs.find((row) => row.run.id === runId)?.sessionRuns[0]?.activityIntervals ?? [];
     expect(activityIntervals).toHaveLength(2);
     expect(activityIntervals.every((interval) => interval.endedAt !== null)).toBe(true);
     expect(Date.parse(activityIntervals[0].startedAt)).toBeLessThanOrEqual(Date.parse(activityIntervals[0].endedAt ?? ''));

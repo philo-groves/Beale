@@ -4,10 +4,12 @@ import type {
   HoneycrispRunbookSummary,
   ResearchProfileMemoryType,
   RunRow,
-  SessionActivityInterval
+  SessionActivityInterval,
+  SessionRunActivity
 } from '@shared/types';
 
 export const WORKSPACE_TIMELINE_WINDOW_MS = 12 * 60 * 60 * 1_000;
+export type WorkspaceTimelineResult = 'natural_end' | 'unexpected_error' | 'safeguard_error';
 
 export interface WorkspaceTimelineSegment {
   id: string;
@@ -37,8 +39,10 @@ export interface WorkspaceTimelineArtifactRevisionMarker {
 
 export interface WorkspaceTimelineRow {
   runId: string;
+  sessionRunId: string;
   title: string;
-  status: RunRow['run']['status'];
+  status: SessionRunActivity['status'];
+  result: WorkspaceTimelineResult | null;
   totalDurationMs: number;
   windowDurationMs: number;
   latestActivityAtMs: number;
@@ -67,6 +71,13 @@ interface WorkspaceActivityClock {
   windowStartOffsetMs: number;
 }
 
+interface SessionRunTimelineInput {
+  row: RunRow;
+  sessionRun: SessionRunActivity;
+  intervals: SessionActivityInterval[];
+  startedAtMs: number;
+}
+
 export function buildWorkspaceTimeline(
   runs: readonly RunRow[],
   memories: readonly HoneycrispMemoryNodeSummary[],
@@ -75,21 +86,35 @@ export function buildWorkspaceTimeline(
   memoryTypes: readonly ResearchProfileMemoryType[],
   nowMs: number
 ): WorkspaceTimelineModel {
-  const intervalsByRun = new Map(
-    runs.map((row) => [row.run.id, normalizedIntervals(row.activityIntervals, nowMs)] as const)
-  );
+  const sessionRunInputs: SessionRunTimelineInput[] = runs.flatMap((row) => row.sessionRuns.map((sessionRun) => {
+    const intervals = normalizedIntervals(sessionRun.activityIntervals, nowMs);
+    return {
+      row,
+      sessionRun,
+      intervals,
+      startedAtMs: Math.min(...intervals.map((interval) => Date.parse(interval.startedAt)))
+    };
+  }));
   const activityClock = buildWorkspaceActivityClock(
-    Array.from(intervalsByRun.values()).flat(),
+    sessionRunInputs.flatMap((input) => input.intervals),
     nowMs
   );
+  const sessionRunsByRun = new Map<string, SessionRunTimelineInput[]>();
+  for (const input of sessionRunInputs) {
+    const candidates = sessionRunsByRun.get(input.row.run.id) ?? [];
+    candidates.push(input);
+    sessionRunsByRun.set(input.row.run.id, candidates);
+  }
+  for (const candidates of sessionRunsByRun.values()) {
+    candidates.sort((left, right) => left.startedAtMs - right.startedAtMs || left.sessionRun.id.localeCompare(right.sessionRun.id));
+  }
   const memoryTypeById = new Map<string, ResearchProfileMemoryType>();
   for (const type of memoryTypes) {
     memoryTypeById.set(type.id, type);
     for (const alias of type.aliases ?? []) memoryTypeById.set(alias, type);
   }
 
-  const rows = runs.flatMap((row) => {
-    const intervals = intervalsByRun.get(row.run.id) ?? [];
+  const rows = sessionRunInputs.flatMap(({ row, sessionRun, intervals }) => {
     const segments = intervals.flatMap((interval) => {
       const startMs = Date.parse(interval.startedAt);
       const endMs = Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs);
@@ -112,6 +137,7 @@ export function buildWorkspaceTimeline(
       if (!memory.sessionIds.includes(row.run.id)) return [];
       const createdAtMs = Date.parse(memory.createdAt);
       if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
+      if (sessionRunAt(sessionRunsByRun.get(row.run.id) ?? [], createdAtMs)?.sessionRun.id !== sessionRun.id) return [];
       const activityOffsetMs = activityOffsetAt(activityClock, createdAtMs);
       if (activityOffsetMs < activityClock.windowStartOffsetMs) return [];
       const definition = memoryTypeById.get(memory.type);
@@ -124,8 +150,22 @@ export function buildWorkspaceTimeline(
         leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
       }];
     });
-    const runbookRevisionMarkers = artifactRevisionMarkers(runbooks, row.run.id, activityClock, nowMs);
-    const reportRevisionMarkers = artifactRevisionMarkers(reports, row.run.id, activityClock, nowMs);
+    const runbookRevisionMarkers = artifactRevisionMarkers(
+      runbooks,
+      row.run.id,
+      sessionRun.id,
+      sessionRunsByRun.get(row.run.id) ?? [],
+      activityClock,
+      nowMs
+    );
+    const reportRevisionMarkers = artifactRevisionMarkers(
+      reports,
+      row.run.id,
+      sessionRun.id,
+      sessionRunsByRun.get(row.run.id) ?? [],
+      activityClock,
+      nowMs
+    );
     if (
       segments.length === 0
       && memoryMarkers.length === 0
@@ -157,8 +197,10 @@ export function buildWorkspaceTimeline(
     );
     return [{
       runId: row.run.id,
+      sessionRunId: sessionRun.id,
       title: row.run.title.trim() || 'Untitled session',
-      status: row.run.status,
+      status: sessionRun.status,
+      result: workspaceTimelineResult(sessionRun),
       totalDurationMs,
       windowDurationMs,
       latestActivityAtMs,
@@ -167,13 +209,22 @@ export function buildWorkspaceTimeline(
       runbookRevisionMarkers,
       reportRevisionMarkers
     }];
-  }).sort((left, right) => right.latestActivityAtMs - left.latestActivityAtMs || left.runId.localeCompare(right.runId));
+  }).sort((left, right) => right.latestActivityAtMs - left.latestActivityAtMs || left.sessionRunId.localeCompare(right.sessionRunId));
   return { rows, windowDurationMs: activityClock.windowDurationMs };
+}
+
+export function workspaceTimelineResult(sessionRun: SessionRunActivity): WorkspaceTimelineResult | null {
+  if (sessionRun.status === 'failed') return sessionRun.terminationCause === 'safeguard' ? 'safeguard_error' : 'unexpected_error';
+  if (sessionRun.status === 'paused' && sessionRun.terminationCause === 'workspace_recovery') return 'unexpected_error';
+  if (sessionRun.status === 'completed' || sessionRun.status === 'blocked' || sessionRun.status === 'stopped') return 'natural_end';
+  return null;
 }
 
 function artifactRevisionMarkers(
   artifacts: readonly (HoneycrispRunbookSummary | HoneycrispReportSummary)[],
   runId: string,
+  sessionRunId: string,
+  sessionRuns: readonly SessionRunTimelineInput[],
   activityClock: WorkspaceActivityClock,
   nowMs: number
 ): WorkspaceTimelineArtifactRevisionMarker[] {
@@ -182,6 +233,7 @@ function artifactRevisionMarkers(
     if (revision.sessionId !== runId) return [];
     const createdAtMs = Date.parse(revision.createdAt);
     if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
+    if (sessionRunAt(sessionRuns, createdAtMs)?.sessionRun.id !== sessionRunId) return [];
     const activityOffsetMs = activityOffsetAt(activityClock, createdAtMs);
     if (activityOffsetMs < activityClock.windowStartOffsetMs) return [];
     return [{
@@ -193,6 +245,15 @@ function artifactRevisionMarkers(
       leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
     }];
   }));
+}
+
+function sessionRunAt(sessionRuns: readonly SessionRunTimelineInput[], timestampMs: number): SessionRunTimelineInput | null {
+  let owner = sessionRuns[0] ?? null;
+  for (const sessionRun of sessionRuns) {
+    if (sessionRun.startedAtMs > timestampMs) break;
+    owner = sessionRun;
+  }
+  return owner;
 }
 
 export function formatWorkspaceTimelineDuration(durationMs: number): string {
