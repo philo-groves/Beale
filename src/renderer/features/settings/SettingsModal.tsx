@@ -781,6 +781,7 @@ function ResearchProviderCard({
   modelDefaults: ProviderModelDefaults | null;
   onSetModelDefaults: (defaults: ProviderModelDefaults) => void;
 }): JSX.Element {
+  const [anthropicCvpAcknowledged, setAnthropicCvpAcknowledged] = useState(false);
   const authenticateLabel = provider.loginInProgress
     ? 'Authentication Running'
     : provider.configured
@@ -829,13 +830,31 @@ function ResearchProviderCard({
       />
 
       {provider.id === 'anthropic' ? (
-        <p className="provider-detail provider-billing-note">Claude Pro/Max use from third-party harnesses is billed as API usage rather than drawing from plan limits.</p>
+        <div className="provider-anthropic-warning">
+          <p className="provider-detail provider-billing-note">
+            Subscription sign-in is experimental and only intended for Anthropic Cyber Verification Program members. CVP membership does not waive Anthropic&apos;s Usage Policy: requests may still be blocked or treated as usage violations. Beale delegates Claude sessions to the official Claude Agent SDK and Claude Code CLI; it does not copy or replay subscription tokens.
+          </p>
+          <label className="provider-risk-acknowledgement">
+            <input
+              type="checkbox"
+              checked={anthropicCvpAcknowledged}
+              disabled={busy || provider.loginInProgress}
+              onChange={(event) => setAnthropicCvpAcknowledged(event.target.checked)}
+            />
+            <span>I confirm this account is enrolled in Anthropic&apos;s Cyber Verification Program and I accept the usage-policy risk.</span>
+          </label>
+        </div>
       ) : null}
 
       {result ? <ProviderOAuthResult result={result} /> : null}
 
       <div className="provider-actions">
-        <button className="primary-button" type="button" disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable'} onClick={onAuthenticate}>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={busy || provider.loginInProgress || provider.readiness === 'unavailable' || (provider.id === 'anthropic' && !anthropicCvpAcknowledged)}
+          onClick={onAuthenticate}
+        >
           <KeyRound size={15} />
           {authenticateLabel}
         </button>

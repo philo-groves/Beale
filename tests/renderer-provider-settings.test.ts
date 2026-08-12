@@ -122,7 +122,7 @@ describe('renderer provider settings', () => {
     });
   });
 
-  it('omits configured-provider descriptions except for the Claude billing warning', () => {
+  it('shows the Claude CVP and usage-policy acknowledgement without generic provider copy', () => {
     const statuses = researchProviderStatuses().map((provider) => ({
       ...provider,
       configured: provider.id === 'anthropic',
@@ -144,7 +144,10 @@ describe('renderer provider settings', () => {
       onSetProviderModelDefaults: async () => undefined
     }));
 
-    expect(html).toContain('Claude Pro/Max use from third-party harnesses is billed as API usage rather than drawing from plan limits.');
+    expect(html).toContain('only intended for Anthropic Cyber Verification Program members');
+    expect(html).toContain('requests may still be blocked or treated as usage violations');
+    expect(html).toContain('official Claude Agent SDK and Claude Code CLI');
+    expect(html).toContain('I confirm this account is enrolled');
     expect(html).not.toContain('Anthropic is ready.');
     expect(html).not.toContain('API-key authentication is also available');
     expect(html).not.toContain('OAuth ready');

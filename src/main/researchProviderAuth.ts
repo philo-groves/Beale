@@ -315,6 +315,9 @@ function providerStatusDetail(providerId: ResearchProviderId, configured: boolea
   const name = providerDisplayName(providerId);
   if (loginInProgress) return `${name} authentication is waiting for the provider sign-in to complete.`;
   if (configured) return `${name} is available to Honeycrisp${source ? ` via ${source}` : ''}.`;
+  if (providerId === 'anthropic') {
+    return `${name} is not configured. Sign in through the official Claude CLI with a Cyber Verification Program account, or provide ANTHROPIC_API_KEY in Beale's host environment.`;
+  }
   return `${name} is not configured. Use subscription OAuth here or provide the provider API key in Beale's host environment.`;
 }
 

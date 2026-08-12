@@ -18,6 +18,9 @@
 
 ### Changed
 
+- Anthropic subscription authentication now delegates to the installed official Claude CLI and requires an explicit Cyber Verification Program and usage-policy risk acknowledgement in Provider Settings.
+- Cybersecurity reports now require an explicit confirmed vulnerability chain with reachability, impact, and proof evidence, preventing reports from being created directly from observations, hypotheses, or primitives.
+- Grok reasoning summaries now render as ordinary text in Commentary while retaining reasoning provenance in the detailed trace.
 - Detailed right-sidenav view tabs now expose a compact horizontal scrollbar when the open views exceed the available width.
 - The workspace Dream panel now sits beneath a compact Housekeeping header showing memories created since the latest dream, fills a spacious rounded inset, reuses the active profile's window heat gradient without a card border, and raises heat at 20, 50, 100, and 150 new memories.
 - The workspace Research Surface now uses a flat dashboard section with scope and research coverage counts in its compact divider header, plus contextual scroll fades around overflowing tile rows.
@@ -310,6 +313,7 @@
 
 ### Security
 
+- Honeycrisp-backed cybersecurity sessions and forks now require a recorded workspace authorization boundary before execution can begin.
 - Kept Auto-Review routing host-owned by always overriding profile-supplied shell-review models and effort at the Beale-to-Honeycrisp launch boundary.
 - Research profiles cannot independently grant tool families, side effects, network access, skills, MCP servers, credentials, or authorization; Beale's host-owned policy remains the authority ceiling.
 - Recognized shell network intent now fails closed in every shell-safety mode unless Beale directly grants process and network effects and supplies an active recorded authorization whose destinations satisfy the scoped network policy; this broker does not replace external OS network isolation for arbitrary binaries.

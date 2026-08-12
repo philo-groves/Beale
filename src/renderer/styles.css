@@ -9566,6 +9566,24 @@ button.research-goal-choice:focus-visible {
   flex: 1 1 auto;
 }
 
+.provider-anthropic-warning {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-risk-acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.provider-risk-acknowledgement input {
+  margin-top: 2px;
+}
+
 .template-toggle-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

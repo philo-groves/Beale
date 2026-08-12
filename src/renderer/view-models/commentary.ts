@@ -155,7 +155,8 @@ function commentaryMessageKind(
   if (source === 'honeycrisp_commentary') return 'commentary';
   if (source === 'openai_reasoning_summary') {
     const key = chatMessageCorrelationKey(event);
-    return key && nativeCommentaryKeys.has(key) ? null : 'progress';
+    if (key && nativeCommentaryKeys.has(key)) return null;
+    return payloadString(event, 'provider') === 'xai' ? 'commentary' : 'progress';
   }
   if (phase === 'commentary') return 'commentary';
   if (phase === 'final_answer' || source === 'honeycrisp') return 'final_answer';

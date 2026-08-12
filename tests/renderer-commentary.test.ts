@@ -316,6 +316,46 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
+  it('renders xAI reasoning summaries as ordinary commentary while retaining their trace source', () => {
+    const events = [
+      displayEvent('grok-reasoning', {
+        agentPath: '/root',
+        responseId: 'response_grok',
+        provider: 'xai',
+        model: 'grok-4.6',
+        transcriptRole: 'assistant',
+        transcriptSource: 'openai_reasoning_summary',
+        text: 'The redirect strips the original path, so I am checking the destination surface.'
+      })
+    ];
+    const detail = runDetail('Inspect the redirect boundary.');
+    const messages = commentaryMessagesForSession(detail, events);
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['user', 'Inspect the redirect boundary.'],
+      ['commentary', 'The redirect strips the original path, so I am checking the destination surface.']
+    ]);
+
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: true,
+        detail,
+        events,
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: true,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html).toContain('The redirect strips the original path');
+    expect(html).not.toContain('lucide-brain');
+  });
+
   it('preserves each coalesced reasoning trace as its own commentary line', () => {
     const messages = commentaryMessagesForSession(runDetail('Review the parser.'), [
       displayEvent('reasoning-group', {
