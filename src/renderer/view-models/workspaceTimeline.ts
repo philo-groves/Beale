@@ -48,6 +48,25 @@ export interface WorkspaceTimelineRow {
   reportRevisionMarkers: WorkspaceTimelineArtifactRevisionMarker[];
 }
 
+export interface WorkspaceTimelineModel {
+  rows: WorkspaceTimelineRow[];
+  windowDurationMs: number;
+}
+
+interface WorkspaceActivitySpan {
+  startMs: number;
+  endMs: number;
+  startOffsetMs: number;
+  endOffsetMs: number;
+}
+
+interface WorkspaceActivityClock {
+  spans: WorkspaceActivitySpan[];
+  totalDurationMs: number;
+  windowDurationMs: number;
+  windowStartOffsetMs: number;
+}
+
 export function buildWorkspaceTimeline(
   runs: readonly RunRow[],
   memories: readonly HoneycrispMemoryNodeSummary[],
@@ -55,34 +74,46 @@ export function buildWorkspaceTimeline(
   reports: readonly HoneycrispReportSummary[],
   memoryTypes: readonly ResearchProfileMemoryType[],
   nowMs: number
-): WorkspaceTimelineRow[] {
-  const windowStartMs = nowMs - WORKSPACE_TIMELINE_WINDOW_MS;
+): WorkspaceTimelineModel {
+  const intervalsByRun = new Map(
+    runs.map((row) => [row.run.id, normalizedIntervals(row.activityIntervals, nowMs)] as const)
+  );
+  const activityClock = buildWorkspaceActivityClock(
+    Array.from(intervalsByRun.values()).flat(),
+    nowMs
+  );
   const memoryTypeById = new Map<string, ResearchProfileMemoryType>();
   for (const type of memoryTypes) {
     memoryTypeById.set(type.id, type);
     for (const alias of type.aliases ?? []) memoryTypeById.set(alias, type);
   }
 
-  return runs.flatMap((row) => {
-    const intervals = normalizedIntervals(row.activityIntervals, nowMs);
+  const rows = runs.flatMap((row) => {
+    const intervals = intervalsByRun.get(row.run.id) ?? [];
     const segments = intervals.flatMap((interval) => {
       const startMs = Date.parse(interval.startedAt);
-      const endMs = interval.endedAt ? Date.parse(interval.endedAt) : nowMs;
-      const clippedStart = Math.max(startMs, windowStartMs);
-      const clippedEnd = Math.min(endMs, nowMs);
-      if (clippedEnd < clippedStart || endMs < windowStartMs || startMs > nowMs) return [];
+      const endMs = Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs);
+      if (startMs > nowMs) return [];
+      const startOffsetMs = activityOffsetAt(activityClock, startMs);
+      const endOffsetMs = activityOffsetAt(activityClock, endMs);
+      const clippedStartOffsetMs = Math.max(startOffsetMs, activityClock.windowStartOffsetMs);
+      const clippedEndOffsetMs = Math.min(endOffsetMs, activityClock.totalDurationMs);
+      if (clippedEndOffsetMs < clippedStartOffsetMs || endOffsetMs < activityClock.windowStartOffsetMs) return [];
       return [{
         id: interval.id,
         startedAt: interval.startedAt,
         endedAt: interval.endedAt,
-        leftPercent: percentOfWindow(clippedStart, windowStartMs),
-        widthPercent: Math.max(0, ((clippedEnd - clippedStart) / WORKSPACE_TIMELINE_WINDOW_MS) * 100)
+        leftPercent: percentOfActivityWindow(clippedStartOffsetMs, activityClock),
+        widthPercent: percentOfActivityDuration(clippedEndOffsetMs - clippedStartOffsetMs, activityClock)
       }];
     });
     const memoryMarkers = memories.flatMap((memory) => {
+      if (activityClock.spans.length === 0) return [];
       if (!memory.sessionIds.includes(row.run.id)) return [];
       const createdAtMs = Date.parse(memory.createdAt);
-      if (!Number.isFinite(createdAtMs) || createdAtMs < windowStartMs || createdAtMs > nowMs) return [];
+      if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
+      const activityOffsetMs = activityOffsetAt(activityClock, createdAtMs);
+      if (activityOffsetMs < activityClock.windowStartOffsetMs) return [];
       const definition = memoryTypeById.get(memory.type);
       return [{
         id: memory.id,
@@ -90,11 +121,11 @@ export function buildWorkspaceTimeline(
         title: memory.title,
         createdAt: memory.createdAt,
         color: definition?.color ?? null,
-        leftPercent: percentOfWindow(createdAtMs, windowStartMs)
+        leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
       }];
     });
-    const runbookRevisionMarkers = artifactRevisionMarkers(runbooks, row.run.id, windowStartMs, nowMs);
-    const reportRevisionMarkers = artifactRevisionMarkers(reports, row.run.id, windowStartMs, nowMs);
+    const runbookRevisionMarkers = artifactRevisionMarkers(runbooks, row.run.id, activityClock, nowMs);
+    const reportRevisionMarkers = artifactRevisionMarkers(reports, row.run.id, activityClock, nowMs);
     if (
       segments.length === 0
       && memoryMarkers.length === 0
@@ -104,13 +135,19 @@ export function buildWorkspaceTimeline(
 
     const totalDurationMs = intervals.reduce((total, interval) => {
       const startMs = Date.parse(interval.startedAt);
-      const endMs = interval.endedAt ? Date.parse(interval.endedAt) : nowMs;
+      const endMs = Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs);
       return total + Math.max(0, endMs - startMs);
     }, 0);
     const windowDurationMs = intervals.reduce((total, interval) => {
-      const startMs = Math.max(Date.parse(interval.startedAt), windowStartMs);
-      const endMs = Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs);
-      return total + Math.max(0, endMs - startMs);
+      const startOffsetMs = Math.max(
+        activityOffsetAt(activityClock, Date.parse(interval.startedAt)),
+        activityClock.windowStartOffsetMs
+      );
+      const endOffsetMs = Math.min(
+        activityOffsetAt(activityClock, Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs)),
+        activityClock.totalDurationMs
+      );
+      return total + Math.max(0, endOffsetMs - startOffsetMs);
     }, 0);
     const latestActivityAtMs = Math.max(
       ...intervals.map((interval) => interval.endedAt ? Date.parse(interval.endedAt) : nowMs),
@@ -131,25 +168,29 @@ export function buildWorkspaceTimeline(
       reportRevisionMarkers
     }];
   }).sort((left, right) => right.latestActivityAtMs - left.latestActivityAtMs || left.runId.localeCompare(right.runId));
+  return { rows, windowDurationMs: activityClock.windowDurationMs };
 }
 
 function artifactRevisionMarkers(
   artifacts: readonly (HoneycrispRunbookSummary | HoneycrispReportSummary)[],
   runId: string,
-  windowStartMs: number,
+  activityClock: WorkspaceActivityClock,
   nowMs: number
 ): WorkspaceTimelineArtifactRevisionMarker[] {
+  if (activityClock.spans.length === 0) return [];
   return artifacts.flatMap((artifact) => artifact.revisions.flatMap((revision) => {
     if (revision.sessionId !== runId) return [];
     const createdAtMs = Date.parse(revision.createdAt);
-    if (!Number.isFinite(createdAtMs) || createdAtMs < windowStartMs || createdAtMs > nowMs) return [];
+    if (!Number.isFinite(createdAtMs) || createdAtMs > nowMs) return [];
+    const activityOffsetMs = activityOffsetAt(activityClock, createdAtMs);
+    if (activityOffsetMs < activityClock.windowStartOffsetMs) return [];
     return [{
       id: `${artifact.id}:${revision.revision}`,
       artifactId: artifact.id,
       title: artifact.title,
       revision: revision.revision,
       createdAt: revision.createdAt,
-      leftPercent: percentOfWindow(createdAtMs, windowStartMs)
+      leftPercent: percentOfActivityWindow(activityOffsetMs, activityClock)
     }];
   }));
 }
@@ -174,6 +215,60 @@ function normalizedIntervals(
   });
 }
 
-function percentOfWindow(timestampMs: number, windowStartMs: number): number {
-  return Math.max(0, Math.min(100, ((timestampMs - windowStartMs) / WORKSPACE_TIMELINE_WINDOW_MS) * 100));
+function buildWorkspaceActivityClock(
+  intervals: readonly SessionActivityInterval[],
+  nowMs: number
+): WorkspaceActivityClock {
+  const merged: Array<{ startMs: number; endMs: number }> = [];
+  const bounds = intervals
+    .map((interval) => ({
+      startMs: Date.parse(interval.startedAt),
+      endMs: Math.min(interval.endedAt ? Date.parse(interval.endedAt) : nowMs, nowMs)
+    }))
+    .filter((interval) => interval.startMs <= nowMs && interval.endMs >= interval.startMs)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+
+  for (const interval of bounds) {
+    const previous = merged.at(-1);
+    if (previous && interval.startMs <= previous.endMs) {
+      previous.endMs = Math.max(previous.endMs, interval.endMs);
+    } else {
+      merged.push({ ...interval });
+    }
+  }
+
+  let totalDurationMs = 0;
+  const spans = merged.map((span) => {
+    const startOffsetMs = totalDurationMs;
+    totalDurationMs += span.endMs - span.startMs;
+    return { ...span, startOffsetMs, endOffsetMs: totalDurationMs };
+  });
+  const windowDurationMs = Math.min(totalDurationMs, WORKSPACE_TIMELINE_WINDOW_MS);
+  return {
+    spans,
+    totalDurationMs,
+    windowDurationMs,
+    windowStartOffsetMs: totalDurationMs - windowDurationMs
+  };
+}
+
+function activityOffsetAt(clock: WorkspaceActivityClock, timestampMs: number): number {
+  for (const span of clock.spans) {
+    if (timestampMs <= span.startMs) return span.startOffsetMs;
+    if (timestampMs < span.endMs) return span.startOffsetMs + timestampMs - span.startMs;
+  }
+  return clock.totalDurationMs;
+}
+
+function percentOfActivityWindow(activityOffsetMs: number, clock: WorkspaceActivityClock): number {
+  if (clock.windowDurationMs <= 0) return 100;
+  return Math.max(
+    0,
+    Math.min(100, ((activityOffsetMs - clock.windowStartOffsetMs) / clock.windowDurationMs) * 100)
+  );
+}
+
+function percentOfActivityDuration(durationMs: number, clock: WorkspaceActivityClock): number {
+  if (clock.windowDurationMs <= 0) return 0;
+  return Math.max(0, (durationMs / clock.windowDurationMs) * 100);
 }

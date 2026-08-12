@@ -14,6 +14,8 @@
 
 ### Changed
 
+- Workspace Gantt timelines now use the latest 12 cumulative hours of session activity, collapse inactive wall-clock gaps, and place their right-aligned legend below the chart without a duplicate activity heading.
+- Workspace Gantt session rows now use regular-weight titles, omit per-session duration totals, and form a contiguous grid rounded only along its outer edges.
 - Post-session next-step suggestions are now stored with their completed session and restored immediately when revisited. Workbench migration 18 adds the durable suggestion record.
 
 ### Fixed

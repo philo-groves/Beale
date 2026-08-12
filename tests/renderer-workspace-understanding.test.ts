@@ -53,8 +53,12 @@ describe('workspace dashboard', () => {
     expect(html).toContain('class="main-session-grid "');
     expect(html).toContain('class="workspace-dashboard"');
     expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(2);
-    expect(html).toContain('Parser Workspace Activity');
-    expect(html).toContain('No session activity in the past 12 hours.');
+    expect(html).not.toContain('Parser Workspace Activity');
+    expect(html).toContain('aria-label="Parser Workspace — most recent 12 hours of session activity"');
+    expect(html.indexOf('class="workspace-timeline-legend"')).toBeGreaterThan(
+      html.indexOf('class="workspace-timeline-chart"')
+    );
+    expect(html).toContain('No session activity recorded.');
     expect(html).toContain('<span>0 Runbooks</span>');
     expect(html).toContain('<span>0 Reports</span>');
     expect(html).toContain('<span>0 Memories</span>');
@@ -94,14 +98,22 @@ describe('workspace dashboard', () => {
         revisions: [{ revision: 1, sessionId: 'run_one', createdAt: '2026-08-12T11:30:00.000Z' }]
       }]
     });
-    const rows = buildWorkspaceTimeline(runs, memory.nodes, memory.runbooks, memory.reports, profile.memory.types, NOW);
+    const timeline = buildWorkspaceTimeline(runs, memory.nodes, memory.runbooks, memory.reports, profile.memory.types, NOW);
+    const rows = timeline.rows;
 
     expect(rows).toHaveLength(1);
     expect(rows[0]?.segments).toHaveLength(2);
     expect(rows[0]?.totalDurationMs).toBe(5 * 60 * 60 * 1_000);
+    expect(timeline.windowDurationMs).toBe(5 * 60 * 60 * 1_000);
+    expect(rows[0]?.segments[0]?.leftPercent).toBeCloseTo(0);
+    expect((rows[0]?.segments[0]?.leftPercent ?? 0) + (rows[0]?.segments[0]?.widthPercent ?? 0))
+      .toBeCloseTo(rows[0]?.segments[1]?.leftPercent ?? 0);
+    expect((rows[0]?.segments[1]?.leftPercent ?? 0) + (rows[0]?.segments[1]?.widthPercent ?? 0))
+      .toBeCloseTo(100);
     expect(rows[0]?.memoryMarkers).toEqual([
       expect.objectContaining({ id: 'memory_one', type: memoryType.id, color: memoryType.color ?? null })
     ]);
+    expect(rows[0]?.memoryMarkers[0]?.leftPercent).toBeCloseTo(60);
     expect(rows[0]?.runbookRevisionMarkers).toEqual([
       expect.objectContaining({ id: 'runbook_one:1', revision: 1 }),
       expect.objectContaining({ id: 'runbook_one:2', revision: 2 })
@@ -122,8 +134,12 @@ describe('workspace dashboard', () => {
     }));
 
     expect(html).not.toContain('>Past 12 Hours<');
+    expect(html).toContain('>-5h<');
+    expect(html).toContain('>-3h 45m<');
+    expect(html).toContain('>Latest<');
     expect(html).toContain('Recent session');
-    expect(html).toContain('5h total');
+    expect(html).not.toContain('<strong>Recent session</strong>');
+    expect(html).not.toContain('5h total');
     expect(html.match(/workspace-timeline-segment/g)).toHaveLength(2);
     expect(html).toContain(`workspace-timeline-memory-marker memory-type-${memoryType.id}`);
     expect(html).toContain(`memory recorded: Parser state transition`);
@@ -132,6 +148,40 @@ describe('workspace dashboard', () => {
     expect(html).toContain('workspace-timeline-report-marker');
     expect(html).toContain('Report revision 1: Parser result');
     expect(html).toContain('>Dream</button>');
+  });
+
+  it('uses the latest 12 cumulative activity hours and collapses wall-clock gaps', () => {
+    const timeline = buildWorkspaceTimeline([
+      runRow('run_one', [
+        ['2026-08-01T00:00:00.000Z', '2026-08-01T08:00:00.000Z'],
+        ['2026-08-12T00:00:00.000Z', '2026-08-12T08:00:00.000Z']
+      ])
+    ], [], [], [], testResearchProfile().memory.types, NOW);
+    const rows = timeline.rows;
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.segments).toHaveLength(2);
+    expect(timeline.windowDurationMs).toBe(12 * 60 * 60 * 1_000);
+    expect(rows[0]?.windowDurationMs).toBe(12 * 60 * 60 * 1_000);
+    expect(rows[0]?.segments[0]).toMatchObject({ leftPercent: 0 });
+    expect(rows[0]?.segments[0]?.widthPercent).toBeCloseTo((4 / 12) * 100);
+    expect(rows[0]?.segments[1]?.leftPercent).toBeCloseTo((4 / 12) * 100);
+    expect(rows[0]?.segments[1]?.widthPercent).toBeCloseTo((8 / 12) * 100);
+  });
+
+  it('keeps concurrent sessions aligned without double-counting overlapping activity', () => {
+    const timeline = buildWorkspaceTimeline([
+      runRow('run_one', [['2026-08-12T00:00:00.000Z', '2026-08-12T04:00:00.000Z']]),
+      runRow('run_two', [['2026-08-12T02:00:00.000Z', '2026-08-12T06:00:00.000Z']])
+    ], [], [], [], testResearchProfile().memory.types, NOW);
+    const first = timeline.rows.find((row) => row.runId === 'run_one');
+    const second = timeline.rows.find((row) => row.runId === 'run_two');
+
+    expect(timeline.windowDurationMs).toBe(6 * 60 * 60 * 1_000);
+    expect(first?.segments[0]?.leftPercent).toBeCloseTo(0);
+    expect(first?.segments[0]?.widthPercent).toBeCloseTo((4 / 6) * 100);
+    expect(second?.segments[0]?.leftPercent).toBeCloseTo((2 / 6) * 100);
+    expect(second?.segments[0]?.widthPercent).toBeCloseTo((4 / 6) * 100);
   });
 
   it('shows Dreaming progress and honors profiles with memory disabled', () => {

@@ -5,8 +5,7 @@ import type { HoneycrispMemorySummary, ResearchProfile, RunRow } from '@shared/t
 import { memoryTypeClassName, memoryTypeLabel } from '../research/MemoryTypeLabel';
 import {
   buildWorkspaceTimeline,
-  formatWorkspaceTimelineDuration,
-  WORKSPACE_TIMELINE_WINDOW_MS
+  formatWorkspaceTimelineDuration
 } from '../../view-models/workspaceTimeline';
 
 const TIMELINE_WINDOW_HOURS = 12;
@@ -39,7 +38,7 @@ export function WorkspaceUnderstandingView({
   }, [nowMs]);
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
-  const timelineRows = useMemo(
+  const timeline = useMemo(
     () => buildWorkspaceTimeline(
       runs,
       honeycrispMemory?.nodes ?? [],
@@ -50,32 +49,24 @@ export function WorkspaceUnderstandingView({
     ),
     [honeycrispMemory?.nodes, honeycrispMemory?.reports, honeycrispMemory?.runbooks, memoryTypes, runs, timelineNowMs]
   );
+  const timelineRows = timeline.rows;
+  const axisWindowDurationMs = timeline.windowDurationMs || TIMELINE_WINDOW_HOURS * 60 * 60 * 1_000;
   const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
   const dreamDisabled = busy || memoryDreamingInProgress || !memoryEnabled || honeycrispMemory?.dreaming.available === false;
-  const activityTitle = `${workspaceName.trim() || 'Workspace'} Activity`;
+  const timelineAriaLabel = `${workspaceName.trim() || 'Workspace'} — most recent 12 hours of session activity`;
 
   return (
     <main className="workspace-dashboard" aria-label="Workspace dashboard">
-      <section className="workspace-dashboard-half workspace-timeline-card" aria-label="Session activity over the past 12 hours">
-        <header className="workspace-timeline-header">
-          <h2>{activityTitle}</h2>
-          <div className="workspace-timeline-legend" aria-label="Timeline legend">
-            <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
-            <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
-            <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
-            <span><i className="workspace-timeline-report-swatch" />Report revision</span>
-          </div>
-        </header>
-
+      <section className="workspace-dashboard-half workspace-timeline-card" aria-label={timelineAriaLabel}>
         <div className="workspace-timeline-chart">
           <div className="workspace-timeline-axis" aria-hidden="true">
             <span />
             <div className="workspace-timeline-axis-track">
               {TIMELINE_TICK_HOURS.map((hour) => {
-                const tickMs = timelineNowMs - WORKSPACE_TIMELINE_WINDOW_MS + hour * 60 * 60 * 1_000;
+                const remainingDurationMs = axisWindowDurationMs * ((TIMELINE_WINDOW_HOURS - hour) / TIMELINE_WINDOW_HOURS);
                 return (
                   <span key={hour} style={{ left: `${(hour / TIMELINE_WINDOW_HOURS) * 100}%` }}>
-                    {hour === TIMELINE_WINDOW_HOURS ? 'Now' : formatTimelineTick(tickMs)}
+                    {hour === TIMELINE_WINDOW_HOURS ? 'Latest' : `-${formatWorkspaceTimelineDuration(remainingDurationMs)}`}
                   </span>
                 );
               })}
@@ -85,8 +76,7 @@ export function WorkspaceUnderstandingView({
             {timelineRows.length > 0 ? timelineRows.map((row) => (
               <div className="workspace-timeline-row" key={row.runId}>
                 <div className="workspace-timeline-session-label" title={row.title}>
-                  <strong>{row.title}</strong>
-                  <span>{formatWorkspaceTimelineDuration(row.totalDurationMs)} total</span>
+                  {row.title}
                 </div>
                 <div className="workspace-timeline-track">
                   {TIMELINE_TICK_HOURS.map((hour) => (
@@ -139,9 +129,15 @@ export function WorkspaceUnderstandingView({
                 </div>
               </div>
             )) : (
-              <div className="workspace-timeline-empty">No session activity in the past 12 hours.</div>
+              <div className="workspace-timeline-empty">No session activity recorded.</div>
             )}
           </div>
+        </div>
+        <div className="workspace-timeline-legend" aria-label="Timeline legend">
+          <span><i className="workspace-timeline-duration-swatch" />Work duration</span>
+          <span><i className="workspace-timeline-memory-swatch" />Memory recorded</span>
+          <span><i className="workspace-timeline-runbook-swatch" />Runbook revision</span>
+          <span><i className="workspace-timeline-report-swatch" />Report revision</span>
         </div>
       </section>
 
@@ -161,10 +157,6 @@ export function WorkspaceUnderstandingView({
       </section>
     </main>
   );
-}
-
-function formatTimelineTick(timestampMs: number): string {
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(timestampMs);
 }
 
 function formatDateTime(value: string): string {
