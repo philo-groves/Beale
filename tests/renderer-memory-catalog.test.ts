@@ -10,11 +10,15 @@ import {
   RunbookCatalogItem,
   DEFAULT_MEMORY_LEVEL_FILTER,
   DEFAULT_RUNBOOK_SCOPE_FILTER,
+  DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER,
+  DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER,
   availableResearchSideViews,
   isLastOpenResearchSideView,
   filterRunbookCatalog,
+  memoryLevelFiltersForViewSpace,
   researchSideViewsForProfile,
   researchSideNavigationReducer,
+  runbookScopeFiltersForViewSpace,
   restrictResearchSideNavigation,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
@@ -26,6 +30,15 @@ import { testResearchProfile } from './researchProfileFixture';
 describe('renderer memory catalog', () => {
   it('defaults the detailed memory catalog to Session scope', () => {
     expect(DEFAULT_MEMORY_LEVEL_FILTER).toBe('session');
+  });
+
+  it('locks workspace detail views to workspace-or-broader scopes', () => {
+    expect(DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER).toBe('workspace');
+    expect(DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER).toBe('workspace');
+    expect(memoryLevelFiltersForViewSpace('workspace')).toEqual(['workspace', 'subject']);
+    expect(runbookScopeFiltersForViewSpace('workspace')).toEqual(['workspace']);
+    expect(memoryLevelFiltersForViewSpace('session')).toEqual(['session', 'workspace', 'subject']);
+    expect(runbookScopeFiltersForViewSpace('session')).toEqual(['session', 'workspace']);
   });
 
   it('defaults runbooks to Session scope and filters by recorded context', () => {
@@ -371,6 +384,64 @@ describe('renderer memory catalog', () => {
     expect(html).toContain('<span>Subagents</span>');
     expect(html).not.toContain('aria-label="Session summary"');
     expect(html).not.toContain('aria-label="Open session detail views"');
+  });
+
+  it('shows only workspace-scoped research resources in the workspace summary', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: null,
+      events: [subagentCommentaryEvent()],
+      memory: {
+        contextWorkspaceId: 'workspace_zsh',
+        contextSubjectId: 'subject_apple',
+        nodes: [
+          memoryNode({ id: 'workspace_one' }),
+          memoryNode({ id: 'workspace_two', sessionIds: ['run_prior'] }),
+          memoryNode({ id: 'other_workspace', workspaces: [{ id: 'workspace_mdns', name: 'mDNSResponder' }] }),
+          memoryNode({ id: 'workspace_stale', status: 'stale' })
+        ],
+        edges: [],
+        runbooks: [
+          runbook({ id: 'workspace_current', sessionId: 'run_current', revision: 2 }),
+          runbook({ id: 'workspace_prior', sessionId: 'run_prior', revision: 5 }),
+          runbook({ id: 'other_workspace_runbook', workspaceId: 'workspace_mdns', revision: 11 })
+        ],
+        lastError: null
+      } as unknown as HoneycrispMemorySummary,
+      runId: 'workspace:workspace_zsh',
+      runStatus: null,
+      viewSpace: 'workspace'
+    })));
+
+    expect(html).toContain('aria-label="Workspace summary"');
+    expect(html).toContain('class="session-summary-title">Workspace</h2>');
+    expect(html).toContain('<span>2 Runbooks</span>');
+    expect(html).toContain('class="session-summary-meta">7 Revisions</span>');
+    expect(html).toContain('<span>2 Memories</span>');
+    expect(html.match(/session-summary-chevron/g)).toHaveLength(2);
+    expect(html).not.toContain('<span>Subagents</span>');
+    expect(html).not.toContain('<span>1 Subagents</span>');
+    expect(html).not.toContain('Session duration');
+    expect(html).not.toContain('Tokens');
+    expect(html).not.toContain('session-summary-metadata');
+    expect(html).not.toContain('session-memory-type-item');
+    expect(html).not.toContain('session-summary-divider');
+  });
+
+  it('uses workspace accessibility labels in the detailed workspace sidenav', () => {
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      detail: null,
+      expanded: true,
+      runId: 'workspace:workspace_zsh',
+      selectedSubagentPath: '/root/parser_review',
+      viewSpace: 'workspace'
+    })));
+
+    expect(html).toContain('aria-label="Workspace details"');
+    expect(html).toContain('aria-label="Choose a workspace detail view"');
+    expect(html).not.toContain('<span>Subagents</span>');
+    expect(html).not.toContain('parser_review');
+    expect(html).not.toContain('Back to Subagents');
+    expect(html).not.toContain('Choose a session detail view');
   });
 
   it('hides disabled profile features without removing the remaining session summary', () => {

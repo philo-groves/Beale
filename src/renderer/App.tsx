@@ -64,7 +64,7 @@ import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboar
 import { sessionHeatForDetail, sessionHeatPaletteStyle } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, type TraceDisplayEvent } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-import { hasResearchProfileDetailFeatures } from './view-models/researchProfileFeatures';
+import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 
 export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -167,6 +167,10 @@ export function App(): JSX.Element {
   useSidebarPerformanceProbe({ appShellRef, profile: sidebarToggleProfile });
   useInsetScrollbarActivation();
 
+  const researchViewContextKey = selectedRunId
+    ?? snapshot?.workspace.workspaceId
+    ?? snapshot?.workspace.workspacePath
+    ?? null;
   useEffect(() => {
     setRightSidenavExpanded(false);
     setSelectedSubagentPath(null);
@@ -174,7 +178,7 @@ export function App(): JSX.Element {
     setSelectedRunbookDocument(null);
     setRunbookLoading(false);
     setRunbookError(null);
-  }, [selectedRunId]);
+  }, [researchViewContextKey]);
 
   useEffect(() => {
     window.beale
@@ -534,9 +538,14 @@ export function App(): JSX.Element {
   );
 
   const activeRunDetail = activeRunDetailForSelection(runDetail, selectedRunId);
-  const researchDetailsAvailable = activeRunDetail !== null && hasResearchProfileDetailFeatures(
-    activeRunDetail?.researchProfile?.profile ?? null
-  );
+  const activeResearchProfile = selectedRunId
+    ? activeRunDetail?.researchProfile?.profile ?? null
+    : snapshot?.researchProfile.profile ?? null;
+  const activeResearchFeatures = researchProfileFeatureAvailability(activeResearchProfile);
+  const researchDetailsAvailable = (selectedRunId ? activeRunDetail !== null : snapshot !== null)
+    && (selectedRunId
+      ? hasResearchProfileDetailFeatures(activeResearchProfile)
+      : activeResearchFeatures.memory || activeResearchFeatures.runbooks);
 
   const setActiveResearchProfile = useCallback(async (profileId: ResearchProfileId): Promise<void> => {
     setBusy(true);
@@ -603,16 +612,19 @@ export function App(): JSX.Element {
       ) ?? null
     );
   }, [workspaceRegistry, snapshot?.workspace.workspaceId, snapshot?.workspace.workspacePath]);
+  const researchPanelMemory = selectedRunId
+    ? activeRunDetail?.honeycrispMemory ?? null
+    : snapshot?.honeycrispMemory ?? null;
   const selectedRunbook = useMemo(
-    () => activeRunDetail?.honeycrispMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
-    [activeRunDetail?.honeycrispMemory?.runbooks, selectedRunbookId]
+    () => researchPanelMemory?.runbooks.find((runbook) => runbook.id === selectedRunbookId) ?? null,
+    [researchPanelMemory?.runbooks, selectedRunbookId]
   );
   useEffect(() => {
-    if (!selectedRunbookId || !activeRunDetail || selectedRunbook) return;
+    if (!selectedRunbookId || !researchPanelMemory || selectedRunbook) return;
     setSelectedRunbookId(null);
     setSelectedRunbookDocument(null);
     setRunbookError(null);
-  }, [activeRunDetail, selectedRunbook, selectedRunbookId]);
+  }, [researchPanelMemory, selectedRunbook, selectedRunbookId]);
   useEffect(() => {
     if (!selectedRunbookId) {
       setRunbookLoading(false);

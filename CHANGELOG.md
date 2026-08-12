@@ -4,6 +4,7 @@
 
 ### Added
 
+- The workspace dashboard now has a compact and detailed right sidenav for workspace-scoped Runbooks and Memories; shared detail views default to Workspace scope and do not offer Session scope from the workspace view.
 - Completed sessions now show three session-grounded next-step suggestions in a fixed-height loading widget; selecting one opens New Research and streams an expanded prompt from that goal.
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
 - Added Cybersecurity and Mathematics selectors to General Settings. Mathematics includes domain-specific memory for problems, definitions, conjectures, proof components, counterexamples, formalizations, computations, literature, and research trajectories, plus exploration, proof, verification, and synthesis workflows.

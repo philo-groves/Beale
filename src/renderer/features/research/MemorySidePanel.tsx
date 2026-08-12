@@ -35,10 +35,13 @@ import { RunbookView } from './RunbookView';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 import { TraceView } from '../traces/TraceView';
 
-type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
+export type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
 export const DEFAULT_MEMORY_LEVEL_FILTER: MemoryLevelFilter = 'session';
+export const DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER: MemoryLevelFilter = 'workspace';
 export type RunbookScopeFilter = 'session' | 'workspace';
 export const DEFAULT_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'session';
+export const DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER: RunbookScopeFilter = 'workspace';
+export type ResearchViewSpace = 'session' | 'workspace';
 export type ResearchSideView = 'memory' | 'runbooks' | 'subagents';
 
 export interface ResearchSideNavigationState {
@@ -54,6 +57,14 @@ export type ResearchSideNavigationAction =
   | { type: 'reset' };
 
 export const RESEARCH_SIDE_VIEWS: readonly ResearchSideView[] = ['memory', 'runbooks', 'subagents'];
+
+export function memoryLevelFiltersForViewSpace(viewSpace: ResearchViewSpace): MemoryLevelFilter[] {
+  return viewSpace === 'workspace' ? ['workspace', 'subject'] : ['session', 'workspace', 'subject'];
+}
+
+export function runbookScopeFiltersForViewSpace(viewSpace: ResearchViewSpace): RunbookScopeFilter[] {
+  return viewSpace === 'workspace' ? ['workspace'] : ['session', 'workspace'];
+}
 
 const CLOSED_RESEARCH_SIDE_NAVIGATION: ResearchSideNavigationState = {
   openViews: [],
@@ -164,7 +175,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToSubagents,
   onSelectTraceEvent,
   expanded,
-  onExpandedChange
+  onExpandedChange,
+  viewSpace = 'session'
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
@@ -190,9 +202,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onSelectTraceEvent: (event: TraceDisplayEvent) => void;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  viewSpace?: ResearchViewSpace;
 }): JSX.Element {
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
-  const enabledViews = researchSideViewsForProfile(researchProfile);
+  const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
+  const enabledViews = researchSideViewsForProfile(researchProfile)
+    .filter((view) => viewSpace === 'session' || view !== 'subagents');
   const enabledViewsKey = enabledViews.join(':');
   const [navigation, dispatchNavigation] = useReducer(
     researchSideNavigationReducer,
@@ -202,8 +217,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const [query, setQuery] = useState('');
   const [runbookQuery, setRunbookQuery] = useState('');
   const [subagentQuery, setSubagentQuery] = useState('');
-  const [scope, setScope] = useState<MemoryLevelFilter>(DEFAULT_MEMORY_LEVEL_FILTER);
-  const [runbookScope, setRunbookScope] = useState<RunbookScopeFilter>(DEFAULT_RUNBOOK_SCOPE_FILTER);
+  const [scope, setScope] = useState<MemoryLevelFilter>(
+    viewSpace === 'workspace' ? DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER : DEFAULT_MEMORY_LEVEL_FILTER
+  );
+  const [runbookScope, setRunbookScope] = useState<RunbookScopeFilter>(
+    viewSpace === 'workspace' ? DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER : DEFAULT_RUNBOOK_SCOPE_FILTER
+  );
   const [type, setType] = useState('all');
   const [expandedMemoryGroups, setExpandedMemoryGroups] = useState<ReadonlySet<MemoryStatusGroup>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -219,6 +238,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const memoriesLabel = 'Memories';
   const runbookLabel = 'Runbooks';
   const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
+  const workspaceLabel = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
+  const viewSpaceLabel = viewSpace === 'workspace' ? workspaceLabel : sessionLabel;
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -244,13 +265,36 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const workspaceId = memory?.contextWorkspaceId ?? null;
   const subjectId = memory?.contextSubjectId ?? null;
+  const workspaceMemoryNodes = useMemo(
+    () => filterMemoryCatalogNodes(nodes, {
+      query: '',
+      scope: 'workspace',
+      sessionId: runId,
+      workspaceId,
+      subjectId,
+      type: 'all'
+    }),
+    [nodes, runId, subjectId, workspaceId]
+  );
+  const workspaceMemories = useMemo(
+    () => activeMemoryCount(workspaceMemoryNodes, memoryProfile?.statuses),
+    [memoryProfile?.statuses, workspaceMemoryNodes]
+  );
+  const workspaceRunbooks = useMemo(
+    () => runbooks.filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId),
+    [runbooks, workspaceId]
+  );
+  const workspaceRunbookRevisions = useMemo(
+    () => workspaceRunbooks.reduce((count, runbook) => count + runbook.revision, 0),
+    [workspaceRunbooks]
+  );
   const subagents = useMemo(() => subagentSummaries(events, runStatus, chatView), [chatView, events, runStatus]);
   const filteredSubagents = useMemo(
     () => filterSubagentSummaries(subagents, subagentQuery),
     [subagentQuery, subagents]
   );
   const groupedSubagents = useMemo(() => subagentCatalogGroups(filteredSubagents), [filteredSubagents]);
-  const visibleSelectedSubagentPath = featureAvailability.collaboration ? selectedSubagentPath : null;
+  const visibleSelectedSubagentPath = subagentsAvailable ? selectedSubagentPath : null;
   const visibleSelectedRunbookId = featureAvailability.runbooks ? selectedRunbookId : null;
   const visibleSelectedRunbook = visibleSelectedRunbookId ? selectedRunbook : null;
   const selectedSubagentName = subagentDisplayName(visibleSelectedSubagentPath
@@ -297,7 +341,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     dispatchNavigation({ type: 'reset' });
     setExpandedMemoryGroups(new Set());
     setSelectedNodeId(null);
-  }, [runId]);
+    setScope(viewSpace === 'workspace' ? DEFAULT_WORKSPACE_MEMORY_LEVEL_FILTER : DEFAULT_MEMORY_LEVEL_FILTER);
+    setRunbookScope(viewSpace === 'workspace' ? DEFAULT_WORKSPACE_RUNBOOK_SCOPE_FILTER : DEFAULT_RUNBOOK_SCOPE_FILTER);
+  }, [runId, viewSpace]);
 
   useEffect(() => {
     dispatchNavigation({ type: 'restrict', views: enabledViews });
@@ -306,14 +352,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   useEffect(() => {
     if (!featureAvailability.runbooks && selectedRunbookId) onBackToRunbooks();
-    if (!featureAvailability.collaboration && selectedSubagentPath) onBackToSubagents();
+    if (!subagentsAvailable && selectedSubagentPath) onBackToSubagents();
   }, [
-    featureAvailability.collaboration,
     featureAvailability.runbooks,
     onBackToRunbooks,
     onBackToSubagents,
     selectedRunbookId,
-    selectedSubagentPath
+    selectedSubagentPath,
+    subagentsAvailable
   ]);
 
   useEffect(() => {
@@ -349,6 +395,34 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   };
 
   if (!detailsOpen) {
+    if (viewSpace === 'workspace') {
+      return (
+        <aside className="main-session-side session-summary-panel workspace-summary-panel" aria-label={`${workspaceLabel} summary`}>
+          <section className="session-summary-card">
+            <header className="session-summary-heading">
+              <h2 className="session-summary-title">{workspaceLabel}</h2>
+            </header>
+            <section className="session-summary-items session-summary-resources" aria-label={`${workspaceLabel} resources`}>
+              {featureAvailability.runbooks ? (
+                <button type="button" className="session-summary-item" onClick={() => openDetails('runbooks')}>
+                  <BookOpen size={15} aria-hidden="true" />
+                  <span>{workspaceRunbooks.length} {runbookLabel}</span>
+                  <span className="session-summary-meta">{workspaceRunbookRevisions} Revisions</span>
+                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                </button>
+              ) : null}
+              {featureAvailability.memory ? (
+                <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
+                  <Database size={15} aria-hidden="true" />
+                  <span>{workspaceMemories} {workspaceMemories === 1 ? memoryLabel : memoriesLabel}</span>
+                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                </button>
+              ) : null}
+            </section>
+          </section>
+        </aside>
+      );
+    }
     return (
       <aside className="main-session-side session-summary-panel" aria-label={`${sessionLabel} summary`}>
         <section className="session-summary-card">
@@ -402,15 +476,15 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   if (!activeView) {
     return (
-      <aside className="main-session-side memory-catalog view-empty" aria-label={`${sessionLabel} details`}>
-        <ResearchSideViewChooser views={enabledViews} labels={{ memory: memoriesLabel, runbooks: runbookLabel }} onOpen={openDetails} />
+      <aside className="main-session-side memory-catalog view-empty" aria-label={`${viewSpaceLabel} details`}>
+        <ResearchSideViewChooser viewSpaceLabel={viewSpaceLabel} views={enabledViews} labels={{ memory: memoriesLabel, runbooks: runbookLabel }} onOpen={openDetails} />
       </aside>
     );
   }
 
   return (
     <>
-      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${sessionLabel} details`}>
+      <aside className={`main-session-side memory-catalog view-${activeView} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || selectedNode ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
         {visibleSelectedSubagentPath ? (
           <ResearchSideNestedHeader label="Subagents" name={selectedSubagentName} onBack={onBackToSubagents} />
         ) : visibleSelectedRunbookId ? (
@@ -423,6 +497,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             enabledViews={enabledViews}
             labels={{ memory: memoriesLabel, runbooks: runbookLabel }}
             openViews={visibleNavigation.openViews}
+            viewSpaceLabel={viewSpaceLabel}
             onActivate={activateDetails}
             onClose={closeDetails}
             onOpen={openDetails}
@@ -432,11 +507,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 value={scope}
                 title="Memory level filter"
                 ariaLabel="Memory level filter"
-                options={[
-                  { value: 'session', label: sessionLabel },
-                  { value: 'workspace', label: researchProfile?.workspace.workspaceNoun ?? 'Workspace' },
-                  { value: 'subject', label: researchProfile?.workspace.subjectNoun ?? 'Subject' }
-                ]}
+                options={memoryLevelFiltersForViewSpace(viewSpace).map((filter) => ({
+                  value: filter,
+                  label: filter === 'session'
+                    ? sessionLabel
+                    : filter === 'workspace'
+                      ? workspaceLabel
+                      : researchProfile?.workspace.subjectNoun ?? 'Subject'
+                }))}
                 onChange={(value) => setScope(value as MemoryLevelFilter)}
               />
             ) : activeView === 'runbooks' ? (
@@ -445,10 +523,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 value={runbookScope}
                 title="Runbook scope filter"
                 ariaLabel="Runbook scope filter"
-                options={[
-                  { value: 'session', label: sessionLabel },
-                  { value: 'workspace', label: researchProfile?.workspace.workspaceNoun ?? 'Workspace' }
-                ]}
+                options={runbookScopeFiltersForViewSpace(viewSpace).map((filter) => ({
+                  value: filter,
+                  label: filter === 'session' ? sessionLabel : workspaceLabel
+                }))}
                 onChange={(value) => setRunbookScope(value as RunbookScopeFilter)}
               />
             ) : null}
@@ -710,7 +788,8 @@ export function ResearchSideViewTabs({
   onClose,
   onOpen,
   labels,
-  trailing
+  trailing,
+  viewSpaceLabel = 'Session'
 }: {
   activeView: ResearchSideView;
   enabledViews?: readonly ResearchSideView[];
@@ -720,6 +799,7 @@ export function ResearchSideViewTabs({
   onOpen: (view: ResearchSideView) => void;
   labels?: Partial<Record<ResearchSideView, string>>;
   trailing?: ReactNode;
+  viewSpaceLabel?: string;
 }): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
@@ -747,7 +827,7 @@ export function ResearchSideViewTabs({
 
   return (
     <header className="research-side-view-header">
-      <div className="research-side-view-tabs" role="tablist" aria-label="Open session detail views">
+      <div className="research-side-view-tabs" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
         {openViews.map((view) => (
           <div className={`research-side-view-tab ${activeView === view ? 'active' : ''}`} key={view}>
             <button
@@ -777,10 +857,10 @@ export function ResearchSideViewTabs({
           <button
             type="button"
             className="research-side-view-picker-trigger"
-            aria-label="Add session detail view"
+            aria-label={`Add ${viewSpaceLabel.toLocaleLowerCase()} detail view`}
             aria-haspopup="menu"
             aria-expanded={pickerOpen}
-            title="Add session detail view"
+            title={`Add ${viewSpaceLabel.toLocaleLowerCase()} detail view`}
             onClick={() => setPickerOpen((current) => !current)}
           >
             <Plus size={16} aria-hidden="true" />
@@ -813,14 +893,16 @@ export function ResearchSideViewTabs({
 export function ResearchSideViewChooser({
   labels,
   onOpen,
-  views = RESEARCH_SIDE_VIEWS
+  views = RESEARCH_SIDE_VIEWS,
+  viewSpaceLabel = 'Session'
 }: {
   labels?: Partial<Record<ResearchSideView, string>>;
   onOpen: (view: ResearchSideView) => void;
   views?: readonly ResearchSideView[];
+  viewSpaceLabel?: string;
 }): JSX.Element {
   return (
-    <nav className="research-side-view-chooser" aria-label="Choose a session detail view">
+    <nav className="research-side-view-chooser" aria-label={`Choose a ${viewSpaceLabel.toLocaleLowerCase()} detail view`}>
       {views.map((view) => (
         <button type="button" key={view} onClick={() => onOpen(view)}>
           {researchSideViewIcon(view, 16)}

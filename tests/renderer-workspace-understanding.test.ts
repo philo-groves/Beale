@@ -2,10 +2,71 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemorySummary, ResearchSubject, WorkspaceScopeVersion } from '../src/shared/types';
+import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { WorkspaceUnderstandingView } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
 import { testResearchProfile } from './researchProfileFixture';
 
 describe('WorkspaceUnderstandingView Dreaming controls', () => {
+  it('places Workspace Understanding beside the compact workspace research sidenav', () => {
+    const memory = {
+      contextWorkspaceId: 'workspace_security',
+      contextSubjectId: 'subject_security',
+      nodes: [],
+      edges: [],
+      runbooks: [],
+      directories: [],
+      dreaming: { status: 'idle', changes: [] },
+      lastError: null
+    } as unknown as HoneycrispMemorySummary;
+    const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
+      detail: null,
+      events: [],
+      allEvents: [],
+      chatView: 'commentary',
+      providerModelCatalog: [],
+      honeycrispMemory: memory,
+      researchProfile: null,
+      researchSubject: null,
+      runCount: 0,
+      scope: null,
+      selectedRunId: null,
+      researchDetailsOpen: false,
+      selectedRunbookId: null,
+      selectedRunbook: null,
+      selectedRunbookDocument: null,
+      runbookLoading: false,
+      runbookError: null,
+      selectedSubagentPath: null,
+      selectedTraceEventId: null,
+      searchHighlightQuery: '',
+      visibleTraceCategories: [],
+      busy: false,
+      memoryDreamingInProgress: false,
+      traceFilterCount: 0,
+      totalTraceFilterCount: 0,
+      onOpenTraceFilters: () => undefined,
+      onOpenHoneycrispMemoryDirectory: () => undefined,
+      onRestoreMemoryDreamingChange: () => undefined,
+      onRunMemoryDreaming: () => undefined,
+      onResearchDetailsOpenChange: () => undefined,
+      onOpenHoneycrispRunbook: () => undefined,
+      onBackToRunbooks: () => undefined,
+      onBackToSubagents: () => undefined,
+      onSelectTraceEvent: () => undefined,
+      onSelectSubagent: () => undefined,
+      onSelectNextStep: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('class="main-session-grid "');
+    expect(html).toContain('class="workspace-understanding-workspace"');
+    expect(html).toContain('aria-label="Workspace summary"');
+    expect(html).toContain('<span>0 Runbooks</span>');
+    expect(html).toContain('<span>0 Memories</span>');
+    expect(html).not.toContain('<span>0 Subagents</span>');
+  });
+
   it('shows reversible cleanup metrics and recent changes on the workspace dashboard', () => {
     const memory = {
       status: 'ready',

@@ -99,24 +99,9 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     maximumPanelWidth,
     beginResize,
     handleResizeKeyDown
-  } = useResizableResearchSidePanel(selectedRunId !== null);
-
-  if (!selectedRunId) {
-    return (
-      <WorkspaceUnderstandingView
-        busy={busy}
-        memoryDreamingInProgress={memoryDreamingInProgress}
-        honeycrispMemory={honeycrispMemory}
-        researchProfile={researchProfile}
-        researchSubject={researchSubject}
-        runCount={runCount}
-        scope={scope}
-        onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
-        onRestoreMemoryDreamingChange={onRestoreMemoryDreamingChange}
-        onRunMemoryDreaming={onRunMemoryDreaming}
-      />
-    );
-  }
+  } = useResizableResearchSidePanel(selectedRunId !== null || honeycrispMemory !== null);
+  const viewSpace = selectedRunId ? 'session' : 'workspace';
+  const researchSidePanelKey = selectedRunId ?? `workspace:${honeycrispMemory?.contextWorkspaceId ?? 'current'}`;
 
   const postSessionContent = detail && isEndedResearchRunStatus(detail.run.status)
     ? <SessionNextSteps detail={detail} onSelect={onSelectNextStep} />
@@ -128,7 +113,20 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       className={`main-session-grid ${researchDetailsOpen ? 'research-details-open' : ''}`}
       style={{ '--research-side-panel-width': `${panelWidth}px` } as CSSProperties}
     >
-      {chatView === 'commentary' ? (
+      {!selectedRunId ? (
+        <WorkspaceUnderstandingView
+          busy={busy}
+          memoryDreamingInProgress={memoryDreamingInProgress}
+          honeycrispMemory={honeycrispMemory}
+          researchProfile={researchProfile}
+          researchSubject={researchSubject}
+          runCount={runCount}
+          scope={scope}
+          onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
+          onRestoreMemoryDreamingChange={onRestoreMemoryDreamingChange}
+          onRunMemoryDreaming={onRunMemoryDreaming}
+        />
+      ) : chatView === 'commentary' ? (
         <CommentaryView
           busy={busy}
           detail={detail}
@@ -168,7 +166,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
       <div
         className="research-side-resize-handle"
         role="separator"
-        aria-label="Resize Memory, Runbooks, and Subagents sidebar"
+        aria-label={selectedRunId ? 'Resize Runbooks, Subagents, and Memories sidebar' : 'Resize Runbooks and Memories sidebar'}
         aria-orientation="vertical"
         aria-valuemin={MIN_RESEARCH_SIDE_PANEL_WIDTH}
         aria-valuemax={maximumPanelWidth}
@@ -182,10 +180,10 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         chatView={chatView}
         detail={detail}
         events={allEvents}
-        memory={detail?.honeycrispMemory ?? null}
+        memory={viewSpace === 'workspace' ? honeycrispMemory : detail?.honeycrispMemory ?? null}
         researchProfile={researchProfile}
         providerModelCatalog={providerModelCatalog}
-        runId={selectedRunId}
+        runId={researchSidePanelKey}
         runStatus={detail?.run.status ?? null}
         expanded={researchDetailsOpen}
         selectedRunbook={selectedRunbook}
@@ -203,6 +201,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         onBackToSubagents={onBackToSubagents}
         onSelectTraceEvent={onSelectTraceEvent}
         onExpandedChange={onResearchDetailsOpenChange}
+        viewSpace={viewSpace}
       />
     </div>
   );
