@@ -1371,6 +1371,14 @@ export interface ExportRecord {
 export interface RunRow {
   run: RunRecord;
   engine: RunEngineKind;
+  activityIntervals: SessionActivityInterval[];
+}
+
+export interface SessionActivityInterval {
+  id: string;
+  runId: string;
+  startedAt: string;
+  endedAt: string | null;
 }
 
 export interface RunDetail {

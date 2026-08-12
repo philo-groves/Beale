@@ -202,7 +202,7 @@ describe('Beale workbench skeleton', () => {
       ALTER TABLE scope_versions ADD COLUMN network_policy_json TEXT;
       ALTER TABLE runs ADD COLUMN network_profile TEXT;
       ALTER TABLE vm_contexts ADD COLUMN network_profile TEXT;
-      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 16;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version >= 16;
     `);
     legacyWorkbench.close();
 
@@ -226,6 +226,9 @@ describe('Beale workbench skeleton', () => {
     expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 16").get()).toEqual({
       name: 'remove_app_network_profiles'
     });
+    expect(verifiedWorkbench.prepare("SELECT name FROM schema_migrations WHERE component = 'beale_workbench' AND version = 17").get()).toEqual({
+      name: 'session_activity_intervals'
+    });
     verifiedWorkbench.close();
 
     const verifiedRegistry = new DatabaseSync(registryPath);
@@ -235,6 +238,30 @@ describe('Beale workbench skeleton', () => {
       name: 'remove_app_network_profiles'
     });
     verifiedRegistry.close();
+  });
+
+  it('backfills one conservative activity interval for legacy sessions', () => {
+    const workspace = tempWorkspace();
+    const initial = new WorkspaceService();
+    initial.createWorkspace(workspace);
+    const snapshot = startRunForTest(initial, runInput('verifier_pass'));
+    const runId = snapshot.runs[0].run.id;
+    initial.close();
+
+    const legacyDatabase = new DatabaseSync(globalDatabasePath());
+    legacyDatabase.exec(`
+      DROP TABLE session_activity_intervals;
+      DELETE FROM schema_migrations WHERE component = 'beale_workbench' AND version = 17;
+    `);
+    legacyDatabase.close();
+
+    const migrated = new WorkspaceService();
+    const reopened = migrated.openWorkspace(workspace);
+    const intervals = reopened.runs.find((row) => row.run.id === runId)?.activityIntervals ?? [];
+    expect(intervals).toHaveLength(1);
+    expect(intervals[0].startedAt).toBe(reopened.runs.find((row) => row.run.id === runId)?.run.startedAt);
+    expect(intervals[0].endedAt).not.toBeNull();
+    migrated.close();
   });
 
   it('migrates legacy research tables to Honeycrisp-node operational links', () => {
@@ -4145,6 +4172,11 @@ describe('Beale workbench skeleton', () => {
     expect(detail.run.status).toBe('stopped');
     expect(detail.run.finalDisposition).toMatchObject({ outcome: 'stopped', blockerDependencies: [], externalStateRequired: false, source: 'host' });
     expect(detail.traceEvents.at(-1)?.summary).toBe('Run stopped by user.');
+    const activityIntervals = service.getSnapshot()?.runs.find((row) => row.run.id === runId)?.activityIntervals ?? [];
+    expect(activityIntervals).toHaveLength(2);
+    expect(activityIntervals.every((interval) => interval.endedAt !== null)).toBe(true);
+    expect(Date.parse(activityIntervals[0].startedAt)).toBeLessThanOrEqual(Date.parse(activityIntervals[0].endedAt ?? ''));
+    expect(Date.parse(activityIntervals[0].endedAt ?? '')).toBeLessThanOrEqual(Date.parse(activityIntervals[1].startedAt));
 
     service.close();
   });

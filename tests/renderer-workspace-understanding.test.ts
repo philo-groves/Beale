@@ -1,23 +1,17 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { HoneycrispMemorySummary, ResearchSubject, WorkspaceScopeVersion } from '../src/shared/types';
+import type { HoneycrispMemorySummary, RunRow } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { WorkspaceUnderstandingView } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
+import { buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
 import { testResearchProfile } from './researchProfileFixture';
 
-describe('WorkspaceUnderstandingView Dreaming controls', () => {
-  it('places Workspace Understanding beside the compact workspace research sidenav', () => {
-    const memory = {
-      contextWorkspaceId: 'workspace_security',
-      contextSubjectId: 'subject_security',
-      nodes: [],
-      edges: [],
-      runbooks: [],
-      directories: [],
-      dreaming: { status: 'idle', changes: [] },
-      lastError: null
-    } as unknown as HoneycrispMemorySummary;
+const NOW = Date.parse('2026-08-12T12:00:00.000Z');
+
+describe('workspace dashboard', () => {
+  it('places the two-part workspace dashboard beside the compact workspace research sidenav', () => {
+    const memory = memorySummary();
     const html = renderToStaticMarkup(createElement(MainSessionWorkspace, {
       detail: null,
       events: [],
@@ -25,10 +19,9 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
       chatView: 'commentary',
       providerModelCatalog: [],
       honeycrispMemory: memory,
-      researchProfile: null,
-      researchSubject: null,
-      runCount: 0,
-      scope: null,
+      researchProfile: testResearchProfile(),
+      workspaceName: 'Parser Workspace',
+      runs: [],
       selectedRunId: null,
       researchDetailsOpen: false,
       selectedRunbookId: null,
@@ -45,8 +38,6 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
       traceFilterCount: 0,
       totalTraceFilterCount: 0,
       onOpenTraceFilters: () => undefined,
-      onOpenHoneycrispMemoryDirectory: () => undefined,
-      onRestoreMemoryDreamingChange: () => undefined,
       onRunMemoryDreaming: () => undefined,
       onResearchDetailsOpenChange: () => undefined,
       onOpenHoneycrispRunbook: () => undefined,
@@ -60,216 +51,179 @@ describe('WorkspaceUnderstandingView Dreaming controls', () => {
     }));
 
     expect(html).toContain('class="main-session-grid "');
-    expect(html).toContain('class="workspace-understanding-workspace"');
-    expect(html).toContain('aria-label="Workspace summary"');
+    expect(html).toContain('class="workspace-dashboard"');
+    expect(html.match(/class="workspace-dashboard-half/g)).toHaveLength(2);
+    expect(html).toContain('Parser Workspace Activity');
+    expect(html).toContain('No session activity in the past 12 hours.');
     expect(html).toContain('<span>0 Runbooks</span>');
     expect(html).toContain('<span>0 Memories</span>');
     expect(html).not.toContain('<span>0 Subagents</span>');
   });
 
-  it('shows reversible cleanup metrics and recent changes on the workspace dashboard', () => {
-    const memory = {
-      status: 'ready',
-      source: 'honeycrisp_sqlite',
-      contextWorkspaceId: 'workspace_security',
-      contextSubjectId: 'subject_security',
-      databasePath: '/memory.sqlite',
-      storageRoot: '/storage',
-      artifactDirectoryPath: '/artifacts',
-      databaseSizeBytes: 1024,
-      nodeCount: 8,
-      edgeCount: 2,
-      evidenceRefCount: 4,
-      storageArtifactCount: 0,
-      runbookCount: 0,
-      latestNodeUpdatedAt: '2026-07-29T10:00:00.000Z',
-      nodeTypeCounts: { primitive: 2 },
-      nodeStatusCounts: { confirmed: 2 },
-      nodes: [],
-      edges: [],
-      runbooks: [],
-      directories: [],
-      lastError: null,
-      dreaming: {
-        available: true,
-        scope: 'workspace',
-        hiddenNodeCount: 3,
-        restorableChangeCount: 1,
-        lastRun: {
-          id: 'dream_one',
-          status: 'completed',
-          model: 'gpt-5.6-sol',
-          reasoningEffort: 'high',
-          inputNodeCount: 8,
-          inputSessionCount: 2,
-          prunedNodeCount: 1,
-          duplicateHiddenCount: 2,
-          duplicateGroupCount: 1,
-          reclassifiedNodeCount: 1,
-          editedNodeCount: 2,
-          createdAt: '2026-07-29T11:00:00.000Z',
-          completedAt: '2026-07-29T11:00:00.000Z',
-          restoredAt: null,
-          errorMessage: null
-        },
-        changes: [
-          {
-            id: 'change_one',
-            runId: 'dream_one',
-            action: 'merge_duplicates',
-            title: 'Parser mismatch',
-            nodeType: 'primitive',
-            hiddenNodeIds: ['duplicate_one', 'duplicate_two'],
-            survivorNodeId: 'survivor',
-            reason: 'Merged exact duplicates.',
-            createdAt: '2026-07-29T11:00:00.000Z',
-            restoredAt: null,
-            canRestore: true
-          },
-          {
-            id: 'change_two',
-            runId: 'dream_one',
-            action: 'reclassify',
-            title: 'Mounted images synthesize quarantine state',
-            nodeType: 'invariant',
-            hiddenNodeIds: [],
-            survivorNodeId: 'quarantine_behavior',
-            reason: 'The node records platform behavior rather than a flaw.',
-            createdAt: '2026-07-29T11:00:00.000Z',
-            restoredAt: null,
-            canRestore: true
-          }
-        ]
-      }
-    } satisfies HoneycrispMemorySummary;
-
-    const html = renderToStaticMarkup(
-      createElement(WorkspaceUnderstandingView, {
-        busy: false,
-        memoryDreamingInProgress: false,
-        honeycrispMemory: memory,
-        runCount: 2,
-        scope: null,
-        onOpenHoneycrispMemoryDirectory: () => undefined,
-        onRestoreMemoryDreamingChange: () => undefined,
-        onRunMemoryDreaming: () => undefined
-      })
-    );
-
-    expect(html).toContain('aria-label="Memory dreaming"');
-    expect(html).toContain('Dreaming');
-    expect(html).toContain('>Dream</button>');
-    expect(html).toContain('up to 100 past session transcripts');
-    expect(html).toContain('reclassifies');
-    expect(html).toContain('Original nodes and revisions remain stored for restoration.');
-    expect(html).toContain('class="memory-type-label memory-type-primitive"');
-    expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
-    expect(html).toContain('Hidden Nodes');
-    expect(html).toContain('Restorable Changes');
-    expect(html).toContain('Last Reclassified');
-    expect(html).toContain('Parser mismatch');
-    expect(html).toContain('2 duplicates consolidated');
-    expect(html).toContain('Memory reclassified as invariant');
-    expect(html).toContain('aria-label="Restore Dreaming change for Parser mismatch"');
-
+  it('renders split work intervals and per-memory-type timeline markers', () => {
     const profile = testResearchProfile();
-    const memoryDisabledHtml = renderToStaticMarkup(
-      createElement(WorkspaceUnderstandingView, {
-        busy: false,
-        memoryDreamingInProgress: false,
-        honeycrispMemory: memory,
-        researchProfile: {
-          ...profile,
-          capabilities: { ...profile.capabilities, memoryEnabled: false }
-        },
-        runCount: 2,
-        scope: null,
-        onOpenHoneycrispMemoryDirectory: () => undefined,
-        onRestoreMemoryDreamingChange: () => undefined,
-        onRunMemoryDreaming: () => undefined
-      })
-    );
-    expect(memoryDisabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
-    expect(memoryDisabledHtml).toContain('Parser mismatch');
-    expect(memoryDisabledHtml).toContain('aria-label="Restore Dreaming change for Parser mismatch"');
+    const memoryType = profile.memory.types[0];
+    const runs = [runRow('run_one', [
+      ['2026-08-12T02:00:00.000Z', '2026-08-12T04:00:00.000Z'],
+      ['2026-08-12T09:00:00.000Z', null]
+    ])];
+    const memory = memorySummary({
+      nodes: [{
+        id: 'memory_one',
+        sessionIds: ['run_one'],
+        type: memoryType.id,
+        title: 'Parser state transition',
+        createdAt: '2026-08-12T10:00:00.000Z'
+      }]
+    });
+    const rows = buildWorkspaceTimeline(runs, memory.nodes, profile.memory.types, NOW);
 
-    const inProgressHtml = renderToStaticMarkup(
-      createElement(WorkspaceUnderstandingView, {
-        busy: true,
-        memoryDreamingInProgress: true,
-        honeycrispMemory: memory,
-        runCount: 2,
-        scope: null,
-        onOpenHoneycrispMemoryDirectory: () => undefined,
-        onRestoreMemoryDreamingChange: () => undefined,
-        onRunMemoryDreaming: () => undefined
-      })
-    );
-    expect(inProgressHtml).toContain('In Progress');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.segments).toHaveLength(2);
+    expect(rows[0]?.totalDurationMs).toBe(5 * 60 * 60 * 1_000);
+    expect(rows[0]?.memoryMarkers).toEqual([
+      expect.objectContaining({ id: 'memory_one', type: memoryType.id, color: memoryType.color ?? null })
+    ]);
+
+    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memory,
+      researchProfile: profile,
+      workspaceName: 'Parser Workspace',
+      runs,
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+
+    expect(html).toContain('Past 12 Hours');
+    expect(html).toContain('Recent session');
+    expect(html).toContain('5h total');
+    expect(html.match(/workspace-timeline-segment/g)).toHaveLength(2);
+    expect(html).toContain(`workspace-timeline-memory-marker memory-type-${memoryType.id}`);
+    expect(html).toContain(`memory recorded: Parser state transition`);
+    expect(html).toContain('>Dream</button>');
+  });
+
+  it('shows Dreaming progress and honors profiles with memory disabled', () => {
+    const profile = testResearchProfile();
+    const inProgressHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: true,
+      memoryDreamingInProgress: true,
+      honeycrispMemory: memorySummary(),
+      researchProfile: profile,
+      workspaceName: 'Parser Workspace',
+      runs: [],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
     expect(inProgressHtml).toContain('Dreaming…');
+    expect(inProgressHtml).toContain('disabled=""');
 
-    const failedMemory: HoneycrispMemorySummary = {
-      ...memory,
-      dreaming: {
-        ...memory.dreaming,
-        lastRun: {
-          ...memory.dreaming.lastRun!,
-          status: 'failed',
-          editedNodeCount: 0,
-          errorMessage: 'The provider returned a temporary error.'
-        }
-      }
-    };
-    const failedHtml = renderToStaticMarkup(
-      createElement(WorkspaceUnderstandingView, {
-        busy: false,
-        memoryDreamingInProgress: false,
-        honeycrispMemory: failedMemory,
-        runCount: 2,
-        scope: null,
-        onOpenHoneycrispMemoryDirectory: () => undefined,
-        onRestoreMemoryDreamingChange: () => undefined,
-        onRunMemoryDreaming: () => undefined
-      })
-    );
-    expect(failedHtml).toContain('Last Dreaming attempt failed before applying changes');
-    expect(failedHtml).toContain('The provider returned a temporary error.');
-    expect(failedHtml).toContain('no changes applied');
-
-    const subjectHtml = renderToStaticMarkup(
-      createElement(WorkspaceUnderstandingView, {
-        busy: false,
-        memoryDreamingInProgress: false,
-        honeycrispMemory: memory,
-        researchSubject: {
-          id: 'subject_parser',
-          name: 'Parser Runtime',
-          source: 'explicit',
-          createdAt: '2026-07-29T10:00:00.000Z',
-          updatedAt: '2026-07-29T10:00:00.000Z'
-        } satisfies ResearchSubject,
-        runCount: 2,
-        scope: {
-          id: 'scope_parser',
-          status: 'active',
-          workspaceName: 'Parser Research',
-          scopeOwner: 'Authorization Team',
-          descriptionMarkdown: '',
-          rulesMarkdown: '',
-          version: 2,
-          activeFrom: '2026-07-29T10:00:00.000Z',
-          expiresAt: null,
-          createdAt: '2026-07-29T10:00:00.000Z',
-          createdBy: 'local_user',
-          assets: []
-        } satisfies WorkspaceScopeVersion,
-        onOpenHoneycrispMemoryDirectory: () => undefined,
-        onRestoreMemoryDreamingChange: () => undefined,
-        onRunMemoryDreaming: () => undefined
-      })
-    );
-    expect(subjectHtml).toContain('Parser Runtime');
-    expect(subjectHtml).toContain('Authorization Owner');
-    expect(subjectHtml).toContain('Authorization Team');
+    const disabledHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      memoryDreamingInProgress: false,
+      honeycrispMemory: memorySummary(),
+      researchProfile: {
+        ...profile,
+        capabilities: { ...profile.capabilities, memoryEnabled: false }
+      },
+      workspaceName: 'Parser Workspace',
+      runs: [],
+      nowMs: NOW,
+      onRunMemoryDreaming: () => undefined
+    }));
+    expect(disabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
   });
 });
+
+function runRow(
+  id: string,
+  intervals: Array<[startedAt: string, endedAt: string | null]>
+): RunRow {
+  return {
+    run: {
+      id,
+      scopeVersionId: 'scope_one',
+      researchProfileSnapshotId: null,
+      shellSafetyMode: 'auto_review',
+      mode: 'dynamic',
+      status: intervals.at(-1)?.[1] === null ? 'active' : 'completed',
+      title: 'Recent session',
+      promptMarkdown: '',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      attemptStrategy: 'breadth_first',
+      sandboxProfile: 'host',
+      targetAssetId: null,
+      targetPath: null,
+      budget: {},
+      summary: '',
+      finalDisposition: null,
+      createdAt: intervals[0]?.[0] ?? new Date(NOW).toISOString(),
+      startedAt: intervals[0]?.[0] ?? null,
+      endedAt: intervals.at(-1)?.[1] ?? null
+    },
+    engine: 'honeycrisp',
+    activityIntervals: intervals.map(([startedAt, endedAt], index) => ({
+      id: `activity_${index}`,
+      runId: id,
+      startedAt,
+      endedAt
+    }))
+  };
+}
+
+function memorySummary(input: { nodes?: Array<Partial<HoneycrispMemorySummary['nodes'][number]>> } = {}): HoneycrispMemorySummary {
+  return {
+    status: 'ready',
+    source: 'honeycrisp_sqlite',
+    contextWorkspaceId: 'workspace_security',
+    contextSubjectId: 'subject_security',
+    databasePath: '/memory.sqlite',
+    storageRoot: '/storage',
+    artifactDirectoryPath: '/artifacts',
+    databaseSizeBytes: 1_024,
+    nodeCount: input.nodes?.length ?? 0,
+    edgeCount: 0,
+    evidenceRefCount: 0,
+    storageArtifactCount: 0,
+    runbookCount: 0,
+    latestNodeUpdatedAt: null,
+    nodeTypeCounts: {},
+    nodeStatusCounts: {},
+    nodes: (input.nodes ?? []).map((node) => ({
+      sessionIds: [],
+      workspaces: [],
+      subjectId: 'subject_security',
+      subjectName: 'Security',
+      summary: '',
+      body: '',
+      status: 'suspected',
+      confidence: 0.5,
+      assetIds: [],
+      tags: [],
+      attributes: {},
+      evidenceRefs: [],
+      updatedAt: node.createdAt ?? new Date(NOW).toISOString(),
+      revision: 1,
+      id: 'memory',
+      type: 'other',
+      title: 'Memory',
+      createdAt: new Date(NOW).toISOString(),
+      ...node
+    })),
+    edges: [],
+    runbooks: [],
+    directories: [],
+    lastError: null,
+    dreaming: {
+      available: true,
+      scope: 'workspace',
+      hiddenNodeCount: 0,
+      restorableChangeCount: 0,
+      lastRun: null,
+      changes: []
+    }
+  };
+}

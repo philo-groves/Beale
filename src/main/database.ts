@@ -44,6 +44,7 @@ import type {
   RunRecord,
   RunRow,
   RunStatus,
+  SessionActivityInterval,
   ScopeAsset,
   ScopeAssetInput,
   ShellSafetyMode,
@@ -3745,6 +3746,9 @@ export class WorkspaceDatabase {
     this.transaction(() => {
       for (const row of interruptedRunRows) {
         this.db
+          .prepare('UPDATE session_activity_intervals SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL')
+          .run(recoveredAt, text(row, 'id'));
+        this.db
           .prepare("UPDATE runs SET status = ?, summary = ?, ended_at = NULL, final_disposition_json = NULL, blocker_dependencies_json = '[]', external_state_required = 0 WHERE id = ?")
           .run('paused', 'Paused by workspace recovery after previous interruption.', text(row, 'id'));
       }
@@ -4122,6 +4126,13 @@ export class WorkspaceDatabase {
           createdAt,
           null
         );
+
+      this.db
+        .prepare(
+          `INSERT INTO session_activity_intervals (id, run_id, started_at, ended_at)
+           VALUES (?, ?, ?, NULL)`
+        )
+        .run(createId('activity'), runId, createdAt);
 
       this.db
         .prepare(
@@ -4521,25 +4532,44 @@ export class WorkspaceDatabase {
     summary: string,
     dispositionInput?: Omit<SessionFinalDisposition, 'recordedAt'> & { recordedAt?: string }
   ): void {
+    const previous = this.getRun(runId);
     const terminal = isFinalRunStatus(status);
-    const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? nowIso() : null;
+    const transitionedAt = nowIso();
+    const endedAt = status === 'completed' || status === 'failed' || status === 'stopped' ? transitionedAt : null;
     const disposition = terminal ? normalizeSessionFinalDisposition(status, summary, dispositionInput) : null;
-    this.db
-      .prepare(
-        `UPDATE runs
-         SET status = ?, summary = ?, ended_at = ?, final_disposition_json = ?,
-             blocker_dependencies_json = ?, external_state_required = ?
-         WHERE id = ?`
-      )
-      .run(
-        status,
-        summary,
-        endedAt,
-        disposition ? toJson(dispositionMetadata(disposition)) : null,
-        toJson(disposition?.blockerDependencies ?? []),
-        disposition?.externalStateRequired ? 1 : 0,
-        runId
-      );
+    this.transaction(() => {
+      if (previous?.status === 'active' && status !== 'active') {
+        this.db
+          .prepare('UPDATE session_activity_intervals SET ended_at = ? WHERE run_id = ? AND ended_at IS NULL')
+          .run(transitionedAt, runId);
+      } else if (previous && previous.status !== 'active' && status === 'active') {
+        this.db
+          .prepare(
+            `INSERT INTO session_activity_intervals (id, run_id, started_at, ended_at)
+             SELECT ?, ?, ?, NULL
+             WHERE NOT EXISTS (
+               SELECT 1 FROM session_activity_intervals WHERE run_id = ? AND ended_at IS NULL
+             )`
+          )
+          .run(createId('activity'), runId, transitionedAt, runId);
+      }
+      this.db
+        .prepare(
+          `UPDATE runs
+           SET status = ?, summary = ?, ended_at = ?, final_disposition_json = ?,
+               blocker_dependencies_json = ?, external_state_required = ?
+           WHERE id = ?`
+        )
+        .run(
+          status,
+          summary,
+          endedAt,
+          disposition ? toJson(dispositionMetadata(disposition)) : null,
+          toJson(disposition?.blockerDependencies ?? []),
+          disposition?.externalStateRequired ? 1 : 0,
+          runId
+        );
+    });
     const run = this.getRun(runId);
     if (run) this.indexRunSearchDocument(run);
   }
@@ -5086,11 +5116,31 @@ export class WorkspaceDatabase {
         .prepare('SELECT r.* FROM runs r JOIN scope_versions s ON s.id = r.scope_version_id WHERE s.workspace_id = ? ORDER BY r.created_at DESC')
         .all(this.workspaceId)
     );
+    const intervalRows = rows(
+      this.db
+        .prepare(
+          `SELECT interval.*
+           FROM session_activity_intervals interval
+           JOIN runs r ON r.id = interval.run_id
+           JOIN scope_versions s ON s.id = r.scope_version_id
+           WHERE s.workspace_id = ?
+           ORDER BY interval.started_at ASC, interval.id ASC`
+        )
+        .all(this.workspaceId)
+    );
+    const intervalsByRun = new Map<string, SessionActivityInterval[]>();
+    for (const intervalRow of intervalRows) {
+      const interval = this.mapSessionActivityInterval(intervalRow);
+      const runIntervals = intervalsByRun.get(interval.runId) ?? [];
+      runIntervals.push(interval);
+      intervalsByRun.set(interval.runId, runIntervals);
+    }
     return runRows.map((runRow) => {
       const run = this.mapRun(runRow);
       return {
         run,
-        engine: this.runEngineFromBudget(run.budget)
+        engine: this.runEngineFromBudget(run.budget),
+        activityIntervals: intervalsByRun.get(run.id) ?? []
       };
     });
   }
@@ -7939,6 +7989,42 @@ export class WorkspaceDatabase {
             database.exec('ALTER TABLE vm_contexts DROP COLUMN network_profile;');
           }
         }
+      },
+      {
+        version: 17,
+        name: 'session_activity_intervals',
+        up: (database) => {
+          database.exec(`
+              CREATE TABLE IF NOT EXISTS session_activity_intervals (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT
+              );
+              CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_run_started
+              ON session_activity_intervals(run_id, started_at);
+              CREATE UNIQUE INDEX IF NOT EXISTS idx_session_activity_intervals_one_open
+              ON session_activity_intervals(run_id) WHERE ended_at IS NULL;
+              INSERT INTO session_activity_intervals (id, run_id, started_at, ended_at)
+              SELECT
+                'activity_legacy_' || r.id,
+                r.id,
+                r.started_at,
+                CASE
+                  WHEN r.status = 'active' THEN NULL
+                  ELSE COALESCE(
+                    r.ended_at,
+                    (SELECT MAX(t.created_at) FROM trace_events t WHERE t.run_id = r.id),
+                    r.started_at
+                  )
+                END
+              FROM runs r
+              WHERE r.started_at IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM session_activity_intervals interval WHERE interval.run_id = r.id
+                );
+          `);
+        }
       }
     ]);
   }
@@ -9887,6 +9973,15 @@ export class WorkspaceDatabase {
     };
   }
 
+  private mapSessionActivityInterval(row: SqlRow): SessionActivityInterval {
+    return {
+      id: text(row, 'id'),
+      runId: text(row, 'run_id'),
+      startedAt: text(row, 'started_at'),
+      endedAt: nullableText(row, 'ended_at')
+    };
+  }
+
   private mapTraceEvent(row: SqlRow): TraceEventRecord {
     return {
       id: text(row, 'id'),
@@ -10457,6 +10552,19 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at TEXT,
   ended_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS session_activity_intervals (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_activity_intervals_run_started
+ON session_activity_intervals(run_id, started_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_activity_intervals_one_open
+ON session_activity_intervals(run_id) WHERE ended_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS vm_contexts (
   id TEXT PRIMARY KEY,

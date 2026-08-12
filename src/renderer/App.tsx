@@ -8,7 +8,6 @@ import type {
   ProviderSettings,
   ProviderModelDefaults,
   ShellOptions,
-  HoneycrispMemoryDirectorySummary,
   HoneycrispRunbookDocument,
   NativeMenuAction,
   NotificationRecord,
@@ -299,23 +298,12 @@ export function App(): JSX.Element {
     [loadWorkspaceRegistry]
   );
 
-  const openHoneycrispMemoryDirectory = useCallback(
-    async (name: HoneycrispMemoryDirectorySummary['name']) => {
-      await runAction(() => window.beale.openHoneycrispMemoryDirectory(name));
-    },
-    [runAction]
-  );
-
   const runMemoryDreaming = useCallback((): void => {
     if (snapshot?.researchProfile.profile.capabilities.memoryEnabled === false) return;
     setMemoryDreamingInProgress(true);
     void runAction(() => window.beale.runMemoryDreaming())
       .finally(() => setMemoryDreamingInProgress(false));
   }, [runAction, snapshot?.researchProfile.profile.capabilities.memoryEnabled]);
-
-  const restoreMemoryDreamingChange = useCallback((changeId: string): void => {
-    void runAction(() => window.beale.restoreMemoryDreamingChange(changeId));
-  }, [runAction]);
 
   const openHoneycrispRunbook = useCallback((runbookId: string): void => {
     setRightSidenavExpanded(true);
@@ -854,9 +842,8 @@ export function App(): JSX.Element {
               providerModelCatalog={researchProviderModelCatalog}
               honeycrispMemory={selectedRunId ? null : snapshot?.honeycrispMemory ?? null}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
-              researchSubject={selectedRunId ? null : snapshot?.researchSubject ?? null}
-              runCount={selectedRunId ? 0 : snapshot?.runs.length ?? 0}
-              scope={selectedRunId ? null : snapshot?.activeScope ?? null}
+              workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
+              runs={selectedRunId ? [] : snapshot?.runs ?? []}
               selectedRunId={selectedRunId}
               researchDetailsOpen={rightSidenavExpanded && researchDetailsAvailable}
               selectedRunbookId={selectedRunbookId}
@@ -873,8 +860,6 @@ export function App(): JSX.Element {
               traceFilterCount={visibleTraceCategories.length}
               totalTraceFilterCount={ALL_TRACE_CATEGORY_IDS.length}
               onOpenTraceFilters={openTraceFilters}
-              onOpenHoneycrispMemoryDirectory={openHoneycrispMemoryDirectory}
-              onRestoreMemoryDreamingChange={restoreMemoryDreamingChange}
               onRunMemoryDreaming={runMemoryDreaming}
               onResearchDetailsOpenChange={(expanded) => setRightSidenavExpanded(researchDetailsAvailable && expanded)}
               onOpenHoneycrispRunbook={openHoneycrispRunbook}

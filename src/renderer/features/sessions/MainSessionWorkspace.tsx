@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, ResearchSubject, SteeringAction, WorkspaceScopeVersion, RunDetail } from '@shared/types';
+import type { HoneycrispMemorySummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, SteeringAction } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { CommentaryView } from '../commentary/CommentaryView';
@@ -22,9 +22,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog,
   honeycrispMemory,
   researchProfile,
-  researchSubject,
-  runCount,
-  scope,
+  workspaceName,
+  runs,
   selectedRunId,
   researchDetailsOpen,
   selectedRunbookId,
@@ -41,8 +40,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   traceFilterCount,
   totalTraceFilterCount,
   onOpenTraceFilters,
-  onOpenHoneycrispMemoryDirectory,
-  onRestoreMemoryDreamingChange,
   onRunMemoryDreaming,
   onResearchDetailsOpenChange,
   onOpenHoneycrispRunbook,
@@ -61,9 +58,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   providerModelCatalog: ResearchProviderModelCatalog[];
   honeycrispMemory: HoneycrispMemorySummary | null;
   researchProfile: ResearchProfile | null;
-  researchSubject: ResearchSubject | null;
-  runCount: number;
-  scope: WorkspaceScopeVersion | null;
+  workspaceName: string;
+  runs: RunRow[];
   selectedRunId: string | null;
   researchDetailsOpen: boolean;
   selectedRunbookId: string | null;
@@ -80,8 +76,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   traceFilterCount: number;
   totalTraceFilterCount: number;
   onOpenTraceFilters: () => void;
-  onOpenHoneycrispMemoryDirectory: (name: HoneycrispMemorySummary['directories'][number]['name']) => void;
-  onRestoreMemoryDreamingChange: (changeId: string) => void;
   onRunMemoryDreaming: () => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenHoneycrispRunbook: (runbookId: string) => void;
@@ -119,11 +113,8 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           memoryDreamingInProgress={memoryDreamingInProgress}
           honeycrispMemory={honeycrispMemory}
           researchProfile={researchProfile}
-          researchSubject={researchSubject}
-          runCount={runCount}
-          scope={scope}
-          onOpenHoneycrispMemoryDirectory={onOpenHoneycrispMemoryDirectory}
-          onRestoreMemoryDreamingChange={onRestoreMemoryDreamingChange}
+          workspaceName={workspaceName}
+          runs={runs}
           onRunMemoryDreaming={onRunMemoryDreaming}
         />
       ) : chatView === 'commentary' ? (
