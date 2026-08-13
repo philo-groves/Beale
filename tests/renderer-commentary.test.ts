@@ -8,9 +8,12 @@ import {
   commentaryFollowLatestAfterScroll,
   commentaryMessageIcon,
   commentaryMessageLabel,
+  commentaryMessageSections,
   commentaryScrollFadeClasses,
   commentaryToolValueText,
   commentaryWindowStartForIndex,
+  isRunWorkingStatus,
+  runWorkingDurationMs,
   shouldAutoExpandToolMessage
 } from '../src/renderer/features/commentary/CommentaryView';
 import { commentaryMessagesForSession, commentaryToolUsageText } from '../src/renderer/view-models/commentary';
@@ -24,7 +27,7 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('tool')).toBeNull();
     expect(commentaryMessageLabel('task', 'spawn')).toBe('Subagent Spawn');
     expect(commentaryMessageLabel('task', 'followup')).toBe('Subagent Follow-up');
-    expect(commentaryMessageLabel('final_answer')).toBe('Agent');
+    expect(commentaryMessageLabel('final_answer')).toBeNull();
     expect(commentaryMessageLabel('error')).toBe('Error');
   });
 
@@ -314,6 +317,144 @@ describe('renderer commentary projection', () => {
       ['commentary', 'Native commentary for the first response.'],
       ['progress', 'Completed fallback snapshot.']
     ]);
+  });
+
+  it('keeps the prompt and terminal result outside the collapsible work history', () => {
+    const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
+      displayEvent('commentary', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        messagePhase: 'commentary',
+        text: 'Checking parser entrypoints.'
+      }),
+      displayEvent('final', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        messagePhase: 'final_answer',
+        text: 'The parser boundary is safe.'
+      })
+    ]);
+
+    const sections = commentaryMessageSections(messages, true);
+    expect(sections.leading.map((message) => message.kind)).toEqual(['user']);
+    expect(sections.activity.map((message) => message.kind)).toEqual(['commentary']);
+    expect(sections.trailing.map((message) => message.kind)).toEqual(['final_answer']);
+  });
+
+  it('sums execution-attempt time for the run work duration', () => {
+    const detail = runDetail('Inspect the parser.');
+    detail.run.startedAt = '2026-08-03T10:00:00.000Z';
+    detail.run.endedAt = '2026-08-03T10:04:00.000Z';
+    detail.attempts = [
+      { startedAt: '2026-08-03T10:00:00.000Z', endedAt: '2026-08-03T10:01:00.000Z' },
+      { startedAt: '2026-08-03T10:03:00.000Z', endedAt: null }
+    ] as RunDetail['attempts'];
+
+    expect(runWorkingDurationMs(detail, Date.parse('2026-08-03T10:04:30.000Z'))).toBe(150_000);
+  });
+
+  it('treats only an active run as currently working', () => {
+    expect(isRunWorkingStatus('active')).toBe(true);
+    expect(isRunWorkingStatus('queued')).toBe(false);
+    expect(isRunWorkingStatus('paused')).toBe(false);
+    expect(isRunWorkingStatus('blocked')).toBe(false);
+    expect(isRunWorkingStatus('completed')).toBe(false);
+    expect(isRunWorkingStatus('failed')).toBe(false);
+    expect(isRunWorkingStatus('stopped')).toBe(false);
+  });
+
+  it('caps an unfinished attempt at its last recorded activity when the run is no longer active', () => {
+    const detail = runDetail('Inspect the parser.');
+    detail.run.status = 'paused';
+    detail.run.budget = { modelProvider: 'openai-codex' };
+    detail.run.model = 'gpt-5.6-sol';
+    detail.run.reasoningEffort = 'medium';
+    detail.run.startedAt = '2026-08-03T09:00:00.000Z';
+    detail.run.endedAt = null;
+    detail.attempts = [{
+      startedAt: detail.run.startedAt,
+      endedAt: null
+    }] as RunDetail['attempts'];
+    const commentary = displayEvent('commentary', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'honeycrisp_commentary',
+      messagePhase: 'commentary',
+      text: 'Checking parser entrypoints.'
+    }, { createdAt: '2026-08-03T11:00:00.000Z' });
+    detail.traceEvents = [commentary];
+
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: false,
+        detail,
+        events: [commentary],
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: false,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html).toContain('Worked for 02:00:00');
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it('collapses stopped commentary and tool work behind a Worked header', () => {
+    const detail = runDetail('Inspect the parser.');
+    detail.run.status = 'stopped';
+    detail.run.budget = { modelProvider: 'openai-codex' };
+    detail.run.model = 'gpt-5.6-sol';
+    detail.run.reasoningEffort = 'medium';
+    detail.run.startedAt = '2026-08-03T10:00:00.000Z';
+    detail.run.endedAt = '2026-08-03T10:02:30.000Z';
+    detail.attempts = [{
+      startedAt: detail.run.startedAt,
+      endedAt: detail.run.endedAt
+    }] as RunDetail['attempts'];
+    const events = [
+      displayEvent('commentary', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp_commentary',
+        messagePhase: 'commentary',
+        text: 'Checking parser entrypoints.'
+      }),
+      displayEvent('final', {
+        agentPath: '/root',
+        transcriptRole: 'assistant',
+        transcriptSource: 'honeycrisp',
+        messagePhase: 'final_answer',
+        text: 'The parser boundary is safe.'
+      })
+    ];
+
+    const html = renderToStaticMarkup(
+      createElement(CommentaryView, {
+        busy: false,
+        detail,
+        events,
+        providerModelCatalog: [],
+        selectedRunId: detail.run.id,
+        showBackToMain: false,
+        selectedTraceEventId: null,
+        searchHighlightQuery: '',
+        onBackToMain: () => undefined,
+        onSessionAction: () => undefined,
+        onSteerInstruction: () => undefined
+      })
+    );
+
+    expect(html).toContain('Worked for 00:02:30');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('The parser boundary is safe.');
+    expect(html).not.toContain('Checking parser entrypoints.');
   });
 
   it('renders xAI reasoning summaries as ordinary commentary while retaining their trace source', () => {

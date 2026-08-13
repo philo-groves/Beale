@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResearchGoalPhase, ResearchGoalSuggestionGroup, ResearchGoalSuggestionStateByPhase, WorkspaceOnboardingProgressUpdate, ScopeAssetKind, StartRunInput } from '@shared/types';
 import { WorkspaceDatabase } from '../src/main/database';
 import { honeycrispProcessEnvironment } from '../src/main/honeycrispRunEngine';
+import { ProviderCredentialStore } from '../src/main/providerCredentialStore';
 import { startRunForTest, WorkspaceService } from '../src/main/workspaceService';
 import { DEFAULT_RESEARCH_MODEL } from '../src/shared/modelDefaults';
 import { resolvedTestResearchProfile, testResearchProfile, testResearchProfileCatalogEnvelope } from './researchProfileFixture';
@@ -2881,18 +2882,6 @@ describe('Beale workbench skeleton', () => {
       },
       enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] }
     });
-    expect(service.setProviderCyberPolicyRiskAcknowledged('anthropic', true)).toEqual({
-      defaultProviderId: 'anthropic',
-      modelDefaults: {
-        anthropic: {
-          largeModel: 'claude-opus-4-6',
-          smallModel: 'claude-haiku-4-5',
-          reasoningEffort: 'xhigh'
-        }
-      },
-      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
-      cyberPolicyRiskAcknowledgements: { anthropic: true }
-    });
     expect(service.setShellOptions({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } })).toEqual({
       defaultConcurrency: 3,
       utilities: { sudo: 0, clang: 2 }
@@ -2918,25 +2907,12 @@ describe('Beale workbench skeleton', () => {
           reasoningEffort: 'xhigh'
         }
       },
-      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
-      cyberPolicyRiskAcknowledgements: { anthropic: true }
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] }
     });
     expect(reopened.getShellOptions()).toEqual({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } });
     expect(reopened.getProfilingState().enabled).toBe(true);
     expect(reopened.setDeveloperModeEnabled(false)).toEqual({ developerModeEnabled: false });
     expect(reopened.setDefaultProviderId(null)).toEqual({
-      defaultProviderId: null,
-      modelDefaults: {
-        anthropic: {
-          largeModel: 'claude-opus-4-6',
-          smallModel: 'claude-haiku-4-5',
-          reasoningEffort: 'xhigh'
-        }
-      },
-      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
-      cyberPolicyRiskAcknowledgements: { anthropic: true }
-    });
-    expect(reopened.setProviderCyberPolicyRiskAcknowledged('anthropic', false)).toEqual({
       defaultProviderId: null,
       modelDefaults: {
         anthropic: {
@@ -3015,7 +2991,10 @@ describe('Beale workbench skeleton', () => {
       .toEqual({ anthropic: 'api_key' });
     service.close();
 
-    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const reopened = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registryDir,
+      providerSubscriptionConfigured: () => false
+    });
     expect(reopened.getProviderSettings().preferredAuthenticationMethods).toEqual({ anthropic: 'api_key' });
     reopened.close();
   });
@@ -3746,28 +3725,74 @@ describe('Beale workbench skeleton', () => {
     reopened.close();
   });
 
-  it('persists provider-specific cybersecurity policy acknowledgements', () => {
+  it('persists provider-specific cybersecurity policy acknowledgements', async () => {
     const registryDir = tempWorkspace();
-    const service = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const service = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registryDir,
+      providerSubscriptionConfigured: () => false
+    });
 
-    service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
-    service.setProviderCyberPolicyRiskAcknowledged('xai', true);
+    await service.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
+    await service.setProviderCyberPolicyRiskAcknowledged('xai', true);
     expect(service.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({
       'openai-codex': true,
       xai: true
     });
     service.close();
 
-    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: registryDir });
+    const reopened = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: registryDir,
+      providerSubscriptionConfigured: () => false
+    });
     expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({
       'openai-codex': true,
       xai: true
     });
-    reopened.setProviderCyberPolicyRiskAcknowledged('openai-codex', false);
+    await reopened.setProviderCyberPolicyRiskAcknowledged('openai-codex', false);
     expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toEqual({ xai: true });
-    reopened.setProviderCyberPolicyRiskAcknowledged('xai', false);
+    await reopened.setProviderCyberPolicyRiskAcknowledged('xai', false);
     expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toBeUndefined();
     reopened.close();
+  });
+
+  it('clears provider policy acknowledgement only when the final authentication method is removed', async () => {
+    delete process.env.OPENAI_API_KEY;
+    const removedRegistryDir = tempWorkspace();
+    const removed = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: removedRegistryDir,
+      providerCredentialStore: new ProviderCredentialStore(),
+      providerSubscriptionConfigured: () => false
+    });
+    removed.configureProviderApiKey('openai-codex', 'removed-provider-key');
+    await removed.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
+    await expect(removed.setProviderCyberPolicyRiskAcknowledged('openai-codex', false))
+      .rejects.toThrow('Remove the provider before clearing its policy acknowledgement.');
+
+    const removedSettings = await removed.removeProviderApiKey('openai-codex');
+    expect(removedSettings.cyberPolicyRiskAcknowledgements).toBeUndefined();
+    expect(removed.getProviderSettings().cyberPolicyRiskAcknowledgements).toBeUndefined();
+    removed.close();
+
+    const reopened = new WorkspaceService(() => undefined, { workspaceRegistryDirectory: removedRegistryDir });
+    expect(reopened.getProviderSettings().cyberPolicyRiskAcknowledgements).toBeUndefined();
+    reopened.close();
+
+    delete process.env.OPENAI_API_KEY;
+    const retained = new WorkspaceService(() => undefined, {
+      workspaceRegistryDirectory: tempWorkspace(),
+      providerCredentialStore: new ProviderCredentialStore(),
+      providerSubscriptionConfigured: () => true
+    });
+    retained.configureProviderApiKey('openai-codex', 'alternate-provider-key');
+    await retained.setProviderCyberPolicyRiskAcknowledged('openai-codex', true);
+    await expect(retained.setProviderCyberPolicyRiskAcknowledged('openai-codex', false))
+      .rejects.toThrow('Remove the provider before clearing its policy acknowledgement.');
+
+    await expect(retained.removeProviderApiKey('openai-codex')).resolves.toMatchObject({
+      preferredAuthenticationMethods: { 'openai-codex': 'subscription' },
+      cyberPolicyRiskAcknowledgements: { 'openai-codex': true }
+    });
+    retained.close();
   });
 
   it.each([

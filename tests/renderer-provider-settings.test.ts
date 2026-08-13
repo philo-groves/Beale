@@ -112,6 +112,7 @@ describe('renderer provider settings', () => {
     expect(labelStyles).toContain('font-weight: 400');
     expect(selectStyles).toContain('max-width: 120px');
     expect(selectStyles).toContain('border: 0');
+    expect(selectStyles).toContain('background-color: #141414');
     expect(selectStyles).toContain('font-weight: 400');
     expect(providerControlStyles).toContain('display: inline-flex');
     expect(providerControlStyles).toContain('gap: 5px');
@@ -119,6 +120,7 @@ describe('renderer provider settings', () => {
     expect(providerControlStyles).toContain('font-weight: 400');
     expect(providerSelectStyles).toContain('max-width: 120px');
     expect(providerSelectStyles).toContain('border: 0');
+    expect(providerSelectStyles).toContain('background-color: #141414');
     expect(providerSelectStyles).toContain('font-weight: 400');
     expect(healthyStyles).toContain('background: var(--green)');
     expect(unhealthyStyles).toContain('background: var(--red)');
@@ -482,7 +484,9 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('OpenAI Trusted Access for Cyber members');
     expect(html).toContain('I confirm this account has OpenAI Trusted Access for Cyber membership');
-    expect(html).toMatch(/type="checkbox" checked=""/u);
+    expect(html).toContain('class="provider-risk-acknowledgement is-locked"');
+    expect(html).toMatch(/<input type="checkbox"[^>]*disabled=""[^>]*checked=""/u);
+    expect(html).toContain('Acknowledgment is recorded until this provider is removed.');
   });
 
   it('offers Daybreak Blue by default and Daybreak Red as an access-restricted opt-in', () => {
@@ -530,6 +534,7 @@ describe('renderer provider settings', () => {
     const statuses = researchProviderStatuses().map((provider) => ({
       ...provider,
       configured: provider.id === 'xai',
+      apiKeyConfigured: provider.id === 'xai',
       readiness: provider.id === 'xai' ? 'ready' as const : 'not_configured' as const
     }));
     const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
@@ -554,7 +559,8 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('I accept the policy-use risk for cybersecurity research with xAI.');
     expect(html).not.toContain('xAI membership');
-    expect(html).toMatch(/type="checkbox" checked=""/u);
+    expect(html).toContain('class="provider-risk-acknowledgement is-locked"');
+    expect(html).toMatch(/<input type="checkbox"[^>]*disabled=""[^>]*checked=""/u);
   });
 
   it('shows an add-provider empty state when no provider is configured', () => {
@@ -581,6 +587,30 @@ describe('renderer provider settings', () => {
     expect(html).toContain('aria-label="Lead"');
     expect(html).toContain('<span>Lead</span>');
     expect(html).toContain('<option value="" selected="">None</option>');
+  });
+
+  it('shows provider loading state until statuses and settings are both available', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: null,
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: [],
+      researchProviderModelCatalog: [],
+      providerSettings: null,
+      providerStatusesLoaded: false,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('Loading providers…');
+    expect(html).not.toContain('No providers configured');
+    expect(html).not.toContain('aria-label="Add provider"');
   });
 });
 

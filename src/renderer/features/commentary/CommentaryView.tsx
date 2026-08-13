@@ -16,6 +16,7 @@ import {
   type CommentaryMessage
 } from '../../view-models/commentary';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
+import { formatDurationHms } from '../../lib/formatting';
 
 interface CommentaryScrollAnchor {
   messageId: string;
@@ -67,16 +68,23 @@ export const CommentaryView = memo(function CommentaryView({
     () => commentaryMessagesForSession(detail, events, { includeInitialPrompt: !showBackToMain }),
     [detail, events, showBackToMain]
   );
+  const messageSections = useMemo(
+    () => commentaryMessageSections(messages, Boolean(detail && !isRunWorkingStatus(detail.run.status)), !showBackToMain),
+    [detail, messages, showBackToMain]
+  );
+  const activityMessages = messageSections.activity;
   const messageUpdateKey = commentaryMessageUpdateKey(messages, events);
-  const messageIndexById = useMemo(() => commentaryMessageIndex(messages), [messages]);
+  const allMessageIndexById = useMemo(() => commentaryMessageIndex(messages), [messages]);
+  const messageIndexById = useMemo(() => commentaryMessageIndex(activityMessages), [activityMessages]);
   const selectedMessageIndex = selectedTraceEventId ? messageIndexById.get(selectedTraceEventId) : undefined;
-  const selectedMessageId = selectedMessageIndex === undefined ? null : messages[selectedMessageIndex]?.id ?? null;
-  const maxWindowStart = Math.max(0, messages.length - COMMENTARY_RENDER_WINDOW_SIZE);
+  const selectedAllMessageIndex = selectedTraceEventId ? allMessageIndexById.get(selectedTraceEventId) : undefined;
+  const selectedMessageId = selectedAllMessageIndex === undefined ? null : messages[selectedAllMessageIndex]?.id ?? null;
+  const maxWindowStart = Math.max(0, activityMessages.length - COMMENTARY_RENDER_WINDOW_SIZE);
   const [windowStart, setWindowStart] = useState(maxWindowStart);
   const normalizedWindowStart = Math.min(windowStart, maxWindowStart);
-  const renderedMessages = messages.slice(normalizedWindowStart, normalizedWindowStart + COMMENTARY_RENDER_WINDOW_SIZE);
+  const renderedMessages = activityMessages.slice(normalizedWindowStart, normalizedWindowStart + COMMENTARY_RENDER_WINDOW_SIZE);
   const topSpacerHeight = normalizedWindowStart * COMMENTARY_ESTIMATED_MESSAGE_HEIGHT;
-  const bottomSpacerHeight = Math.max(0, messages.length - normalizedWindowStart - renderedMessages.length) * COMMENTARY_ESTIMATED_MESSAGE_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, activityMessages.length - normalizedWindowStart - renderedMessages.length) * COMMENTARY_ESTIMATED_MESSAGE_HEIGHT;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
@@ -174,9 +182,9 @@ export const CommentaryView = memo(function CommentaryView({
     followLatestRef.current = false;
     const windowEnd = normalizedWindowStart + renderedMessages.length;
     if (selectedIndex >= normalizedWindowStart && selectedIndex < windowEnd) return;
-    const targetStart = commentaryWindowStartForIndex(messages.length, selectedIndex);
+    const targetStart = commentaryWindowStartForIndex(activityMessages.length, selectedIndex);
     if (targetStart !== normalizedWindowStart) setWindowStart(targetStart);
-  }, [messages.length, normalizedWindowStart, renderedMessages.length, selectedMessageIndex, selectedTraceEventId]);
+  }, [activityMessages.length, normalizedWindowStart, renderedMessages.length, selectedMessageIndex, selectedTraceEventId]);
 
   useLayoutEffect(() => {
     if (!selectedTraceEventId || pendingSelectedMessageRef.current !== selectedTraceEventId) return undefined;
@@ -307,7 +315,7 @@ export const CommentaryView = memo(function CommentaryView({
       });
       setWindowStart(nextStart);
     }
-  }, [maxWindowStart, messageIndexById, messages.length, normalizedWindowStart, updateScrollEdges]);
+  }, [activityMessages.length, maxWindowStart, messageIndexById, normalizedWindowStart, updateScrollEdges]);
 
   if (!selectedRunId) return null;
 
@@ -325,8 +333,8 @@ export const CommentaryView = memo(function CommentaryView({
         </button>
       ) : null}
       {!detail ? <div className="main-trace-empty">Loading commentary.</div> : null}
-      {detail && messages.length === 0 && !postSessionContent ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
-      {detail && (messages.length > 0 || postSessionContent) ? (
+      {detail && showBackToMain && messages.length === 0 && !postSessionContent ? <div className="main-trace-empty">No commentary recorded yet.</div> : null}
+      {detail && (!showBackToMain || messages.length > 0 || postSessionContent) ? (
         <div className="main-commentary-scroll" ref={scrollRef}>
           <div
             className="main-commentary-list"
@@ -346,19 +354,57 @@ export const CommentaryView = memo(function CommentaryView({
               markUserScrollIntent();
             }}
           >
-            {topSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
-            {renderedMessages.map((message, index) => (
+            {messageSections.leading.map((message) => (
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
-                autoExpandToolKey={shouldAutoExpandToolMessage(messages, normalizedWindowStart + index)
-                  ? `${message.id}:${message.toolCalls?.length ?? 0}`
-                  : null}
+                autoExpandToolKey={null}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
               />
             ))}
-            {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+            {!showBackToMain ? (
+              <RunWorkDisclosure detail={detail}>
+                {topSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
+                {renderedMessages.map((message, index) => (
+                  <CommentaryMessageRow
+                    key={message.id}
+                    message={message}
+                    autoExpandToolKey={shouldAutoExpandToolMessage(activityMessages, normalizedWindowStart + index)
+                      ? `${message.id}:${message.toolCalls?.length ?? 0}`
+                      : null}
+                    searchHighlightQuery={searchHighlightQuery}
+                    selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                  />
+                ))}
+                {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+              </RunWorkDisclosure>
+            ) : (
+              <>
+                {topSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
+                {renderedMessages.map((message, index) => (
+                  <CommentaryMessageRow
+                    key={message.id}
+                    message={message}
+                    autoExpandToolKey={shouldAutoExpandToolMessage(activityMessages, normalizedWindowStart + index)
+                      ? `${message.id}:${message.toolCalls?.length ?? 0}`
+                      : null}
+                    searchHighlightQuery={searchHighlightQuery}
+                    selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+                  />
+                ))}
+                {bottomSpacerHeight > 0 ? <div className="main-commentary-spacer" style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+              </>
+            )}
+            {messageSections.trailing.map((message) => (
+              <CommentaryMessageRow
+                key={message.id}
+                message={message}
+                autoExpandToolKey={null}
+                searchHighlightQuery={searchHighlightQuery}
+                selected={selectedTraceEventId !== null && commentaryMessageContainsTraceId(message, selectedTraceEventId)}
+              />
+            ))}
             {postSessionContent}
           </div>
         </div>
@@ -380,6 +426,115 @@ export const CommentaryView = memo(function CommentaryView({
     </section>
   );
 });
+
+interface CommentaryMessageSections {
+  leading: CommentaryMessage[];
+  activity: CommentaryMessage[];
+  trailing: CommentaryMessage[];
+}
+
+export function commentaryMessageSections(
+  messages: readonly CommentaryMessage[],
+  terminal: boolean,
+  enabled = true
+): CommentaryMessageSections {
+  if (!enabled) return { leading: [], activity: [...messages], trailing: [] };
+
+  let leadingEnd = 0;
+  while (messages[leadingEnd]?.kind === 'user') leadingEnd += 1;
+
+  let trailingStart = messages.length;
+  if (terminal) {
+    while (trailingStart > leadingEnd) {
+      const kind = messages[trailingStart - 1]?.kind;
+      if (kind !== 'final_answer' && kind !== 'error') break;
+      trailingStart -= 1;
+    }
+  }
+
+  return {
+    leading: messages.slice(0, leadingEnd),
+    activity: messages.slice(leadingEnd, trailingStart),
+    trailing: messages.slice(trailingStart)
+  };
+}
+
+function RunWorkDisclosure({ detail, children }: { detail: RunDetail; children: ReactNode }): JSX.Element {
+  const working = isRunWorkingStatus(detail.run.status);
+  const [expanded, setExpanded] = useState(() => working);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useLayoutEffect(() => {
+    setExpanded(working);
+  }, [detail.run.id, working]);
+
+  useEffect(() => {
+    if (!working) return undefined;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [detail.run.id, working]);
+
+  const durationEndMs = working ? nowMs : stoppedWorkEndMs(detail, nowMs);
+  const durationLabel = formatDurationHms(runWorkingDurationMs(detail, durationEndMs));
+  const label = `${working ? 'Working' : 'Worked'} for ${durationLabel}`;
+
+  return (
+    <section className={`run-work-disclosure${working ? ' is-working' : ' is-terminal'}${expanded ? ' is-expanded' : ''}`}>
+      <div className="run-work-header">
+        {!working ? (
+          <button
+            type="button"
+            className="run-work-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <span>{label}</span>
+            <ChevronRight className="run-work-chevron" size={14} aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="run-work-label">{label}</span>
+        )}
+      </div>
+      {expanded ? <div className="run-work-history">{children}</div> : null}
+    </section>
+  );
+}
+
+export function runWorkingDurationMs(detail: RunDetail, nowMs: number): number {
+  const attempts = detail.attempts ?? [];
+  const attemptDuration = attempts.reduce((total, attempt) => {
+    const startMs = Date.parse(attempt.startedAt);
+    if (!Number.isFinite(startMs)) return total;
+    const parsedEndMs = attempt.endedAt ? Date.parse(attempt.endedAt) : Number.NaN;
+    const endMs = Number.isFinite(parsedEndMs) ? parsedEndMs : nowMs;
+    return total + Math.max(0, endMs - startMs);
+  }, 0);
+  if (attempts.length > 0) return attemptDuration;
+
+  const startMs = detail.run.startedAt ? Date.parse(detail.run.startedAt) : Number.NaN;
+  if (!Number.isFinite(startMs)) return 0;
+  return Math.max(0, nowMs - startMs);
+}
+
+function stoppedWorkEndMs(detail: RunDetail, fallbackMs: number): number {
+  const runEndMs = detail.run.endedAt ? Date.parse(detail.run.endedAt) : Number.NaN;
+  if (Number.isFinite(runEndMs)) return runEndMs;
+  const timestamps = [
+    ...(detail.attempts ?? []).map((attempt) => attempt.endedAt),
+    ...(detail.traceEvents ?? []).map((event) => event.createdAt),
+    ...(detail.transcriptMessages ?? []).map((message) => message.createdAt)
+  ];
+  return timestamps.reduce((latest, value) => {
+    if (!value) return latest;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
+  }, 0) || fallbackMs;
+}
+
+export function isRunWorkingStatus(status: RunDetail['run']['status']): boolean {
+  return status === 'active';
+}
 
 export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   message,
@@ -730,6 +885,5 @@ export function commentaryMessageLabel(
 ): string | null {
   if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : 'Subagent Follow-up';
   if (kind === 'error') return 'Error';
-  if (kind === 'final_answer') return 'Agent';
   return null;
 }

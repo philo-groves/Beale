@@ -561,7 +561,7 @@ export function App(): JSX.Element {
     setBusy(true);
     setError(null);
     try {
-      await window.beale.forgetProviderSubscription(providerId);
+      setProviderSettings(await window.beale.forgetProviderSubscription(providerId));
       await reloadProviderAuthentication();
       if (providerId === 'openai-codex') {
         setOpenAiOAuthResult(null);
@@ -598,7 +598,7 @@ export function App(): JSX.Element {
     setBusy(true);
     setError(null);
     try {
-      await window.beale.removeProviderApiKey(providerId);
+      setProviderSettings(await window.beale.removeProviderApiKey(providerId));
       await reloadProviderAuthentication();
     } catch (caught) {
       setError(errorMessage(caught));

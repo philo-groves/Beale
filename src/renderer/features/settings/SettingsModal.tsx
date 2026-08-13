@@ -797,6 +797,17 @@ export function ProvidersSettingsView({
     void onRefreshOpenAi();
   };
 
+  if (!providerSelectionReady) {
+    return (
+      <div className="settings-page provider-settings-page" aria-busy="true">
+        <section className="provider-settings-loading" role="status" aria-live="polite">
+          <span className="provider-settings-loading-indicator" aria-hidden="true" />
+          <span>Loading providers…</span>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="settings-page provider-settings-page">
       <ProviderSettingsTabs
@@ -1091,6 +1102,7 @@ function OpenAiProviderCard({
         providerId="openai-codex"
         acknowledged={policyRiskAcknowledged}
         busy={busy}
+        locked={policyRiskAcknowledged && Boolean(openAiStatus?.subscriptionConfigured || openAiStatus?.apiKeyConfigured)}
         onChange={onSetPolicyRiskAcknowledged}
       />
       <ProviderOptionalModelsControls
@@ -1231,6 +1243,7 @@ function ResearchProviderCard({
         providerId={provider.id}
         acknowledged={policyRiskAcknowledged}
         busy={busy || provider.loginInProgress}
+        locked={policyRiskAcknowledged && (provider.subscriptionConfigured || provider.apiKeyConfigured)}
         onChange={onSetPolicyRiskAcknowledged}
       />
 
@@ -1265,11 +1278,13 @@ function ProviderCyberPolicyAcknowledgement({
   providerId,
   acknowledged,
   busy,
+  locked,
   onChange
 }: {
   providerId: ResearchModelProviderId;
   acknowledged: boolean;
   busy: boolean;
+  locked: boolean;
   onChange: (acknowledged: boolean) => void;
 }): JSX.Element {
   const detail = providerId === 'openai-codex'
@@ -1286,11 +1301,14 @@ function ProviderCyberPolicyAcknowledgement({
     <div className="provider-policy-warning">
       <h3>Acknowledgment</h3>
       <p className="provider-detail provider-billing-note">{detail}</p>
-      <label className="provider-risk-acknowledgement">
+      <label
+        className={`provider-risk-acknowledgement ${locked ? 'is-locked' : ''}`.trim()}
+        title={locked ? 'Acknowledgment is recorded until this provider is removed.' : undefined}
+      >
         <input
           type="checkbox"
           checked={acknowledged}
-          disabled={busy}
+          disabled={busy || locked}
           onChange={(event) => onChange(event.target.checked)}
         />
         <span>{label}</span>

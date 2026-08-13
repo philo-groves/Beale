@@ -145,13 +145,13 @@ const api: BealeApi = {
   startOpenAiOAuth() {
     return ipcRenderer.invoke(IPC_CHANNELS.startOpenAiOAuth);
   },
-  forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<void> {
+  forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.forgetProviderSubscription, providerId);
   },
   configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.configureProviderApiKey, providerId, apiKey);
   },
-  removeProviderApiKey(providerId: ResearchModelProviderId): Promise<void> {
+  removeProviderApiKey(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.removeProviderApiKey, providerId);
   },
   refreshOpenAiStatus() {

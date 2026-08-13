@@ -442,6 +442,7 @@ export interface WorkspaceServiceOptions {
   researchProfileResolver?: (workspacePath: string, profileId: ResearchProfileId) => ResolvedResearchProfile;
   researchSubjectResolver?: (workspacePath: string) => ResearchSubjectInput | null;
   providerCredentialStore?: ProviderCredentialStore;
+  providerSubscriptionConfigured?: (providerId: ResearchModelProviderId) => boolean | Promise<boolean>;
 }
 
 interface WorkspaceRuntime {
@@ -643,11 +644,20 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().setProviderOptionalModelEnabled(providerId, modelId, enabled);
   }
 
-  public setProviderCyberPolicyRiskAcknowledged(
+  public async setProviderCyberPolicyRiskAcknowledged(
     providerId: ResearchModelProviderId,
     acknowledged: boolean
-  ): ProviderSettings {
-    return this.getWorkspaceRegistry().setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged);
+  ): Promise<ProviderSettings> {
+    const registry = this.getWorkspaceRegistry();
+    const currentlyAcknowledged = registry.getProviderSettings().cyberPolicyRiskAcknowledgements?.[providerId] === true;
+    if (!acknowledged && currentlyAcknowledged) {
+      const configured = this.providerCredentials.isApiKeyConfigured(providerId)
+        || await this.isProviderSubscriptionConfigured(providerId);
+      if (configured) {
+        throw new Error('Remove the provider before clearing its policy acknowledgement.');
+      }
+    }
+    return registry.setProviderCyberPolicyRiskAcknowledged(providerId, acknowledged);
   }
 
   public setProviderPreferredAuthenticationMethod(
@@ -2320,17 +2330,22 @@ export class WorkspaceService {
     return this.requireSnapshot();
   }
 
-  public async forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<void> {
+  public async forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
     if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
     else await this.researchProviderAuth.forgetSubscription(providerId);
     this.openAiAuth.clearCachedCredential();
+    const registry = this.getWorkspaceRegistry();
     if (
       this.getProviderSettings().preferredAuthenticationMethods?.[providerId] === 'subscription'
       && this.providerCredentials.isApiKeyConfigured(providerId)
     ) {
-      this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, 'api_key');
+      registry.setProviderPreferredAuthenticationMethod(providerId, 'api_key');
+    }
+    if (!this.providerCredentials.isApiKeyConfigured(providerId)) {
+      registry.setProviderCyberPolicyRiskAcknowledged(providerId, false);
     }
     this.emitChange();
+    return registry.getProviderSettings();
   }
 
   public configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): void {
@@ -2342,10 +2357,29 @@ export class WorkspaceService {
     this.emitChange();
   }
 
-  public removeProviderApiKey(providerId: ResearchModelProviderId): void {
+  public async removeProviderApiKey(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
+    const subscriptionConfigured = await this.isProviderSubscriptionConfigured(providerId);
     this.providerCredentials.removeApiKey(providerId);
     this.openAiAuth.clearCachedCredential();
+    const registry = this.getWorkspaceRegistry();
+    if (subscriptionConfigured) {
+      if (this.getProviderSettings().preferredAuthenticationMethods?.[providerId] === 'api_key') {
+        registry.setProviderPreferredAuthenticationMethod(providerId, 'subscription');
+      }
+    } else if (!this.providerCredentials.isApiKeyConfigured(providerId)) {
+      registry.setProviderCyberPolicyRiskAcknowledged(providerId, false);
+    }
     this.emitChange();
+    return registry.getProviderSettings();
+  }
+
+  private async isProviderSubscriptionConfigured(providerId: ResearchModelProviderId): Promise<boolean> {
+    if (this.options.providerSubscriptionConfigured) {
+      return this.options.providerSubscriptionConfigured(providerId);
+    }
+    if (providerId === 'openai-codex') return this.openAiAuth.getStatus().subscriptionConfigured;
+    const statuses = await this.researchProviderAuth.getStatuses();
+    return statuses.find((status) => status.id === providerId)?.subscriptionConfigured ?? false;
   }
 
   private dispatchShellApprovalReview(

@@ -21,6 +21,8 @@
 
 ### Changed
 
+- Main-session Commentary now places intermediate commentary and tool activity beneath a live `Working for` duration header and horizontal divider, then collapses that history behind an expandable `Worked for` header whenever the run is no longer active while keeping the prompt and final result visible.
+- Provider policy acknowledgements become read-only after authentication, serving as one-time proof of risk review until the provider is removed.
 - Completed-session suggestions now use a full-width flat section header with compact, flush-left, lightbulb-marked rows and white text-and-divider hover feedback instead of enclosing and per-suggestion cards.
 - Session and workspace summary sidenavs now rank Memory types by effective session-heat impact and count, initially show at least four or all heat-impacting types, and vertically reveal additional types on demand.
 - Provider Settings now persists a preferred Subscription or API key authentication source per provider, marks it in the authentication view, and sends that host-owned preference to every Honeycrisp run. Explicit subscription usage-cap and API-credit exhaustion errors may fall back to the configured alternate source.
@@ -30,7 +32,7 @@
 - Provider Settings now separates Subscription and API key authentication into side-by-side live status areas for every provider. Subscription sessions can be forgotten through their official logout path, while API keys can be confirmed into OS-encrypted host storage or removed without ever rendering stored values or credential hints.
 - Claude Fable 5 is now an optional Anthropic model enabled by default, while access-restricted Claude Mythos 5 can be enabled explicitly in Provider Settings; explicit Fable disablement is persisted.
 - Provider Settings now labels providers by company name only, uses provider logos in view headings, and gives inactive provider tabs a clearer contrasting surface.
-- Provider Settings model and provider default selectors now match the compact inline styling used by New Research, use concise labels, and show model display names without appended IDs.
+- Provider Settings model and provider default selectors now match the compact inline styling used by New Research, share the authentication action-button surface, use concise labels, and show model display names without appended IDs.
 - Provider views now place model defaults in their headings and replace text status pills with compact healthy, unhealthy, or authenticating indicators.
 - Provider Settings content now uses a flat, unpadded surface instead of an outer card.
 - Provider views now place their policy description and acknowledgement under a dedicated Acknowledgment section heading instead of showing redundant source, transport, authentication, and boundary tiles.
@@ -68,6 +70,8 @@
 
 ### Fixed
 
+- Removing a provider's final authentication method now clears its cybersecurity policy acknowledgement, while removing one of two configured methods preserves the acknowledgement and selects the remaining method.
+- Provider Settings now shows an explicit loading state until provider statuses and saved settings are both available, instead of briefly reporting that no providers are configured.
 - Provider Settings now waits for provider status and saved settings before choosing its initial view, then opens the available default provider without switching tabs during ordinary status refreshes.
 - Provider subscription sign-in notices now clear automatically when refreshed status confirms authentication, without affecting active or unrelated provider sign-ins.
 - Provider subscription sign-in now resolves the installed Codex Desktop CLI when OpenAI is absent from Beale's inherited `PATH`, uses Codex's standard local browser callback instead of device authorization, launches Anthropic's interactive official CLI in a visible Windows terminal, and prevents overlapping provider-status polls during authentication.

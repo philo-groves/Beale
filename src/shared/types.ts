@@ -1682,9 +1682,9 @@ export interface BealeApi {
   getHostEnvironment(): Promise<HostEnvironment>;
   getOpenAiStatus(): Promise<OpenAiAccountStatus>;
   startOpenAiOAuth(): Promise<OpenAiOAuthStartResult>;
-  forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<void>;
+  forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings>;
   configureProviderApiKey(providerId: ResearchModelProviderId, apiKey: string): Promise<void>;
-  removeProviderApiKey(providerId: ResearchModelProviderId): Promise<void>;
+  removeProviderApiKey(providerId: ResearchModelProviderId): Promise<ProviderSettings>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
