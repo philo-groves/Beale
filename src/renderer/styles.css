@@ -9846,11 +9846,14 @@ button.research-goal-choice:focus-visible {
 
 .provider-optional-models {
   display: grid;
-  gap: 7px;
+  grid-template-columns: 14px max-content minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 7px;
   background: transparent;
 }
 
 .provider-optional-models > h3 {
+  grid-column: 1 / -1;
   margin: 0;
   padding: 0 2px 7px;
   border-bottom: 1px solid var(--panel-border);
@@ -9861,12 +9864,13 @@ button.research-goal-choice:focus-visible {
 }
 
 .provider-optional-models label {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  display: inline-flex;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
   align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
+  column-gap: 8px;
   padding: 0 2px;
   background: transparent;
   color: var(--text);
@@ -9885,9 +9889,11 @@ button.research-goal-choice:focus-visible {
 
 .provider-optional-model-copy {
   min-width: 0;
-  display: inline-flex;
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
   align-items: baseline;
-  gap: 7px;
+  column-gap: 8px;
   white-space: nowrap;
 }
 
@@ -9902,16 +9908,13 @@ button.research-goal-choice:focus-visible {
   text-overflow: ellipsis;
 }
 
-.provider-optional-models label > span {
-  display: grid;
-  gap: 2px;
-}
-
 .provider-optional-models strong {
   font-weight: 500;
 }
 
 .provider-optional-models small {
+  padding-left: 7px;
+  border-left: 1px solid var(--panel-border);
   color: var(--muted);
   line-height: 1.35;
 }

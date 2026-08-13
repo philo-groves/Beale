@@ -21,7 +21,7 @@ describe('renderer settings layout', () => {
     expect(settingsSectionsStyles).toContain('gap: 0');
   });
 
-  it('replaces workspace navigation with a Back to App action and settings sections', () => {
+  it('replaces workspace navigation with a Back to Agent action and settings sections', () => {
     const html = renderToStaticMarkup(createElement(SettingsSidebar, {
       collapsed: false,
       section: 'memory',
@@ -32,7 +32,7 @@ describe('renderer settings layout', () => {
     }));
 
     expect(html).toContain('class="sidebar settings-sidebar"');
-    expect(html).toContain('Back to App');
+    expect(html).toContain('Back to Agent');
     expect(html).toContain('<div class="workspace-list-title">Settings</div>');
     expect(html).not.toContain('<div class="meta-label">Settings</div>');
     expect(html).toContain('aria-label="Settings sections"');

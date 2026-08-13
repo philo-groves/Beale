@@ -106,6 +106,7 @@ describe('renderer provider settings', () => {
     const optionalLabelStyles = styles.match(/\.provider-optional-models label\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalInputStyles = styles.match(/\.provider-optional-models input\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionalCopyStyles = styles.match(/\.provider-optional-model-copy\s*\{([^}]*)\}/)?.[1] ?? '';
+    const optionalDescriptionStyles = styles.match(/\.provider-optional-models small\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationStyles = styles.match(/\.provider-authentication-section\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationHeadingStyles = styles.match(/\.provider-authentication-section > h3\s*\{([^}]*)\}/)?.[1] ?? '';
     const authenticationOptionsStyles = styles.match(/\.provider-authentication-options\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -154,18 +155,24 @@ describe('renderer provider settings', () => {
     expect(acknowledgementStyles).toContain('justify-content: flex-start');
     expect(acknowledgementStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(acknowledgementInputStyles).toContain('width: 14px');
+    expect(optionalModelsStyles).toContain('grid-template-columns: 14px max-content minmax(0, 1fr)');
+    expect(optionalModelsStyles).toContain('column-gap: 8px');
     expect(acknowledgementInputStyles).toContain('flex: 0 0 14px');
     expect(optionalModelsStyles).toContain('background: transparent');
     expect(optionalHeadingStyles).toContain('font-size: 1rem');
     expect(optionalHeadingStyles).toContain('font-weight: 400');
     expect(optionalHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
-    expect(optionalLabelStyles).toContain('display: inline-flex');
+    expect(optionalLabelStyles).toContain('display: grid');
+    expect(optionalLabelStyles).toContain('grid-template-columns: subgrid');
     expect(optionalLabelStyles).toContain('background: transparent');
     expect(optionalLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
     expect(optionalInputStyles).toContain('width: 14px');
     expect(optionalInputStyles).toContain('flex: 0 0 14px');
-    expect(optionalCopyStyles).toContain('display: inline-flex');
+    expect(optionalCopyStyles).toContain('display: grid');
+    expect(optionalCopyStyles).toContain('grid-template-columns: subgrid');
     expect(optionalCopyStyles).toContain('white-space: nowrap');
+    expect(optionalDescriptionStyles).toContain('padding-left: 7px');
+    expect(optionalDescriptionStyles).toContain('border-left: 1px solid var(--panel-border)');
     expect(authenticationStyles).toContain('display: grid');
     expect(authenticationHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(authenticationHeadingStyles).toContain('font-size: 1rem');
@@ -582,8 +589,8 @@ describe('renderer provider settings', () => {
     }));
 
     const disabledHtml = render({});
-    expect(disabledHtml).toContain('aria-label="Optional models"');
-    expect(disabledHtml).toContain('<h3>Optional models</h3>');
+    expect(disabledHtml).toContain('aria-label="Optional Models"');
+    expect(disabledHtml).toContain('<h3>Optional Models</h3>');
     expect(disabledHtml).toContain('class="provider-optional-model-copy"');
     expect(disabledHtml).toContain('<strong>Daybreak Blue</strong>');
     expect(disabledHtml).toContain('Expected, but not guaranteed, for Trusted Access for Cyber members.');

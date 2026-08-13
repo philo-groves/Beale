@@ -61,7 +61,7 @@ export function SettingsSidebar({
     <aside className="sidebar settings-sidebar" aria-hidden={collapsed} inert={collapsed}>
       <button type="button" className="sidebar-new-research settings-back-button" onClick={onBack}>
         <ArrowLeft size={15} />
-        <span>Back to App</span>
+        <span>Back to Agent</span>
       </button>
       <div className="sidebar-section settings-sidebar-section">
         <div className="workspace-list-title">Settings</div>
@@ -1176,8 +1176,8 @@ function ProviderOptionalModelsControls({
   const optionalModels = OPTIONAL_PROVIDER_MODELS.filter((model) => model.providerId === providerId);
   if (optionalModels.length === 0) return null;
   return (
-    <div className="provider-optional-models" aria-label="Optional models">
-      <h3>Optional models</h3>
+    <div className="provider-optional-models" aria-label="Optional Models">
+      <h3>Optional Models</h3>
       {optionalModels.map((model) => {
         const available = availableModelIds.has(model.modelId);
         return (
