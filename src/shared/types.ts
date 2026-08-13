@@ -1,4 +1,4 @@
-import type { ResearchProfileId, ResearchProfileSnapshot } from './researchProfile';
+import type { ResearchProfileId, ResearchProfileSnapshot, ResolvedResearchProfile } from './researchProfile';
 
 export * from './researchProfile';
 
@@ -1666,6 +1666,7 @@ export interface BealeApi {
   setProviderOptionalModelEnabled(providerId: ResearchModelProviderId, modelId: string, enabled: boolean): Promise<ProviderSettings>;
   setProviderCyberPolicyRiskAcknowledged(providerId: ResearchModelProviderId, acknowledged: boolean): Promise<ProviderSettings>;
   setProviderPreferredAuthenticationMethod(providerId: ResearchModelProviderId, method: ProviderAuthenticationMethod): Promise<ProviderSettings>;
+  getResearchProfiles(): Promise<ResolvedResearchProfile[]>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;
   getShellOptions(): Promise<ShellOptions>;

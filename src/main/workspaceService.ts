@@ -60,7 +60,7 @@ import { isRealVerifierPass, runVerifierContract } from './verifierRunner';
 import { DEFAULT_RESEARCH_MODEL, DEFAULT_RESEARCH_REASONING_EFFORT } from '../shared/modelDefaults';
 import { resolveGoalObjective } from '../shared/goalObjective';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
-import { isResearchProfileId } from '../shared/researchProfile';
+import { isResearchProfileId, RESEARCH_PROFILE_IDS } from '../shared/researchProfile';
 import { DEFAULT_SHELL_SAFETY_MODE } from '../shared/shellSafety';
 import { isProviderModelEnabled } from '../shared/optionalProviderModels';
 import type {
@@ -642,6 +642,11 @@ export class WorkspaceService {
     method: ProviderAuthenticationMethod
   ): ProviderSettings {
     return this.getWorkspaceRegistry().setProviderPreferredAuthenticationMethod(providerId, method);
+  }
+
+  public getResearchProfiles(): ResolvedResearchProfile[] {
+    const workspacePath = this.workspacePath ?? process.cwd();
+    return RESEARCH_PROFILE_IDS.map((profileId) => this.resolveResearchProfile(workspacePath, profileId));
   }
 
   public getMemorySettings(): MemorySettings {

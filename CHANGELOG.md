@@ -20,6 +20,7 @@
 
 ### Changed
 
+- Agent Settings now presents research profiles in a two-level Profiles view, with the selected profile description between the profile and memory-type tabs and each memory type expanded into a full-width definition and session-heat panel.
 - Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.
 - Provider subscription sign-in and API-key configuration now remain disabled until the provider's cybersecurity acknowledgement is confirmed, with an inline risk-acknowledgement prompt beside each action. Unauthenticated and unhealthy provider views now expose a compact removal control that cancels in-progress authentication and shows removal progress.
 - Main-session Commentary now places intermediate commentary and tool activity beneath a live `Working for` duration header and horizontal divider, then collapses that history behind an expandable `Worked for` header whenever the run is no longer active while keeping the prompt and final result visible.

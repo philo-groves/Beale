@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
   setProviderOptionalModelEnabled: 'beale:set-provider-optional-model-enabled',
   setProviderCyberPolicyRiskAcknowledged: 'beale:set-provider-cyber-policy-risk-acknowledged',
   setProviderPreferredAuthenticationMethod: 'beale:set-provider-preferred-authentication-method',
+  getResearchProfiles: 'beale:get-research-profiles',
   getMemorySettings: 'beale:get-memory-settings',
   setMemoryTypeDescriptions: 'beale:set-memory-type-descriptions',
   getShellOptions: 'beale:get-shell-options',

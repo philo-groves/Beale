@@ -5,13 +5,14 @@ import {
   DEFAULT_RESEARCH_REASONING_EFFORT,
   smallModelForProvider
 } from '../../../shared/modelDefaults';
-import { ArrowLeft, BrainCircuit, KeyRound, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { ArrowLeft, KeyRound, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import type {
   OpenAiAccountStatus,
   OpenAiOAuthStartResult,
   ProviderSettings,
   ProviderAuthenticationMethod,
   ProviderModelDefaults,
+  ResolvedResearchProfile,
   ResearchProfileSnapshot,
   ResearchModelProviderId,
   ResearchModelEffortLevel,
@@ -36,9 +37,9 @@ import {
   type SessionHeatPreferenceOverrides
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'providers' | 'memory';
+export type SettingsSection = 'general' | 'providers' | 'profile';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'memory'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'providers', 'profile'];
 
 export function SettingsSidebar({
   collapsed,
@@ -91,6 +92,8 @@ export function SettingsView({
   section,
   researchProfile,
   chatView,
+  researchProfiles,
+  researchProfilesLoading,
   openAiStatus,
   openAiOAuthResult,
   researchProviderOAuthResults,
@@ -117,6 +120,8 @@ export function SettingsView({
 }: {
   section: SettingsSection;
   researchProfile: ResearchProfileSnapshot | null;
+  researchProfiles: ResolvedResearchProfile[];
+  researchProfilesLoading: boolean;
   chatView: ChatView;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
@@ -186,8 +191,10 @@ export function SettingsView({
             onSetProviderPreferredAuthenticationMethod={onSetProviderPreferredAuthenticationMethod}
           />
         ) : (
-          <MemorySettingsView
+          <ProfileSettingsView
             researchProfile={researchProfile}
+            researchProfiles={researchProfiles}
+            loading={researchProfilesLoading}
             sessionHeatPreferences={sessionHeatPreferences}
             onSetSessionHeatPreference={onSetSessionHeatPreference}
           />
@@ -201,82 +208,201 @@ function activeSettingsSection(section: SettingsSection): SettingsSection {
   return SETTINGS_SECTIONS.includes(section) ? section : 'general';
 }
 
-export function MemorySettingsView({
+export function ProfileSettingsView({
   researchProfile,
+  researchProfiles,
+  loading = false,
   sessionHeatPreferences = {},
   onSetSessionHeatPreference = () => undefined
 }: {
   researchProfile: ResearchProfileSnapshot | null;
+  researchProfiles: readonly ResolvedResearchProfile[];
+  loading?: boolean;
   sessionHeatPreferences?: SessionHeatPreferenceOverrides;
   onSetSessionHeatPreference?: (profileId: string, memoryTypeId: string, status: string, heat: SessionHeat | null) => void;
 }): JSX.Element {
-  const memoryTypes = researchProfile
-    ? [...researchProfile.profile.memory.types].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
-    : [];
-  const source = researchProfile?.sourcePath
-    ?? (researchProfile?.source === 'bundled-default' ? `Bundled ${researchProfile.profile.name} profile` : '.honeycrisp/profile.json');
-  const statusesById = new Map(researchProfile?.profile.memory.statuses.map((status) => [status.id, status]) ?? []);
+  const profiles = profileSettingsCatalog(researchProfiles, researchProfile);
+  const initialProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(initialProfile?.profile.id ?? null);
+  const [selectedMemoryTypeId, setSelectedMemoryTypeId] = useState<string | null>(
+    sortedProfileMemoryTypes(initialProfile)[0]?.id ?? null
+  );
+  const profileCatalogKey = profiles.map((profile) => `${profile.profile.id}:${profile.hash}`).join('|');
+  const selectedProfile = profiles.find((profile) => profile.profile.id === selectedProfileId) ?? initialProfile;
+  const memoryTypes = sortedProfileMemoryTypes(selectedProfile);
+  const selectedMemoryType = memoryTypes.find((memoryType) => memoryType.id === selectedMemoryTypeId) ?? memoryTypes[0] ?? null;
+  const memoryTypeKey = memoryTypes.map((memoryType) => memoryType.id).join('|');
+  const statusesById = new Map(selectedProfile?.profile.memory.statuses.map((status) => [status.id, status]) ?? []);
+
+  useEffect(() => {
+    if (profiles.some((profile) => profile.profile.id === selectedProfileId)) return;
+    const nextProfile = profiles.find((profile) => profile.profile.id === researchProfile?.profileId) ?? profiles[0] ?? null;
+    setSelectedProfileId(nextProfile?.profile.id ?? null);
+    setSelectedMemoryTypeId(sortedProfileMemoryTypes(nextProfile)[0]?.id ?? null);
+  }, [profileCatalogKey, researchProfile?.profileId, selectedProfileId]);
+
+  useEffect(() => {
+    if (memoryTypes.some((memoryType) => memoryType.id === selectedMemoryTypeId)) return;
+    setSelectedMemoryTypeId(memoryTypes[0]?.id ?? null);
+  }, [memoryTypeKey, selectedMemoryTypeId, selectedProfile?.profile.id]);
+
+  if (profiles.length === 0 || !selectedProfile) {
+    return (
+      <div className="settings-page profile-settings-page" aria-busy={loading}>
+        <section className="profile-settings-empty" role="status">
+          {loading ? <span className="provider-settings-loading-indicator" aria-hidden="true" /> : null}
+          <span>{loading ? 'Loading profiles...' : 'No research profiles are available.'}</span>
+        </section>
+      </div>
+    );
+  }
+
+  const selectProfile = (profileId: string): void => {
+    const profile = profiles.find((candidate) => candidate.profile.id === profileId) ?? null;
+    setSelectedProfileId(profileId);
+    setSelectedMemoryTypeId(sortedProfileMemoryTypes(profile)[0]?.id ?? null);
+  };
+  const profileName = profileSettingsName(selectedProfile.profile.id, selectedProfile.profile.name);
 
   return (
-    <div className="settings-page memory-settings-page">
-      <p className="settings-page-intro">The active research profile defines the memory taxonomy and its session heat defaults. Adjustments here are visual preferences for this profile.</p>
-      <section className="provider-card memory-type-descriptions-card">
-        <div className="provider-heading">
-          <div className="status-icon"><BrainCircuit size={18} /></div>
-          <div>
-            <h4>{researchProfile ? `${researchProfile.profile.name} Memory Catalog` : 'Memory Catalog'}</h4>
-            <p>{researchProfile ? `Resolved from ${source}. The selected research profile owns this versioned catalog.` : 'Open a workspace to inspect its resolved memory catalog.'}</p>
-          </div>
-        </div>
-        <div className="memory-type-description-list">
-          {memoryTypes.map((memoryType) => (
-            <article className="memory-type-description" key={memoryType.id} aria-label={`${memoryType.name} memory definition`}>
-              <span>{memoryType.name} · {memoryType.id}</span>
-              <p>{memoryType.description}</p>
-              <small>
-                {memoryType.lifecycle === 'retired' || !memoryType.creatable ? 'Read-only' : 'Creatable'}
-                {' · '}
-                {memoryType.allowedStatuses.join(', ')}
-              </small>
-              <div className="memory-session-heat-settings" aria-label={`${memoryType.name} session heat settings`}>
-                {memoryType.allowedStatuses
-                  .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
-                  .map((statusId) => {
-                    const defaultHeat = memoryType.sessionHeat?.[statusId] ?? 'none';
-                    const override = researchProfile
-                      ? sessionHeatPreferences[researchProfile.profile.id]?.[memoryType.id]?.[statusId]
-                      : undefined;
-                    return (
-                      <label key={statusId}>
-                        <span>{statusesById.get(statusId)?.name ?? statusId}</span>
-                        <select
-                          aria-label={`${memoryType.name} ${statusId} session heat`}
-                          value={override ?? ''}
-                          onChange={(event) => {
-                            if (!researchProfile) return;
-                            onSetSessionHeatPreference(
-                              researchProfile.profile.id,
-                              memoryType.id,
-                              statusId,
-                              event.target.value ? event.target.value as SessionHeat : null
-                            );
-                          }}
-                        >
-                          <option value="">Profile default · {sessionHeatLabel(defaultHeat)}</option>
-                          {SESSION_HEAT_LEVELS.map((heat) => (
-                            <option value={heat} key={heat}>{sessionHeatLabel(heat)}</option>
-                          ))}
-                        </select>
-                      </label>
-                    );
-                  })}
+    <div className="settings-page profile-settings-page">
+      <div className="profile-settings-tab-stack">
+        <div className="profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label="Research profiles">
+          {profiles.map((profile) => {
+            const selected = profile.profile.id === selectedProfile.profile.id;
+            return (
+              <div
+                className={`research-side-view-tab provider-settings-tab profile-settings-tab ${selected ? 'active' : ''}`.trim()}
+                key={profile.profile.id}
+              >
+                <button
+                  className="research-side-view-tab-activate"
+                  type="button"
+                  role="tab"
+                  id={`profile-settings-tab-${profile.profile.id}`}
+                  aria-selected={selected}
+                  aria-controls="profile-settings-memory-panel"
+                  onClick={() => selectProfile(profile.profile.id)}
+                >
+                  <span>{profileSettingsName(profile.profile.id, profile.profile.name)}</span>
+                </button>
               </div>
-            </article>
-          ))}
+            );
+          })}
+          {loading ? <span className="profile-settings-loading" role="status">Loading profiles...</span> : null}
         </div>
-      </section>
+        <div className="profile-settings-summary">
+          <p>{selectedProfile.profile.description}</p>
+        </div>
+        <div className="profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`${profileName} memory types`}>
+          {memoryTypes.map((memoryType) => {
+            const selected = memoryType.id === selectedMemoryType?.id;
+            return (
+              <div
+                className={`research-side-view-tab provider-settings-tab profile-settings-tab ${selected ? 'active' : ''}`.trim()}
+                key={memoryType.id}
+              >
+                <button
+                  className="research-side-view-tab-activate"
+                  type="button"
+                  role="tab"
+                  id={`profile-memory-tab-${selectedProfile.profile.id}-${memoryType.id}`}
+                  aria-selected={selected}
+                  aria-controls="profile-settings-memory-panel"
+                  onClick={() => setSelectedMemoryTypeId(memoryType.id)}
+                >
+                  <span>{memoryType.name}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {selectedMemoryType ? (
+        <article
+          className="profile-memory-type-view"
+          id="profile-settings-memory-panel"
+          role="tabpanel"
+          aria-labelledby={`profile-memory-tab-${selectedProfile.profile.id}-${selectedMemoryType.id}`}
+          aria-label={`${selectedMemoryType.name} memory definition`}
+        >
+          <header className="profile-memory-type-header">
+            <div>
+              <span>Memory type</span>
+              <h4>{selectedMemoryType.name} <small>{'\u00b7'} {selectedMemoryType.id}</small></h4>
+            </div>
+            <small>
+              {selectedMemoryType.lifecycle === 'retired' || !selectedMemoryType.creatable ? 'Read-only' : 'Creatable'}
+              {' \u00b7 '}
+              {selectedMemoryType.allowedStatuses.join(', ')}
+            </small>
+          </header>
+          <p className="profile-memory-type-description">{selectedMemoryType.description}</p>
+          <section className="profile-memory-session-heat" aria-label={`${selectedMemoryType.name} session heat settings`}>
+            <h4>Session Heat</h4>
+            <div>
+              {selectedMemoryType.allowedStatuses
+                .filter((statusId) => statusesById.get(statusId)?.polarity !== 'negative')
+                .map((statusId) => {
+                  const defaultHeat = selectedMemoryType.sessionHeat?.[statusId] ?? 'none';
+                  const override = sessionHeatPreferences[selectedProfile.profile.id]?.[selectedMemoryType.id]?.[statusId];
+                  return (
+                    <label key={statusId}>
+                      <span>{statusesById.get(statusId)?.name ?? statusId}</span>
+                      <select
+                        aria-label={`${selectedMemoryType.name} ${statusId} session heat`}
+                        value={override ?? ''}
+                        onChange={(event) => onSetSessionHeatPreference(
+                          selectedProfile.profile.id,
+                          selectedMemoryType.id,
+                          statusId,
+                          event.target.value ? event.target.value as SessionHeat : null
+                        )}
+                      >
+                        <option value="">Profile default {'\u00b7'} {sessionHeatLabel(defaultHeat)}</option>
+                        {SESSION_HEAT_LEVELS.map((heat) => (
+                          <option value={heat} key={heat}>{sessionHeatLabel(heat)}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+            </div>
+          </section>
+        </article>
+      ) : (
+        <section className="profile-settings-empty" role="status">This profile does not define memory types.</section>
+      )}
     </div>
   );
+}
+
+function profileSettingsCatalog(
+  researchProfiles: readonly ResolvedResearchProfile[],
+  activeProfile: ResearchProfileSnapshot | null
+): ResolvedResearchProfile[] {
+  const catalog = [...researchProfiles];
+  if (!activeProfile) return catalog;
+  const resolvedActiveProfile: ResolvedResearchProfile = {
+    profile: activeProfile.profile,
+    hash: activeProfile.profileHash,
+    source: activeProfile.source,
+    ...(activeProfile.sourcePath ? { path: activeProfile.sourcePath } : {})
+  };
+  const activeIndex = catalog.findIndex((profile) => profile.profile.id === activeProfile.profileId);
+  if (activeIndex >= 0) catalog[activeIndex] = resolvedActiveProfile;
+  else catalog.unshift(resolvedActiveProfile);
+  return catalog;
+}
+
+function sortedProfileMemoryTypes(profile: ResolvedResearchProfile | null) {
+  return profile
+    ? [...profile.profile.memory.types].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    : [];
+}
+
+function profileSettingsName(profileId: string, name: string): string {
+  return profileId === 'security-research' ? 'Cybersecurity' : name;
 }
 
 function sessionHeatLabel(heat: SessionHeat): string {
@@ -1455,8 +1581,8 @@ export function settingsSectionLabel(section: SettingsSection): string {
   switch (section) {
     case 'providers':
       return 'Providers';
-    case 'memory':
-      return 'Memory';
+    case 'profile':
+      return 'Profiles';
     default:
       return 'General';
   }

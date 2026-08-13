@@ -1026,6 +1026,10 @@ describe('Beale workbench skeleton', () => {
       )
     });
 
+    expect(service.getResearchProfiles().map((profile) => profile.profile.id)).toEqual([
+      'security-research',
+      'mathematics'
+    ]);
     const securitySnapshot = service.createWorkspace(securityWorkspace);
     expect(securitySnapshot.workspace.databasePath).toBe(
       join(registryDir, 'honeycrisp', 'profiles', 'security-research', 'memory.sqlite')

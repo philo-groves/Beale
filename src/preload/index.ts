@@ -25,6 +25,7 @@ import type {
   ProfilingReport,
   ProfilingState,
   WorkspaceScopeDraft,
+  ResolvedResearchProfile,
   ResearchPromptGenerationInput,
   ResearchPromptGenerationUpdate,
   ResearchGoalSuggestionInput,
@@ -90,6 +91,9 @@ const api: BealeApi = {
     method: ProviderAuthenticationMethod
   ): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderPreferredAuthenticationMethod, providerId, method);
+  },
+  getResearchProfiles(): Promise<ResolvedResearchProfile[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getResearchProfiles);
   },
   getMemorySettings(): Promise<MemorySettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.getMemorySettings);

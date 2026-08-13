@@ -10,8 +10,8 @@ import {
   type MemoryTypeDescriptions
 } from '../src/shared/types';
 import { WorkspaceRegistry } from '../src/main/workspaceRegistry';
-import { MemorySettingsView } from '../src/renderer/features/settings/SettingsModal';
-import { resolvedTestResearchProfile } from './researchProfileFixture';
+import { ProfileSettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { resolvedTestResearchProfile, testResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
 
@@ -22,33 +22,56 @@ afterEach(() => {
 });
 
 describe('memory settings', () => {
-  it('defines legacy descriptions and renders the active profile catalog with session heat controls', () => {
+  it('renders profile and memory-type tabs with an expanded session-heat view', () => {
     expect(Object.keys(DEFAULT_MEMORY_TYPE_DESCRIPTIONS)).toEqual([...MEMORY_NODE_TYPES]);
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.primitive).toContain('lowercase-hyphenated attributes.rootCauseKey');
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('source, sink, and asset relationships are ideal');
 
     const resolved = resolvedTestResearchProfile();
-    const html = renderToStaticMarkup(createElement(MemorySettingsView, { researchProfile: {
-      id: 'profile_snapshot_test',
-      workspaceId: 'workspace_test',
-      profileId: resolved.profile.id,
-      profileVersion: resolved.profile.version,
-      profileHash: resolved.hash,
-      source: resolved.source,
-      sourcePath: null,
-      profile: resolved.profile,
-      active: true,
-      createdAt: '2026-01-01T00:00:00.000Z'
-    } }));
+    const mathematics = resolvedTestResearchProfile({
+      ...testResearchProfile('1.0.0', 'Mathematics'),
+      id: 'mathematics',
+      description: 'Test mathematics profile.'
+    });
+    const html = renderToStaticMarkup(createElement(ProfileSettingsView, {
+      researchProfiles: [resolved, mathematics],
+      researchProfile: {
+        id: 'profile_snapshot_test',
+        workspaceId: 'workspace_test',
+        profileId: resolved.profile.id,
+        profileVersion: resolved.profile.version,
+        profileHash: resolved.hash,
+        source: resolved.source,
+        sourcePath: null,
+        profile: resolved.profile,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z'
+      },
+      loading: false
+    }));
 
-    for (const memoryType of resolved.profile.memory.types) {
-      expect(html).toContain(`aria-label="${memoryType.name} memory definition"`);
-      expect(html).toContain(memoryType.description);
-    }
+    expect(html.match(/role="tablist"/gu)).toHaveLength(2);
+    expect(html.match(/profile-settings-tab-row research-side-view-tabs research-side-view-tabs-scrollable/gu)).toHaveLength(2);
+    const profileTabsIndex = html.indexOf('aria-label="Research profiles"');
+    const profileDescriptionIndex = html.indexOf(resolved.profile.description);
+    const memoryTabsIndex = html.indexOf('aria-label="Cybersecurity memory types"');
+    expect(html).toContain('aria-label="Research profiles"');
+    expect(html).toContain('class="research-side-view-tab provider-settings-tab profile-settings-tab active"');
+    expect(html).toContain('<span>Cybersecurity</span></button>');
+    expect(html).toContain('<span>Mathematics</span></button>');
+    expect(html).toContain('aria-label="Cybersecurity memory types"');
+    expect(html).toContain('<span>Finding</span></button>');
+    expect(html).toContain('aria-label="Finding memory definition"');
+    expect(html).toContain(resolved.profile.memory.types[0]!.description);
+    expect(html).toContain('class="profile-memory-type-view"');
+    expect(html).toContain('<h4>Session Heat</h4>');
     expect(html).not.toContain('<textarea');
     expect(html).toContain('Finding confirmed session heat');
     expect(html).toContain('Profile default · High');
-    expect(html).toContain('The selected research profile owns this versioned catalog.');
+    expect(profileTabsIndex).toBeLessThan(profileDescriptionIndex);
+    expect(profileDescriptionIndex).toBeLessThan(memoryTabsIndex);
+    expect(html).not.toContain('Resolved from');
+    expect(html).not.toContain('Bundled Cybersecurity profile');
   });
 
   it('persists normalized descriptions and restores them from the global registry', () => {

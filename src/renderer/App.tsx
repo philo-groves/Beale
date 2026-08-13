@@ -18,6 +18,7 @@ import type {
   ResearchProviderId,
   ResearchProviderOAuthStartResult,
   ResearchProviderModelCatalog,
+  ResolvedResearchProfile,
   ResearchProviderStatus,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -97,6 +98,8 @@ export function App(): JSX.Element {
   const [researchProviderModelCatalog, setResearchProviderModelCatalog] = useState<ResearchProviderModelCatalog[]>([]);
   const [researchProviderOAuthResults, setResearchProviderOAuthResults] = useState<Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>>({});
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
+  const [researchProfiles, setResearchProfiles] = useState<ResolvedResearchProfile[]>([]);
+  const [researchProfilesLoading, setResearchProfilesLoading] = useState(false);
   const enabledResearchProviderModelCatalog = useMemo(
     () => filterEnabledProviderModelCatalogs(researchProviderModelCatalog, providerSettings),
     [providerSettings, researchProviderModelCatalog]
@@ -196,6 +199,27 @@ export function App(): JSX.Element {
       .then(setProviderSettings)
       .catch((caught: unknown) => handleError(errorMessage(caught)));
   }, [handleError]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== 'profile') return;
+    let cancelled = false;
+    setResearchProfiles([]);
+    setResearchProfilesLoading(true);
+    window.beale
+      .getResearchProfiles()
+      .then((profiles) => {
+        if (!cancelled) setResearchProfiles(profiles);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) handleError(errorMessage(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setResearchProfilesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handleError, settingsOpen, settingsSection, snapshot?.workspace.workspacePath]);
 
   const runAction = useCallback(
     async (action: () => Promise<WorkspaceSnapshot | null | void>) => {
@@ -989,6 +1013,8 @@ export function App(): JSX.Element {
         {settingsOpen ? (
           <SettingsView
             section={settingsSection}
+            researchProfiles={researchProfiles}
+            researchProfilesLoading={researchProfilesLoading}
             researchProfile={snapshot?.researchProfile ?? null}
             chatView={chatView}
             openAiOAuthResult={openAiOAuthResult}

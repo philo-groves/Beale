@@ -21,10 +21,28 @@ describe('renderer settings layout', () => {
     expect(settingsSectionsStyles).toContain('gap: 0');
   });
 
+  it('uses two tab rows and a larger memory-type panel for Profiles settings', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const tabRowStyles = styles.match(/\.profile-settings-tab-row\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const memoryTypePanelStyles = styles.match(/\.profile-memory-type-view\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const tabActivateStyles = styles.match(/\.profile-settings-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const scrollableTabStyles = styles.match(/\.research-side-view-tabs-scrollable\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const scrollableWebkitStyles = styles.match(/\.research-side-view-tabs-scrollable::-webkit-scrollbar\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(tabRowStyles).toContain('display: flex');
+    expect(tabRowStyles).toContain('overflow-x: auto');
+    expect(tabRowStyles).not.toContain('border-bottom');
+    expect(scrollableTabStyles).toContain('scrollbar-width: thin');
+    expect(scrollableWebkitStyles).toContain('display: block');
+    expect(tabActivateStyles).toContain('padding: 0 9px');
+    expect(memoryTypePanelStyles).toContain('min-height: 320px');
+    expect(memoryTypePanelStyles).toContain('padding: 18px');
+  });
+
   it('replaces workspace navigation with a Back to Agent action and settings sections', () => {
     const html = renderToStaticMarkup(createElement(SettingsSidebar, {
       collapsed: false,
-      section: 'memory',
+      section: 'profile',
       error: null,
       onBack: () => undefined,
       onChangeSection: () => undefined,
@@ -39,7 +57,7 @@ describe('renderer settings layout', () => {
     expect(html).toContain('class="workspace-item-row no-menu active"');
     expect(html).toContain('class="workspace-item active" aria-current="page">');
     expect(html.match(/class="lucide lucide-settings"/gu)).toHaveLength(3);
-    expect(html).toContain('<span>Memory</span></button>');
+    expect(html).toContain('<span>Profiles</span></button>');
     expect(html).not.toContain('Shell Options');
     expect(html).not.toContain('Developer');
     expect(html).not.toContain('New Research');
@@ -57,7 +75,7 @@ describe('renderer settings layout', () => {
     expect(html).not.toContain('role="dialog"');
   });
 
-  it.each<SettingsSection>(['general', 'providers', 'memory'])(
+  it.each<SettingsSection>(['general', 'providers', 'profile'])(
     'omits the redundant %s section heading from the main content',
     (section) => {
       expect(renderSettingsView(section)).not.toContain('<h3>');
@@ -69,6 +87,8 @@ function renderSettingsView(section: SettingsSection): string {
   return renderToStaticMarkup(createElement(SettingsView, {
     section,
     researchProfile: null,
+    researchProfiles: [],
+    researchProfilesLoading: false,
     chatView: 'commentary',
     openAiStatus: null,
     openAiOAuthResult: null,

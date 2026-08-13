@@ -9416,8 +9416,7 @@ button.research-goal-choice:focus-visible {
   animation: provider-health-spin 800ms linear infinite;
 }
 
-.general-settings-page,
-.memory-settings-page {
+.general-settings-page {
   gap: 12px;
 }
 
@@ -9426,72 +9425,6 @@ button.research-goal-choice:focus-visible {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.4;
-}
-
-.memory-type-descriptions-card {
-  gap: 10px;
-}
-
-.memory-type-description-list {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.memory-type-description {
-  min-width: 0;
-  border-radius: 7px;
-  background: var(--panel);
-  padding: 9px;
-}
-
-.memory-type-description > span {
-  color: var(--muted-strong);
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.memory-type-description textarea {
-  min-height: 82px;
-  font-size: 0.76rem;
-}
-
-.memory-type-description > p {
-  margin: 7px 0;
-  color: var(--text);
-  font-size: 0.76rem;
-  line-height: 1.45;
-}
-
-.memory-type-description > small {
-  color: var(--muted);
-  font-size: 0.68rem;
-}
-
-.memory-session-heat-settings {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 7px;
-  margin-top: 10px;
-  border-top: 1px solid var(--panel-border);
-  padding-top: 9px;
-}
-
-.memory-session-heat-settings label {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-}
-
-.memory-session-heat-settings select {
-  min-height: 30px;
-  padding-block: 5px;
-  font-size: 0.72rem;
 }
 
 .chat-view-settings {
@@ -9508,11 +9441,165 @@ button.research-goal-choice:focus-visible {
 
 .chat-view-settings > p {
   margin: -4px 0 0;
+
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.4;
 }
 
+.profile-settings-page {
+  align-content: start;
+  gap: 14px;
+}
+
+.profile-settings-tab-stack {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.profile-settings-tab-row {
+  min-width: 0;
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0;
+}
+
+.profile-settings-tab .research-side-view-tab-activate {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: var(--steer-control-font-size, 13px);
+}
+
+.profile-settings-loading {
+  align-self: center;
+  margin-left: auto;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.profile-settings-summary {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.profile-settings-summary p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.profile-memory-type-view {
+  min-width: 0;
+  min-height: 320px;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  border: 1px solid var(--panel-border);
+  border-radius: 9px;
+  background: var(--panel);
+  padding: 18px;
+}
+
+.profile-memory-type-header {
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 14px;
+}
+
+.profile-memory-type-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.profile-memory-type-header > div > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.profile-memory-type-header h4 {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.profile-memory-type-header h4 small {
+  color: var(--muted);
+  font: inherit;
+  font-weight: 400;
+}
+
+.profile-memory-type-header > small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.profile-memory-type-description {
+  max-width: 920px;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.profile-memory-session-heat {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 14px;
+}
+
+.profile-memory-session-heat > h4 {
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.profile-memory-session-heat > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.profile-memory-session-heat label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.profile-memory-session-heat select {
+  min-height: 36px;
+  font-size: 0.8rem;
+}
+
+.profile-settings-empty {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+}
 .chat-view-options {
   min-width: 0;
   display: grid;

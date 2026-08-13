@@ -463,6 +463,7 @@ function registerIpc(): void {
     providerId: ResearchModelProviderId,
     method: ProviderAuthenticationMethod
   ) => workspaceService.setProviderPreferredAuthenticationMethod(providerId, method));
+  ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());
   ipcMain.handle(IPC_CHANNELS.setMemoryTypeDescriptions, (_event, descriptions: MemoryTypeDescriptions) => workspaceService.setMemoryTypeDescriptions(descriptions));
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
