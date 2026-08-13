@@ -81,8 +81,203 @@ describe('renderer workspace display view models', () => {
       onStartNewResearch: () => undefined
     }));
 
-    expect(html).toContain('<div class="meta-label">Workspaces</div>');
+    expect(html).toContain('<div class="workspace-list-title">Workspaces</div>');
     expect(html).not.toContain('Research Workspaces');
+  });
+
+  it('renders selected-session breakout rooms from live detail before the workspace snapshot refreshes', () => {
+    const profile = testResearchProfile();
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
+      workspaces: [registeredWorkspace],
+      researchSessions: [selectedSession]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: selectedSession.runId,
+      selectedBreakoutRoomId: null,
+      selectedRunBreakoutRooms: [{
+        id: 'room_live',
+        runId: selectedSession.runId,
+        title: 'Live provider challenge',
+        status: 'active'
+      }],
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: { profile },
+        runs: [{ run: { id: selectedSession.runId }, breakoutRooms: [] }]
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onOpenBreakoutRoom: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('Live provider challenge');
+    expect(html).toContain('workspace-breakout-room-item');
+    expect(html).toContain('class="workspace-breakout-room-reveal" data-state="open" aria-hidden="false"');
+    expect(html).toContain('class="lucide lucide-folder"');
+    expect(html).toContain('class="lucide lucide-chevron-down"');
+    expect(html).toContain('class="lucide lucide-messages-square"');
+  });
+
+  it('keeps breakout rooms collapsed beneath sessions that are not selected', () => {
+    const profile = testResearchProfile();
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const selectedSession = session({ id: 'session_selected', runId: 'run_selected', registryWorkspaceId: registeredWorkspace.id });
+    const previousSession = session({
+      id: 'session_previous',
+      runId: 'run_previous',
+      registryWorkspaceId: registeredWorkspace.id,
+      breakoutRooms: [{
+        id: 'room_previous',
+        runId: 'run_previous',
+        name: 'previous_provider_challenge',
+        title: 'Previous provider challenge',
+        kind: 'validation',
+        status: 'completed',
+        updatedAt: '2026-04-29T12:05:00.000Z',
+        memberCount: 2,
+        providers: ['anthropic', 'openai-codex'],
+        unreadCount: 0
+      }]
+    });
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
+      workspaces: [registeredWorkspace],
+      researchSessions: [selectedSession, previousSession]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: selectedSession.runId,
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: { profile },
+        runs: []
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onOpenBreakoutRoom: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('Previous provider challenge');
+    expect(html).toContain('class="workspace-breakout-room-reveal" data-state="closed" aria-hidden="true" inert=""');
+    expect(html).toContain('class="lucide lucide-chevron-down"');
+    expect(html).toContain('class="lucide lucide-chevron-right"');
+  });
+
+  it('replaces an active session timestamp with its in-progress indicator', () => {
+    const profile = testResearchProfile();
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const activeSession = session({ status: 'active', registryWorkspaceId: registeredWorkspace.id });
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
+      workspaces: [registeredWorkspace],
+      researchSessions: [activeSession]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: activeSession.runId,
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: { profile },
+        runs: []
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('class="workspace-session-status"');
+    expect(html).not.toContain('class="workspace-session-age"');
+  });
+
+  it('renders neutral room status markers while selected-session detail is loading', () => {
+    const profile = testResearchProfile();
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const selectedSession = session({ registryWorkspaceId: registeredWorkspace.id });
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/home/user/.beale/workspaces.json',
+      vmPreference: { enabled: false, backendKind: null, updatedAt: null },
+      activeResearchProfileId: 'security-research',
+      workspaces: [registeredWorkspace],
+      researchSessions: [selectedSession]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      openRegisteredWorkspaceMenuId: null,
+      workspaceRegistry: registry,
+      selectedRunId: selectedSession.runId,
+      selectedBreakoutRoomId: 'room_loading',
+      selectedRunBreakoutRoomsLoading: true,
+      snapshot: {
+        workspace: { workspacePath: registeredWorkspace.workspacePath },
+        researchProfile: { profile },
+        runs: [{
+          run: { id: selectedSession.runId },
+          breakoutRooms: [{ id: 'room_loading', runId: selectedSession.runId, title: 'Loading review', status: 'active' }]
+        }]
+      } as unknown as WorkspaceSnapshot,
+      onAddWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenWorkspaceInfo: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onOpenBreakoutRoom: () => undefined,
+      onRemoveWorkspace: () => undefined,
+      onResizePointerDown: () => undefined,
+      onSetOpenWorkspaceMenuId: () => undefined,
+      onShowMoreSessions: () => undefined,
+      onSearch: () => undefined,
+      onStartNewResearch: () => undefined
+    }));
+
+    expect(html).toContain('workspace-breakout-room-status status-loading');
+    expect(html).toContain('aria-label="Loading room status"');
+    expect(html).not.toContain('workspace-breakout-room-status status-active');
   });
 });
 

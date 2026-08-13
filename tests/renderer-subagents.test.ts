@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEventRecord } from '@shared/types';
+import { providerIconKind } from '../src/renderer/app/ProviderIcon';
 import { activeSubagentCount, filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../src/renderer/view-models/subagents';
 
 describe('subagent trace view models', () => {
+  it('maps supported provider and model identifiers to provider marks', () => {
+    expect(providerIconKind('openai-codex')).toBe('openai');
+    expect(providerIconKind('gpt-5.6-sol')).toBe('openai');
+    expect(providerIconKind('anthropic')).toBe('anthropic');
+    expect(providerIconKind('claude-opus-4-8')).toBe('anthropic');
+    expect(providerIconKind('xai')).toBe('xai');
+    expect(providerIconKind('grok-4.6')).toBe('xai');
+    expect(providerIconKind(null)).toBe('unknown');
+  });
+
   it('formats raw subagent names for display without changing their identity', () => {
     expect(subagentDisplayName('parser_review')).toBe('Parser Review');
     expect(subagentDisplayName('deep_input_parser')).toBe('Deep Input Parser');
@@ -14,6 +25,8 @@ describe('subagent trace view models', () => {
       id: 'agent_parser',
       path: '/root/parser_review',
       name: 'parser_review',
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
       status: 'running' as const,
       latestMessage: 'Checking the length boundary.',
       createdAt: '2026-07-20T10:00:00.000Z',
@@ -30,6 +43,7 @@ describe('subagent trace view models', () => {
     expect(filterSubagentSummaries([parser, verifier], 'Parser Review')).toEqual([parser]);
     expect(filterSubagentSummaries([parser, verifier], 'completed')).toEqual([verifier]);
     expect(filterSubagentSummaries([parser, verifier], 'length boundary')).toEqual([parser]);
+    expect(filterSubagentSummaries([parser, verifier], 'gpt-5.6-sol')).toEqual([parser, verifier]);
   });
 
   it('summarizes child identity, latest message, state, and activity', () => {
@@ -39,7 +53,7 @@ describe('subagent trace view models', () => {
         id: 'spawn',
         sequence: 2,
         createdAt: '2026-07-20T10:00:00.000Z',
-        payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_one', agentPath: '/root/parser_review', status: 'running', message: 'Inspect parser.' }
+        payload: { type: 'subagent.activity', action: 'spawned', agentId: 'agent_one', agentPath: '/root/parser_review', provider: 'anthropic', model: 'claude-opus-4-8', status: 'running', message: 'Inspect parser.' }
       }),
       traceEvent({
         id: 'output',
@@ -60,6 +74,8 @@ describe('subagent trace view models', () => {
         id: 'agent_one',
         path: '/root/parser_review',
         name: 'parser_review',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
         status: 'completed',
         latestMessage: 'Parser review complete.',
         createdAt: '2026-07-20T10:00:00.000Z',
@@ -162,6 +178,8 @@ describe('subagent trace view models', () => {
       id: null,
       path: '/root/worker',
       name: 'worker',
+      provider: null,
+      model: null,
       latestMessage: '',
       createdAt: '2026-07-20T10:00:00.000Z',
       lastActiveAt: '2026-07-20T10:00:00.000Z'
@@ -180,6 +198,8 @@ describe('subagent trace view models', () => {
       id: null,
       path: '/root/worker',
       name: 'worker',
+      provider: null,
+      model: null,
       latestMessage: '',
       createdAt: '2026-07-20T10:00:00.000Z',
       lastActiveAt: '2026-07-20T10:00:00.000Z'
@@ -209,6 +229,8 @@ describe('subagent trace view models', () => {
       id: null,
       path: '/root/worker',
       name: 'worker',
+      provider: null,
+      model: null,
       latestMessage: '',
       createdAt: '2026-07-20T10:00:00.000Z',
       lastActiveAt: '2026-07-20T10:00:00.000Z'

@@ -19,6 +19,13 @@
 
 ### Changed
 
+- The left sidebar now reveals breakout rooms only beneath the selected session, with vertical open and close transitions.
+- Provider Settings view tabs now show each provider's mark instead of a generic key icon.
+- The steering model and effort selector now shows the selected provider mark before the model name.
+- Single-worker delegation now remains a normal Subagent. Breakout rooms are exposed only after at least two collaborating subagents share the room, and lead agents are directed to delegate a same-model representative rather than join personally.
+- Breakout-room lists now load newest-first by room creation time in live detail, incremental updates, and workspace session summaries.
+- Breakout-room participant pills now show each provider mark, formatted Subagent name, and collaboration role.
+- Detailed Subagent catalogs now identify each worker with its OpenAI, Anthropic, or xAI provider mark and reveal the exact model on hover.
 - Breakout-room agents now retain provider-attributed commentary and evidence-oriented outcomes in a dedicated session view, while policy acknowledgements are checked for every enabled cybersecurity provider before a collaborative run starts.
 - Cybersecurity sessions now carry provider-specific policy-risk acknowledgements into Honeycrisp's authorization preflight: OpenAI requires Trusted Access for Cyber membership, Anthropic requires Cyber Verification Program membership, and xAI requires policy-use risk acceptance.
 - Provider Settings now persists explicit cybersecurity policy-use acknowledgements for OpenAI, Anthropic, and xAI; Anthropic subscription authentication continues to require its Cyber Verification Program acknowledgement before sign-in.
@@ -37,6 +44,8 @@
 
 ### Fixed
 
+- Opening a breakout room in the selected session now preserves live room detail, while genuine session loads use neutral room markers instead of stale statuses that could make every room appear active.
+- Selected-session breakout rooms now appear in the workspace sidebar as soon as live session detail records them, without requiring a navigation refresh.
 - Repository searches across large multi-repository workspaces now use a bounded native Git path and respond to session interruption instead of leaving low-match scans running indefinitely.
 - Anthropic lead and breakout agents now receive readable bounded evidence from governed tools instead of status-only result summaries.
 - Git repository preparation now enables Git for Windows long-path checkout support, retries transient checkout publication and temporary-tree cleanup, reclaims abandoned partial checkouts, waits for terminated clone processes to close, safely reuses a concurrent checkout, and preserves the original Git failure when cleanup also fails.

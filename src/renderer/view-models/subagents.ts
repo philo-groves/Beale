@@ -11,6 +11,8 @@ export interface SubagentSummary {
   id: string | null;
   path: string;
   name: string;
+  provider: string | null;
+  model: string | null;
   status: SubagentStatus;
   latestMessage: string;
   createdAt: string;
@@ -82,6 +84,8 @@ export function filterSubagentSummaries(
     subagent.path,
     subagent.name,
     subagentDisplayName(subagent.name),
+    subagent.provider ?? '',
+    subagent.model ?? '',
     subagent.status,
     subagent.latestMessage
   ].join('\n').toLocaleLowerCase().includes(normalizedQuery));
@@ -109,6 +113,8 @@ export function subagentSummaries(
       id: null,
       path,
       name: subagentName(path),
+      provider: null,
+      model: null,
       status: 'running',
       latestMessage: '',
       createdAt: timestamp,
@@ -123,6 +129,8 @@ export function subagentSummaries(
     summaries.set(path, {
       ...current,
       id: subagentPayloadValue(event, 'agentId') ?? current.id,
+      provider: subagentPayloadValue(event, 'provider') ?? current.provider,
+      model: subagentPayloadValue(event, 'model') ?? current.model,
       status: lifecycleEvent
         ? subagentLifecycleStatus(subagentPayloadValue(event, 'status'), action) ?? current.status
         : current.status,

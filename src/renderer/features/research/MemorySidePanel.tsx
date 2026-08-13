@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, LoaderCircle, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, Plus, Search, X } from 'lucide-react';
 import type {
   HoneycrispMemoryEdgeSummary,
   HoneycrispMemoryNodeSummary,
@@ -18,6 +18,7 @@ import type {
 } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
+import { ProviderIcon } from '../../app/ProviderIcon';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
 import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
@@ -810,7 +811,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <MainSideScrollRegion
               listClassName="subagent-catalog-list"
               stickToStart
-              updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
+              updateKey={filteredSubagents.map((agent) => `${agent.path}:${agent.provider}:${agent.model}:${agent.status}:${agent.createdAt}:${agent.lastActiveAt}:${agent.latestMessage}`).join('|')}
             >
               {filteredSubagents.length === 0 ? (
                 <p className="subagent-catalog-empty">
@@ -1303,7 +1304,7 @@ function SubagentCatalogSection({
               key={agent.path}
               onClick={() => onSelect(agent.path)}
             >
-              <SubagentStatusIcon status={agent.status} />
+              <SubagentProviderIcon provider={agent.provider} model={agent.model} />
               <span className="subagent-catalog-heading">
                 <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
                 <span className="subagent-catalog-heading-trailing">
@@ -1324,16 +1325,14 @@ function SubagentCatalogSection({
   );
 }
 
-function SubagentStatusIcon({ status }: { status: SubagentSummary['status'] }): JSX.Element {
-  const kind = subagentStatusIconKind(status);
-  const label = subagentStatusLabel(status);
+function SubagentProviderIcon({
+  provider,
+  model
+}: Pick<SubagentSummary, 'provider' | 'model'>): JSX.Element {
+  const modelLabel = model ?? 'Unknown model';
   return (
-    <span className={`subagent-status-icon is-${kind}`} aria-label={label} title={label}>
-      {kind === 'active' ? (
-        <LoaderCircle size={15} aria-hidden="true" />
-      ) : (
-        <Bot size={15} aria-hidden="true" />
-      )}
+    <span className="subagent-provider-icon" aria-label={`Model: ${modelLabel}`} title={modelLabel}>
+      <ProviderIcon provider={provider ?? model} size={15} aria-hidden="true" />
     </span>
   );
 }

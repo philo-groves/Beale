@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ProviderIcon } from './ProviderIcon';
 
 export interface ModelSelectionPickerOption {
   value: string;
@@ -305,6 +306,7 @@ export function ModelSelectionPicker({
           openPicker(section, true);
         }}
       >
+        <ProviderIcon className="model-selection-picker-provider-icon" provider={providerValue} size={13} aria-hidden="true" />
         <span className="model-selection-picker-model">{modelLabel}</span>
         <span className="model-selection-picker-effort">{effortLabel}</span>
         <ChevronDown className="model-selection-picker-trigger-chevron" size={13} aria-hidden="true" />

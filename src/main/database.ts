@@ -4644,7 +4644,8 @@ export class WorkspaceDatabase {
        LEFT JOIN breakout_room_messages message ON message.room_id = room.id
        WHERE room.run_id = ?
        GROUP BY room.id
-       ORDER BY room.created_at ASC, room.id ASC`
+       HAVING COUNT(DISTINCT member.id) >= 2
+       ORDER BY room.created_at DESC, room.id DESC`
     ).all(runId)).map((row) => {
       const room = this.mapBreakoutRoom(row);
       const providerRows = rows(this.db.prepare(
@@ -5645,13 +5646,34 @@ export class WorkspaceDatabase {
       transcriptMessages: rows(this.db.prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
         this.mapTranscriptMessage(row)
       ),
-      breakoutRooms: rows(this.db.prepare('SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRooms: rows(this.db.prepare(
+        `SELECT * FROM breakout_rooms
+         WHERE run_id = ?
+           AND id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY created_at DESC, rowid DESC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoom(row)
       ),
-      breakoutRoomMembers: rows(this.db.prepare('SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRoomMembers: rows(this.db.prepare(
+        `SELECT * FROM breakout_room_members
+         WHERE run_id = ?
+           AND room_id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY started_at ASC, rowid ASC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoomMember(row)
       ),
-      breakoutRoomMessages: rows(this.db.prepare('SELECT * FROM breakout_room_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRoomMessages: rows(this.db.prepare(
+        `SELECT * FROM breakout_room_messages
+         WHERE run_id = ?
+           AND room_id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY created_at ASC, rowid ASC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoomMessage(row)
       ),
       artifacts: rows(
@@ -7491,13 +7513,34 @@ export class WorkspaceDatabase {
           .prepare('SELECT * FROM transcript_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC LIMIT -1 OFFSET ?')
           .all(runId, afterTranscriptCount)
       ).map((row) => this.mapTranscriptMessage(row)),
-      breakoutRooms: rows(this.db.prepare('SELECT * FROM breakout_rooms WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRooms: rows(this.db.prepare(
+        `SELECT * FROM breakout_rooms
+         WHERE run_id = ?
+           AND id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY created_at DESC, rowid DESC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoom(row)
       ),
-      breakoutRoomMembers: rows(this.db.prepare('SELECT * FROM breakout_room_members WHERE run_id = ? ORDER BY started_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRoomMembers: rows(this.db.prepare(
+        `SELECT * FROM breakout_room_members
+         WHERE run_id = ?
+           AND room_id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY started_at ASC, rowid ASC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoomMember(row)
       ),
-      breakoutRoomMessages: rows(this.db.prepare('SELECT * FROM breakout_room_messages WHERE run_id = ? ORDER BY created_at ASC, rowid ASC').all(runId)).map((row) =>
+      breakoutRoomMessages: rows(this.db.prepare(
+        `SELECT * FROM breakout_room_messages
+         WHERE run_id = ?
+           AND room_id IN (
+             SELECT room_id FROM breakout_room_members WHERE run_id = ? GROUP BY room_id HAVING COUNT(DISTINCT id) >= 2
+           )
+         ORDER BY created_at ASC, rowid ASC`
+      ).all(runId, runId)).map((row) =>
         this.mapBreakoutRoomMessage(row)
       ),
       artifacts: rows(

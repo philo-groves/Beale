@@ -629,6 +629,7 @@ function parseBreakoutRoomSummaries(value: unknown): BreakoutRoomSummary[] {
         && typeof room.title === 'string'
         && typeof room.status === 'string'
         && typeof room.memberCount === 'number'
+        && room.memberCount >= 2
         && Array.isArray(room.providers);
     });
   } catch {

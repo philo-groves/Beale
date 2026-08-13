@@ -29,6 +29,7 @@ export interface WorkspaceActionOptions {
 
 export function useWorkspaceActions({
   snapshot,
+  selectedRunId,
   researchProfileId,
   workspaceDraft,
   runWorkspaceAction,
@@ -41,6 +42,7 @@ export function useWorkspaceActions({
   setOpenWorkspaceMenuId
 }: {
   snapshot: WorkspaceSnapshot | null;
+  selectedRunId: string | null;
   researchProfileId: ResearchProfileId;
   workspaceDraft: WorkspaceOnboardingFormState | null;
   runWorkspaceAction: (action: () => Promise<void>, options?: WorkspaceActionOptions) => Promise<void>;
@@ -85,6 +87,7 @@ export function useWorkspaceActions({
 
   const openResearchSession = useCallback(
     (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary): void => {
+      if (!researchSessionNeedsLoading(snapshot, selectedRunId, workspace, session)) return;
       void runWorkspaceAction(async () => {
         clearRunDetail();
         const activeWorkspace = snapshot?.workspace.workspacePath === workspace.workspacePath;
@@ -94,7 +97,7 @@ export function useWorkspaceActions({
         setSelectedRunId(session.runId);
       }, { markBusy: false, reloadRegistry: false });
     },
-    [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId, snapshot]
+    [applySnapshot, clearRunDetail, runWorkspaceAction, selectedRunId, setSelectedRunId, snapshot]
   );
 
   const removeRegisteredWorkspace = useCallback(
@@ -190,4 +193,13 @@ export function useWorkspaceActions({
     applyOnboardingTemplate,
     lookupHackerOneScope
   };
+}
+
+export function researchSessionNeedsLoading(
+  snapshot: WorkspaceSnapshot | null,
+  selectedRunId: string | null,
+  workspace: Pick<WorkspaceRegistryEntry, 'workspacePath'>,
+  session: Pick<ResearchSessionSummary, 'runId'>
+): boolean {
+  return snapshot?.workspace.workspacePath !== workspace.workspacePath || selectedRunId !== session.runId;
 }

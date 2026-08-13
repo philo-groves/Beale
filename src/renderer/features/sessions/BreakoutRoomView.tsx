@@ -1,6 +1,8 @@
 import { ArrowLeft, MessagesSquare } from 'lucide-react';
 import type { JSX } from 'react';
 import type { BreakoutRoomMemberRecord, BreakoutRoomMessageRecord, RunDetail } from '@shared/types';
+import { ProviderIcon } from '../../app/ProviderIcon';
+import { subagentDisplayName } from '../../view-models/subagents';
 import { renderTraceProseText } from '../traces/traceMarkup';
 
 export function BreakoutRoomView({
@@ -60,9 +62,11 @@ export function BreakoutRoomView({
 }
 
 function BreakoutMemberChip({ member }: { member: BreakoutRoomMemberRecord }): JSX.Element {
+  const rawName = member.agentPath.split('/').filter(Boolean).at(-1) ?? member.agentPath;
   return (
     <span className={`breakout-room-member-chip state-${member.status}`} title={`${member.agentPath} — ${member.model}`}>
-      <span>{providerLabel(member.provider)}</span>
+      <ProviderIcon className="breakout-room-member-provider-icon" provider={member.provider || member.model} size={12} aria-hidden="true" />
+      <span className="breakout-room-member-name">{subagentDisplayName(rawName)}</span>
       {member.role ? <small>{member.role}</small> : null}
     </span>
   );

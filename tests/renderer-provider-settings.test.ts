@@ -40,6 +40,7 @@ describe('renderer provider settings', () => {
 
     expect(html).toContain('role="tablist" aria-label="Provider views"');
     expect(html.match(/role="tab"/gu)).toHaveLength(2);
+    expect(html.match(/class="provider-settings-tab-icon"/gu)).toHaveLength(2);
     expect(html).toContain('<span>OpenAI (Codex)</span>');
     expect(html).toContain('<span>Anthropic (Claude)</span>');
     expect(html).toContain('aria-label="Add provider"');

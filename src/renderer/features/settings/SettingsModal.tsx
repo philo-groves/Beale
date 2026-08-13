@@ -21,6 +21,7 @@ import type {
   ResearchProviderOAuthStartResult,
   ResearchProviderStatus
 } from '@shared/types';
+import { ProviderIcon } from '../../app/ProviderIcon';
 import { StatusPill } from '../../app/StatusPill';
 import { FloatingTextPicker, type FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
@@ -640,7 +641,12 @@ function ProviderSettingsTabs({
               aria-busy={provider.authenticationRunning || !provider.configured}
               onClick={() => onActivate(provider.id)}
             >
-              <KeyRound size={15} aria-hidden="true" />
+              <ProviderIcon
+                className="provider-settings-tab-icon"
+                provider={provider.id}
+                size={15}
+                aria-hidden="true"
+              />
               <span>{provider.name}</span>
             </button>
             <button

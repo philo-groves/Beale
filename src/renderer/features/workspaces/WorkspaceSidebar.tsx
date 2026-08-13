@@ -1,11 +1,12 @@
 import { memo } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { FolderPlus, MessagesSquare, MoreVertical, Play, RefreshCw, Search, Terminal } from 'lucide-react';
-import type { BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
+import { ChevronDown, ChevronRight, Folder, FolderPlus, MessagesSquare, MoreVertical, Play, RefreshCw, Search } from 'lucide-react';
+import type { BreakoutRoomStatus, BreakoutRoomSummary, WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSummary, RunStatus, WorkspaceSnapshot } from '@shared/types';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace, shortRelativeAge } from '../../view-models/workspaceDisplay';
 
 const SIDEBAR_SESSION_LIMIT = 4;
+type SidebarBreakoutRoom = Pick<BreakoutRoomSummary, 'id' | 'runId' | 'title' | 'status'>;
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   busy,
@@ -15,6 +16,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   selectedRunId,
   selectedBreakoutRoomId = null,
+  selectedRunBreakoutRooms,
+  selectedRunBreakoutRoomsLoading = false,
   snapshot,
   onAddWorkspace,
   onOpenWorkspace,
@@ -35,12 +38,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   selectedRunId: string | null;
   selectedBreakoutRoomId?: string | null;
+  selectedRunBreakoutRooms?: readonly SidebarBreakoutRoom[];
+  selectedRunBreakoutRoomsLoading?: boolean;
   snapshot: WorkspaceSnapshot | null;
   onAddWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenWorkspaceInfo: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  onOpenBreakoutRoom?: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary, room: BreakoutRoomSummary) => void;
+  onOpenBreakoutRoom?: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary, roomId: string) => void;
   onRemoveWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onSetOpenWorkspaceMenuId: (registryWorkspaceId: string | null) => void;
@@ -73,7 +78,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       </div>
       <div className="sidebar-section workspace-list">
         <div className="section-row">
-          <div className="meta-label">Workspaces</div>
+          <div className="workspace-list-title">Workspaces</div>
           <button type="button" title={`Add ${workspaceNoun.toLocaleLowerCase()}`} disabled={busy} onClick={onAddWorkspace}>
             <FolderPlus size={15} />
           </button>
@@ -87,7 +92,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             <div className="workspace-group" key={workspace.id}>
               <div className={`workspace-item-row ${active ? 'active' : ''} ${menuOpen ? 'menu-open' : ''}`} data-workspace-menu-root>
                 <button type="button" className="workspace-item" title={workspace.workspacePath} onClick={() => onOpenWorkspace(workspace)}>
-                  <Terminal size={15} />
+                  <Folder size={15} aria-hidden="true" />
                   <span>{workspace.workspaceName}</span>
                 </button>
                 <button
@@ -124,9 +129,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <div className="workspace-session-list">
                 {visibleSessions.length > 0 ? (
                   visibleSessions.map((session) => {
-                    const rooms = active
-                      ? snapshot?.runs.find((row) => row.run.id === session.runId)?.breakoutRooms ?? session.breakoutRooms ?? []
-                      : session.breakoutRooms ?? [];
+                    const rooms = selectedRunId === session.runId && selectedRunBreakoutRooms !== undefined
+                      ? selectedRunBreakoutRooms
+                      : active
+                        ? snapshot?.runs.find((row) => row.run.id === session.runId)?.breakoutRooms ?? session.breakoutRooms ?? []
+                        : session.breakoutRooms ?? [];
+                    const roomsVisible = selectedRunId === session.runId && rooms.length > 0;
                     return (
                     <div className="workspace-session-row" key={session.id}>
                       <button
@@ -135,25 +143,40 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                         title={promptSessionTitle(session)}
                         onClick={() => onOpenResearchSession(workspace, session)}
                       >
+                        {selectedRunId === session.runId
+                          ? <ChevronDown size={14} aria-hidden="true" />
+                          : <ChevronRight size={14} aria-hidden="true" />}
                         <span className="workspace-session-title">{promptSessionTitle(session)}</span>
-                        <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
+                        {session.status !== 'active'
+                          ? <span className="workspace-session-age">{shortRelativeAge(session.updatedAt)}</span>
+                          : null}
                         <SessionActiveIndicator status={session.status} />
                       </button>
                       {rooms.length > 0 ? (
-                        <div className="workspace-breakout-room-list">
-                          {rooms.map((room) => (
-                            <button
-                              type="button"
-                              className={`workspace-breakout-room-item ${selectedBreakoutRoomId === room.id ? 'active' : ''}`}
-                              title={`${room.title} — ${breakoutRoomStatusLabel(room.status)}`}
-                              onClick={() => onOpenBreakoutRoom(workspace, session, room)}
-                              key={room.id}
-                            >
-                              <MessagesSquare size={12} />
-                              <span>{room.title}</span>
-                              <span className={`workspace-breakout-room-status status-${room.status}`} aria-label={breakoutRoomStatusLabel(room.status)} />
-                            </button>
-                          ))}
+                        <div
+                          className="workspace-breakout-room-reveal"
+                          data-state={roomsVisible ? 'open' : 'closed'}
+                          aria-hidden={!roomsVisible}
+                          inert={!roomsVisible}
+                        >
+                          <div className="workspace-breakout-room-list">
+                            {rooms.map((room) => (
+                              <button
+                                type="button"
+                                className={`workspace-breakout-room-item ${selectedBreakoutRoomId === room.id ? 'active' : ''}`}
+                                title={`${room.title} — ${breakoutRoomStatusLabel(room.status)}`}
+                                onClick={() => onOpenBreakoutRoom(workspace, session, room.id)}
+                                key={room.id}
+                              >
+                                <MessagesSquare size={12} aria-hidden="true" />
+                                <span>{room.title}</span>
+                                <span
+                                  className={`workspace-breakout-room-status ${selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'status-loading' : `status-${room.status}`}`}
+                                  aria-label={selectedRunId === session.runId && selectedRunBreakoutRoomsLoading ? 'Loading room status' : breakoutRoomStatusLabel(room.status)}
+                                />
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -187,7 +210,7 @@ function SessionActiveIndicator({ status }: { status: RunStatus }): JSX.Element 
   );
 }
 
-function breakoutRoomStatusLabel(status: BreakoutRoomSummary['status']): string {
+function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
   if (status === 'active') return 'Active';
   if (status === 'completed') return 'Completed';
   if (status === 'interrupted') return 'Interrupted';

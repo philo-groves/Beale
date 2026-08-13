@@ -4,7 +4,6 @@ import type { CSSProperties } from 'react';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
   ApprovalRecord,
-  BreakoutRoomSummary,
   ProviderSettings,
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
@@ -506,6 +505,7 @@ export function App(): JSX.Element {
     lookupHackerOneScope
   } = useWorkspaceActions({
     snapshot,
+    selectedRunId,
     researchProfileId: workspaceRegistry?.activeResearchProfileId ?? 'security-research',
     workspaceDraft,
     runWorkspaceAction,
@@ -838,6 +838,8 @@ export function App(): JSX.Element {
           workspaceRegistry={workspaceRegistry}
           selectedRunId={selectedRunId}
           selectedBreakoutRoomId={selectedBreakoutRoomId}
+          selectedRunBreakoutRooms={activeRunDetail?.breakoutRooms}
+          selectedRunBreakoutRoomsLoading={selectedRunId !== null && activeRunDetail === null}
           snapshot={snapshot}
           onAddWorkspace={() => {
             addWorkspace();
@@ -850,9 +852,9 @@ export function App(): JSX.Element {
             setSelectedBreakoutRoomId(null);
             openResearchSession(workspace, session);
           }}
-          onOpenBreakoutRoom={(workspace, session, room: BreakoutRoomSummary) => {
+          onOpenBreakoutRoom={(workspace, session, roomId) => {
             openResearchSession(workspace, session);
-            setSelectedBreakoutRoomId(room.id);
+            setSelectedBreakoutRoomId(roomId);
           }}
           onRemoveWorkspace={removeRegisteredWorkspace}
           onResizePointerDown={beginSidebarResize}
