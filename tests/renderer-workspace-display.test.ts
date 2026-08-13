@@ -140,13 +140,17 @@ describe('renderer workspace display view models', () => {
 
   it('marks a workspace active only while its dashboard is selected', () => {
     const profile = testResearchProfile();
-    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const registeredWorkspace = { ...workspace('workspace_test', '/workspace/test'), workspaceName: 'Snapchat' };
     const registry: WorkspaceRegistryState = {
       registryPath: '/home/user/.beale/workspaces.json',
       vmPreference: { enabled: false, backendKind: null, updatedAt: null },
       activeResearchProfileId: 'security-research',
       workspaces: [registeredWorkspace],
-      researchSessions: []
+      researchSessions: Array.from({ length: 5 }, (_, index) => session({
+        id: `session_${index}`,
+        runId: `run_${index}`,
+        registryWorkspaceId: registeredWorkspace.id
+      }))
     };
     const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
       busy: false,
@@ -173,6 +177,8 @@ describe('renderer workspace display view models', () => {
     }));
 
     expect(html).toMatch(/class="workspace-item-row active\b/u);
+    expect(html).toContain('>More Snapchat Sessions...</button>');
+    expect(html).not.toContain('More Research Sessions');
   });
 
   it('keeps breakout rooms collapsed beneath sessions that are not selected', () => {

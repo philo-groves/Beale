@@ -7,6 +7,8 @@ import type {
   TraceEventRecord
 } from '@shared/types';
 import { honeycrispToolEventKind, honeycrispToolName, honeycrispToolPairingKey, honeycrispToolPayload, stringRecordValue } from '../traceClassification';
+import { SESSION_HEAT_LEVELS } from './sessionHeat';
+import type { SessionHeatPreferenceOverrides } from './sessionHeat';
 
 export interface MemoryCatalogFilters {
   query: string;
@@ -107,6 +109,58 @@ export interface SessionMemoryTypeSummary {
   rejectedCount: number;
   countLabel: string;
   statusLabel: string;
+}
+
+export interface MemoryTypeSummaryPresentation {
+  summaries: SessionMemoryTypeSummary[];
+  defaultVisibleCount: number;
+}
+
+export function memoryTypeSummaryPresentation(
+  summaries: readonly SessionMemoryTypeSummary[],
+  memory?: ResearchProfileMemory,
+  profileId?: string | null,
+  overrides: SessionHeatPreferenceOverrides = {}
+): MemoryTypeSummaryPresentation {
+  const definitionById = new Map(memory?.types.map((definition) => [definition.id, definition]) ?? []);
+  const heatRankByType = new Map(memory?.types.map((definition) => [
+    definition.id,
+    memoryTypeHeatRank(definition, profileId, overrides)
+  ]) ?? []);
+  const defaultVisibleCount = Math.max(
+    4,
+    [...heatRankByType.values()].filter((rank) => rank > 0).length
+  );
+
+  return {
+    summaries: [...summaries].sort((left, right) => {
+      const heatDifference = (heatRankByType.get(right.type) ?? 0) - (heatRankByType.get(left.type) ?? 0);
+      if (heatDifference !== 0) return heatDifference;
+      if (right.count !== left.count) return right.count - left.count;
+      return compareMemoryTypeEntries(
+        left.type,
+        definitionById.get(left.type) ?? null,
+        right.type,
+        definitionById.get(right.type) ?? null
+      );
+    }),
+    defaultVisibleCount
+  };
+}
+
+function memoryTypeHeatRank(
+  definition: ResearchProfileMemoryType,
+  profileId: string | null | undefined,
+  overrides: SessionHeatPreferenceOverrides
+): number {
+  let rank = 0;
+  for (const status of definition.allowedStatuses) {
+    const heat = (profileId ? overrides[profileId]?.[definition.id]?.[status] : undefined)
+      ?? definition.sessionHeat?.[status]
+      ?? 'none';
+    rank = Math.max(rank, SESSION_HEAT_LEVELS.indexOf(heat));
+  }
+  return rank;
 }
 
 export function sessionMemoryTypeSummaries(

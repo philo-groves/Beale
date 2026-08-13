@@ -9,6 +9,7 @@ import { TraceView } from '../traces/TraceView';
 import { isEndedResearchRunStatus, SessionNextSteps, type ResearchGoalSeed } from './SessionNextSteps';
 import type { TraceCategoryId } from '../../traceClassification';
 import type { ChatView } from '../../view-models/chatView';
+import type { SessionHeatPreferenceOverrides } from '../../view-models/sessionHeat';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import {
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
@@ -26,6 +27,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   projectGraph = null,
   projectSemantic = null,
   researchProfile,
+  sessionHeatPreferences = {},
   workspaceName,
   runs,
   selectedRunId,
@@ -77,6 +79,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   projectGraph?: ProjectGraphSummary | null;
   projectSemantic?: ProjectSemanticSummary | null;
   researchProfile: ResearchProfile | null;
+  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
   workspaceName: string;
   runs: RunRow[];
   selectedRunId: string | null;
@@ -212,6 +215,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
         events={allEvents}
         memory={viewSpace === 'workspace' ? honeycrispMemory : detail?.honeycrispMemory ?? null}
         researchProfile={researchProfile}
+        sessionHeatPreferences={sessionHeatPreferences}
         providerModelCatalog={providerModelCatalog}
         runId={researchSidePanelKey}
         runStatus={detail?.run.status ?? null}

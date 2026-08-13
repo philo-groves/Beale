@@ -3093,6 +3093,29 @@ button.session-summary-item:hover:not(:disabled),
   white-space: nowrap;
 }
 
+.session-memory-type-list {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+
+.session-memory-type-overflow {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+
+.session-memory-type-overflow.expanded {
+  grid-template-rows: 1fr;
+}
+
+.session-memory-type-overflow-inner {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .session-memory-type-item {
   min-width: 0;
   min-height: 30px;
@@ -5766,6 +5789,28 @@ button.session-summary-item:hover:not(:disabled),
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-memory-type-toggle {
+  width: max-content;
+  min-height: 24px;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 28px;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.session-memory-type-toggle:hover:not(:disabled),
+.session-memory-type-toggle:focus-visible {
+  border: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  outline: none;
 }
 
 .research-side-nested-header > .subagent-provider-icon {
@@ -11336,6 +11381,10 @@ button.research-goal-choice:focus-visible {
   }
 
   .workspace-breakout-room-reveal {
+    transition: none;
+  }
+
+  .session-memory-type-overflow {
     transition: none;
   }
 

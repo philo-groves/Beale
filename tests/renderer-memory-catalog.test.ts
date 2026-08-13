@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import type { ComponentProps } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { HoneycrispMemoryEdgeSummary, HoneycrispMemoryNodeSummary, HoneycrispMemorySummary, HoneycrispReportSummary, HoneycrispRunbookDocument, HoneycrispRunbookSummary, ResearchProfile, RunDetail, TraceEventRecord } from '@shared/types';
@@ -24,7 +25,7 @@ import {
   restrictResearchSideNavigation,
   type ResearchSideNavigationState
 } from '../src/renderer/features/research/MemorySidePanel';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../src/renderer/view-models/memoryCatalog';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from '../src/renderer/view-models/researchProfileFeatures';
 import { runbookCatalogGroups } from '../src/renderer/view-models/runbooks';
 import { reportCatalogGroups } from '../src/renderer/view-models/reports';
@@ -293,6 +294,84 @@ describe('renderer memory catalog', () => {
     ]);
   });
 
+  it('orders summary memory types by effective heat then count and expands the default limit for heat-impacting types', () => {
+    const profile = testResearchProfile();
+    const memory = {
+      ...profile.memory,
+      types: [
+        summaryMemoryType('critical_override', 10, { confirmed: 'low' }),
+        summaryMemoryType('high_many', 20, { confirmed: 'high' }),
+        summaryMemoryType('high_few', 30, { confirmed: 'high' }),
+        summaryMemoryType('medium', 40, { confirmed: 'medium' }),
+        summaryMemoryType('low', 50, { confirmed: 'low' }),
+        summaryMemoryType('none', 60)
+      ]
+    };
+    const summaries = sessionMemoryTypeSummaries([
+      ...Array.from({ length: 2 }, (_, index) => memoryNode({ id: `critical_${index}`, type: 'critical_override', status: 'confirmed' })),
+      ...Array.from({ length: 5 }, (_, index) => memoryNode({ id: `high_many_${index}`, type: 'high_many', status: 'confirmed' })),
+      memoryNode({ id: 'high_few', type: 'high_few', status: 'confirmed' }),
+      memoryNode({ id: 'medium', type: 'medium', status: 'confirmed' }),
+      memoryNode({ id: 'low', type: 'low', status: 'confirmed' }),
+      ...Array.from({ length: 9 }, (_, index) => memoryNode({ id: `none_${index}`, type: 'none', status: 'confirmed' }))
+    ], memory);
+
+    const presentation = memoryTypeSummaryPresentation(summaries, memory, profile.id, {
+      [profile.id]: { critical_override: { confirmed: 'critical' } }
+    });
+
+    expect(presentation.defaultVisibleCount).toBe(5);
+    expect(presentation.summaries.map((summary) => summary.type)).toEqual([
+      'critical_override',
+      'high_many',
+      'high_few',
+      'medium',
+      'low',
+      'none'
+    ]);
+  });
+
+  it('uses a vertically animated collapsed overflow for summary memory types', () => {
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const overflowStyles = styles.match(/\.session-memory-type-overflow\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const expandedStyles = styles.match(/\.session-memory-type-overflow\.expanded\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(overflowStyles).toContain('grid-template-rows: 0fr');
+    expect(overflowStyles).toContain('transition: grid-template-rows 180ms ease');
+    expect(expandedStyles).toContain('grid-template-rows: 1fr');
+  });
+
+  it('collapses summary memory types beyond the default limit behind a grey text action', () => {
+    const profile = testResearchProfile();
+    const researchProfile: ResearchProfile = {
+      ...profile,
+      memory: {
+        ...profile.memory,
+        types: Array.from({ length: 5 }, (_, index) => summaryMemoryType(`type_${index}`, index))
+      }
+    };
+    const html = renderToStaticMarkup(createElement(ResearchSidePanel, researchSidePanelProps({
+      researchProfile,
+      memory: {
+        contextWorkspaceId: 'workspace_zsh',
+        contextSubjectId: 'subject_apple',
+        nodes: Array.from({ length: 5 }, (_, index) => memoryNode({
+          id: `summary_${index}`,
+          type: `type_${index}`,
+          status: 'draft',
+          sessionIds: ['run_current']
+        })),
+        edges: [],
+        runbooks: [],
+        reports: [],
+        lastError: null
+      } as unknown as HoneycrispMemorySummary
+    })));
+
+    expect(html).toContain('class="session-memory-type-overflow" aria-hidden="true" inert=""');
+    expect(html).toContain('class="session-memory-type-toggle" aria-expanded="false">Show 1 more</button>');
+  });
+
   it('shows a session-scoped summary card before the detailed catalog', () => {
     const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
       detail: summaryDetail(),
@@ -369,9 +448,9 @@ describe('renderer memory catalog', () => {
     expect(html).not.toContain('0 Confirmed');
     expect(html).not.toContain('0 Suspected');
     expect(html).not.toContain('0 Rejected');
-    expect(html.indexOf('>1 Sink</span>')).toBeLessThan(html.indexOf('>2 Primitives</span>'));
+    expect(html.indexOf('>2 Boring</span>')).toBeLessThan(html.indexOf('>2 Primitives</span>'));
     expect(html.indexOf('>2 Primitives</span>')).toBeLessThan(html.indexOf('>1 Chain</span>'));
-    expect(html.indexOf('>1 Chain</span>')).toBeLessThan(html.indexOf('>2 Boring</span>'));
+    expect(html.indexOf('>1 Chain</span>')).toBeLessThan(html.indexOf('>1 Sink</span>'));
     expect(html.match(/session-memory-type-item/g)).toHaveLength(4);
     expect(html).toContain('<span>3 Runbooks</span>');
     expect(html).toContain('class="session-summary-meta">12 Revisions</span>');
@@ -754,6 +833,25 @@ function researchProfileWithFeatures(
       ...profile.capabilities,
       ...features
     }
+  };
+}
+
+function summaryMemoryType(
+  id: string,
+  order: number,
+  sessionHeat: ResearchProfile['memory']['types'][number]['sessionHeat'] = {}
+): ResearchProfile['memory']['types'][number] {
+  return {
+    id,
+    name: id,
+    pluralName: `${id}s`,
+    description: `${id} memory`,
+    lifecycle: 'active',
+    creatable: true,
+    order,
+    defaultStatus: 'draft',
+    allowedStatuses: ['draft', 'confirmed'],
+    sessionHeat
   };
 }
 

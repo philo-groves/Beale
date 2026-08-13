@@ -21,6 +21,7 @@
 
 ### Changed
 
+- Session and workspace summary sidenavs now rank Memory types by effective session-heat impact and count, initially show at least four or all heat-impacting types, and vertically reveal additional types on demand.
 - Provider Settings now persists a preferred Subscription or API key authentication source per provider, marks it in the authentication view, and sends that host-owned preference to every Honeycrisp run. Explicit subscription usage-cap and API-credit exhaustion errors may fall back to the configured alternate source.
 - Provider Settings now labels the global selector “Lead Provider” and groups provider-specific Large, Small, and Reasoning selectors behind a compact white “Defaults” label.
 - Checkbox and radio accents now consistently use the shared white text color instead of browser-default blue or muted per-view variants.

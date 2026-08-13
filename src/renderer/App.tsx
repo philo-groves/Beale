@@ -1021,6 +1021,7 @@ export function App(): JSX.Element {
               projectGraph={selectedRunId ? null : snapshot?.projectGraph ?? null}
               projectSemantic={selectedRunId ? null : snapshot?.projectSemantic ?? null}
               researchProfile={selectedRunId ? activeRunDetail?.researchProfile?.profile ?? null : snapshot?.researchProfile.profile ?? null}
+              sessionHeatPreferences={sessionHeatPreferences}
               workspaceName={snapshot?.activeScope.workspaceName ?? 'Workspace'}
               runs={selectedRunId ? [] : snapshot?.runs ?? []}
               selectedRunId={selectedRunId}

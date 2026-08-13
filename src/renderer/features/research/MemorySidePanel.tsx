@@ -21,13 +21,14 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatSessionDateTime, stateClass, traceLabel } from '../../lib/formatting';
-import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
+import { activeMemoryCount, filterMemoryCatalogNodes, groupMemoryRelationships, memoryCatalogGroupPreview, memoryCatalogStatusGroups, memoryCatalogStatusSections, memoryCatalogUpdateKey, memoryTypeSummaryPresentation, sessionMemoryActivitySummary, sessionMemoryCatalogNodes, sessionMemoryTypeSummaries } from '../../view-models/memoryCatalog';
 import type { MemoryStatusGroup, SessionMemoryTypeSummary } from '../../view-models/memoryCatalog';
 import { filterSubagentSummaries, subagentCatalogGroups, subagentDisplayName, subagentStatusCountSummary, subagentStatusIconKind, subagentStatusLabel, subagentSummaries, traceEventsForSubagent } from '../../view-models/subagents';
 import type { SubagentSummary } from '../../view-models/subagents';
 import { runbookCatalogGroups, runbookDescriptionText } from '../../view-models/runbooks';
 import { reportCatalogGroups } from '../../view-models/reports';
 import type { ChatView } from '../../view-models/chatView';
+import type { SessionHeatPreferenceOverrides } from '../../view-models/sessionHeat';
 import { researchProfileFeatureAvailability } from '../../view-models/researchProfileFeatures';
 import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import type { TraceCategoryId } from '../../traceClassification';
@@ -171,6 +172,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events,
   memory,
   researchProfile = null,
+  sessionHeatPreferences = {},
   runId,
   runStatus,
   chatView = 'commentary',
@@ -204,6 +206,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   events: TraceDisplayEvent[];
   memory: HoneycrispMemorySummary | null;
   researchProfile?: ResearchProfile | null;
+  sessionHeatPreferences?: SessionHeatPreferenceOverrides;
   runId: string;
   runStatus: RunStatus | null;
   chatView?: ChatView;
@@ -280,8 +283,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   );
   const sessionMemoryActivity = useMemo(() => sessionMemoryActivitySummary(events), [events]);
   const sessionMemoryTypes = useMemo(
-    () => sessionMemoryTypeSummaries(sessionMemoryNodes, memoryProfile),
-    [memoryProfile, sessionMemoryNodes]
+    () => memoryTypeSummaryPresentation(
+      sessionMemoryTypeSummaries(sessionMemoryNodes, memoryProfile),
+      memoryProfile,
+      researchProfile?.id,
+      sessionHeatPreferences
+    ),
+    [memoryProfile, researchProfile?.id, sessionHeatPreferences, sessionMemoryNodes]
   );
   const sessionRunbooks = useMemo(
     () => runbooks.filter((runbook) => runbook.sessionId === runId).length,
@@ -313,8 +321,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     [memoryProfile?.statuses, workspaceMemoryNodes]
   );
   const workspaceMemoryTypes = useMemo(
-    () => sessionMemoryTypeSummaries(workspaceMemoryNodes, memoryProfile),
-    [memoryProfile, workspaceMemoryNodes]
+    () => memoryTypeSummaryPresentation(
+      sessionMemoryTypeSummaries(workspaceMemoryNodes, memoryProfile),
+      memoryProfile,
+      researchProfile?.id,
+      sessionHeatPreferences
+    ),
+    [memoryProfile, researchProfile?.id, sessionHeatPreferences, workspaceMemoryNodes]
   );
   const workspaceRunbooks = useMemo(
     () => runbooks.filter((runbook) => workspaceId !== null && runbook.workspaceId === workspaceId),
@@ -488,7 +501,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     <span>{workspaceMemories} {workspaceMemories === 1 ? memoryLabel : memoriesLabel}</span>
                     <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                   </button>
-                  <MemoryTypeSummaryRows summaries={workspaceMemoryTypes} />
+                  <MemoryTypeSummaryRows
+                    key={`workspace:${workspaceId ?? runId}`}
+                    summaries={workspaceMemoryTypes.summaries}
+                    defaultVisibleCount={workspaceMemoryTypes.defaultVisibleCount}
+                  />
                 </>
               ) : null}
             </section>
@@ -542,7 +559,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 {sessionMemoryActivity ? <span className="session-summary-meta">{sessionMemoryActivity}</span> : null}
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
-              <MemoryTypeSummaryRows summaries={sessionMemoryTypes} />
+              <MemoryTypeSummaryRows
+                key={`session:${runId}`}
+                summaries={sessionMemoryTypes.summaries}
+                defaultVisibleCount={sessionMemoryTypes.defaultVisibleCount}
+              />
             </section>
           ) : null}
         </section>
@@ -928,18 +949,47 @@ function CatalogSearch({
   );
 }
 
-function MemoryTypeSummaryRows({ summaries }: {
+function MemoryTypeSummaryRows({ summaries, defaultVisibleCount }: {
   summaries: readonly SessionMemoryTypeSummary[];
+  defaultVisibleCount: number;
 }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const visibleSummaries = summaries.slice(0, defaultVisibleCount);
+  const hiddenSummaries = summaries.slice(defaultVisibleCount);
   return (
-    <>
-      {summaries.map((memoryType) => (
-        <div className="session-memory-type-item" key={memoryType.type}>
-          <span>{memoryType.countLabel}</span>
-          {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
-        </div>
-      ))}
-    </>
+    <div className="session-memory-type-list">
+      {visibleSummaries.map((memoryType) => <MemoryTypeSummaryRow memoryType={memoryType} key={memoryType.type} />)}
+      {hiddenSummaries.length > 0 ? (
+        <>
+          <div
+            className={`session-memory-type-overflow ${expanded ? 'expanded' : ''}`.trim()}
+            aria-hidden={!expanded}
+            inert={!expanded}
+          >
+            <div className="session-memory-type-overflow-inner">
+              {hiddenSummaries.map((memoryType) => <MemoryTypeSummaryRow memoryType={memoryType} key={memoryType.type} />)}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="session-memory-type-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? 'Show less' : `Show ${hiddenSummaries.length} more`}
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function MemoryTypeSummaryRow({ memoryType }: { memoryType: SessionMemoryTypeSummary }): JSX.Element {
+  return (
+    <div className="session-memory-type-item">
+      <span>{memoryType.countLabel}</span>
+      {memoryType.statusLabel ? <span className="session-summary-meta">{memoryType.statusLabel}</span> : null}
+    </div>
   );
 }
 

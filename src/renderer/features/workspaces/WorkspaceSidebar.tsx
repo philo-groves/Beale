@@ -188,7 +188,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 )}
                 {sessions.length > SIDEBAR_SESSION_LIMIT ? (
                   <button type="button" className="workspace-session-more" onClick={() => onShowMoreSessions(workspace.id)}>
-                    More {pluralizeSessionLabel(sessionLabel)}...
+                    More {workspace.workspaceName} Sessions...
                   </button>
                 ) : null}
               </div>
@@ -216,12 +216,6 @@ function breakoutRoomStatusLabel(status: BreakoutRoomStatus): string {
   if (status === 'completed') return 'Completed';
   if (status === 'interrupted') return 'Interrupted';
   return 'Error';
-}
-
-function pluralizeSessionLabel(label: string): string {
-  if (/s$/iu.test(label)) return label;
-  if (/[^aeiou]y$/iu.test(label)) return `${label.slice(0, -1)}ies`;
-  return `${label}s`;
 }
 
 function sessionStatusLabel(value: string): string {
