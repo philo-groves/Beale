@@ -7,6 +7,8 @@ import type { CreatedRunContext, WorkspaceDatabase } from './database';
 import type {
   BreakoutRoomKind,
   BreakoutRoomMemberStatus,
+  BreakoutRoomPhase,
+  BreakoutRoomMessageKind,
   ResearchModelSelection,
   ProviderSettings,
   MemoryTypeDescriptions,
@@ -1566,56 +1568,48 @@ export class HoneycrispRunEngine {
     const activityId = stringPayload(payload, 'activityId');
     const activityTimestamp = stringPayload(payload, 'timestamp') ?? event.timestamp ?? new Date().toISOString();
     const roomId = roomName ? breakoutRoomId(context.run.id, roomName) : null;
-    const memberId = agentId ? breakoutRoomMemberId(context.run.id, context.attempt.id, agentId) : null;
-    if (roomId && memberId && agentId && provider && model && agentPath !== 'unknown agent') {
+    const subagentMember = agentPath !== '/root' && agentPath !== 'unknown agent';
+    const memberId = subagentMember && agentId ? breakoutRoomMemberId(context.run.id, context.attempt.id, agentId) : null;
+    const roomPhase = breakoutRoomPhase(stringPayload(payload, 'roomPhase'), action);
+    const challengeRound = numberPayload(payload, 'challengeRound') ?? 0;
+    const content = stringPayload(payload, 'message');
+    if (roomId && roomName) {
       this.db.upsertBreakoutRoom({
-        id: roomId,
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        name: roomName!,
-        title: roomTitle || roomName!,
-        purpose: action === 'spawned' ? stringPayload(payload, 'message') ?? '' : '',
+        id: roomId, runId: context.run.id, attemptId: context.attempt.id, name: roomName,
+        title: roomTitle || roomName,
+        purpose: action === 'room_created' ? content ?? '' : action === 'spawned' ? content ?? '' : '',
         kind: breakoutRoomKind(stringPayload(payload, 'roomKind')),
-        status: 'active',
-        createdAt: activityTimestamp
+        status: action === 'room_completed' ? 'completed' : 'active',
+        phase: roomPhase, challengeRound,
+        outcomeMarkdown: action === 'room_completed' ? content : null,
+        createdAt: activityTimestamp,
+        closedAt: action === 'room_completed' ? activityTimestamp : null
       });
-      const memberStatus = breakoutMemberStatus(stringPayload(payload, 'status'), action);
-      this.db.upsertBreakoutRoomMember({
-        id: memberId,
-        roomId,
-        runId: context.run.id,
-        attemptId: context.attempt.id,
-        agentId,
-        agentPath,
-        provider,
-        model,
-        reasoningEffort: stringPayload(payload, 'reasoningEffort'),
-        role: stringPayload(payload, 'role') ?? 'researcher',
-        status: memberStatus,
-        startedAt: action === 'spawned' ? activityTimestamp : null,
-        endedAt: ['completed', 'errored', 'interrupted'].includes(action) ? activityTimestamp : null,
-        error: action === 'errored' ? stringPayload(payload, 'message') : null
-      });
-      const content = stringPayload(payload, 'message');
-      if (content && activityId) {
-        const completed = action === 'completed';
-        const authorPath = completed ? agentPath : stringPayload(payload, 'authorAgentPath') ?? '/root';
-        this.db.createBreakoutRoomMessage({
-          id: `breakout_message_${activityId}`,
-          roomId,
-          runId: context.run.id,
-          attemptId: context.attempt.id,
-          memberId: completed ? memberId : null,
-          senderAgentPath: authorPath,
-          recipientAgentPath: completed ? '/root' : agentPath,
-          kind: action === 'spawned' ? 'task'
-            : action === 'message' || action === 'followup' ? 'challenge'
-              : completed ? 'response'
-                : 'system',
-          contentMarkdown: content,
-          metadata: { action, provider, model, agentId, agentPath },
-          createdAt: activityTimestamp
+      if (memberId && agentId && provider && model) {
+        this.db.upsertBreakoutRoomMember({
+          id: memberId, roomId, runId: context.run.id, attemptId: context.attempt.id, agentId, agentPath, provider, model,
+          reasoningEffort: stringPayload(payload, 'reasoningEffort'), role: stringPayload(payload, 'role') ?? 'researcher',
+          status: breakoutMemberStatus(stringPayload(payload, 'status'), action),
+          startedAt: action === 'spawned' ? activityTimestamp : null,
+          endedAt: ['completed', 'errored', 'interrupted'].includes(action) ? activityTimestamp : null,
+          error: action === 'errored' ? content : null
         });
+      }
+      if (content && activityId) {
+        const packetKind = stringPayload(payload, 'packetKind');
+        const messageKind = breakoutRoomMessageKind(action, packetKind);
+        if (messageKind) {
+          this.db.createBreakoutRoomMessage({
+            id: `breakout_message_${activityId}`, roomId, runId: context.run.id, attemptId: context.attempt.id,
+            memberId, senderAgentPath: stringPayload(payload, 'authorAgentPath') ?? agentPath,
+            recipientAgentPath: stringPayload(payload, 'recipientAgentPath'), kind: messageKind, contentMarkdown: content,
+            evidenceRefs: stringArrayPayload(payload, 'evidenceRefs'),
+            metadata: { action, provider, model, agentId, agentPath, roomPhase, challengeRound, packetKind,
+              confidence: stringPayload(payload, 'confidence'), uncertainty: stringPayload(payload, 'uncertainty'),
+              nextExperiment: stringPayload(payload, 'nextExperiment') },
+            createdAt: activityTimestamp
+          });
+        }
       }
       this.db.refreshBreakoutRoomStatus(roomId);
     }
@@ -1625,7 +1619,11 @@ export class HoneycrispRunEngine {
       followup: `Honeycrisp extended subagent ${agentPath}.`,
       interrupted: `Honeycrisp subagent ${agentPath} was interrupted.`,
       completed: `Honeycrisp subagent ${agentPath} completed.`,
-      errored: `Honeycrisp subagent ${agentPath} failed.`
+      errored: `Honeycrisp subagent ${agentPath} failed.`,
+      room_created: `Honeycrisp collaboration room ${roomTitle ?? roomName ?? ''} started.`,
+      room_phase: `Honeycrisp collaboration room ${roomTitle ?? roomName ?? ''} advanced to ${roomPhase}.`,
+      room_packet: `Honeycrisp recorded a ${stringPayload(payload, 'packetKind') ?? 'room'} packet from ${agentPath}.`,
+      room_completed: `Honeycrisp collaboration room ${roomTitle ?? roomName ?? ''} completed.`
     };
     const activityTrace = this.db.appendTraceEvent({
       runId: context.run.id,
@@ -2381,6 +2379,28 @@ function breakoutRoomMemberId(runId: string, attemptId: string, agentId: string)
 function breakoutRoomKind(value: string | null): BreakoutRoomKind {
   if (value === 'exploration' || value === 'validation' || value === 'proving' || value === 'synthesis') return value;
   return 'general';
+}
+
+function breakoutRoomPhase(value: string | null, action: string): BreakoutRoomPhase {
+  if (value === 'independent' || value === 'challenge' || value === 'response' || value === 'synthesis' || value === 'completed') return value;
+  return action === 'room_completed' ? 'completed' : 'independent';
+}
+
+function breakoutRoomMessageKind(action: string, packetKind: string | null): BreakoutRoomMessageKind | null {
+  if (packetKind === 'outcome') return 'outcome';
+  if (packetKind === 'challenge') return 'challenge';
+  if (packetKind === 'response') return 'response';
+  if (packetKind === 'independent_memo' || packetKind === 'evidence') return 'evidence';
+  if (action === 'room_completed') return null;
+  if (action === 'spawned' || action === 'room_created') return 'task';
+  if (action === 'message' || action === 'followup') return 'challenge';
+  if (action === 'completed') return 'response';
+  return null;
+}
+
+function stringArrayPayload(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).map((entry) => entry.trim()) : [];
 }
 
 function breakoutMemberStatus(value: string | null, action: string): BreakoutRoomMemberStatus {

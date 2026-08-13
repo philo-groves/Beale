@@ -430,6 +430,7 @@ export function StartRunForm({
   const hasPromptDraft = input.promptMarkdown.trim().length > 0;
   const activeWorkflowId = input.workflowId ?? defaultWorkflowId;
   const selectedEffort = effortLevelFromInput(input.reasoningEffort);
+  const requiresCyberPolicyAcknowledgement = collaborationRequiresCyberPolicyAcknowledgement(profile?.id);
   const collaboration = normalizeResearchCollaboration(input.collaboration);
   const enabledCollaborators = collaboration.providers.filter((provider) => provider.enabled);
   const availableCollaborators = collaboration.providers.filter((candidate) => {
@@ -437,7 +438,7 @@ export function StartRunForm({
     const provider = providerOptions.find((option) => option.id === candidate.provider);
     return provider?.configured === true
       && provider.models.length > 0
-      && providerPolicyRiskAcknowledgements?.[candidate.provider] === true;
+      && (!requiresCyberPolicyAcknowledgement || providerPolicyRiskAcknowledgements?.[candidate.provider] === true);
   });
   const nextCollaborator = selectNextAvailableCollaborator(
     availableCollaborators,
@@ -449,7 +450,7 @@ export function StartRunForm({
       const provider = providerOptions.find((candidate) => candidate.id === preference.provider);
       return provider?.configured === true
         && provider.models.some((model) => model.id === preference.model && model.effortLevels.includes(preference.reasoningEffort))
-        && providerPolicyRiskAcknowledgements?.[preference.provider] === true;
+        && (!requiresCyberPolicyAcknowledgement || providerPolicyRiskAcknowledgements?.[preference.provider] === true);
     }));
   const canGenerate = hasPromptDraft && !generatingPrompt;
   const canStart = hasPromptDraft
@@ -877,7 +878,7 @@ export function StartRunForm({
             </div>
             {!collaborationReady && collaboration.mode !== 'solo' ? (
               <div className="policy-line collaboration-readiness-warning" role="alert">
-                <ShieldAlert size={14} /> At least one collaborator is required. Every collaborator must be authenticated, use a supported model and effort, and have its cybersecurity policy acknowledgement accepted in Provider settings.
+                <ShieldAlert size={14} /> At least one collaborator is required. Every collaborator must be authenticated and use a supported model and effort.{requiresCyberPolicyAcknowledgement ? ' Cybersecurity collaborators must also have their policy acknowledgement accepted in Provider settings.' : ''}
               </div>
             ) : null}
         </div>
@@ -988,6 +989,10 @@ export function defaultResearchWorkflowId(workflows: readonly ResearchProfileWor
 function workflowDomId(id: string, index: number): string {
   const normalized = id.trim().toLocaleLowerCase().replace(/[^a-z0-9_-]+/gu, '-').replace(/^-+|-+$/gu, '');
   return normalized || `workflow-${index + 1}`;
+}
+
+export function collaborationRequiresCyberPolicyAcknowledgement(profileId: string | null | undefined): boolean {
+  return profileId === 'security-research';
 }
 
 function collaboratorKey(providerId: ResearchModelProviderId, modelId: string): string {

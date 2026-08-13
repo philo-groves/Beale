@@ -50,6 +50,7 @@ export function BreakoutRoomView({
               <MessagesSquare size={16} />
               <h2>{room.title}</h2>
               <span className={`breakout-room-state state-${room.status}`}>{roomStatusLabel(room.status)}</span>
+              <span className={`breakout-room-phase phase-${room.phase}`}>{roomPhaseLabel(room.phase, room.challengeRound)}</span>
             </div>
             {room.purpose ? <p>{room.purpose}</p> : null}
             <div className="breakout-room-member-chips">
@@ -177,12 +178,17 @@ function BreakoutMessage({
     <article className={`breakout-room-message kind-${message.kind}`}>
       <div className="breakout-room-message-meta">
         <strong>{sender}</strong>
-        <span>{messageKindLabel(message.kind)}</span>
+        <span>{messageKindLabel(message)}</span>
         <time dateTime={message.createdAt}>{shortTime(message.createdAt)}</time>
       </div>
       <div className="breakout-room-message-content">{renderTraceProseText(message.contentMarkdown, 'agent_output')}</div>
       {message.evidenceRefs.length > 0 ? (
         <div className="breakout-room-evidence-refs">Evidence: {message.evidenceRefs.join(', ')}</div>
+      ) : null}
+      {roomPacketDetails(message).length > 0 ? (
+        <dl className="breakout-room-packet-details">
+          {roomPacketDetails(message).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+        </dl>
       ) : null}
     </article>
   );
@@ -202,8 +208,33 @@ function roomStatusLabel(status: string): string {
   return 'Error';
 }
 
-function messageKindLabel(kind: BreakoutRoomMessageRecord['kind']): string {
-  return kind.split('_').map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ');
+function messageKindLabel(message: BreakoutRoomMessageRecord): string {
+  const packetKind = typeof message.metadata.packetKind === 'string' ? message.metadata.packetKind : message.kind;
+  return packetKind.split('_').map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(' ');
+}
+
+function roomPhaseLabel(phase: string, challengeRound: number): string {
+  if (phase === 'independent') return 'Independent memos';
+  if (phase === 'challenge') return `Challenge ${challengeRound}`;
+  if (phase === 'response') return `Responses ${challengeRound}`;
+  if (phase === 'synthesis') return 'Awaiting synthesis';
+  return 'Synthesized';
+}
+
+function roomPacketDetails(message: BreakoutRoomMessageRecord): [string, string][] {
+  const entries: [string, string][] = [];
+  const confidence = metadataText(message.metadata, 'confidence');
+  const uncertainty = metadataText(message.metadata, 'uncertainty');
+  const nextExperiment = metadataText(message.metadata, 'nextExperiment');
+  if (confidence) entries.push(['Confidence', confidence]);
+  if (uncertainty) entries.push(['Uncertainty', uncertainty]);
+  if (nextExperiment) entries.push(['Next check', nextExperiment]);
+  return entries;
+}
+
+function metadataText(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function shortTime(value: string): string {

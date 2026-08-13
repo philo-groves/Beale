@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added durable structured collaboration-room protocol state in workbench migration 22, including independent, challenge, response, synthesis, and completed phases; bounded challenge rounds; evidence references; confidence; uncertainty; proposed next checks; and a lead-owned room outcome.
 - Added access-restricted OpenAI Daybreak Red (`gpt-daybreak-red-latest`) as an optional model. It remains hidden from model selectors and defaults until explicitly enabled in OpenAI Provider Settings.
 - Active breakout-room members now appear as collapsed working disclosures with live durations and expandable, real-time subagent commentary and tool history.
 - Added durable multi-provider breakout rooms for research sessions. New Research now configures adaptive collaboration, provider/model preferences, independent first passes, challenge rounds, and bounded team intensity; room membership and transcripts remain available under each session in the workspace sidebar.
@@ -20,6 +21,7 @@
 
 ### Changed
 
+- Collaboration now uses atomic rooms with simultaneous independent-memo release, targeted peer challenge and response rounds, and lead synthesis. Cybersecurity and Mathematics select separate workflow-specific role recipes from their active workspace profile, and only Cybersecurity requires provider policy acknowledgements for collaborator readiness.
 - Research profile catalogs now resolve through asynchronous parallel Honeycrisp processes and cache duplicate workspace/profile requests, avoiding main-process stalls when opening Profiles.
 - Agent Settings now presents research profiles in a two-level Profiles view, with the selected profile description between the profile and memory-type tabs and each memory type expanded into a full-width definition and session-heat panel.
 - Research profiles are now selected per workspace during onboarding, defaulting to Cybersecurity. Existing workspaces retain the previously active profile during registry migration, and workspace and session lists remain visible across profiles.

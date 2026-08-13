@@ -104,6 +104,26 @@ export interface ResearchProfileAgentPrompt {
   reportInstructions?: readonly string[];
 }
 
+export interface ResearchProfileCollaborationRole {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ResearchProfileCollaborationRecipe {
+  id: string;
+  name: string;
+  workflowIds: readonly string[];
+  roomKind: 'exploration' | 'validation' | 'proving' | 'synthesis' | 'general';
+  roles: readonly ResearchProfileCollaborationRole[];
+  synthesisInstructions: readonly string[];
+}
+
+export interface ResearchProfileCollaboration {
+  protocolInstructions: readonly string[];
+  recipes: readonly ResearchProfileCollaborationRecipe[];
+}
+
 export interface ResearchProfileWorkflow {
   id: string;
   name: string;
@@ -168,6 +188,7 @@ export interface ResearchProfile {
   agent: ResearchProfileAgentPrompt;
   memory: ResearchProfileMemory;
   workflows: readonly ResearchProfileWorkflow[];
+  collaboration: ResearchProfileCollaboration;
   capabilities: ResearchProfileCapabilities;
   workspace: ResearchProfileWorkspace;
   modelJobs: ResearchProfileModelJobs;
@@ -217,6 +238,9 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
 
   const agent = objectValue(input.agent, 'Research profile agent');
   const memory = objectValue(input.memory, 'Research profile memory');
+  const collaboration = input.collaboration === undefined
+    ? { protocolInstructions: [], recipes: [] }
+    : objectValue(input.collaboration, 'Research profile collaboration');
   const capabilities = objectValue(input.capabilities, 'Research profile capabilities');
   const workspace = objectValue(input.workspace, 'Research profile workspace');
   const presentation = objectValue(input.presentation, 'Research profile presentation');
@@ -261,6 +285,27 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
       ...optionalFiniteNumberProperty(memory, 'defaultCharacterBudget', 'Research profile default character budget')
     },
     workflows: arrayValue(input.workflows, 'Research profile workflows').map(decodeWorkflow),
+    collaboration: {
+      protocolInstructions: stringArray(collaboration.protocolInstructions, 'Research profile collaboration protocol instructions'),
+      recipes: arrayValue(collaboration.recipes, 'Research profile collaboration recipes').map((entry) => {
+        const recipe = objectValue(entry, 'Research profile collaboration recipe');
+        const roomKind = nonEmptyString(recipe.roomKind, 'Research profile collaboration room kind');
+        if (!['exploration', 'validation', 'proving', 'synthesis', 'general'].includes(roomKind)) {
+          throw new Error('Research profile collaboration room kind is invalid.');
+        }
+        return {
+          id: nonEmptyString(recipe.id, 'Research profile collaboration recipe id'),
+          name: nonEmptyString(recipe.name, 'Research profile collaboration recipe name'),
+          workflowIds: stringArray(recipe.workflowIds, 'Research profile collaboration workflow ids'),
+          roomKind: roomKind as ResearchProfileCollaborationRecipe['roomKind'],
+          roles: arrayValue(recipe.roles, 'Research profile collaboration roles').map((entry) => {
+            const role = objectValue(entry, 'Research profile collaboration role');
+            return { id: nonEmptyString(role.id, 'Research profile collaboration role id'), name: nonEmptyString(role.name, 'Research profile collaboration role name'), description: nonEmptyString(role.description, 'Research profile collaboration role description') };
+          }),
+          synthesisInstructions: stringArray(recipe.synthesisInstructions, 'Research profile collaboration synthesis instructions')
+        };
+      })
+    },
     capabilities: {
       defaultToolFamilies: stringArray(capabilities.defaultToolFamilies, 'Research profile default tool families'),
       disabledToolFamilies: stringArray(capabilities.disabledToolFamilies, 'Research profile disabled tool families'),
@@ -299,6 +344,18 @@ export function decodeResearchProfile(value: unknown): ResearchProfile {
     && !profile.memory.types.some((type) => type.lifecycle === 'active' && type.creatable)
   ) {
     throw new Error('A memory-enabled research profile requires at least one active, creatable memory type.');
+  }
+  const workflowIds = new Set(profile.workflows.map((workflow) => workflow.id));
+  const recipeByWorkflow = new Map<string, string>();
+  for (const recipe of profile.collaboration.recipes) {
+    if (recipe.roles.length < 2) throw new Error(`Research profile collaboration recipe ${recipe.id} requires at least two roles.`);
+    if (recipe.workflowIds.length === 0) throw new Error(`Research profile collaboration recipe ${recipe.id} requires at least one workflow id.`);
+    for (const workflowId of recipe.workflowIds) {
+      if (!workflowIds.has(workflowId)) throw new Error(`Research profile collaboration recipe ${recipe.id} references unknown workflow ${workflowId}.`);
+      const existing = recipeByWorkflow.get(workflowId);
+      if (existing) throw new Error(`Research profile workflow ${workflowId} is assigned to multiple collaboration recipes.`);
+      recipeByWorkflow.set(workflowId, recipe.id);
+    }
   }
   return profile;
 }

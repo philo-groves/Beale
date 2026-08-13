@@ -73,6 +73,7 @@ export function testResearchProfile(version = '1.0.0', name = 'Security Research
         outputRequirements: ['Produce an evidence-backed report.']
       }
     ],
+    collaboration: { protocolInstructions: [], recipes: [] },
     capabilities: {
       defaultToolFamilies: ['shell'],
       disabledToolFamilies: [],

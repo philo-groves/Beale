@@ -16,6 +16,7 @@ import type {
   BreakoutRoomKind,
   BreakoutRoomMemberRecord,
   BreakoutRoomMemberStatus,
+  BreakoutRoomPhase,
   BreakoutRoomMessageKind,
   BreakoutRoomMessageRecord,
   BreakoutRoomRecord,
@@ -874,6 +875,8 @@ export interface UpsertBreakoutRoomInput {
   purpose?: string;
   kind?: BreakoutRoomKind;
   status?: BreakoutRoomStatus;
+  phase?: BreakoutRoomPhase;
+  challengeRound?: number;
   outcomeMarkdown?: string | null;
   createdAt?: string;
   closedAt?: string | null;
@@ -4499,8 +4502,8 @@ export class WorkspaceDatabase {
     const createdAt = input.createdAt ?? nowIso();
     this.db.prepare(
       `INSERT INTO breakout_rooms (
-         id, run_id, attempt_id, name, title, purpose, kind, status, outcome_markdown, created_at, closed_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         id, run_id, attempt_id, name, title, purpose, kind, status, phase, challenge_round, outcome_markdown, created_at, closed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          purpose = CASE
@@ -4509,6 +4512,8 @@ export class WorkspaceDatabase {
          END,
          kind = CASE WHEN ? = 1 THEN excluded.kind ELSE breakout_rooms.kind END,
          status = excluded.status,
+         phase = CASE WHEN ? = 1 THEN excluded.phase ELSE breakout_rooms.phase END,
+         challenge_round = CASE WHEN ? = 1 THEN excluded.challenge_round ELSE breakout_rooms.challenge_round END,
          outcome_markdown = COALESCE(excluded.outcome_markdown, breakout_rooms.outcome_markdown),
          closed_at = CASE WHEN excluded.status = 'active' THEN NULL ELSE COALESCE(excluded.closed_at, breakout_rooms.closed_at) END`
     ).run(
@@ -4520,10 +4525,14 @@ export class WorkspaceDatabase {
       input.purpose?.trim() ?? '',
       input.kind ?? 'general',
       input.status ?? 'active',
+      input.phase ?? (input.status === 'completed' ? 'completed' : 'independent'),
+      input.challengeRound ?? 0,
       input.outcomeMarkdown?.trim() || null,
       createdAt,
       input.closedAt ?? null,
-      input.kind !== undefined ? 1 : 0
+      input.kind !== undefined ? 1 : 0,
+      input.phase !== undefined ? 1 : 0,
+      input.challengeRound !== undefined ? 1 : 0
     );
     const room = this.getBreakoutRoom(input.id);
     if (!room) throw new Error('Failed to upsert breakout room');
@@ -4622,13 +4631,15 @@ export class WorkspaceDatabase {
     if (!room) return null;
     const statuses = rows(this.db.prepare('SELECT status FROM breakout_room_members WHERE room_id = ?').all(roomId))
       .map((row) => text(row, 'status') as BreakoutRoomMemberStatus);
-    const status: BreakoutRoomStatus = statuses.some((value) => value === 'active' || value === 'pending')
-      ? 'active'
-      : statuses.some((value) => value === 'errored')
-        ? 'errored'
-        : statuses.length > 0 && statuses.every((value) => value === 'interrupted')
-          ? 'interrupted'
-          : 'completed';
+    const status: BreakoutRoomStatus = room.phase === 'completed'
+      ? 'completed'
+      : statuses.some((value) => value === 'active' || value === 'pending')
+        ? 'active'
+        : statuses.some((value) => value === 'errored')
+          ? 'errored'
+          : statuses.length > 0 && statuses.every((value) => value === 'interrupted')
+            ? 'interrupted'
+            : 'active';
     const closedAt = status === 'active' ? null : nowIso();
     this.db.prepare('UPDATE breakout_rooms SET status = ?, closed_at = ? WHERE id = ?').run(status, closedAt, roomId);
     return this.getBreakoutRoom(roomId);
@@ -8499,6 +8510,19 @@ export class WorkspaceDatabase {
             `);
           }
         }
+      },
+      {
+        version: 22,
+        name: 'structured_breakout_room_protocol',
+        up: (database) => {
+          if (!tableHasColumn(database, 'breakout_rooms', 'phase')) {
+            database.exec("ALTER TABLE breakout_rooms ADD COLUMN phase TEXT NOT NULL DEFAULT 'independent' CHECK (phase IN ('independent', 'challenge', 'response', 'synthesis', 'completed')); ");
+          }
+          if (!tableHasColumn(database, 'breakout_rooms', 'challenge_round')) {
+            database.exec("ALTER TABLE breakout_rooms ADD COLUMN challenge_round INTEGER NOT NULL DEFAULT 0 CHECK (challenge_round >= 0);");
+          }
+          database.exec("UPDATE breakout_rooms SET phase = 'completed' WHERE status = 'completed';");
+        }
       }
     ]);
   }
@@ -10520,6 +10544,8 @@ export class WorkspaceDatabase {
       purpose: text(row, 'purpose'),
       kind: text(row, 'kind') as BreakoutRoomKind,
       status: text(row, 'status') as BreakoutRoomStatus,
+      phase: text(row, 'phase') as BreakoutRoomPhase,
+      challengeRound: numberValue(row, 'challenge_round'),
       outcomeMarkdown: nullableText(row, 'outcome_markdown'),
       createdAt: text(row, 'created_at'),
       closedAt: nullableText(row, 'closed_at')
@@ -10821,6 +10847,8 @@ CREATE TABLE IF NOT EXISTS breakout_rooms (
   purpose TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('exploration', 'validation', 'proving', 'synthesis', 'general')),
   status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'interrupted', 'errored')),
+  phase TEXT NOT NULL DEFAULT 'independent' CHECK (phase IN ('independent', 'challenge', 'response', 'synthesis', 'completed')),
+  challenge_round INTEGER NOT NULL DEFAULT 0 CHECK (challenge_round >= 0),
   outcome_markdown TEXT,
   created_at TEXT NOT NULL,
   closed_at TEXT,

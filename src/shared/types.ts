@@ -1305,6 +1305,8 @@ export type BreakoutRoomKind = 'exploration' | 'validation' | 'proving' | 'synth
 
 export type BreakoutRoomStatus = 'active' | 'completed' | 'interrupted' | 'errored';
 
+export type BreakoutRoomPhase = 'independent' | 'challenge' | 'response' | 'synthesis' | 'completed';
+
 export type BreakoutRoomMemberStatus = 'pending' | 'active' | 'completed' | 'interrupted' | 'errored';
 
 export type BreakoutRoomMessageKind = 'task' | 'commentary' | 'challenge' | 'evidence' | 'response' | 'outcome' | 'system';
@@ -1318,6 +1320,8 @@ export interface BreakoutRoomRecord {
   purpose: string;
   kind: BreakoutRoomKind;
   status: BreakoutRoomStatus;
+  phase: BreakoutRoomPhase;
+  challengeRound: number;
   outcomeMarkdown: string | null;
   createdAt: string;
   closedAt: string | null;

@@ -140,7 +140,9 @@ describe('breakout room persistence', () => {
       name: 'parser_review',
       title: 'Parser review',
       purpose: 'Independently challenge parser boundary assumptions.',
-      kind: 'validation'
+      kind: 'validation',
+      phase: 'response',
+      challengeRound: 1
     });
     database.upsertBreakoutRoomMember({
       id: memberId,
@@ -172,6 +174,7 @@ describe('breakout room persistence', () => {
       kind: 'response',
       contentMarkdown: 'The boundary needs an additional malformed-input check.',
       evidenceRefs: ['artifact:parser-fixture'],
+      metadata: { packetKind: 'independent_memo', confidence: 'high', uncertainty: 'Caller coverage remains open.', nextExperiment: 'Enumerate callers.' },
       createdAt: '2026-08-12T12:01:00.000Z'
     });
 
@@ -198,7 +201,9 @@ describe('breakout room persistence', () => {
       expect.objectContaining({
         id: roomId,
         purpose: 'Independently challenge parser boundary assumptions.',
-        kind: 'validation'
+        kind: 'validation',
+        phase: 'response',
+        challengeRound: 1
       })
     ]);
     expect(restored.breakoutRoomMembers).toEqual([
@@ -209,7 +214,8 @@ describe('breakout room persistence', () => {
       expect.objectContaining({
         id: 'message_independent_memo',
         contentMarkdown: 'The boundary needs an additional malformed-input check.',
-        evidenceRefs: ['artifact:parser-fixture']
+        evidenceRefs: ['artifact:parser-fixture'],
+        metadata: expect.objectContaining({ packetKind: 'independent_memo', confidence: 'high', uncertainty: 'Caller coverage remains open.' })
       })
     ]);
 

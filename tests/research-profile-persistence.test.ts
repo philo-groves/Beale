@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WorkspaceDatabase, type StartRunRecordInput } from '../src/main/database';
 import { WorkspaceService, type WorkspaceServiceOptions } from '../src/main/workspaceService';
 import {
+  decodeResearchProfile,
   serializeResearchProfile,
   type ResearchProfile,
   type ResolvedResearchProfile
@@ -20,6 +21,19 @@ afterEach(() => {
 });
 
 describe('research profile persistence', () => {
+  it('rejects collaboration recipes that target an unknown workflow', () => {
+    const profile = structuredClone(researchProfile('1.0.0', 'Security Research'));
+    profile.collaboration.recipes = [{
+      id: 'invalid-recipe', name: 'Invalid recipe', workflowIds: ['typoed-workflow'], roomKind: 'validation',
+      roles: [
+        { id: 'reviewer', name: 'Reviewer', description: 'Review the claim.' },
+        { id: 'challenger', name: 'Challenger', description: 'Challenge the claim.' }
+      ],
+      synthesisInstructions: ['Preserve dissent.']
+    }];
+    expect(() => decodeResearchProfile(profile)).toThrow(/references unknown workflow typoed-workflow/);
+  });
+
   it('stores immutable snapshots and reuses only the same resolution provenance', () => {
     const fixture = createDatabaseFixture();
     const profile = researchProfile('1.0.0', 'Security Research');
@@ -492,6 +506,7 @@ function researchProfile(version: string, name: string): ResearchProfile {
         default: true
       }
     ],
+    collaboration: { protocolInstructions: [], recipes: [] },
     capabilities: {
       defaultToolFamilies: ['workspace'],
       disabledToolFamilies: [],
