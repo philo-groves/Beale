@@ -2851,6 +2851,17 @@ describe('Beale workbench skeleton', () => {
         }
       }
     });
+    expect(service.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-red-latest', true)).toEqual({
+      defaultProviderId: 'anthropic',
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
+      },
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] }
+    });
     expect(service.setProviderCyberPolicyRiskAcknowledged('anthropic', true)).toEqual({
       defaultProviderId: 'anthropic',
       modelDefaults: {
@@ -2860,6 +2871,7 @@ describe('Beale workbench skeleton', () => {
           reasoningEffort: 'xhigh'
         }
       },
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
       cyberPolicyRiskAcknowledgements: { anthropic: true }
     });
     expect(service.setShellOptions({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } })).toEqual({
@@ -2887,6 +2899,7 @@ describe('Beale workbench skeleton', () => {
           reasoningEffort: 'xhigh'
         }
       },
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
       cyberPolicyRiskAcknowledgements: { anthropic: true }
     });
     expect(reopened.getShellOptions()).toEqual({ defaultConcurrency: 3, utilities: { sudo: 0, clang: 2 } });
@@ -2901,6 +2914,7 @@ describe('Beale workbench skeleton', () => {
           reasoningEffort: 'xhigh'
         }
       },
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] },
       cyberPolicyRiskAcknowledgements: { anthropic: true }
     });
     expect(reopened.setProviderCyberPolicyRiskAcknowledged('anthropic', false)).toEqual({
@@ -2911,10 +2925,40 @@ describe('Beale workbench skeleton', () => {
           smallModel: 'claude-haiku-4-5',
           reasoningEffort: 'xhigh'
         }
+      },
+      enabledOptionalModels: { 'openai-codex': ['gpt-daybreak-red-latest'] }
+    });
+    expect(reopened.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-red-latest', false)).toEqual({
+      defaultProviderId: null,
+      modelDefaults: {
+        anthropic: {
+          largeModel: 'claude-opus-4-6',
+          smallModel: 'claude-haiku-4-5',
+          reasoningEffort: 'xhigh'
+        }
       }
     });
+    expect(() => reopened.setProviderOptionalModelEnabled('openai-codex', 'gpt-unlisted-model', true)).toThrow(
+      'Invalid optional provider model.'
+    );
     expect(reopened.getProfilingState().enabled).toBe(false);
     reopened.close();
+  });
+
+  it('rejects Daybreak Red at the host boundary until its provider opt-in is enabled', () => {
+    const service = openService();
+    const input = {
+      ...runInput('source_review'),
+      provider: 'openai-codex',
+      model: 'gpt-daybreak-red-latest'
+    };
+
+    expect(() => service.startRun(input, 'complete')).toThrow(
+      'Enable it in Settings > Providers before continuing.'
+    );
+    service.setProviderOptionalModelEnabled('openai-codex', 'gpt-daybreak-red-latest', true);
+    expect(service.startRun(input, 'complete').runs[0]?.run.model).toBe('gpt-daybreak-red-latest');
+    service.close();
   });
 
   it('reports a cheap run detail version for active polling', () => {
