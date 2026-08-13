@@ -210,9 +210,37 @@ describe('renderer dialog surfaces', () => {
     ]);
 
     expect(loadingHtml).toContain('class="session-next-steps"');
+    expect(loadingHtml).toContain('<header class="session-next-steps-header"><h3>Suggestions</h3>');
     expect(loadingHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
     expect(loadedHtml).toContain('class="session-next-steps"');
     expect(loadedHtml.match(/class="session-next-step-button"/g)).toHaveLength(3);
+    expect(loadedHtml.match(/session-next-step-icon/g)).toHaveLength(3);
+
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    const containerStyles = styles.match(/\.session-next-steps\s*\{([^}]*)\}/)?.[1] ?? '';
+    const headerStyles = styles.match(/\.session-next-steps-header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const listStyles = styles.match(/\.session-next-steps-list\s*\{([^}]*)\}/)?.[1] ?? '';
+    const rowStyles = styles.match(/\.session-next-step-button,\s*\.session-next-step-skeleton\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(containerStyles).toContain('background: transparent');
+    expect(containerStyles).toContain('border-radius: 0');
+    expect(containerStyles).toContain('width: 100%');
+    expect(containerStyles).not.toContain('max-width');
+    expect(containerStyles).not.toContain('height: 219px');
+    expect(headerStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    expect(listStyles).toContain('grid-template-rows: repeat(3, auto)');
+    expect(listStyles).toContain('align-content: start');
+    expect(rowStyles).toContain('background: transparent');
+    expect(rowStyles).toContain('border-radius: 0');
+    expect(rowStyles).toContain('border-bottom: 1px solid var(--panel-border)');
+    const buttonStyles = styles.match(/\.session-next-step-button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const buttonHoverStyles = styles.match(/\.session-next-step-button:hover:not\(:disabled\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(buttonStyles).toContain('padding: 6px 10px 6px 0');
+    expect(buttonStyles).toContain('border-top: 1px solid transparent');
+    expect(buttonStyles).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
+    expect(buttonHoverStyles).toContain('border-top-color: var(--text)');
+    expect(buttonHoverStyles).toContain('border-bottom-color: var(--text)');
+    expect(buttonHoverStyles).toContain('background: transparent');
+    expect(buttonHoverStyles).toContain('color: var(--text)');
   });
 
   it('renders persisted session next steps immediately without a loading state', () => {

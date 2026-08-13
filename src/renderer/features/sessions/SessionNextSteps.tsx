@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight, Lightbulb, RefreshCw } from 'lucide-react';
 import type { ResearchGoalPhase, RunDetail, RunStatus } from '@shared/types';
 import { clientRequestId } from '../../view-models/runSettings';
 
@@ -111,15 +111,15 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
   const visibleSuggestions = useMemo(() => suggestions.slice(0, NEXT_STEP_COUNT), [suggestions]);
   return (
     <section className="session-next-steps" aria-label="Suggestions" aria-busy={loading}>
-      <div className="session-next-steps-header">
-        <span>Suggestions</span>
+      <header className="session-next-steps-header">
+        <h3>Suggestions</h3>
         {error ? (
           <button type="button" className="session-next-steps-retry" onClick={onRetry}>
             <RefreshCw size={13} />
             <span>Retry</span>
           </button>
         ) : null}
-      </div>
+      </header>
       <div className="session-next-steps-list">
         {loading
           ? Array.from({ length: NEXT_STEP_COUNT }, (_, index) => (
@@ -136,6 +136,7 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
                   key={suggestion}
                   onClick={() => onSelect(suggestion)}
                 >
+                  <Lightbulb className="session-next-step-icon" size={14} aria-hidden="true" />
                   <span>{suggestion}</span>
                   <ArrowRight size={14} aria-hidden="true" />
                 </button>

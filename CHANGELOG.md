@@ -15,12 +15,13 @@
 - Added first-class Reports as revisioned workspace Markdown artifacts. Session and workspace summaries show report and revision totals beneath Runbooks, detailed catalogs separate Complete and Stale reports, and selected reports render their full content in the right sidenav.
 - The workspace dashboard now splits its main area between a workspace-named 12-hour activity Gantt and a centered Dream card. Session bars use pause-aware activity intervals, memory events retain their profile-defined type colors, and workbench migration 17 backfills legacy sessions with conservative intervals.
 - The workspace dashboard now has a compact and detailed right sidenav for workspace-scoped Runbooks and Memories; shared detail views default to Workspace scope and do not offer Session scope from the workspace view.
-- Completed sessions now show three session-grounded next-step suggestions in a fixed-height loading widget; selecting one opens New Research and streams an expanded prompt from that goal.
+- Completed sessions now show three session-grounded next-step suggestions in a compact three-row loading surface; selecting one opens New Research and streams an expanded prompt from that goal.
 - Commentary and other Markdown trace prose now render inline and display LaTeX notation locally with KaTeX, including both dollar and `\\(...\\)` / `\\[...\\]` delimiters.
 - Added Cybersecurity and Mathematics selectors to General Settings. Mathematics includes domain-specific memory for problems, definitions, conjectures, proof components, counterexamples, formalizations, computations, literature, and research trajectories, plus exploration, proof, verification, and synthesis workflows.
 
 ### Changed
 
+- Completed-session suggestions now use a full-width flat section header with compact, flush-left, lightbulb-marked rows and white text-and-divider hover feedback instead of enclosing and per-suggestion cards.
 - Session and workspace summary sidenavs now rank Memory types by effective session-heat impact and count, initially show at least four or all heat-impacting types, and vertically reveal additional types on demand.
 - Provider Settings now persists a preferred Subscription or API key authentication source per provider, marks it in the authentication view, and sends that host-owned preference to every Honeycrisp run. Explicit subscription usage-cap and API-credit exhaustion errors may fall back to the configured alternate source.
 - Provider Settings now labels the global selector “Lead Provider” and groups provider-specific Large, Small, and Reasoning selectors behind a compact white “Defaults” label.
