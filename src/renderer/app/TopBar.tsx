@@ -4,9 +4,9 @@ import { Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, 
 import type { HostEnvironment, WorkspaceRegistryEntry, RunDetail, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
-import { copySelectedTextToClipboard, dispatchPasteSteeringText, editMenuShortcut, readClipboardText, viewMenuShortcut, zoomPercentLabel } from './menuActions';
+import { viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
-type OpenMenu = 'file' | 'edit' | 'view' | 'window' | null;
+type OpenMenu = 'file' | 'view' | 'window' | null;
 
 export const TopBar = memo(function TopBar({
   sidebarCollapsed,
@@ -50,8 +50,6 @@ export const TopBar = memo(function TopBar({
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [zoomState, setZoomState] = useState<ZoomState>(() => ({ level: 0, percent: 100 }));
   const menuRef = useRef<HTMLElement | null>(null);
-  const copyShortcut = editMenuShortcut(platform, 'C');
-  const pasteShortcut = editMenuShortcut(platform, 'V');
   const zoomOutShortcut = viewMenuShortcut(platform, 'zoom_out');
   const zoomInShortcut = viewMenuShortcut(platform, 'zoom_in');
 
@@ -88,16 +86,6 @@ export const TopBar = memo(function TopBar({
 
   const preserveSelection = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-  }, []);
-
-  const copySelected = useCallback(() => {
-    setOpenMenu(null);
-    void copySelectedTextToClipboard();
-  }, []);
-
-  const pasteSteering = useCallback(() => {
-    setOpenMenu(null);
-    void readClipboardText().then(dispatchPasteSteeringText);
   }, []);
 
   const zoomOut = useCallback(() => {
@@ -165,30 +153,6 @@ export const TopBar = memo(function TopBar({
             <div className="window-menu-dropdown" role="menu" aria-label="File">
               <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={addWorkspace}>
                 <span>New Research Workspace</span>
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="window-menu-item">
-          <button
-            type="button"
-            className={openMenu === 'edit' ? 'is-open' : undefined}
-            aria-haspopup="menu"
-            aria-expanded={openMenu === 'edit'}
-            onMouseDown={preserveSelection}
-            onClick={() => setOpenMenu((current) => (current === 'edit' ? null : 'edit'))}
-          >
-            Edit
-          </button>
-          {openMenu === 'edit' ? (
-            <div className="window-menu-dropdown" role="menu" aria-label="Edit">
-              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={copySelected}>
-                <span>Copy</span>
-                <kbd>{copyShortcut}</kbd>
-              </button>
-              <button type="button" role="menuitem" onMouseDown={preserveSelection} onClick={pasteSteering}>
-                <span>Paste Steering</span>
-                <kbd>{pasteShortcut}</kbd>
               </button>
             </div>
           ) : null}

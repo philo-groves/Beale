@@ -26,17 +26,6 @@ export function nativeMacApplicationMenuTemplate(
       ]
     },
     {
-      label: 'Edit',
-      submenu: [
-        { label: 'Copy', role: 'copy', accelerator: 'CommandOrControl+C' },
-        { label: 'Paste', role: 'paste', accelerator: 'CommandOrControl+V' },
-        {
-          label: 'Paste Steering',
-          click: () => callbacks.dispatchRendererAction('paste_steering')
-        }
-      ]
-    },
-    {
       label: 'View',
       submenu: [
         {

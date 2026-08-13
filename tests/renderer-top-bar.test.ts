@@ -31,7 +31,7 @@ describe('renderer top bar', () => {
 
     expect(html).toContain('aria-label="Application menu"');
     expect(html).toMatch(/>File<\/button>/);
-    expect(html).toMatch(/>Edit<\/button>/);
+    expect(html).not.toMatch(/>Edit<\/button>/);
     expect(html).toMatch(/>View<\/button>/);
     expect(html).toMatch(/>Window<\/button>/);
   });

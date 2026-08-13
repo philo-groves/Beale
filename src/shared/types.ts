@@ -227,7 +227,7 @@ export interface ZoomState {
   percent: number;
 }
 
-export type NativeMenuAction = 'new_research_workspace' | 'paste_steering';
+export type NativeMenuAction = 'new_research_workspace';
 
 export type ProfilingMetricValue = string | number | boolean | null | undefined;
 export type ProfilingMetricDetail = Record<string, ProfilingMetricValue>;

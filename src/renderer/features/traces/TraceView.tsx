@@ -11,7 +11,6 @@ import type {
   SteeringAction
 } from '@shared/types';
 import { devInstrumentation, recordNextFrameTiming, useDevRenderProbe } from '../../devInstrumentation';
-import { insertTextAtRange, PASTE_STEERING_EVENT, type PasteSteeringEventDetail } from '../../app/menuActions';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { researchModelNameLabel, traceLabel } from '../../lib/formatting';
@@ -561,7 +560,6 @@ export const MainSteerArea = memo(function MainSteerArea({
   const [selectedEffort, setSelectedEffort] = useState<ResearchModelEffortLevel>(() => researchEffort(detail?.run.reasoningEffort));
   const footerRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pasteCaretRef = useRef<number | null>(null);
   const focusedRunIdRef = useRef<string | null>(null);
   const trimmedInstruction = instruction.trim();
   const disabled = busy || !runId || !trimmedInstruction;
@@ -624,42 +622,12 @@ export const MainSteerArea = memo(function MainSteerArea({
     traceView?.style.setProperty('--trace-footer-content-height', `${nextFooterHeight}px`);
   }, []);
 
-  useLayoutEffect(() => {
-    resizeTextarea();
-    const pasteCaret = pasteCaretRef.current;
-    if (pasteCaret === null) return;
-    pasteCaretRef.current = null;
-    textareaRef.current?.focus({ preventScroll: true });
-    textareaRef.current?.setSelectionRange(pasteCaret, pasteCaret);
-  }, [instruction, resizeTextarea, status]);
+  useLayoutEffect(() => resizeTextarea(), [instruction, resizeTextarea, status]);
 
   useEffect(() => {
     window.addEventListener('resize', resizeTextarea);
     return () => window.removeEventListener('resize', resizeTextarea);
   }, [resizeTextarea]);
-
-  useEffect(() => {
-    const pasteIntoSteering = (event: Event): void => {
-      const text = (event as CustomEvent<PasteSteeringEventDetail>).detail?.text;
-      if (!text) return;
-      const textarea = textareaRef.current;
-      const selectionStart = textarea?.selectionStart ?? null;
-      const selectionEnd = textarea?.selectionEnd ?? null;
-      const textareaValue = textarea?.value ?? null;
-
-      setInstruction((current) => {
-        const base = textareaValue ?? current;
-        const start = selectionStart ?? base.length;
-        const end = selectionEnd ?? start;
-        const next = insertTextAtRange(base, text, start, end);
-        pasteCaretRef.current = next.caret;
-        return next.value;
-      });
-    };
-
-    window.addEventListener(PASTE_STEERING_EVENT, pasteIntoSteering);
-    return () => window.removeEventListener(PASTE_STEERING_EVENT, pasteIntoSteering);
-  }, []);
 
   useEffect(() => {
     if (!runId || focusedRunIdRef.current === runId) return undefined;

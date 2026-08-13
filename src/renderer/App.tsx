@@ -9,7 +9,6 @@ import type {
   ProviderModelDefaults,
   HoneycrispRunbookDocument,
   HoneycrispReportDocument,
-  NativeMenuAction,
   NotificationRecord,
   OpenAiOAuthStartResult,
   PolicyReviewDecision,
@@ -53,7 +52,6 @@ import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderMo
 import { useWorkspaceRuntime } from './hooks/useWorkspaceRuntime';
 import type { TraceCategoryId } from './traceClassification';
 import { errorMessage } from './lib/errors';
-import { dispatchPasteSteeringText, readClipboardText } from './app/menuActions';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -675,15 +673,7 @@ export function App(): JSX.Element {
     setOpenWorkspaceMenuId
   });
 
-  useEffect(() => window.beale.onNativeMenuAction((action: NativeMenuAction) => {
-    if (action === 'new_research_workspace') {
-      addWorkspace();
-      return;
-    }
-    if (action === 'paste_steering') {
-      void readClipboardText().then(dispatchPasteSteeringText);
-    }
-  }), [addWorkspace]);
+  useEffect(() => window.beale.onNativeMenuAction(() => addWorkspace()), [addWorkspace]);
 
   const handleSessionAction = useCallback(
     (action: SteeringAction): void => {
